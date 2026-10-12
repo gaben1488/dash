@@ -30,7 +30,7 @@ describe('Issues shared decision refresh', () => {
     fixture.reload.mockImplementationOnce(async () => { fixture.issue.status = 'false_positive'; return true; });
     await save();
     await waitFor(() => expect(fixture.reload).toHaveBeenCalledOnce());
-    expect(screen.getByText('Замечание закрыто — можно вернуть в статус')).toBeTruthy();
+    expect(await screen.findByText('Замечание закрыто — можно вернуть в статус')).toBeTruthy();
     cleanup(); fixture.issue.status = 'false_positive';
     const { container } = render(<IssuesPage />);
     fireEvent.click(container.querySelector('button[aria-expanded]')!);

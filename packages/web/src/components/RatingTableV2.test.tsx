@@ -1,3 +1,6 @@
+import { aggregateNodeTotals } from '../lib/selectors/totals-aggregation';
+import { countNodeIssues } from '../lib/selectors/issues-filtering';
+import { subordinateNameMatchKey } from '@aemr/shared';
 // @vitest-environment jsdom
 /**
  * Характеризационный замок ПЕРЕД упрощением W1 (SIMPLIFY_REGISTER_2026-06-05):
@@ -94,4 +97,20 @@ describe('W1 — строка рейтинга: раскрытие и перех
     fireEvent.click(screen.getByText('Открыть реестр строк'));
     expect(onDeptDetail).toHaveBeenCalledWith('УЭР');
   });
+});
+
+
+it('renders annual source-quarter execution and attributed remarks rather than zero and dash',()=>{
+ const quarters=Object.fromEntries(['q1','q2','q3','q4'].map(k=>[k,{planCount:10,factCount:8,planTotal:100,factTotal:80}]));
+ const n=aggregateNodeTotals({quarters,competitiveCount:20,epCount:20},
+  {periodKey:'year',coveredQuarters:[],fullQuarters:[],partialMonths:[],useMonthLevel:false,hasActiveMonths:false},
+  {showKP:true,showEP:true,activeMonths:new Set(),hasMonthData:false});
+ const counts=countNodeIssues([{departmentId:'uo',subordinateId:'Школа №1',severity:'warning'},{departmentId:'uo',severity:'warning'}],'uo');
+ render(<TooltipProvider><RatingTableV2 departments={[{...DEPTS[0],subordinates:[{
+  name:'Школа №1',execCountPct:n.factCount/n.planCount*100,execAmountPct:n.factTotal/n.planTotal*100,
+  issueCount:counts.subordinates.get(subordinateNameMatchKey('Школа №1'))??0,unattributedIssueCount:counts.unattributed,
+ }]}]} showSubordinates onDeptClick={vi.fn()} onDeptDetail={vi.fn()}/></TooltipProvider>);
+ fireEvent.click(expandButton('УО'));
+ expect(screen.getAllByText('80,0 %').length).toBe(2);
+ expect(screen.getByTitle(/Активных замечаний с привязкой к этой организации: 1.*Ещё 1/).textContent).toBe('1');
 });

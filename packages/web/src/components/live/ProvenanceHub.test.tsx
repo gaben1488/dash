@@ -38,7 +38,7 @@ it('does not allow an older pending journal to replace a newer refresh',async()=
 });
 it('does not present an earlier source passport as current after reread fails',async()=>{
  vi.mocked(fetchChangeStory).mockResolvedValue(story(2));
- vi.mocked(fetchJSON).mockResolvedValueOnce({refresh:{webhookConfigured:true,autoRefreshMinutes:10,workWindowLabel:'пример'}}).mockRejectedValueOnce(new Error('offline'));
+ vi.mocked(fetchJSON).mockResolvedValueOnce({refresh:{webhookConfigured:true,withinWorkWindow:true,autoRefreshMinutes:10,workWindowLabel:'пример'}}).mockRejectedValueOnce(new Error('offline'));
  const view=render(<ProvenanceHub/>);fireEvent.click(view.getByRole('button'));
  await view.findByText(/10 мин/);
  act(()=>useStore.setState({lastRefreshed:'2026-10-12T06:02:00Z'}));
@@ -50,7 +50,7 @@ it('switches journal tabs with arrows, Home and End and keeps one tab stop',asyn
  const view=render(<ProvenanceHub compact/>);
  fireEvent.click(view.getByRole('button',{name:/Журнал обновлений/}));
  const changes=view.getByRole('tab',{name:'Изменения'}),sources=view.getByRole('tab',{name:'Источники'});
- changes.focus();fireEvent.keyDown(changes,{key:'ArrowRight'});
+ changes.focus();fireEvent.keyDown(changes,{key:'ArrowRight'});expect(document.activeElement).toBe(view.getByRole('tab',{name:'Комментарии'}));fireEvent.keyDown(document.activeElement!,{key:'ArrowRight'});
  expect(document.activeElement).toBe(sources);expect(sources.getAttribute('aria-selected')).toBe('true');
  expect(changes.tabIndex).toBe(-1);expect(sources.tabIndex).toBe(0);
  fireEvent.keyDown(sources,{key:'Home'});expect(document.activeElement).toBe(changes);
@@ -65,4 +65,13 @@ it('opens the full journal with the same server-controlled weekly baseline',asyn
  await waitFor(()=>expect(fetchChangeStory).toHaveBeenCalledWith(expect.objectContaining({limit:400,since:undefined})));
  fireEvent.click(view.getByRole('button',{name:'всё, что есть'}));
  await waitFor(()=>expect(fetchChangeStory).toHaveBeenCalledWith(expect.objectContaining({limit:400,since:'2020-01-01'})));
+});
+
+it('renders the original detailed update feed instead of only a digest',async()=>{
+ const response=story(1);vi.mocked(fetchChangeStory).mockResolvedValue({...response,shown:1,entries:[{id:'event',book:'Демо',sheet:'ВСЕ',rowSeq:'173/1',sheetRow:7,column:'M',columnLabel:'Плановая сумма',kind:'money',before:'100',after:'120',author:'Демонстрационный автор',at:'2026-10-12T05:02:00',atMs:Date.parse('2026-10-12T05:02:00Z'),subject:'Учебный предмет',subordinate:null,origin:'book-journal'}]});
+ const view=render(<ProvenanceHub compact/>);fireEvent.click(view.getByRole('button',{name:/Журнал обновлений/}));
+ await view.findByRole('region',{name:'Лента обновлений'});
+ expect(view.getByText('100')).toBeTruthy();expect(view.getByText('120')).toBeTruthy();
+ expect(view.getByText(/173\/1/)).toBeTruthy();
+ expect(view.getByRole('tab',{name:'Комментарии'})).toBeTruthy();
 });

@@ -109,3 +109,6 @@ scripts/out-zarya/
 .pytest_cache/
 .ruff_cache/
 .venv/
+
+# Ephemeral reviewed browser contract transported by read-only CI
+.github/ci/_browser-contract.br

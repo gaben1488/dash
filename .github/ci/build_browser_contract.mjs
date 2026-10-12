@@ -1,7 +1,8 @@
 /** Bundle the reviewed browser consumers, not the installed server's old schema. */
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { appendFile } from 'node:fs/promises';
+import { writeFile, appendFile, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { brotliCompressSync, constants } from 'node:zlib';
 const require = createRequire(import.meta.url);
 const vite = require.resolve('vite/package.json', {paths:[resolve('packages/web')]});
@@ -12,9 +13,12 @@ export {SelectedReportReleaseStatusSchema} from './packages/shared/src/schemas';
 export {parseRefreshPassport} from './packages/web/src/pages/Settings.logic';
 export {digestLines,entryAddress,entryChangeLine,entryWhoWhen} from './packages/web/src/components/live/change-story-text';
 `},bundle:true,platform:'node',format:'esm',minify:true,write:false});
-const encoded=brotliCompressSync(bundled.outputFiles[0].contents,{params:{[constants.BROTLI_PARAM_QUALITY]:11}}).toString('base64');
-if(encoded.length>280000)throw Error('BROWSER_CONTRACT_TRANSPORT_TOO_LARGE');
-// Each environment value stays below Linux's per-argument limit. Only reviewed
-// public code is transported; no API response or production credential.
-for(let i=0;i<4;i++)await appendFile(process.env.GITHUB_ENV,`BROWSER_CONTRACT_BR_${i}=${encoded.slice(i*70000,(i+1)*70000)}\n`);
-console.log('candidate_browser_contract=BUNDLED bytes='+encoded.length);
+const packed=brotliCompressSync(bundled.outputFiles[0].contents,{params:{[constants.BROTLI_PARAM_QUALITY]:11}});
+// Transfer only reviewed public code as a file. Remote sshd passes its whole
+// command to sh -c; embedding the bundle exceeds Linux's single-argument limit.
+await writeFile('.github/ci/_browser-contract.br',packed);
+console.log('candidate_browser_contract=BUNDLED bytes='+packed.length);
+if(process.env.GITHUB_ENV) {
+ const probe=await readFile('.github/ci/header_api_probe.mjs');
+ await appendFile(process.env.GITHUB_ENV,`HEADER_PROBE_SHA256=${createHash('sha256').update(probe).digest('hex')}\nBROWSER_CONTRACT_SHA256=${createHash('sha256').update(packed).digest('hex')}\n`);
+}

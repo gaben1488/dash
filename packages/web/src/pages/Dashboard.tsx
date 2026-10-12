@@ -1,3 +1,5 @@
+import { subordinateNameMatchKey } from '@aemr/shared';
+import { countNodeIssues } from '../lib/selectors/issues-filtering';
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, type Page, type PeriodScope } from '../store';
 import { api } from '../api';
@@ -323,6 +325,7 @@ export function Dashboard() {
 
     return mdm.departments.map((dm) => {
       const d = dm.raw;
+      const issueCounts = countNodeIssues(fd.issues, dm.deptId);
       // Кривая по кварталам. Само число берём то же, что считает слой метрик, —
       // пересчитывать его здесь значит завести второй источник правды. Меняется
       // только одно: квартал без плана даёт `null`, а не ноль, потому что
@@ -337,8 +340,8 @@ export function Dashboard() {
       }
 
       // Аппарат управления идёт первой строкой, дальше — подведомственные.
-      // Замечания по организациям отдельно не считаются: проверки работают по
-      // книге управления целиком, поэтому здесь честный `null`, а не ноль.
+      // Row checks already carry the canonical C-column organization identity.
+      // Book-level checks stay in the department total, never in every child.
       const subs: DeptRowV2['subordinates'] = [];
 
       // Слой метрик отдаёт ноль там, где делить не на что. Для строки таблицы
@@ -349,7 +352,8 @@ export function Dashboard() {
         isSelf,
         execAmountPct: m.planTotal > 0 ? m.executionPct : null,
         execCountPct: m.planCount > 0 ? m.execCountPct : null,
-        issueCount: null,
+        issueCount: issueCounts.subordinates.get(subordinateNameMatchKey(isSelf ? '_org_itself' : name)) ?? 0,
+        unattributedIssueCount: issueCounts.unattributed,
       });
 
       if (dm.orgSelf) subs.push(subRow(ORG_ITSELF_LABEL, dm.orgSelf.metrics, true));
@@ -377,8 +381,8 @@ export function Dashboard() {
         execCountPct: hasCountPlan ? dm.total.execCountPct : null,
         fbExecPct,
         trustScore: d.trustScore ?? null,
-        issueCount: d.issueCount ?? 0,
-        criticalIssueCount: d.criticalIssueCount ?? 0,
+        issueCount: issueCounts.total,
+        criticalIssueCount: issueCounts.critical,
         sparkData: spark.some(v => v != null) ? spark : undefined,
         deltaQuarter: comparable && dm.delta ? +dm.delta.execPctChange.toFixed(1) : null,
         // Список отдаём всегда: пустой массив означает «подведов нет», а
@@ -387,7 +391,7 @@ export function Dashboard() {
         subordinates: subs,
       };
     });
-  }, [mdm.departments, periodKey]);
+  }, [mdm.departments, periodKey, fd.issues]);
 
 
   if (loading && !dashboardData) {

@@ -1,6 +1,6 @@
-import { SUBORDINATE_REGISTRY } from '@aemr/shared';
+import { SUBORDINATE_REGISTRY, subordinateNameMatchKey } from '@aemr/shared';
 import { describe, expect, it } from 'vitest';
-import { filterIssues, issueAxesWithoutData, splitIssuesBySeverity } from './issues-filtering';
+import { filterIssues, issueAxesWithoutData, splitIssuesBySeverity, countNodeIssues } from './issues-filtering';
 
 const noFilters = {
   hasDeptFilter: false,
@@ -138,4 +138,34 @@ it('approved old selection finds current issue, without matching a short-name ho
  const e = SUBORDINATE_REGISTRY.find(e => !e.isOrgItself && e.legacyCanonicalName && e.legacyCanonicalName !== e.canonicalName)!;
  const data = [{subordinateId: e.canonicalName}, {subordinateId: e.shortName}];
  expect(filterIssues(data, {...noFilters, selectedSubordinates: new Set([e.legacyCanonicalName!])})).toEqual([data[0]]);
+});
+
+
+describe('countNodeIssues — точная атрибуция замечаний рейтинга', () => {
+  const sample = [
+    { departmentId: 'uer', subordinateId: 'Школа №1', severity: 'critical' },
+    { departmentId: 'uer', subordinateId: 'Школа №1', severity: 'warning' },
+    { departmentId: 'uio', subordinateId: 'Школа №1', severity: 'critical' },
+    { departmentId: 'uer', subordinateId: '_org_itself', severity: 'warning' },
+    { departmentId: 'uer', severity: 'critical' },
+    { departmentId: 'uer', subordinateId: 'Школа №1', status: 'false_positive', severity: 'critical' },
+    { departmentId: 'uer', subordinateId: 'Школа №1', status: 'resolved', severity: 'critical' },
+  ];
+  it('считает только активные замечания своего управления', () => {
+    const r = countNodeIssues(sample, 'УЭР');
+    expect(r.total).toBe(4);
+    expect(r.critical).toBe(2);
+    expect(r.subordinates.get(subordinateNameMatchKey('Школа №1'))).toBe(2);
+    expect(r.subordinates.get(subordinateNameMatchKey('_org_itself'))).toBe(1);
+    expect(r.unattributed).toBe(1);
+    expect([...r.subordinates.values()].reduce((a,b)=>a+b,0)+r.unattributed).toBe(r.total);
+  });
+  it('не выдаёт общий сигнал книги каждому подведу', () => {
+    expect(countNodeIssues(sample, 'uer').subordinates.get('Школа №2') ?? 0).toBe(0);
+  });
+  it('использует канон имени и листа для старых адресуемых замечаний', () => {
+    const r = countNodeIssues([{sheet:'УЭР',subordinateId:'  Школа №1  ',severity:'error'}], 'uer');
+    expect(r.total).toBe(1);
+    expect(r.subordinates.get(subordinateNameMatchKey('Школа №1'))).toBe(1);
+  });
 });

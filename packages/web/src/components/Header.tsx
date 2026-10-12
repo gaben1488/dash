@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useTheme } from './ThemeProvider';
+import { useTheme, pageDawnStyle } from './ThemeProvider';
 import { SelectionTokens } from './SelectionTokens';
 import { ProvenanceHub } from './live/ProvenanceHub';
 import { useLiveEvents } from '../hooks/useLiveEvents';
@@ -35,15 +35,7 @@ export type { FilterGroup };
  */
 const TD_ACTIVITY_KEYS = ['current_program', 'current_non_program'] as const;
 
-// Header-only page families. OrgStrip retains its own department/subordinate
-// design; warnings and unavailable/future periods retain their semantic states.
-const HEADER_DAWN: Partial<Record<Page, readonly [string,string]>> = {
-  dashboard:['#5b99f8','#e5d3a9'],report:['#f4c46b','#e6cda7'],svod:['#75bfd4','#e6d4ba'],
-  data:['#75bfd4','#e6d4ba'],unfunded:['#efd195','#e5c39c'],yearlong:['#b7b6e2','#ded0bc'],
-  monitoring:['#8dcce4','#e1d1b8'],economy:['#a0d8bc','#e5c5a2'],competition:['#a4dccc','#ddd6bc'],
-  discipline:['#dfb294','#dfc1a6'],quality:['#de9d8c','#e1b78f'],analytics:['#b8a3e3','#dec4b4'],
-  settings:['#b8c4d4','#ded2c2'],
-};
+
 
 const QTR_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
@@ -918,8 +910,7 @@ export function Header() {
   const aAll = selectedActivities.size === 0;
   const bAll = selectedBudgets.size === 0;
 
-  const dawn=HEADER_DAWN[activePage as Page] ?? HEADER_DAWN.dashboard!;
-  const dawnStyle={'--hdr-sky':dawn[0],'--hdr-horizon':dawn[1],'--hdr-tint':getPageColor(activePage)} as React.CSSProperties;
+  const dawnStyle={...pageDawnStyle(activePage),'--hdr-tint':getPageColor(activePage)} as React.CSSProperties;
   return (
     <header className="sticky top-0 z-40 header-glass flex-shrink-0" data-page-skin={activePage} style={dawnStyle}>
       {/* Error banner */}
@@ -962,13 +953,10 @@ export function Header() {
         )}
 
         </div>
-        {/* Theme stays outside the scrolling drum rail. */}
-        <div className="nav-tools">
-          <button type="button" onClick={toggleTheme} className="hf-icon-btn"
-            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
-            {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
-          </button>
+        <div className="hdr-ugol hdr-liquid-surface">
+          <div className="hbar-journal">
+            <ProvenanceHub compact className="hbar-provenance" style={dawnStyle} />
+          </div>
         </div>
       </div>
       <div className="hbar-secondary">
@@ -1076,16 +1064,14 @@ export function Header() {
         )}
 
         </div>
-        {/* Recommended dot instrument + one journal/source node. Existing
-            token actions and the full journal are the functional consumers. */}
-        <div className="hdr-ugol hdr-liquid-surface">
-          <div className="hbar-journal">
-            <SelectionTokens compact style={dawnStyle} />
-            <ProvenanceHub compact className="hbar-provenance" style={dawnStyle} />
-          </div>
+        <div className="hdr-selection-tools hdr-liquid-surface" role="group" aria-label="Фильтры и оформление">
+          <button type="button" onClick={toggleTheme} className="hf-icon-btn"
+            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
+            {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
+          </button>
+          <SelectionTokens compact style={dawnStyle} />
         </div>
-
-
       </div>
       </div>
     </header>

@@ -1,6 +1,7 @@
 /** Read-only production metadata used by Header. Never logs payloads or tokens. */
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { brotliDecompressSync } from 'node:zlib';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -73,9 +74,9 @@ export async function probeHeaderApi(fetcher = fetch, token = process.env.AEMR_A
 }
 
 export async function loadCandidateBrowser(chunks) {
-  const encoded=chunks.join('');
-  if(!encoded)throw Error('CANDIDATE_BUNDLE_MISSING');
-  const source=brotliDecompressSync(Buffer.from(encoded,'base64'));
+  const packed=Buffer.isBuffer(chunks)?chunks:Buffer.from(chunks.join(''),'base64');
+  if(!packed.length)throw Error('CANDIDATE_BUNDLE_MISSING');
+  const source=brotliDecompressSync(packed);
   return import('data:text/javascript;base64,'+source.toString('base64'));
 }
 
@@ -95,13 +96,13 @@ export function metricWiringReport(browser,dashboard) {
       return {result:periodNodes===0?'NO_METRIC_NODES':contradictions===0?'CANDIDATE_METRICS_PASS':'COUNT_MONEY_SCOPE_CONTRADICTION',period_nodes:periodNodes,contradictions,recovered_annual_nodes:recoveredAnnualNodes};
 }
 
-if (process.argv[1] === '-' || (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
+if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
   const payloads={};
   const report = await probeHeaderApi(fetch,process.env.AEMR_API_KEY??'',(name,data)=>{payloads[name]=data;});
-  const browserContract=Array.from({length:4},(_,i)=>process.env['BROWSER_CONTRACT_BR_'+i]??'').join('');
-  if(browserContract){
+  const browserContract=process.env.HEADER_PROBE_CLI==='1'?readFileSync(0):Buffer.alloc(0);
+  if(browserContract.length){
     try{
-      const browser=await loadCandidateBrowser([browserContract]);
+      const browser=await loadCandidateBrowser(browserContract);
       for(const name of Object.keys(HEADER_ENDPOINTS)){
         const data=payloads[name];
         if(!validHeaderPayload(name,data))throw Error('BROWSER_INPUT_SHAPE');
@@ -121,10 +122,11 @@ if (process.argv[1] === '-' || (process.argv[1] && import.meta.url === pathToFil
       const reportText=response.status===200?await response.text():null;
       if(reportText&&Buffer.byteLength(reportText)>2*1024*1024)throw Error('REPORT_PAYLOAD_TOO_LARGE');
       const parsed=reportText?browser.SelectedReportReleaseStatusSchema.safeParse(JSON.parse(reportText)):null;
-      report.browser_consumers={result:parsed?.success?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_REPORT_CONTRACT_FAIL',errors:parsed&&!parsed.success?parsed.error.issues.map(x=>x.code).slice(0,8):[]};
+      const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);
+      report.browser_consumers={result:parsed?.success?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_REPORT_CONTRACT_FAIL',errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
     }catch{report.browser_consumers={result:'CANDIDATE_CONSUMERS_UNAVAILABLE'};}
   }
-  if(!browserContract)report.browser_consumers={result:'CANDIDATE_BUNDLE_MISSING'};
+  if(!browserContract.length)report.browser_consumers={result:'CANDIDATE_BUNDLE_MISSING'};
   console.log(JSON.stringify(report));
   if (report.checks.some(check => check.result !== 'CONTRACT_PASS')||(report.browser_consumers&&report.browser_consumers.result!=='CANDIDATE_CONSUMERS_PASS')||(report.metric_wiring&&report.metric_wiring.result!=='CANDIDATE_METRICS_PASS')) process.exitCode = 2;
 }

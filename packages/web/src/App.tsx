@@ -1,6 +1,6 @@
 import { useEffect, useRef, Component, Suspense, type ReactNode } from 'react';
 import { useStore } from './store';
-import { useThemeInit } from './components/ThemeProvider';
+import { useThemeInit, pageDawnStyle } from './components/ThemeProvider';
 import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
 import { OrgStrip } from './components/OrgStrip';
@@ -210,7 +210,7 @@ export function App() {
             {page !== 'report' && <OrgStrip />}
             {/* min-w-0 — чтобы широкая таблица внутри прокручивалась сама, а не
                 распирала строку и не выдавливала полосу организаций за край. */}
-            <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto">
+            <main id="main-content" tabIndex={-1} data-page={page} style={pageDawnStyle(page)} className="page-context flex-1 min-w-0 overflow-y-auto">
               <div className="max-w-[1400px] mx-auto p-6">
                 <ErrorBoundary resetKey={page} scope="раздел">
                   {/* Пока файл раздела едет по сети, на его месте стоит скелет

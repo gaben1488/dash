@@ -99,3 +99,27 @@ it('shows authoritative bucket counts and an active filter corner without changi
  expect(within(nav).getByRole('button', {name:/В течение года.*12 строк/}).textContent).toContain('12');
  expect(view.container.querySelector('.hdr-ugol')?.textContent).not.toBe('');
 });
+
+it('keeps theme immediately before the filter instrument in the lower right group',()=>{
+ const view=render(<Header/>);const tools=view.getByRole('group',{name:'Фильтры и оформление'});
+ expect(within(tools).getByRole('button',{name:/Фильтры линейки:/})).toBeTruthy();
+ expect(within(tools).getByRole('button',{name:/Включить .* тему/})).toBeTruthy();
+ expect(tools.closest('.hbar-secondary')).toBeTruthy();
+ expect(tools.closest('.hbar-primary')).toBeNull();
+ const theme=within(tools).getByRole('button',{name:/Включить .* тему/});
+ const filter=within(tools).getByRole('button',{name:/Фильтры линейки:/});
+ expect(theme.compareDocumentPosition(filter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(view.getByRole('group',{name:'Фильтры закупок'}).compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('uses the free upper-right position for the update journal',()=>{
+ const view=render(<Header/>);
+ const journal=view.getByRole('button',{name:/Журнал обновлений/});
+ expect(journal.closest('.hbar-primary')).toBeTruthy();
+});
+
+it('preserves all approved thirteen dawn pairs when centralising page themes',()=>{
+ const expected=[['dashboard','#5b99f8','#e5d3a9'],['report','#f4c46b','#e6cda7'],['svod','#75bfd4','#e6d4ba'],['data','#75bfd4','#e6d4ba'],['unfunded','#efd195','#e5c39c'],['yearlong','#b7b6e2','#ded0bc'],['monitoring','#8dcce4','#e1d1b8'],['economy','#a0d8bc','#e5c5a2'],['competition','#a4dccc','#ddd6bc'],['discipline','#dfb294','#dfc1a6'],['quality','#de9d8c','#e1b78f'],['analytics','#b8a3e3','#dec4b4'],['settings','#b8c4d4','#ded2c2']] as const;
+ const view=render(<Header/>);const header=view.container.querySelector('header')!;
+ for(const [page,sky,horizon] of expected){act(()=>useStore.setState({page}));expect(header.style.getPropertyValue('--hdr-sky')).toBe(sky);expect(header.style.getPropertyValue('--hdr-horizon')).toBe(horizon);}
+});

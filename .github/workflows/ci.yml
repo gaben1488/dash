@@ -518,23 +518,35 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           node .github/ci/build_browser_contract.mjs
-      - name: Verify read-only Header probe and encode reviewed source
-        run: |
-          node --test .github/ci/test_header_api_probe.mjs
-          python3 - <<'PY'
-          import base64, os
-          from pathlib import Path
-          source = Path('.github/ci/header_api_probe.mjs').read_bytes()
-          with open(os.environ['GITHUB_ENV'], 'a') as output:
-              output.write('HEADER_PROBE_B64=' + base64.b64encode(source).decode() + '\n')
-          PY
-      - name: Compare actual production response against browser schema (no writes)
+      - name: Verify read-only Header probe
+        run: node --test .github/ci/test_header_api_probe.mjs
+      - name: Prepare private exact-candidate scratch directory
+        id: header_scratch
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: HEADER_PROBE_B64,BROWSER_CONTRACT_BR_0,BROWSER_CONTRACT_BR_1,BROWSER_CONTRACT_BR_2,BROWSER_CONTRACT_BR_3
+          script: |
+            set -eu
+            umask 077
+            mkdir -- "/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Transfer reviewed public probe code (no source data)
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: ".github/ci/header_api_probe.mjs,.github/ci/_browser-contract.br"
+          target: "/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+          strip_components: 2
+      - name: Compare actual production response against browser schema (GET only)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: HEADER_PROBE_SHA256,BROWSER_CONTRACT_SHA256
           timeout: 60s
           command_timeout: 4m
           # Bash owns failure handling: injected per-line stops corrupt Python/JS blocks.
@@ -542,12 +554,20 @@ jobs:
           script: |
             set -euo pipefail
             umask 077
+            probe_dir="/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+            test -d "$probe_dir" && test ! -L "$probe_dir"
+            test "$(stat -c %u "$probe_dir")" = "$(id -u)"
+            test "$(stat -c %a "$probe_dir")" = 700
+            trap 'rm -rf -- "$probe_dir"' EXIT
+            test -f "$probe_dir/header_api_probe.mjs" && test ! -L "$probe_dir/header_api_probe.mjs"
+            test -f "$probe_dir/_browser-contract.br" && test ! -L "$probe_dir/_browser-contract.br"
+            test "$(sha256sum "$probe_dir/header_api_probe.mjs" | cut -d ' ' -f1)" = "$HEADER_PROBE_SHA256"
+            test "$(sha256sum "$probe_dir/_browser-contract.br" | cut -d ' ' -f1)" = "$BROWSER_CONTRACT_SHA256"
             cd /home/aemr/dash/deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
-            # Candidate probe + actual current API, GET only. Only fixed result
-            # classes and payload hashes leave the server, never source values.
-            printf '%s' "$HEADER_PROBE_B64" | base64 -d | docker compose --env-file .env.production exec -T -e "BROWSER_CONTRACT_BR_0=$BROWSER_CONTRACT_BR_0" -e "BROWSER_CONTRACT_BR_1=$BROWSER_CONTRACT_BR_1" -e "BROWSER_CONTRACT_BR_2=$BROWSER_CONTRACT_BR_2" -e "BROWSER_CONTRACT_BR_3=$BROWSER_CONTRACT_BR_3" server node --input-type=module -
+            # Reviewed code + actual current API; only GETs and sanitized proof.
+            cat "$probe_dir/_browser-contract.br" | docker compose --env-file .env.production exec -T -e HEADER_PROBE_CLI=1 server node --input-type=module -e "$(cat "$probe_dir/header_api_probe.mjs")"
             # CURRENT_SIGNALS_READONLY_BEGIN: GET only; addresses are not purchase identities.
             docker compose --env-file .env.production exec -T server node --import tsx --input-type=module - <<'JSSIGNALS' 2>/dev/null || echo '{"kind":"current_signals_probe","result":"UNAVAILABLE"}'
             import * as shared from "@aemr/shared";
@@ -669,3 +689,17 @@ jobs:
             docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
               | tail -n 2000 \
               | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?i)(?:status|status_code)[^0-9]{0,10}([245][0-9][0-9])",l) or re.search(r"\b(200|202|400|401|403|404|429|500|502|503|504)\b",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))' || echo 'edge_log_probe=FAILED'
+
+      - name: Remove owned private probe scratch on failed transfer
+        if: ${{ always() && steps.header_scratch.outcome == 'success' }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -eu
+            probe_dir="/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+            if test -d "$probe_dir" && test ! -L "$probe_dir" && test "$(stat -c %u "$probe_dir")" = "$(id -u)" && test "$(stat -c %a "$probe_dir")" = 700; then
+              rm -rf -- "$probe_dir"
+            fi

@@ -137,3 +137,45 @@ Final visual follow-up reproduced an undefined legacy `--border-subtle`
 falling back to ink (rgb60,55,45) in the light journal. The three affected
 panel scopes now bridge it to canonical `--line-soft`; Chrome reads the
 expected rgb232,227,216. Organization styling is outside the scope.
+
+Owner's subsequent review/release request expands the same standalone artifact,
+not a second prototype: ten explicit scenario actions, sixteen full captured
+states in light/dark, all Header panels expanded in those captures, and inline
+image gallery. Scenarios use existing actions and valid units (`млн`), with
+available/unavailable/malformed synthetic API responses labelled as examples.
+No real data/tokens are embedded. Gallery and self-download work offline.
+
+A real defect found during back/front review: `parseRefreshPassport` coerced
+missing/string fields into false/zero/default hours. Eight malformed negatives
+failed before the fix; the common Settings/Provenance parser now returns unknown
+unless all four native fields are valid. Genuine zero/false remains valid.
+Final web suite2255 PASS; focused41 PASS. Candidate read-only CI additionally
+probes actual Header journal/sources/buckets GET payloads using reviewed code;
+only result classes and response hashes leave the server. Four probe regressions
+cover sensitive error bodies and incomplete consumed fields. This is non-atomic
+HTTP shape evidence; deployed browser behavior and enterprise acceptance remain
+separate gates, not replaced by the offline artifact.
+
+
+Owner correction 12.10 supersedes earlier placement/evidence above: journal
+upper-right; existing method/activity/budget/currency controls stay in their
+own lower row. Dot instrument bottom-right, theme immediately left. Browser
+checks now assert actual lower-row/right-corner bounds; both `тыс` and `млн`
+are present. JSX nesting and selected-week light-text defects have RED→GREEN
+proof. The focused week uses a bounded reflection lens, not a large neon halo.
+
+The advanced journal follows `ugol-otbora-krupno.html` and
+`efir-uzel-schita.html`: original three-row drum, original event details, and
+three tabs Changes/Comments/Sources. Comment provenance remains distinct for
+native threads, cell notes and old Drive projections; full posts are expandable.
+Page Dawn families now live in existing ThemeProvider and feed Header plus
+ambient page/chart-grid context, preserving organization and semantic colors.
+
+Latest component evidence: 18 full light/dark scenario captures, 26 page/theme
+palettes, 101-stop contrast≥6.26, six viewports,200%, motion/reduced motion,
+Undo/drill-down/full journal, offline HTML self-download and zero HTTP/errors.
+The320×568 main space is264px. Web2272 PASS; lint0errors/303existing warnings;
+web build PASS. These are source/component checks. The whole production app,
+all144 live analytical combinations, real native comment coverage and exact
+release remain separate admission evidence. The same HTML/PNG/ZIP is updated
+in place and kept outside the public source commit.

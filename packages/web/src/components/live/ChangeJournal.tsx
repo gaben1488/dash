@@ -39,14 +39,11 @@ import {
   DELETION_NOTE,
   digestLines,
   emptinessLine,
-  entryAddress,
-  entryChangeLine,
-  entryWhoWhen,
   kindLabel,
-  originNote,
   shownLine,
 } from './change-story-text';
 import { relativeMoment } from './live-text';
+import { UpdateFeed } from './UpdateFeed';
 
 /** Сколько правок просить у сервера. Больше человек не листает. */
 const LIMIT = 400;
@@ -269,33 +266,7 @@ export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose
             </p>
           )}
 
-          <ul className="divide-y divide-[var(--border-subtle)]">
-            {entries.map((e) => (
-              <li key={e.id} className="py-1.5 flex items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-[var(--ink-faint)] truncate" title={entryAddress(e)}>
-                    {entryAddress(e)}
-                  </p>
-                  <p className="text-[11px] leading-snug text-[var(--ink)] break-words">
-                    {entryChangeLine(e)}
-                  </p>
-                  <p className="text-[10px] text-[var(--ink-faint)]">
-                    {entryWhoWhen(e)} · {originNote(e)}
-                  </p>
-                </div>
-                {(e.kind === 'row-vanished' ? Boolean(e.subject?.trim()) : e.relatedRowSeq !== undefined || e.rowSeq !== null || e.subject !== null) && (
-                  <button
-                    type="button"
-                    onClick={() => drillTo(e)}
-                    className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded-md text-[10px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-raised)]"
-                    title={e.kind === 'row-vanished' ? 'Поиск похожих закупок; прежней строки уже нет' : 'Открыть эту закупку в Реестре'}
-                  >
-                    {e.kind === 'row-vanished' ? 'поиск в Реестре' : 'в Реестре'}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <UpdateFeed entries={entries} onOpen={drillTo}/>
         </div>
 
         {/* ── Подвал: сколько показано и чего источник не видит ── */}

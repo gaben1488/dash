@@ -101,7 +101,8 @@ describe('ChangeJournal — подробная глубина', () => {
     render(<ChangeJournal open onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText(/№ п\/п 38/)).toBeTruthy());
     expect(screen.getByText(/ИТОГО 1/)).toBeTruthy();
-    expect(screen.getByText('100 → 120')).toBeTruthy();
+    expect(screen.getByText('100').tagName).toBe('DEL');
+    expect(screen.getByText('120').tagName).toBe('STRONG');
   });
 
   it('отсутствие прежнего номера описано без выдуманного доказательства удаления', async () => {
