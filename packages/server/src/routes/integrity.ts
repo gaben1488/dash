@@ -558,19 +558,17 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
 
   let verified = verifiedBaselineRows(baseline);
   let skippedControls = 0;
-  let lastError = verified.error;
   // SQL-маркер контекста ещё не доказывает завершённость. Каждая попытка
   // проходит ту же строгую проверку; неполные данные не становятся базой.
   while (verified.error !== null) {
     skippedControls++;
-    lastError = verified.error;
     const rejectedId = baseline.id;
     candidates = candidates.filter((candidate) => candidate.id !== rejectedId);
     baseline = pickLatestControlSnapshot(candidates, now, config.weeklySnapshot.utcOffsetHours);
     if (!baseline) return {
       comparison: null,
       note: 'Недельный контроль не пригоден для достоверной сверки: ' +
-        lastError + '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.',
+        verified.error + '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.',
     };
     verified = verifiedBaselineRows(baseline);
   }
