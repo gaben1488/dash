@@ -4995,3 +4995,13 @@
   .hbar .time-machine { flex-wrap: wrap; max-width: 100%; min-width: 0; }
   .hbar .tg-drum { max-width: 100%; overflow-x: auto; }
 }
+/* The App keeps main content in its own viewport-height scroll area. Only the
+   grouped navigation scrolls on short phones; corner popovers remain unclipped. */
+@media (max-width: 640px) {
+  .nav-pills-wrap.hdr-liquid-surface {
+    max-height: min(220px, 20svh);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 6px;
+  }
+}

@@ -46,3 +46,13 @@ verification, not live authentication or acceptance of all thirteen page bodies.
 Production-domain auth, exact-head release and owner visual acceptance remain
 separate gates; PR #88 main CI was red at its Tests step while browser QA
 passed, so its Design Lab is not assumed safe for whole-branch adoption.
+
+
+Short-phone follow-up: using the actual Header in the same viewport-height
+flex shell as App reproduced zero remaining main height at 320×568. Only the
+existing grouped navigation now has a viewport-relative height cap and native
+vertical scrolling; the Header itself remains unclipped so corner/provenance
+popovers keep their existing behavior. All thirteen buttons remain focusable
+and clickable. Chromium checks leave 118px of main area at 320×568 and 198px
+at 390×667, without outer horizontal overflow. Page-body usability and live
+production acceptance still require their own checks.
