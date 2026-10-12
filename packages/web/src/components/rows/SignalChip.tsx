@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import type { EpRiskRowContext } from '@aemr/shared';
 import { rowSignalTone, signalChipText, signalHint } from '../../lib/rows/registry-view';
 
 /**
@@ -30,13 +31,13 @@ export function SignalChip({
 }: {
   signal: string;
   /** Строка целиком: от графы M зависит строгость ЕП-риска. */
-  row: { epReason?: unknown };
+  row: EpRiskRowContext & { epReason?: unknown };
   picked?: boolean;
   /** Не задан — чип показывает, но не отбирает (карточка строки, легенда). */
   onToggle?: (signal: string) => void;
   className?: string;
 }) {
-  const chip = signalChipText(signal);
+  const chip = signalChipText(signal, row);
   const tone = rowSignalTone(signal, row);
   const look = clsx(
     'px-1.5 py-0.5 rounded text-[10px] font-medium',

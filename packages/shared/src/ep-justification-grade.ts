@@ -29,6 +29,8 @@
  */
 import { canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import type { EpReasonCluster } from './dictionaries/ep-reason-clusters.js';
+import { findDept } from './department-registry.js';
+import { isYearlongStageRow, YEARLONG_START_BY_KEY, yearlongKey, yearlongSubclassForKind } from './yearlong-stage.js';
 
 export type EpJustificationGrade =
   /** Закон прямо разрешает: конкуренции нет по природе предмета. */
@@ -171,13 +173,15 @@ export function epGradeOfCluster(cluster: EpReasonCluster | 'EMPTY' | 'UNMAPPED'
  * в одной из трёх, разъехалась бы на следующем снимке — ровно так продукт и
  * нажил шесть подписей на один класс.
  */
-export type EpRiskStrictness = 'critical' | 'info';
+export type EpRiskStrictness = 'critical' | 'warning' | 'info';
 
 /** Степени, при которых закупка свыше лимита остаётся риском. */
-export const EP_RISK_STRICT_GRADES: readonly EpJustificationGrade[] = ['unfounded', 'discretionary'];
+export const EP_RISK_STRICT_GRADES: readonly EpJustificationGrade[] = ['unfounded'];
 
 /** Строгость ЕП-риска по уже известной степени обоснованности. */
 export function epRiskStrictnessOfGrade(grade: EpJustificationGrade): EpRiskStrictness {
+  // Owner decision 12.10.2026 supersedes p.137(2) for recognized discretionary reasons.
+  if (grade === 'discretionary') return 'warning';
   return EP_RISK_STRICT_GRADES.includes(grade) ? 'critical' : 'info';
 }
 
@@ -189,11 +193,51 @@ export function epRiskStrictnessOfGrade(grade: EpJustificationGrade): EpRiskStri
  * формулировка даёт степень «без обоснования» — то есть строгий конец
  * развилки: судить не о чем, значит и снисхождения нет.
  */
-export function epRiskStrictnessOfReason(reason: unknown): EpRiskStrictness {
+export interface EpRiskRowContext {
+  dept?: string;
+  id?: unknown;
+  subject?: unknown;
+  epReason?: unknown;
+  method?: unknown;
+  factDateRaw?: unknown;
+  factSum?: number;
+}
+
+export const EP_REASON_REVIEW_TITLE = 'Причина ЕП указана: проверить основание';
+export const EP_REASON_REVIEW_EXPLANATION = 'Причина указана; требуется проверка основания и подтверждающих документов. '
+  + 'Это предупреждение для разбора, а не подтверждённое нарушение. Пояснение не закрывает проверку автоматически.';
+
+export const EP_ANNUAL_AMOUNT_TITLE = 'Годовой объём ЕП: проверить суммы отдельных договоров';
+export const EP_ANNUAL_AMOUNT_EXPLANATION = 'Общий объём серии не является ценой одного договора. '
+  + 'Суммы отдельных договоров не проверены: сверить их с реестром контрактов и применимым основанием ЕП. '
+  + 'По общей сумме нельзя подтвердить превышение разового лимита или отсутствие нарушений.';
+
+/** Only a structurally open, curated contract series proves an annual aggregate. */
+export function isAnnualEpAggregate(row?: EpRiskRowContext): boolean {
+  if (!row || !isYearlongStageRow({ method: row.method,
+    factDateCell: row.factDateRaw, factSum: row.factSum ?? 0 })) return false;
+  const department = findDept(row.dept ?? '')?.id ?? row.dept ?? '';
+  const entry = YEARLONG_START_BY_KEY.get(yearlongKey(department, row.id));
+  const subject = String(row.subject ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ');
+  return entry !== undefined && subject.length > 0
+    && subject === entry.subject.normalize('NFC').trim().replace(/\s+/gu, ' ')
+    && yearlongSubclassForKind(entry.kind) === 'contract-series';
+}
+
+/** Negating monopoly status cannot establish the monopoly exemption. */
+export function hasNegatedEpMonopoly(reason: unknown): boolean {
+  return /не\s+(?:явля(?:ется|ются)\s+)?(?:субъектом\s+)?(?:естественн\p{L}*\s+)?монопол\p{L}*/iu.test(String(reason ?? '').slice(0, EP_REASON_SCAN_LIMIT));
+}
+
+export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext): EpRiskStrictness {
+  // Keep the review open, but do not assert a single-contract violation from
+  // an annual total. Individual dated contracts and unknown scopes stay checked.
+  if (isAnnualEpAggregate(row)) return 'info';
   const text = typeof reason === 'string' ? reason : '';
   // Тот же предел длины, что в конвейере (защита от разбора гигантской ячейки):
   // регулярные выражения части кластеров содержат «.*».
   const { cluster } = canonicalizeReasonEp(text.slice(0, EP_REASON_SCAN_LIMIT));
+  if (cluster === 'EP_MONOPOLIST' && hasNegatedEpMonopoly(text)) return 'critical';
   return epRiskStrictnessOfGrade(epGradeOfCluster(cluster).grade);
 }
 

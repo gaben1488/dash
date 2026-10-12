@@ -9,6 +9,9 @@ import {
   LEGACY_SIGNAL_TO_CHECK,
   issueSuppressedByRowClass,
   epRiskStrictnessOfReason,
+  isAnnualEpAggregate,
+  EP_ANNUAL_AMOUNT_TITLE,
+  EP_REASON_REVIEW_TITLE,
 } from '@aemr/shared';
 import { getSheetData } from './google-sheets.js';
 import { readDeptSheet } from './google-sheets.js';
@@ -73,7 +76,7 @@ const titleOf = (checkId: string, fallback: string): string =>
   CHECKS_BY_ID.get(checkId)?.name ?? fallback;
 
 /** Прогнать канонические проверки по строкам листа. */
-export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult, 'rowsChecked' | 'issues' | 'summary'> {
+export function validateRows(rawRows: unknown[][], department?: string): Pick<SourceValidationResult, 'rowsChecked' | 'issues' | 'summary'> {
   const issues: SourceIssue[] = [];
   let rowsChecked = 0;
 
@@ -100,6 +103,8 @@ export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult,
       // Класс строки может гасить претензию по другому её признаку (канон
       // @aemr/shared): инициативная заявка в риск-списки не идёт, п.137(3).
       if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
+      const epContext = { dept: department ?? String(cells.B ?? ''), id: cells.A, subject: cells.G,
+        method: cells.L, factDateRaw: cells.Q, factSum: Number(cells.Y) };
       issues.push({
         row: rowNo,
         type: 'signal',
@@ -107,9 +112,11 @@ export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult,
         // (п.137(2)): дом развилки — @aemr/shared, чтобы проверка источника,
         // конвейер и чип Реестра не разошлись в оценке одной строки.
         severity: signalKey === 'epRisk'
-          ? epRiskStrictnessOfReason(cells['M'])
+          ? epRiskStrictnessOfReason(cells['M'], epContext)
           : severityOf(checkId),
-        message: titleOf(checkId, signalKey),
+        message: signalKey === 'epRisk' && isAnnualEpAggregate(epContext)
+          ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && epRiskStrictnessOfReason(cells.M, epContext) === 'warning'
+            ? EP_REASON_REVIEW_TITLE : titleOf(checkId, signalKey),
       });
     }
 
@@ -179,7 +186,7 @@ export async function validateSource(name: string): Promise<SourceValidationResu
     }
     // ТОТ ЖЕ резолвер, что у загрузчика (кандидаты ВСЕ/Все/имя, честные 429/403).
     const sheet = await readDeptSheet(name, ssId);
-    const checked = validateRows(sheet.values);
+    const checked = validateRows(sheet.values, name);
     return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked,
       rowsRead: sheet.values.length, validationPerformed: true };
   } catch (err) {

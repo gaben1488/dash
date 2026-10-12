@@ -487,6 +487,20 @@ describe('Financial signals', () => {
   });
 
   describe('epRisk', () => {
+    it('annual aggregate stays reviewable with an informational badge, not a single-contract claim', () => {
+      const cells = makeCells({ A: '3', L: 'ЕП', K: 1200, Y: 800, Q: 'Х' });
+      const signals = detectSignals(cells, REF_DATE);
+      expect(signals.epRisk).toBe(true);
+      const context = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+      expect(getSignalBadges(signals, context).some(b =>
+        b.label.includes('отдельных договоров') && b.color === 'blue')).toBe(true);
+    });
+    it('does not suppress the EP threshold signal for a negated monopoly claim', () => {
+      expect(detectSignals(makeCells({ L: 'ЕП', K: 1200, M: 'не является монополистом' }), REF_DATE).epRisk).toBe(true);
+    });
+    it('a negated monopoly claim does not erase an independent explicit article 93 basis', () => {
+      expect(detectSignals(makeCells({ L: 'ЕП', K: 1200, M: 'не является монополистом; п.8 ч.1 ст.93' }), REF_DATE).epRisk).toBe(false);
+    });
     // K — тыс. руб. (канон колонок книг ГРБС): 601/600 значат 601/600 тыс. руб.,
     // граница лимита 600 тыс. по п.4 ч.1 ст.93 44-ФЗ. bug-hunt 2026-08-08 (БАГ #1):
     // раньше порог был в рублях (600_000), а K тоже сравнивался как рубли —

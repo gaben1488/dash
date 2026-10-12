@@ -96,11 +96,12 @@ describe('п.137(2): строгость ЕП-риска — свойство с�
     expect(issue!.severity).toBe('info');
   });
 
-  it('решение заказчика — замечание критическое', () => {
+  it('12.10: распознанная причина заказчика — предупреждение для проверки документов', () => {
     const snap = snapshotOf([epRow('Проведение аукциона нецелесообразно')]);
     const issue = snap.issues.find((i) => i.signal === 'epRisk');
     expect(issue).toBeTruthy();
-    expect(issue!.severity).toBe('critical');
+    expect(issue!.severity).toBe('warning');
+    expect(issue!.status).toBe('open');
   });
 
   it('пустое обоснование судится строго — судить не о чем', () => {

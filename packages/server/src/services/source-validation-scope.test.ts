@@ -10,10 +10,32 @@ vi.mock('../config.js', () => ({
   SHDYU_SPREADSHEET_ID: 'test-monthly',
 }));
 
-import { validateSource } from './source-validation.js';
+import { validateSource, validateRows } from './source-validation.js';
+import { DEPT_COLUMNS } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
 
 describe('source validation coverage is explicit', () => {
+  it('keeps an annual contract series under review without claiming a single oversized contract', () => {
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '3';
+    row[DEPT_COLUMNS.SUBJECT] = 'Окорока (куриные)';
+    row[DEPT_COLUMNS.METHOD] = 'ЕП';
+    row[DEPT_COLUMNS.TOTAL_PLAN] = 1200;
+    row[DEPT_COLUMNS.TOTAL_FACT] = 800;
+    row[DEPT_COLUMNS.FACT_DATE] = 'Х';
+    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('договоров'));
+    expect(risk).toMatchObject({ severity: 'info' });
+    row[DEPT_COLUMNS.FACT_DATE] = '10.10.2026';
+    expect(validateRows([[], [], [], row], 'УКСиМП').issues.some(x => x.severity === 'critical')).toBe(true);
+  });
+  it('a recognized reason stays an actionable warning in source validation', () => {
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '4'; row[DEPT_COLUMNS.SUBJECT] = 'Разовая закупка';
+    row[DEPT_COLUMNS.METHOD] = 'ЕП'; row[DEPT_COLUMNS.TOTAL_PLAN] = 1200;
+    row[DEPT_COLUMNS.EP_REASON] = 'Проведение аукциона нецелесообразно';
+    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Причина ЕП'));
+    expect(risk).toMatchObject({ severity: 'warning' });
+  });
   it('readability of a year SVOD is not declared content validation', async () => {
     await expect(validateSource('СВОД ТД-ПМ')).resolves.toMatchObject({
       success: true, rowsRead: 2, rowsChecked: 0,

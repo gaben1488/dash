@@ -1010,7 +1010,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       // В буфер уходит тот же столбец, что стоит на экране: только замечания.
       // Благополучные признаки строки читаются из соседних значений — состояния,
       // факта и экономии, — и второй раз словами не пересказываются.
-      featureSignals(cursorRow.signals).map((s: string) => signalChipText(s).text).join(', '),
+      featureSignals(cursorRow.signals).map((s: string) => signalChipText(s, cursorRow).text).join(', '),
     ]), 'Строка скопирована — суммы в тысячах рублей.');
   }, [cursorRow, report]);
 
@@ -1300,7 +1300,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       formatDateCell(r.planDate),
       formatDateCell(r.factDate),
       r.status ?? '',
-      `"${featureSignals(r.signals).map((s: string) => signalChipText(s).text).join(', ')}"`,
+      `"${featureSignals(r.signals).map((s: string) => signalChipText(s, r).text).join(', ')}"`,
     ].join(';'));
     const bom = '\uFEFF';
     const csv = bom + headers.join(';') + '\n' + csvRows.join('\n');

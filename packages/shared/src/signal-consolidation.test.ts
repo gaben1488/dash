@@ -57,10 +57,30 @@ describe('п.137(1) «в течение года» — только стадия
 });
 
 describe('п.137(2) ЕП-риск — развилка по обоснованию', () => {
+  it('годовая серия требует проверки договоров, а не критической претензии к общей сумме', () => {
+    const row = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+    expect(epRiskStrictnessOfReason('', row)).toBe('info');
+    // Neither an individual dated contract nor an unclassified row is exempt.
+    expect(epRiskStrictnessOfReason('', { ...row, factDateRaw: '10.10.2026' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, id: 'unknown' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, factSum: 0 })).toBe('critical');
+  });
+  it('a reused curated number does not classify another subject as an annual series', () => {
+    const row = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+    expect(epRiskStrictnessOfReason('', { ...row, subject: 'Другая закупка' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, subject: undefined })).toBe('critical');
+  });
+  it('a negated monopoly claim remains a reason requiring verification', () => {
+    expect(epRiskStrictnessOfReason('не является монополистом')).toBe('critical');
+  });
+  it('12 October: a recognized discretionary reason remains an actionable warning, not a confirmed violation', () => {
+    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('warning');
+    expect(epRiskStrictnessOfReason('')).toBe('critical');
+  });
   it('СТРАЖ: строгий конец — «без обоснования» и «решение заказчика»', () => {
-    expect([...EP_RISK_STRICT_GRADES].sort()).toEqual(['discretionary', 'unfounded']);
+    expect([...EP_RISK_STRICT_GRADES].sort()).toEqual(['unfounded']);
     expect(epRiskStrictnessOfGrade('unfounded')).toBe('critical');
-    expect(epRiskStrictnessOfGrade('discretionary')).toBe('critical');
+    expect(epRiskStrictnessOfGrade('discretionary')).toBe('warning');
   });
 
   it('СТРАЖ: справочный конец — законная безальтернативность и подтверждённая выгода', () => {
@@ -73,7 +93,7 @@ describe('п.137(2) ЕП-риск — развилка по обосновани
     // «нецелесообразно» — риск.
     expect(epRiskStrictnessOfReason('Единственный поставщик тепловой энергии, естественная монополия'))
       .toBe('info');
-    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('critical');
+    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('warning');
   });
 
   it('СТРАЖ: пустое и нераспознанное обоснование судится строго', () => {

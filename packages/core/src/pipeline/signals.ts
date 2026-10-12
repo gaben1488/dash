@@ -30,6 +30,12 @@ import {
   isInitiativeMarker,
   isProceduralMismatch,
   parseSheetDate,
+  isAnnualEpAggregate,
+  hasNegatedEpMonopoly,
+  epRiskStrictnessOfReason,
+  EP_ANNUAL_AMOUNT_TITLE,
+  EP_REASON_REVIEW_TITLE,
+  type EpRiskRowContext,
 } from '@aemr/shared';
 import { sheetNumber } from '../timeline/row-timeline.js';
 // parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
@@ -564,8 +570,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // и законные основания ЕП риском не считаются. Ветка чтения «монополист»
   // из комментария AE снята (канон п.27).
   const epJustification = cellText(cells, 'M');
-  const isLegitimateEP = textIncludes(epJustification, [
-    'монополист', 'монопол', 'естественн',           // natural monopoly (energy, water, telecom)
+  const monopolyClaim = textIncludes(epJustification, ['монополист', 'монопол', 'естественн'])
+    && !hasNegatedEpMonopoly(epJustification);
+  const isLegitimateEP = monopolyClaim || textIncludes(epJustification, [
     'губернатор', 'поручен',                          // Governor's orders
     'региональный оператор',                          // regional operators (waste, etc.)
   ]) || citesUnlimitedArt93Point(epJustification);
@@ -1062,7 +1069,7 @@ function badgeLabel(key: keyof RowSignals): string {
  * - Синие: планирование, срок не наступил.
  * - Серые: отменено.
  */
-export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
+export function getSignalBadges(signals: RowSignals, row?: EpRiskRowContext & { epReason?: unknown }): Array<SignalBadge> {
   const badges: SignalBadge[] = [];
 
   // ── Красные (критические) ──
@@ -1073,7 +1080,10 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
     badges.push({ label: badgeLabel('formulaBroken'), color: 'red', icon: 'alert-triangle' });
   }
   if (signals.epRisk) {
-    badges.push({ label: badgeLabel('epRisk'), color: 'red', icon: 'shield-alert' });
+    const severity = epRiskStrictnessOfReason(row?.epReason, row);
+    badges.push({ label: isAnnualEpAggregate(row) ? EP_ANNUAL_AMOUNT_TITLE
+      : severity === 'warning' ? EP_REASON_REVIEW_TITLE : badgeLabel('epRisk'),
+      color: severity === 'info' ? 'blue' : severity === 'warning' ? 'yellow' : 'red', icon: 'shield-alert' });
   }
   if (signals.highEconomy) {
     badges.push({ label: badgeLabel('highEconomy'), color: 'red', icon: 'trending-down' });

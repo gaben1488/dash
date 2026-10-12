@@ -163,7 +163,8 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
 
   const signalsObj = detectSignals(cells);
   const state = classifyRowState(signalsObj);
-  const badges = getSignalBadges(signalsObj);
+  const badges = getSignalBadges(signalsObj, { dept: opts.deptId, id: cells.A, subject: cells.G,
+    method: cells.L, factDateRaw: cells.Q, factSum: toNumber(cells.Y), epReason: cells.M });
   // RowSignals (объект булевых) → массив активных ключей сигналов для фронта
   const signals = Object.entries(signalsObj)
     .filter(([, v]) => v === true)

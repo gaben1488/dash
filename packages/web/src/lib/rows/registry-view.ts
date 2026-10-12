@@ -20,6 +20,12 @@ import {
   SIGNAL_LABELS,
   classifyActivity,
   epRiskStrictnessOfReason,
+  isAnnualEpAggregate,
+  EP_ANNUAL_AMOUNT_TITLE,
+  EP_ANNUAL_AMOUNT_EXPLANATION,
+  EP_REASON_REVIEW_TITLE,
+  EP_REASON_REVIEW_EXPLANATION,
+  type EpRiskRowContext,
   getCheckById,
   productLabel,
 } from '@aemr/shared';
@@ -150,8 +156,8 @@ export function signalSeverity(key: string): SignalSeverity {
  * заводится — расхождение двух механизмов между собой остаётся вопросом
  * владельца №5 и решается отдельно.
  */
-export function epRiskSeverity(epReason: unknown): SignalSeverity {
-  return epRiskStrictnessOfReason(epReason);
+export function epRiskSeverity(epReason: unknown, row?: EpRiskRowContext): SignalSeverity {
+  return epRiskStrictnessOfReason(epReason, row);
 }
 
 /**
@@ -160,8 +166,8 @@ export function epRiskSeverity(epReason: unknown): SignalSeverity {
  * Счёт критических признаков и оформление чипа обязаны звать одну функцию —
  * иначе полоса «столько-то критических» разойдётся с цветом чипов на экране.
  */
-export function rowSignalSeverity(key: string, row: { epReason?: unknown }): SignalSeverity {
-  if (key === 'epRisk') return epRiskSeverity(row.epReason);
+export function rowSignalSeverity(key: string, row: EpRiskRowContext & { epReason?: unknown }): SignalSeverity {
+  if (key === 'epRisk') return epRiskSeverity(row.epReason, row);
   return signalSeverity(key);
 }
 
@@ -181,7 +187,7 @@ export function signalTone(key: string): { bg: string; text: string } {
 }
 
 /** Оформление чипа признака на строке: ЕП-риск красится по степени обоснованности. */
-export function rowSignalTone(key: string, row: { epReason?: unknown }): { bg: string; text: string } {
+export function rowSignalTone(key: string, row: EpRiskRowContext & { epReason?: unknown }): { bg: string; text: string } {
   return SEVERITY_TONE[rowSignalSeverity(key, row)];
 }
 
@@ -261,7 +267,13 @@ export function signalHint(key: string): string {
  * поэтому неизвестный признак называется честно, а ключ уходит в подсказку
  * для разработчика.
  */
-export function signalChipText(key: string): SignalChipText {
+export function signalChipText(key: string, row?: EpRiskRowContext): SignalChipText {
+  if (key === 'epRisk' && isAnnualEpAggregate(row)) {
+    return { text: EP_ANNUAL_AMOUNT_TITLE, hint: EP_ANNUAL_AMOUNT_EXPLANATION };
+  }
+  if (key === 'epRisk' && epRiskStrictnessOfReason(row?.epReason, row) === 'warning') {
+    return { text: EP_REASON_REVIEW_TITLE, hint: EP_REASON_REVIEW_EXPLANATION };
+  }
   const label = productLabel(key);
   if (label !== key) return { text: label, hint: signalHint(key) };
   return {
@@ -271,7 +283,7 @@ export function signalChipText(key: string): SignalChipText {
 }
 
 /** Строка реестра глазами счётчиков: нужны только признаки, даты и графа M. */
-export interface CountableRow {
+export interface CountableRow extends EpRiskRowContext {
   signals?: string[];
   planDate?: unknown;
   factDate?: unknown;
