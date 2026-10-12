@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport, headerShapeIssues } from './header_api_probe.mjs';
+import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport, headerShapeIssues, parseReportJSON } from './header_api_probe.mjs';
 const fixtures = {
   comments: {total:0,comments:[],witnesses:[]},
   sources: { refresh: { webhookConfigured: false, withinWorkWindow: false, autoRefreshMinutes: 0, workWindowLabel: 'fixture' } },
@@ -57,4 +57,11 @@ test('shape diagnosis identifies fixed fields without publishing invalid values'
  const issues=headerShapeIssues('journal',broken);
  assert.ok(issues.includes('entries.id'));
  assert.equal(JSON.stringify(issues).includes('private-'),false);
+});
+
+test('real-sized historical receipts reach schema validation while oversize and malformed bodies fail',()=>{
+ const payload=JSON.stringify({selected:{automation_assurance:{contract:'actionable-assurance-v2'}},padding:'x'.repeat(9*1024*1024)});
+ assert.equal(parseReportJSON(payload).selected.automation_assurance.contract,'actionable-assurance-v2');
+ assert.throws(()=>parseReportJSON('x'.repeat(16*1024*1024+1)),/REPORT_PAYLOAD_TOO_LARGE/);
+ assert.throws(()=>parseReportJSON('{broken'),SyntaxError);
 });

@@ -27,6 +27,13 @@ export const HEADER_ENDPOINTS = {
   comments: '/api/comments?limit=20',
 };
 
+/** Current immutable receipts are ~9 MiB. Keep a finite bound without rejecting
+ * them before the actual candidate schema can validate historical v1/v2. */
+export function parseReportJSON(body) {
+  if (Buffer.byteLength(body, 'utf8') > 16 * 1024 * 1024) throw Error('REPORT_PAYLOAD_TOO_LARGE');
+  return JSON.parse(body);
+}
+
 export function validHeaderPayload(name, data) {
   if (!object(data)) return false;
   if (name === 'comments') return count(data.total) && Array.isArray(data.comments) &&
@@ -158,10 +165,10 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       // A schema that accepts an empty future-day envelope is not Word proof.
       const response=await fetch('http://127.0.0.1:3000/api/report-releases?date=2026-10-12&year=2026&quarter=4',{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
       const reportText=response.status===200?await response.text():null;
-      report.report_response={status:response.status,bytes:reportText?Buffer.byteLength(reportText):0};
-      if(reportText&&Buffer.byteLength(reportText)>2*1024*1024)throw Error('REPORT_PAYLOAD_TOO_LARGE');
+      report.report_response={status:response.status,bytes:reportText?Buffer.byteLength(reportText):0,
+        ...(reportText?{response_sha256:createHash('sha256').update(reportText).digest('hex')}:{})};
       stage='REPORT_PARSE';
-      const reportData=reportText?JSON.parse(reportText):null;
+      const reportData=reportText?parseReportJSON(reportText):null;
       const parsed=reportData?browser.SelectedReportReleaseStatusSchema.safeParse(reportData):null;
       const selectedPresent=parsed?.success&&parsed.data.selected!==null;
       const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);

@@ -7,6 +7,24 @@
 
 ### Журнал и комментарии: исправление потери свидетельств — 13.10.2026
 
+Source commit `2c5c0c4dcb2891a9fa6e2c66f8a6007d1f1292f0`: 734 shared /
+1869 core (+1 skip) / 956 server / 2275 web, четыре normal-hook typecheck,
+lint 0 errors/303 прежних warnings, web build и 18 Chrome состояний PASS.
+DB CI38255712570 SUCCESS. Exact CI38255712494 ещё разделяется на source
+и live результаты; общий статус не объявляется зелёным.
+
+Новый live readback13:27UTC: buckets/comments CONTRACT_PASS, journal/sources
+READ_UNAVAILABLE; metric consumer425/0 contradictions/77 recovered PASS.
+Исторический Word GET ответил200/9,188,710B; прежний диагностический лимит2MiB
+ошибочно отклонил ответ до схемы. Bound скорректирован до16MiB с negative
+oversize/invalid JSON и реальным-sized9MiB regression; строгая v1/v2 схема,
+требование nonempty selected и privacy гейт сохранены. Большой status DTO
+помечен отдельным целевым дефектом производительности R02/C08; его исходные
+assurance/провенанс нельзя молча удалить ради маленького ответа. Нужны компактная
+проекция и подробный readback из того же выпуска после source handoff.
+Readonly38255712512: diagnostics PASS, schema/replay BLOCK на неизменном
+PUBLICATION_READER_LEASE_UNINITIALIZED / AUTHORIZED_QUIESCENT_READER_BOOTSTRAP.
+
 K06/K10/C07/U07: исходная спецификация
 `superpowers/specs/2026-06-05-change-history-design.md` актуализирована на месте.
 Последние решения по Header сохраняются. Новый параллельный план не создаётся.
