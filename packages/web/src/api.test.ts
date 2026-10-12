@@ -152,3 +152,36 @@ describe('ApiError: состояние ответа — поле, а не под
     expect(humanizeRequestError(new TypeError('Failed to fetch'))).toMatch(/Нет связи с сервером/);
   });
 });
+
+describe('issue decision confirmed persistence', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', { getItem: () => null }));
+  it.each([
+    { success: false, issueId: 'case-1', toStatus: 'false_positive' },
+    { success: true, issueId: 'other', toStatus: 'false_positive' },
+    { success: true, issueId: 'case-1', toStatus: 'open' },
+  ])('rejects misleading mutation acknowledgement %j', async body => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it('rejects when authoritative readback fails after acknowledged save', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'unavailable' }));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it.each([{ id: 'case-1', status: 'open' }, { id: 'other', status: 'false_positive' }])('rejects mismatched readback %j', async issue => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce(fakeResponse({ issue, history: [] })));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it('confirms persisted false-positive status from GET, preserving reason request', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce(fakeResponse({ issue: { id: 'case-1', status: 'false_positive' }, history: [{ reason: 'Evidence' }] }));
+    vi.stubGlobal('fetch', request);
+    await api.updateIssueStatus('case-1', 'false_positive', 'Evidence');
+    expect(request.mock.calls.map(c => c[0])).toEqual(['/api/issues/case-1/status', '/api/issues/case-1']);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ status: 'false_positive', reason: 'Evidence' });
+  });
+});

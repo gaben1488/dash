@@ -117,3 +117,24 @@ describe('refresh / quickRefresh — dataYear и провенанс (баги #1
     expect(provenance).toHaveBeenCalledWith(data.snapshot.officialMetrics, 'sheet-1');
   });
 });
+
+describe('fetchDashboard application acknowledgement', () => {
+  it('does not confirm an obsolete decision refresh while a newer request is pending', async () => {
+    const first = deferred<any>(); const second = deferred<any>();
+    getDashboard.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const afterDecision = useStore.getState().fetchDashboard();
+    const newer = useStore.getState().fetchDashboard();
+    first.resolve(makeData(2026));
+    expect(await afterDecision).toBe(false);
+    expect(useStore.getState().dashboardData).toBeNull();
+    expect(useStore.getState().error).toBeNull();
+    second.reject(new Error('later failure'));
+    expect(await newer).toBe(false);
+    expect(useStore.getState().error).toContain('later failure');
+  });
+  it('confirms only the response committed to shared state', async () => {
+    getDashboard.mockResolvedValue(makeData(2026));
+    expect(await useStore.getState().fetchDashboard()).toBe(true);
+    expect(useStore.getState().dataYear).toBe(2026);
+  });
+});

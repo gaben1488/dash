@@ -315,11 +315,22 @@ export const api = {
     return fetchParsed(`/issues?${params}`, IssuesListResponseSchema);
   },
 
-  updateIssueStatus: (id: string, status: string, reason?: string) =>
-    fetchJSON<any>(`/issues/${id}/status`, {
+  updateIssueStatus: async (id: string, status: string, reason?: string) => {
+    const acknowledgement = await fetchJSON<{ success?: unknown; issueId?: unknown; toStatus?: unknown } | null>(`/issues/${encodeURIComponent(id)}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status, reason }),
-    }),
+    });
+    if (acknowledgement?.success !== true || acknowledgement.issueId !== id || acknowledgement.toStatus !== status) {
+      throw new Error('Сервер не подтвердил сохранение статуса. Обновите замечание перед повторной попыткой.');
+    }
+    // HTTP success alone is not proof of persistence. Read the authoritative
+    // decision before showing success; do not retry a potentially saved PUT.
+    const persisted = await fetchJSON<{ issue?: { id?: unknown; status?: unknown } } | null>(`/issues/${encodeURIComponent(id)}`);
+    if (persisted?.issue?.id !== id || persisted.issue.status !== status) {
+      throw new Error('Сохранение статуса не подтверждено при повторном чтении. Обновите замечание.');
+    }
+    return acknowledgement;
+  },
 
   addIssueComment: (id: string, comment: string) =>
     fetchJSON<any>(`/issues/${id}/comment`, {

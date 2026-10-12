@@ -541,7 +541,8 @@ export interface AppState {
   isDemo: boolean;
 
   // Действия
-  fetchDashboard: (force?: boolean) => Promise<void>;
+  /** True only when this request committed the shared dashboard view. */
+  fetchDashboard: (force?: boolean) => Promise<boolean>;
   /** Полное обновление: СВОД + 8 dept sheets + ШДЮ + pipeline */
   refresh: () => Promise<void>;
   /** Быстрая проверка: только СВОД (без перезагрузки dept sheets) */
@@ -1188,7 +1189,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const year = get().year;
       const data = await api.getDashboard(force, year);
-      if (seq !== dashboardRequestSeq) return; // ответ устарел — победил более поздний запрос
+      if (seq !== dashboardRequestSeq) return false; // ответ устарел — победил более поздний запрос
       // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
       // формула, время чтения каждой официальной строки СВОДа.
       setOfficialProvenance(
@@ -1202,8 +1203,9 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         isDemo: isDemoData(data),
       });
+      return true;
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return; // устаревшая ошибка не затирает свежие данные
+      if (seq !== dashboardRequestSeq) return false; // устаревшая ошибка не затирает свежие данные
       // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
       // Приставка через точку, а не через двоеточие: иначе в плашке шапки
       // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
@@ -1212,6 +1214,7 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         error: `Данные не загружены. ${msg}`,
       });
+      return false;
     }
   },
 

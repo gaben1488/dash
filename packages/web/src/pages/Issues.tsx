@@ -300,7 +300,6 @@ export function IssuesPage() {
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
-  const [statusOverrides, setStatusOverrides] = useState<Record<string, Status>>({});
   const [statusError, setStatusError] = useState<Record<string, string>>({});
   /** Открытая форма причины: сервер не примет отказ и «ложное» без слов человека. */
   const [reasonDraft, setReasonDraft] = useState<{ issueId: string; target: Status; text: string } | null>(null);
@@ -310,7 +309,12 @@ export function IssuesPage() {
     setStatusError(prev => ({ ...prev, [issueId]: '' }));
     try {
       await api.updateIssueStatus(issueId, target, reason);
-      setStatusOverrides(prev => ({ ...prev, [issueId]: target }));
+      // Refresh the existing shared dashboard view (issues/counts/trust), not
+      // the source sheets. Other Control pages must see the saved decision too.
+      const refreshed = await useStore.getState().fetchDashboard();
+      if (!refreshed) {
+        throw new Error('Статус сохранён и подтверждён, но общие данные не обновлены. Обновите страницу, чтобы проверить замечание.');
+      }
       setReasonDraft(null);
     } catch (err) {
       const raw = humanizeRequestError(err);
@@ -319,7 +323,7 @@ export function IssuesPage() {
       // "resolved" недопустим») пользователю не показываем — он с ключами.
       const message = /код 400/.test(raw)
         ? `Статус не изменён: замечание уже перевели в другом месте. Обновите страницу и посмотрите, в каком оно статусе сейчас.`
-        : `Статус не изменён. ${raw}`;
+        : `Не удалось подтвердить обновление замечания. ${raw}`;
       setStatusError(prev => ({ ...prev, [issueId]: message }));
     } finally {
       setStatusUpdating(null);
@@ -351,7 +355,7 @@ export function IssuesPage() {
       signal: iss.signal,
       checkId: iss.checkId,
       kbHint: iss.kbHint,
-      status: statusOverrides[iss.id] ?? ((iss.status as Status) || 'open'),
+      status: (iss.status as Status) || 'open',
       // Своё время замечания, а не время обновления дашборда: подменять одно
       // другим значит выдавать «когда последний раз читали книги» за «когда
       // нашли это». Обе величины про прогон конвейера, но у замечания она своя.
@@ -359,7 +363,7 @@ export function IssuesPage() {
       recommendation: formulaDiagnosticInapplicableReason(iss) ?? iss.recommendation,
       comments: [],
     }));
-  }, [fd.issues, dashboardData, statusOverrides]);
+  }, [fd.issues, dashboardData]);
 
   // Оси шапки, за которыми нет данных замечания. Проверяется по самим данным,
   // а не по памяти: появится поле — подпись исчезнет вместе с ним.
