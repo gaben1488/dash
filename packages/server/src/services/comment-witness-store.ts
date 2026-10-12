@@ -14,9 +14,9 @@ export function archiveLegacyComment(book: string, original: Record<string, unkn
   const previous = db.select().from(schema.driveCommentObservations).where(and(
     eq(schema.driveCommentObservations.book, book), isNull(schema.driveCommentObservations.fileId),
     eq(schema.driveCommentObservations.kind, 'legacy_cache'), eq(schema.driveCommentObservations.sourceId, content.commentId),
-  )).orderBy(desc(schema.driveCommentObservations.readAt)).limit(1).get();
+  )).orderBy(desc(schema.driveCommentObservations.readAt), desc(sql`rowid`)).limit(1).get();
   if (previous?.fingerprint === fingerprint) return;
-  db.insert(schema.driveCommentObservations).values({ id: hash(`${book}\0legacy\0${content.commentId}\0${recordedAt}\0${fingerprint}`),
+  db.insert(schema.driveCommentObservations).values({ id: hash(`${book}\0legacy\0${content.commentId}\0${recordedAt}\0${fingerprint}\0${previous?.id ?? ''}`),
     book, fileId: null, kind: 'legacy_cache', sourceId: content.commentId, fingerprint,
     readAt: recordedAt, payload: JSON.stringify({ origin: 'LEGACY_LOCAL_PROJECTION', sourceFileId: null, original }),
   }).onConflictDoNothing().run();
@@ -30,14 +30,14 @@ export function storeCommentWitness(book: string, witness: CommentWitness): bool
     eq(schema.driveCommentObservations.kind, witness.kind), eq(schema.driveCommentObservations.sourceId, witness.sourceId));
   return db.transaction(tx => {
     const latest = tx.select().from(schema.driveCommentObservations).where(where)
-      .orderBy(desc(schema.driveCommentObservations.readAt)).limit(1).get();
+      .orderBy(desc(schema.driveCommentObservations.readAt), desc(sql`rowid`)).limit(1).get();
     if (latest?.fingerprint === fingerprint) return false;
-    tx.insert(schema.driveCommentObservations).values({
-      id: hash([witness.fileId, witness.kind, witness.sourceId, readAt, fingerprint].join('\0')),
+    const inserted = tx.insert(schema.driveCommentObservations).values({
+      id: hash([witness.fileId, witness.kind, witness.sourceId, readAt, fingerprint, latest?.id ?? ''].join('\0')),
       book, fileId: witness.fileId, kind: witness.kind, sourceId: witness.sourceId,
       fingerprint, payload: JSON.stringify(witness), readAt,
     }).onConflictDoNothing().run();
-    return true;
+    return inserted.changes > 0;
   });
 }
 
@@ -56,7 +56,7 @@ export function storeWitnessReading(book: string, fileId: string, kind: string,
 export function listCommentWitnesses(book?: string, limit = 100) {
   const rows = db.select().from(schema.driveCommentObservations)
     .where(book ? eq(schema.driveCommentObservations.book, book) : undefined)
-    .orderBy(desc(schema.driveCommentObservations.readAt)).limit(Math.max(1, Math.min(limit, 200))).all();
+    .orderBy(desc(schema.driveCommentObservations.readAt), desc(sql`rowid`)).limit(Math.max(1, Math.min(limit, 200))).all();
   return rows.map(row => {
     const parsed = JSON.parse(row.payload) as Record<string, unknown>;
     // The source file ID remains in the private database, as in the legacy API.

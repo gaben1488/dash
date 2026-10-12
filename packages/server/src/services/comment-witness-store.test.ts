@@ -24,11 +24,33 @@ describe('comments family history', () => {
     expect(rows.map(r => r.evidence.content)).toEqual(['Первое', 'Второе', 'Первое']);
     expect(rows.every(r => r.evidence.author === null && !('fileId' in r.evidence))).toBe(true);
   });
+  it('preserves three transitions in one millisecond and deduplicates the final observation', () => {
+    const first = { ...witness, sourceId: '17:AF8', cell: 'AF8', readAt: '2026-10-12T04:00:00.123Z' };
+    const changed = { ...first, content: 'Второе', raw: { note: 'Второе' } };
+    const before = store.countCommentWitnesses('same-time');
+    expect([first, changed, first].map(value => store.storeCommentWitness('same-time', value))).toEqual([true, true, true]);
+    expect(store.countCommentWitnesses('same-time') - before).toBe(3);
+    const rows = store.listCommentWitnesses('same-time');
+    expect(rows.map(row => row.evidence.content)).toEqual(['Первое', 'Второе', 'Первое']);
+    expect(new Set(rows.map(row => row.id)).size).toBe(3);
+    expect(rows.every(row => row.evidence.author === null)).toBe(true);
+    expect(store.storeCommentWitness('same-time', first)).toBe(false);
+    expect(store.countCommentWitnesses('same-time') - before).toBe(3);
+  });
   it('persists unavailable rather than a successful zero reading', () => {
     store.storeWitnessReading('УИО', 'other', 'threads', {
       status: 'unavailable', reason: 'Нет доступа.', scope: [], records: [],
     }, '2026-10-12T01:00:00Z');
     expect(store.listCommentWitnesses('УИО')[0]?.evidence).toMatchObject({ status: 'unavailable', count: null });
+  });
+  it('preserves reverted legacy projections with equal recordedAt', () => {
+    const original = { commentId: 'legacy-same', content: 'Первое', recordedAt: '2026-10-12T05:00:00.123Z' };
+    store.archiveLegacyComment('legacy-same-time', original);
+    store.archiveLegacyComment('legacy-same-time', { ...original, content: 'Второе' });
+    store.archiveLegacyComment('legacy-same-time', original);
+    store.archiveLegacyComment('legacy-same-time', original);
+    expect(store.listCommentWitnesses('legacy-same-time').map(row => (row.evidence.original as { content: string }).content))
+      .toEqual(['Первое', 'Второе', 'Первое']);
   });
   it('archives legacy projected evidence without assigning an unproven source file ID', () => {
     store.archiveLegacyComment('УО', { commentId: 'old', content: 'Прежнее пояснение',
