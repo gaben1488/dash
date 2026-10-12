@@ -27,7 +27,8 @@
  * словаря по колонке M. Свободный текст здесь машинно не толкуется: если
  * причина не распозналась, степень честно «не установлена», а не угадана.
  */
-import { canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
+import { canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
+export { hasNegatedEpMonopoly, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
 import type { EpReasonCluster } from './dictionaries/ep-reason-clusters.js';
 import { findDept } from './department-registry.js';
 import { isYearlongStageRow, YEARLONG_START_BY_KEY, yearlongKey, yearlongSubclassForKind } from './yearlong-stage.js';
@@ -224,11 +225,6 @@ export function isAnnualEpAggregate(row?: EpRiskRowContext): boolean {
     && yearlongSubclassForKind(entry.kind) === 'contract-series';
 }
 
-/** Negating monopoly status cannot establish the monopoly exemption. */
-export function hasNegatedEpMonopoly(reason: unknown): boolean {
-  return /не\s+(?:явля(?:ется|ются)\s+)?(?:субъектом\s+)?(?:естественн\p{L}*\s+)?монопол\p{L}*/iu.test(String(reason ?? '').slice(0, EP_REASON_SCAN_LIMIT));
-}
-
 export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext): EpRiskStrictness {
   // Keep the review open, but do not assert a single-contract violation from
   // an annual total. Individual dated contracts and unknown scopes stay checked.
@@ -237,12 +233,8 @@ export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext
   // Тот же предел длины, что в конвейере (защита от разбора гигантской ячейки):
   // регулярные выражения части кластеров содержат «.*».
   const { cluster } = canonicalizeReasonEp(text.slice(0, EP_REASON_SCAN_LIMIT));
-  if (cluster === 'EP_MONOPOLIST' && hasNegatedEpMonopoly(text)) return 'critical';
   return epRiskStrictnessOfGrade(epGradeOfCluster(cluster).grade);
 }
-
-/** Предел разбора текста обоснования — общий для всех вызывающих. */
-export const EP_REASON_SCAN_LIMIT = 2000;
 
 export interface EpGradeTotals {
   /** Строк и денег по каждой степени. */

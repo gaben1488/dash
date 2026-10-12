@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EP_REASON_CLUSTERS } from './dictionaries/ep-reason-clusters.js';
+import { EP_REASON_CLUSTERS, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import {
   EP_GRADE_BY_CLUSTER,
   EP_GRADE_EXPLAIN,
@@ -14,6 +14,9 @@ describe('обоснованность ЕП (канон п.98ж)', () => {
     expect(missing).toEqual([]);
   });
 
+  it('negating monopoly does not produce the lawful-exclusive grade', () => {
+    expect(epGradeOfCluster(canonicalizeReasonEp('не является монополистом').cluster).grade).toBe('unfounded');
+  });
   it('монополист и авария — безальтернативны по закону', () => {
     expect(epGradeOfCluster('EP_MONOPOLIST').grade).toBe('lawful-exclusive');
     expect(epGradeOfCluster('EP_EMERGENCY').grade).toBe('lawful-exclusive');
