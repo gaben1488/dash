@@ -876,3 +876,94 @@ Python1051 PASS/1 FAIL — статический тест exact-SHA требу�
 shared719/core1839(+1skip)/server951/web2212 PASS; full Ruff по engine,
 backup/runtimeguard и затронутым CI-тестам PASS. Это source-проверка,
 не новый production rollout. Свежий actual API остаётся отдельным readback.
+
+586a6fe4: статический deployment fixture синхронизирован с безопасным
+закрытием fd9, exact-SHA/order проверка не ослаблена; полныйPython1052 PASS.
+Exact CI38197036151 SUCCESS, DB38197036166 SUCCESS. Отдельный read-only
+rehearsal38197036147 BLOCKED/PUBLICATION_READER_LEASE_UNINITIALIZED,
+не обойдён. Browser job этого CI — диагностический installed-schema probe;
+кандидатный historical schema probe38188258290 сохраняет применимость:
+schemas.ts/department-registry/api consumer побайтово не менялись послеe7b.
+Полная браузерная и смысловая приёмка Word остаётся отдельным гейтом.
+
+C02/K05: новое уточнение владельца — логический адрес «№п/п + книга».
+Внутри используется постоянный file ID; имя — изменяемый display alias.
+Год, квартал и месяц — производные плановой даты N, не постоянная
+идентичность. Год исторического среза/исходный лист остаются контекстом
+провенанса; физическая строка может сдвигаться. «173», «173/1» и «173/18» сохраняются отдельными строковыми
+номерами. Коллизии и перенумерация требуют доказанного контекста/lineage,
+не автоматического слияния. Шесть текущих физических адресов из сверки выше
+не объявлены доказанным совпадением с закупками старого скриншота.
+
+Native GET03:18UTC на e7ab5068/CI38199188606 (job114648543284):
+все шесть текущих адресов УКСиМП уникально сопоставлены с A в полной книге,
+без сужения года. Q заполнена, futureFactDate=false; AD не определено;
+economyFlagUndetermined/highEconomy/epFactDeviation=false на каждой строке.
+Это наблюдение установленных API-правил, не атомарный снимок и не доказанная
+идентичность закупок старого скриншота. Snapshot/checklist пока UNAVAILABLE
+из-за ограниченного чтения старого большого DTO; sourceReadAt не выдуман.
+GET не запускал refresh/генерацию/остановку/запись. У release-актора UID1000,
+sudo-n доступен; существующий приватный backup-раздел свободен на
+12 113 375 232B, capacity Docker-volume требует отдельного read-only proof.
+
+C02/K05: воспроизведён разрыв identity при переносе планового года.
+Узкий matcher1f265e0 проверяет полный прежний entity-hash с прежним годом,
+точный file ID/строковый номер и уникальность номера в обоих состояниях.
+При доказанной неизменности остальных полей сохраняет UID; старые хеши,
+снимки и рекомендации не переписывает. 257 author +116 independent checks PASS.
+Дубли, повторное использование номера, очищенные строки и неполное legacy
+доказательство не дают автоматического объединения. Дыра в нумерации сама
+по себе не доказывает удаление: требуется последнее достоверное состояние.
+Отдельный N/O/P mismatch reader воспроизведён, но default historical adapter
+не изменён: прежде требуется совместимость frozen replay/ledger/Dash/Word.
+
+C06/K02: forward-reminder39719b6 требует будущую Q, явный положительный Y,
+неопределённый AD и известный немонопольный способ. Пустой/нулевой Y не
+подменяется V/W/X. Это информационная подготовка ГРБС/УФ, без признанной
+экономии/свободных средств/штрафа. Временной guard общий для highEconomy и
+epFactDeviation. Author shared728/core1856(+1skip)/server951 PASS;
+четыре web load-timeout на конкурентном прогоне, те же файлы8/8 standalone
+PASS без изменения таймаутов. Независимый strict review PASS; полный
+последовательный web-гейт объединённого дерева ещё обязателен. UI companion
+исправляет замечания независимого review по закрытым решениям/области фильтра.
+
+Продолжение этого же кандидата: UI0466b53c после RED4→GREEN12 исключает
+resolved/false_positive/wont_fix из активных поручений, явно показывает
+ограничения отбора и сохраняет дробный номер в переходе к реестру.
+Independent UI review PASS. Новый guard1dbc748b получает контекст года из N:
+N2027/P2026 сохраняет предупреждение, N2026/P2027 допускает info только при
+доказанном curated-контексте; неизвестная N не снижает серьёзность.
+Independent shared17/core26/serverDTO22/web41/private4 PASS; старые
+isAnnualEpAggregate/фильтры/frozen-парсер этим не переключены.
+
+Повторная сверка того же неатомарного восьмикнижного capture02:26UTC:
+4093 data rows =599 без обеих дат +196 с N без Q +3298 с обеими датами.
+У3494 валидных N все O/P совпадают с вычисленным кварталом/годом;
+невалидных дат и N/O/P mismatch не обнаружено. 599 — реально отсутствующие
+даты; по уточнению владельца отсутствие N означает отсутствие обеспеченного
+финансирования, но не само по себе ошибку сотрудника или повод удалить строку.
+Weekly/live-diff уже используют точный A внутри книги, без года:
+перенос календаря и физической строки не создаёт исчезновение/новую закупку.
+Сохранение permanent file ID в Dash table-reading provenance остаётся
+отдельным пробелом для source override; прежним снимкам его не дописываем.
+
+Release admission остаётся отдельным: локального полного scratch22GB+
+сжатого checkpoint при наблюдаемых12.1GB недостаточно; текущий preflight
+должен отказать до API stop. Temporary runner full-restore уже доказан
+историческим backup workflow, но не встроен в свежий same-owner release.
+README/ADR001 теперь явно отделяют этот следующий шаг от существующего
+reports-only restore; полный in-place state rollback ещё не доказан.
+Прежний образ на candidate-modified scratch требует smoke, compaction
+в этом rollback-окне не финализируется. Работающий R08 не откатывается.
+
+Объединённый source-гейт этой итерации (baseline e7ab5068 + reviewed
+identity1f265e0/economy39719b6/N-guard1dbc748/UI0466b53/probe1756964):
+четыре types PASS; последовательный полный shared734/core1859(+1skip)/
+server954/web2225 —5772 PASS,1skip, без изменения таймаутов. Полный Ruff PASS;
+TS lint0errors/303existing warnings до N-followup, его exact targeted lint
+0errors/2existing warnings. Root identity+section-audit99 и исправленный
+unused-test-assignment59 PASS; mocked probe10response+2host scenarios PASS.
+Identity root commit2cb25dbb сохраняет reviewed production diff; root
+убрал только неиспользованную тестовую переменную. Normal hooks не обходятся.
+Следующие exact-head CI/actual native readback будут относиться к итоговому SHA;
+5772 source PASS не объявляется production/UI-fidelity/rollback acceptance.
