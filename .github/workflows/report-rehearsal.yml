@@ -257,6 +257,13 @@ jobs:
               ''|*[!A-Za-z0-9_.-]*) echo 'Report read-only source volume was not identified' >&2; exit 1 ;;
             esac
             docker volume inspect "$data_volume" >/dev/null
+            # This checks the existing live fence only. Never bootstrap a lease
+            # inside a read-only rehearsal against an older running runtime.
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.cli check-publication-readers --state /app/packages/server/data/reports
             docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
               --env-file .env.production -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
@@ -399,6 +406,13 @@ jobs:
             trap 'rm -rf "$work"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
+            # This checks the existing live fence only. Never bootstrap a lease
+            # inside a read-only rehearsal against an older running runtime.
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.cli check-publication-readers --state /app/packages/server/data/reports
             # Verify the image user can create and remove scratch files before
             # a lengthy replay. Anonymous volumes are removed on exit.
             docker run --rm --network none --read-only \

@@ -410,3 +410,24 @@ Symlink, чужой UID, непустой файл и подмена inode от�
 остановлены и drained до rollout/GC: bootstrap не делает старый код совместимым.
 Read-only GET по-прежнему никогда не создаёт lease. Без published catalog сохраняется
 старый development startup; первый native writer/archive создаёт lease до catalog.
+
+Read-only candidate-overlay rehearsal запускает `check-publication-readers --state`
+перед source-schema и frozen-replay (включая published-summary, подробную статистику,
+weekly/history и archived source-schema). Проверка берёт только существующий shared
+lease, не создаёт каталог/lock, не копирует release и не запускает worker. Без
+старого lease печатает JSON `status=BLOCKED`,
+`error_code=PUBLICATION_READER_LEASE_UNINITIALIZED`,
+`required_action=AUTHORIZED_QUIESCENT_READER_BOOTSTRAP` и выходит с кодом 2;
+CI остаётся заблокированным. `PUBLICATION_MAINTENANCE_ACTIVE` и незавершённое
+retention recovery сохраняют отдельные коды, а не трактуются как нужда в bootstrap.
+
+Для старого runtime это отдельный предварительный допуск оператора: остановить и
+дождаться завершения старых readers/writers (проверить отсутствие RUNNING writer),
+зафиксировать backup/rollback и точный кандидат; от UID владельца report-state
+в approved maintenance выполнить существующий
+`python -m procurement_engine.cli initialize-publication-readers --state <report-state>`.
+Не выполнять эту запись внутри read-only workflow и не обходить fence при отсутствии
+файла. После допуска readonly rehearsal повторяется на том же exact SHA; наличие
+lease само по себе не подтверждает все результаты replay и не разрешает retention
+под работающим старым runtime, который не знает shared lease. Runtime startup нового
+кода по-прежнему инициализирует reader до listen в утверждённом rollout.

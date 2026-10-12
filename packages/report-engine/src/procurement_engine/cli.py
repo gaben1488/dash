@@ -26,6 +26,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="proc-report")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    check = sub.add_parser("check-publication-readers", help="Read-only rehearsal reader lease prerequisite")
+    check.add_argument("--state", required=True)
+
     bootstrap = sub.add_parser("initialize-publication-readers", help="Explicit pre-listen reader lease bootstrap")
     bootstrap.add_argument("--state", required=True)
 
@@ -94,6 +97,21 @@ def main(argv=None):
         review.add_argument('--' + option, required=True)
 
     args = p.parse_args(argv)
+    if args.cmd == 'check-publication-readers':
+        from .publication_store import PublicationError, PublicationStore
+        try:
+            with PublicationStore(Path(args.state) / 'published', readonly=True).reader_lease():
+                pass
+        except PublicationError as error:
+            code = str(error)
+            dump({'publication_reader_prerequisite': True, 'status': 'BLOCKED',
+                  'error_code': code,
+                  'required_action': ('AUTHORIZED_QUIESCENT_READER_BOOTSTRAP'
+                                      if code == 'PUBLICATION_READER_LEASE_UNINITIALIZED'
+                                      else 'RESOLVE_READER_LEASE_BLOCKER')})
+            return 2
+        dump({'publication_reader_prerequisite': True, 'status': 'PASS'})
+        return 0
     if args.cmd == 'initialize-publication-readers':
         from .publication_store import PublicationError, initialize_publication_readers
         try:
