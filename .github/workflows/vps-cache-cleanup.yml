@@ -35,7 +35,7 @@ jobs:
             python3 - <<'PYDIAG'
             import json, re, shlex, subprocess
             from pathlib import Path
-            session=Path('/home/aemr/.dash-private-backups/recovery-38178313782')
+            session=Path('/home/aemr/.dash-private-backups/recovery-38184331772')
             log=(session/'private-command.log').read_text(errors='replace')
             patterns={
               'MISSING_DEPLOYMENT_SMOKE_MODULE': r'No module named.*procurement_engine.deployment_smoke',
