@@ -3,6 +3,7 @@ import json
 
 import pytest
 from procurement_engine.constants import GRBS_ORDER
+from procurement_engine.google_adapter import APPROVED_PRIMARY_TITLE_ALIASES
 from procurement_engine.raw_pipeline import header_hash
 from procurement_engine.runtime import run_once
 from test_publication_store import PublicationStore, candidate, revisions
@@ -431,3 +432,53 @@ def test_equivalent_google_sources_still_block_changed_non_google_evidence(tmp_p
     assert result['status'] == 'NOT_ISSUED'
     assert result['error_code'] == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
     assert PublicationStore(state / 'published').latest() is None
+
+@pytest.mark.parametrize('alias', list(APPROVED_PRIMARY_TITLE_ALIASES.items()))
+@pytest.mark.parametrize('unapproved_rename', [False, True])
+def test_approved_primary_alias_remains_equivalent_on_workbook_only_drift(tmp_path, alias, unapproved_rename):
+    from procurement_engine.google_adapter import (
+        GoogleReadError,
+        capture_google,
+        recheck_google_sources,
+    )
+    from procurement_engine.publication_store import _revisions_equivalent
+    from procurement_engine.raw_pipeline import bundle_from_capture
+    from procurement_engine.snapshot_bundle_io import persist_atomic_bundle
+    registry, _ = inputs(tmp_path)
+    (provider, sheet_id, registered_title), live_title = alias
+    data = json.loads(registry.read_text())
+    data['sources'][0].update(provider_id=provider, sheet_id=sheet_id, sheet=registered_title)
+    class AliasGoogle(Google):
+        changed = False
+        def revision(self, book):
+            return 'revision2' if self.changed and book == provider else 'revision1'
+        def grid(self, book, tab):
+            if book == provider:
+                assert tab == sheet_id
+                return {'title': 'Unapproved rename' if self.changed and unapproved_rename else live_title,
+                        'gridProperties': {'rowCount': 3, 'columnCount': 34}}
+            return super().grid(book, tab)
+        def formula_context(self, book):
+            return {'sheets': [{'sheetId': sheet_id if book == provider else 0,
+                               **self.grid(book, sheet_id if book == provider else 0),
+                               'hidden': self.changed}], 'named_ranges': []}
+        def formulas(self, *args): return self.values(*args)
+    client = AliasGoogle()
+    capture = capture_google(data, client)
+    bundle = bundle_from_capture(capture, data)
+    stage = tmp_path / 'stage'
+    persist_atomic_bundle(bundle, stage / 'snapshot_bundle')
+    original_manifest = (stage / 'snapshot_bundle/manifest.json').read_bytes()
+    client.changed = True
+    if unapproved_rename:
+        with pytest.raises(GoogleReadError, match='GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'):
+            recheck_google_sources(data, capture, client)
+    else:
+        observed, proof = recheck_google_sources(data, capture, client)
+        assert _revisions_equivalent(stage, bundle.after, {**bundle.after, **observed}, proof)
+        assert observed['master-0'] == 'revision2'
+        assert proof['master-0']['captured_revision'] == 'revision1'
+    assert capture['sources'][0]['sheet'] == registered_title
+    assert capture['sources'][0]['formula_evidence']['sheets'][0]['title'] == live_title
+    assert capture['sources'][0]['formula_evidence']['sheets'][0]['hidden'] is False
+    assert (stage / 'snapshot_bundle/manifest.json').read_bytes() == original_manifest

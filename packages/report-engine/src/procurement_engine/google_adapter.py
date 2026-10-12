@@ -347,7 +347,10 @@ def recheck_google_sources(registry, capture, client):
             'header_rows': contract['header_rows'], 'units': contract['units'],
             'capture_method': frozen.get('capture_method', 'connector_bounded_ranges'),
             'formula_evidence': frozen.get('formula_evidence')}
-        observed_metadata = {**captured_metadata, **payload.metadata}
+        # read_payload already validates the live title against the explicit approved alias.
+        # The frozen outer title is the registered contract title; raw formula context
+        # retains the actual live title and still participates in the semantic comparison.
+        observed_metadata = {**captured_metadata, **payload.metadata, 'sheet_title': frozen['sheet']}
         expected_values = canonical_semantic_hash(frozen['values'])
         actual_values = canonical_semantic_hash(payload.semantic_values)
         expected_metadata = canonical_semantic_hash(source_semantic_metadata(captured_metadata))
