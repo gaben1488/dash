@@ -24,3 +24,25 @@
 | `2026-08-22-design-baseline-mockup.html` | макет-протокол разбора облика 22.08: база/сегодня/предложение, решения владельца, узел эфира, вкладка «Объяснения» | живой, датированный протокол; как источник зари перекрыт §20—§21.1 (его заря — крем+ореол) | решения владельца 22.08 |
 | `2026-08-22-controls-sample.html` | «Оттиск» — образец элементов управления с замерами | живой; обновить при §21-синтезе: включённые состояния перевести с крем+кромка на клетки матрицы §1, ореол — во вторичные эффекты | база элементов; заря — до §20 |
 | `2026-08-22-palette-sample.html` | принятая палитра: роли красок (заря/глина/платина/графит), 13 вкладок с контрастами | живой; обновить при §21-синтезе: раздел «Заря на хроме» учит ореолу (низложен §21.1 п.1), пары вкладок перекрыты матрицей §4 | роли красок и запреты — живы; заря — до §20 |
+
+
+## Runtime adoption: navigation/corner glass (2026-10-12)
+
+U02/U03/U07: the existing `Header.tsx` grouped thirteen-route navigation and
+filter corner adopt the original `.стекло` recipe from `otdelki.html`: blur
+16px, saturation 160%, layered highlights and shadows. Existing SVG shield,
+convex week/month barrels, section colors, live history, selection actions and
+Pulse contents remain the runtime sources. Draft A/B/C corner variants and
+`2026-08-29-zarya-matrica.md` are not silently promoted to accepted designs.
+
+Chromium testing of the actual Header (isolated local harness, API unavailable)
+checks thirteen navigation actions, native Tab, method selection/reset and
+computed material at 1440/390/320px and 200% zoom in dark/light themes. It
+reproduced a 559px-wide combined time-machine overflow at 390px. Phones now
+wrap the existing time-machine and expose the original month barrel through
+visible native horizontal scrolling, preserving its geometry and controls.
+Navigation buttons retain 44px mobile targets. This is component/browser
+verification, not live authentication or acceptance of all thirteen page bodies.
+Production-domain auth, exact-head release and owner visual acceptance remain
+separate gates; PR #88 main CI was red at its Tests step while browser QA
+passed, so its Design Lab is not assumed safe for whole-branch adoption.

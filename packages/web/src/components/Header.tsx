@@ -786,7 +786,7 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
   };
 
   return (
-    <nav className="nav-pills-wrap" aria-label="Навигация">
+    <nav className="nav-pills-wrap hdr-liquid-surface" aria-label="Навигация">
       {rows.map((group) => (
         <div
           key={group.name || 'прочее'}
@@ -1016,7 +1016,7 @@ export function Header() {
             Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
             перенесены в SelectionTokens целиком (опись в его шапке); панельный
             variant="panel" на Пульте живёт как жил. */}
-        <div className="hdr-ugol">
+        <div className="hdr-ugol hdr-liquid-surface">
           <LiveHistory />
           <SelectionTokens />
         </div>
