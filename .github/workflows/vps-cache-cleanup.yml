@@ -234,6 +234,26 @@ jobs:
             assert all(fields.get(key)=='PASS' for key in ('context','snapshot','main','supplement','operational'))
             print(json.dumps({'accepted_timer_cycles':2,'cycle_times':cycle_times,'worker_running':True,'server_healthy':True,
                 'worker_image_pinned':True,'web_assurance_v2_hotfix_preserved':True,'native_three_word':'PASS'}))
+            PYACCEPT
+      - name: Check actual historical schemas independently of timer acceptance
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            python3 - <<'PYSCHEMA'
+            import json, subprocess
+            from pathlib import Path
+            baseline=json.loads(Path('/home/aemr/.dash-private-backups/worker-38178244703/runtime.json').read_text())
+            server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
+            assert server['State']['Status']=='running' and server['State']['Health']['Status']=='healthy'
+            assert server['Image']==baseline['image']
             # Compile exact candidate public sources in memory, never import the
             # installed v1-only shared package or overwrite runtime source files.
             repo=Path('/home/aemr/dash')
@@ -255,7 +275,7 @@ jobs:
             except ValueError: raise AssertionError('CANDIDATE_SCHEMA_PROBE_NO_PROOF') from None
             print(json.dumps({'candidate_sha':candidate,**summary}))
             assert schema.returncode==0 and summary['candidate_schema_history']=='PASS', 'CANDIDATE_SCHEMA_HISTORY_READBACK_FAILED'
-            PYACCEPT
+            PYSCHEMA
   restore-current-worker:
     if: >-
       github.event.label.name == 'maintenance: restore-current-worker' &&
