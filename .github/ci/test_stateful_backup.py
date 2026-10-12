@@ -18,6 +18,9 @@ SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "stateful_backup.py"
 
 class StatefulBackupTests(unittest.TestCase):
     def setUp(self):
+        spec = importlib.util.spec_from_file_location("release_capacity_tool", SCRIPT)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
@@ -388,6 +391,41 @@ class StatefulBackupTests(unittest.TestCase):
         self.assertIn("BACKUP_REQUIRES_SERVER_QUIESCENCE", result.stderr)
         self.assertFalse((output / "REL-test").exists())
 
+
+    def test_release_capacity_reserves_one_full_scratch_and_compressed_checkpoint(self):
+        self.module.create(self.source, self.backup, compressed=True)
+        result = self.module.release_capacity(self.source, self.backup.parent, self.backup)
+        self.assertEqual(result['state'], 'RELEASE_STORAGE_PREFLIGHT')
+        self.assertGreater(result['archive_preview_bytes'], 0)
+        self.assertEqual(result['required_bytes'], max(result['source_bytes'], result['prior_backup_bytes']) + result['archive_preview_bytes'] + 128*1024*1024)
+        self.assertFalse((self.backup.parent / 'preview.tar.gz').exists())
+
+    def test_release_capacity_low_storage_fails_without_creating_checkpoint(self):
+        self.module.create(self.source, self.backup, compressed=True)
+        with patch.object(self.module.shutil, 'disk_usage') as usage:
+            usage.return_value.free = 128*1024*1024
+            with self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT'):
+                self.module.release_capacity(self.source, self.backup.parent, self.backup)
+
+    def test_release_compression_cannot_consume_reserved_scratch_space(self):
+        total = sum(int(row['bytes']) for row in self.module.inventory(self.source).values())
+        with patch.object(self.module.shutil, 'disk_usage') as usage:
+            usage.return_value.free = total + 128*1024*1024
+            with self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT'):
+                self.module.create(self.source, self.backup, compressed=True, reserve_scratch=True)
+        self.assertFalse(self.backup.exists())
+
+    def test_release_preview_and_fast_capture_use_same_codec_and_full_restore(self):
+        self.module.create(self.source, self.backup, compressed=True)
+        capacity=self.module.release_capacity(self.source,self.backup.parent,self.backup)
+        fresh=self.backup.parent/'release-fresh'
+        capture=self.module.create(self.source,fresh,compressed=True,reserve_scratch=True,compression_level=1)
+        self.assertEqual(capture['archive_bytes'],capacity['archive_preview_bytes'])
+        verified=self.module.verify(fresh,self.scratch,self.source)
+        self.assertTrue(verified['source_matched'])
+        self.assertGreater(verified['sqlite_checked'],0)
+        self.assertGreater(verified['docx_checked'],0)
+        self.assertTrue(self.backup.exists())
 
 
 if __name__ == "__main__":

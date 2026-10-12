@@ -112,21 +112,59 @@ def _archive_hash(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def _compress_state(source: Path, archive: Path, files: dict, max_bytes: int) -> None:
+def _stream_compressed_state(source: Path, output, files: dict, max_bytes: int, compression_level: int = 9) -> None:
+    class BoundedOutput:
+        def write(self, data):
+            if output.tell() + len(data) > max_bytes:
+                raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
+            return output.write(data)
+
+    with (gzip.GzipFile(fileobj=BoundedOutput(), mode="wb", mtime=0, compresslevel=compression_level) as compressed,
+          tarfile.open(fileobj=compressed, mode="w|", dereference=True) as stream):
+        for relative in files:
+            stream.add(source / relative, arcname=relative.rstrip("/"), recursive=False)
+
+
+def _compress_state(source: Path, archive: Path, files: dict, max_bytes: int, compression_level: int = 9) -> None:
     """Stream a full copy; refuse to consume the caller's free-space reserve."""
     with archive.open("xb") as output:
-        class BoundedOutput:
-            def write(self, data):
-                if output.tell() + len(data) > max_bytes:
-                    raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
-                return output.write(data)
-
-        with (gzip.GzipFile(fileobj=BoundedOutput(), mode="wb", mtime=0) as compressed,
-              tarfile.open(fileobj=compressed, mode="w|", dereference=True) as stream):
-            for relative in files:
-                stream.add(source / relative, arcname=relative.rstrip("/"), recursive=False)
+        _stream_compressed_state(source, output, files, max_bytes, compression_level)
         output.flush()
         os.fsync(output.fileno())
+
+
+def release_capacity(source: Path, backup_parent: Path, prior_backup: Path, scratch_parent: Path | None = None) -> dict:
+    """Read-only capacity preview, NOT a frozen snapshot or source-match proof."""
+    files = inventory(source)
+    total = sum(int(row['bytes']) for row in files.values())
+    _, _, prior_total = _validated_backup(prior_backup)
+    reserve = 128 * 1024 * 1024
+    scratch_bytes = max(total, prior_total)
+    free = shutil.disk_usage(backup_parent).free
+    scratch_parent = scratch_parent or backup_parent
+    scratch_free = shutil.disk_usage(scratch_parent).free
+    shared = backup_parent.stat().st_dev == scratch_parent.stat().st_dev
+    if scratch_free < scratch_bytes + reserve:
+        raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
+    limit = free - (scratch_bytes if shared else 0) - reserve
+    if limit <= 0:
+        raise BackupError('BACKUP_STORAGE_INSUFFICIENT')
+
+    class Counter:
+        count = 0
+        def tell(self):
+            return self.count
+        def write(self, data):
+            self.count += len(data)
+            return len(data)
+
+    output = Counter()
+    _stream_compressed_state(source, output, files, limit, 1)
+    return {'state': 'RELEASE_STORAGE_PREFLIGHT', 'source_bytes': total,
+            'prior_backup_bytes': prior_total, 'archive_preview_bytes': output.count,
+            'free_bytes': free, 'scratch_free_bytes': scratch_free, 'shared_filesystem': shared,
+            'scratch_required_bytes': scratch_bytes + reserve,
+            'required_bytes': (scratch_bytes if shared else 0) + output.count + reserve}
 
 
 def _checked_member(member, files, seen):
@@ -190,7 +228,7 @@ def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_on
             os.chown(target, info["uid"], info["gid"])
 
 
-def create(source: Path, backup: Path, *, compressed: bool = False) -> dict:
+def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scratch: bool = False, compression_level: int = 9) -> dict:
     source = source.resolve(strict=True)
     backup = backup.resolve(strict=False)
     check_nonoverlapping(source, backup)
@@ -208,7 +246,7 @@ def create(source: Path, backup: Path, *, compressed: bool = False) -> dict:
     staging = Path(tempfile.mkdtemp(prefix=".aemr-backup-", dir=backup.parent))
     try:
         if compressed:
-            _compress_state(source, staging / "state.tar.gz", before, free - reserve)
+            _compress_state(source, staging / "state.tar.gz", before, free - reserve - (total if reserve_scratch else 0), compression_level)
         else:
             copy_with_ownership(source, staging / "state")
         if inventory(source) != before:
@@ -377,6 +415,13 @@ def main() -> int:
     write.add_argument("--backup", type=Path, required=True)
     write.add_argument("--compressed", action="store_true",
                        help="Полная сжатая копия; восстановление может требовать другой диск")
+    write.add_argument("--compression-level", type=int, choices=range(1, 10), default=9)
+    write.add_argument("--reserve-scratch", action="store_true", help="Reserve one full local scratch restore during compressed capture")
+    capacity = sub.add_parser("release-capacity", help="Read-only compressed checkpoint and scratch storage preview")
+    capacity.add_argument("--source", type=Path, required=True)
+    capacity.add_argument("--backup-parent", type=Path, required=True)
+    capacity.add_argument("--prior-backup", type=Path, required=True)
+    capacity.add_argument("--scratch-parent", type=Path, required=True)
     read = sub.add_parser("verify")
     read.add_argument("--backup", type=Path, required=True)
     read.add_argument("--scratch-parent", type=Path, required=True)
@@ -395,7 +440,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == 'create':
-            result = create(args.source, args.backup, compressed=args.compressed)
+            result = create(args.source, args.backup, compressed=args.compressed, reserve_scratch=args.reserve_scratch, compression_level=args.compression_level)
+        elif args.command == 'release-capacity':
+            result = release_capacity(args.source, args.backup_parent, args.prior_backup, args.scratch_parent)
         elif args.command == 'match-reports':
             result = match_reports(args.backup, args.source)
         elif args.command == 'restore-reports':

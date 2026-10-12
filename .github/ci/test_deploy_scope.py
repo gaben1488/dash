@@ -342,7 +342,7 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
             git = folder / "git"
             git.write_text('#!/bin/sh\nexit 0\n')
             git.chmod(0o755)
-            script = textwrap.dedent(remote).replace('/home/aemr/dash', str(repo))
+            script = textwrap.dedent(remote).replace('/home/aemr/dash', str(repo)).replace('/run/lock/aemr-maintenance.lock', str(folder/'maintenance.lock'))
             script = script.replace('${{ steps.release_inputs.outputs.backup_root }}', str(backup.parent))
             script = script.replace('${{ steps.release_inputs.outputs.backup_name }}', backup.name)
             script = script.replace('${{ github.sha }}', 'a' * 40)
@@ -351,10 +351,278 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
                                     "PATH": tmp + os.pathsep + os.environ.get("PATH", ""),
                                     "MOCK_DOCKER_TRACE": str(trace)})
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('BACKUP_REQUIRES_SERVER_QUIESCENCE', result.stderr)
+            self.assertIn('BACKUP_REQUIRES_WORKER_QUIESCENCE', result.stderr)
             calls = [json.loads(line) for line in trace.read_text().splitlines()]
             self.assertFalse(any('start' in call or 'stop' in call or 'up' in call
                                  or 'run' in call or 'prune' in call for call in calls), calls)
+
+
+    def release_owner_case(self, scenario):
+        import importlib.util
+        import json
+        import os
+        import sqlite3
+        import subprocess
+        import tempfile
+        import textwrap
+        import zipfile
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location('backup', root / 'deploy/stateful_backup.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            repo, session, source, scratch = [folder / n for n in ('repo', 'window', 'source', 'scratch')]
+            (repo / 'deploy').mkdir(parents=True)
+            (source / 'reports/inputs').mkdir(parents=True)
+            (source / 'reports/published').mkdir()
+            scratch.mkdir()
+            session.mkdir()
+            with sqlite3.connect(source / 'aemr.db') as database:
+                database.execute('create table facts (value integer)')
+                database.execute('insert into facts values (17)')
+            for name in ('registry', 'ledger'):
+                (source / f'reports/inputs/{name}.json').write_text('{}')
+            with zipfile.ZipFile(source / 'reports/published/main.docx', 'w') as document:
+                document.writestr('word/document.xml', '<document/>')
+            module.create(source, session / 'backup')
+            baseline = {'candidate': 'd'*40, 'server': 'a'*64, 'worker': 'b'*64, 'volume': 'synthetic_data', 'image': 'sha256:'+'c'*64}
+            (session / 'runtime.json').write_text(json.dumps(baseline))
+            if scenario == 'normal-resume-updates':
+                (source / 'reports/inputs/ledger.json').write_text('{"startup_update":true}')
+            if scenario == 'runtime-changed':
+                baseline['image'] = 'sha256:'+'f'*64
+                (session / 'runtime.json').write_text(json.dumps(baseline))
+            state, trace = folder / 'state', folder / 'calls'
+            state.write_text('running')
+            docker = folder / 'docker'
+            docker.write_text(textwrap.dedent(r'''#!/usr/bin/env python3
+import json,os,subprocess,sys
+from pathlib import Path
+args=sys.argv[1:]
+with Path(os.environ['TRACE']).open('a') as log:log.write(json.dumps(args)+'\n')
+assert subprocess.run(['flock','-n',os.environ['MAINTENANCE_LOCK'],'true'],stdout=subprocess.DEVNULL).returncode != 0
+state=Path(os.environ['STATE'])
+if args[0]=='compose':
+ if 'build' in args and os.environ['SCENARIO']=='build-failed':sys.exit(53)
+ if 'up' in args:state.write_text('running')
+ print(('b' if args[-1]=='report-worker' else 'e' if args[-1]=='web' else 'a')*64)
+elif args[0]=='inspect':
+ fmt=args[2]
+ if '.State.Health' in fmt:print('healthy')
+ elif '.State.Status' in fmt:print('exited' if args[-1]=='b'*64 else state.read_text())
+ elif fmt=='{{.Name}}':print('/aemr-server')
+ elif '.Image' in fmt:print('sha256:'+('e' if args[-1]=='e'*64 else 'c')*64)
+ else:print('synthetic_data')
+elif args[0]=='stop':state.write_text('exited')
+elif args[0]=='start':state.write_text('running')
+elif args[0]=='run':
+ if '/tool.py' not in args:sys.exit(0)
+ command=args[args.index('/tool.py')+1:]
+ def host(value):
+  if value.startswith('/backups'):return os.environ['SESSION']+value[len('/backups'):]
+  return os.environ['SOURCE'] if value=='/source' else os.environ['SCRATCH'] if value=='/scratch' else value
+ command=[host(value) for value in command]
+ if command[0]=='release-capacity' and os.environ['SCENARIO']=='low-storage':
+  import importlib.util,types
+  spec=importlib.util.spec_from_file_location('capacity',os.environ['TOOL']);tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool)
+  tool.shutil.disk_usage=lambda _:types.SimpleNamespace(free=128*1024*1024)
+  sys.argv=[os.environ['TOOL'],*command];sys.exit(tool.main())
+ result=subprocess.run([sys.executable,os.environ['TOOL'],*command])
+ if result.returncode==0 and command[0]=='create' and os.environ['SCENARIO']=='stale':
+  Path(os.environ['SOURCE']+'/reports/inputs/ledger.json').write_text('{"changed_after_capture":true}')
+ sys.exit(result.returncode)
+elif args[0] in {'image','tag','builder'} and os.environ['SCENARIO'] in {'rollback-tags','worker-failed','checkout-failed','build-failed'}:pass
+else:sys.exit(41)
+'''))
+            docker.chmod(0o700)
+            git = folder / 'git'
+            git.write_text('#!/bin/sh\ncase "$*" in *checkout*) [ "$SCENARIO" != checkout-failed ] || exit 52;; *runtime_guard.py*) cat "$GUARD";; *aemr-runtime-guard.service*) cat "$GUARD_SERVICE";; *aemr-runtime-guard.timer*) cat "$GUARD_TIMER";; *stateful_backup.py*) cat "$TOOL";; *rev-parse*) printf "%s\\n" '+"'"+'d'*40+"'"+';; esac\n')
+            git.chmod(0o700)
+            workflow = (root / '.github/workflows/ci.yml').read_text()
+            remote = workflow.split('      - name: Deploy tested commit over SSH', 1)[1].split('          script: |\n', 1)[1].split('\n  browser-report-contract:', 1)[0]
+            if scenario == 'rollback-tags':
+                remote = remote.split('            git fetch origin', 1)[0]
+            elif scenario not in {'worker-failed','checkout-failed','build-failed'}:
+                remote = remote.split('            # Storage is a deployment prerequisite', 1)[0]
+            script = textwrap.dedent(remote).replace('/home/aemr/dash', str(repo)).replace('/run/lock/aemr-maintenance.lock', str(folder/'maintenance.lock'))
+            script = script.replace('${{ steps.release_inputs.outputs.backup_root }}', str(session))
+            script = script.replace('${{ steps.release_inputs.outputs.backup_name }}', 'backup').replace('${{ github.sha }}', 'd'*40)
+            script = script.replace('${{ github.run_id }}','1').replace('${{ github.run_attempt }}','1')
+            for name, source_file in [('installed_guard.py',root/'deploy/runtime_guard.py'), ('installed_guard.service',root/'deploy/systemd/aemr-runtime-guard.service'), ('installed_guard.timer',root/'deploy/systemd/aemr-runtime-guard.timer')]:
+                (folder/name).write_text(source_file.read_text())
+            policy=folder/'guard-policy.json'
+            policy.write_text(json.dumps({'project':'aemr','worker_enabled':False,'services':{'server':{'container':'aemr-server'}}}))
+            for old, target in [('/usr/local/libexec/aemr/runtime_guard.py',folder/'installed_guard.py'),('/etc/systemd/system/aemr-runtime-guard.service',folder/'installed_guard.service'),('/etc/systemd/system/aemr-runtime-guard.timer',folder/'installed_guard.timer'),('/etc/aemr/runtime-policy.json',policy)]:
+                script=script.replace(old,str(target))
+            systemctl=folder/'systemctl'
+            systemctl.write_text('#!/bin/sh\ncase "$*" in *FragmentPath*aemr-runtime-guard.service*) echo "$INSTALLED_SERVICE";; *FragmentPath*aemr-runtime-guard.timer*) echo "$INSTALLED_TIMER";; *NeedDaemonReload*) echo no;; *DropInPaths*) echo;; esac\n')
+            systemctl.chmod(0o700)
+            sudo=folder/"sudo"
+            sudo.write_text('#!/bin/sh\n[ "$SCENARIO" != policy-unavailable ] || exit 54\n[ "$1" = -n ] && [ "$2" = cat ] && [ "$3" = "$GUARD_POLICY" ] || exit 2\nexec cat "$3"\n')
+            sudo.chmod(0o700)
+            actor_id=folder/"id"
+            actor_id.write_text('#!/bin/sh\nif [ "$SCENARIO" = policy-unavailable ] && [ "$1" = -u ]; then echo 1001; else /usr/bin/id "$@"; fi\n')
+            actor_id.chmod(0o700)
+            # Force a pre-runtime failure after successful proof: restore old API,
+            # retain receipt, and never mutate an image, code, worker or live data.
+            script += '\nexit 41\n'
+            (repo / 'deploy/enable-reports.sh').write_text('#!/bin/sh\nexit 51\n')
+            for name, content in [('sleep','exit 0'), ('df','printf \'Filesystem 1024-blocks Used Available Capacity Mounted\\nsynthetic 40000000 0 40000000 0 /\\n\'')]:
+                executable=folder/name;executable.write_text('#!/bin/sh\n'+content+'\n');executable.chmod(0o700)
+            env = {**os.environ, 'PATH': tmp+os.pathsep+os.environ['PATH'], 'TRACE': str(trace), 'STATE': str(state),
+                   'MAINTENANCE_LOCK':str(folder/'maintenance.lock'),'GUARD_POLICY':str(policy),'INSTALLED_SERVICE':str(folder/'installed_guard.service'),'INSTALLED_TIMER':str(folder/'installed_guard.timer'),'GUARD':str(root/'deploy/runtime_guard.py'),'GUARD_SERVICE':str(root/'deploy/systemd/aemr-runtime-guard.service'),'GUARD_TIMER':str(root/'deploy/systemd/aemr-runtime-guard.timer'),'TOOL': str(root / 'deploy/stateful_backup.py'), 'BACKUP': str(session / 'backup'), 'SESSION': str(session), 'SCENARIO': scenario, 'SCRATCH': str(scratch), 'SOURCE': str(source)}
+            if scenario == 'contention':
+                import fcntl
+                with (folder/'maintenance.lock').open('a') as owner:
+                    fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    result=subprocess.run(['bash','-c',script],env=env,capture_output=True,text=True,timeout=15,check=False)
+            else:
+                result = subprocess.run(['bash','-c',script],env=env,capture_output=True,text=True,timeout=15,check=False)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+            receipts = list(session.glob('release-*.json'))
+            receipt = json.loads(receipts[0].read_text()) if receipts else None
+            return result, calls, state.read_text(), receipt
+
+    def test_same_owner_release_quiesces_then_matches_and_restores_original_on_preflight_failure(self):
+        result, calls, state, receipt = self.release_owner_case('unchanged')
+        self.assertEqual(result.returncode, 41, result.stderr)
+        self.assertEqual([c for c in calls if c[0]=='stop'], [['stop','--time','75','a'*64]])
+        self.assertEqual([c for c in calls if c[0]=='start'], [['start','a'*64]])
+        self.assertEqual(state, 'running')
+        self.assertEqual(receipt['restore']['state'], 'VERIFIED_IN_SCRATCH')
+        self.assertTrue(receipt['restore']['source_matched'])
+        self.assertEqual(receipt['rollback']['server_image'], 'sha256:'+'c'*64)
+        self.assertFalse(any('up' in c or 'prune' in c or 'tag' in c for c in calls))
+
+    def test_same_owner_release_rejects_changed_source_and_returns_original_api(self):
+        result, calls, state, receipt = self.release_owner_case('stale')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_SOURCE_MISMATCH', result.stderr)
+        self.assertEqual([c for c in calls if c[0]=='start'], [['start','a'*64]])
+        self.assertEqual(state, 'running')
+        self.assertIsNone(receipt)
+        self.assertFalse(any('up' in c or 'prune' in c or 'tag' in c for c in calls))
+
+    def test_same_owner_release_rejects_changed_runtime_before_stopping_api(self):
+        result, calls, state, receipt = self.release_owner_case('runtime-changed')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state, 'running')
+        self.assertIsNone(receipt)
+        self.assertFalse(any(c[0] in {'stop','start','run'} for c in calls))
+
+    def test_same_owner_capacity_failure_leaves_original_api_running_without_stop(self):
+        result, calls, state, receipt = self.release_owner_case('low-storage')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_STORAGE_INSUFFICIENT', result.stderr)
+        self.assertEqual(state, 'running')
+        self.assertIsNone(receipt)
+        self.assertFalse(any(c[0] in {'stop','start'} or 'up' in c or 'prune' in c for c in calls))
+
+    def test_same_owner_captures_legitimate_resume_updates_in_new_checkpoint(self):
+        result, _calls, state, receipt = self.release_owner_case('normal-resume-updates')
+        self.assertEqual(result.returncode, 41, result.stderr)
+        self.assertEqual(state, 'running')
+        self.assertTrue(receipt['restore']['source_matched'])
+        self.assertEqual(receipt['prior_restore']['state'], 'VERIFIED_IN_SCRATCH')
+        self.assertNotIn('source_matched', receipt['prior_restore'])
+
+    def test_release_cannot_steal_external_guardian_lock_or_stop_api(self):
+        result, calls, state, receipt = self.release_owner_case('contention')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('AEMR_MAINTENANCE_BUSY', result.stderr)
+        self.assertEqual(calls, [])
+        self.assertEqual(state, 'running')
+        self.assertIsNone(receipt)
+
+    def test_release_rollback_uses_pre_stop_actual_images_not_latest_tags(self):
+        result, calls, state, receipt = self.release_owner_case('rollback-tags')
+        self.assertEqual(result.returncode, 41, result.stderr)
+        self.assertIn(['tag','sha256:'+'c'*64,'aemr-server:previous'],calls)
+        self.assertIn(['tag','sha256:'+'e'*64,'aemr-web:previous'],calls)
+        self.assertEqual(state,'running')
+        self.assertEqual(receipt['rollback']['web_image'],'sha256:'+'e'*64)
+
+    def test_late_worker_failure_never_starts_old_api_or_restores_global_state(self):
+        result, calls, state, receipt = self.release_owner_case('worker-failed')
+        self.assertEqual(result.returncode,51,result.stderr)
+        self.assertEqual(state,'running')
+        self.assertFalse(any(c[0]=='start' or 'restore-reports' in c for c in calls))
+        self.assertTrue(receipt['restore']['source_matched'])
+
+    def test_git_checkout_failure_resumes_unchanged_original_api(self):
+        result,calls,state,_=self.release_owner_case('checkout-failed')
+        self.assertEqual(result.returncode,52,result.stderr)
+        self.assertEqual(state,'running')
+        self.assertEqual([c for c in calls if c[0]=='start'],[['start','a'*64]])
+        self.assertFalse(any('up' in c for c in calls))
+
+    def test_docker_build_failure_resumes_unchanged_original_api(self):
+        result,calls,state,_=self.release_owner_case('build-failed')
+        self.assertEqual(result.returncode,53,result.stderr)
+        self.assertEqual(state,'running')
+        self.assertEqual([c for c in calls if c[0]=='start'],[['start','a'*64]])
+        self.assertFalse(any('up' in c for c in calls))
+
+    def test_sigkill_release_owner_drops_lock_and_actual_guard_recovers_api(self):
+        import json
+        import os
+        import signal
+        import subprocess
+        import sys
+        import tempfile
+        import textwrap
+        import time
+        from pathlib import Path
+        root=Path(__file__).resolve().parents[2]
+        workflow=(root/'.github/workflows/ci.yml').read_text()
+        remote=workflow.split('      - name: Deploy tested commit over SSH',1)[1].split('          script: |\n',1)[1]
+        prefix=textwrap.dedent(remote.split('            previous_worker=',1)[0]).replace('/home/aemr/dash','.')
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp);(folder/'deploy').mkdir()
+            state=folder/'state';state.write_text('exited')
+            ready=folder/'child-ready';policy=folder/'policy.json'
+            policy.write_text(json.dumps({'project':'aemr','worker_enabled':False,'services':{'server':{'container':'aemr-server'}}}))
+            docker=folder/'docker'
+            docker.write_text(r'''#!/usr/bin/env python3
+import json,os,sys,time
+from pathlib import Path
+args=sys.argv[1:];state=Path(os.environ['API_STATE'])
+if args[0]=='wait-forever':
+ Path(os.environ['CHILD_READY']).write_text(str(os.getpid()));time.sleep(30)
+elif args[0]=='inspect':
+ print(json.dumps([{'Name':'/aemr-server','Image':'sha256:'+'c'*64,'Config':{'Labels':{'com.docker.compose.project':'aemr','com.docker.compose.service':'server'}},'State':{'Status':state.read_text()}}]))
+elif args[0]=='start':state.write_text('running')
+''');docker.chmod(0o700)
+            env={**os.environ,'PATH':tmp+os.pathsep+os.environ['PATH'],'API_STATE':str(state),'CHILD_READY':str(ready)}
+            prefix=prefix.replace('/run/lock/aemr-maintenance.lock',str(folder/'maintenance.lock'))
+            owner=subprocess.Popen(['bash','-c',prefix+'\ndocker wait-forever\n'],cwd=folder,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            child=None
+            try:
+                for _ in range(100):
+                    if ready.exists():break
+                    time.sleep(.02)
+                self.assertTrue(ready.exists())
+                child=int(ready.read_text())
+                self.assertNotEqual(subprocess.run(['flock','-n',str(folder/'maintenance.lock'),'true'],check=False).returncode,0)
+                owner.kill();owner.wait(timeout=3)
+                guarded=subprocess.run([sys.executable,str(root/'deploy/runtime_guard.py'),'--policy',str(policy),'--state',str(folder/'guard-state.json'),'--lock',str(folder/'maintenance.lock')],env=env,capture_output=True,text=True,timeout=3,check=False)
+                self.assertEqual(guarded.returncode,0,guarded.stderr)
+                self.assertEqual(state.read_text(),'running','orphan external child retained maintenance lock')
+            finally:
+                if owner.poll() is None:owner.kill();owner.wait(timeout=3)
+                if owner.stderr:owner.stderr.close()
+                if child:
+                    try:os.kill(child,signal.SIGTERM)
+                    except ProcessLookupError:pass
+
+    def test_unavailable_privileged_guard_policy_blocks_before_api_stop(self):
+        result,calls,state,receipt=self.release_owner_case('policy-unavailable')
+        self.assertEqual(result.returncode,54,result.stderr)
+        self.assertEqual(state,'running')
+        self.assertIsNone(receipt)
+        self.assertFalse(any(c[0] in {'stop','start'} or 'up' in c for c in calls))
 
 
 if __name__ == "__main__":

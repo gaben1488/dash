@@ -170,7 +170,7 @@ jobs:
       needs.server-image.result == 'success'
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       # Deployment address confirmed by the owner; do not rely on a stale secret.
       VPS_HOST: 193.233.91.162
@@ -229,28 +229,58 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 18m
+          command_timeout: 40m
           script_stop: false            # Bash owns fail-fast; per-line SSH guards bypass EXIT recovery
           script: |
             set -euo pipefail
+            umask 077
             cd /home/aemr/dash
             cd deploy
             [ ! -L /run/lock/aemr-maintenance.lock ] || { echo AEMR_MAINTENANCE_LOCK_INVALID >&2; exit 1; }
             exec 9>/run/lock/aemr-maintenance.lock
             flock -n 9 || { echo AEMR_MAINTENANCE_BUSY >&2; exit 1; }
-            previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            # External programs cannot retain fd9 after the shell owner dies.
+            docker() { command docker "$@" 9>&-; }
+            git() { command git "$@" 9>&-; }
+            python3() { command python3 "$@" 9>&-; }
+            sleep() { command sleep "$@" 9>&-; }
+            df() { command df "$@" 9>&-; }
+            systemctl() { command systemctl "$@" 9>&-; }
+            rm() { command rm "$@" 9>&-; }
+            previous_worker=$(exec 9>&-; docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            original_server=
+            original_quiesced=false
+            runtime_mutation_started=false
+            original_code=
+            original_web_image=
             report_release_started=false
             verification_dir=
+            resume_original_api() {
+              docker start "$original_server" >/dev/null || return 1
+              for attempt in $(exec 9>&-; seq 1 60); do
+                if [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = running ] &&
+                   [ "$(exec 9>&-; docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$original_server")" = healthy ]; then
+                  original_quiesced=false
+                  return 0
+                fi
+                sleep 2
+              done
+              echo RELEASE_ORIGINAL_API_NOT_HEALTHY >&2
+              return 1
+            }
             restore_worker_on_failure() {
               result=$?
               trap - EXIT
+              if [ "$result" -ne 0 ] && [ "$original_quiesced" = true ] && [ "$runtime_mutation_started" = false ]; then
+                resume_original_api || { echo RELEASE_ORIGINAL_API_RECOVERY_FAILED >&2; result=2; }
+              fi
               if [ "$result" -ne 0 ] && [ "$report_release_started" = true ] && [ -n "$previous_worker" ]; then
                 if ! docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
                   start report-worker >/dev/null 2>&1; then
                   echo 'REPORT_WORKER_RESTART_COMMAND_FAILED' >&2
                 fi
-                restored_worker=$(docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                restored_worker=$(exec 9>&-; docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
                   ps --status running --quiet report-worker 2>/dev/null || true)
                 if [ "$restored_worker" != "$previous_worker" ]; then
@@ -263,46 +293,149 @@ jobs:
               exit "$result"
             }
             trap restore_worker_on_failure EXIT
+            trap 'exit 130' HUP INT TERM
 
             # Backup and scratch restore must succeed BEFORE any production
             # image, code, source, report state or scheduler is modified.
             verified_backup_root='${{ steps.release_inputs.outputs.backup_root }}'
             verified_backup_name='${{ steps.release_inputs.outputs.backup_name }}'
             test -f "$verified_backup_root/$verified_backup_name/manifest.json"
-            verification_dir=$(mktemp -d /tmp/aemr-release-check.XXXXXX)
+            verification_dir=$(exec 9>&-; mktemp -d /tmp/aemr-release-check.XXXXXX)
             release_sha='${{ github.sha }}'
             cd ..
             git fetch --quiet origin "$release_sha"
             git show "$release_sha:deploy/stateful_backup.py" > "$verification_dir/stateful_backup.py"
             cd deploy
-            current_server=$(docker compose --env-file .env.production ps --all --quiet server)
-            test -n "$current_server"
-            server_state=$(docker inspect --format '{{.State.Status}}' "$current_server")
-            if [ "$server_state" != exited ]; then
-              echo 'BACKUP_REQUIRES_SERVER_QUIESCENCE' >&2
-              exit 2
-            fi
-            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
+            # The earlier backup job MUST have resumed its original API and released
+            # its guardian. This owner validates and quiesces the running API itself.
+            worker=$(exec 9>&-; docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
             if [ -n "$worker" ]; then
-              worker_state=$(docker inspect --format '{{.State.Status}}' "$worker")
+              worker_state=$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$worker")
               case "$worker_state" in
                 exited|created) ;;
                 *) echo 'BACKUP_REQUIRES_WORKER_QUIESCENCE' >&2; exit 2 ;;
               esac
             fi
-            source_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$current_server")
-            case "$source_volume" in
-              ''|*[!a-zA-Z0-9_.-]*) echo 'BACKUP_SOURCE_VOLUME_NOT_VERIFIED' >&2; exit 2 ;;
-            esac
-            server_image=$(docker inspect --format '{{.Image}}' "$current_server")
-            case "$server_image" in sha256:*) ;; *) exit 2 ;; esac
+            original_server=$(exec 9>&-; docker compose --env-file .env.production ps --all --quiet server)
+            [[ "$original_server" =~ ^[a-f0-9]{64}$ ]]
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = running ] &&
+            [ "$(exec 9>&-; docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$original_server")" = healthy ] || {
+              echo 'RELEASE_REQUIRES_ORIGINAL_API_HEALTHY' >&2; exit 2;
+            }
+            source_volume=$(exec 9>&-; docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$original_server")
+            case "$source_volume" in ''|*[!a-zA-Z0-9_.-]*) echo BACKUP_SOURCE_VOLUME_NOT_VERIFIED >&2; exit 2 ;; esac
+            server_image=$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_server")
+            [[ "$server_image" =~ ^sha256:[a-f0-9]{64}$ ]]
+            original_code=$(exec 9>&-; git rev-parse HEAD)
+            [[ "$original_code" =~ ^[a-f0-9]{40}$ ]]
+            original_web=$(exec 9>&-; docker compose --env-file .env.production ps --status running --quiet web)
+            [[ "$original_web" =~ ^[a-f0-9]{64}$ ]]
+            original_web_image=$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_web")
+            [[ "$original_web_image" =~ ^sha256:[a-f0-9]{64}$ ]]
+            python3 - "$verified_backup_root/runtime.json" "$original_server" "$worker" "$source_volume" "$server_image" <<'PYRUNTIME'
+            import json,re,sys
+            from pathlib import Path
+            try:
+                x=json.loads(Path(sys.argv[1]).read_text())
+                assert [x[k] for k in ('server','worker','volume','image')] == sys.argv[2:]
+                assert re.fullmatch('[a-f0-9]{40}',x['candidate'])
+            except (OSError,ValueError,KeyError,TypeError,AssertionError):
+                print('RELEASE_BACKUP_RUNTIME_MISMATCH',file=sys.stderr);sys.exit(2)
+            PYRUNTIME
+            release_run='${{ github.run_id }}'
+            release_attempt='${{ github.run_attempt }}'
+            [[ "$release_run" =~ ^[0-9]+$ ]] && [[ "$release_attempt" =~ ^[0-9]+$ ]]
+            checkpoint_name="release-$release_sha-$release_run-$release_attempt"
+            [ ! -e "$verified_backup_root/$checkpoint_name" ] || { echo RELEASE_CHECKPOINT_EXISTS >&2; exit 2; }
+            # Read-only gzip count and scratch filesystem admission, before API stop.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py release-capacity \
+              --source /source --backup-parent /backups --prior-backup "/backups/$verified_backup_name" --scratch-parent /scratch > "$verification_dir/capacity.json"
+            reserve_scratch_arg=$(exec 9>&-; python3 - "$verification_dir/capacity.json" <<'PYCAPACITY'
+            import json,sys
+            x=json.load(open(sys.argv[1]));assert x['state']=='RELEASE_STORAGE_PREFLIGHT'
+            assert x['free_bytes']>=x['required_bytes'] and x['scratch_free_bytes']>=x['scratch_required_bytes']
+            print('--reserve-scratch' if x['shared_filesystem'] else '')
+            PYCAPACITY
+            )
+            # The retained external copy is restored as history, never labelled current.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
+              --backup "/backups/$verified_backup_name" --scratch-parent /scratch > "$verification_dir/prior-restore.json"
+            # Known installed guard is the finite owner-loss recovery path.
+            systemctl is-active --quiet aemr-runtime-guard.timer
+            [ "$(exec 9>&-; systemctl show --property=FragmentPath --value aemr-runtime-guard.service)" = /etc/systemd/system/aemr-runtime-guard.service ]
+            [ "$(exec 9>&-; systemctl show --property=FragmentPath --value aemr-runtime-guard.timer)" = /etc/systemd/system/aemr-runtime-guard.timer ]
+            [ "$(exec 9>&-; systemctl show --property=NeedDaemonReload --value aemr-runtime-guard.timer)" = no ]
+            [ -z "$(exec 9>&-; systemctl show --property=DropInPaths --value aemr-runtime-guard.timer)" ]
+            [ "$(exec 9>&-; systemctl show --property=NeedDaemonReload --value aemr-runtime-guard.service)" = no ]
+            [ -z "$(exec 9>&-; systemctl show --property=DropInPaths --value aemr-runtime-guard.service)" ]
+            git show "$release_sha:deploy/runtime_guard.py" > "$verification_dir/runtime_guard.py"
+            git show "$release_sha:deploy/systemd/aemr-runtime-guard.service" > "$verification_dir/guard.service"
+            git show "$release_sha:deploy/systemd/aemr-runtime-guard.timer" > "$verification_dir/guard.timer"
+            cmp "$verification_dir/runtime_guard.py" /usr/local/libexec/aemr/runtime_guard.py 9>&-
+            cmp "$verification_dir/guard.service" /etc/systemd/system/aemr-runtime-guard.service 9>&-
+            cmp "$verification_dir/guard.timer" /etc/systemd/system/aemr-runtime-guard.timer 9>&-
+            if [ "$(exec 9>&-; id -u)" = 0 ]; then
+              cat /etc/aemr/runtime-policy.json > "$verification_dir/guard-policy.json" 9>&-
+            else
+              sudo -n cat /etc/aemr/runtime-policy.json > "$verification_dir/guard-policy.json" 9>&-
+            fi
+            original_name=$(exec 9>&-; docker inspect --format '{{.Name}}' "$original_server")
+            python3 - "$verification_dir/guard-policy.json" "$original_name" <<'PYGUARD'
+            import json,sys
+            x=json.load(open(sys.argv[1]));assert x['project']=='aemr'
+            assert x['services']['server']['container']==sys.argv[2].removeprefix('/')
+            assert x.get('worker_enabled',False) is False
+            PYGUARD
+            original_quiesced=true
+            docker stop --time 75 "$original_server" >/dev/null
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = exited ] || { echo BACKUP_REQUIRES_SERVER_QUIESCENCE >&2; exit 2; }
+            # Capture all current state, including legitimate startup/WAL/timestamp changes.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py create \
+              --source /source --backup "/backups/$checkpoint_name" --compressed --compression-level 1 $reserve_scratch_arg > "$verification_dir/capture.json"
+            # Only archive container ownership changes; source attributes remain in tar/manifest.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups" \
+              --entrypoint /opt/report-env/bin/python "$server_image" -B -c \
+              'import os,sys; from pathlib import Path; root=Path("/backups")/sys.argv[1]; [os.chown(p,int(sys.argv[2]),int(sys.argv[3])) for p in [root,*root.iterdir()]]' "$checkpoint_name" "$(exec 9>&-; id -u)" "$(exec 9>&-; id -g)"
             docker run --rm --network none --read-only --user 0 \
               --mount "type=volume,src=$source_volume,dst=/source,readonly" \
               --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
               --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
               --mount type=volume,dst=/scratch \
               --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
-              --backup "/backups/$verified_backup_name" --scratch-parent /scratch --source /source
+              --backup "/backups/$checkpoint_name" --scratch-parent /scratch --source /source > "$verification_dir/current-restore.json"
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = exited ]
+            case "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$worker")" in
+              exited|created) ;;
+              *) echo BACKUP_REQUIRES_WORKER_QUIESCENCE >&2; exit 2 ;;
+            esac
+            python3 - "$verification_dir" "$verified_backup_root" "$checkpoint_name" "$release_sha" "$original_server" "$worker" "$source_volume" "$server_image" "$original_web_image" "$original_code" <<'PYPROOF'
+            import hashlib,json,os,sys
+            from pathlib import Path
+            v,root=map(Path,sys.argv[1:3]);name,sha,server,worker,volume,image,web,code=sys.argv[3:]
+            prior=json.loads((v/'prior-restore.json').read_text());current=json.loads((v/'current-restore.json').read_text())
+            assert prior['state']==current['state']=='VERIFIED_IN_SCRATCH' and current['source_matched'] is True
+            manifest=root/name/'manifest.json'
+            proof={'release_sha':sha,'manifest_sha256':hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                   'checkpoint':name,'prior_restore':prior,'restore':current,
+                   'runtime':{'server':server,'worker':worker,'volume':volume},
+                   'rollback':{'server_image':image,'web_image':web,'code_sha':code}}
+            with (root/f'{name}.receipt.json').open('x') as output:
+                json.dump(proof,output,sort_keys=True);output.flush();os.fsync(output.fileno())
+            PYPROOF
             echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'
 
             # Storage is a deployment prerequisite, not a post-failure repair.
@@ -312,11 +445,11 @@ jobs:
             # disk/image preparation. Both belong to the separately gated
             # report release, after stateful backup + restore acceptance.
             docker image prune --force >/dev/null
-            free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            free_kb=$(exec 9>&-; df -Pk / | awk 'NR==2 {print $4}')
             if [ "${free_kb:-0}" -lt 8388608 ]; then
               echo "Less than 8 GiB free; reclaiming unused build cache."
               docker builder prune --all --force >/dev/null
-              free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+              free_kb=$(exec 9>&-; df -Pk / | awk 'NR==2 {print $4}')
             fi
             df -h /
             if [ "${free_kb:-0}" -lt 4194304 ]; then
@@ -325,37 +458,27 @@ jobs:
             fi
             cd ..
 
-            # Do not overwrite the rollback point with a deployment that is
-            # already unhealthy. Preserve the prior :previous images in that case.
-            current_server=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production ps --all --quiet server)
-            current_health=
-            if [ -n "$current_server" ]; then
-              current_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$current_server" 2>/dev/null || true)
-            fi
-            if [ "$current_health" = "healthy" ]; then
-              git rev-parse HEAD > deploy/.last-known-good
-              for img in aemr-server aemr-web; do
-                if docker image inspect "$img:latest" >/dev/null 2>&1; then
-                  docker tag "$img:latest" "$img:previous"
-                fi
-              done
-            else
-              echo "Current server is not healthy; preserving the existing rollback point."
-            fi
-
+            # Healthy pre-stop runtime is the rollback point; stopped health is not evidence.
+            [ "$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_server")" = "$server_image" ]
+            [ "$(exec 9>&-; git rev-parse HEAD)" = "$original_code" ]
+            docker tag "$server_image" aemr-server:previous
+            docker tag "$original_web_image" aemr-web:previous
+            printf '%s\n' "$original_code" > deploy/.last-known-good
             git fetch origin
             git checkout main
             tested_commit='${{ github.sha }}'
             git cat-file -e "$tested_commit^{commit}"
             git reset --hard "$tested_commit"
-            test "$(git rev-parse HEAD)" = "$tested_commit"
+            test "$(exec 9>&-; git rev-parse HEAD)" = "$tested_commit"
             git log --oneline -1
             cd /home/aemr/dash/deploy
             # Even if COMPOSE_PROFILES=reports is set, preserve the existing
             # worker until its separate preflight can safely replace it.
-            if ! docker compose --env-file .env.production up -d --build server web caddy; then
+            docker compose --env-file .env.production build server web
+            runtime_mutation_started=true
+            if ! docker compose --env-file .env.production up -d --no-build server web caddy; then
               df -h /
-              server_id=$(docker compose --env-file .env.production ps --all --quiet server)
+              server_id=$(exec 9>&-; docker compose --env-file .env.production ps --all --quiet server)
               if [ -n "$server_id" ]; then
                 docker inspect --format 'server_state={{.State.Status}} exit_code={{.State.ExitCode}} oom={{.State.OOMKilled}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server_id" || true
               fi
