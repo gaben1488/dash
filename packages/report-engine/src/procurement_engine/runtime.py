@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .deployment_diagnostics import public_error_code, safe_sqlite_error
-from .google_adapter import GoogleReadClient, capture_google
+from .google_adapter import (
+    GoogleReadClient,
+    GoogleReadError,
+    capture_google,
+    recheck_google_sources,
+)
 from .identity_store import IdentityStore
 from .publication_store import PublicationStore
 from .raw_pipeline import (
@@ -108,19 +113,28 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             if model['release']['official_release_allowed'] is not True:
                 status.update(status='NOT_ISSUED', blockers=model['release']['blockers'])
             else:
+                source_equivalence = {}
                 def final_revisions():
-                    providers = {s['provider_id'] for s in registry['sources']}
-                    versions = {provider: client.revision(provider) for provider in providers}
+                    versions, proofs = recheck_google_sources(registry, capture, client)
+                    source_equivalence.clear()
+                    source_equivalence.update(proofs)
                     current_ledger, _, metadata = read_google_history(client, issued_recommendations(_load(ledger_path)))
                     history_revision = {'RECOMMENDATION_HISTORY_EVIDENCE': canonical_semantic_hash(metadata)} if metadata is not None else {}
-                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']}, **history_revision,
+                    if proofs:
+                        # History reads must not leave a window after the content reread barrier.
+                        providers = {source['provider_id'] for source in registry['sources']}
+                        final_versions = {provider: client.revision(provider) for provider in sorted(providers)}
+                        if any(final_versions[source['provider_id']] != versions[source['source_id']]
+                               for source in registry['sources']):
+                            raise GoogleReadError('SOURCE_CHANGED_DURING_FREEZE')
+                    return {**versions, **history_revision,
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(current_ledger),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
                             'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at'])),
                             'WEEKLY_BASELINE': canonical_semantic_hash(capture['weekly_baseline'])}
 
                 stage = 'publication'
-                receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)
+                receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions, source_equivalence=source_equivalence)
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = public_error_code(str(error))

@@ -318,3 +318,116 @@ def test_identity_recovery_degradation_is_visible_in_attempt_status(tmp_path, mo
     monkeypatch.setattr(IdentityStore, 'recover_latest_plan_signatures', recover)
     status = run_once(registry, ledger, tmp_path / 'state', client=Google())
     assert status['identity_recovery'] == {'skipped_transient_donors': 1, 'unrecovered_snapshots': 1}
+
+@pytest.mark.parametrize('drift', ['hidden', 'format', 'money', 'date', 'formula', 'schema', 'geometry', 'dependency', 'unstable', 'late_unstable', 'read_error'])
+def test_final_barrier_rechecks_source_content_not_workbook_presentation(tmp_path, monkeypatch, drift):
+    from procurement_engine import runtime
+    registry, ledger = inputs(tmp_path)
+
+    class Rechecked(Google):
+        changed = False
+        checks = 0
+        def revision(self, provider):
+            if self.changed and provider == 'master-0':
+                self.checks += 1
+                return 'revision3' if ((drift == 'unstable' and self.checks > 1)
+                                       or (drift == 'late_unstable' and self.checks > 2)) else 'revision2'
+            return 'revision1'
+        def grid(self, provider, sheet_id):
+            result = super().grid(provider, sheet_id)
+            if self.changed and provider == 'master-0' and drift == 'geometry':
+                result['gridProperties']['rowCount'] = 4
+            return result
+        def formula_context(self, provider):
+            extra = {'sheetId': 99, 'title': 'Unregistered system',
+                     'gridProperties': {'rowCount': 65, 'columnCount': 12}, 'hidden': False, 'index': 1}
+            if self.changed and provider == 'master-0':
+                extra['hidden'] = True
+                if drift == 'format': extra['gridProperties']['frozenRowCount'] = 2
+            return {'sheets': [{'sheetId': 0, **self.grid(provider, 0)}, extra],
+                    'named_ranges': ([{'name': 'Dependency', 'range': {'sheetId': 99, 'endRowIndex': 5}}]
+                                     if self.changed and provider == 'master-0' and drift == 'dependency' else [])}
+        def values(self, provider, title, start, end, columns):
+            if self.changed and provider == 'master-0' and drift == 'read_error': raise OSError('private read failure')
+            result = super().values(provider, title, start, end, columns)
+            if self.changed and provider == 'master-0' and start == 1:
+                if drift == 'money': result[1] = [1500]
+                if drift == 'date': result[1] = ['12.10.2026']
+                if drift == 'schema': result[2] = ['Changed header']
+            return result
+        def formulas(self, provider, title, start, end, columns):
+            result = self.values(provider, title, start, end, columns)
+            if self.changed and provider == 'master-0' and drift == 'formula': result[1] = ['=1+2']
+            return result
+    client = Rechecked()
+    original = runtime.build_from_capture
+    def build(*args, **kwargs):
+        result = original(*args, **kwargs)
+        client.changed = True
+        return result
+    monkeypatch.setattr(runtime, 'build_from_capture', build)
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=client)
+    if drift in {'hidden', 'format'}:
+        assert status['status'] == 'VERIFIED'
+        receipt = status['publication']
+        assert receipt['source_revisions_at_publish']['master-0'] == 'revision2'
+        assert receipt['source_equivalence_at_publish']['master-0']['captured_revision'] == 'revision1'
+        capture = json.loads((state / 'attempts' / status['attempt_id'] / 'capture.json').read_text())
+        assert capture['sources'][0]['after'] == 'revision1'
+        assert capture['sources'][0]['formula_evidence']['sheets'][1]['hidden'] is False
+    else:
+        assert status['status'] == 'NOT_ISSUED'
+        assert PublicationStore(state / 'published').latest() is None
+
+@pytest.mark.parametrize('key', ['SOURCE_CONTRACT', 'HISTORICAL_RECOMMENDATIONS', 'IDENTITY_REVIEWS', 'WEEKLY_BASELINE', 'RECOMMENDATION_HISTORY_EVIDENCE'])
+def test_source_equivalence_never_authorizes_local_or_history_drift(tmp_path, key):
+    from procurement_engine.publication_store import _revisions_equivalent
+    expected = {'master': 'version1', key: 'original'}
+    actual = {'master': 'version1', key: 'changed'}
+    assert not _revisions_equivalent(tmp_path, expected, actual, {})
+
+
+def test_publication_proof_requires_exact_key_set_and_stable_actual_tokens(tmp_path):
+    from procurement_engine.publication_store import _revisions_equivalent
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {}, {})
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {'master': 'one', 'foreign': 'one'}, {})
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {'master': 'two'}, {})
+
+@pytest.mark.parametrize('drift', ['contract', 'ledger', 'identity', 'history'])
+def test_equivalent_google_sources_still_block_changed_non_google_evidence(tmp_path, monkeypatch, drift):
+    from procurement_engine import runtime
+    registry, ledger = inputs(tmp_path)
+    class StableContent(Google):
+        changed = False
+        def revision(self, provider):
+            return 'revision2' if self.changed and provider == 'master-0' else 'revision1'
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 0, **self.grid(provider, 0)}], 'named_ranges': []}
+        def formulas(self, *args): return self.values(*args)
+    client = StableContent()
+    original_build = runtime.build_from_capture
+    original_reviews = runtime.IdentityStore.review_evidence
+    original_history = runtime.read_google_history
+    def reviews(self, **kwargs):
+        return [{'changed_review': True}] if client.changed and drift == 'identity' else original_reviews(self, **kwargs)
+    def history(*args, **kwargs):
+        result = original_history(*args, **kwargs)
+        if client.changed and drift == 'history': return result[0], result[1], {'changed': True}
+        return result
+    def build(*args, **kwargs):
+        result = original_build(*args, **kwargs)
+        client.changed = True
+        if drift == 'contract':
+            data = json.loads(registry.read_text()); data['changed_contract'] = True
+            registry.write_text(json.dumps(data))
+        if drift == 'ledger': ledger.write_text('[{"original":"Changed historical evidence"}]')
+        return result
+    monkeypatch.setattr(runtime, 'build_from_capture', build)
+    monkeypatch.setattr(runtime.IdentityStore, 'review_evidence', reviews)
+    monkeypatch.setattr(runtime, 'read_google_history', history)
+    state = tmp_path / 'state'
+    result = run_once(registry, ledger, state, client=client)
+    assert result['status'] == 'NOT_ISSUED'
+    assert result['error_code'] == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
+    assert PublicationStore(state / 'published').latest() is None

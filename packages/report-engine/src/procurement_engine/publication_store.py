@@ -23,6 +23,48 @@ from .projections import project_dashboard
 from .snapshot_bundle_io import verify_persisted_bundle
 
 
+def _revisions_equivalent(stage, expected, observed, proofs):
+    """Validate reread proof against the immutable manifest, never substitute tokens."""
+    if not isinstance(observed, dict) or set(observed) != set(expected):
+        return False
+    changed = {key for key in expected if expected[key] != observed[key]}
+    if not changed:
+        return not proofs
+    if set(proofs) != changed:
+        return False
+    from .google_adapter import source_semantic_metadata
+    from .snapshot import canonical_semantic_hash
+    manifest = _json(stage / 'snapshot_bundle/manifest.json')
+    sources = {source['source_id']: source for source in manifest['sources']}
+    contract_entries = [item for item in manifest.get('payload_index', []) if item['source_id'] == 'SOURCE_CONTRACT']
+    if len(contract_entries) != 1:
+        return False
+    frozen_contract = _json(stage / 'snapshot_bundle' / contract_entries[0]['path'])['semantic_values']
+    registered = {item['source_id']: item for item in frozen_contract['sources']}
+    for key in changed:
+        source, proof = sources.get(key, {}), proofs.get(key, {})
+        contract = registered.get(key)
+        if not contract or any(source.get(field) != contract.get(field)
+                               for field in ('provider_id', 'role', 'schema_fingerprint')):
+            return False
+        if str(source.get('sheet_or_tab_id')) != str(contract.get('sheet_id')):
+            return False
+        try:
+            metadata_hash = canonical_semantic_hash(source_semantic_metadata(source['payload_metadata']))
+            if not (proof['provider_id'] == source['provider_id']
+                    and proof['sheet_id'] == str(source['sheet_or_tab_id'])
+                    and proof['captured_revision'] == expected[key]
+                    and proof['observed_revision_before'] == proof['observed_revision_after'] == observed[key]
+                    and observed[key]
+                    and proof['captured_values_hash'] == proof['observed_values_hash'] == source['canonical_semantic_hash']
+                    and proof['captured_metadata_hash'] == proof['observed_metadata_hash'] == metadata_hash
+                    and proof['captured_content_hash'] == source['content_hash']
+                    and proof['schema_fingerprint'] == source['schema_fingerprint']):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+    return True
+
 class PublicationError(ValueError):
     pass
 
@@ -422,7 +464,7 @@ class PublicationStore:
                 raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
             return data
 
-    def publish(self, candidate: str | Path, *, read_revisions: Callable[[], dict]):
+    def publish(self, candidate: str | Path, *, read_revisions: Callable[[], dict], source_equivalence=None):
         source = Path(candidate)
         if not source.is_dir() or source.is_symlink():
             raise PublicationError('CANDIDATE_DIRECTORY_INVALID')
@@ -456,7 +498,8 @@ class PublicationStore:
                             except ValueError as exc:
                                 raise PublicationError(str(exc)) from exc
                     observed = read_revisions()
-                    if not observed or observed != expected:
+                    proof = source_equivalence or {}
+                    if not observed or not _revisions_equivalent(stage, expected, observed, proof):
                         error = PublicationError('SOURCE_CHANGED_BEFORE_PUBLICATION')
                         # Runtime stores evidence only in private error.json.
                         # Provider identities/revision tokens must never enter
@@ -494,6 +537,8 @@ class PublicationStore:
                               'operational_available': 'operational' in (model.get('document_plans') or {}),
                               'source_revisions_at_publish': observed,
                               'status': 'VERIFIED_WITH_WARNINGS' if model.get('issues') or (model.get('automation_assurance') or {}).get('actions') else 'VERIFIED'}
+                    if proof:
+                        record['source_equivalence_at_publish'] = proof
                     if model['snapshot'].get('archive_origin'):
                         record['archive_origin'] = model['snapshot']['archive_origin']
                         record['source_verification'] = 'FROZEN_ARCHIVE_HASHES'

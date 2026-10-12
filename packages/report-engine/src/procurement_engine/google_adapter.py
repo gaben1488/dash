@@ -5,7 +5,7 @@ import json
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -18,6 +18,7 @@ from .raw_pipeline import (
     RENDERER_VERSION,
     header_hash,
 )
+from .snapshot import canonical_semantic_hash
 
 
 class GoogleReadError(RuntimeError):
@@ -301,3 +302,76 @@ def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_att
     return {'capture_version':'connector-capture-v1','captured_at':bundle.manifest['captured_at'],
         'acquisition_started_at':now.isoformat(), 'acquisition_completed_at':datetime.now(timezone.utc).isoformat(),
         'report_date':local.strftime('%d.%m.%Y'),'report_year':local.year,'timezone':timezone_name,'sources':sources}
+
+
+def source_semantic_metadata(metadata):
+    """Derived comparison only: frozen raw evidence remains immutable."""
+    result = dict(metadata)
+    evidence = metadata.get('formula_evidence')
+    if not isinstance(evidence, dict) or any(not isinstance(evidence.get(key), list)
+                                           for key in ('sheets', 'named_ranges', 'formulas')):
+        raise GoogleReadError('SOURCE_EQUIVALENCE_FORMULA_EVIDENCE_REQUIRED')
+    semantic = dict(evidence)
+    semantic['sheets'] = sorted(({
+        'sheetId': sheet['sheetId'], 'title': sheet['title'],
+        'gridProperties': {key: sheet.get('gridProperties', {})[key]
+                           for key in ('rowCount', 'columnCount') if key in sheet.get('gridProperties', {})},
+    } for sheet in evidence['sheets']), key=lambda sheet: sheet['sheetId'])
+    semantic['named_ranges'] = sorted(({'name': item['name'], 'range': item['range']}
+                                       for item in evidence['named_ranges']), key=lambda item: item['name'])
+    result['formula_evidence'] = semantic
+    return result
+
+
+def recheck_google_sources(registry, capture, client):
+    """Read actual tokens; drifted providers require a complete stable scoped reread."""
+    contracts = {source['source_id']: source for source in registry['sources']}
+    captured = {source['source_id']: source for source in capture['sources']}
+    if set(contracts) != set(captured):
+        raise GoogleReadError('SOURCE_EQUIVALENCE_SCOPE_MISMATCH')
+    providers = {source['provider_id'] for source in contracts.values()}
+    before = {provider: client.revision(provider) for provider in sorted(providers)}
+    if any(not token for token in before.values()):
+        raise GoogleReadError('ATOMIC_SOURCE_REVISION_UNAVAILABLE')
+    changed = {source_id for source_id, source in captured.items()
+               if before[contracts[source_id]['provider_id']] != source['after']}
+    proofs = {}
+    for source_id in sorted(changed):
+        contract, frozen = contracts[source_id], captured[source_id]
+        for key in ('source_id', 'provider_id', 'role', 'sheet_id', 'columns', 'header_rows', 'grbs'):
+            if contract[key] != frozen[key]:
+                raise GoogleReadError('SOURCE_EQUIVALENCE_SCOPE_MISMATCH')
+        payload = GoogleSheetSourceAdapter(contract, client).read_payload()
+        captured_metadata = {'sheet_title': frozen['sheet'], 'grbs': frozen.get('grbs'),
+            'row_count': frozen['rows'], 'column_count': frozen['columns'],
+            'header_rows': contract['header_rows'], 'units': contract['units'],
+            'capture_method': frozen.get('capture_method', 'connector_bounded_ranges'),
+            'formula_evidence': frozen.get('formula_evidence')}
+        observed_metadata = {**captured_metadata, **payload.metadata}
+        expected_values = canonical_semantic_hash(frozen['values'])
+        actual_values = canonical_semantic_hash(payload.semantic_values)
+        expected_metadata = canonical_semantic_hash(source_semantic_metadata(captured_metadata))
+        actual_metadata = canonical_semantic_hash(source_semantic_metadata(observed_metadata))
+        expected_schema = header_hash(frozen['values'], contract['header_rows'],
+                                     volatile_cells=contract.get('volatile_header_cells', ()))
+        if (expected_values != actual_values or expected_metadata != actual_metadata
+                or expected_schema != payload.schema_fingerprint or expected_schema != contract['schema_fingerprint']):
+            raise GoogleReadError('SOURCE_CHANGED_BEFORE_PUBLICATION')
+        proofs[source_id] = {'provider_id': contract['provider_id'], 'sheet_id': str(contract['sheet_id']),
+            'captured_revision': frozen['after'], 'observed_revision_before': before[contract['provider_id']],
+            'captured_values_hash': expected_values, 'observed_values_hash': actual_values,
+            'captured_metadata_hash': expected_metadata, 'observed_metadata_hash': actual_metadata,
+            'captured_content_hash': canonical_semantic_hash({'values': frozen['values'],
+                'formula_evidence': frozen['formula_evidence']}),
+            'observed_content_hash': canonical_semantic_hash({'values': payload.semantic_values,
+                'formula_evidence': payload.metadata['formula_evidence']}),
+            'observed_formula_evidence_hash': canonical_semantic_hash(payload.metadata['formula_evidence']),
+            'schema_fingerprint': payload.schema_fingerprint,
+            'checked_at': datetime.now(UTC).isoformat()}
+    if changed:
+        after = {provider: client.revision(provider) for provider in sorted(providers)}
+        if before != after:
+            raise GoogleReadError('SOURCE_CHANGED_DURING_FREEZE')
+        for source_id, proof in proofs.items():
+            proof['observed_revision_after'] = after[contracts[source_id]['provider_id']]
+    return {source_id: before[contract['provider_id']] for source_id, contract in contracts.items()}, proofs
