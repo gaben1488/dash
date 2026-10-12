@@ -336,6 +336,9 @@ class Recovery:
                     raise ValueError
             except (ValueError, IndexError) as exc:
                 raise RecoveryError('WORKER_INTERVAL_UNSUPPORTED') from exc
+            # Source/runtime rejection remains read-only. Prove durable admission
+            # control after preflight but before override or container mutation.
+            disable_worker_admission()
             since = datetime.now(timezone.utc).isoformat()
             self.override(self.image)
             self.changed = True

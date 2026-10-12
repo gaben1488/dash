@@ -258,3 +258,44 @@ def test_failed_admission_write_blocks_deliberate_worker_stop(monkeypatch):
     recovery.call = lambda *args, **kwargs: pytest.fail('Docker stop reached before durable admission disable')
     with pytest.raises(module.RecoveryError, match='WORKER_ADMISSION_DISABLE_FAILED'):
         recovery._stop_failed_worker_locked()
+
+
+def ready_recovery(tmp_path, module):
+    recovery = object.__new__(module.Recovery)
+    recovery.server, recovery.worker, recovery.image, recovery.volume = 'a'*64, 'b'*64, 'sha256:'+'c'*64, 'state'
+    recovery.session = tmp_path
+    config = {'Image': recovery.image, 'Mounts': [{'Destination': '/app/packages/server/data', 'Type': 'volume', 'Name': 'state'}],
+              'Config': {'Cmd': ['worker', '--interval-seconds', '1']}}
+    recovery.inspect = lambda container: {**config, 'State': {'Status': 'running' if container == recovery.server else 'exited'}}
+    recovery.call = lambda args, **kwargs: recovery.worker
+    recovery.require_no_manual_writer = lambda: None
+    recovery.smoke = lambda: None
+    recovery.match_report_backup = lambda: None
+    return recovery
+
+
+def test_startup_cannot_mutate_runtime_without_durable_admission_control(tmp_path, monkeypatch):
+    import pytest
+    module = recovery_module()
+    def unreadable_policy():
+        raise module.RecoveryError('WORKER_ADMISSION_DISABLE_FAILED')
+    monkeypatch.setattr(module, 'disable_worker_admission', unreadable_policy)
+    recovery = ready_recovery(tmp_path, module)
+    recovery.override = lambda *args: pytest.fail('override written before admission-control preflight')
+    recovery.compose = lambda *args: pytest.fail('worker started before admission-control preflight')
+    with pytest.raises(module.RecoveryError, match='WORKER_ADMISSION_DISABLE_FAILED'):
+        recovery.recover()
+
+
+def test_rejected_source_preflight_preserves_existing_worker_admission(tmp_path, monkeypatch):
+    import pytest
+    module = recovery_module()
+    calls = []
+    monkeypatch.setattr(module, 'disable_worker_admission', lambda: calls.append('disabled'))
+    recovery = ready_recovery(tmp_path, module)
+    def stale():
+        raise module.RecoveryError('WORKER_BACKUP_STALE')
+    recovery.match_report_backup = stale
+    with pytest.raises(module.RecoveryError, match='WORKER_BACKUP_STALE'):
+        recovery.recover()
+    assert calls == []
