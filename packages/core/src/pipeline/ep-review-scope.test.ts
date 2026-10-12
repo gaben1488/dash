@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, type NormalizedMetric } from '@aemr/shared';
 import { runPipeline } from './orchestrator';
+import { computeTrustScore } from '../trust/scorer';
 
 function snapshot(subject: string, reason: string, factDate = 'Х', fact: unknown = 800, plan: unknown = 1200) {
   const row: unknown[] = Array(34).fill('');
@@ -22,6 +23,26 @@ describe('EP case scope and explanation through the pipeline', () => {
   it('keeps the same annual scope for historical comma and thousands-separated amounts', () => {
     const result = snapshot('Окорока (куриные)', '', 'Х', '800,00', '1 200,00');
     expect(result.issues.find(i => i.signal === 'epRisk')).toMatchObject({ severity: 'info' });
+  });
+  it('dictionary uncertainty is not an employee operational penalty, while real risks remain', () => {
+    const metrics = new Map<string, NormalizedMetric>([['test', { metricKey: 'test', value: 100, numericValue: 100, displayValue: '100',
+      origin: 'official', period: 'annual', unit: 'count', sourceSheet: 'СВОД', sourceCell: 'A1', formula: null,
+      confidence: 1, readAt: '2026-10-12T00:00:00Z', warnings: [] }]]);
+    const baseline = computeTrustScore(metrics, [], [], 'test');
+    const component = (reason: string) => {
+      const ep = snapshot('Разовая закупка', reason, '10.10.2026').issues.find(i => i.signal === 'epRisk')!;
+      const trust = computeTrustScore(metrics, [ep], [], 'test');
+      return { ep, trust, score: trust.components.find(c => c.name === 'operational_risk')!.score };
+    };
+    const unknown = component('Особое основание для проверки');
+    expect(unknown.ep).toMatchObject({ origin: 'mapping_error', status: 'open' });
+    expect(unknown.score).toBe(100);
+    expect(unknown.trust.overall).toBe(baseline.overall);
+    expect(unknown.trust.components.map(c => [c.name, c.score])).toEqual(baseline.components.map(c => [c.name, c.score]));
+    expect(unknown.trust.components.reduce((n, c) => n + c.issues, 0)).toBeGreaterThan(0);
+    expect(component('').score).toBeLessThan(100);
+    expect(component('Проведение аукциона нецелесообразно').score).toBeLessThan(100);
+    expect(component('не является монополистом').score).toBe(100);
   });
   it('uses curated series evidence but refuses to transfer it to a reused number', () => {
     const series = snapshot('Окорока (куриные)', '');

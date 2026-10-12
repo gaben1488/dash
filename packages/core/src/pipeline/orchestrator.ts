@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -920,18 +920,24 @@ function detectSignalsToIssues(
       const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
         factDateRaw: cells['Q'], factSum: sheetNumber(cells['Y']) ?? undefined };
       const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
+      // Nonempty UNMAPPED is a proven dictionary limitation, not employee misconduct.
+      // Reuse the existing diagnostic classification while preserving this case's stable ID.
+      const dictionaryUncertainty = signalKey === 'epRisk' && typeof cells.M === 'string'
+        && cells.M.trim().length > 0
+        && canonicalizeReasonEp(cells.M.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED';
+      const classification = dictionaryUncertainty ? SIGNAL_ISSUE_MAP.unmappedReasonEP : meta;
       const severity: Issue['severity'] = signalKey === 'epRisk'
         ? epRiskStrictnessOfReason(cells['M'], epContext)
         : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity,
-        origin: 'bi_heuristic',
+        origin: dictionaryUncertainty ? 'mapping_error' : 'bi_heuristic',
         category: `signal:${signalKey}`,
         signal: signalKey,
-        group: meta.group,
-        checkId: meta.checkId,
-        kbHint: meta.kbHint,
+        group: classification.group,
+        checkId: classification.checkId,
+        kbHint: classification.kbHint,
         title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M).title : meta.title}: ${subject || `строка ${r + 1}`}`,
         // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
         // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).

@@ -6,7 +6,7 @@ import clsx from 'clsx';
 import { KbHover } from './contract/KbHover';
 import { formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
-import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/registry-view';
+import { activityRowLabel, signalChipText, rowSignalTone } from '../lib/rows/registry-view';
 import { looksLikeEconomyDisposal } from '../lib/economy/disposal';
 import { RowTimelineSection } from './timeline/RowTimelineSection';
 import { PlanProvenanceSection } from './provenance/PlanProvenanceSection';
@@ -511,8 +511,8 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             {signals.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {signals.map((sig: string) => {
-                  const chip = signalChipText(sig);
-                  const tone = signalTone(sig);
+                  const chip = signalChipText(sig, row);
+                  const tone = rowSignalTone(sig, row);
                   return (
                     <span
                       key={sig}
