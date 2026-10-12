@@ -555,7 +555,7 @@ export interface AppState {
    * не загружено или сервер не ответил — кнопка показывается БЕЗ числа
    * (отсутствие счёта не выдаётся за ноль строк).
    */
-  bucketCounts: { unfunded: number; yearlong: number } | null;
+  bucketCounts: { unfunded: number; yearlong: number; reading?: Awaited<ReturnType<typeof api.getRegistryBuckets>> } | null;
   fetchBucketCounts: () => Promise<void>;
 
   // Утилиты
@@ -595,6 +595,7 @@ function isDemoData(data: DashboardData): boolean {
  * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
  */
 let dashboardRequestSeq = 0;
+let bucketRequestSeq = 0;
 
 /** Страж повторного запроса живого коэффициента (fetchLiveStavka). */
 let liveStavkaInFlight = false;
@@ -1211,6 +1212,7 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
       return true;
     } catch (err) {
       if (seq !== dashboardRequestSeq) return false; // устаревшая ошибка не затирает свежие данные
@@ -1250,6 +1252,7 @@ export const useStore = create<AppState>((set, get) => ({
         isDemo: isDemoData(data),
         refreshResult: { sources: result.sources ?? [], loading: false },
       });
+      void get().fetchBucketCounts();
     } catch (err) {
       if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
@@ -1282,6 +1285,7 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
     } catch (err) {
       if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
@@ -1294,10 +1298,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   bucketCounts: null,
   fetchBucketCounts: async () => {
+    const seq = ++bucketRequestSeq;
+    const acceptedSnapshot = get().dashboardData?.snapshot.id ?? null;
+    set({ bucketCounts: null });
     try {
       const b = await api.getRegistryBuckets();
-      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows } });
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows, reading: b } });
     } catch {
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: null });
       // Сервер не ответил — счётчик остаётся null: кнопка навигации живёт
       // без числа, отсутствие счёта не выдаётся за ноль строк.
     }

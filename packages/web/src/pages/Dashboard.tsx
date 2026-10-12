@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
 import { periodDataLabel } from '../lib/period-label';
+import { fmtReadAt } from '../lib/monitoring/format';
 import { useMultiDimMetrics } from '../hooks/useMultiDimMetrics';
 import { HeroKPICard, DeptBreakdown, BudgetBreakdown, TrustComponents } from '../components/HeroKPICard';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
@@ -1329,6 +1330,13 @@ function formulaSpotTone(cells: number | null): string {
   return 'border-emerald-500/20 bg-emerald-500/8';
 }
 
+/** Состояние корзины: инициативы входят в число строк, не прибавляются к нему. */
+export function fundingStageLine(bucket: (YearlongBucket & { initiativeRows?: number }) | null): { text: string; hasRows: boolean } | null {
+  if (bucket === null) return null;
+  const initiative = bucket.initiativeRows === undefined ? '' : `; из них инициативных — ${bucket.initiativeRows}`;
+  return { text: `Не обеспечено финансированием — ${bucket.rows} ${pluralRu(bucket.rows, 'строка', 'строки', 'строк')}${initiative}. Состояние потребностей, не ошибка сотрудника.`, hasRows: bucket.rows > 0 };
+}
+
 function BlindSpotsWidget({
   issues,
   signalCounts: apiSignalCounts,
@@ -1368,17 +1376,11 @@ function BlindSpotsWidget({
   // Счёт строк стадии «в течение года» — из данных, не из замечаний
   // (канон §18 п.1). Ошибка сети оставляет null: пятно не рисуется,
   // отсутствие счёта не выдаётся за ноль строк.
-  const [yearlongBucket, setYearlongBucket] = useState<YearlongBucket | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.getRegistryBuckets()
-      .then((b) => {
-        if (alive) setYearlongBucket({ rows: b.yearlong.rows, planSum: b.yearlong.planSum });
-      })
-      .catch(() => { /* счёта нет — стадия честно молчит, а не показывает ноль */ });
-    return () => { alive = false; };
-  }, []);
-  const stage = yearlongStageLine(yearlongBucket);
+  const issueReadAt = useStore(s => s.dashboardData?.lastRefreshed ?? null);
+  // Общий принятый ответ: навигация читает числа из того же объекта.
+  const buckets = useStore(s => s.bucketCounts?.reading ?? null);
+  const stage = yearlongStageLine(buckets?.yearlong ?? null);
+  const fundingStage = fundingStageLine(buckets?.unfunded ?? null);
 
   // Целостность формул книг: счёт ячеек трёх классов считается ИЗ ЗАМЕЧАНИЙ
   // (те же данные, что у остальных плиток), а состояние чтения формул —
@@ -1444,7 +1446,7 @@ function BlindSpotsWidget({
     // Вводная 06.08: сверка лимита — строки без года плана невидимы для формул
     // официального листа СВОД.
     {
-      label: DASHBOARD_REPORT_KB_ADDITIONS.signal_plan_year_missing.label,
+      label: 'Активные замечания по финансированию',
       signal: 'planYearMissing',
       search: 'без года плана',
       color: 'orange',
@@ -1616,6 +1618,13 @@ function BlindSpotsWidget({
             </KBTooltip>
           );
         })}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-zinc-500/15 px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-300">
+        <p>{fundingStage?.text ?? 'Счёт состояния финансирования недоступен — отсутствие данных не означает ноль строк.'}</p>
+        {buckets && <p className="mt-1">Все управления · все строки доступного источника · {buckets.source === 'live' ? 'чтение книг' : 'сохранённый снимок'} · {fmtReadAt(buckets.asOf)}</p>}
+        <p className="mt-1">Активные замечания по финансированию в выбранных управлениях (период в шапке не применяется): {issueReadAt ? (signalCounts.planYearMissing ?? 0) : 'счёт недоступен'}. Снимок замечаний: {issueReadAt ? fmtReadAt(issueReadAt) : 'время не установлено'}. Это отдельный счёт проверок; инициативы и сохранённые решения меняют его состав. Разные моменты чтения нельзя сравнивать как одну контрольную пару.</p>
+        {fundingStage?.hasRows && <button type="button" className="mt-1 underline focus-visible:ring-2" onClick={() => useStore.getState().navigateTo('unfunded')}>Открыть «Не обеспеченные»</button>}
       </div>
 
       {/* Полоса стадии «в течение года» (канон §18 п.1): не плитка дефекта,

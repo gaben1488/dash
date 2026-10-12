@@ -130,7 +130,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 /* ── App ───────────────────────────────────────────────── */
 
 export function App() {
-  const { page, year, fetchDashboard, fetchSubordinates, fetchBucketCounts } = useStore();
+  const { page, year, fetchDashboard, fetchSubordinates } = useStore();
   useThemeInit();
   useUrlSync();
 
@@ -138,10 +138,9 @@ export function App() {
   useEffect(() => {
     fetchDashboard();
     fetchSubordinates();
-    // Честные счётчики корзин Реестра (п.73в) для кнопок навигации: пока
-    // сервер не ответил, кнопки живут без числа — ноль не выдумывается.
-    fetchBucketCounts();
-  }, [fetchDashboard, fetchSubordinates, fetchBucketCounts]);
+    // Счётчики корзин загружаются после принятия Dashboard общим путём store;
+    // отдельный запрос здесь дублировал бы чтение для навигации и Пульса.
+  }, [fetchDashboard, fetchSubordinates]);
 
   // Re-fetch when year filter changes
   const isFirstRender = useRef(true);

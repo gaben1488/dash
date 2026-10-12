@@ -571,7 +571,7 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
-      unfunded: { rows: number; planSum: number };
+      unfunded: { rows: number; planSum: number; initiativeRows?: number };
       yearlong: { rows: number; planSum: number };
     }>('/registry/buckets'),
 
