@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -31,7 +32,7 @@ elif args[0]=='inspect':
     fmt=args[2]
     if '.State.Health' in fmt: print('unhealthy' if scenario=='unhealthy' else 'healthy')
     elif '.State.Status' in fmt:
-        print(('running' if scenario=='worker-running' else 'exited') if args[-1]==worker else ('exited' if '"stop"' in old or os.environ['WINDOW_MODE']=='match-source' else 'running'))
+        print(('running' if scenario=='worker-running' else 'exited') if args[-1]==worker else ('exited' if old.rfind('"stop"') > old.rfind('"start"') or os.environ['WINDOW_MODE']=='match-source' else 'running'))
     elif '.Image' in fmt: print('sha256:'+'c'*64)
     else: print('synthetic_data')
 elif args[0]=='run':
@@ -44,23 +45,53 @@ else: sys.exit(3)
 ''')
             docker.chmod(0o700)
             git = root / 'git'
-            git.write_text('#!/bin/sh\nexit 0\n')
+            git.write_text('#!/bin/sh\ncase "$*" in *deploy/maintenance-lock.sh*) cat "$WINDOW_HELPER";; esac\nexit 0\n')
             git.chmod(0o700)
-            for name in ('sleep', 'nohup'):
+            for name in ('sleep',):
                 command = root / name
                 command.write_text('#!/bin/sh\nexit 0\n')
                 command.chmod(0o700)
+            guardian = None
+            session = base / 'worker-1'
             if mode != 'prepare':
                 session = base / 'worker-1'
                 session.mkdir(parents=True)
                 (session / 'quiescent').touch()
+                (session / 'maintenance-lock.sh').write_text((SCRIPT.parent / 'maintenance-lock.sh').read_text())
+                # Real cross-process EX ownership; never stub the lock or ready proof.
+                guardian = subprocess.Popen(['bash', '-c', '''
+. "$1/maintenance-lock.sh"
+maintenance_lock_acquire || exit 1
+echo "$$" > "$1/guardian-ready"
+while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
+''', 'fixture-guardian', str(session)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                for _ in range(100):
+                    if (session / 'guardian-ready').exists():
+                        break
+                    if guardian.poll() is not None:
+                        self.fail('Synthetic guardian could not acquire the actual kernel lock')
+                    time.sleep(.01)
+                self.assertTrue((session / 'guardian-ready').exists())
                 (session / 'runtime.json').write_text(json.dumps({'server': 'a' * 64, 'worker': 'b' * 64,
                     'volume': 'synthetic_data', 'image': 'sha256:' + 'c' * 64, 'candidate': 'd' * 40}))
             result = subprocess.run(['bash', str(SCRIPT), mode, 'd' * 40, '1', str(repo), str(base)],
                                     capture_output=True, text=True, timeout=15, check=False,
                                     env={**os.environ, 'PATH': tmp + os.pathsep + os.environ['PATH'],
                                          'WINDOW_TRACE': str(trace), 'WINDOW_SCENARIO': scenario, 'WINDOW_MODE': mode,
-                                         'WINDOW_MARKER': str(base / 'worker-1/quiescent')})
+                                         'WINDOW_MARKER': str(base / 'worker-1/quiescent'),
+                                         'WINDOW_HELPER': str(SCRIPT.parent / 'maintenance-lock.sh')})
+            # A failed health check intentionally retains quiescence. Clean up only
+            # the synthetic window after assertions can inspect its command trace.
+            (session / 'quiescent').unlink(missing_ok=True)
+            if guardian is not None:
+                self.assertEqual(guardian.wait(timeout=3), 0)
+            elif (session / 'guardian-ready').exists():
+                for _ in range(100):
+                    released = subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true'], check=False).returncode == 0
+                    if released:
+                        break
+                    time.sleep(.01)
+                self.assertTrue(released, 'Backup guardian leaked its kernel lock')
             calls = [json.loads(x) for x in trace.read_text().splitlines()] if trace.exists() else []
             return result, calls
 
@@ -69,6 +100,8 @@ else: sys.exit(3)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(['stop', '--time', '75', 'a' * 64], calls)
         self.assertEqual([c for c in calls if c[0] == 'start'], [['start', 'a' * 64]])
+        self.assertNotIn('BACKUP_SERVER_NOT_HEALTHY', result.stderr)
+        self.assertNotIn('BACKUP_SERVER_RESTART_FAILED', result.stderr)
         self.assertFalse(any('up' in c or 'worker' in c and c[0] == 'start' for c in calls))
 
     def test_running_worker_blocks_backup_before_server_stop(self):
