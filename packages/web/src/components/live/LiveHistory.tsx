@@ -1,46 +1,17 @@
-/**
- * Эфир-история — мини-барабан последних правок в правом углу шапки
- * (контракт пробы, раздел «угол», пп.10–11 второго круга).
- *
- * УСТРОЙСТВО. Три строки моноширинного набора «чч:мм:сс КНИГА что → стало»
- * живут той же физикой, что большие барабаны линейки: крайние ряды наклонены
- * и утоплены (рецепт tg-row-first/last из index.css), серединный плоский.
- * Прокручивается ТОЛЬКО при настоящем событии эфира (row-changed из
- * useLiveEvents) — никакого таймера, в тишине предмет неподвижен; в полной
- * тишине (ни одной правки с открытия вкладки) он молчит целиком.
- *
- * ДВЕ СТУПЕНИ (п.11). Правка приходит приглушённо-серой: она увидена, но в
- * числах экрана её ещё нет. Когда сервер пересобрал снимок (snapshot-rebuilt,
- * recalculatedThrough в useLiveEvents), строка наливается цветом: числа
- * пересчитаны. Так угол честно отличает «заметили» от «учли».
- *
- * ЖУРНАЛ. Нажатие раскрывает панель журнала: правки «было → стало» с
- * зачёркиванием и автором — данные существующим приёмом GET /api/changes
- * (тот же, что кормит ленту правок Отчёта). Язык атрибутов — язык продукта
- * (humanAttribute из ChangesSection), не шапка оператора. Журнал перечитывается
- * ПРИ КАЖДОМ РАСКРЫТИИ (а не один раз на вкладку): вкладка живёт часами, эфир
- * приносит новые правки, а журнал, прочитанный утром, показывал бы утро до
- * перезагрузки страницы. Цена честная — запрос только по жесту читателя,
- * свёрнутый угол сервер не дёргает; момент чтения назван подписью
- * «журнал на чч:мм», чтобы возраст списка не приходилось угадывать.
- *
- * РАЗДЕЛЕНИЕ РОЛЕЙ. Нижняя полоса LiveUpdateBar эфир НЕ дублирует: с 21.08
- * она — только предупреждение о невозможной или сорвавшейся тихой подмене
- * чисел. Показ изменений живёт здесь и в узле провенанса.
- */
+/** Трёхстрочный эфирный барабан и серверный журнал с контрольного среза.
+ * Перечитываем при открытии, раскрытии и принятом чтении источников; SSE и
+ * подтверждение уведомления не сбрасывают серверный накопленный итог. */
 import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useLiveEvents, type RowChange } from '../../hooks/useLiveEvents';
 import { useStore } from '../../store';
-import { api } from '../../api';
-import { countWord, plural } from './live-text';
-import { fmtAt, humanAttribute } from '../report/ChangesSection';
+import { fetchChangeStory, type ChangeStoryResponse } from '../../lib/changes/change-story-client';
+import { entryAddress, entryChangeLine, entryWhoWhen } from './change-story-text';
+
 
 /** Сколько правок показывает раскрытый журнал: дальше — вкладка «Объяснения». */
 const JOURNAL_SHOWN = 30;
 
-/** Окно счётчика «N правок за час». */
-const HOUR_MS = 60 * 60 * 1000;
 
 /** «09:15:20» — момент правки местным временем, с секундами: эфир живой. */
 function fmtClock(iso: string): string {
@@ -61,16 +32,12 @@ function fmtHm(iso: string): string {
 /** Пустое значение в правке — читателю честнее слово, чем дыра. */
 const val = (s: string): string => (s.trim() === '' ? 'пусто' : s);
 
-interface JournalRecord {
-  dept: string; sheet: string; cell: string; attribute: string;
-  oldValue: string; newValue: string; atMs: number; author: string;
-}
-
 export function LiveHistory() {
   const live = useLiveEvents();
   const lastRefreshed = useStore((s) => s.lastRefreshed);
   const [open, setOpen] = useState(false);
-  const [journal, setJournal] = useState<JournalRecord[] | null>(null);
+  const [readGeneration, setReadGeneration] = useState(0);
+  const [journal, setJournal] = useState<ChangeStoryResponse | null>(null);
   const [journalFailed, setJournalFailed] = useState(false);
   /** Момент последнего удачного чтения журнала (мс) — подпись «журнал на чч:мм». */
   const [journalAt, setJournalAt] = useState<number | null>(null);
@@ -78,23 +45,22 @@ export function LiveHistory() {
 
   const history = live.history ?? [];
 
-  // Журнал перечитывается при КАЖДОМ раскрытии (см. шапку файла): запрос
-  // идёт только по жесту читателя, свёрнутый угол сервер не дёргает.
+  // Перечитываем при первом открытии страницы, раскрытии и принятом чтении.
+  // Закрытие, подтверждение уведомлений и отдельные события SSE не запрашивают журнал.
   // Прежний список на время чтения остаётся на экране — раскрытие не мигает
   // «Читаем…» поверх уже известных правок.
   useEffect(() => {
-    if (!open) return;
     let alive = true;
     setJournalFailed(false);
-    api.getChanges()
+    fetchChangeStory({ limit: JOURNAL_SHOWN })
       .then((d) => {
         if (!alive) return;
-        setJournal([...d.records].sort((a, b) => b.atMs - a.atMs).slice(0, JOURNAL_SHOWN));
+        setJournal(d);
         setJournalAt(Date.now());
       })
       .catch(() => { if (alive) setJournalFailed(true); });
     return () => { alive = false; };
-  }, [open]);
+  }, [readGeneration, lastRefreshed]);
 
   // Закрытие по щелчку вне угла и по Escape — панель не должна залипать.
   useEffect(() => {
@@ -112,18 +78,24 @@ export function LiveHistory() {
   }, [open]);
 
   // Молчание в тишине: ни одной правки с открытия вкладки — предмета нет.
-  if (history.length === 0) return null;
+  // Первый серверный ответ виден и без SSE; отсутствие чтения не равно нулю.
 
-  const visible = history.slice(-3);
+  const visible = history.length > 0 ? history.slice(-3) : (journal?.entries ?? []).slice(0, 3).reverse().map((e) => ({
+    book: e.book, sheetRow: e.sheetRow ?? 0, column: e.column ?? '', columnLabel: e.columnLabel ?? undefined,
+    before: e.before, after: e.after, at: e.at ?? '',
+  }));
   const recalcMs = live.recalculatedThrough ? Date.parse(live.recalculatedThrough) : null;
   /** Серая ступень: правка новее последнего пересчёта — в числах её ещё нет. */
   const isGray = (r: RowChange): boolean =>
-    recalcMs === null || Date.parse(r.at) > recalcMs;
+    history.length > 0 && (recalcMs === null || Date.parse(r.at) > recalcMs);
 
-  const nowMs = Date.now();
-  const perHour = history.filter((r) => nowMs - Date.parse(r.at) < HOUR_MS).length;
+  const incomplete = journalFailed || (journal?.gaps.length ?? 0) > 0;
+  const summary = journalFailed ? 'Журнал не прочитан' : incomplete ? 'Сведения неполны' : journal === null ? 'Читаем журнал…' : `${journal.total} записей журнала с контрольного среза`;
 
-  const toggle = () => setOpen((v) => !v);
+  const toggle = () => {
+    if (!open) setReadGeneration((n) => n + 1);
+    setOpen((v) => !v);
+  };
 
   return (
     <div ref={boxRef} className="lh-corner">
@@ -132,7 +104,7 @@ export function LiveHistory() {
         tabIndex={0}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`Эфир: ${countWord(perHour, 'правка', 'правки', 'правок')} за час. Раскрыть журнал изменений`}
+        aria-label={`Эфир: ${summary}. Раскрыть журнал изменений`}
         title="Последние правки в книгах. Нажмите — раскрыть журнал: что менялось, было → стало, кто правил"
         className="lh-drum"
         onClick={toggle}
@@ -151,7 +123,7 @@ export function LiveHistory() {
             )}
             title={isGray(r)
               ? 'Правка увидена; числа пересчитываются — строка нальётся цветом, когда пересчёт закончится'
-              : 'Правка учтена: числа на экране её уже содержат'}
+              : history.length > 0 ? 'Правка учтена: числа на экране её уже содержат' : 'Запись серверного журнала с контрольного среза'}
           >
             <span className="lh-t">{fmtClock(r.at)}</span>
             <span className="lh-b">{r.book}</span>
@@ -161,8 +133,8 @@ export function LiveHistory() {
           </div>
         ))}
         <div className="lh-count">
-          <span className="lh-count-n">{perHour}</span>
-          {' '}{plural(perHour, 'правка', 'правки', 'правок')} за час
+          {journal !== null && !incomplete ? <><span className="lh-count-n">{journal.total}</span>{' '}записей журнала с контрольного среза</> : summary}
+          {journal !== null ? ` · ${journal.since}` : ''}
           {lastRefreshed ? ` · чтение ${fmtHm(lastRefreshed)}` : ''}
           <span className="lh-open">журнал {open ? '▴' : '▾'}</span>
         </div>
@@ -182,7 +154,7 @@ export function LiveHistory() {
           <div className="mb-2 text-[11px] font-medium text-[var(--ink-strong)]">
             Что изменилось
             {journal !== null && (
-              <span className="font-normal text-[var(--ink-faint)]"> · последние {journal.length}</span>
+              <span className="font-normal text-[var(--ink-faint)]"> · последние {journal.entries.length}</span>
             )}
             {/* Возраст списка — словами: журнал перечитан при этом раскрытии,
                 и подпись называет момент чтения, а не оставляет его угадывать. */}
@@ -191,33 +163,31 @@ export function LiveHistory() {
             )}
           </div>
 
+          {journal?.gaps.map((gap, i) => <p key={i} className="text-[10px] text-amber-700">Сведения неполны: {gap.detail}</p>)}
           {journalFailed ? (
             <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-400">
               Журнал правок не прочитан — сервер не ответил. Это не «правок не было».
             </p>
           ) : journal === null ? (
             <p className="text-[10px] text-[var(--ink-faint)] leading-snug">Читаем журналы книг…</p>
-          ) : journal.length === 0 ? (
+          ) : journal.entries.length === 0 ? (
             <p className="text-[10px] text-[var(--ink-muted)] leading-snug">
-              С даты среза правок в книгах не зафиксировано.
+              {incomplete ? 'Часть источников недоступна — отсутствие записей не означает отсутствие изменений.' : 'С контрольного среза записей журнала не зафиксировано.'}
             </p>
           ) : (
             <ul className="space-y-0.5 max-h-[300px] overflow-y-auto">
-              {journal.map((r, i) => (
+              {journal.entries.map((r, i) => (
                 <li
-                  key={`${r.dept}-${r.sheet}-${r.cell}-${r.atMs}-${i}`}
+                  key={`${r.id}-${i}`}
+                  title={`${entryAddress(r)} · ${entryChangeLine(r)} · ${entryWhoWhen(r)}`}
                   className="flex items-baseline gap-1.5 text-[10px] leading-snug whitespace-nowrap overflow-hidden"
                 >
-                  <span className="shrink-0 tabular-nums text-[var(--ink-faint)]">{fmtAt(r.atMs)}</span>
-                  <span className="shrink-0 font-medium text-[var(--ink-strong)]">{r.dept}</span>
-                  <span className="shrink-0 text-[var(--ink-muted)]">{humanAttribute(r.cell, r.attribute)}</span>
-                  <span className="min-w-0 truncate">
-                    <span className="text-[var(--ink-muted)] line-through decoration-red-700/50">{val(r.oldValue)}</span>
-                    <span aria-hidden="true" className="text-[var(--ink-faint)]"> → </span>
-                    <span className="font-medium text-[var(--ink-strong)]">{val(r.newValue)}</span>
-                  </span>
+                  <span className="shrink-0 tabular-nums text-[var(--ink-faint)]">{r.at?.slice(11, 16) ?? '—'}</span>
+                  <span className="shrink-0 font-medium text-[var(--ink-strong)]">{r.book}</span>
+                  <span className="shrink-0 text-[var(--ink-muted)]">{entryAddress(r)}</span>
+                  <span className="min-w-0 truncate">{entryChangeLine(r)}</span>
                   <span className="ml-auto shrink-0 text-[9px] text-[var(--ink-faint)] max-w-[90px] truncate">
-                    {r.author || 'без подписи'}
+                    {entryWhoWhen(r)}
                   </span>
                 </li>
               ))}
