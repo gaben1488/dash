@@ -154,16 +154,18 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       if(!Array.isArray(dashboard.departmentSummaries))throw Error('METRIC_INPUT_SHAPE');
       report.metric_wiring={...metricWiringReport(browser,dashboard),response_sha256:createHash('sha256').update(dashboardText).digest('hex')};
       stage='REPORT_READ';
-      const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Kamchatka',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-      const [year,month]=today.split('-');
-      const response=await fetch(`http://127.0.0.1:3000/api/report-releases?date=${today}&year=${year}&quarter=${Math.ceil(Number(month)/3)}`,{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
+      // Explicit existing publication context from the Word recovery handoff.
+      // A schema that accepts an empty future-day envelope is not Word proof.
+      const response=await fetch('http://127.0.0.1:3000/api/report-releases?date=2026-10-12&year=2026&quarter=4',{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
       const reportText=response.status===200?await response.text():null;
       report.report_response={status:response.status,bytes:reportText?Buffer.byteLength(reportText):0};
       if(reportText&&Buffer.byteLength(reportText)>2*1024*1024)throw Error('REPORT_PAYLOAD_TOO_LARGE');
       stage='REPORT_PARSE';
-      const parsed=reportText?browser.SelectedReportReleaseStatusSchema.safeParse(JSON.parse(reportText)):null;
+      const reportData=reportText?JSON.parse(reportText):null;
+      const parsed=reportData?browser.SelectedReportReleaseStatusSchema.safeParse(reportData):null;
+      const selectedPresent=parsed?.success&&parsed.data.selected!==null;
       const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);
-      report.browser_consumers={result:parsed?.success?(headersValid?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_HEADER_CONTRACT_FAIL'):'CANDIDATE_REPORT_CONTRACT_FAIL',report_contract:parsed?.success?'PASS':'FAIL',errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
+      report.browser_consumers={result:selectedPresent?(headersValid?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_HEADER_CONTRACT_FAIL'):parsed?.success?'NO_SELECTED_PUBLICATION':'CANDIDATE_REPORT_CONTRACT_FAIL',report_contract:parsed?.success?'PASS':'FAIL',selected_present:Boolean(selectedPresent),errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
     }catch(error){
       const known=new Set(['REPORT_PAYLOAD_TOO_LARGE','METRIC_PAYLOAD_TOO_LARGE','METRIC_INPUT_UNAVAILABLE','METRIC_INPUT_SHAPE','CANDIDATE_BUNDLE_MISSING','BROWSER_PASSPORT_UNKNOWN']);
       const classes=new Set(['TypeError','SyntaxError','TimeoutError','AbortError','Error']);
