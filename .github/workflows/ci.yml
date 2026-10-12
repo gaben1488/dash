@@ -506,12 +506,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Build the exact candidate browser consumers
+        run: |
+          pnpm install --frozen-lockfile
+          node .github/ci/build_browser_contract.mjs
+      - name: Verify read-only Header probe and encode reviewed source
+        run: |
+          node --test .github/ci/test_header_api_probe.mjs
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          source = Path('.github/ci/header_api_probe.mjs').read_bytes()
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('HEADER_PROBE_B64=' + base64.b64encode(source).decode() + '\n')
+          PY
       - name: Compare actual production response against browser schema (no writes)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: HEADER_PROBE_B64,BROWSER_CONTRACT_BR_0,BROWSER_CONTRACT_BR_1,BROWSER_CONTRACT_BR_2,BROWSER_CONTRACT_BR_3
           timeout: 60s
           command_timeout: 4m
           # Bash owns failure handling: injected per-line stops corrupt Python/JS blocks.
@@ -522,6 +545,9 @@ jobs:
             cd /home/aemr/dash/deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            # Candidate probe + actual current API, GET only. Only fixed result
+            # classes and payload hashes leave the server, never source values.
+            printf '%s' "$HEADER_PROBE_B64" | base64 -d | docker compose --env-file .env.production exec -T -e "BROWSER_CONTRACT_BR_0=$BROWSER_CONTRACT_BR_0" -e "BROWSER_CONTRACT_BR_1=$BROWSER_CONTRACT_BR_1" -e "BROWSER_CONTRACT_BR_2=$BROWSER_CONTRACT_BR_2" -e "BROWSER_CONTRACT_BR_3=$BROWSER_CONTRACT_BR_3" server node --input-type=module -
             # CURRENT_SIGNALS_READONLY_BEGIN: GET only; addresses are not purchase identities.
             docker compose --env-file .env.production exec -T server node --import tsx --input-type=module - <<'JSSIGNALS' 2>/dev/null || echo '{"kind":"current_signals_probe","result":"UNAVAILABLE"}'
             import * as shared from "@aemr/shared";
