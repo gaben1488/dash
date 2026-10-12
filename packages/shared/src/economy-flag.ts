@@ -131,6 +131,9 @@ export interface EconomyFlagInput {
   adCell: unknown;
   /** Позиция закрыта датой последнего контракта Q; суммы сами этого не доказывают. */
   completed: boolean;
+  /** Dated source callers supply both days; a trusted legacy completed boolean stays compatible. */
+  completionDay?: number | null;
+  asOfDay?: number | null;
   /** Способ закупки — единственный поставщик? */
   isEp: boolean;
 }
@@ -172,7 +175,11 @@ export function economyFlagVerdict(input: EconomyFlagInput): EconomyFlagVerdict 
   const plan = finite(input.planTotal);
   const fact = finite(input.factTotal);
 
-  if (!input.completed || plan === null || plan <= 0 || fact === null || fact <= 0) {
+  const dateNotArrived = input.completionDay !== undefined
+    && (input.completionDay === null || !Number.isFinite(input.completionDay)
+      || input.asOfDay === null || input.asOfDay === undefined || !Number.isFinite(input.asOfDay)
+      || input.completionDay > input.asOfDay);
+  if (!input.completed || dateNotArrived || plan === null || plan <= 0 || fact === null || fact <= 0) {
     return { matches: false, state, kind, economy: 0, sharePct: 0 };
   }
 
@@ -210,7 +217,7 @@ export const ECONOMY_FLAG_CANON = {
   name: SIGNAL_CLASS_NAMES.economyFlagUndetermined.card ?? 'Экономия без отметки',
   /** Определение — дословно то, что проверяет предикат выше. */
   definition:
-    'Позиция закрыта датой последнего контракта Q; план и обязательства заполнены, '
+    'Позиция закрыта датой последнего контракта Q, уже наступившей на момент снимка; план и обязательства заполнены, '
     + 'обязательства меньше плана. До закрытия разница является остатком, а не экономией. '
     + 'а графа «Статус» (AD) не несёт ни «да», ни «нет»: решения по экономии нет. '
     + '«Нет» в графе это решение органа, а не пробел, — такие строки в класс не входят.',

@@ -553,6 +553,8 @@ const statusOnDataRows: ValidationRule = {
       adCell: ctx.cells['AD'],
       isEp: method.includes('еп') || method.includes('единствен'),
       completed: parseSheetDate(ctx.cells['Q']) !== null,
+      completionDay: dayNumberOf(ctx.cells['Q']),
+      asOfDay: dayNumberOf(ctx.asOf),
     });
     if (!verdict.matches) return { passed: true };
 

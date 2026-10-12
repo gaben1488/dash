@@ -110,3 +110,16 @@ it('остаток годовой потребности без даты пос�
   expect(result.matches).toBe(false);
   expect(result.economy).toBe(0);
 });
+
+describe('economy mark applies only after the last contract date has arrived', () => {
+  it('does not infer completion from a future date or an unknown snapshot clock', () => {
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: 21000 }).matches).toBe(false);
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: null }).matches).toBe(false);
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: NaN }).matches).toBe(false);
+  });
+  it('preserves completed historical positions and the exact-day boundary', () => {
+    expect(economyFlagVerdict({ ...base, completionDay: 21000, asOfDay: 21000 }).matches).toBe(true);
+    expect(economyFlagVerdict({ ...base, completionDay: 20999, asOfDay: 21000 }).matches).toBe(true);
+    expect(economyFlagVerdict({ ...base, adCell: 'да', completionDay: 21001, asOfDay: 21000 }).state).toBe('approved');
+  });
+});

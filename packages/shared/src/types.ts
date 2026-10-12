@@ -400,6 +400,8 @@ export interface RuleCheckContext {
   sheet: string;
   classification: RowClassification;
   allRows?: ClassifiedRow[];
+  /** Snapshot/run clock; a direct historical rule check must supply it explicitly. */
+  asOf?: Date;
 }
 
 /** Результат проверки одного правила на одной строке */

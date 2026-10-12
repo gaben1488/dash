@@ -596,6 +596,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     adCell: cells['AD'],
     isEp: isEP,
     completed: factDay !== null,
+    completionDay: factDay,
+    asOfDay: todayDay,
   });
   const economyFlag = economyCanon.state === 'approved';
   const economyFlagUndetermined = economyCanon.matches;

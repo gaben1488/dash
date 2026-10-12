@@ -42,6 +42,7 @@ export function validateData(
   rows: ClassifiedRow[],
   rules: ValidationRule[],
   _reportMap: ReportMapEntry[],
+  asOf: Date = new Date(),
 ): Issue[] {
   const issues: Issue[] = [];
   const now = new Date().toISOString();
@@ -139,6 +140,7 @@ export function validateData(
         sheet: row.sheet,
         classification: row.classification,
         allRows: rows,
+        asOf,
       };
       let result;
       try {

@@ -16,6 +16,8 @@ import { formulaIntegrityIssues } from './formula-integrity.js';
 import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 
 export interface PipelineInput {
+  /** Explicit historical clock; live runs capture one clock at pipeline entry. */
+  asOf?: Date;
   /** Ответ batchGet для официальных ячеек */
   batchGetData: Array<{
     range: string;
@@ -543,6 +545,8 @@ export interface PipelineSnapshot extends DataSnapshot {
 }
 
 export function runPipeline(input: PipelineInput): PipelineSnapshot {
+  const asOf = input.asOf === undefined ? new Date() : input.asOf;
+  if (!(asOf instanceof Date) || !Number.isFinite(asOf.getTime())) throw new Error('INVALID_SNAPSHOT_AS_OF');
   const pipelineStart = Date.now();
   const snapshotId = nanoid();
 
@@ -571,7 +575,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
     perSheetRowCount[sheetName] = classified.length;
 
     // Валидация строк
-    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap);
+    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap, asOf);
     allIssues.push(...sheetIssues);
 
     // Signal detection + CalcEngine only for department sheets (СВОД has
@@ -588,7 +592,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
-      const sheetSignals = detectSheetSignals(rows as unknown[][]);
+      const sheetSignals = detectSheetSignals(rows as unknown[][], asOf);
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
@@ -688,7 +692,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
   return {
     id: snapshotId,
     spreadsheetId: input.spreadsheetId,
-    createdAt: new Date().toISOString(),
+    createdAt: asOf.toISOString(),
     officialMetrics: Object.fromEntries(officialMetrics),
     calculatedMetrics: Object.fromEntries(calculatedMetrics),
     deltas,
@@ -867,6 +871,7 @@ const SIGNAL_ISSUE_MAP: Record<string, {
  */
 function detectSheetSignals(
   rows: unknown[][],
+  asOf: Date,
 ): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
   const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
   for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
@@ -874,7 +879,7 @@ function detectSheetSignals(
     if (!row || row.length < 5) continue;
     const cells = buildCellDict(row);
     try {
-      out.set(r, { cells, signals: detectSignals(cells) });
+      out.set(r, { cells, signals: detectSignals(cells, asOf) });
     } catch { /* skip unparseable rows */ }
   }
   return out;

@@ -2496,3 +2496,28 @@ describe('годовая потребность — накопленные об�
     expect(result.economyFlagUndetermined).toBe(true);
   });
 });
+
+describe('economy mark is evaluated at the supplied snapshot day', () => {
+  it.each(['ЕП', 'ЭА'])('%s: a dated future final contract is not completed at the historical snapshot', L => {
+    const cells = makeCells({ L, K: 100, Y: 80, Q: '31.12.2026', AD: '' });
+    const asOf = new Date(2026, 9, 12);
+    expect(detectSignals(cells, asOf).economyFlagUndetermined).toBe(false);
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(rule.check({ cells, rowIndex: 534, sheet: 'УКСиМП', classification: 'procurement', asOf }).passed).toBe(true);
+  });
+  it('preserves an arrived final date, exact day, and official approval', () => {
+    const cells = makeCells({ L: 'ЭА', K: 100, Y: 80, Q: '12.10.2026', AD: '' });
+    const asOf = new Date(2026, 9, 12);
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(detectSignals(cells, asOf).economyFlagUndetermined).toBe(true);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf }).passed).toBe(false);
+    expect(detectSignals({ ...cells, AD: 'да' }, new Date(2026, 9, 11)).economyFlag).toBe(true);
+  });
+  it('does not use current wall time for an invalid or absent rule snapshot clock', () => {
+    const cells = makeCells({ L: 'ЭА', K: 100, Y: 80, Q: '12.10.2026' });
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(detectSignals(cells, new Date(NaN)).economyFlagUndetermined).toBe(false);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement' }).passed).toBe(true);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf: new Date(NaN) }).passed).toBe(true);
+  });
+});
