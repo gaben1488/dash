@@ -32,3 +32,30 @@ Each exposes a cause, affected row/field, report impact, owner, exact action and
 resolution condition. Engine defects and unsupported wording are engine work,
 not blanket requests that the user "confirm the link". Fact-bearing statements
 remain attributed to the source and cannot create a completion date.
+
+## 2026-10-12 — mutable plan-calendar continuity clarification
+
+This clarification supersedes the earlier known-plan-year identity condition for
+new adjacent observations; the original persisted fingerprints remain legacy evidence.
+The owner's current register rule makes planned date, month, quarter and year
+mutable views of one position, not procurement identity. For new observations
+with `allow_plan_updates=True`, the existing ledger may therefore retain a UID
+across a date/year change and physical-row move only with the same non-empty exact
+business number and permanent source file ID, unique in both adjacent snapshots,
+and the same complete customer, subject, activity, program and subprogram. A
+reused number with changed meaning, duplicate number, missing observation or
+missing legacy entity proof remains unresolved/new; a number alone is no proof.
+
+The implementation compares the existing complete legacy entity fingerprint by
+substituting its prior anchor year into the current otherwise identical entity.
+It does not remove year from saved signatures, change snapshot digests, rewrite
+results or migrate historical UIDs. Exact composite numbers remain distinct.
+A missing row remains an observation of absence, not confirmed deletion.
+
+Calendar acquisition is a separate compatibility step: current N should supply
+year/quarter/month, while stale O/P are diagnostic formula metadata. The adapter
+still uses legacy O/P in this bounded change because sealed replay, backfill and
+section_audit reproduce those historical fingerprints and 159 ledger chains.
+Changing that default requires a declared existing source/reader compatibility
+boundary across raw_pipeline, section_audit and calendar consumers. That part is
+not implemented or accepted live by this identity-continuity correction.

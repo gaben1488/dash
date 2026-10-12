@@ -108,6 +108,23 @@ def _same_entity(prior, entity, enabled):
     return not enabled or not entity or prior.get('entity_signature') == entity
 
 
+def _same_entity_across_plan_calendar(prior, row):
+    """Verify the old complete entity key without rewriting its year-bearing hash."""
+    if not prior.get('entity_signature'):
+        return False
+    try:
+        old_anchor = json.loads(prior['anchor'])
+    except (TypeError, ValueError):
+        return False
+    if (not isinstance(old_anchor, list) or len(old_anchor) != 5
+            or old_anchor[:4] != [row.source_id, row.grbs, row.institution, row.subject]):
+        return False
+    if old_anchor[4] == row.planned_year:
+        return False
+    legacy_entity = entity_signature(replace(row, planned_year=old_anchor[4]))
+    return bool(legacy_entity and legacy_entity == prior['entity_signature'])
+
+
 def _check_integrity(db):
     try:
         valid = [tuple(row) for row in db.execute('PRAGMA integrity_check')] == [('ok',)]
@@ -445,6 +462,11 @@ class IdentityStore:
                     by_continuity[proof.get('continuity_signature'), prior['business_id']].append(prior)
                     by_number[prior['source_id'], prior['business_id']].add(prior['uid'])
                     by_anchor[prior['anchor']].add(prior['uid'])
+            old_number_rows = defaultdict(list)
+            for prior in old:
+                if prior['business_id']:
+                    old_number_rows[prior['source_id'], prior['business_id']].append(prior)
+            number_counts = Counter((r.source_id, r.source_row_no) for r in rows if r.source_row_no)
             entity_counts = Counter(entity_signature(r) for r in rows)
             frequencies=Counter(signature(r) for r in rows)
             continuity_counts=Counter((continuity_signature(r), r.source_row_no) for r in rows)
@@ -482,6 +504,17 @@ class IdentityStore:
                     uid = prior['uid']; status = 'PLAN_CONTINUITY'
                     evidence.update(previous_locator=prior['locator'],
                                     plan_signature=plan_signature(row), rule='unique-plan-continuity-v1')
+                elif (allow_plan_updates and row.source_id and row.source_row_no
+                      and number_counts[row.source_id, row.source_row_no] == 1
+                      and len(old_number_rows[row.source_id, row.source_row_no]) == 1
+                      and old_number_rows[row.source_id, row.source_row_no][0]['uid']
+                      and _same_entity_across_plan_calendar(old_number_rows[row.source_id, row.source_row_no][0], row)):
+                    prior = old_number_rows[row.source_id, row.source_row_no][0]
+                    uid = prior['uid']; status = 'ENTITY_CONTINUITY'
+                    evidence.update(previous_locator=prior['locator'],
+                        rule='unique-source-number-calendar-continuity-v1',
+                        previous_plan_year=json.loads(prior['anchor'])[4], current_plan_year=row.planned_year,
+                        review_ids=json.loads(prior['evidence']).get('review_ids', []))
                 elif (allow_plan_updates and entity and row.source_row_no and entity_counts[entity] == 1
                       and len(entity_hits) == 1 and entity_hits[0]['uid']
                       and entity_hits[0]['business_id'] == row.source_row_no):
