@@ -317,15 +317,15 @@ class WorkerRecoveryTests(unittest.TestCase):
         self.assertEqual(recovery_job.count('WORKER_ACCEPTANCE_PENDING\'; exit 3'), 2)
 
     def test_history_schema_probe_runs_even_when_timer_receipt_is_pending(self):
-        import yaml
-        workflow = yaml.safe_load((SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text())
-        steps = workflow['jobs']['worker-acceptance-readback']['steps']
-        probe = next((step for step in steps if step.get('name') == 'Check actual historical schemas independently of timer acceptance'), None)
-        self.assertIsNotNone(probe, 'A pending timer must not prevent read-only historical schema validation')
-        self.assertEqual(probe['if'], 'always()')
-        self.assertIn('report-schema-probe.cjs', probe['with']['script'])
-        self.assertNotIn('result.json', probe['with']['script'])
-        self.assertNotIn('compose up', probe['with']['script'])
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        job = workflow.split('  worker-acceptance-readback:', 1)[1].split('\n  restore-current-worker:', 1)[0]
+        name = '      - name: Check actual historical schemas independently of timer acceptance'
+        self.assertIn(name, job, 'A pending timer must not prevent read-only historical schema validation')
+        probe = job.split(name, 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('\n        if: always()\n', probe)
+        self.assertIn('report-schema-probe.cjs', probe)
+        self.assertNotIn('result.json', probe)
+        self.assertNotIn('compose up', probe)
 
 
 if __name__ == '__main__':
