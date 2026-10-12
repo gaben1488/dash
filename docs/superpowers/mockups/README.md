@@ -132,3 +132,8 @@ requests/page errors. Web regressions: 2245 PASS; final affected consumers:
 78 PASS; unchanged shared/core/server: 734/1859+1skip/954 PASS. Four-package
 types, lint (existing warnings, zero errors) and web build pass. This evidence
 is for source/component behavior, not production deployment.
+
+Final visual follow-up reproduced an undefined legacy `--border-subtle`
+falling back to ink (rgb60,55,45) in the light journal. The three affected
+panel scopes now bridge it to canonical `--line-soft`; Chrome reads the
+expected rgb232,227,216. Organization styling is outside the scope.
