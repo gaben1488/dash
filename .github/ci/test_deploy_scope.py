@@ -13,7 +13,7 @@ class DeploymentScopeTests(unittest.TestCase):
         script = workflow.split("            import * as shared", 1)[1].split("            JSSIGNALS", 1)[0]
         script = "import * as shared" + script
         script = "\n".join(line.removeprefix("            ") for line in script.splitlines())
-        for scenario in ["good", "unavailable", "duplicate", "incomplete", "wrong_address", "composite", "cross_year_duplicate"]:
+        for scenario in ["good", "unavailable", "duplicate", "incomplete", "wrong_address", "composite", "cross_year_duplicate", "large_dashboard", "oversized_dashboard", "oversized_detail"]:
             with self.subTest(scenario=scenario):
                 mock = r'''const shared={dayNumberOf:v=>v==="valid"?123:NaN,economyFlagState:v=>v==="yes"?"approved":"undetermined",CHECK_REGISTRY:[{id:"anti_dumping",legacyId:"highEconomy"}]};
 const scenario=SCENARIO, addresses=[419,437,440,452,459,480], numbers=["416","434","437","449","456","477"];
@@ -22,7 +22,7 @@ if(scenario==="unavailable")return {ok:false};let data;
 if(url.includes("dashboard"))data={snapshot:{id:"safe-id",createdAt:"2026-10-12T01:00:00Z"},recentIssues:[{departmentId:"uksimp",row:419,checkId:"anti_dumping",severity:"critical",status:"acknowledged",title:"PRIVATE_SENTINEL"}]};
 else if(url.includes("?")){let rows=addresses.map((rowIndex,i)=>({rowIndex,id:numbers[i],subject:"PRIVATE_SENTINEL"}));if(scenario==="composite")rows[0].id="416/1";if(scenario==="duplicate"||(scenario==="cross_year_duplicate"&&!url.includes("year=")))rows.push({rowIndex:999,id:"416"});data={department:{id:"uksimp"},rows,pagination:{page:1,limit:1000,total:rows.length,totalPages:scenario==="incomplete"?4:1}};}
 else {const address=Number(url.split("/").pop()),i=addresses.indexOf(address);data={department:{id:"uksimp"},rowIndex:scenario==="wrong_address"?address+1:address,cells:{A:numbers[i],Q:i===0?"":i===1?"valid":"PRIVATE_SENTINEL",AD:"yes",G:"PRIVATE_SENTINEL"},signals:{economyFlagUndetermined:false,highEconomy:true,epFactDeviation:false,futureFactDate:i===1}};}
-return {ok:true,text:async()=>JSON.stringify(data)};};
+if(url.includes("dashboard")&&scenario==="large_dashboard")data.privatePadding="PRIVATE_SENTINEL".repeat(350000);if(url.includes("dashboard")&&scenario==="oversized_dashboard")data.privatePadding="PRIVATE_SENTINEL".repeat(1500000);if(!url.includes("dashboard")&&!url.includes("?")&&scenario==="oversized_detail")data.privatePadding="PRIVATE_SENTINEL".repeat(350000);return {ok:true,text:async()=>JSON.stringify(data)};};
 '''.replace("SCENARIO", json.dumps(scenario))
                 script_mocked = script.replace('import * as shared from "@aemr/shared";', mock)
                 result = subprocess.run(["node", "--input-type=module", "-e", script_mocked], text=True, capture_output=True, timeout=10, check=False)
@@ -32,19 +32,67 @@ return {ok:true,text:async()=>JSON.stringify(data)};};
                 self.assertEqual(data["scope"], "current_addresses_only")
                 self.assertEqual(data["sourceReadAt"], "UNAVAILABLE")
                 row = data["rows"][0]
-                if scenario in ["unavailable", "wrong_address"]:
+                if scenario in ["unavailable", "wrong_address", "oversized_detail"]:
                     self.assertEqual(row["signals"]["highEconomy"], "UNAVAILABLE")
-                    self.assertEqual(row["matching_checks"], "UNAVAILABLE" if scenario == "unavailable" else [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
+                    self.assertEqual(row["matching_checks"], "UNAVAILABLE" if scenario in ["unavailable", "oversized_dashboard"] else [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
                 else:
                     self.assertIs(row["signals"]["economyFlagUndetermined"], False)
                     self.assertEqual(row["Q"], "MISSING")
                     self.assertEqual(data["rows"][1]["Q"], "FUTURE")
                     self.assertEqual(data["rows"][2]["Q"], "UNAVAILABLE")
-                    self.assertEqual(row["matching_checks"], [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
-                if scenario in ["duplicate", "incomplete", "unavailable", "wrong_address", "composite", "cross_year_duplicate"]:
+                    self.assertEqual(row["matching_checks"], "UNAVAILABLE" if scenario == "oversized_dashboard" else [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
+                if scenario in ["duplicate", "incomplete", "unavailable", "wrong_address", "composite", "cross_year_duplicate", "oversized_detail"]:
                     self.assertEqual(row["logical_resolution"], "UNAVAILABLE")
                 else:
                     self.assertIs(row["logical_resolution"]["A_match_expected"], True)
+                if scenario == "large_dashboard":
+                    self.assertEqual(data["snapshotId"], "safe-id")
+                if scenario == "oversized_dashboard":
+                    self.assertEqual(data["snapshotId"], "UNAVAILABLE")
+
+    def test_host_probe_privileged_df_is_read_only_and_permission_gated(self):
+        import contextlib
+        import io
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        script = workflow.split("            import json\n", 1)[1].split("            PYHOST", 1)[0]
+        script = "import json\n" + "\n".join(line.removeprefix("            ") for line in script.splitlines())
+        for allowed in [True, False]:
+            with self.subTest(sudo_allowed=allowed):
+                commands = []
+                def run(args, *, commands=commands, allowed=allowed, **kwargs):
+                    commands.append(args)
+                    code, output = 0, ""
+                    if args[:3] == ["docker", "compose", "--env-file"]:
+                        output = "a" * 64
+                    elif args[:2] == ["docker", "inspect"]:
+                        output = json.dumps([{"Destination": "/app/packages/server/data", "Source": "/private/volume"}])
+                    elif args == ["whoami"]:
+                        output = "releaseactor"
+                    elif args == ["sudo", "-n", "true"]:
+                        code = 0 if allowed else 1
+                    elif args == ["sudo", "-n", "test", "-d", "/private/volume"]:
+                        self.assertTrue(allowed)
+                    elif args == ["sudo", "-n", "df", "-B1", "--output=avail", "--", "/private/volume"]:
+                        self.assertTrue(allowed)
+                        output = "Avail\n123456789\n"
+                    else:
+                        self.fail(f"Unexpected host operation: {args!r}")
+                    return SimpleNamespace(returncode=code, stdout=output)
+                out = io.StringIO()
+                with patch.object(subprocess, "run", run), patch.object(os.path, "isdir", return_value=False), contextlib.redirect_stdout(out):
+                    exec(compile(script, "host-readonly-probe", "exec"), {})  # noqa: S102 — trusted tracked workflow, mocked subprocesses
+                data = json.loads(out.getvalue())
+                self.assertEqual(data["volume_free_bytes"], 123456789 if allowed else "UNAVAILABLE")
+                self.assertEqual(data["private_backup_free_bytes"], "UNAVAILABLE")
+                self.assertNotIn("/private/volume", out.getvalue())
+                self.assertIs(data["sudo_noninteractive"], allowed)
+                self.assertLessEqual(len(commands), 6)
 
     def test_rehearsal_worker_lookup_reports_blocker_without_masking_failure(self):
         import json

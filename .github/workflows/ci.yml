@@ -528,7 +528,7 @@ jobs:
             const unavailable="UNAVAILABLE", selectors=[[419,"416"],[437,"434"],[440,"437"],[452,"449"],[459,"456"],[480,"477"]];
             const object=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
             const bool=x=>typeof x==="boolean"?x:unavailable;
-            async function get(path){try{const r=await fetch("http://127.0.0.1:3000"+path,{method:"GET",headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(12000)});if(!r.ok)return null;const text=await r.text();return text.length<=4000000?JSON.parse(text):null;}catch{return null;}}
+            async function get(path){try{const r=await fetch("http://127.0.0.1:3000"+path,{method:"GET",headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(12000)});if(!r.ok)return null;const text=await r.text();const limit=path==="/api/dashboard?year=2026"?20*1024*1024:4000000;return Buffer.byteLength(text,"utf8")<=limit?JSON.parse(text):null;}catch{return null;}}
             function detail(x,address){return object(x)&&object(x.department)&&x.department.id==="uksimp"&&x.rowIndex===address&&object(x.cells)&&object(x.signals)?x:null;}
             function record(x,address,expected){x=detail(x,address);const cells=x?.cells, signals=x?.signals;let q=unavailable,ad=unavailable;
             if(cells&&Object.hasOwn(cells,"Q")){const v=cells.Q;if(v===null||(typeof v==="string"&&!v.trim()))q="MISSING";else if(typeof shared.dayNumberOf==="function"&&Number.isFinite(shared.dayNumberOf(v))&&typeof signals.futureFactDate==="boolean")q=signals.futureFactDate?"FUTURE":"DATED";}
@@ -556,10 +556,14 @@ jobs:
                     return subprocess.run(args, text=True, capture_output=True, timeout=8, check=False)
                 except (OSError, subprocess.TimeoutExpired):
                     return None
-            def free(path):
-                if not path or not os.path.isdir(path):
+            def free(path, privileged=False):
+                if not isinstance(path, str) or not os.path.isabs(path):
                     return "UNAVAILABLE"
-                result = run(["df", "-B1", "--output=avail", "--", path])
+                prefix = ["sudo", "-n"] if privileged else []
+                exists = run(prefix + ["test", "-d", path]) if privileged else None
+                if (privileged and (not exists or exists.returncode != 0)) or (not privileged and not os.path.isdir(path)):
+                    return "UNAVAILABLE"
+                result = run(prefix + ["df", "-B1", "--output=avail", "--", path])
                 lines = result.stdout.splitlines() if result and result.returncode == 0 else []
                 return int(lines[-1].strip()) if len(lines) == 2 and lines[-1].strip().isdigit() else "UNAVAILABLE"
             mounts = run(["docker", "compose", "--env-file", ".env.production", "ps", "--status", "running", "--quiet", "server"])
@@ -573,7 +577,7 @@ jobs:
             actor = run(["whoami"])
             username = actor.stdout.strip() if actor and actor.returncode == 0 and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", actor.stdout.strip()) else "UNAVAILABLE"
             sudo = run(["sudo", "-n", "true"])
-            print(json.dumps({"kind": "release_host_readonly", "actor": username, "uid": os.getuid(), "sudo_noninteractive": sudo.returncode == 0 if sudo else "UNAVAILABLE", "volume_free_bytes": free(sources[0]) if len(sources) == 1 else "UNAVAILABLE", "private_backup_free_bytes": free("/home/aemr/.dash-private-backups")}))
+            print(json.dumps({"kind": "release_host_readonly", "actor": username, "uid": os.getuid(), "sudo_noninteractive": sudo.returncode == 0 if sudo else "UNAVAILABLE", "volume_free_bytes": free(sources[0], privileged=bool(sudo and sudo.returncode == 0)) if len(sources) == 1 else "UNAVAILABLE", "private_backup_free_bytes": free("/home/aemr/.dash-private-backups")}))
             PYHOST
             # JS uses the Zod schema imported by browser code, but only GETs
             # an existing release through Fastify, without invoking refresh.
