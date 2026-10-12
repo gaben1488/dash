@@ -132,3 +132,46 @@ describe('сравнение двух чтений книги', () => {
     expect(diff.rows[0].author).toBeUndefined();
   });
 });
+
+
+describe('идентичность при очистке и сдвиге', () => {
+  it('очистка и уплотнение: одна пропажа, ноль ложных правок сохранившихся номеров', () => {
+    const first = ['173/1', 'УО', '', '', '', '', 'Первый'];
+    const second = ['173/18', 'УО', '', '', '', '', 'Второй'];
+    const third = ['177/13', 'УО', '', '', '', '', 'Третий'];
+    const before = sheet(first, second, third, []);
+    for (const after of [sheet(first, [], third, []), sheet(first, third, [], [])]) {
+      const diff = diffBook('УО', before, after);
+      expect(diff.removedRows).toBe(1);
+      expect(diff.addedRows).toBe(0);
+      expect(diff.changedRows).toBe(0);
+      expect(diff.rows).toEqual([]);
+    }
+  });
+  it('настоящая правка после сдвига сохраняет номер и новый физический адрес', () => {
+    const before = sheet(['1', 'Первый'], ['2', 'Второй'], ['3', 'Третий']);
+    const diff = diffBook('УО', before, sheet(['1', 'Первый'], ['3', 'Исправлен'], []));
+    expect(diff.removedRows).toBe(1);
+    expect(diff.changedRows).toBe(1);
+    expect(diff.rows[0]).toMatchObject({ rowSeq: '3', sheetRow: 5, column: 'B', before: 'Третий', after: 'Исправлен' });
+  });
+  it('смена номера не объявляется изменением чужого номера', () => {
+    const diff = diffBook('УО', sheet(['173/1', 'Один']), sheet(['173/18', 'Один']));
+    expect(diff.removedRows).toBe(1);
+    expect(diff.addedRows).toBe(1);
+    expect(diff.changedRows).toBe(0);
+    expect(diff.rows).toEqual([]);
+  });
+});
+
+it('повторный или переиспользованный номер не связывает закупки автоматически', () => {
+  const old = ['173/1', 'УО', 'Школа', '', '', '', 'Ремонт кровли'];
+  const reused = ['173/1', 'УО', 'Школа', '', '', '', 'Молоко'];
+  expect(diffBook('УО', sheet(old), sheet(reused)).rows).toEqual([]);
+  expect(diffBook('УО', sheet(old, old), sheet(old)).rows).toEqual([]);
+});
+it('сдвиг адреса не приписывает прежнего автора ячейки другой закупке', () => {
+  setChangeAuthorResolver(() => 'previous-cell-author');
+  const diff = diffBook('УО', sheet(['1', 'Первый'], ['2', 'Второй']), sheet(['2', 'Исправлено'], []));
+  expect(diff.rows[0]?.author).toBeUndefined();
+});

@@ -7,14 +7,13 @@
  * недоступен — поле пустое, и экран честно молчит про автора, а не подставляет
  * «система» (канон п.27: свободный текст не источник, а выдумка тем более).
  *
- * Сравнение позиционное: строка N прежнего чтения против строки N нового.
- * Это осознанное ограничение. Вставка строки в середину листа сдвигает всё
- * ниже, и позиционный разбор назовёт сдвиг «изменением» каждой строки — поэтому
- * такой случай ловится отдельно (addedRows/removedRows) и построчные события в
- * нём НЕ выпускаются: лучше сказать «в книге стало на 3 строки больше», чем
- * завалить экран сотней ложных «строка изменилась».
+ * Сопоставление использует существующий diffSnapshots по уникальным № п/п.
+ * Очистка и уплотнение не меняют идентичность оставшихся позиций. Неоднозначные
+ * номера и смена предмета/учреждения остаются в недельном контексте для проверки,
+ * а не превращаются в доказанную правку чужой закупки.
  */
 import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { diffSnapshots, type SnapshotRow } from '@aemr/core';
 import type { RowChangedEvent } from './event-bus.js';
 
 /** Чтение листа книги: только то, что нужно сравнению. */
@@ -24,8 +23,11 @@ export interface SheetReading {
 
 export interface BookDiff {
   book: string;
+  /** Изменившиеся сопоставимые номера; смена предметного контекста требует проверки. */
   changedRows: number;
+  /** Новые уникальные номера, не доказательство новой самостоятельной закупки. */
   addedRows: number;
+  /** Прежние уникальные номера не найдены; причина отсутствия ещё не установлена. */
   removedRows: number;
   rowsTotal: number;
   /** Построчные изменения — не больше MAX_ROW_EVENTS на книгу. */
@@ -104,16 +106,40 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     return { book, changedRows: 0, addedRows: 0, removedRows: 0, rowsTotal, rows: [] };
   }
 
-  const addedRows = Math.max(0, afterRows.length - beforeRows.length);
-  const removedRows = Math.max(0, beforeRows.length - afterRows.length);
-  const shared = Math.min(beforeRows.length, afterRows.length);
+  const indexed = (values: unknown[][]): SnapshotRow[] => values
+    .slice(DEPT_HEADER_ROWS)
+    .map((row, i) => ({
+      rowSeq: cellText(row[DEPT_COLUMNS.ID]),
+      sheetRow: i + DEPT_HEADER_ROWS + 1,
+      subject: cellText(row[DEPT_COLUMNS.SUBJECT]),
+      subordinate: cellText(row[DEPT_COLUMNS.SUBORDINATE]),
+      method: cellText(row[DEPT_COLUMNS.METHOD]),
+      planSum: Number(row[DEPT_COLUMNS.TOTAL_PLAN]),
+    }))
+    .filter((row) => row.rowSeq !== '');
+  const comparison = diffSnapshots(indexed(beforeRows), indexed(afterRows));
+  const ambiguous = new Set([
+    ...(comparison.ambiguousKeys?.before ?? []),
+    ...(comparison.ambiguousKeys?.after ?? []),
+  ]);
+  const changedContext = new Set((comparison.contextChanged ?? []).map((row) => row.rowSeq));
+  const addedRows = comparison.appeared.length;
+  const removedRows = comparison.vanished.length;
+  const previous = new Map(indexed(beforeRows)
+    .filter((row) => !ambiguous.has(row.rowSeq))
+    .map((row) => [row.rowSeq, row.sheetRow]));
 
   let changedRows = 0;
   const rows: RowChangedEvent[] = [];
 
-  for (let i = DEPT_HEADER_ROWS; i < shared; i++) {
-    const prev = beforeRows[i] ?? [];
+  for (let i = DEPT_HEADER_ROWS; i < afterRows.length; i++) {
     const next = afterRows[i] ?? [];
+    const seq = cellText(next[DEPT_COLUMNS.ID]);
+    const priorRow = previous.get(seq);
+    // Не угадываем связь при новом, пропавшем или повторном номере.
+    if (priorRow === undefined || ambiguous.has(seq)) continue;
+    if (changedContext.has(seq)) { changedRows++; continue; }
+    const prev = beforeRows[priorRow - 1] ?? [];
     const width = Math.max(prev.length, next.length);
     let rowChanged = false;
 
@@ -123,7 +149,7 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
       if (wasText === nowText) continue;
       rowChanged = true;
       // Построчные подробности собираем, только пока их немного: см. MAX_ROW_EVENTS.
-      if (rows.length >= MAX_ROW_EVENTS || addedRows > 0 || removedRows > 0) continue;
+      if (rows.length >= MAX_ROW_EVENTS) continue;
       const letter = LETTER_BY_INDEX[c];
       if (!letter) continue; // колонка за пределами канона — адрес назвать нечем
       const sheetRow = i + 1; // человеческая нумерация строк листа
@@ -136,16 +162,13 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
         columnLabel: LABEL_BY_INDEX[c] || undefined,
         before: brief(wasText),
         after: brief(nowText),
-        author: resolveAuthor(book, `${letter}${sheetRow}`),
+        // Физическая ячейка после сдвига могла принадлежать другой закупке.
+        author: priorRow === sheetRow ? resolveAuthor(book, `${letter}${sheetRow}`) : undefined,
       });
     }
 
     if (rowChanged) changedRows++;
   }
-
-  // Сдвиг строк делает позиционный разбор недостоверным — подробности снимаем,
-  // счётчики оставляем.
-  if (addedRows > 0 || removedRows > 0) rows.length = 0;
 
   return { book, changedRows, addedRows, removedRows, rowsTotal, rows };
 }

@@ -135,6 +135,23 @@ describe('контрольная сверка с действующими кни
     ]);
   });
 
+  it('незавершённая новая попытка не заслоняет последний полностью проверенный контроль', () => {
+    const id = 'control-incomplete-newer';
+    dbModule.db.insert(dbModule.schema.snapshots).values({
+      id, spreadsheetId: 'test', createdAt: '2026-10-08T07:00:00.000Z',
+      data: JSON.stringify({ weeklyTableContext: { contract: 'dash-weekly-table-context-v1' } }),
+    }).run();
+    try {
+      const result = integrity.buildComparison(NOW);
+      expect(result.comparison?.baselineId).toBe('control-latest');
+      expect(result.comparison?.beforeAt).toBe(CONTROL_AT);
+      expect(result.comparison?.vanishedTotal).toBe(1);
+      expect(result.note).toContain('неполных');
+    } finally {
+      dbModule.db.delete(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).run();
+    }
+  });
+
   it('отказ текущей книги даёт неполную сверку, а не ложное исчезновение', () => {
     snapshot.setDeptSheetCache({}, ['УО']);
     snapshot.setDeptLoadMeta({

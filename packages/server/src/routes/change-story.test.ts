@@ -242,3 +242,20 @@ describe('GET /api/change-story', () => {
   });
 
 });
+
+
+it('недельное окно начинается в последнем завершённом контроле, а не в новом незавершённом четверге', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const baselineAt = '2026-10-01T00:00:00.000Z';
+  const window = changeStoryDefaultWindow({ beforeAt: baselineAt }, new Date('2026-10-09T01:00:00.000Z'), 12);
+  expect(window.sinceMs).toBe(Date.parse(baselineAt));
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-01'));
+});
+
+it('контрольная дата показана по Камчатке, а граница журнала сохраняет точный момент', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const beforeAt = '2026-09-30T21:00:00.000Z';
+  const window = changeStoryDefaultWindow({ beforeAt }, new Date('2026-10-09T01:00:00.000Z'), 12);
+  expect(window.sinceMs).toBe(Date.parse(beforeAt));
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-01'));
+});

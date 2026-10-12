@@ -547,7 +547,8 @@ function unreadNote(dept: DepartmentEntry): string {
  */
 export function buildComparison(now: number = Date.now()): { comparison: IntegrityResponse['comparison']; note: string } {
   const sealed = getWeeklySnapshotHistory(WEEKLY_LOOKBACK);
-  const baseline = pickLatestControlSnapshot(sealed, now, config.weeklySnapshot.utcOffsetHours);
+  let candidates = sealed;
+  let baseline = pickLatestControlSnapshot(candidates, now, config.weeklySnapshot.utcOffsetHours);
   if (!baseline) {
     return {
       comparison: null,
@@ -555,14 +556,28 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     };
   }
 
-  const verified = verifiedBaselineRows(baseline);
-  if (verified.error !== null) {
-    return {
+  let verified = verifiedBaselineRows(baseline);
+  let skippedControls = 0;
+  let lastError = verified.error;
+  // SQL-маркер контекста ещё не доказывает завершённость. Каждая попытка
+  // проходит ту же строгую проверку; неполные данные не становятся базой.
+  while (verified.error !== null) {
+    skippedControls++;
+    lastError = verified.error;
+    const rejectedId = baseline.id;
+    candidates = candidates.filter((candidate) => candidate.id !== rejectedId);
+    baseline = pickLatestControlSnapshot(candidates, now, config.weeklySnapshot.utcOffsetHours);
+    if (!baseline) return {
       comparison: null,
-      note: 'Последний недельный контроль не пригоден для достоверной сверки: ' +
-        verified.error + '. Отсутствие сравнения не доказывает отсутствие пропаж.',
+      note: 'Недельный контроль не пригоден для достоверной сверки: ' +
+        lastError + '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.',
     };
+    verified = verifiedBaselineRows(baseline);
   }
+  const baselineNote = skippedControls > 0
+    ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
+      '. Использован последний полностью проверенный недельный срез.'
+    : '';
   const baselineRows = verified.rows;
   const liveValues = getDeptSheetValues();
   const loadMeta = getDeptLoadMeta();
@@ -653,11 +668,12 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     };
   }
 
-  const note = unavailableBooks.length
+  const partialNote = unavailableBooks.length
     ? 'Сравнение частичное: ' + unavailableBooks.length +
       ' из ' + Object.keys(DEPARTMENT_SPREADSHEETS).length +
       ' книг не удалось достоверно сверить. Не считать их пропажи нулём.'
     : '';
+  const note = [baselineNote, partialNote].filter(Boolean).join(' ');
 
   return {
     comparison: {

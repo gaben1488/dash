@@ -71,7 +71,7 @@ function asList(raw: unknown): string[] {
  * пересчитывается здесь: два места, читающие снимки своими руками, рано или
  * поздно разойдутся в том, какая пара снимков считается сравнимой.
  */
-function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { baselineId: string; beforeAt: string; afterAt: string; oldestCurrentAt: string } | null } {
+function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { baselineId: string; beforeAt: string; afterAt: string; oldestCurrentAt: string } | null; note: string } {
   const { comparison, note } = buildComparison();
   if (comparison === null) {
     return {
@@ -84,6 +84,7 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
           'нельзя устанавливать отсутствие прежних номеров: журнал книги удаление строк не регистрирует.',
       }],
       comparison: null,
+      note,
     };
   }
 
@@ -146,7 +147,23 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
     }
   }
 
-  return { entries, gaps, comparison: { baselineId: comparison.baselineId, beforeAt: comparison.beforeAt, afterAt: comparison.afterAt, oldestCurrentAt: comparison.oldestCurrentAt } };
+  return { entries, gaps, note, comparison: { baselineId: comparison.baselineId, beforeAt: comparison.beforeAt, afterAt: comparison.afterAt, oldestCurrentAt: comparison.oldestCurrentAt } };
+}
+
+/** Окно журнала опирается на подтверждённый контроль, а не календарную попытку среза. */
+export function changeStoryDefaultWindow(
+  comparison: { beforeAt: string } | null,
+  now: Date = new Date(),
+  offsetHours: number = config.weeklySnapshot.utcOffsetHours,
+): { sinceDay: number; sinceMs: number } {
+  if (comparison) {
+    const controlAt = new Date(comparison.beforeAt);
+    return { sinceDay: productCalendarDay(controlAt, offsetHours), sinceMs: controlAt.getTime() };
+  }
+  // Это лишь доступное окно журнала: comparison=null и gaps явно сохраняют
+  // отсутствие контроля, не объявляя окно завершённой недельной сверкой.
+  const sinceDay = floorToThursday(productCalendarDay(now, offsetHours));
+  return { sinceDay, sinceMs: sinceDay * 86400000 };
 }
 
 interface Query {
@@ -161,7 +178,9 @@ interface Query {
 export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: Query }>('/api/change-story', async (request, reply) => {
     // ── Окно ──
+    const vanished = vanishedEntries();
     let sinceDay: number | null;
+    let sinceMs: number;
     if (request.query.since !== undefined) {
       sinceDay = dayNumberOf(request.query.since);
       // Мало проверить формат: Date.UTC переваливает «2026-06-31» в 1 июля,
@@ -174,10 +193,10 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
           code: 'BAD_REQUEST',
         });
       }
+      sinceMs = sinceDay * 86400000;
     } else {
-      sinceDay = floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
+      ({ sinceDay, sinceMs } = changeStoryDefaultWindow(vanished.comparison));
     }
-    const sinceMs = sinceDay * 86400000;
 
     const kinds = asList(request.query.kind);
     const unknownKind = kinds.find((k) => !KINDS.includes(k as ChangeKind));
@@ -203,8 +222,6 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       records: j.records,
     }));
     const story = buildChangeStory(inputs, { sinceMs });
-    const vanished = vanishedEntries();
-
     // Один список: правки книги и пропажи из сравнения снимков. Порядок
     // держит ядро — записи без момента впереди, дальше свежие сверху.
     const all = [...story.entries, ...vanished.entries].sort((a, b) => {
@@ -234,6 +251,7 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       // таблицы правок ячеек не создаёт, и журнал книги его не видит.
       deletionsUnobservable: true as const,
       note:
+        (vanished.note ? vanished.note + ' ' : '') +
         'Журнал книги записывает правки ячеек: добавление закупки видно как заполнение ' +
         'пустой строки, очистка — как обнуление её ячеек. Удаление строки журнал не ' +
         'записывает вовсе. Отсутствие прежнего номера, перемена его содержания и ' +
