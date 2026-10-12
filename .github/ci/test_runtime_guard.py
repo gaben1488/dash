@@ -80,9 +80,13 @@ class RuntimeGuardTests(unittest.TestCase):
         self.policy['worker_enabled'] = False
         self.policy['services']['report-worker']['limits'] = {'mem_limit': 2304 * 1024 * 1024}
         self.records['report-worker']['State']['Status'] = 'exited'
-        self.check()
-        self.assertIn(['update', '--memory', str(2304 * 1024 * 1024), 'aemr-report-worker-1'], self.calls)
-        self.assertNotIn(['start', 'aemr-report-worker-1'], self.calls)
+        for image in ('sha256:verified', 'sha256:worker-only-hotfix'):
+            with self.subTest(image=image):
+                self.records['report-worker']['Image'] = image
+                self.calls.clear()
+                self.check()
+                self.assertIn(['update', '--memory', str(2304 * 1024 * 1024), 'aemr-report-worker-1'], self.calls)
+                self.assertNotIn(['start', 'aemr-report-worker-1'], self.calls)
 
 
 if __name__ == '__main__':

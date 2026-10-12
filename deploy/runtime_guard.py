@@ -59,7 +59,7 @@ def supervise(policy, state, command=docker, *, now=None, maintenance=False):
 
     for service, record in records.items():
         container = policy['services'][service]['container']
-        if service == 'report-worker':
+        if service == 'report-worker' and policy.get('worker_enabled', False):
             server = records.get('server', {})
             if (record['Image'] != server.get('Image')
                     or server.get('State', {}).get('Status') != 'running'):

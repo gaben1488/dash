@@ -786,3 +786,28 @@ storage/reader не переносятся как часть этого worker-o
 GET list/detail с пустым годом и 2027 сохраняют запрет ложной исторической идентичности.
 Независимое ревью и 5 targeted PASS; 41 weekly/year targeted PASS. Lint всего проекта
 после удаления лишнего присваивания PASS (существующие warnings сохранены).
+
+### Проверенная интеграционная точка a1f4d78c, 2026-10-12
+
+CI38193249638 SUCCESS: полный Python1052 PASS, 60 synthetic maintenance tests,
+TS lint/types/tests/build/audit, server image/native reader и browser Word contract
+PASS. DB identity38193249631 SUCCESS. Отдельный read-only upgrade38193249660
+остаётся BLOCKED/PUBLICATION_READER_LEASE_UNINITIALIZED; это не скрытый PASS.
+
+Инфраструктурный исполнитель установил worker-only image
+sha256:c39f7c40c9e4b8f79b9bcb3926956c52d30f2bfc5d7672298b71093fbf90a319: узкий
+порт основного d20f4509 на действующую9df, НЕ полные новые storage/reader модули
+и НЕ последующий alias comparator a1f4d78c. На фактической9df RED скрытия/format
+воспроизведён; patched39runtime/Ruff и исходный проблемный source recheck PASS.
+API/web/caddy images и IDs сохранены. Новый2a39454f7e19440696b6e3ed80a95681
+атрибутирован RUNNING/двойной host FLOCK и завершён01:57:47–01:59:21UTC
+VERIFIED_WITH_WARNINGS; native context/snapshot/3Word PASS. Второй самостоятельный
+цикл ожидается около02:14:21UTC; строгие2цикла пока НЕ приняты. Boot lock
+tmpfiles/unit установлен исполнителем с сохранением inode; guard events=[].
+Alias source-проверка подготовлена отдельно; S04/R05 не объявляются завершёнными.
+
+Портировано инфраструктурное уточнение guard: при worker admission=false
+различие worker-only image не отменяет resource protection; start/recovery
+по-прежнему выключены, при включённом admission строгий image guard сохранён.
+Локальные RED на старом guard и GREEN7/Ruff PASS; следующая source CI требуется.
+Root не выполнял VPS mutations и не прерывает циклы.
