@@ -8,7 +8,7 @@
  * депт-ключей (selectedDeptBothForms) умирает при канонизации DepartmentId
  * в FilterContext; до резки — обе формы (Б5).
  */
-import { classifySheet, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { subordinateNameMatchKey, classifySheet, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { isRetiredIssue } from '../diagnostics/mechanism-groups';
 
 export function filterIssues(allIssues: any[], opts: {
@@ -55,10 +55,11 @@ export function filterIssues(allIssues: any[], opts: {
     : allIssues;
 
   if (hasSubFilter) {
+    const selectedKeys = new Set([...selectedSubordinates].map(subordinateNameMatchKey));
     issues = issues.filter((i: any) => {
       // Issues without subordinateId pass through (org-level issues)
       if (!i.subordinateId) return true;
-      return selectedSubordinates.has(i.subordinateId);
+      return selectedKeys.has(subordinateNameMatchKey(i.subordinateId));
     });
   }
 

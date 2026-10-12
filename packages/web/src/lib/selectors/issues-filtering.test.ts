@@ -1,3 +1,4 @@
+import { SUBORDINATE_REGISTRY } from '@aemr/shared';
 import { describe, expect, it } from 'vitest';
 import { filterIssues, issueAxesWithoutData, splitIssuesBySeverity } from './issues-filtering';
 
@@ -131,4 +132,10 @@ it('не относит доказанную диагностику шапки �
   expect(splitIssuesBySeverity(source).criticalIssues).toEqual([real, conflict]);
   expect(filterIssues(source, noFilters)).toBe(source);
   expect(header.severity).toBe('critical');
+});
+
+it('approved old selection finds current issue, without matching a short-name homonym', () => {
+ const e = SUBORDINATE_REGISTRY.find(e => !e.isOrgItself && e.legacyCanonicalName && e.legacyCanonicalName !== e.canonicalName)!;
+ const data = [{subordinateId: e.canonicalName}, {subordinateId: e.shortName}];
+ expect(filterIssues(data, {...noFilters, selectedSubordinates: new Set([e.legacyCanonicalName!])})).toEqual([data[0]]);
 });

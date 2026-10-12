@@ -8,7 +8,7 @@
  *
  * D15: ноль латиницы и сырых ключей в видимом UI.
  */
-import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
+import { ORG_ITSELF_SENTINEL, resolveSubordinateName } from '@aemr/shared';
 
 /** Подпись аппарата ГРБС (само управление, не подвед). */
 export const ORG_ITSELF_LABEL = 'Аппарат управления';
@@ -16,4 +16,9 @@ export const ORG_ITSELF_LABEL = 'Аппарат управления';
 /** Сырое имя подведа → подпись для отображения. */
 export function subordinateLabel(raw: string): string {
   return raw === ORG_ITSELF_SENTINEL ? ORG_ITSELF_LABEL : raw;
+}
+
+/** Compact presentation only. Source keys and full labels remain unchanged. */
+export function compactSubordinateLabel(raw: string): string {
+  return resolveSubordinateName(raw)?.shortName ?? subordinateLabel(raw);
 }

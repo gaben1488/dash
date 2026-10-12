@@ -116,3 +116,28 @@
 **Проверки кода:** [полный CI по commit `bb4380647`](https://github.com/gaben1488/dash/actions/runs/38050760753) = `success`. Исправлены тестовые артефакты, которые ошибочно смешивали юридические формы `МАДОУ` и `МБДОУ`, а также флаки при переходе Камчатки через календарную полночь. Исторические имена разрешаются только проверенными алиасами; нечёткое автоматическое отождествление юридических лиц не разрешено. После этого документа текущий HEAD может отличаться от указанного доказательного коммита; повторная CI-проверка следующего HEAD обязательна.
 
 **Границы приёмки:** восемь `_Справочник` — согласованные *локальные копии*, не live `IMPORTRANGE`; при следующем утверждённом переименовании необходимо повторить одновременное обновление источника, копий, B/C, локальных списков H и сервисного словаря Dash с такой же полной сверкой. Автоматическую синхронизацию без проверки Apps Script/контрактов ввода не объявлять реализованной. Production PR остаётся draft и не равен VPS deployment. Отдельный отчётный PR #90 прошёл CI и read-only replay, но его эксплуатационный процесс не принят: `RUNNING_REPORT_WORKER_NOT_FOUND`. Не подменять этот факт успешной сборкой.
+
+
+### Follow-up: dictionary chip labels and historical selection (2026-10-12)
+
+S10/U03: the captured read-only source from 2026-10-11 13:44:33 UTC
+(code `d4d76567466b034cda819b7f4be90c0a0238f8f3`, non-atomic capture)
+has 21 UKSiMP positions excluding apparatus: 20 institutions and one joint
+procurement category. All match approved current dictionary names; this capture
+does not reproduce historical duplicate chips or establish production acceptance.
+The existing OrgStrip acronym heuristic differs from dictionary `shortName` in
+13 of 21 labels and corrupts the joint-category label. Compact presentation now
+uses the approved dictionary; unknown source names remain intact. Full labels,
+CSV values, source fields and category identity remain unchanged.
+
+Approved historical aliases must also remain selected, toggle off through the
+current chip, clear with their department and find the same issues. Matching
+uses the existing canonical/legacy spelling contract, never acronym/fuzzy
+identity. Ambiguous dictionary names do not resolve automatically. Regression
+guards cover all approved names and unknown similar entities.
+
+Source freshness remains a separate boundary: `/api/rows/subordinates` reads
+`readDeptRows`, which prefers department cache, then the legacy aggregate mirror,
+then the primary book. A captured current primary source therefore does not
+prove which revision produced an older screenshot. Regex grouping, historical
+cache provenance and production browser acceptance remain unverified here.

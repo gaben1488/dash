@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isOrgItself, subordinateKey, subordinateNameMatchKey, ORG_ITSELF_PLACEHOLDERS } from './org-itself';
-import { ORG_ITSELF_SENTINEL } from './dictionaries/subordinate-registry';
+import { resolveSubordinateName, isOrgItself, subordinateKey, subordinateNameMatchKey, ORG_ITSELF_PLACEHOLDERS } from './org-itself';
+import { ORG_ITSELF_SENTINEL, SUBORDINATE_REGISTRY } from './dictionaries/subordinate-registry';
 
 describe('org-itself канон (столбец C — аппарат ГРБС vs подвед)', () => {
   it('пусто / X / Х / тире / текст-плейсхолдеры → само управление', () => {
@@ -45,4 +45,16 @@ describe('org-itself канон (столбец C — аппарат ГРБС vs
       expect(subordinateKey(v)).toBe(ORG_ITSELF_SENTINEL);
     }
   });
+});
+
+it('resolves only approved dictionary identities, retaining the category role', () => {
+ for (const e of SUBORDINATE_REGISTRY.filter(e => !e.isOrgItself)) {
+  expect(resolveSubordinateName(e.canonicalName)?.id).toBe(e.id);
+  if (e.legacyCanonicalName) expect(resolveSubordinateName(e.legacyCanonicalName)?.id).toBe(e.id);
+ }
+ expect(resolveSubordinateName('СШЛ')).toBeUndefined();
+ expect(resolveSubordinateName('МБУ Спортивная школа новая')).toBeUndefined();
+ expect(resolveSubordinateName('Х')).toBeUndefined();
+ const joint = SUBORDINATE_REGISTRY.find(e => e.id === 'uksimp_cat_sovmestnaya')!;
+ expect(resolveSubordinateName(joint.canonicalName)?.isCategory).toBe(true);
 });

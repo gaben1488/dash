@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+import { createElement } from 'react';
+import { render, cleanup } from '@testing-library/react';
+import { SUBORDINATE_REGISTRY } from '@aemr/shared';
 /**
  * Страж-тесты п.51 (интервью 14.08.2026): счётчик подведов Пульта.
  *
@@ -8,8 +12,8 @@
  * «X/x/Х/х», тире, «н/д», пусто — закупка самого управления (isOrgItself).
  */
 import { describe, expect, it } from 'vitest';
-import { deptPositionsCount, isSelfReference } from './OrgStrip';
-import { SUBORDINATES_FALLBACK } from '../store';
+import { OrgStrip, deptPositionsCount, isSelfReference } from './OrgStrip';
+import { SUBORDINATES_FALLBACK, useStore } from '../store';
 
 describe('п.51: счётчик подведов УКСиМП', () => {
   const realSubs = (deptId: string): string[] =>
@@ -59,4 +63,18 @@ describe('isSelfReference — аппарат vs учреждение и кате
     expect(isSelfReference('МБУ ДО "КДМШ"', 'УКСиМП')).toBe(false);
     expect(isSelfReference('Совместная закупка', 'УКСиМП')).toBe(false);
   });
+});
+
+it('renders curated labels and full source titles, including joint-procurement category', () => {
+ const entries = SUBORDINATE_REGISTRY.filter(e => ['uksimp_ssh_lider', 'uksimp_cat_sovmestnaya'].includes(e.id));
+ expect(entries).toHaveLength(2);
+ useStore.setState({subordinatesMap: {'УКСиМП': entries.map(e => e.canonicalName)}, selectedDepartments: new Set(), selectedSubordinates: new Set(), deptOnlyMode: new Set()});
+ const view = render(createElement(OrgStrip));
+ const html = view.container.innerHTML;
+ for (const entry of entries) {
+  expect(html).toContain(`>${entry.shortName}</button>`);
+  expect(html).toContain(entry.canonicalName.replaceAll('"', '&quot;'));
+ }
+ expect(html).not.toContain('>СЗ(</button>');
+ cleanup();
 });

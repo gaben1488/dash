@@ -69,3 +69,11 @@ export function subordinateNameMatchKey(raw: unknown): string {
   const key = normalizeSubordinateSpelling(raw);
   return HISTORIC_SUBORDINATE_NAMES.get(key) ?? key;
 }
+
+/** Approved dictionary identity only; ambiguous names never resolve automatically. */
+export function resolveSubordinateName(raw: unknown) {
+  const key = subordinateNameMatchKey(raw);
+  const matches = SUBORDINATE_REGISTRY.filter(entry =>
+    !entry.isOrgItself && subordinateNameMatchKey(entry.canonicalName) === key);
+  return matches.length === 1 ? matches[0] : undefined;
+}

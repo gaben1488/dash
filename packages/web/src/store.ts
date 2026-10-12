@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
+import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
@@ -922,7 +922,11 @@ export const useStore = create<AppState>((set, get) => ({
         const currentSubs = new Set(get().selectedSubordinates);
         let changed = false;
         for (const sub of deptSubs) {
-          if (currentSubs.has(sub)) { currentSubs.delete(sub); changed = true; }
+          for (const selected of currentSubs) {
+            if (subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub)) {
+              currentSubs.delete(selected); changed = true;
+            }
+          }
         }
         if (changed) set({ selectedDepartments: current, selectedSubordinates: currentSubs, deptOnlyMode: deptOnly });
         else set({ selectedDepartments: current, deptOnlyMode: deptOnly });
@@ -954,8 +958,9 @@ export const useStore = create<AppState>((set, get) => ({
   selectedSubordinates: new Set<string>(),
   toggleSubordinate: (sub) => {
     const current = new Set(get().selectedSubordinates);
-    if (current.has(sub)) {
-      current.delete(sub);
+    const matches = [...current].filter(selected => subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub));
+    if (matches.length > 0) {
+      for (const selected of matches) current.delete(selected);
     } else {
       current.add(sub);
     }
@@ -972,7 +977,10 @@ export const useStore = create<AppState>((set, get) => ({
     // Clear any sub selections for this dept
     const subs = new Set(get().selectedSubordinates);
     const deptSubs = get().subordinatesMap[deptId] ?? [];
-    for (const s of deptSubs) subs.delete(s);
+    const deptKeys = new Set(deptSubs.map(subordinateNameMatchKey));
+    for (const selected of subs) {
+      if (deptKeys.has(subordinateNameMatchKey(selected))) subs.delete(selected);
+    }
     set({ deptOnlyMode: current, selectedDepartments: depts, selectedSubordinates: subs });
   },
   clearDeptOnly: (deptId) => {
