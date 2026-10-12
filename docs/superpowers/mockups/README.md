@@ -179,3 +179,13 @@ web build PASS. These are source/component checks. The whole production app,
 all144 live analytical combinations, real native comment coverage and exact
 release remain separate admission evidence. The same HTML/PNG/ZIP is updated
 in place and kept outside the public source commit.
+
+
+Live boundary at source814a0056: all source CI checks/build/image/Python pass,
+but live admission is blocked. Candidate annual selector passed425 real
+period nodes with0 contradictions and77 repaired annual count paths; this
+does not mean the frontend is installed. Existing production journal lacks
+`digest.byKind.row-identity-candidate`; subsequent Header/report reads timed
+out at15s. The Word check now requires a nonempty real12.10.2026/2026/Q4
+publication, not an empty future-day envelope. Health remains HTTP200/ok.
+Canonical#69/#79/#93 retain the source/fence/fresh recovery release dependencies.

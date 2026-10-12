@@ -6,6 +6,34 @@
 ---
 
 
+### Контрольная точка source814a0056 / live12:18UTC
+
+Source814a00565babf3f717cd71250ca8efa4ed19badf: CI38248041885
+code/types/lint/tests/build/audit, Python1064 и production image SUCCESS;
+DB38248041855 SUCCESS. Общий CI FAILURE из-за обязательного live admission,
+не объявляется зелёным. Readonly38248041868 сохраняет reader-fence блокер.
+
+На реальном GET /dashboard?year=2026 candidate-селектор проверил425 узлов
+периода,0 count/money contradictions, восстановил годовые counts77 узлов
+с отсутствующим year DTO. Source-response hashes в sanitized CI receipts;
+бизнес-значения/авторы/номера не публиковались. Это live consumer proof,
+не установка нового frontend и не приёмка всех144 фильтров.
+
+12:00UTC source/buckets/comments CONTRACT_PASS; journal — ровно отсутствующий
+`digest.byKind.row-identity-candidate` у установленного предыдущего API.
+12:18UTC четыре Header GET не завершились за15с; Dashboard proof PASS;
+проверка существующего Word context12.10.2026/2026/Q4 остановилась по
+REPORT_READ/TimeoutError. Пустой future-day selected ранее проходил схему,
+но сознательно больше не считается Word proof. R02/U07/live не приняты.
+Public health после диагностики HTTP200,status=ok,~2.2s; Root не запускал
+refresh/generation/rollback и не пересоздавал контейнеры.
+
+Release BLOCKED: точный installed source handoff74/216 из#93 не опубликован,
+reader fence не bootstrap-нут разрешённой quiescent owner-операцией,
+свежий same-owner checkpoint/independent restore/previous-image proof открыт.
+Таймауты/native receipt и новый journal producer требуют SSH/source проверки
+у владельца runtime; никакого общего API rollback или повторения R08.
+
 ### Продолжение 12.10: обязательные количества, лента и точная раскладка
 
 Воспроизведён сквозной дефект годового рейтинга подведов: CalcEngine отдаёт
@@ -52,7 +80,7 @@ R02/U07/live и выпуск ещё не приняты; source handoff/fence/с
 ## Очередность текущего исполнения — продолжение W0 (12.10.2026, Камчатка)
 
 Канонический реестр остаётся issue #69, кандидат — PR #79. Последняя
-проверенная source/browser точка86e63975584feed1d214f02575c73a2cac85d26e:
+предыдущая source/browser точка86e63975584feed1d214f02575c73a2cac85d26e:
 CI38214924770 SUCCESS (Python1064, TS5792, image/native Word/Caddy),
 DB38214924645 SUCCESS. Read-only38214924631 отдельно BLOCKED
 PUBLICATION_READER_LEASE_UNINITIALIZED; выпуск и новое UI этим не приняты.
