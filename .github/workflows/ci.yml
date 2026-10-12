@@ -522,6 +522,59 @@ jobs:
             cd /home/aemr/dash/deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            # CURRENT_SIGNALS_READONLY_BEGIN: GET only; addresses are not purchase identities.
+            docker compose --env-file .env.production exec -T server node --import tsx --input-type=module - <<'JSSIGNALS' 2>/dev/null || echo '{"kind":"current_signals_probe","result":"UNAVAILABLE"}'
+            import * as shared from "@aemr/shared";
+            const unavailable="UNAVAILABLE", selectors=[[419,"416"],[437,"434"],[440,"437"],[452,"449"],[459,"456"],[480,"477"]];
+            const object=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+            const bool=x=>typeof x==="boolean"?x:unavailable;
+            async function get(path){try{const r=await fetch("http://127.0.0.1:3000"+path,{method:"GET",headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(12000)});if(!r.ok)return null;const text=await r.text();return text.length<=4000000?JSON.parse(text):null;}catch{return null;}}
+            function detail(x,address){return object(x)&&object(x.department)&&x.department.id==="uksimp"&&x.rowIndex===address&&object(x.cells)&&object(x.signals)?x:null;}
+            function record(x,address,expected){x=detail(x,address);const cells=x?.cells, signals=x?.signals;let q=unavailable,ad=unavailable;
+            if(cells&&Object.hasOwn(cells,"Q")){const v=cells.Q;if(v===null||(typeof v==="string"&&!v.trim()))q="MISSING";else if(typeof shared.dayNumberOf==="function"&&Number.isFinite(shared.dayNumberOf(v))&&typeof signals.futureFactDate==="boolean")q=signals.futureFactDate?"FUTURE":"DATED";}
+            if(cells&&Object.hasOwn(cells,"AD")&&typeof shared.economyFlagState==="function"){const v=shared.economyFlagState(cells.AD);if(["approved","declined","undetermined"].includes(v))ad=v;}
+            return {address,A_match_expected:cells&&Object.hasOwn(cells,"A")&&(typeof cells.A==="string"||typeof cells.A==="number")?String(cells.A)===expected:unavailable,Q:q,AD:ad,signals:Object.fromEntries(["economyFlagUndetermined","highEconomy","epFactDeviation","futureFactDate"].map(k=>[k,bool(signals?.[k])]))};}
+            async function main(){const [dashboard,...details]=await Promise.all([get("/api/dashboard?year=2026"),...selectors.map(([address])=>get("/api/rows/uksimp/"+address))]);
+            let list=[],complete=true,total=null;for(let page=1;page<=3;page++){const x=await get("/api/rows/uksimp?limit=1000&page="+page);const p=x?.pagination;if(!object(x)||x.department?.id!=="uksimp"||!Array.isArray(x.rows)||!object(p)||p.page!==page||p.limit!==1000||!Number.isInteger(p.total)||p.total<0||!Number.isInteger(p.totalPages)||p.totalPages<1||p.totalPages>3||(total!==null&&total!==p.total)||x.rows.some(r=>!object(r)||!Number.isInteger(r.rowIndex)||r.rowIndex<1||!(typeof r.id==="string"||typeof r.id==="number"))){complete=false;break;}total=p.total;list.push(...x.rows);if(page===p.totalPages)break;}
+            complete=complete&&list.length===total&&new Set(list.map(r=>r.rowIndex)).size===list.length;
+            const rows=await Promise.all(selectors.map(async([address,expected],i)=>{const current=record(details[i],address,expected);const matches=complete?list.filter(r=>String(r.id)===expected):[];let logical=unavailable;if(matches.length===1){const resolved=matches[0].rowIndex;const d=resolved===address?details[i]:await get("/api/rows/uksimp/"+resolved);const verified=record(d,resolved,expected);if(verified.A_match_expected===true)logical=verified;}return {...current,logical_resolution:logical};}));
+            const snap=dashboard?.snapshot;const safeId=typeof snap?.id==="string"&&/^[A-Za-z0-9_.:-]{1,128}$/.test(snap.id)?snap.id:unavailable;const time=typeof snap?.createdAt==="string"&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(snap.createdAt)?snap.createdAt:unavailable;
+            const registry=Array.isArray(shared.CHECK_REGISTRY)?shared.CHECK_REGISTRY:[];const allowed=new Set(registry.filter(c=>["economyFlagUndetermined","highEconomy","epFactDeviation","futureFactDate"].includes(c.legacyId)||c.legacyId==="status_on_data_rows").map(c=>c.id));
+            const issues=Array.isArray(dashboard?.recentIssues)?dashboard.recentIssues:null;for(const row of rows){row.matching_checks=issues&&allowed.size?issues.filter(i=>object(i)&&(i.departmentId==="uksimp"||i.sheet==="УКСиМП")&&i.row===row.address&&allowed.has(i.checkId)).map(i=>({checkId:i.checkId,severity:["error","warning","info","significant","critical"].includes(i.severity)?i.severity:unavailable,status:["open","acknowledged","in_progress","resolved","wont_fix","false_positive"].includes(i.status)?i.status:unavailable})):unavailable;}
+            console.log(JSON.stringify({kind:"current_signals_probe",scope:"current_addresses_only",snapshotId:safeId,snapshotTime:time,sourceReadAt:unavailable,rows}));}
+            main().catch(()=>console.log(JSON.stringify({kind:"current_signals_probe",result:unavailable})));
+            JSSIGNALS
+            # CURRENT_SIGNALS_READONLY_END
+            # Host capability/space inspection has no writes and prints no mount paths.
+            python3 - <<'PYHOST' 2>/dev/null || echo '{"kind":"release_host_readonly","result":"UNAVAILABLE"}'
+            import json
+            import os
+            import re
+            import subprocess
+            def run(args):
+                try:
+                    return subprocess.run(args, text=True, capture_output=True, timeout=8, check=False)
+                except (OSError, subprocess.TimeoutExpired):
+                    return None
+            def free(path):
+                if not path or not os.path.isdir(path):
+                    return "UNAVAILABLE"
+                result = run(["df", "-B1", "--output=avail", "--", path])
+                lines = result.stdout.splitlines() if result and result.returncode == 0 else []
+                return int(lines[-1].strip()) if len(lines) == 2 and lines[-1].strip().isdigit() else "UNAVAILABLE"
+            mounts = run(["docker", "compose", "--env-file", ".env.production", "ps", "--status", "running", "--quiet", "server"])
+            sources = []
+            if mounts and mounts.returncode == 0 and re.fullmatch(r"[a-f0-9]{12,64}\s*", mounts.stdout):
+                inspected = run(["docker", "inspect", "--format", "{{json .Mounts}}", mounts.stdout.strip()])
+                try:
+                    sources = [m["Source"] for m in json.loads(inspected.stdout) if m.get("Destination") == "/app/packages/server/data" and isinstance(m.get("Source"), str)] if inspected and inspected.returncode == 0 else []
+                except (ValueError, TypeError, KeyError):
+                    sources = []
+            actor = run(["whoami"])
+            username = actor.stdout.strip() if actor and actor.returncode == 0 and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", actor.stdout.strip()) else "UNAVAILABLE"
+            sudo = run(["sudo", "-n", "true"])
+            print(json.dumps({"kind": "release_host_readonly", "actor": username, "uid": os.getuid(), "sudo_noninteractive": sudo.returncode == 0 if sudo else "UNAVAILABLE", "volume_free_bytes": free(sources[0]) if len(sources) == 1 else "UNAVAILABLE", "private_backup_free_bytes": free("/home/aemr/.dash-private-backups")}))
+            PYHOST
             # JS uses the Zod schema imported by browser code, but only GETs
             # an existing release through Fastify, without invoking refresh.
             docker compose --env-file .env.production exec -T server node --import tsx --input-type=module -e '

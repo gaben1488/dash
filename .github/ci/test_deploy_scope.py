@@ -5,6 +5,47 @@ from deploy_scope import is_non_runtime, runtime_changed
 
 
 class DeploymentScopeTests(unittest.TestCase):
+    def test_current_signal_probe_is_bounded_private_and_unknown_safe(self):
+        import json
+        import subprocess
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        script = workflow.split("            import * as shared", 1)[1].split("            JSSIGNALS", 1)[0]
+        script = "import * as shared" + script
+        script = "\n".join(line.removeprefix("            ") for line in script.splitlines())
+        for scenario in ["good", "unavailable", "duplicate", "incomplete", "wrong_address", "composite", "cross_year_duplicate"]:
+            with self.subTest(scenario=scenario):
+                mock = r'''const shared={dayNumberOf:v=>v==="valid"?123:NaN,economyFlagState:v=>v==="yes"?"approved":"undetermined",CHECK_REGISTRY:[{id:"anti_dumping",legacyId:"highEconomy"}]};
+const scenario=SCENARIO, addresses=[419,437,440,452,459,480], numbers=["416","434","437","449","456","477"];
+let calls=[];globalThis.fetch=async(url,options)=>{calls.push(url);if(options.method!=="GET"||url.includes("refresh")||!url.startsWith("http://127.0.0.1:3000/api/"))throw Error("Unsafe request");
+if(scenario==="unavailable")return {ok:false};let data;
+if(url.includes("dashboard"))data={snapshot:{id:"safe-id",createdAt:"2026-10-12T01:00:00Z"},recentIssues:[{departmentId:"uksimp",row:419,checkId:"anti_dumping",severity:"critical",status:"acknowledged",title:"PRIVATE_SENTINEL"}]};
+else if(url.includes("?")){let rows=addresses.map((rowIndex,i)=>({rowIndex,id:numbers[i],subject:"PRIVATE_SENTINEL"}));if(scenario==="composite")rows[0].id="416/1";if(scenario==="duplicate"||(scenario==="cross_year_duplicate"&&!url.includes("year=")))rows.push({rowIndex:999,id:"416"});data={department:{id:"uksimp"},rows,pagination:{page:1,limit:1000,total:rows.length,totalPages:scenario==="incomplete"?4:1}};}
+else {const address=Number(url.split("/").pop()),i=addresses.indexOf(address);data={department:{id:"uksimp"},rowIndex:scenario==="wrong_address"?address+1:address,cells:{A:numbers[i],Q:i===0?"":i===1?"valid":"PRIVATE_SENTINEL",AD:"yes",G:"PRIVATE_SENTINEL"},signals:{economyFlagUndetermined:false,highEconomy:true,epFactDeviation:false,futureFactDate:i===1}};}
+return {ok:true,text:async()=>JSON.stringify(data)};};
+'''.replace("SCENARIO", json.dumps(scenario))
+                script_mocked = script.replace('import * as shared from "@aemr/shared";', mock)
+                result = subprocess.run(["node", "--input-type=module", "-e", script_mocked], text=True, capture_output=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("PRIVATE_SENTINEL", result.stdout)
+                data = json.loads(result.stdout)
+                self.assertEqual(data["scope"], "current_addresses_only")
+                self.assertEqual(data["sourceReadAt"], "UNAVAILABLE")
+                row = data["rows"][0]
+                if scenario in ["unavailable", "wrong_address"]:
+                    self.assertEqual(row["signals"]["highEconomy"], "UNAVAILABLE")
+                    self.assertEqual(row["matching_checks"], "UNAVAILABLE" if scenario == "unavailable" else [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
+                else:
+                    self.assertIs(row["signals"]["economyFlagUndetermined"], False)
+                    self.assertEqual(row["Q"], "MISSING")
+                    self.assertEqual(data["rows"][1]["Q"], "FUTURE")
+                    self.assertEqual(data["rows"][2]["Q"], "UNAVAILABLE")
+                    self.assertEqual(row["matching_checks"], [{"checkId": "anti_dumping", "severity": "critical", "status": "acknowledged"}])
+                if scenario in ["duplicate", "incomplete", "unavailable", "wrong_address", "composite", "cross_year_duplicate"]:
+                    self.assertEqual(row["logical_resolution"], "UNAVAILABLE")
+                else:
+                    self.assertIs(row["logical_resolution"]["A_match_expected"], True)
+
     def test_rehearsal_worker_lookup_reports_blocker_without_masking_failure(self):
         import json
         import subprocess
