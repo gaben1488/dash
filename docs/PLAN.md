@@ -5,6 +5,24 @@
 
 ---
 
+### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
+
+Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:
+code/types/tests/lint/build/audit, Python и production image SUCCESS;
+DB38256694754 SUCCESS. Общий CI FAILURE из-за двух Header GET, deployment
+SKIPPED. Code-функциональность журнала находится в2c5c0c4d, гейт real-sized
+receipt — в0f915d7d; docs-only следующие записи не заменяют эти source proofs.
+
+13:36UTC реальный существующий Word context12.10.2026/2026/Q4:
+HTTP200/9,188,711B, SHA256
+`a75c48154814679e54edc1462015b6460e9ab9293307cdb06da7c065aa5acefb`;
+**полная candidate-схема PASS, selected nonempty**. Это устранение прежнего
+ложного bound-отказа и настоящий historical receipt proof, не браузерная
+приёмка скачивания трёх DOCX. Журнал и sources READ_UNAVAILABLE; buckets и
+comments CONTRACT_PASS. Metric consumer425/0 contradictions/77 recovery PASS.
+Полный release остаётся BLOCKED на API доступности и прежних source/fence/restore
+prerequisites #93; accepted R08 не повторяется. Никаких production/Google записей.
+
 ### Журнал и комментарии: исправление потери свидетельств — 13.10.2026
 
 Source commit `2c5c0c4dcb2891a9fa6e2c66f8a6007d1f1292f0`: 734 shared /
