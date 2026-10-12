@@ -918,27 +918,30 @@ function detectSignalsToIssues(
       // проверка источника на сервере обязаны звать одну функцию, иначе список
       // критических разойдётся с цветом чипов на экране.
       const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
-        factDateRaw: cells['Q'], factSum: sheetNumber(cells['Y']) ?? undefined };
+        factDateRaw: cells['Q'], factSum: sheetNumber(cells['Y']) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        necessityJustification: cells.AE, commentGRBS: cells.AF };
       const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
       // Nonempty UNMAPPED is a proven dictionary limitation, not employee misconduct.
       // Reuse the existing diagnostic classification while preserving this case's stable ID.
       const dictionaryUncertainty = signalKey === 'epRisk' && typeof cells.M === 'string'
         && cells.M.trim().length > 0
         && canonicalizeReasonEp(cells.M.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED';
-      const classification = dictionaryUncertainty ? SIGNAL_ISSUE_MAP.unmappedReasonEP : meta;
+      const amountUncertainty = signalKey === 'epRisk' && epContext.amountBasis === 'position-total' && !annualAggregate;
+      const classification = dictionaryUncertainty ? SIGNAL_ISSUE_MAP.unmappedReasonEP
+        : amountUncertainty ? { ...meta, group: 'completeness' as const } : meta;
       const severity: Issue['severity'] = signalKey === 'epRisk'
         ? epRiskStrictnessOfReason(cells['M'], epContext)
         : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity,
-        origin: dictionaryUncertainty ? 'mapping_error' : 'bi_heuristic',
+        origin: dictionaryUncertainty || amountUncertainty ? 'mapping_error' : 'bi_heuristic',
         category: `signal:${signalKey}`,
         signal: signalKey,
         group: classification.group,
         checkId: classification.checkId,
-        kbHint: classification.kbHint,
-        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M).title : meta.title}: ${subject || `строка ${r + 1}`}`,
+        kbHint: amountUncertainty ? epRiskReviewDetails(cells.M, epContext).explanation : classification.kbHint,
+        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).title : meta.title}: ${subject || `строка ${r + 1}`}`,
         // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
         // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).
         description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}${
@@ -953,7 +956,7 @@ function detectSignalsToIssues(
         rowSeq: String(cells['A'] ?? '').trim() || undefined,
         departmentId: deptId,
         subordinateId,
-        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M).explanation : meta.recommendation,
+        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).explanation : meta.recommendation,
         status: 'open',
         detectedAt: now,
         detectedBy: `pipeline:signal:${signalKey}`,

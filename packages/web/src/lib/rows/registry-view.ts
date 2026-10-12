@@ -271,7 +271,7 @@ export function signalChipText(key: string, row?: EpRiskRowContext): SignalChipT
     return { text: EP_ANNUAL_AMOUNT_TITLE, hint: EP_ANNUAL_AMOUNT_EXPLANATION };
   }
   if (key === 'epRisk' && epRiskStrictnessOfReason(row?.epReason, row) === 'warning') {
-    const review = epRiskReviewDetails(row?.epReason);
+    const review = epRiskReviewDetails(row?.epReason, row);
     return { text: review.title, hint: review.explanation };
   }
   const label = productLabel(key);

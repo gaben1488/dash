@@ -119,7 +119,7 @@ export interface RowSignals {
    * способами под тремя именами и давало три разных числа.
    */
   economyFlagUndetermined: boolean;
-  /** ЕП (колонка L) с суммой > 600 тыс. руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
+  /** ЕП (колонка L) с объёмом позиции > 600 тыс. руб. — кандидат проверки отдельных сумм и основания, не доказанное превышение разового лимита */
   epRisk: boolean;
   /** Пустые обязательные поля — проблема качества данных */
   dataQuality: boolean;
@@ -1082,7 +1082,7 @@ export function getSignalBadges(signals: RowSignals, row?: EpRiskRowContext & { 
   if (signals.epRisk) {
     const severity = epRiskStrictnessOfReason(row?.epReason, row);
     badges.push({ label: isAnnualEpAggregate(row) ? EP_ANNUAL_AMOUNT_TITLE
-      : severity === 'warning' ? epRiskReviewDetails(row?.epReason).title : badgeLabel('epRisk'),
+      : severity === 'warning' ? epRiskReviewDetails(row?.epReason, row).title : badgeLabel('epRisk'),
       color: severity === 'info' ? 'blue' : severity === 'warning' ? 'yellow' : 'red', icon: 'shield-alert' });
   }
   if (signals.highEconomy) {

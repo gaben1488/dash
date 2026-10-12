@@ -83,20 +83,16 @@ describe('п.137(2): строгость ЕП-риска — свойство с�
     PLAN_DATE: '15.03.2026', PLAN_QUARTER: 1, PLAN_YEAR: 2026,
   });
 
-  it('безальтернативность по закону — замечание информационное', () => {
-    // Живой текст из книг (спека консолидации, вопрос владельца №5): статья 93
-    // названа прямо, но пункт 11 не входит в четвёрку, которую знает гейт
-    // законных оснований самого признака, — поэтому признак горит. Справочник
-    // оснований ту же строку читает как безальтернативную по закону, и
-    // строгость падает до справки. Ровно об этих строках и был довод развилки:
-    // у 60 из 76 красных чипов соседняя вкладка держала наготове оправдание.
+  it('названное основание не устанавливает отдельную цену договора', () => {
+    // A statutory citation is a source assertion. K remains a position total:
+    // it establishes neither individual price nor satisfaction of legal conditions.
     const snap = snapshotOf([epRow('п. 11 ч. 1 ст. 93 (заключение контракта с УФСИН)')]);
     const issue = snap.issues.find((i) => i.signal === 'epRisk');
     expect(issue).toBeTruthy();
-    expect(issue!.severity).toBe('info');
+    expect(issue!.severity).toBe('warning');
   });
 
-  it('12.10: распознанная причина заказчика — предупреждение для проверки документов', () => {
+  it('12.10: распознанная причина заказчика — предупреждение для проверки условий основания', () => {
     const snap = snapshotOf([epRow('Проведение аукциона нецелесообразно')]);
     const issue = snap.issues.find((i) => i.signal === 'epRisk');
     expect(issue).toBeTruthy();
@@ -104,9 +100,9 @@ describe('п.137(2): строгость ЕП-риска — свойство с�
     expect(issue!.status).toBe('open');
   });
 
-  it('пустое обоснование судится строго — судить не о чем', () => {
+  it('пустое основание не доказывает нарушение разового лимита общей суммой', () => {
     const snap = snapshotOf([epRow('')]);
     const issue = snap.issues.find((i) => i.signal === 'epRisk');
-    expect(issue!.severity).toBe('critical');
+    expect(issue!.severity).toBe('warning');
   });
 });

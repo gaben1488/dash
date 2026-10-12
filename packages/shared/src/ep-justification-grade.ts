@@ -201,13 +201,27 @@ export interface EpRiskRowContext {
   method?: unknown;
   factDateRaw?: unknown;
   factSum?: number;
+  /** K/Y are source position totals, never asserted individual contract prices. */
+  amountBasis?: 'position-total';
+  planYear?: number | undefined;
+  /** AE and AF remain source explanations, not verified statutory findings. */
+  necessityJustification?: unknown;
+  commentGRBS?: unknown;
 }
 
 export const EP_REASON_REVIEW_TITLE = 'Причина ЕП указана: проверить основание';
-export const EP_REASON_REVIEW_EXPLANATION = 'Причина указана; требуется проверка основания и подтверждающих документов. '
+export const EP_REASON_REVIEW_EXPLANATION = 'Причина указана; требуется проверка применимого основания и его условий. '
   + 'Это предупреждение для разбора, а не подтверждённое нарушение. Пояснение не закрывает проверку автоматически.';
 
-export function epRiskReviewDetails(reason: unknown): { title: string; explanation: string } {
+export function epRiskReviewDetails(reason: unknown, row?: EpRiskRowContext): { title: string; explanation: string } {
+  if (row?.amountBasis === 'position-total') return {
+    title: 'Цена отдельного договора не установлена: проверить основание ЕП',
+    explanation: 'K/Y отражают общий объём позиции, а не доказанную цену одного договора. '
+      + 'M — основание, AE — необходимость, AF — пояснение и история этой строки. '
+      + 'Они не подтверждают автоматически ни превышение разового лимита, ни законность закупки. '
+      + 'Проверить применимое основание и индивидуальные суммы; отсутствие приложения само по себе не является ошибкой. '
+      + 'Не переносить пояснение другой позиции или периода; исходную историю сохранять.',
+  };
   const text = typeof reason === 'string' ? reason : '';
   if (canonicalizeReasonEp(text.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED') {
     return { title: 'Основание ЕП не распознано: требуется экспертная проверка',
@@ -224,6 +238,8 @@ export const EP_ANNUAL_AMOUNT_EXPLANATION = 'Общий объём серии н
 
 /** Only a structurally open, curated contract series proves an annual aggregate. */
 export function isAnnualEpAggregate(row?: EpRiskRowContext): boolean {
+  // The curated seed is an August 2026 observation, not a cross-year identity proof.
+  if (row?.amountBasis === 'position-total' && row.planYear !== 2026) return false;
   if (!row || !isYearlongStageRow({ method: row.method,
     factDateCell: row.factDateRaw, factSum: row.factSum ?? 0 })) return false;
   const department = findDept(row.dept ?? '')?.id ?? row.dept ?? '';
@@ -238,6 +254,8 @@ export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext
   // Keep the review open, but do not assert a single-contract violation from
   // an annual total. Individual dated contracts and unknown scopes stay checked.
   if (isAnnualEpAggregate(row)) return 'info';
+  // Source totals cannot prove the single-contract threshold, even when Q is filled.
+  if (row?.amountBasis === 'position-total') return 'warning';
   const text = typeof reason === 'string' ? reason : '';
   // Тот же предел длины, что в конвейере (защита от разбора гигантской ячейки):
   // регулярные выражения части кластеров содержат «.*».

@@ -20,6 +20,7 @@ import {
   EP_RISK_STRICT_GRADES,
   epRiskStrictnessOfGrade,
   epRiskStrictnessOfReason,
+  epRiskReviewDetails,
 } from './ep-justification-grade.js';
 import {
   COMPOSITE_GRADE_CUTS,
@@ -208,5 +209,36 @@ describe('§6 спеки: объяснения без развилок', () => {
     const entry = check('plan_year_missing')!;
     expect(entry.description).toContain('рукописной плановой даты (N)');
     expect(entry.description).toContain('P — вторичная история');
+  });
+});
+
+ describe('source position total is not a single-contract price', () => {
+  const row = { dept: 'UKSiMP', id: '999', subject: 'Годовая потребность', method: 'ЕП',
+    amountBasis: 'position-total' as const, factDateRaw: '10.10.2026', factSum: 1200,
+    planYear: 2026, necessityJustification: 'Потребность учреждения', commentGRBS: '' };
+  it.each([
+    ['Серия', 'Два договора по 600 тыс. руб.'],
+    ['Компенсация', 'Компенсация сотрудникам: 180 тыс. руб. × 3'],
+    ['Иной закон', 'Охрана по 223-ФЗ'],
+    ['Разные ссылки', 'п.12 ч.1 ст.93; не ч.12 ст.93'],
+    ['Отрицание', 'Поставщик не является монополистом'],
+    ['Чужая история', 'В 2024 году приобретены канцтовары за 20 тыс. руб.'],
+    ['Изменённое пояснение', 'Пояснение заменено; индивидуальные цены не указаны'],
+  ])('%s cannot establish a violation or a lawful exemption', (_, commentGRBS) => {
+    const context = { ...row, commentGRBS };
+    expect(epRiskStrictnessOfReason('', context)).toBe('warning');
+    const details = epRiskReviewDetails('', context);
+    expect(details.title).toContain('Цена отдельного договора не установлена');
+    expect(details.explanation).toContain('не подтверждают');
+  });
+  it('does not reuse the 2026 curated observation in another year or subject', () => {
+    const series = { ...row, dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', factDateRaw: 'Х' };
+    expect(epRiskStrictnessOfReason('', series)).toBe('info');
+    expect(epRiskStrictnessOfReason('', { ...series, planYear: 2027 })).toBe('warning');
+    expect(epRiskStrictnessOfReason('', { ...series, planYear: undefined })).toBe('warning');
+    expect(epRiskStrictnessOfReason('', { ...series, subject: 'Другая потребность' })).toBe('warning');
+  });
+  it('does not turn source explanations into a legal PASS', () => {
+    expect(epRiskStrictnessOfReason('монополист', row)).toBe('warning');
   });
 });

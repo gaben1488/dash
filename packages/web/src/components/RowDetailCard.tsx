@@ -182,6 +182,7 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
   const epReasonPlaceholder = epReasonRaw !== null && epReason === null ? epReasonRaw : null;
   // Тот же канон для комментариев: «х» в примечании — не комментарий.
   const comments: Array<{ label: string; value: string | null }> = [
+    { label: 'Обоснование необходимости (AE)', value: cellTextOrNull(row.necessityJustification) },
     { label: 'Комментарий управления', value: cellTextOrNull(row.commentGRBS) },
     { label: 'Комментарий отдела экономики', value: cellTextOrNull(row.commentExtra) },
     { label: 'Комментарий финансового управления', value: cellTextOrNull(row.commentUFBP) },

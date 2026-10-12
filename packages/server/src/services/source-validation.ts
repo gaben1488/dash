@@ -105,7 +105,8 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
       // @aemr/shared): инициативная заявка в риск-списки не идёт, п.137(3).
       if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
       const epContext = { dept: department ?? String(cells.B ?? ''), id: cells.A, subject: cells.G,
-        method: cells.L, factDateRaw: cells.Q, factSum: sheetNumber(cells.Y) ?? undefined };
+        method: cells.L, factDateRaw: cells.Q, factSum: sheetNumber(cells.Y) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        necessityJustification: cells.AE, commentGRBS: cells.AF };
       issues.push({
         row: rowNo,
         type: 'signal',
@@ -117,7 +118,7 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
           : severityOf(checkId),
         message: signalKey === 'epRisk' && isAnnualEpAggregate(epContext)
           ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && epRiskStrictnessOfReason(cells.M, epContext) === 'warning'
-            ? epRiskReviewDetails(cells.M).title : titleOf(checkId, signalKey),
+            ? epRiskReviewDetails(cells.M, epContext).title : titleOf(checkId, signalKey),
       });
     }
 

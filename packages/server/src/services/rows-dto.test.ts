@@ -155,3 +155,14 @@ describe('isDataRow — отсев не-данных', () => {
     expect(isDataRow({ ...base, method: '' })).toBe(true);
   });
 });
+
+ it('retains AE/AF read-only source context and treats K/Y as position totals', () => {
+  const row: unknown[] = Array(34).fill('');
+  row[0] = '999'; row[6] = 'Годовая потребность'; row[10] = 1200;
+  row[11] = 'ЕП'; row[12] = ''; row[16] = '10.10.2026'; row[24] = 1200;
+  row[30] = 'Обоснование необходимости'; row[31] = 'Два договора по 600';
+  const dto = buildRowDto(row, 0, { deptId: 'UKSiMP' });
+  expect(dto).toMatchObject({ amountBasis: 'position-total',
+    necessityJustification: row[30], commentGRBS: row[31] });
+  expect(dto.badges.find(b => b.icon === 'shield-alert')).toMatchObject({ color: 'yellow' });
+});
