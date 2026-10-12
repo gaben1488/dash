@@ -709,11 +709,14 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 
 Включены исходники реально установленного инфраструктурным исполнителем host guard,
 systemd timer, online resource limits и bounded logging. Семь Linux-регрессий и Ruff
-PASS. API/worker этой интеграцией не пересоздаются; их logging пока staged. Web/Caddy
-ограничены на прежних image IDs; реальные пики памяти учтены. Default worker admission
+PASS. API/worker root этой интеграцией не пересоздавал. Операционный исполнитель позднее
+под общим flock подтвердил bounded logging 10m×3 на всех четырёх прежних image IDs;
+реальные пики памяти учтены, данные не откатывались. Default worker admission
 остаётся false, публикационный source-change не запускает восстановление API/данных.
 Новая инфраструктура не доказывает два принятых цикла: attempt 1051cf18296849b1b8e5bf4d5b434d46
-на handoff атрибутирован RUNNING/FLOCK, окончательный результат ещё ожидается.
+на handoff атрибутирован RUNNING/FLOCK, завершился SOURCE_CHANGED; это не отказ API.
+Новый после ротации 025a завершился VERIFIED_WITH_WARNINGS без ошибки, но отдельная
+FLOCK sample отсутствует: два самостоятельных атрибутированных цикла ещё не приняты.
 
 Следующий release gate обязан учитывать общий maintenance lock: многокомандное
 backup-окно сохраняет владение между prepare/transfer/match/resume; deploy/rollback
@@ -738,3 +741,26 @@ K03/K05/K06/C07/U06 — 12.10.2026: в подготовленном исправ
 ### R05/R09 — prerequisite read-only upgrade rehearsal, 2026-10-12
 
 Candidate-overlay source-schema/frozen-replay на legacy report-state без publication-readers.lock теперь имеет явный read-only preflight и машинный BLOCKED/код 2 с отдельным требованием authorized quiescent bootstrap. Lease не создаётся workflow; copied_catalog не считается заменой fencing immutable release files. Preflight стоит до source-schema и всех frozen-replay consumers (published summary, detailed stats, history/weekly/archive). CI не объявляется пройденным до отдельного допуска оператора и успешного повторного rehearsal; unfenced fallback и копирование 18 GB не добавлены. Missing lease, active maintenance и successful existing lease проверены с сохранением исходных bytes/inode.
+
+### R08/R09 — восстановление maintenance-lock после reboot, 2026-10-12
+
+Установщик guard берёт тот же EX lock до любых host mutations. Native tmpfiles
+правило root:root/0600 и service prerequisite восстанавливают volatile lock после
+reboot, сохраняя inode существующего владельца flock. RED на прежнем установщике
+под конкурирующим владельцем воспроизведён; 19 настоящих Linux deployment tests,
+включая isolated systemd-tmpfiles и повторное создание под действующим flock, PASS.
+Ruff всего report-engine и изолированная проверка systemd unit syntax PASS;
+независимое ревью PASS. Production maintenance actor должен быть privileged;
+фактические SSH-права и live установка этой дополнительной защиты ещё не приняты.
+Автоматический cross-job backup → deploy handoff остаётся явно BLOCKED, а не
+обходится снятием lock; независимые source gates и API availability сохраняются.
+
+### K06/U03/U06 — накопительная история в существующем барабане, 2026-10-12
+
+Код 01cd4fee подключает LiveHistory к серверному журналу с последнего завершённого
+недельного контроля. Mount/open и принятое новое dashboard-чтение обновляют свод;
+15-секундного опроса нет. Закрытие и acknowledgement не обнуляют накопленный счётчик.
+Ошибка или отсутствующий baseline остаются неизвестными, а не нулём; author берётся
+только из свидетельства. Оригинальная трёхрядная геометрия и управление сохранены.
+Локальные 9 целевых тестов и независимое ревью PASS; полный интеграционный CI,
+live readback и продуктовая приёмка остаются открытыми.

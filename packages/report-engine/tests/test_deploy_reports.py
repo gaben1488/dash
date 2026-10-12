@@ -81,7 +81,7 @@ def test_verified_inherited_lock_avoids_nested_deadlock():
 . "$1"
 maintenance_lock_acquire || exit 1
 bash -c '. "$1"; maintenance_lock_acquire; maintenance_lock_owned_by $$' nested "$1"
-''', 'parent', str(helper)], capture_output=True, text=True)
+''', 'parent', str(helper)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
@@ -94,9 +94,58 @@ exec 9>/run/lock/aemr-maintenance.lock
 export AEMR_MAINTENANCE_LOCK_HELD=1
 . "$1"
 maintenance_lock_acquire
-''', 'fake', str(ROOT / 'deploy/maintenance-lock.sh')], capture_output=True, text=True)
+''', 'fake', str(ROOT / 'deploy/maintenance-lock.sh')], capture_output=True, text=True, check=False)
     assert result.returncode != 0
     assert 'AEMR_MAINTENANCE_BUSY' in result.stderr
+
+
+def test_guard_installation_is_excluded_before_any_host_mutation(tmp_path):
+    import fcntl
+    install = tmp_path / 'install'
+    install.write_text('#!/bin/sh\nprintf "mutation\\n" >> "$CALL_LOG"\nexit 19\n')
+    install.chmod(0o755)
+    log = tmp_path / 'calls'
+    with open('/run/lock/aemr-maintenance.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = subprocess.run(['bash', str(ROOT / 'deploy/install-runtime-guard.sh')],
+            env={**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
+                 'CALL_LOG': str(log)}, capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert 'AEMR_MAINTENANCE_BUSY' in result.stderr
+    assert not log.exists()
+
+
+def test_tmpfiles_recreates_boot_lock_without_replacing_locked_inode(tmp_path):
+    import fcntl
+    import shutil
+    import stat
+
+    import pytest
+    executable = shutil.which('systemd-tmpfiles')
+    if not executable:
+        pytest.skip('Linux systemd-tmpfiles is required')
+    rule = (ROOT / 'deploy/systemd/aemr-maintenance.conf').read_text()
+    assert 'f /run/lock/aemr-maintenance.lock 0600 root root -' in rule
+    # Use the real platform implementation in an isolated root. Unprivileged
+    # tests substitute their numeric owner; production keeps root:root.
+    config = tmp_path / 'maintenance.conf'
+    config.write_text(rule.replace('root root -', f'{os.getuid()} {os.getgid()} -'))
+    isolated = tmp_path / 'boot'
+    (isolated / 'run/lock').mkdir(parents=True)
+    command = [executable, '--create', '--root', str(isolated), str(config)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    target = isolated / 'run/lock/aemr-maintenance.lock'
+    before = target.stat()
+    assert stat.S_IMODE(before.st_mode) == 0o600
+    assert (before.st_uid, before.st_gid) == (os.getuid(), os.getgid())
+    with target.open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        assert target.stat().st_ino == before.st_ino
+        with target.open('a') as contender, pytest.raises(BlockingIOError):
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def test_backup_guardian_holds_lock_across_caller_exit_and_releases_on_resume(tmp_path):
@@ -131,7 +180,6 @@ def test_backup_guardian_holds_lock_across_caller_exit_and_releases_on_resume(tm
 
 
 def test_backup_watchdog_restarts_only_original_server_before_unlock(tmp_path):
-    import time
     script = (ROOT / 'deploy/report-backup-window.sh').read_text()
     body = script.split("  nohup bash -c '", 1)[1].split("  ' watchdog", 1)[0].replace('SECONDS + 1800', 'SECONDS + 0')
     docker = tmp_path / 'docker'
@@ -205,12 +253,12 @@ def test_worker_observation_releases_maintenance_but_start_is_exclusive(tmp_path
     def compose(*args):
         if args[0] == 'up':
             # A second real process cannot enter the container transition.
-            assert subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true']).returncode != 0
+            assert subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true'], check=False).returncode != 0
         return worker
     recovery.compose = compose
     def accept(status, since, seen, attributed, interval):
         # Timer observations must not disable API recovery for 40 minutes.
-        assert subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true']).returncode == 0
+        assert subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true'], check=False).returncode == 0
         seen[str(len(seen))] = 'complete'
         return True
     monkeypatch.setattr(module, 'accept_cycle', accept)
@@ -242,7 +290,7 @@ elif args[0]=='inspect':
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = subprocess.run(['bash', str(ROOT / 'deploy/report-backup-window.sh'), 'prepare', 'd'*40, '1', str(ROOT), str(tmp_path / 'backup')],
             env={**os.environ, 'PATH': str(tmp_path)+os.pathsep+os.environ['PATH'], 'CALL_LOG': str(log), 'HELPER': str(ROOT / 'deploy/maintenance-lock.sh')},
-            capture_output=True, text=True, timeout=15)
+            capture_output=True, text=True, timeout=15, check=False)
     assert result.returncode != 0
     assert 'BACKUP_GUARDIAN_' in result.stderr
     assert not any(line.startswith('stop ') for line in log.read_text().splitlines())

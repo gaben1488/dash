@@ -1,11 +1,12 @@
 [Unit]
 Description=Recover Dash processes independently of report generation
 Requires=docker.service
-After=docker.service
+After=docker.service systemd-tmpfiles-setup.service
 ConditionPathExists=/etc/aemr/runtime-policy.json
 
 [Service]
 Type=oneshot
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/aemr-maintenance.conf
 ExecStart=/usr/bin/python3 /usr/local/libexec/aemr/runtime_guard.py
 TimeoutStartSec=90
 UMask=0077

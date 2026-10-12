@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Run from this checkout; optional argument is the production deploy directory.
 set -euo pipefail
+umask 077
+. "$(dirname -- "$0")/maintenance-lock.sh"
+maintenance_lock_acquire
 deploy_dir=${1:-/home/aemr/dash/deploy}
 source_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 install -d -m 700 /etc/aemr /etc/aemr/docker /var/lib/aemr
@@ -8,6 +11,9 @@ install -d -m 755 /usr/local/libexec/aemr
 install -m 755 "$source_dir/runtime_guard.py" /usr/local/libexec/aemr/runtime_guard.py
 install -m 644 "$source_dir/systemd/aemr-runtime-guard.service" /etc/systemd/system/
 install -m 644 "$source_dir/systemd/aemr-runtime-guard.timer" /etc/systemd/system/
+install -d -m 755 /etc/tmpfiles.d
+install -m 644 "$source_dir/systemd/aemr-maintenance.conf" /etc/tmpfiles.d/
+systemd-tmpfiles --create /etc/tmpfiles.d/aemr-maintenance.conf
 python3 - "$source_dir/runtime-policy.json" "$deploy_dir" <<'PY'
 import json,subprocess,sys
 from pathlib import Path

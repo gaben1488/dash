@@ -238,6 +238,14 @@ worker recovery. Установщик берёт limits из Compose с `--profi
 Секреты, private stderr и payload закупок в journal не выводятся. Внешние копии,
 Telegram и новые платные сервисы отложены по последнему уточнению владельца.
 
+Production maintenance actor должен иметь привилегированный доступ к фиксированному
+root0600 lock и policy. Это не право браузерного пользователя. `aemr-maintenance.conf`
+восстанавливает lock после reboot; service повторяет tmpfiles create перед каждым
+probe, не меняя inode существующего файла. Установщик владеет тем же lock на весь
+сценарий. Доступ непривилегированного SSH-оператора не предполагается автоматически:
+до выпуска требуется подтвердить actor либо настроить явно ограниченный privileged
+maintenance путь. Не обходить недоступную policy или lock.
+
 ## Common Failures
 
 - `AEMR_API_KEY is required when NODE_ENV=production`: set `AEMR_API_KEY`.
