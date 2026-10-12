@@ -201,6 +201,14 @@ export const SCHEMA_DDL = `
     recorded_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS drive_comment_observations (
+    id TEXT PRIMARY KEY, book TEXT NOT NULL, file_id TEXT,
+    kind TEXT NOT NULL, source_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+    payload TEXT NOT NULL, read_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_comment_observations_source
+    ON drive_comment_observations(file_id, kind, source_id, read_at);
+
   CREATE INDEX IF NOT EXISTS idx_metric_history_key ON metric_history(metric_key);
   CREATE INDEX IF NOT EXISTS idx_metric_history_snapshot ON metric_history(snapshot_id);
   CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);

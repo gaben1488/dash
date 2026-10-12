@@ -1,0 +1,40 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { CommentWitness } from './google-comment-witnesses.js';
+
+let store: typeof import('./comment-witness-store.js');
+const oldEnvironment = { ...process.env };
+beforeAll(async () => {
+  vi.resetModules(); process.env = { ...oldEnvironment, NODE_ENV: 'test', SQLITE_PATH: ':memory:' };
+  store = await import('./comment-witness-store.js');
+}, 60_000);
+afterAll(() => { process.env = oldEnvironment; vi.resetModules(); });
+const witness: CommentWitness = { kind: 'cell_note', fileId: 'file', sourceId: '17:AF7',
+  sheetId: 17, sheet: 'ВСЕ', cell: 'AF7', author: null, content: 'Первое', posts: [],
+  readAt: '2026-10-12T01:00:00Z', sourceRevision: null,
+  sourceRevisionUnavailableReason: 'Не предоставлена.', raw: { note: 'Первое' } };
+
+describe('comments family history', () => {
+  it('retains changed and reverted original evidence, and repeated reads are idempotent', () => {
+    expect(store.storeCommentWitness('УКСиМП', witness)).toBe(true);
+    expect(store.storeCommentWitness('УКСиМП', { ...witness, readAt: '2026-10-12T01:01:00Z' })).toBe(false);
+    store.storeCommentWitness('УКСиМП', { ...witness, content: 'Второе', raw: { note: 'Второе' }, readAt: '2026-10-12T02:00:00Z' });
+    store.storeCommentWitness('УКСиМП', { ...witness, readAt: '2026-10-12T03:00:00Z' });
+    const rows = store.listCommentWitnesses('УКСиМП');
+    expect(rows).toHaveLength(3);
+    expect(rows.map(r => r.evidence.content)).toEqual(['Первое', 'Второе', 'Первое']);
+    expect(rows.every(r => r.evidence.author === null && !('fileId' in r.evidence))).toBe(true);
+  });
+  it('persists unavailable rather than a successful zero reading', () => {
+    store.storeWitnessReading('УИО', 'other', 'threads', {
+      status: 'unavailable', reason: 'Нет доступа.', scope: [], records: [],
+    }, '2026-10-12T01:00:00Z');
+    expect(store.listCommentWitnesses('УИО')[0]?.evidence).toMatchObject({ status: 'unavailable', count: null });
+  });
+  it('archives legacy projected evidence without assigning an unproven source file ID', () => {
+    store.archiveLegacyComment('УО', { commentId: 'old', content: 'Прежнее пояснение',
+      author: 'Исторический автор', recordedAt: '2026-08-22T00:00:00Z' });
+    const evidence = store.listCommentWitnesses('УО')[0]?.evidence;
+    expect(evidence).toMatchObject({ sourceFileId: null, origin: 'LEGACY_LOCAL_PROJECTION',
+      original: { content: 'Прежнее пояснение' } });
+  });
+});
