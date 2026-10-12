@@ -7,8 +7,13 @@ Detailed Docker output/status stays in the private session, never Actions logs.
 from __future__ import annotations
 
 import argparse
+import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
+import os
+import stat
+import tempfile
 import re
 import subprocess
 import time
@@ -18,6 +23,67 @@ from pathlib import Path
 
 class RecoveryError(Exception):
     pass
+
+
+@contextmanager
+def maintenance_lock():
+    try:
+        fd = os.open('/run/lock/aemr-maintenance.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        raise RecoveryError('AEMR_MAINTENANCE_LOCK_UNAVAILABLE') from exc
+    with os.fdopen(fd, 'a') as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RecoveryError('AEMR_MAINTENANCE_BUSY') from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+def disable_worker_admission(policy_path=Path('/etc/aemr/runtime-policy.json')):
+    """Deliberate stop is durable; never auto-admit the worker after failure."""
+    try:
+        metadata = policy_path.lstat()
+    except FileNotFoundError:
+        return
+    temporary = None
+    try:
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError
+        fd = os.open(policy_path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as source:
+            current = os.fstat(source.fileno())
+            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                raise ValueError
+            policy = json.load(source)
+        if policy.get('project') != 'aemr':
+            raise ValueError
+        if not isinstance(policy.get('worker_enabled', False), bool):
+            raise ValueError
+        if policy.get('worker_enabled', False) is not True:
+            return
+        policy['worker_enabled'] = False
+        fd, temporary = tempfile.mkstemp(prefix='.runtime-policy-', dir=policy_path.parent)
+        with os.fdopen(fd, 'w') as target:
+            os.fchmod(target.fileno(), stat.S_IMODE(metadata.st_mode))
+            os.fchown(target.fileno(), metadata.st_uid, metadata.st_gid)
+            json.dump(policy, target)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, policy_path)
+        temporary = None
+        directory = os.open(policy_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        raise RecoveryError('WORKER_ADMISSION_DISABLE_FAILED') from exc
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def accept_cycle(status, since, seen, attributed, interval_seconds):
@@ -181,6 +247,11 @@ class Recovery:
             return False
 
     def rollback(self):
+        with maintenance_lock():
+            return self._rollback_locked()
+
+    def _rollback_locked(self):
+        disable_worker_admission()
         # Independent Docker lookup still works if Compose itself caused the failure.
         workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
             'label=com.docker.compose.project=aemr', '--filter',
@@ -216,6 +287,11 @@ class Recovery:
             raise RecoveryError('WORKER_BACKUP_STALE')
 
     def stop_failed_worker(self):
+        with maintenance_lock():
+            return self._stop_failed_worker_locked()
+
+    def _stop_failed_worker_locked(self):
+        disable_worker_admission()
         # Do not restore reports/ over concurrent archive/API changes. Keep
         # Node and all report evidence intact; only the failed worker is stopped.
         workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
@@ -229,47 +305,53 @@ class Recovery:
             self.call(['docker', 'stop', '--time', '75', workers[0]])
 
     def recover(self):
-        server = self.inspect(self.server)
-        # Compose may have recreated the stopped service during an earlier
-        # rollback. The backup's old container ID is not a current identity.
-        # The new session has no Compose override yet: use Docker directly.
-        workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
-            'label=com.docker.compose.project=aemr', '--filter',
-            'label=com.docker.compose.service=report-worker']).split()
-        if len(workers) != 1 or not re.fullmatch('[0-9a-f]{64}', workers[0]):
-            raise RecoveryError('WORKER_CONTAINER_UNAVAILABLE')
-        self.worker = workers[0]
-        self.original_worker = self.inspect(self.worker)
-        (self.session / 'original-worker.json').write_text(json.dumps(self.original_worker))
-        def volume(config):
-            return next((x.get('Name') for x in config['Mounts'] if x['Destination'] == '/app/packages/server/data'
-                         and x['Type'] == 'volume'), None)
-        if (server['Image'] != self.image or volume(server) != self.volume
-                or volume(self.original_worker) != self.volume or server['State']['Status'] != 'running'
-                or self.original_worker['State']['Status'] not in {'created', 'exited'}):
-            raise RecoveryError('WORKER_RUNTIME_CHANGED')
-        self.require_no_manual_writer()
-        self.smoke()
-        self.match_report_backup()
-        self.require_no_manual_writer()
-        cmd = self.original_worker['Config']['Cmd']
+        with maintenance_lock():
+            server = self.inspect(self.server)
+            # Compose may have recreated the stopped service during an earlier
+            # rollback. The backup's old container ID is not a current identity.
+            # The new session has no Compose override yet: use Docker directly.
+            workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
+                'label=com.docker.compose.project=aemr', '--filter',
+                'label=com.docker.compose.service=report-worker']).split()
+            if len(workers) != 1 or not re.fullmatch('[0-9a-f]{64}', workers[0]):
+                raise RecoveryError('WORKER_CONTAINER_UNAVAILABLE')
+            self.worker = workers[0]
+            self.original_worker = self.inspect(self.worker)
+            (self.session / 'original-worker.json').write_text(json.dumps(self.original_worker))
+            def volume(config):
+                return next((x.get('Name') for x in config['Mounts'] if x['Destination'] == '/app/packages/server/data'
+                             and x['Type'] == 'volume'), None)
+            if (server['Image'] != self.image or volume(server) != self.volume
+                    or volume(self.original_worker) != self.volume or server['State']['Status'] != 'running'
+                    or self.original_worker['State']['Status'] not in {'created', 'exited'}):
+                raise RecoveryError('WORKER_RUNTIME_CHANGED')
+            self.require_no_manual_writer()
+            self.smoke()
+            self.match_report_backup()
+            self.require_no_manual_writer()
+            cmd = self.original_worker['Config']['Cmd']
+            try:
+                interval = int(cmd[cmd.index('--interval-seconds') + 1])
+                if not 1 <= interval <= 1200:
+                    raise ValueError
+            except (ValueError, IndexError) as exc:
+                raise RecoveryError('WORKER_INTERVAL_UNSUPPORTED') from exc
+            since = datetime.now(timezone.utc).isoformat()
+            self.override(self.image)
+            self.changed = True
+            try:
+                self.compose('up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'report-worker')
+                self.worker = self.compose('ps', '--all', '--quiet', 'report-worker').strip()
+                config = self.inspect(self.worker)
+                if (config['Image'] != self.image or volume(config) != self.volume
+                        or config['Config']['Cmd'] != self.original_worker['Config']['Cmd']
+                        or config['HostConfig']['RestartPolicy']['Name'] != 'unless-stopped'):
+                    raise RecoveryError('WORKER_PINNED_RUNTIME_MISMATCH')
+            except Exception:
+                self.save_failure_diagnostics()
+                self._stop_failed_worker_locked()
+                raise
         try:
-            interval = int(cmd[cmd.index('--interval-seconds') + 1])
-            if not 1 <= interval <= 1200:
-                raise ValueError
-        except (ValueError, IndexError) as exc:
-            raise RecoveryError('WORKER_INTERVAL_UNSUPPORTED') from exc
-        since = datetime.now(timezone.utc).isoformat()
-        self.override(self.image)
-        self.changed = True
-        try:
-            self.compose('up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'report-worker')
-            self.worker = self.compose('ps', '--all', '--quiet', 'report-worker').strip()
-            config = self.inspect(self.worker)
-            if (config['Image'] != self.image or volume(config) != self.volume
-                    or config['Config']['Cmd'] != self.original_worker['Config']['Cmd']
-                    or config['HostConfig']['RestartPolicy']['Name'] != 'unless-stopped'):
-                raise RecoveryError('WORKER_PINNED_RUNTIME_MISMATCH')
             seen, attributed = {}, set()
             deadline = time.monotonic() + max(2100, 2 * interval + 600)
             while time.monotonic() < deadline:

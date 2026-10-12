@@ -235,6 +235,9 @@ jobs:
             set -euo pipefail
             cd /home/aemr/dash
             cd deploy
+            [ ! -L /run/lock/aemr-maintenance.lock ] || { echo AEMR_MAINTENANCE_LOCK_INVALID >&2; exit 1; }
+            exec 9>/run/lock/aemr-maintenance.lock
+            flock -n 9 || { echo AEMR_MAINTENANCE_BUSY >&2; exit 1; }
             previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
             report_release_started=false
             verification_dir=

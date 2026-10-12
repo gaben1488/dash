@@ -216,6 +216,7 @@ class WorkerRecoveryTests(unittest.TestCase):
         recovery.require_no_manual_writer, recovery.smoke = Mock(), Mock()
         recovery.match_report_backup, recovery.override, recovery.rollback = Mock(), Mock(), Mock()
         recovery.stop_failed_worker = Mock()
+        recovery._stop_failed_worker_locked = Mock()
         for failure in (subprocess.TimeoutExpired('docker cp', 1), AttributeError('invalid private status shape')):
             recovery.inspect = Mock(side_effect=[server, worker])
             recovery.compose = Mock(side_effect=lambda *args: 'b'*64 if args[0]=='ps'
@@ -228,7 +229,9 @@ class WorkerRecoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(self.module.RecoveryError, 'COMPOSE_START_FAILED'):
                     recovery.recover()
             recovery.rollback.assert_not_called()
-        self.assertEqual(recovery.stop_failed_worker.call_count, 2)
+        # Startup failure stops within the already-held maintenance context.
+        self.assertEqual(recovery._stop_failed_worker_locked.call_count, 2)
+        recovery.stop_failed_worker.assert_not_called()
 
     def test_report_match_never_stops_or_restarts_api(self):
         recovery = self.module.Recovery.__new__(self.module.Recovery)

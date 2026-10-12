@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Run from deploy/. All private source and report output stays inside server_data.
 set -euo pipefail
+. "$(dirname -- "$0")/maintenance-lock.sh"
+maintenance_lock_acquire
 
 deployment_stage=preflight
 worker_stopped=false

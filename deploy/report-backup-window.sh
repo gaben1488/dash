@@ -49,6 +49,8 @@ if [ "$mode" = prepare ]; then
   mkdir -p "$session"
   chmod 700 "$base" "$session"
   git -C "$repo" show "$candidate:deploy/stateful_backup.py" > "$session/stateful_backup.py"
+  git -C "$repo" show "$candidate:deploy/maintenance-lock.sh" > "$session/maintenance-lock.sh"
+  . "$session/maintenance-lock.sh"
   python3 - "$session/runtime.json" "$server" "$worker" "$volume" "$image" "$candidate" <<'PY'
 import json, sys
 from pathlib import Path
@@ -58,6 +60,7 @@ PY
   restore_on_failure() {
     result=$?
     trap - EXIT
+    if [ "$result" -ne 0 ] && [ "$stopped" = false ]; then rm -f "$session/quiescent"; fi
     if [ "$result" -ne 0 ] && [ "$stopped" = true ]; then
       resume_healthy_server || echo 'BACKUP_SERVER_RESTART_FAILED' >&2
     fi
@@ -67,8 +70,32 @@ PY
   # Independent bounded recovery if the runner or SSH disappears mid-window.
   # A resumed server makes subsequent match-source fail closed.
   touch "$session/quiescent"
-  nohup bash -c 'sleep 1800; if [ -f "$1/quiescent" ]; then docker start "$2" >/dev/null && rm -f "$1/quiescent"; fi' \
-    watchdog "$session" "$server" </dev/null >"$session/watchdog.log" 2>&1 &
+  nohup bash -c '
+    . "$3/maintenance-lock.sh"
+    [ ! -L /run/lock/aemr-maintenance.lock ] || exit 1
+    exec 9>/run/lock/aemr-maintenance.lock
+    flock -n 9 || exit 1
+    echo "$$" > "$1/guardian-ready"
+    deadline=$((SECONDS + 1800))
+    while [ -f "$1/quiescent" ]; do
+      if [ "$SECONDS" -ge "$deadline" ]; then
+        # Keep exclusion and retry if Docker is temporarily unavailable.
+        timeout 75s docker start "$2" >/dev/null && rm -f "$1/quiescent"
+      fi
+      sleep 2
+    done
+  ' watchdog "$session" "$server" "$session" </dev/null >"$session/watchdog.log" 2>&1 &
+  guardian=$!
+  for attempt in $(seq 1 100); do
+    [ -f "$session/guardian-ready" ] && maintenance_lock_owned_by "$guardian" && break
+    kill -0 "$guardian" 2>/dev/null || { echo 'BACKUP_GUARDIAN_FAILED' >&2; exit 2; }
+    sleep 0.1
+  done
+  maintenance_lock_owned_by "$guardian" || { echo 'BACKUP_GUARDIAN_NOT_READY' >&2; exit 2; }
+  # The guard may have recovered/replaced a service while we acquired exclusion.
+  [ "$server" = "$(docker compose --env-file .env.production ps --status running --quiet server)" ]
+  [ "$worker" = "$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)" ]
+  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
   stopped=true
   docker stop --time 75 "$server" >/dev/null
   [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
@@ -111,6 +138,9 @@ server=${fields[0]}
 worker=${fields[1]}
 volume=${fields[2]}
 image=${fields[3]}
+. "$session/maintenance-lock.sh"
+guardian=$(cat "$session/guardian-ready")
+maintenance_lock_owned_by "$guardian" || { echo BACKUP_GUARDIAN_UNAVAILABLE >&2; exit 2; }
 if [ "$mode" = resume ]; then
   resume_healthy_server
   echo 'ORIGINAL_SERVER_RESUMED_WORKER_UNCHANGED'
