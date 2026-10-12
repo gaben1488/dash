@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import tempfile
 from collections.abc import Callable
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -228,6 +228,16 @@ def _validate(root):
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 
 
+def _leased_read(method):
+    from functools import wraps
+
+    @wraps(method)
+    def leased(self, *args, **kwargs):
+        with self.reader_lease():
+            return method(self, *args, **kwargs)
+    return leased
+
+
 class PublicationStore:
     def __init__(self, root: str | Path, *, readonly=False):
         if Path(root).is_symlink():
@@ -239,6 +249,10 @@ class PublicationStore:
             return
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.releases.mkdir(exist_ok=True, mode=0o700)
+        lease = self.root.parent / 'publication-readers.lock'
+        if lease.is_symlink():
+            raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
+        lease.touch(exist_ok=True, mode=0o600)
         with closing(sqlite3.connect(self.database_path, timeout=30)) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA synchronous=FULL')
@@ -268,16 +282,19 @@ class PublicationStore:
                 return self._checked(row)
         return None
 
+    @_leased_read
     def latest(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return self._first_live(db.execute('''SELECT receipt, files FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC'''))
 
+    @_leased_read
     def history(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return [json.loads(row[0]) for row in db.execute('''SELECT receipt FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''')]
 
+    @_leased_read
     def select(self, report_date, report_year, quarter):
         """Exact context only; a nearby date is not an historical release."""
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
@@ -295,6 +312,7 @@ class PublicationStore:
                     return {**receipt, 'report_year': year, 'quarter': selected_quarter}
         return None
 
+    @_leased_read
     def latest_for_period(self, report_date, report_year, quarter):
         """Last intact LIVE Word publication for the exact year and quarter.
 
@@ -323,6 +341,7 @@ class PublicationStore:
                 return {**verified, 'report_year': year, 'quarter': selected_quarter}
         return None
 
+    @_leased_read
     def previous_model(self, report_date):
         day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
@@ -333,6 +352,7 @@ class PublicationStore:
                 return None
             return {'receipt': receipt, 'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
 
+    @_leased_read
     def previous_weekly_model(self, report_date):
         """Latest verified Thursday/Friday publication of the *preceding* week.
 
@@ -353,6 +373,7 @@ class PublicationStore:
             return {'receipt': receipt,
                     'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
 
+    @_leased_read
     def read_artifact(self, release_id, name):
         if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
             raise PublicationError('PUBLICATION_ID_INVALID')
@@ -459,34 +480,59 @@ class PublicationStore:
                 if stage.exists():
                     shutil.rmtree(stage)
 
+    @contextmanager
+    def reader_lease(self, *, create=False):
+        """Read-only shared lease. Maintenance drains it before renaming roots."""
+        path = self.root.parent / 'publication-readers.lock'
+        if create:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if path.is_symlink():
+                raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
+            path.touch(exist_ok=True, mode=0o600)
+        if path.is_symlink() or not path.is_file():
+            raise PublicationError('PUBLICATION_READER_LEASE_UNINITIALIZED')
+        with path.open('r') as lease:
+            try:
+                fcntl.flock(lease, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise PublicationError('PUBLICATION_MAINTENANCE_ACTIVE') from error
+            work = self.root / '.retirement'
+            if (work.exists() or work.is_symlink()) and (work.is_symlink() or not (work / 'journal.json').is_file()
+                        or (work / 'journal.json').is_symlink()
+                        or _json(work / 'journal.json').get('readers_ready') is not True):
+                raise PublicationError('PUBLICATION_RETENTION_RECOVERY_REQUIRED')
+            yield
+
     def plan_compaction(self):
         from .retention import plan_publication_compaction
         return plan_publication_compaction(self)
 
-    def _maintenance_locks(self):
+    def _maintenance_locks(self, preflight=None):
         """Same lock order as runtime: acquisition, then publication.
 
-        ponytail: maintenance requires readers stopped by the release gate.
+        Dedicated EX reader lease drains native report/archive consumers.
         Filesystem renames and SQLite cannot commit atomically; explicit recovery
         must run before readers restart after process death. GET never repairs.
         """
         from contextlib import ExitStack
         stack = ExitStack()
         try:
-            for path in (self.root.parent / 'run.lock', self.root / 'publication.lock'):
+            for path in (self.root.parent / 'run.lock', self.root.parent / 'publication-readers.lock', self.root / 'publication.lock'):
                 if path.is_symlink():
                     raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
                 lock = stack.enter_context(path.open('a'))
                 fcntl.flock(lock, fcntl.LOCK_EX)
+            if preflight is not None:
+                preflight(self)
             return stack
         except BaseException:
             stack.close()
             raise
 
-    def compact_publications(self, *, expected_revision):
+    def compact_publications(self, *, expected_revision, preflight=None):
         """Prepare reversible compact artifacts; never delete quarantine here."""
         from .runtime import _write
-        with self._maintenance_locks():
+        with self._maintenance_locks(preflight):
             work = self.root / '.retirement'
             if work.exists() or work.is_symlink():
                 raise PublicationError('PUBLICATION_RETENTION_RECOVERY_REQUIRED')
@@ -549,7 +595,7 @@ class PublicationStore:
                                     'compact': [json.dumps(record, ensure_ascii=False), json.dumps(reduced)]})
                     _sync_directory(compact)
                 _sync_directory(work / 'staged')
-                _write(work / 'journal.json', {'contract': 'publication-compaction-v1', 'entries': entries})
+                _write(work / 'journal.json', {'contract': 'publication-compaction-v1', 'entries': entries, 'plan_revision': expected_revision})
             except BaseException:
                 shutil.rmtree(work)
                 raise
@@ -573,6 +619,7 @@ class PublicationStore:
                                (*entry['compact'], entry['release_id'], *entry['original']))
                     if db.execute('SELECT changes()').fetchone()[0] != 1:
                         raise PublicationError('PUBLICATION_RETENTION_CATALOG_CHANGED')
+            _write(work / 'journal.json', {**_json(work / 'journal.json'), 'readers_ready': True})
             return {'status': 'COMPACTED', 'compacted': len(entries), 'quarantine_retained': True}
 
     def _retirement_entries(self):
@@ -597,9 +644,9 @@ class PublicationStore:
                     raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
         return work, entries
 
-    def recover_compaction(self):
+    def recover_compaction(self, *, preflight=None):
         """Catalog is the commit marker. Partial/mismatched commits fail closed."""
-        with self._maintenance_locks():
+        with self._maintenance_locks(preflight):
             if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
             work = self.root / '.retirement'
@@ -648,6 +695,8 @@ class PublicationStore:
                     self._checked(entry['compact'])
                     if _files(work / 'original' / entry['release_id']) != json.loads(entry['original'][1]):
                         raise PublicationError('PUBLICATION_RETENTION_QUARANTINE_CORRUPT')
+                from .runtime import _write
+                _write(work / 'journal.json', {**_json(work / 'journal.json'), 'readers_ready': True})
                 return {'status': 'COMMITTED', 'quarantine_retained': True}
             if not all(list(row or ()) == e['original'] for row, e in zip(states, entries)):
                 raise PublicationError('PUBLICATION_RETENTION_CATALOG_CHANGED')
@@ -671,6 +720,7 @@ class PublicationStore:
             elif root.is_symlink() or not root.is_dir() or _files(root) != json.loads(entry['original'][1]):
                 raise PublicationError('PUBLICATION_RETENTION_QUARANTINE_MISSING')
         journal['rollback_requested'] = True
+        journal['readers_ready'] = False
         _write(work / 'journal.json', journal)
         for entry in entries:
             original, root = work / 'original' / entry['release_id'], self.releases / entry['release_id']
@@ -689,8 +739,8 @@ class PublicationStore:
         _sync_directory(self.root)
         return {'status': 'ROLLED_BACK'}
 
-    def rollback_compaction(self):
-        with self._maintenance_locks():
+    def rollback_compaction(self, *, preflight=None):
+        with self._maintenance_locks(preflight):
             if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
             work, entries = self._retirement_entries()
@@ -702,14 +752,14 @@ class PublicationStore:
             return self._rollback_compaction(work, entries)
 
 
-    def finalize_compaction(self):
+    def finalize_compaction(self, *, preflight=None):
         """Explicit irreversible disposal after retained-state/readback acceptance.
 
         The caller must have independently restored a full private backup and
         stopped readers/writers. No worker or GET invokes this operation.
         """
         from .runtime import _write
-        with self._maintenance_locks():
+        with self._maintenance_locks(preflight):
             if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
             work, entries = self._retirement_entries()
@@ -728,6 +778,7 @@ class PublicationStore:
             # alone does not prove the previous/weekly replay evidence survived.
             self.plan_compaction()
             journal['finalizing'] = True
+            journal['readers_ready'] = False
             _write(work / 'journal.json', journal)
             # Keep the journal until all disposable trees have been removed.
             # Interrupted finalization resumes, but cannot roll back without the

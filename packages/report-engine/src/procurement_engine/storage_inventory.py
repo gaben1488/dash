@@ -15,6 +15,16 @@ from .readonly_catalog import copied_catalog
 
 
 def inventory_state(root, *, max_hash_bytes=2 * 1024**3, max_hash_files=512, max_seconds=90):
+    from .publication_store import PublicationStore
+    lease_root = Path(root) / 'reports/published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_inventory_state(root, max_hash_bytes=max_hash_bytes, max_hash_files=max_hash_files, max_seconds=max_seconds)
+
+
+def _leased_inventory_state(root, *, max_hash_bytes=2 * 1024**3, max_hash_files=512, max_seconds=90):
     root = Path(root)
     started = time.monotonic()
     classes = {name: {'file_count': 0, 'logical_bytes': 0, 'unique_inode_bytes': 0,

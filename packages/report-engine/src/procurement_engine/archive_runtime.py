@@ -244,6 +244,14 @@ def legacy_coverage(database, day):
 
 
 def ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=None):
+    selection_key(day, year, quarter)
+    root = Path(state_dir) / 'published'
+    with PublicationStore(root, readonly=True).reader_lease(create=True):
+        return _ensure_archive_release(state_dir, day=day, year=year, quarter=quarter,
+                                       legacy_database=legacy_database)
+
+
+def _ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=None):
     """Native API entry: no caller-provided filesystem paths and no Google client."""
     state = Path(state_dir)
     key = selection_key(day, year, quarter)

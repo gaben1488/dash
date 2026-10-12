@@ -326,3 +326,77 @@ localStorage.setItem('aemr_api_key', '<same-key-as-AEMR_API_KEY>')
 ```
 
 Это MLP-режим для внутреннего контура. Для публичного доступа нужен отдельный login/session слой.
+
+### Одноразовое уплотнение опубликованных отчётов
+
+`plan-weekly-publications.py` по умолчанию остаётся read-only census. Режимы
+`apply`, `recover`, `rollback`, `finalize` используют тот же native PublicationStore.
+Оператор не останавливает Node, не меняет Caddy, Basic/Bearer, HSTS, таймер или
+контейнеры и не восстанавливает mutable state из старой резервной копии.
+
+До live apply требуется отдельный выпуск совместимого report reader/runtime.
+Установленный старый reader, требующий `report_model.json` в `select` и
+`latest_for_period`, несовместим с уплотнённым выпуском: проверка поведения на
+синтетическом выпуске и точных хешей установленного пакета должна отказать.
+Новый runtime создаёт `publication-readers.lock` в каталоге report-state; read-only GET его не создаёт.
+Report GET и архивный расчёт держат shared lease; обслуживание берёт locks в
+порядке run → reader EX → publication. Новые GET получают 503 через существующий
+маршрут, остальные API продолжают работать. Незавершённый retirement journal
+сохраняет fail-closed fence после смерти процесса; GET ничего не исправляет.
+
+Release gate должен получить CI-run JSON через авторизованный GitHub API для
+точного кандидата и независимо подтвердить исходный trusted backup из успешного
+`full-worker-backup` run **38178244703**, включая существующую проверку scratch
+restore. Передача произвольного JSON или создание свежей копии mutable state не
+заменяет этот внешний допуск. Код повторно проверяет SHA, чистоту candidate source,
+установленный пакет и его поведение уже под lease; fresh plan защищает current,
+previous и weekly, а identity gaps блокируют apply. Только выбранные retirement
+roots сравниваются побайтно и по uid/gid/mode с trusted backup. Новые mutable
+записи не становятся rollback target.
+
+Пример параметров после прохождения внешнего release gate (пути приватные):
+
+```sh
+python deploy/plan-weekly-publications.py --state /private/reports --operation apply \
+  --candidate "$REVIEWED_SHA" --ci-evidence /private/operator/ci-run.json \
+  --reader-package /installed/procurement_engine --expected-revision "$PLAN_REVISION" \
+  --backup /private/worker-38178244703/backup
+```
+
+Первый apply сохраняет quarantine. Обработанное исключение вызывает только
+проверенное native recovery; независимый CLI watchdog отслеживает PID вместе с
+Linux start token и выполняет тот же recovery после смерти владельца, снова
+проверяя источник, runtime и backup. PID reuse не удерживает fence чужого процесса.
+CI evidence, candidate checkout, package и backup должны оставаться доступными
+watchdog; при изменении ownership/доказательств fence остаётся закрытым до явного
+reviewed `recover`. Таймеров, конфигурации и чужого runtime watchdog не касается.
+
+`finalize` — отдельная операция после независимого readback всех сохранённых
+Word/dashboard и protected replay roots. Требуется отдельный reviewed аргумент
+`--finalize-review "$REVIEWED_SHA:$PLAN_REVISION"`; apply/watchdog его не вызывают.
+Без внешнего допуска, совместимого установленного runtime и независимого readback
+эта команда не является разрешением на live очистку.
+
+В существующем Docker runtime нет Git. Для Docker transport management job после
+авторизованного чтения успешного CI вызывает `candidate_source_receipt` на exact
+clean Git checkout: SHA кандидата, CI run ID, ID management job и хеши только
+public `.py` package/tool/backup helper. Job передаёт эту ephemeral receipt и
+`git archive` тех же public code paths read-only; апplier получает
+`--source-receipt /private/operator/candidate-source.json`. Внутри image проверяются
+CI context, полный точный набор хешей транспортированного package и обоих tools,
+хеши реально импортированного установленного package и behavioral reader probe.
+Самодельный `verified: true` не является допуском: доверие к receipt обеспечивается
+аутентифицированным existing release gate. Никакого Git checkout, установки Git,
+нового сервиса или зависимости в image не требуется. Gate отдельно связывает
+actual Node `REPORT_ENGINE_BIN`, Node/worker image/package и mounted report volume;
+сам native applier не меняет эти ресурсы и не заменяет такую проверку.
+
+CLI apply требует доказуемую независимость watchdog: PID1 applier и one-off
+Docker/tini container отклоняются (`WATCHDOG_LIFECYCLE_UNPROVEN`), поскольку exit
+контейнера уничтожает sibling watchdog. Для resident Node exec PID1 Node остаётся
+живым; backup/code/proof transport при этом должен быть доступен. Для one-off
+management image existing host watchdog обязан владеть отдельным recovery вызовом
+и может вызывать проверенный native `operate` под этим внешним жизненным циклом.
+Не обходить этот отказ флагом «watchdog verified». Applier должен работать с UID
+владельца published directory, совпадающим с actual report-reader/data owner;
+иначе private journal/staged roots после обслуживания окажутся недоступны API.

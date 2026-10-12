@@ -81,6 +81,15 @@ def rehearse_weekly(state):
 
 
 def rehearse_release_restore(state, receipt):
+    lease_root = Path(state) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_release_restore(state, receipt)
+
+
+def _leased_rehearse_release_restore(state, receipt):
     """Restore one complete published package in isolation, never the live volume.
 
     This proves recovery of that release, its identity/evidence and native exports.
@@ -316,6 +325,15 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
 
 
 def published_evidence_summary(state_dir):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_published_evidence_summary(state_dir)
+
+
+def _leased_published_evidence_summary(state_dir):
     """Fast, sealed-current evidence inventory, independent of the weekly replay.
 
     It is NOT a test of new rules or a claim that today's Google inputs are fresh.
@@ -398,6 +416,15 @@ def _recommendation_replay_delta(published, candidate):
 
 
 def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_latest(state_dir, coverage=coverage, skip_weekly=skip_weekly)
+
+
+def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish

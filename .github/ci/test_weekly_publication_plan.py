@@ -84,6 +84,21 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tool.plan(root)
 
+    def test_operator_requires_ci_and_never_mutates_unfenced_state(self):
+        tool = self.load_tool()
+        self.assertTrue(hasattr(tool, 'operator_preflight'), 'Missing fail-closed operator lifecycle')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            self.add(published, 1, '2026-10-01')
+            before = (published / 'publications.sqlite').read_bytes()
+            for operation in ('apply', 'recover', 'rollback', 'finalize'):
+                with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'EXACT_CANDIDATE_CI_REQUIRED'):
+                    tool.operator_preflight(root, operation=operation, candidate='a'*40,
+                                            ci={}, reader_package=None, expected_revision='', backup=None)
+            self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+            self.assertFalse((published / '.retirement').exists())
+
     def test_publication_root_symlink_is_rejected_before_resolution(self):
         tool = self.load_tool()
         from procurement_engine.publication_store import PublicationStore

@@ -189,6 +189,16 @@ RETIRED = [('_Связи процедур',
 
 def _sealed_headers(state):
     from .publication_store import PublicationStore
+    lease_root = Path(state) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased__sealed_headers(state)
+
+
+def _leased__sealed_headers(state):
+    from .publication_store import PublicationStore
     from .readonly_catalog import copied_catalog
 
     root = Path(state) / 'published'

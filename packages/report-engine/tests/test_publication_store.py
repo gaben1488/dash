@@ -550,3 +550,369 @@ def test_actual_process_death_before_journal_recovers_only_staging(tmp_path):
     assert store.recover_compaction()['status'] == 'PREPARE_DISCARDED'
     assert store.latest() == receipts[-1]
     assert all((store.releases / r['release_id'] / 'snapshot_bundle').is_dir() for r in receipts)
+
+
+def test_reader_lease_drains_before_maintenance_and_blocks_prepared_crash(tmp_path):
+    import multiprocessing
+    import time
+    store, _ = _compaction_fixture(tmp_path)
+    assert hasattr(store, 'reader_lease'), 'Missing native reader lease'
+    context = multiprocessing.get_context('fork')
+    entered, release, maintenance = context.Event(), context.Event(), context.Event()
+
+    def read():
+        with PublicationStore(store.root, readonly=True).reader_lease():
+            entered.set()
+            assert release.wait(10)
+
+    def maintain():
+        with PublicationStore(store.root)._maintenance_locks():
+            maintenance.set()
+
+    reader = context.Process(target=read)
+    writer = context.Process(target=maintain)
+    reader.start()
+    assert entered.wait(5)
+    writer.start()
+    time.sleep(0.1)
+    assert not maintenance.is_set()
+    release.set()
+    reader.join(5)
+    writer.join(5)
+    assert reader.exitcode == writer.exitcode == 0
+    assert maintenance.is_set()
+    (store.root / '.retirement').mkdir()
+    with pytest.raises(PublicationError, match='PUBLICATION_RETENTION_RECOVERY_REQUIRED'):
+        store.latest()
+
+
+def test_readonly_reader_never_bootstraps_missing_lease(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    path = store.root.parent / 'publication-readers.lock'
+    if path.exists():
+        path.unlink()
+    with pytest.raises(PublicationError, match='PUBLICATION_READER_LEASE_UNINITIALIZED'):
+        PublicationStore(store.root, readonly=True).latest()
+    assert not path.exists()
+
+
+def _operator_fixture(tmp_path):
+    import importlib.util
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    import procurement_engine.publication_store as native
+    repo = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location('weekly_operator', repo / 'deploy/plan-weekly-publications.py')
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    fake = tmp_path / 'candidate-repo'
+    source = Path(native.__file__).parent
+    shutil.copytree(source, fake / 'packages/report-engine/src/procurement_engine', ignore=shutil.ignore_patterns('__pycache__'))
+    (fake / 'deploy').mkdir()
+    for name in ('plan-weekly-publications.py', 'stateful_backup.py'):
+        shutil.copy2(repo / 'deploy' / name, fake / 'deploy' / name)
+    for args in (['init', '-q'], ['add', '.'], ['-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','synthetic candidate']):
+        subprocess.run(['git','-C',str(fake),*args],check=True,capture_output=True)
+    sha = subprocess.run(['git','-C',str(fake),'rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()
+    tool.__file__ = str(fake / 'deploy/plan-weekly-publications.py')
+    store, receipts = _compaction_fixture(tmp_path)
+    backup = tmp_path / 'trusted-backup'
+    shutil.copytree(store.root.parent, backup / 'state/reports')
+    (backup / 'state/aemr.db').write_bytes(b'synthetic backup database')
+    (backup / 'state/reports/inputs').mkdir()
+    for name in ('registry.json','ledger.json'):
+        (backup / 'state/reports/inputs' / name).write_text('{}')
+    backup_spec = importlib.util.spec_from_file_location('backup_fixture', repo / 'deploy/stateful_backup.py')
+    module = importlib.util.module_from_spec(backup_spec)
+    backup_spec.loader.exec_module(module)
+    files = module.inventory(backup / 'state')
+    (backup / 'manifest.json').write_text(json.dumps({'format':1,'files':files,'bytes':sum(x['bytes'] for x in files.values())}))
+    options = {'candidate':sha,'ci':{'id':1001,'name':'CI','head_sha':sha,'status':'completed','conclusion':'success',
+        'head_repository':{'full_name':'gaben1488/dash'}},'reader_package':source,
+        'expected_revision':store.plan_compaction()['catalog_revision'],'backup':backup}
+    return tool, store, receipts, options
+
+
+@pytest.mark.parametrize('problem', ['ci','runtime','stale','identity','backup','ownership'])
+def test_operator_rejects_unproved_gate_without_publication_mutation(tmp_path, problem):
+    tool, store, _, options = _operator_fixture(tmp_path)
+    if problem == 'ci':
+        options['ci']['conclusion'] = 'failure'
+    elif problem == 'runtime':
+        options['reader_package'] = tmp_path / 'old-installed-reader'
+        options['reader_package'].mkdir()
+    elif problem == 'stale':
+        options['expected_revision'] = 'stale'
+    elif problem == 'identity':
+        with sqlite3.connect(store.root.parent / 'identity.sqlite') as db:
+            db.execute('UPDATE observations SET plan_signature=NULL')
+    elif problem == 'backup':
+        # Valid backup, but an original root has different ownership/mode proof.
+        manifest = json.loads((options['backup'] / 'manifest.json').read_text())
+        key = next(k for k in manifest['files'] if '/releases/' in k and k.endswith('dashboard.json'))
+        manifest['files'][key]['mode'] ^= 1
+        (options['backup'] / 'state' / key).chmod(manifest['files'][key]['mode'])
+        (options['backup'] / 'manifest.json').write_text(json.dumps(manifest))
+    else:
+        options['candidate'] = 'f' * 40
+        options['ci']['head_sha'] = options['candidate']
+    before = (store.database_path).read_bytes()
+    with pytest.raises(ValueError):
+        tool.operate(store.root.parent, operation='apply', **options)
+    assert store.database_path.read_bytes() == before
+    assert not (store.root / '.retirement').exists()
+
+
+def test_operator_apply_preserves_quarantine_and_requires_separate_finalize_gate(tmp_path):
+    tool, store, receipts, options = _operator_fixture(tmp_path)
+    before = {r['release_id']: store.read_artifact(r['release_id'],'main_report.docx') for r in receipts}
+    result = tool.operate(store.root.parent, operation='apply', **options)
+    assert result['status'] == 'COMPACTED'
+    assert (store.root / '.retirement/original').is_dir()
+    for rid, content in before.items():
+        assert store.read_artifact(rid, 'main_report.docx') == content
+    with pytest.raises(ValueError, match='INDEPENDENT_FINALIZE_REVIEW_REQUIRED'):
+        tool.operate(store.root.parent, operation='finalize', **options)
+    assert tool.operate(store.root.parent, operation='recover', **options)['status'] == 'COMMITTED'
+    assert tool.operate(store.root.parent, operation='rollback', **options)['status'] == 'ROLLED_BACK'
+    assert not (store.root / '.retirement').exists()
+
+
+def test_installed_reader_behavior_probe_requires_compacted_word_context(tmp_path):
+    tool, _, _, options = _operator_fixture(tmp_path)
+    assert hasattr(tool, 'verify_reader_compatibility'), 'Missing behavioral compatibility gate'
+    tool.verify_reader_compatibility(options['reader_package'])
+    old = tmp_path / 'old-reader/procurement_engine'
+    old.mkdir(parents=True)
+    (old / '__init__.py').write_text('')
+    (old / 'publication_store.py').write_text('class PublicationStore:\n def __init__(self,*args,**kwargs): pass\n def select(self,*args): raise FileNotFoundError("report_model.json")\n')
+    with pytest.raises(ValueError, match='READER_RUNTIME_COMPATIBILITY_REQUIRED'):
+        tool.verify_reader_compatibility(old)
+
+
+def test_operator_exception_recovers_owned_fence_without_global_state_restore(tmp_path, monkeypatch):
+    import procurement_engine.publication_store as native
+    tool, store, _, options = _operator_fixture(tmp_path)
+    marker = store.root.parent / 'mutable-after-backup.txt'
+    marker.write_text('must survive')
+    original = native.os.rename
+    failed = False
+    def fail_once(source, target):
+        nonlocal failed
+        if not failed and '.retirement' in str(target):
+            failed = True
+            raise OSError('synthetic rename interruption')
+        return original(source, target)
+    monkeypatch.setattr(native.os, 'rename', fail_once)
+    with pytest.raises(OSError):
+        tool.operate(store.root.parent, operation='apply', **options)
+    assert not (store.root / '.retirement').exists()
+    assert store.latest()
+    assert marker.read_text() == 'must survive'
+
+
+def test_report_reader_fails_fast_while_maintenance_owns_exclusive_lease(tmp_path):
+    import multiprocessing
+    store, _ = _compaction_fixture(tmp_path)
+    context = multiprocessing.get_context('fork')
+    ready, release = context.Event(), context.Event()
+    def hold():
+        with PublicationStore(store.root)._maintenance_locks():
+            ready.set()
+            assert release.wait(5)
+    child = context.Process(target=hold)
+    child.start()
+    assert ready.wait(5)
+    try:
+        with pytest.raises(PublicationError, match='PUBLICATION_MAINTENANCE_ACTIVE'):
+            store.latest()
+    finally:
+        release.set()
+        child.join(6)
+    assert child.exitcode == 0
+
+
+def test_independent_watchdog_recovers_sigkilled_owner_and_preserves_mutable_state(tmp_path):
+    import multiprocessing
+    import os
+    import signal
+
+    import procurement_engine.publication_store as native
+    tool, store, _, options = _operator_fixture(tmp_path)
+    assert hasattr(tool, 'watch_owner_then_recover'), 'Missing independent native recovery watchdog'
+    context = multiprocessing.get_context('fork')
+    ready, start, moved = context.Event(), context.Event(), context.Event()
+    def owner():
+        ready.set()
+        assert start.wait(5)
+        original = native.os.rename
+        def die_after_move(source, target):
+            original(source, target)
+            if '.retirement/original/' in str(target):
+                moved.set()
+                os.kill(os.getpid(), signal.SIGKILL)
+        native.os.rename = die_after_move
+        store.compact_publications(expected_revision=options['expected_revision'])
+    process = context.Process(target=owner)
+    process.start()
+    assert ready.wait(5)
+    birth = tool.owner_start_token(process.pid)
+    recovered = context.Queue()
+    def watchdog():
+        recovered.put(tool.watch_owner_then_recover(process.pid, birth, store.root.parent, **options))
+    watcher = context.Process(target=watchdog)
+    watcher.start()
+    (store.root.parent / 'mutable-after-backup.txt').write_text('preserve')
+    start.set()
+    assert moved.wait(5)
+    process.join(5)
+    assert process.exitcode == -signal.SIGKILL
+    watcher.join(10)
+    assert watcher.exitcode == 0
+    assert recovered.get(timeout=1)['status'] == 'ROLLED_BACK'
+    assert not (store.root / '.retirement').exists()
+    assert store.latest()
+    assert (store.root.parent / 'mutable-after-backup.txt').read_text() == 'preserve'
+
+
+def test_archive_prepare_holds_reader_lease_for_entire_native_call(tmp_path, monkeypatch):
+    import multiprocessing
+    import time
+
+    import procurement_engine.archive_runtime as archive
+    store, _ = _compaction_fixture(tmp_path)
+    context = multiprocessing.get_context('fork')
+    inside, release, maintenance = context.Event(), context.Event(), context.Event()
+    def existing_archive(*args, **kwargs):
+        inside.set()
+        assert release.wait(5)
+        return {'synthetic': True}
+    monkeypatch.setattr(archive, '_ensure_archive_release', existing_archive)
+    def prepare():
+        archive.ensure_archive_release(store.root.parent, day='2026-10-01',year=2026,quarter=3)
+    def compact():
+        with PublicationStore(store.root)._maintenance_locks():
+            maintenance.set()
+    reader = context.Process(target=prepare)
+    writer = context.Process(target=compact)
+    reader.start()
+    assert inside.wait(5)
+    writer.start()
+    time.sleep(0.1)
+    assert not maintenance.is_set()
+    release.set()
+    reader.join(5)
+    writer.join(5)
+    assert reader.exitcode == writer.exitcode == 0
+    assert maintenance.is_set()
+
+
+def test_finalize_review_is_bound_to_the_actual_journal_plan(tmp_path):
+    tool, store, receipts, options = _operator_fixture(tmp_path)
+    tool.operate(store.root.parent, operation='apply', **options)
+    wrong = {**options, 'expected_revision':'wrong-reviewed-plan'}
+    with pytest.raises(ValueError, match='INDEPENDENT_FINALIZE_REVIEW_REQUIRED'):
+        tool.operate(store.root.parent, operation='finalize',
+                     finalize_review=options['candidate']+':wrong-reviewed-plan', **wrong)
+    assert (store.root / '.retirement/original').is_dir()
+    # Independent reader performs all exact artifact readbacks before this
+    # synthetic explicit acceptance; this never stands in for live acceptance.
+    for receipt in receipts:
+        assert store.read_artifact(receipt['release_id'], 'main_report.docx').startswith(b'PK')
+    result = tool.operate(store.root.parent, operation='finalize',
+                         finalize_review=options['candidate']+':'+options['expected_revision'], **options)
+    assert result['status'] == 'FINALIZED'
+    assert not (store.root / '.retirement').exists()
+
+
+def test_cli_does_not_start_watchdog_or_create_log_without_ci(tmp_path, monkeypatch, capsys):
+    import subprocess
+    tool, store, _, options = _operator_fixture(tmp_path)
+    ci = tmp_path / 'failed-ci.json'
+    ci.write_text('{}')
+    started = []
+    def forbidden(*args, **kwargs):
+        started.append(args)
+        raise AssertionError('watchdog before CI gate')
+    monkeypatch.setattr(subprocess, 'Popen', forbidden)
+    assert tool.main(['--state',str(store.root.parent),'--operation','apply','--candidate',options['candidate'],
+        '--ci-evidence',str(ci),'--reader-package',str(options['reader_package']),
+        '--expected-revision',options['expected_revision'],'--backup',str(options['backup'])]) == 2
+    assert not started
+    assert not (store.root.parent / 'compaction-watchdog.log').exists()
+    assert not (store.root / '.retirement').exists()
+    assert json.loads(capsys.readouterr().out)['error_code'] == 'EXACT_CANDIDATE_CI_REQUIRED'
+
+
+def test_archive_before_first_publication_still_drains_before_maintenance(tmp_path, monkeypatch):
+    import multiprocessing
+    import time
+
+    import procurement_engine.archive_runtime as archive
+    state = tmp_path / 'empty-report-state'
+    context = multiprocessing.get_context('fork')
+    entered, release, maintained = context.Event(), context.Event(), context.Event()
+    def initial_archive(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return {'synthetic': True}
+    monkeypatch.setattr(archive, '_ensure_archive_release', initial_archive)
+    def prepare():
+        archive.ensure_archive_release(state,day='2026-10-01',year=2026,quarter=3)
+    def maintain():
+        with PublicationStore(state / 'published')._maintenance_locks():
+            maintained.set()
+    reader = context.Process(target=prepare)
+    writer = context.Process(target=maintain)
+    reader.start()
+    assert entered.wait(5)
+    writer.start()
+    time.sleep(0.15)
+    try:
+        assert not maintained.is_set()
+    finally:
+        release.set()
+        reader.join(5)
+        writer.join(5)
+    assert reader.exitcode == writer.exitcode == 0
+
+
+def test_exact_candidate_transport_runs_without_git_in_image_and_binds_tool_bytes(tmp_path):
+    tool, store, _, options = _operator_fixture(tmp_path)
+    assert hasattr(tool, 'candidate_source_receipt'), 'Missing authenticated exact-candidate transport'
+    options['ci']['id'] = 1001
+    from pathlib import Path
+    fake = Path(tool.__file__).parents[1]
+    receipt = tool.candidate_source_receipt(fake, options['candidate'], options['ci'], derivation_run_id=2002)
+    (fake / '.git').rename(fake / '.git-not-mounted')
+    result = tool.operate(store.root.parent, operation='apply', source_receipt=receipt, **options)
+    assert result['status'] == 'COMPACTED'
+    assert tool.operate(store.root.parent, operation='rollback', source_receipt=receipt, **options)['status'] == 'ROLLED_BACK'
+    (fake / 'deploy/plan-weekly-publications.py').write_text('foreign transported tool')
+    with pytest.raises(ValueError, match='EXACT_CANDIDATE_SOURCE_REQUIRED'):
+        tool.operate(store.root.parent, operation='apply', source_receipt=receipt, **options)
+    assert not (store.root / '.retirement').exists()
+
+
+def test_operator_refuses_foreign_data_owner_before_creating_retirement(tmp_path, monkeypatch):
+    import os
+    tool, store, _, options = _operator_fixture(tmp_path)
+    monkeypatch.setattr(os, 'geteuid', lambda: store.root.stat().st_uid + 1)
+    with pytest.raises(ValueError, match='PUBLICATION_DATA_OWNER_MISMATCH'):
+        tool.operate(store.root.parent, operation='apply', **options)
+    assert not (store.root / '.retirement').exists()
+
+
+def test_cli_refuses_pid1_applier_with_container_bound_watchdog(tmp_path, monkeypatch, capsys):
+    import os
+    tool, store, _, options = _operator_fixture(tmp_path)
+    ci = tmp_path / 'successful-ci.json'
+    ci.write_text(json.dumps(options['ci']))
+    monkeypatch.setattr(os, 'getpid', lambda: 1)
+    assert tool.main(['--state',str(store.root.parent),'--operation','apply','--candidate',options['candidate'],
+        '--ci-evidence',str(ci),'--reader-package',str(options['reader_package']),
+        '--expected-revision',options['expected_revision'],'--backup',str(options['backup'])]) == 2
+    assert json.loads(capsys.readouterr().out)['error_code'] == 'WATCHDOG_LIFECYCLE_UNPROVEN'
+    assert not (store.root / '.retirement').exists()

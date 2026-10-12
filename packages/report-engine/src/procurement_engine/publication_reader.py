@@ -9,6 +9,14 @@ from .publication_store import PublicationError, PublicationStore
 
 
 def read_publication(state_dir, view, release_id=None, *, selection=None):
+    root = Path(state_dir) / 'published'
+    if (root / 'publications.sqlite').is_file():
+        with PublicationStore(root, readonly=True).reader_lease():
+            return _read_publication(state_dir, view, release_id, selection=selection)
+    return _read_publication(state_dir, view, release_id, selection=selection)
+
+
+def _read_publication(state_dir, view, release_id=None, *, selection=None):
     if selection is not None:
         try:
             day, year, quarter = selection

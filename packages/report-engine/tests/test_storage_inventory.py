@@ -21,6 +21,7 @@ def fixture(root):
         db.execute('CREATE TABLE publications(release_id TEXT, files TEXT)')
         db.executemany('INSERT INTO publications VALUES (?, ?)', [
             ('REL-' + str(i) * 64, json.dumps({'payload.json': digest})) for i in range(3)])
+    (root / 'reports/publication-readers.lock').touch()
     return len(content)
 
 
