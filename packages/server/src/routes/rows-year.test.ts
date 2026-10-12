@@ -41,6 +41,17 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     expect(body.rows.every(r => r.planYear === 2026)).toBe(true);
   }, 30_000);
 
+  it('detail and list keep the same annual-series badge for comma-formatted amounts', async () => {
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const r: unknown[] = new Array(34).fill('');
+    r[0] = '3'; r[6] = 'Окорока (куриные)'; r[11] = 'ЕП';
+    r[10] = '1 200,00'; r[24] = '800,00'; r[16] = 'Х';
+    setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
+    const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
+    const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
+    expect(list.rows[0].badges.find((b: { label: string }) => b.label.includes('договоров'))).toMatchObject({ color: 'blue' });
+    expect(detail.badges.find((b: { label: string }) => b.label.includes('договоров'))).toMatchObject({ color: 'blue' });
+  });
   it('без year отдаёт все годы', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rows/УЭР?limit=100' });
     const body = res.json<{ rows: Array<{ planYear: number }> }>();

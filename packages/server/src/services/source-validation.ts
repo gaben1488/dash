@@ -11,7 +11,8 @@ import {
   epRiskStrictnessOfReason,
   isAnnualEpAggregate,
   EP_ANNUAL_AMOUNT_TITLE,
-  EP_REASON_REVIEW_TITLE,
+  epRiskReviewDetails,
+  toNumber as sheetNumber,
 } from '@aemr/shared';
 import { getSheetData } from './google-sheets.js';
 import { readDeptSheet } from './google-sheets.js';
@@ -104,7 +105,7 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
       // @aemr/shared): инициативная заявка в риск-списки не идёт, п.137(3).
       if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
       const epContext = { dept: department ?? String(cells.B ?? ''), id: cells.A, subject: cells.G,
-        method: cells.L, factDateRaw: cells.Q, factSum: Number(cells.Y) };
+        method: cells.L, factDateRaw: cells.Q, factSum: sheetNumber(cells.Y) ?? undefined };
       issues.push({
         row: rowNo,
         type: 'signal',
@@ -116,7 +117,7 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
           : severityOf(checkId),
         message: signalKey === 'epRisk' && isAnnualEpAggregate(epContext)
           ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && epRiskStrictnessOfReason(cells.M, epContext) === 'warning'
-            ? EP_REASON_REVIEW_TITLE : titleOf(checkId, signalKey),
+            ? epRiskReviewDetails(cells.M).title : titleOf(checkId, signalKey),
       });
     }
 

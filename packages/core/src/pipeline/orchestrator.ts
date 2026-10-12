@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, EP_REASON_REVIEW_TITLE, EP_REASON_REVIEW_EXPLANATION, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -918,7 +918,7 @@ function detectSignalsToIssues(
       // проверка источника на сервере обязаны звать одну функцию, иначе список
       // критических разойдётся с цветом чипов на экране.
       const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
-        factDateRaw: cells['Q'], factSum: Number(cells['Y']) };
+        factDateRaw: cells['Q'], factSum: sheetNumber(cells['Y']) ?? undefined };
       const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
       const severity: Issue['severity'] = signalKey === 'epRisk'
         ? epRiskStrictnessOfReason(cells['M'], epContext)
@@ -932,7 +932,7 @@ function detectSignalsToIssues(
         group: meta.group,
         checkId: meta.checkId,
         kbHint: meta.kbHint,
-        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? EP_REASON_REVIEW_TITLE : meta.title}: ${subject || `строка ${r + 1}`}`,
+        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M).title : meta.title}: ${subject || `строка ${r + 1}`}`,
         // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
         // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).
         description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}${
@@ -947,7 +947,7 @@ function detectSignalsToIssues(
         rowSeq: String(cells['A'] ?? '').trim() || undefined,
         departmentId: deptId,
         subordinateId,
-        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? EP_REASON_REVIEW_EXPLANATION : meta.recommendation,
+        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M).explanation : meta.recommendation,
         status: 'open',
         detectedAt: now,
         detectedBy: `pipeline:signal:${signalKey}`,

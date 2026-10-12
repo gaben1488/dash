@@ -28,6 +28,14 @@ describe('source validation coverage is explicit', () => {
     row[DEPT_COLUMNS.FACT_DATE] = '10.10.2026';
     expect(validateRows([[], [], [], row], 'УКСиМП').issues.some(x => x.severity === 'critical')).toBe(true);
   });
+  it('uses the same annual-series scope for historical comma-formatted amounts', () => {
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '3'; row[DEPT_COLUMNS.SUBJECT] = 'Окорока (куриные)';
+    row[DEPT_COLUMNS.METHOD] = 'ЕП'; row[DEPT_COLUMNS.TOTAL_PLAN] = '1 200,00';
+    row[DEPT_COLUMNS.TOTAL_FACT] = '800,00'; row[DEPT_COLUMNS.FACT_DATE] = 'Х';
+    expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('договоров')))
+      .toMatchObject({ severity: 'info' });
+  });
   it('a recognized reason stays an actionable warning in source validation', () => {
     const row: unknown[] = new Array(34).fill('');
     row[DEPT_COLUMNS.ID] = '4'; row[DEPT_COLUMNS.SUBJECT] = 'Разовая закупка';

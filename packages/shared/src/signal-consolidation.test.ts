@@ -71,10 +71,14 @@ describe('п.137(2) ЕП-риск — развилка по обосновани
     expect(epRiskStrictnessOfReason('', { ...row, subject: undefined })).toBe('critical');
   });
   it('a negated monopoly claim remains a reason requiring verification', () => {
-    expect(epRiskStrictnessOfReason('не является монополистом')).toBe('critical');
+    expect(epRiskStrictnessOfReason('не является монополистом')).toBe('warning');
   });
   it('12 October: a recognized discretionary reason remains an actionable warning, not a confirmed violation', () => {
     expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('warning');
+    expect(epRiskStrictnessOfReason('')).toBe('critical');
+  });
+  it('a nonempty unrecognized reason is dictionary uncertainty, not an absent basis', () => {
+    expect(epRiskStrictnessOfReason('Проверить особое основание')).toBe('warning');
     expect(epRiskStrictnessOfReason('')).toBe('critical');
   });
   it('СТРАЖ: строгий конец — «без обоснования» и «решение заказчика»', () => {
@@ -101,7 +105,7 @@ describe('п.137(2) ЕП-риск — развилка по обосновани
     // умолчанием в паспорте, чтобы чип и карточка не разошлись.
     expect(epRiskStrictnessOfReason('')).toBe('critical');
     expect(epRiskStrictnessOfReason(null)).toBe('critical');
-    expect(epRiskStrictnessOfReason('по решению руководителя учреждения')).toBe('critical');
+    expect(epRiskStrictnessOfReason('по решению руководителя учреждения')).toBe('warning');
   });
 
   it('СТРАЖ: умолчание паспорта совпадает со строгим концом развилки', () => {

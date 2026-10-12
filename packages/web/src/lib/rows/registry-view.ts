@@ -23,8 +23,7 @@ import {
   isAnnualEpAggregate,
   EP_ANNUAL_AMOUNT_TITLE,
   EP_ANNUAL_AMOUNT_EXPLANATION,
-  EP_REASON_REVIEW_TITLE,
-  EP_REASON_REVIEW_EXPLANATION,
+  epRiskReviewDetails,
   type EpRiskRowContext,
   getCheckById,
   productLabel,
@@ -272,7 +271,8 @@ export function signalChipText(key: string, row?: EpRiskRowContext): SignalChipT
     return { text: EP_ANNUAL_AMOUNT_TITLE, hint: EP_ANNUAL_AMOUNT_EXPLANATION };
   }
   if (key === 'epRisk' && epRiskStrictnessOfReason(row?.epReason, row) === 'warning') {
-    return { text: EP_REASON_REVIEW_TITLE, hint: EP_REASON_REVIEW_EXPLANATION };
+    const review = epRiskReviewDetails(row?.epReason);
+    return { text: review.title, hint: review.explanation };
   }
   const label = productLabel(key);
   if (label !== key) return { text: label, hint: signalHint(key) };

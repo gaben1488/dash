@@ -17,6 +17,11 @@ describe('обоснованность ЕП (канон п.98ж)', () => {
   it('negating monopoly does not produce the lawful-exclusive grade', () => {
     expect(epGradeOfCluster(canonicalizeReasonEp('не является монополистом').cluster).grade).toBe('unfounded');
   });
+  it('the unknown grade does not assert a legal basis is absent', () => {
+    expect(EP_GRADE_LABELS.unfounded).toBe('Основание не установлено');
+    expect(EP_GRADE_EXPLAIN.unfounded).toContain('не доказывает отсутствия основания');
+    expect(EP_GRADE_EXPLAIN.unfounded).not.toContain('нечем защитить');
+  });
   it('монополист и авария — безальтернативны по закону', () => {
     expect(epGradeOfCluster('EP_MONOPOLIST').grade).toBe('lawful-exclusive');
     expect(epGradeOfCluster('EP_EMERGENCY').grade).toBe('lawful-exclusive');

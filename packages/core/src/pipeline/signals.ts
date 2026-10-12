@@ -34,7 +34,7 @@ import {
   hasNegatedEpMonopoly,
   epRiskStrictnessOfReason,
   EP_ANNUAL_AMOUNT_TITLE,
-  EP_REASON_REVIEW_TITLE,
+  epRiskReviewDetails,
   type EpRiskRowContext,
 } from '@aemr/shared';
 import { sheetNumber } from '../timeline/row-timeline.js';
@@ -1082,7 +1082,7 @@ export function getSignalBadges(signals: RowSignals, row?: EpRiskRowContext & { 
   if (signals.epRisk) {
     const severity = epRiskStrictnessOfReason(row?.epReason, row);
     badges.push({ label: isAnnualEpAggregate(row) ? EP_ANNUAL_AMOUNT_TITLE
-      : severity === 'warning' ? EP_REASON_REVIEW_TITLE : badgeLabel('epRisk'),
+      : severity === 'warning' ? epRiskReviewDetails(row?.epReason).title : badgeLabel('epRisk'),
       color: severity === 'info' ? 'blue' : severity === 'warning' ? 'yellow' : 'red', icon: 'shield-alert' });
   }
   if (signals.highEconomy) {

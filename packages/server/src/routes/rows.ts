@@ -11,6 +11,7 @@ import {
   buildCellDict,
   isMetaRow,
   isOrgItself,
+  toNumber as sheetNumber,
 } from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow } from '../services/google-sheets.js';
 import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
@@ -262,7 +263,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const signals = detectSignals(cells);
     const state = classifyRowState(signals);
     const badges = getSignalBadges(signals, { dept: dept.id, id: cells.A, subject: cells.G,
-      method: cells.L, factDateRaw: cells.Q, factSum: Number(cells.Y), epReason: cells.M });
+      method: cells.L, factDateRaw: cells.Q, factSum: sheetNumber(cells.Y) ?? undefined, epReason: cells.M });
 
     // Build Google Sheets source URL
     const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort] ?? config.google.spreadsheetId;
