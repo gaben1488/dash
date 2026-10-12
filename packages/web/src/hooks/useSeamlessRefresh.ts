@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardData } from '@aemr/shared';
 import { api } from '../api';
-import { useStore, type YearFilter } from '../store';
+import { useStore, dashboardRequestVersion, type YearFilter } from '../store';
 import { setOfficialProvenance } from '../lib/provenance-registry';
 import { acknowledgeLiveEvents, getLiveState, useLiveEvents } from './useLiveEvents';
 
@@ -94,9 +94,10 @@ function isDemoData(data: DashboardData): boolean {
  * начался обычный запрос. Устаревший ответ не имеет права затирать свежие
  * числа — это то же правило, по которому живёт `fetchDashboard`.
  */
-export function applySnapshotSilently(data: DashboardData, expectedYear: YearFilter): boolean {
+export function applySnapshotSilently(data: DashboardData, expectedYear: YearFilter, expectedRequestVersion?: number): boolean {
   const state = useStore.getState();
   if (state.loading) return false;
+  if (expectedRequestVersion !== undefined && dashboardRequestVersion() !== expectedRequestVersion) return false;
   if (state.year !== expectedYear) return false;
 
   const snapshot = (data as unknown as {
@@ -115,6 +116,7 @@ export function applySnapshotSilently(data: DashboardData, expectedYear: YearFil
     // рисуют заглушки именно по нему, а заглушка уносит и прокрутку, и
     // раскрытые карточки.
   });
+  void useStore.getState().fetchBucketCounts();
   return true;
 }
 
@@ -173,15 +175,25 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
     inFlight.current = true;
     setUpdating(true);
     const year = useStore.getState().year;
+    const requestVersion = dashboardRequestVersion();
+    const eventReading = getLiveState();
     try {
       // `refresh: false` — сервер уже перечитал источники по уведомлению; звать
       // его перечитывать ещё раз значит платить за ту же правку дважды.
       const data = await api.getDashboard(false, year);
       if (mine !== seq.current) return;
-      if (applySnapshotSilently(data, year)) {
-        acknowledgeLiveEvents();
-        setWaitingBecause(null);
+      if (applySnapshotSilently(data, year, requestVersion)) {
+        // Ответ покрывает прежнее событие; более новое уведомление не гасим.
+        if (getLiveState() === eventReading) {
+          acknowledgeLiveEvents();
+          setWaitingBecause(null);
+        } else {
+          setWaitingBecause('идёт-загрузка');
+        }
         setFailed(false);
+      } else if (hasPendingNews()) {
+        // Обычное чтение успело завершиться: не теряем отложенную перечитку.
+        setWaitingBecause('идёт-загрузка');
       }
     } catch {
       // Числа на экране остаются прежними — это честнее пустого экрана.

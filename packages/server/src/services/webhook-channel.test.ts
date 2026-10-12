@@ -467,3 +467,64 @@ describe('расписание продления', () => {
     expect(nextWakeMs([null], false, now)).toBe(10 * 60_000);
   });
 });
+
+
+describe('serialization of lifecycle generations', () => {
+  it('stop/start cancels the old registration result before publishing or continuing books', async () => {
+    const { startWebhookChannels, stopWebhookChannels, webhookChannelState, readDriveNotification, noteNotification } = await import('./webhook-channel.js');
+    const old = fakeApi();
+    const next = fakeApi();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let pendingChannel = '';
+    const api = { ...old.api, async watch(input: Parameters<typeof old.api.watch>[0]) {
+      pendingChannel = input.channelId;
+      await gate;
+      return old.api.watch(input);
+    } };
+    try {
+      startWebhookChannels(log, api);
+      const earlySync = readDriveNotification(headers({
+        'x-goog-channel-id': pendingChannel,
+        'x-goog-resource-state': 'sync',
+        'x-goog-channel-expiration': new Date(Date.now() + 24 * HOUR).toUTCString(),
+      }));
+      noteNotification(earlySync, false);
+      stopWebhookChannels();
+      startWebhookChannels(log, next.api);
+      await Promise.resolve();
+      expect(next.watched).toHaveLength(0);
+      release();
+      await vi.waitFor(() => expect(next.watched).toHaveLength(4));
+      expect(old.watched).toHaveLength(1);
+      expect(old.stopped).toHaveLength(1);
+      expect(noteNotification(earlySync, false)).toBe('late');
+      expect(webhookChannelState().channels.items.every((item) => item.state !== 'unknown')).toBe(true);
+    } finally { release(); stopWebhookChannels(); }
+  });
+
+  it('rescheduling during registration queues one follow-up with the latest source', async () => {
+    const { startWebhookChannels, rescheduleWebhookChannels, stopWebhookChannels } = await import('./webhook-channel.js');
+    const config = await import('../config.js');
+    const base = fakeApi();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const api = { ...base.api, async watch(input: Parameters<typeof base.api.watch>[0]) {
+      calls += 1;
+      if (calls === 1) await gate;
+      return base.api.watch(input);
+    } };
+    try {
+      startWebhookChannels(log, api);
+      rescheduleWebhookChannels(log, api);
+      rescheduleWebhookChannels(log, api);
+      await Promise.resolve();
+      expect(calls).toBe(1);
+      config.DEPARTMENT_SPREADSHEETS['УО'] = 'file-uo-latest';
+      release();
+      await vi.waitFor(() => expect(base.watched.some((item) => item.fileId === 'file-uo-latest')).toBe(true));
+      expect(base.watched.filter((item) => item.fileId === 'file-uo-latest')).toHaveLength(1);
+    } finally { release(); stopWebhookChannels(); config.DEPARTMENT_SPREADSHEETS['УО'] = 'file-uo'; }
+  });
+});

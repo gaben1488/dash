@@ -202,3 +202,53 @@ describe('хук бесшовного обновления', () => {
     expect(useStore.getState().loading).toBe(false);
   });
 });
+
+
+it('тихое принятие снимка обновляет общий счёт навигации и состояния без отдельного контура', () => {
+  const fetchBucketCounts = vi.fn(async () => undefined);
+  const original = useStore.getState().fetchBucketCounts;
+  useStore.setState({ loading: false, year: 2026, fetchBucketCounts });
+  try {
+    expect(applySnapshotSilently(dashboard('webhook-read', 2026), 2026)).toBe(true);
+    expect(fetchBucketCounts).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().loading).toBe(false);
+  } finally { useStore.setState({ fetchBucketCounts: original }); }
+});
+
+it('поздний тихий ответ не заменяет уже принятый обычный снимок того же года', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; })).mockResolvedValueOnce(dashboard('regular-new', 2026));
+  setNews(true); vi.useFakeTimers();
+  renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  await act(async () => { await useStore.getState().fetchDashboard(); });
+  await act(async () => { resolve(dashboard('silent-old', 2026)); });
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('regular-new');
+  expect(acknowledge).not.toHaveBeenCalled();
+});
+
+it('новое событие во время чтения не гасится подтверждением прежнего события', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+  setNews(true); vi.useFakeTimers();
+  const { result, rerender } = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => {
+    liveState.current = { ...(liveState.current as Record<string, unknown>), lastEventAt: '2026-08-21T05:01:00.000Z' };
+    rerender();
+  });
+  await act(async () => { resolve(dashboard('silent-read', 2026)); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(result.current.waitingBecause).not.toBeNull();
+});
+
+it('не гасит разные события с одинаковым временем, пришедшие во время чтения', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+  setNews(true); vi.useFakeTimers();
+  const { rerender } = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => { liveState.current = { ...(liveState.current as Record<string, unknown>), newIssues: 1 }; rerender(); });
+  await act(async () => { resolve(dashboard('same-event-time', 2026)); });
+  expect(acknowledge).not.toHaveBeenCalled();
+});

@@ -595,6 +595,8 @@ function isDemoData(data: DashboardData): boolean {
  * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
  */
 let dashboardRequestSeq = 0;
+/** Версия обычного запроса: тихая подмена не должна обходить его защиту гонок. */
+export function dashboardRequestVersion(): number { return dashboardRequestSeq; }
 let bucketRequestSeq = 0;
 
 /** Страж повторного запроса живого коэффициента (fetchLiveStavka). */

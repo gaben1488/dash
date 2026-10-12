@@ -45,7 +45,7 @@ import { connectFormulaSink } from './services/formula-sink.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
-import { startDriveWatch } from './services/drive-watch.js';
+import { startWebhookChannels, stopWebhookChannels } from './services/webhook-channel.js';
 import { setChangeAuthorResolver } from './services/live-diff.js';
 import { findChangeAuthor } from './services/changelog-authors.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
@@ -190,7 +190,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
+    shutdownGuards.get(app)?.begin();
     setSourceLogger(null);
+    stopWebhookChannels();
   });
 
   // Общий вид отказа: `{error, message, statusCode}` как прежде, плюс `code`
@@ -390,6 +392,8 @@ export function preloadData(app: FastifyInstance): void {
       app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
     }
 
+    if (shutdownGuards.get(app)?.isClosing()) return;
+
     // Самообновление источников включается ПОСЛЕ первой полной загрузки:
     // иначе тик мог бы наложиться на старт и читать книги дважды.
     startSourceAutoRefresh({
@@ -403,7 +407,7 @@ export function preloadData(app: FastifyInstance): void {
 
     // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
     // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
-    startDriveWatch({
+    startWebhookChannels({
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
