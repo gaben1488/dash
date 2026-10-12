@@ -400,3 +400,13 @@ management image existing host watchdog обязан владеть отдель
 Не обходить этот отказ флагом «watchdog verified». Applier должен работать с UID
 владельца published directory, совпадающим с actual report-reader/data owner;
 иначе private journal/staged roots после обслуживания окажутся недоступны API.
+
+Rollout нового reader теперь явно вызывает `initialize-publication-readers` в
+Node startup **до createApp/listen/preload**, если существует legacy catalog;
+worker может оставаться выключенным. Инициализатор не читает/переписывает catalog,
+создаёт один пустой owned inode с fsync и повторно использует его без замены.
+Symlink, чужой UID, непустой файл и подмена inode отклоняются; ошибка bootstrap
+останавливает startup с фиксированным кодом. Старые readers/runtime должны быть
+остановлены и drained до rollout/GC: bootstrap не делает старый код совместимым.
+Read-only GET по-прежнему никогда не создаёт lease. Без published catalog сохраняется
+старый development startup; первый native writer/archive создаёт lease до catalog.

@@ -1,5 +1,6 @@
 /** Published reports read their frozen model; the live report endpoint is separate. */
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
@@ -19,6 +20,23 @@ type Context = z.infer<typeof ContextSchema>;
 const PreparationSchema = ContextSchema.extend({
   year: z.number().int().min(1900).max(9999), quarter: z.number().int().min(1).max(4),
 });
+
+/** Rollout bootstrap before createApp/listen, including a worker-disabled old DB. */
+export async function initializePublicationReaders(
+  run: (file: string, args: string[], options: { timeout: number; maxBuffer: number; shell: false }) => Promise<unknown> = execute,
+): Promise<void> {
+  const state = resolve(process.env.REPORT_STATE_DIR ?? 'data/reports');
+  // Fresh development without a report catalog keeps its existing startup flow.
+  // A future native writer creates the lease before the first catalog is exposed.
+  if (!existsSync(resolve(state, 'published/publications.sqlite'))) return;
+  try {
+    await run(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+      ['initialize-publication-readers', '--state', state],
+      { timeout: 30_000, maxBuffer: 1024, shell: false });
+  } catch {
+    throw new Error('PUBLICATION_READER_BOOTSTRAP_FAILED');
+  }
+}
 
 async function readStoredRelease(view: View, releaseId?: string, context?: Context): Promise<Buffer> {
   const args = ['read-publication', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'), '--view', view];

@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import tempfile
 from collections.abc import Callable
 from contextlib import closing, contextmanager
@@ -228,6 +229,40 @@ def _validate(root):
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 
 
+def initialize_publication_readers(state_dir):
+    """Explicit pre-listen rollout/writer bootstrap, never called by GET.
+
+    Old runtime/readers must be stopped before rollout; this does not retrofit
+    leases into old code. Repeated bootstrap opens the same empty owned inode.
+    """
+    state = Path(state_dir)
+    if state.is_symlink() or (state / 'published').is_symlink():
+        raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if any(path.exists() and path.stat().st_uid != os.geteuid()
+           for path in (state, state / 'published')):
+        raise PublicationError('PUBLICATION_DATA_OWNER_MISMATCH')
+    path = state / 'publication-readers.lock'
+    created = False
+    try:
+        try:
+            descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            created = True
+        except FileExistsError:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as lease:
+            info, visible = os.fstat(lease.fileno()), path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or info.st_size != 0 or info.st_nlink != 1
+                    or (info.st_dev, info.st_ino) != (visible.st_dev, visible.st_ino)):
+                raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
+            if created:
+                os.fsync(lease.fileno())
+                _sync_directory(state)
+    except OSError as error:
+        raise PublicationError('PUBLICATION_READER_BOOTSTRAP_FAILED') from error
+
+
 def _leased_read(method):
     from functools import wraps
 
@@ -249,10 +284,7 @@ class PublicationStore:
             return
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.releases.mkdir(exist_ok=True, mode=0o700)
-        lease = self.root.parent / 'publication-readers.lock'
-        if lease.is_symlink():
-            raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
-        lease.touch(exist_ok=True, mode=0o600)
+        initialize_publication_readers(self.root.parent)
         with closing(sqlite3.connect(self.database_path, timeout=30)) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA synchronous=FULL')
@@ -485,10 +517,7 @@ class PublicationStore:
         """Read-only shared lease. Maintenance drains it before renaming roots."""
         path = self.root.parent / 'publication-readers.lock'
         if create:
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if path.is_symlink():
-                raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
-            path.touch(exist_ok=True, mode=0o600)
+            initialize_publication_readers(self.root.parent)
         if path.is_symlink() or not path.is_file():
             raise PublicationError('PUBLICATION_READER_LEASE_UNINITIALIZED')
         with path.open('r') as lease:

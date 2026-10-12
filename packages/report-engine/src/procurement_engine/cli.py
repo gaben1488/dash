@@ -26,6 +26,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="proc-report")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    bootstrap = sub.add_parser("initialize-publication-readers", help="Explicit pre-listen reader lease bootstrap")
+    bootstrap.add_argument("--state", required=True)
+
     v = sub.add_parser("validate", help="Run fail-closed snapshot + ledger regression gates")
     v.add_argument("--snapshot", required=True)
     v.add_argument("--ledger", required=True)
@@ -91,6 +94,14 @@ def main(argv=None):
         review.add_argument('--' + option, required=True)
 
     args = p.parse_args(argv)
+    if args.cmd == 'initialize-publication-readers':
+        from .publication_store import PublicationError, initialize_publication_readers
+        try:
+            initialize_publication_readers(args.state)
+        except PublicationError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == 'run-archive':
         from .archive_runtime import MESSAGES, ArchiveError, ensure_archive_release
         try:

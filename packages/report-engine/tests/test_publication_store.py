@@ -916,3 +916,35 @@ def test_cli_refuses_pid1_applier_with_container_bound_watchdog(tmp_path, monkey
         '--expected-revision',options['expected_revision'],'--backup',str(options['backup'])]) == 2
     assert json.loads(capsys.readouterr().out)['error_code'] == 'WATCHDOG_LIFECYCLE_UNPROVEN'
     assert not (store.root / '.retirement').exists()
+
+
+def test_explicit_bootstrap_makes_legacy_catalog_readable_without_worker_or_get_writes(tmp_path):
+    import procurement_engine.publication_store as native
+    store, _ = _compaction_fixture(tmp_path)
+    lease = store.root.parent / 'publication-readers.lock'
+    lease.unlink()
+    before = store.database_path.read_bytes()
+    assert hasattr(native, 'initialize_publication_readers'), 'Missing explicit rollout bootstrap'
+    from procurement_engine.cli import main
+    assert main(['initialize-publication-readers', '--state', str(store.root.parent)]) == 0
+    inode = lease.stat().st_ino
+    assert PublicationStore(store.root, readonly=True).latest()
+    assert store.database_path.read_bytes() == before
+    native.initialize_publication_readers(store.root.parent)
+    assert lease.stat().st_ino == inode
+    assert store.database_path.read_bytes() == before
+
+
+def test_explicit_bootstrap_rejects_unsafe_existing_lease_without_replacement(tmp_path):
+    import procurement_engine.publication_store as native
+    store, _ = _compaction_fixture(tmp_path)
+    lease = store.root.parent / 'publication-readers.lock'
+    lease.unlink()
+    foreign = tmp_path / 'foreign'
+    foreign.write_text('do not change')
+    lease.symlink_to(foreign)
+    assert hasattr(native, 'initialize_publication_readers'), 'Missing explicit rollout bootstrap'
+    with pytest.raises(PublicationError):
+        native.initialize_publication_readers(store.root.parent)
+    assert lease.is_symlink()
+    assert foreign.read_text() == 'do not change'

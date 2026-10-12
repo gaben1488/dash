@@ -141,3 +141,27 @@ it('rejects user-provided refresh sources, archived dates and credentials', asyn
   expect(refresh).not.toHaveBeenCalled();
   await app.close();
 });
+
+it('bootstraps a legacy catalog before serving when the report worker is disabled', async () => {
+  const module = await import('./report-releases.js');
+  expect(module).toHaveProperty('initializePublicationReaders');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const state = mkdtempSync(join(tmpdir(), 'legacy-reader-startup-'));
+  mkdirSync(join(state, 'published'));
+  writeFileSync(join(state, 'published/publications.sqlite'), 'legacy catalog');
+  vi.stubEnv('REPORT_STATE_DIR', state);
+  vi.stubEnv('REPORT_ENGINE_BIN', '/installed/proc-report');
+  const run = vi.fn(async () => undefined);
+  try {
+    await Reflect.get(module, 'initializePublicationReaders')(run);
+    expect(run).toHaveBeenCalledWith('/installed/proc-report', ['initialize-publication-readers', '--state', state],
+      { timeout: 30_000, maxBuffer: 1024, shell: false });
+    run.mockRejectedValueOnce(new Error('private source path and values'));
+    await expect(Reflect.get(module, 'initializePublicationReaders')(run)).rejects.toThrow('PUBLICATION_READER_BOOTSTRAP_FAILED');
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(state, { recursive: true, force: true });
+  }
+});
