@@ -134,8 +134,10 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
   const report = await probeHeaderApi(fetch,process.env.AEMR_API_KEY??'',(name,data)=>{payloads[name]=data;});
   const browserContract=process.env.HEADER_PROBE_CLI==='1'?readFileSync(0):Buffer.alloc(0);
   if(browserContract.length){
+    let stage='LOAD_CANDIDATE';
     try{
       const browser=await loadCandidateBrowser(browserContract);
+      stage='HEADER_CONSUMERS';
       let headersValid=true;
       for(const name of Object.keys(HEADER_ENDPOINTS)){
         const data=payloads[name];
@@ -143,6 +145,7 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
         if(name==='sources'&&browser.parseRefreshPassport(data)===null)throw Error('BROWSER_PASSPORT_UNKNOWN');
         if(name==='journal'){browser.digestLines(data.digest);for(const entry of data.entries){browser.entryAddress(entry);browser.entryChangeLine(entry);browser.entryWhoWhen(entry);}}
       }
+      stage='METRIC_READ';
       const dashboardResponse=await fetch('http://127.0.0.1:3000/api/dashboard?year='+new Intl.DateTimeFormat('en',{timeZone:'Asia/Kamchatka',year:'numeric'}).format(new Date()),{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
       if(dashboardResponse.status!==200)throw Error('METRIC_INPUT_UNAVAILABLE');
       const dashboardText=await dashboardResponse.text();
@@ -150,15 +153,22 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       const dashboard=JSON.parse(dashboardText);
       if(!Array.isArray(dashboard.departmentSummaries))throw Error('METRIC_INPUT_SHAPE');
       report.metric_wiring={...metricWiringReport(browser,dashboard),response_sha256:createHash('sha256').update(dashboardText).digest('hex')};
+      stage='REPORT_READ';
       const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Kamchatka',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
       const [year,month]=today.split('-');
       const response=await fetch(`http://127.0.0.1:3000/api/report-releases?date=${today}&year=${year}&quarter=${Math.ceil(Number(month)/3)}`,{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
       const reportText=response.status===200?await response.text():null;
+      report.report_response={status:response.status,bytes:reportText?Buffer.byteLength(reportText):0};
       if(reportText&&Buffer.byteLength(reportText)>2*1024*1024)throw Error('REPORT_PAYLOAD_TOO_LARGE');
+      stage='REPORT_PARSE';
       const parsed=reportText?browser.SelectedReportReleaseStatusSchema.safeParse(JSON.parse(reportText)):null;
       const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);
       report.browser_consumers={result:parsed?.success?(headersValid?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_HEADER_CONTRACT_FAIL'):'CANDIDATE_REPORT_CONTRACT_FAIL',report_contract:parsed?.success?'PASS':'FAIL',errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
-    }catch{report.browser_consumers={result:'CANDIDATE_CONSUMERS_UNAVAILABLE'};}
+    }catch(error){
+      const known=new Set(['REPORT_PAYLOAD_TOO_LARGE','METRIC_PAYLOAD_TOO_LARGE','METRIC_INPUT_UNAVAILABLE','METRIC_INPUT_SHAPE','CANDIDATE_BUNDLE_MISSING','BROWSER_PASSPORT_UNKNOWN']);
+      const classes=new Set(['TypeError','SyntaxError','TimeoutError','AbortError','Error']);
+      report.browser_consumers={result:'CANDIDATE_CONSUMERS_UNAVAILABLE',stage,reason:known.has(error?.message)?error.message:'READ_OR_PARSER_FAILED',error_class:classes.has(error?.name)?error.name:'Other'};
+    }
   }
   if(!browserContract.length)report.browser_consumers={result:'CANDIDATE_BUNDLE_MISSING'};
   console.log(JSON.stringify(report));
