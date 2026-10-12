@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport } from './header_api_probe.mjs';
+import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport, headerShapeIssues } from './header_api_probe.mjs';
 const fixtures = {
   comments: {total:0,comments:[],witnesses:[]},
   sources: { refresh: { webhookConfigured: false, withinWorkWindow: false, autoRefreshMinutes: 0, workWindowLabel: 'fixture' } },
@@ -50,4 +50,11 @@ test('annual fallback cannot conceal positive fact money with lost execution cou
  const result=metricWiringReport({aggregateNodeTotals:()=>({factTotal:80,factCount:0,periodApplied:false})}, {departmentSummaries:[{}]});
  assert.equal(result.result,'COUNT_MONEY_SCOPE_CONTRADICTION');
  assert.equal(result.contradictions,5);
+});
+
+test('shape diagnosis identifies fixed fields without publishing invalid values',()=>{
+ const broken={...fixtures.journal,entries:[{subject:'private-text',author:'private-person'}]};
+ const issues=headerShapeIssues('journal',broken);
+ assert.ok(issues.includes('entries.id'));
+ assert.equal(JSON.stringify(issues).includes('private-'),false);
 });

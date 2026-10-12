@@ -54,6 +54,38 @@ export function validHeaderPayload(name, data) {
   return false;
 }
 
+/** Fixed schema paths only: never echo an invalid source value. */
+export function headerShapeIssues(name,data) {
+ if(validHeaderPayload(name,data))return [];
+ if(name!=='journal'||!object(data))return ['payload'];
+ const d=data.digest, issues=[];
+ if(!day(data.since))issues.push('since');
+ if(!object(d))return [...issues,'digest'];
+ for(const k of ['books','rows','entries'])if(!count(d[k]))issues.push('digest.'+k);
+ if(!object(d.byKind))issues.push('digest.byKind');
+ else for(const k of kinds)if(!count(d.byKind[k]))issues.push('digest.byKind.'+k);
+ for(const k of ['booksNamed','authors'])if(!strings(d[k]))issues.push('digest.'+k);
+ for(const k of ['firstAt','lastAt'])if(!nullableTime(d[k]))issues.push('digest.'+k);
+ if(!['none','quiet','unknown'].includes(d.emptiness))issues.push('digest.emptiness');
+ if(!Array.isArray(data.gaps))issues.push('gaps');
+ else if(data.gaps.some(g=>!object(g)||!text(g.book)||!text(g.detail)||!gapReasons.includes(g.reason)||(g.count!==undefined&&!count(g.count))))issues.push('gaps.fields');
+ if(!Array.isArray(data.entries))issues.push('entries');
+ else for(const e of data.entries){
+  if(!object(e)){issues.push('entries.object');continue;}
+  for(const k of ['id','book','sheet','before','after'])if(!text(e[k]))issues.push('entries.'+k);
+  for(const k of ['rowSeq','column','columnLabel','author','subject','subordinate'])if(!nullableText(e[k]))issues.push('entries.'+k);
+  if(!nullableTime(e.at))issues.push('entries.at');
+  if(!(e.atMs===null||amount(e.atMs)))issues.push('entries.atMs');
+  if(!(e.sheetRow===null||(count(e.sheetRow)&&e.sheetRow>0)))issues.push('entries.sheetRow');
+  if(![...kinds,'row-cleared'].includes(e.kind))issues.push('entries.kind');
+  if(!['book-journal','live-stream','snapshot-diff'].includes(e.origin))issues.push('entries.origin');
+ }
+ if(!object(data.facets))issues.push('facets');
+ else if(!Array.isArray(data.facets.books)||!Array.isArray(data.facets.authors)||data.facets.books.some(x=>!object(x)||!text(x.book)||!count(x.count))||data.facets.authors.some(x=>!object(x)||!text(x.author)||!count(x.count)))issues.push('facets.fields');
+ for(const k of ['total','shown'])if(!count(data[k]))issues.push(k);
+ return [...new Set(issues)].slice(0,16);
+}
+
 export async function probeHeaderApi(fetcher = fetch, token = process.env.AEMR_API_KEY ?? '', onPayload) {
   const checks = await Promise.all(Object.entries(HEADER_ENDPOINTS).map(async ([name, endpoint]) => {
     try {
@@ -65,8 +97,9 @@ export async function probeHeaderApi(fetcher = fetch, token = process.env.AEMR_A
       if (Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) return { endpoint: name, result: 'PAYLOAD_TOO_LARGE' };
       const data = JSON.parse(text);
       const valid = validHeaderPayload(name, data);
-      if(valid)onPayload?.(name,data);
+      onPayload?.(name,data);
       return { endpoint: name, result: valid ? 'CONTRACT_PASS' : 'CONTRACT_FAIL',
+        ...(valid?{}:{invalid_fields:headerShapeIssues(name,data)}),
         response_sha256: createHash('sha256').update(text).digest('hex') };
     } catch { return { endpoint: name, result: 'READ_UNAVAILABLE' }; }
   }));
@@ -103,9 +136,10 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
   if(browserContract.length){
     try{
       const browser=await loadCandidateBrowser(browserContract);
+      let headersValid=true;
       for(const name of Object.keys(HEADER_ENDPOINTS)){
         const data=payloads[name];
-        if(!validHeaderPayload(name,data))throw Error('BROWSER_INPUT_SHAPE');
+        if(!validHeaderPayload(name,data)){headersValid=false;continue;}
         if(name==='sources'&&browser.parseRefreshPassport(data)===null)throw Error('BROWSER_PASSPORT_UNKNOWN');
         if(name==='journal'){browser.digestLines(data.digest);for(const entry of data.entries){browser.entryAddress(entry);browser.entryChangeLine(entry);browser.entryWhoWhen(entry);}}
       }
@@ -123,7 +157,7 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       if(reportText&&Buffer.byteLength(reportText)>2*1024*1024)throw Error('REPORT_PAYLOAD_TOO_LARGE');
       const parsed=reportText?browser.SelectedReportReleaseStatusSchema.safeParse(JSON.parse(reportText)):null;
       const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);
-      report.browser_consumers={result:parsed?.success?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_REPORT_CONTRACT_FAIL',errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
+      report.browser_consumers={result:parsed?.success?(headersValid?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_HEADER_CONTRACT_FAIL'):'CANDIDATE_REPORT_CONTRACT_FAIL',report_contract:parsed?.success?'PASS':'FAIL',errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
     }catch{report.browser_consumers={result:'CANDIDATE_CONSUMERS_UNAVAILABLE'};}
   }
   if(!browserContract.length)report.browser_consumers={result:'CANDIDATE_BUNDLE_MISSING'};
