@@ -6,6 +6,7 @@ import {
   EP_GRADE_LABELS,
   epGradeOfCluster,
   epGradeTotals,
+  futureFactDateSeverity,
 } from './ep-justification-grade.js';
 
 describe('обоснованность ЕП (канон п.98ж)', () => {
@@ -78,5 +79,15 @@ describe('обоснованность ЕП (канон п.98ж)', () => {
       expect(EP_GRADE_LABELS[grade].length).toBeGreaterThan(3);
       expect(EP_GRADE_EXPLAIN[grade].length).toBeGreaterThan(40);
     }
+  });
+});
+
+describe('future date series calendar context uses authoritative N', () => {
+  const row={dept:'УКСиМП',id:'3',subject:'Окорока (куриные)',method:'ЕП',factDateRaw:'15.06.2026',factSum:80,amountBasis:'position-total' as const,planYear:2026};
+  it.each([undefined, '', 'not a date', '31.02.2026', '15.06.2027'])('does not trust stale P when N is %s', planDateRaw => {
+    expect(futureFactDateSeverity({...row,planDateRaw})).toBe('significant');
+  });
+  it('uses N2026 despite stale P2027 without declaring the source mismatch valid', () => {
+    expect(futureFactDateSeverity({...row,planDateRaw:'15.06.2026',planYear:2027})).toBe('info');
   });
 });

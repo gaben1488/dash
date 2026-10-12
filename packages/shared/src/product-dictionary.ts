@@ -119,6 +119,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   dataQuality: { chip: 'Пустые обязательные поля', card: 'Пустые обязательные поля' },
   // «Факт дата» — калька разработчика; по-русски это «факт раньше плановой даты».
   factDateBeforePlan: { chip: 'Факт раньше плановой даты', card: 'Факт раньше плановой даты' },
+  economyDecisionUpcoming: { chip: 'Подготовить решение после завершения', card: 'Подготовка решения по итогам позиции' },
   futureFactDate: { chip: 'Дата факта в будущем', card: 'Дата факта в будущем' },
   planWithoutExecution: { chip: 'План без исполнения', card: 'План без исполнения' },
   epJustificationMissing: { chip: 'ЕП без обоснования', card: 'ЕП без обоснования' },

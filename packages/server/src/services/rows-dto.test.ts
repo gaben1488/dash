@@ -4,7 +4,7 @@
  * дата-канон (serial/«дд.мм.гггг»/ISO → «YYYY-MM-DD»|null), статус-лейблы,
  * отсев не-данных isDataRow.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildRowDto, isDataRow, sheetDateToIso } from './rows-dto.js';
 import { COL_LETTER_INDEX } from '@aemr/shared';
 
@@ -165,4 +165,15 @@ describe('isDataRow — отсев не-данных', () => {
   expect(dto).toMatchObject({ amountBasis: 'position-total',
     necessityJustification: row[30], commentGRBS: row[31] });
   expect(dto.badges.find(b => b.icon === 'shield-alert')).toMatchObject({ color: 'yellow' });
+});
+
+describe('future Q badge uses actual N calendar context', () => {
+  it.each([['15.06.2027',2026,'yellow'], ['15.06.2026',2027,'blue'], ['',2026,'yellow']])('N=%s/P=%s produces %s', (n,p,color) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026,0,10));
+    try {
+      const dto=buildRowDto(makeRow({A:'3',G:'Окорока (куриные)',L:'ЕП',K:100,Y:80,N:n,P:p,Q:'15.06.2026'}),0,{deptId:'uksimp'});
+      expect(dto.badges.find(b=>b.icon==='calendar-x')?.color).toBe(color);
+      expect(dto.planDateRaw).toBe(n);
+    } finally { vi.useRealTimers(); }
+  });
 });

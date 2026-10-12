@@ -19,6 +19,7 @@ import {
   signalOccurrences,
   signalPassport,
   signalSeverity,
+  rowSignalSeverity,
   stateSignals,
 } from './registry-view';
 
@@ -329,5 +330,17 @@ describe('недостижимые признаки в списке отбора
       .filter((key) => !UNREACHABLE_SIGNAL_KEYS.includes(key))
       .filter((key) => !ALL_SIGNAL_KEYS.includes(key));
     expect(lost).toEqual([]);
+  });
+});
+
+describe('future position preparation severity', () => {
+  const anchored={dept:'УКСиМП',id:'3',subject:'Окорока (куриные)',method:'ЕП',factDateRaw:'15.06.2026',planDateRaw:'15.06.2026',factSum:80,amountBasis:'position-total' as const,planYear:2026};
+  it('matches informative annual Q and preserves unknown-date review severity', () => {
+    expect(rowSignalSeverity('futureFactDate',anchored)).toBe('info');
+    expect(rowSignalSeverity('futureFactDate',{...anchored,planDateRaw:'15.06.2027'})).toBe('warning');
+    expect(rowSignalSeverity('futureFactDate',{})).toBe('warning');
+    expect(signalSeverity('economyDecisionUpcoming')).toBe('info');
+    expect(signalChipText('economyDecisionUpcoming').hint).toContain('ГРБС/УФ');
+    expect(signalChipText('futureFactDate').hint).not.toContain('физически невозможно');
   });
 });

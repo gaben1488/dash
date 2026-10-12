@@ -3,11 +3,12 @@ import { DEPARTMENT_REGISTRY } from './department-registry.js';
 import {
   ECONOMY_FLAG_BOOK_WORDS,
   ECONOMY_FLAG_CANON,
+  ECONOMY_DECISION_UPCOMING_ACTION,
   economyFlagVerdict,
   isEconomyFlagGarbage,
 } from './economy-flag.js';
-import { GRBS_BOOK_METHODS } from './dictionaries/method-families.js';
-import { EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
+import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
@@ -550,12 +551,16 @@ const statusOnDataRows: ValidationRule = {
     const verdict = economyFlagVerdict({
       planTotal: toNumber(ctx.cells['K']),
       factTotal: toNumber(ctx.cells['Y']),
+      declaredFactTotal: toNumber(ctx.cells['Y']),
       adCell: ctx.cells['AD'],
       isEp: method.includes('еп') || method.includes('единствен'),
       completed: parseSheetDate(ctx.cells['Q']) !== null,
-      completionDay: dayNumberOf(ctx.cells['Q']),
+      completionDay: dayOfDateCell(ctx.cells['Q']),
       asOfDay: dayNumberOf(ctx.asOf),
+      methodKnown: normalizeMethod(ctx.cells.L) !== undefined,
+      monopoly: (method.includes('еп') || method.includes('единствен')) && canonicalizeReasonEp(String(ctx.cells.M ?? '').slice(0, 2000)).cluster === 'EP_MONOPOLIST',
     });
+    if (verdict.upcoming) return { passed: true, message: ECONOMY_DECISION_UPCOMING_ACTION };
     if (!verdict.matches) return { passed: true };
 
     // Род называется вслух (канон: «ЕП включённо, но с пометкой рода»).

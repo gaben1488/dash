@@ -263,7 +263,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const signals = detectSignals(cells);
     const state = classifyRowState(signals);
     const badges = getSignalBadges(signals, { dept: dept.id, id: cells.A, subject: cells.G,
-      method: cells.L, factDateRaw: cells.Q, factSum: sheetNumber(cells.Y) ?? undefined, epReason: cells.M, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+      method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: sheetNumber(cells.Y) ?? undefined, epReason: cells.M, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
       necessityJustification: cells.AE, commentGRBS: cells.AF });
 
     // Build Google Sheets source URL

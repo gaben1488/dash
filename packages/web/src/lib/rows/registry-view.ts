@@ -21,6 +21,7 @@ import {
   classifyActivity,
   epRiskStrictnessOfReason,
   isAnnualEpAggregate,
+  futureFactDateSeverity,
   EP_ANNUAL_AMOUNT_TITLE,
   EP_ANNUAL_AMOUNT_EXPLANATION,
   epRiskReviewDetails,
@@ -95,7 +96,8 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   economyConflict: 'critical',
   factExceedsPlan: 'critical',
   formulaBroken: 'critical',
-  futureFactDate: 'critical',
+  futureFactDate: 'warning',
+  economyDecisionUpcoming: 'info',
   epJustificationMissing: 'critical',
   budgetUnderallocation: 'critical',
   budgetMismatch: 'critical',
@@ -166,6 +168,7 @@ export function epRiskSeverity(epReason: unknown, row?: EpRiskRowContext): Signa
  * иначе полоса «столько-то критических» разойдётся с цветом чипов на экране.
  */
 export function rowSignalSeverity(key: string, row: EpRiskRowContext & { epReason?: unknown }): SignalSeverity {
+  if (key === 'futureFactDate') return futureFactDateSeverity(row) === 'info' ? 'info' : 'warning';
   if (key === 'epRisk') return epRiskSeverity(row.epReason, row);
   return signalSeverity(key);
 }

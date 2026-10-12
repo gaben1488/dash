@@ -27,6 +27,7 @@
  * словаря по колонке M. Свободный текст здесь машинно не толкуется: если
  * причина не распозналась, степень честно «не установлена», а не угадана.
  */
+import { dayNumberOf } from './parse-sheet-date.js';
 import { canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
 export { hasNegatedEpMonopoly, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
 import type { EpReasonCluster } from './dictionaries/ep-reason-clusters.js';
@@ -194,6 +195,8 @@ export function epRiskStrictnessOfGrade(grade: EpJustificationGrade): EpRiskStri
  * разбора и проверки словаря, а не утверждения об отсутствии основания.
  */
 export interface EpRiskRowContext {
+  /** Actual N; calendar context is derived from this date, never from stale P. */
+  planDateRaw?: unknown;
   dept?: string;
   id?: unknown;
   subject?: unknown;
@@ -242,12 +245,7 @@ export function isAnnualEpAggregate(row?: EpRiskRowContext): boolean {
   if (row?.amountBasis === 'position-total' && row.planYear !== 2026) return false;
   if (!row || !isYearlongStageRow({ method: row.method,
     factDateCell: row.factDateRaw, factSum: row.factSum ?? 0 })) return false;
-  const department = findDept(row.dept ?? '')?.id ?? row.dept ?? '';
-  const entry = YEARLONG_START_BY_KEY.get(yearlongKey(department, row.id));
-  const subject = String(row.subject ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ');
-  return entry !== undefined && subject.length > 0
-    && subject === entry.subject.normalize('NFC').trim().replace(/\s+/gu, ' ')
-    && yearlongSubclassForKind(entry.kind) === 'contract-series';
+  return matchesAnnualSeriesAnchor(row);
 }
 
 export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext): EpRiskStrictness {
@@ -309,4 +307,22 @@ export function epGradeTotals(
     reducibleSum: Math.round(reducibleSum * 100) / 100,
     reducibleShare: sumTotal > 0 ? Math.round((reducibleSum / sumTotal) * 1000) / 10 : null,
   };
+}
+
+function matchesAnnualSeriesAnchor(row: EpRiskRowContext): boolean {
+  const department = findDept(row.dept ?? '')?.id ?? row.dept ?? '';
+  const entry = YEARLONG_START_BY_KEY.get(yearlongKey(department, row.id));
+  const subject = String(row.subject ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ');
+  return entry !== undefined && subject.length > 0
+    && subject === entry.subject.normalize('NFC').trim().replace(/\s+/gu, ' ')
+    && yearlongSubclassForKind(entry.kind) === 'contract-series';
+}
+
+/** A known annual series makes future Q an expected deadline, not proof that Q is correct. */
+export function futureFactDateSeverity(row?: EpRiskRowContext): 'info' | 'significant' {
+  const planDay = dayNumberOf(row?.planDateRaw);
+  const planYear = planDay === null ? null : new Date(planDay * 86400000).getUTCFullYear();
+  return row && row.amountBasis === 'position-total' && planYear === 2026
+    && /^(еп|единствен)/iu.test(String(row.method ?? '').trim())
+    && (row.factSum ?? 0) > 0 && matchesAnnualSeriesAnchor(row) ? 'info' : 'significant';
 }

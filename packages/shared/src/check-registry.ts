@@ -17,6 +17,7 @@ import type {
   CheckOrigin,
   TrustComponentId,
 } from './unified-class-system.js';
+import { ECONOMY_DECISION_UPCOMING_ACTION } from './economy-flag.js';
 import type { RuleScope } from './types.js';
 import { signalCardTitle } from './product-dictionary.js';
 import { ECONOMY_FLAG_CANON } from './economy-flag.js';
@@ -564,17 +565,26 @@ export const CHECK_REGISTRY: CheckRegistryEntry[] = [
     sourceType: 'signal',
   },
   {
+    id: 'future_economy_decision',
+    group: 'economy_control',
+    name: signalCardTitle('economyDecisionUpcoming'),
+    description: 'Q ещё впереди; разница плана и обязательств может быть остатком по незавершённой позиции.',
+    severity: 'info', origin: 'bi_heuristic', scope: 'department',
+    kbHint: 'Это подготовка будущего решения. Текущая разница не подтверждает экономию или свободные средства; AD сейчас не требуется.',
+    recommendation: ECONOMY_DECISION_UPCOMING_ACTION,
+    trustComponent: 'operational_risk', legacyId: 'economyDecisionUpcoming', sourceType: 'signal',
+  },
+  {
     id: 'future_fact_date',
     group: 'temporal',
     name: signalCardTitle('futureFactDate'),
-    description: 'Договор помечен заключённым позже сегодняшнего дня — физически невозможно.',
+    description: 'Q позже даты среза: нужно уточнить назначение и срок позиции.',
     severity: 'significant',
     origin: 'bi_heuristic',
     scope: 'department',
     kbHint:
-      'Почти всегда опечатка в годе. Такая строка завышает официальный счёт заключённых: ' +
-      'формулы листа СВОД дату факта ни с чем не сравнивают и считают её фактом.',
-    recommendation: 'Сверить дату с контрактом и исправить год в столбце Q',
+      'Q может быть датой последнего контракта годовой позиции или ошибкой ввода. Без контекста эти случаи неразличимы; будущая дата не подтверждает завершение.',
+    recommendation: 'Сверить назначение Q и срок последнего контракта; исправлять только подтверждённую ошибку',
     trustComponent: 'data_quality',
     legacyId: 'futureFactDate',
     sourceType: 'signal',

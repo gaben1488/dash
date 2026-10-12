@@ -127,6 +127,8 @@ export interface EconomyFlagInput {
   planTotal: number | null;
   /** Факт итого (Y либо сумма V+W+X) в тех же единицах. */
   factTotal: number | null;
+  /** Source Y for preparation: zero stays zero, missing stays unknown; legacy fallback is not evidence. */
+  declaredFactTotal?: number | null;
   /** Сырое значение графы «Статус» (AD). */
   adCell: unknown;
   /** Позиция закрыта датой последнего контракта Q; суммы сами этого не доказывают. */
@@ -136,12 +138,17 @@ export interface EconomyFlagInput {
   asOfDay?: number | null;
   /** Способ закупки — единственный поставщик? */
   isEp: boolean;
+  /** Known source method and monopoly context constrain preparation, not legal validity. */
+  methodKnown?: boolean;
+  monopoly?: boolean;
 }
 
 /** Разбор строки по канону: что с числами, что с решением, к какому роду. */
 export interface EconomyFlagVerdict {
   /** Строка подпадает под явление «Экономия без отметки». */
   matches: boolean;
+  /** Conditional preparation only; no available or official economy is asserted. */
+  upcoming?: boolean;
   /** Решение органа по графе «Статус». */
   state: EconomyFlagState;
   /** Род строки — называется вслух и в карточке, и в срезе. */
@@ -175,20 +182,26 @@ export function economyFlagVerdict(input: EconomyFlagInput): EconomyFlagVerdict 
   const plan = finite(input.planTotal);
   const fact = finite(input.factTotal);
 
+  const preparationFact = finite(input.declaredFactTotal ?? null);
+  const upcoming = state === 'undetermined' && input.methodKnown === true && input.monopoly !== true
+    && typeof input.completionDay === 'number' && Number.isFinite(input.completionDay)
+    && typeof input.asOfDay === 'number' && Number.isFinite(input.asOfDay)
+    && input.completionDay > input.asOfDay
+    && plan !== null && plan > 0 && preparationFact !== null && preparationFact > 0
+    && plan - preparationFact >= ECONOMY_NOISE_THOUSAND;
   const dateNotArrived = input.completionDay !== undefined
-    && (input.completionDay === null || !Number.isFinite(input.completionDay)
-      || input.asOfDay === null || input.asOfDay === undefined || !Number.isFinite(input.asOfDay)
-      || input.completionDay > input.asOfDay);
+    && !isCompletionDayArrived(input.completionDay, input.asOfDay);
   if (!input.completed || dateNotArrived || plan === null || plan <= 0 || fact === null || fact <= 0) {
-    return { matches: false, state, kind, economy: 0, sharePct: 0 };
+    return { matches: false, upcoming, state, kind, economy: 0, sharePct: 0 };
   }
 
   const economy = plan - fact;
   if (economy < ECONOMY_NOISE_THOUSAND) {
-    return { matches: false, state, kind, economy: 0, sharePct: 0 };
+    return { matches: false, upcoming, state, kind, economy: 0, sharePct: 0 };
   }
 
   return {
+    upcoming: false,
     matches: state === 'undetermined',
     state,
     kind,
@@ -232,3 +245,12 @@ export const ECONOMY_FLAG_CANON = {
     'Финансовому органу: проставить в графе «Статус» (AD) «да» или «нет» — от этого '
     + 'зависит, попадёт ли экономия строки в лист СВОД (он суммирует только строки с «да»).',
 } as const;
+
+/** Preparation does not ask for AD now or call the current remainder free money. */
+export const ECONOMY_DECISION_UPCOMING_ACTION = 'К дате последнего контракта проверить итог и решение по экономии; ГРБС/УФ подготовить варианты.';
+
+/** Source Q is complete only relative to an explicit finite snapshot day. */
+export function isCompletionDayArrived(completionDay: number | null | undefined, asOfDay: number | null | undefined): boolean {
+  return typeof completionDay === 'number' && Number.isFinite(completionDay)
+    && typeof asOfDay === 'number' && Number.isFinite(asOfDay) && completionDay <= asOfDay;
+}

@@ -123,3 +123,18 @@ describe('economy mark applies only after the last contract date has arrived', (
     expect(economyFlagVerdict({ ...base, adCell: 'да', completionDay: 21001, asOfDay: 21000 }).state).toBe('approved');
   });
 });
+
+ describe('future position decision preparation', () => {
+  it('reminds without declaring available economy before Q arrives', () => {
+    const v = economyFlagVerdict({ ...base, completionDay: 200, asOfDay: 100, methodKnown: true, declaredFactTotal:800 });
+    expect(v).toMatchObject({ upcoming: true, matches: false, economy: 0, sharePct: 0 });
+  });
+  it.each([{ adCell: 'да' }, { adCell: 'нет' }, { completionDay: null },
+    { factTotal: 1000, declaredFactTotal:1000 }, { monopoly: true }, { methodKnown: false }, { asOfDay: null }])('does not request preparation for %j', override => {
+    expect(economyFlagVerdict({ ...base, completionDay: 200, asOfDay: 100, methodKnown: true, declaredFactTotal:800, ...override }).upcoming).toBe(false);
+  });
+});
+
+it('does not infer preparation from legacy fallback totals without declared Y evidence', () => {
+  expect(economyFlagVerdict({...base,completionDay:200,asOfDay:100,methodKnown:true}).upcoming).toBe(false);
+});

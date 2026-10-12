@@ -24,6 +24,8 @@ import {
   canonicalizeReasonEp,
   dayNumberOf,
   economyFlagVerdict,
+  isCompletionDayArrived,
+  normalizeMethod,
   hasFactDate as factDatePresent,
   isAbsentCell,
   isFormulaError,
@@ -31,6 +33,7 @@ import {
   isProceduralMismatch,
   parseSheetDate,
   isAnnualEpAggregate,
+  futureFactDateSeverity,
   hasNegatedEpMonopoly,
   epRiskStrictnessOfReason,
   EP_ANNUAL_AMOUNT_TITLE,
@@ -129,6 +132,7 @@ export interface RowSignals {
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных */
   highEconomy: boolean;
+  economyDecisionUpcoming?: boolean;
   /** Экономия 0-2% (без точного равенства план==факт и без дубля singleParticipant) — формальная конкуренция */
   lowCompetition: boolean;
   /** Раннее закрытие — кандидат на опечатку даты: факт в предыдущем календарном году (при опережении >30 дн) либо опережение >180 дней у конкурентного способа (у ЕП опережение мягкой плановой даты нормально, гейт 18.08.2026, В-9) */
@@ -593,12 +597,16 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const economyCanon = economyFlagVerdict({
     planTotal: isNaN(planTotal) ? null : planTotal,
     factTotal,
+    declaredFactTotal: Number.isFinite(factY) ? factY : null,
     adCell: cells['AD'],
     isEp: isEP,
     completed: factDay !== null,
     completionDay: factDay,
     asOfDay: todayDay,
+    methodKnown: normalizeMethod(cells.L) !== undefined,
+    monopoly: isEP && canonicalizeReasonEp(epJustification.slice(0, 2000)).cluster === 'EP_MONOPOLIST',
   });
+  const completionArrived = isCompletionDayArrived(factDay, todayDay);
   const economyFlag = economyCanon.state === 'approved';
   const economyFlagUndetermined = economyCanon.matches;
 
@@ -650,7 +658,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let highEconomy = false;
   let lowCompetition = false;
 
-  if (factDay !== null && !isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
+  if (completionArrived && !isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
     const economyPct = ((planTotal - factTotal) / planTotal) * 100;
     if (economyPct > ANTI_DUMPING_PERCENT) {
       highEconomy = true;
@@ -721,7 +729,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Накопленные обязательства до Q не означают закрытие позиции; остаток
   // не является ошибкой или подтверждённой экономией. После закрытия
   // отклонение свыше 0,5% требует сверки документов, а не подгонки сумм.
-  const epFactDeviation = factDay !== null && isEP
+  const epFactDeviation = completionArrived && isEP
     && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
     && Math.abs(factTotal - planTotal) > planTotal * 0.005;
 
@@ -956,6 +964,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     formulaBroken,
     singleParticipant,
     highEconomy,
+    economyDecisionUpcoming: economyCanon.upcoming === true,
     lowCompetition,
     earlyClosure,
     factExceedsPlan,
@@ -1108,8 +1117,11 @@ export function getSignalBadges(signals: RowSignals, row?: EpRiskRowContext & { 
   if (signals.earlyClosure) {
     badges.push({ label: badgeLabel('earlyClosure'), color: 'yellow', icon: 'fast-forward' });
   }
+  if (signals.economyDecisionUpcoming) {
+    badges.push({ label: badgeLabel('economyDecisionUpcoming'), color: 'blue', icon: 'calendar' });
+  }
   if (signals.futureFactDate) {
-    badges.push({ label: badgeLabel('futureFactDate'), color: 'red', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('futureFactDate'), color: futureFactDateSeverity(row) === 'info' ? 'blue' : 'yellow', icon: 'calendar-x' });
   }
 
   // ── Жёлтые (предупреждения) ──

@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -923,7 +923,7 @@ function detectSignalsToIssues(
       // проверка источника на сервере обязаны звать одну функцию, иначе список
       // критических разойдётся с цветом чипов на экране.
       const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
-        factDateRaw: cells['Q'], factSum: sheetNumber(cells['Y']) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        factDateRaw: cells['Q'], planDateRaw: cells['N'], factSum: sheetNumber(cells['Y']) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
         necessityJustification: cells.AE, commentGRBS: cells.AF };
       const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
       // Nonempty UNMAPPED is a proven dictionary limitation, not employee misconduct.
@@ -936,7 +936,7 @@ function detectSignalsToIssues(
         : amountUncertainty ? { ...meta, group: 'completeness' as const } : meta;
       const severity: Issue['severity'] = signalKey === 'epRisk'
         ? epRiskStrictnessOfReason(cells['M'], epContext)
-        : meta.severity;
+        : signalKey === 'futureFactDate' ? futureFactDateSeverity(epContext) : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity,
