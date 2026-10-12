@@ -43,6 +43,16 @@ describe('comments family history', () => {
     }, '2026-10-12T01:00:00Z');
     expect(store.listCommentWitnesses('УИО')[0]?.evidence).toMatchObject({ status: 'unavailable', count: null });
   });
+  it('reading diagnostics do not displace original comments at a bounded limit', () => {
+    store.storeCommentWitness('bounded', { ...witness, sourceId: 'bounded-note' });
+    for (let i = 0; i < 3; i++) store.storeWitnessReading('bounded', 'bounded-file', 'threads', {
+      status: 'unavailable', reason: 'Нет доступа.', scope: [], records: [],
+    }, `2026-10-12T0${i + 2}:00:00Z`);
+    expect(store.listCommentWitnesses('bounded', 1, true)[0]?.evidence.content).toBe('Первое');
+    const readings = store.listCommentReadings('bounded');
+    expect(readings).toHaveLength(1);
+    expect(readings[0].readAt).toBe('2026-10-12T04:00:00Z');
+  });
   it('preserves reverted legacy projections with equal recordedAt', () => {
     const original = { commentId: 'legacy-same', content: 'Первое', recordedAt: '2026-10-12T05:00:00.123Z' };
     store.archiveLegacyComment('legacy-same-time', original);

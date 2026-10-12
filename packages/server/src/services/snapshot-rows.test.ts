@@ -371,9 +371,22 @@ describe('журнал правок источника → changelog_entries (б
   it('ключ различает правки, отличающиеся только книгой, ячейкой или автором', async () => {
     const { changeEntryKey } = await import('../routes/changes.js');
     const base = change();
-    expect(changeEntryKey(base)).toBe(changeEntryKey({ ...base, oldValue: 'иное', newValue: 'иное' }));
+    expect(changeEntryKey(base)).not.toBe(changeEntryKey({ ...base, oldValue: 'иное', newValue: 'иное' }));
     expect(changeEntryKey(base)).not.toBe(changeEntryKey({ ...base, dept: 'УД' }));
     expect(changeEntryKey(base)).not.toBe(changeEntryKey({ ...base, cell: 'L179' }));
     expect(changeEntryKey(base)).not.toBe(changeEntryKey({ ...base, author: 'petrov@example.ru' }));
   });
+  it('сохраняет разные переходы одной секунды, не повторяя старую запись после обновления', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { saveChangeLogEntries, readChangeLogEntriesSince } = await import('../routes/changes.js');
+    const first = change(), second = change({ oldValue: 'ЕП', newValue: 'ЭА' });
+    const legacyId = `${first.dept}|${first.sheet}|${first.cell}|${first.atMs}|${first.author}`;
+    db.insert(schema.changelogEntries).values({ ...first, id: legacyId, recordedAt: '2026-08-06T00:00:00Z' }).run();
+    expect(saveChangeLogEntries([first, second])).toBe(1);
+    expect(saveChangeLogEntries([first, second])).toBe(0);
+    const rows = readChangeLogEntriesSince(0);
+    expect(rows).toHaveLength(2);
+    expect(rows.map(r => r.newValue).sort()).toEqual(['ЕП', 'ЭА']);
+    expect(db.select().from(schema.changelogEntries).all().some(r => r.id === legacyId)).toBe(true);
+  }, 60_000);
 });

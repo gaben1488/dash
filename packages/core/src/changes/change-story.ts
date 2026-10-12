@@ -261,6 +261,58 @@ export interface ChangeEntry {
    * десяток ячеек, заполненных в одну минуту). У обычной правки поля нет.
    */
   readonly cells?: readonly string[];
+  /** Original observations survive presentation grouping; never inferred authors. */
+  readonly evidence?: readonly ChangeEvidence[];
+  /** Server observation/publication time, distinct from an operator's edit time. */
+  readonly observedAt?: string;
+}
+
+export type ChangeEvidence = Omit<ChangeEntry, 'evidence'>;
+
+function originalEvidence(entry: ChangeEntry): readonly ChangeEvidence[] {
+  if (entry.evidence) return entry.evidence;
+  const { evidence: _evidence, ...original } = entry;
+  return [original];
+}
+
+/** Exact event identity, including values; a legacy ID collision is not proof. */
+function changeIdentity(entry: ChangeEntry): string {
+  return JSON.stringify([entry.book, entry.sheet, entry.rowSeq, entry.sheetRow,
+    entry.column, entry.kind, entry.before, entry.after, entry.at, entry.author,
+    entry.cells ?? null, entry.comparisonEvidence ?? null,
+    // Equal cell counts/addresses do not prove equal folded row payloads.
+    entry.cells ? entry.evidence ? [...new Set(entry.evidence.map(e => JSON.stringify([
+      e.book, e.sheet, e.rowSeq, e.sheetRow, e.column, e.before, e.after, e.at, e.author,
+      e.observedAt ?? null,
+    ])))].sort() : [entry.origin, entry.id] : null,
+    // A read-diff without a linked source edit cannot borrow its clock/author.
+    entry.observedAt === undefined ? null : [entry.origin, entry.observedAt],
+    // Unknown time cannot connect independent source observations.
+    entry.at === null ? [entry.origin, entry.id] : null]);
+}
+
+/** Preserve every original witness, with one card only for an exactly matching event. */
+export function mergeChangeEntries(entries: readonly ChangeEntry[]): ChangeEntry[] {
+  const grouped = new Map<string, ChangeEntry>();
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    const key = changeIdentity(entry);
+    const existing = grouped.get(key);
+    if (existing) {
+      const witnesses = new Map<string, ChangeEvidence>();
+      for (const witness of [...originalEvidence(existing), ...originalEvidence(entry)]) {
+        witnesses.set(JSON.stringify(witness), witness);
+      }
+      grouped.set(key, { ...existing, evidence: [...witnesses.values()] });
+    } else {
+      let id = entry.id;
+      // Rendered keys must remain distinct for older producers sharing an ID.
+      for (let n = 2; ids.has(id); n++) id = `${entry.id}|distinct:${n}`;
+      ids.add(id);
+      grouped.set(key, id === entry.id ? entry : { ...entry, id, evidence: originalEvidence(entry) });
+    }
+  }
+  return [...grouped.values()].sort(compareEntries);
 }
 
 /** Пробел рассказа: место, где мы чего-то не знаем и обязаны это сказать. */
@@ -562,12 +614,12 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
   const passthrough: ChangeEntry[] = [];
 
   for (const e of entries) {
-    if (e.origin === 'snapshot-diff' || e.column === null) {
+    if (e.origin === 'snapshot-diff' || e.column === null || e.at === null) {
       passthrough.push(e);
       continue;
     }
     const address = e.rowSeq === null ? `лист-${e.sheetRow ?? '?'}` : `№${e.rowSeq}`;
-    const key = `${e.book}|${e.sheet}|${address}|${minuteOf(e.at)}`;
+    const key = JSON.stringify([e.book, e.sheet, address, e.sheetRow, minuteOf(e.at), e.author]);
     const bucket = groups.get(key);
     if (bucket) bucket.push(e);
     else groups.set(key, [e]);
@@ -578,7 +630,11 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
     const filled = items.filter((i) => i.before === '' && i.after !== '');
     const wiped = items.filter((i) => i.before !== '' && i.after === '');
 
-    if (filled.length >= ROW_EVENT_CELLS && wiped.length === 0) {
+    const distinctCells = new Set(items.map(i => `${i.column}${i.sheetRow}`));
+    // Repeated edits of the same cell are a sequence, not a whole-row action.
+    if (distinctCells.size !== items.length) {
+      out.push(...items);
+    } else if (filled.length >= ROW_EVENT_CELLS && wiped.length === 0) {
       out.push(rowEventOf(items, 'row-added'));
     } else if (wiped.length >= ROW_EVENT_CELLS && filled.length === 0) {
       out.push(rowEventOf(items, 'row-cleared'));
@@ -603,7 +659,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
   const cells = items.map((i) => `${i.column ?? '?'}${i.sheetRow ?? ''}`);
   return {
     ...head,
-    id: `${head.book}|${head.sheet}|${kind}|${head.rowSeq ?? `лист-${head.sheetRow ?? '?'}`}|${minuteOf(head.at)}`,
+    id: JSON.stringify([head.book, head.sheet, kind, head.rowSeq, head.sheetRow, minuteOf(head.at), head.author]),
     column: null,
     columnLabel: null,
     kind,
@@ -611,6 +667,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
     after: kind === 'row-added' ? `${items.length} заполненных ячеек` : '',
     subject: subject === '' ? null : (subject ?? null),
     cells,
+    evidence: items.flatMap(originalEvidence),
   };
 }
 
@@ -711,7 +768,7 @@ export function buildChangeStory(
         : fromJournal.filter((e) => e.atMs === null || e.atMs >= (options.sinceMs as number));
       // Свёртка идёт ПОСЛЕ окна: иначе половина ячеек новой закупки осталась
       // бы за границей окна и добавление рассыпалось бы на отдельные правки.
-      entries.push(...foldRowEvents(inWindow));
+      entries.push(...foldRowEvents(mergeChangeEntries(inWindow)));
       if (rowKeyless > 0) {
         gaps.push({
           book: input.book,

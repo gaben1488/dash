@@ -11,6 +11,7 @@ export function UpdateFeed({entries,onOpen}:{entries:readonly ChangeEntry[];onOp
         <p className="uf-address">{entryAddress({...entry,columnLabel:null})}</p>
         {entry.subject&&<p className="uf-subject">{entry.subject}</p>}
         <p className="uf-evidence">{entryWhoWhen(entry)} · {originNote(entry)}</p>
+        {entry.evidence&&<details className="uf-originals"><summary>Исходные свидетельства · {entry.evidence.length}</summary>{entry.evidence.map((original,i)=><div className="uf-post" key={`${original.origin}:${original.id}:${i}`}><p>{entryAddress(original)} · {originNote(original)}</p><p><del>{valueLabel(original.before)}</del> → <strong>{valueLabel(original.after)}</strong></p><p className="uf-scope">{entryWhoWhen(original)}</p></div>)}</details>}
         {(entry.relatedRowSeq||entry.rowSeq||entry.subject)&&<button type="button" className="uf-drill" onClick={()=>onOpen(entry)}>{entry.kind==='row-vanished'?'поиск в Реестре':'в Реестре'}</button>}
       </div>
     </article>)}

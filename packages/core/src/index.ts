@@ -175,10 +175,10 @@ export {
   CHANGE_KIND_LABELS, CHANGE_KIND_ORDER, CHANGE_ORIGIN_LABELS, ROW_EVENT_CELLS,
   authorTally, bookTally, buildChangeStory, changeKindOfColumn, columnLabelOf,
   columnLetterOf, compareEntries, entriesFromBookJournal, entriesFromRowDiff,
-  filterChangeEntries, foldRowEvents, orderingMsOf, sheetRowOfAddress, summarizeChanges,
+  filterChangeEntries, foldRowEvents, mergeChangeEntries, orderingMsOf, sheetRowOfAddress, summarizeChanges,
 } from './changes/change-story.js';
 export type {
-  ChangeDigest, ChangeEntry, ChangeFilter, ChangeGap, ChangeKind, ChangeOrigin,
+  ChangeDigest, ChangeEntry, ChangeEvidence, ChangeFilter, ChangeGap, ChangeKind, ChangeOrigin,
   ChangeStory, ChangeStoryInput,
 } from './changes/change-story.js';
 

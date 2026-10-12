@@ -10,7 +10,7 @@
  * книг, счётчики и сами комментарии (тот же принцип, что у состояния каналов).
  */
 import type { FastifyInstance } from 'fastify';
-import { countCommentWitnesses, listCommentWitnesses } from '../services/comment-witness-store.js';
+import { countCommentWitnesses, listCommentReadings, listCommentWitnesses } from '../services/comment-witness-store.js';
 import {
   countStoredComments,
   listStoredComments,
@@ -26,7 +26,7 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
     const query = request.query as { book?: string; limit?: string };
     const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 1000);
     const comments = listStoredComments(query.book || undefined, limit);
-    const witnesses = listCommentWitnesses(query.book || undefined, limit);
+    const witnesses = listCommentWitnesses(query.book || undefined, limit, true);
     return {
       // «Всего» считает база по фильтру, а не длина ограниченной выборки:
       // при limit=50 из двухсот осевших total обязан отвечать 200. Сколько
@@ -39,6 +39,7 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
       witnesses,
       witnessHistoryTotal: countCommentWitnesses(query.book || undefined),
       witnessHistoryShown: witnesses.length,
+      readings: listCommentReadings(query.book || undefined),
     };
   });
 

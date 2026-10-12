@@ -3,9 +3,8 @@
  *
  * Вопрос читателя звучит не «книга обновилась», а «что именно поменялось».
  * Ответ на него собирается здесь: строка листа, № п/п, колонка по живой шапке,
- * было → стало. Автор берётся из журнала правок книги, если журнал доступен;
- * недоступен — поле пустое, и экран честно молчит про автора, а не подставляет
- * «система» (канон п.27: свободный текст не источник, а выдумка тем более).
+ * было → стало. Два чтения не доказывают автора ввода: автор остаётся у
+ * отдельного исходного события журнала, а не наследуется по адресу ячейки.
  *
  * Сопоставление использует существующий diffSnapshots по уникальным № п/п.
  * Очистка и уплотнение не меняют идентичность оставшихся позиций. Неоднозначные
@@ -61,35 +60,6 @@ const LABEL_BY_INDEX: Readonly<Record<number, string>> = (() => {
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return '';
   return String(value).trim();
-}
-
-/** Короткая выдержка значения для показа: длинный текст в полосу не влезет. */
-function brief(value: string, limit = 60): string {
-  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
-}
-
-/**
- * Кто правил эту ячейку. Подставляет журнал правок книги; по умолчанию — никто,
- * и поле остаётся пустым. Резолвер задаётся приложением (app.ts), чтобы модуль
- * сравнения не тянул за собой базу и не ломал свои же тесты.
- */
-export type ChangeAuthorResolver = (book: string, cell: string) => string | undefined;
-
-let authorResolver: ChangeAuthorResolver | null = null;
-
-export function setChangeAuthorResolver(fn: ChangeAuthorResolver | null): void {
-  authorResolver = fn;
-}
-
-function resolveAuthor(book: string, cell: string): string | undefined {
-  if (!authorResolver) return undefined;
-  try {
-    const author = authorResolver(book, cell)?.trim();
-    return author ? author : undefined;
-  } catch {
-    // Журнал недоступен — это не повод потерять само событие о правке.
-    return undefined;
-  }
 }
 
 /**
@@ -160,10 +130,10 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
         rowSeq: cellText(next[DEPT_COLUMNS.ID]) || undefined,
         column: letter,
         columnLabel: LABEL_BY_INDEX[c] || undefined,
-        before: brief(wasText),
-        after: brief(nowText),
-        // Физическая ячейка после сдвига могла принадлежать другой закупке.
-        author: priorRow === sheetRow ? resolveAuthor(book, `${letter}${sheetRow}`) : undefined,
+        before: wasText,
+        after: nowText,
+        // Observation is not an edit event. Even matching values/address can
+        // borrow an old actor after a repeated transition or a row shift.
       });
     }
 

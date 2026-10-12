@@ -211,6 +211,9 @@ export function entryWhoWhen(entry: ChangeEntry): string {
   }
   const date = shortDate(entry.at);
   const time = shortTime(entry.at);
+  if (entry.observedAt !== undefined) {
+    return `обнаружено сервером ${entry.observedAt} · момент ввода сотрудником не установлен`;
+  }
   return `${who} · ${date} ${time}`;
 }
 

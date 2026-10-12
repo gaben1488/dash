@@ -9,6 +9,7 @@ import {
   entriesFromRowDiff,
   filterChangeEntries,
   foldRowEvents,
+  mergeChangeEntries,
   summarizeChanges,
   type ChangeEntry,
   type ChangeStoryInput,
@@ -114,6 +115,43 @@ describe('свёртка: добавление закупки — одно со�
     expect(folded[0].cells).toHaveLength(8);
   });
 
+  it('свёртка сохраняет исходное значение и автора каждой ячейки', () => {
+    const { entries } = entriesFromBookJournal('УКСиМП', added);
+    expect(foldRowEvents(entries)[0].evidence).toEqual(entries);
+  });
+
+  it('разные авторы одной минуты не становятся одним действием первого автора', () => {
+    const mixed = added.map((r, i) => ({ ...r, author: i < 4 ? 'А' : 'Б' }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', mixed).entries)).toHaveLength(8);
+  });
+
+  it('неизвестный момент не объединяет несвязанные заполнения строки', () => {
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', added.map(r => ({ ...r, at: '' }))).entries)).toHaveLength(8);
+  });
+
+  it('пять правок одной ячейки не становятся добавлением целой строки', () => {
+    const repeated = added.map(r => ({ ...r, cell: 'C200' }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', repeated).entries).every(e => e.kind !== 'row-added')).toBe(true);
+  });
+
+  it('повторный номер в разных физических строках не объединяет их заполнение', () => {
+    const mixed = added.map((r, i) => ({ ...r, cell: `${'CDEFGHIJ'[i]}${i < 4 ? 200 : 201}` }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', mixed).entries)).toHaveLength(8);
+  });
+
+  it('отдельные действия двух авторов получают различные ключи карточек', () => {
+    const second = added.map(r => ({ ...r, author: 'Второй автор' }));
+    const folded = foldRowEvents(entriesFromBookJournal('УКСиМП', [...added, ...second]).entries);
+    expect(folded).toHaveLength(2);
+    expect(new Set(folded.map(e => e.id)).size).toBe(2);
+  });
+  it('равное число ячеек свёрнутых событий не скрывает разные исходные значения', () => {
+    const first = foldRowEvents(entriesFromBookJournal('УКСиМП', added).entries)[0];
+    const other = added.map((r, i) => i === 7 ? { ...r, became: 'Другое значение' } : r);
+    const second = foldRowEvents(entriesFromBookJournal('УКСиМП', other).entries)[0];
+    expect(mergeChangeEntries([first, second])).toHaveLength(2);
+  });
+
   it('обнуление строки называется очисткой, а не удалением', () => {
     const wiped = added.map((r) => ({ ...r, was: 'было', became: '' }));
     const { entries } = entriesFromBookJournal('УКСиМП', wiped);
@@ -130,6 +168,29 @@ describe('свёртка: добавление закупки — одно со�
     const spread = added.map((r, i) => ({ ...r, at: `18.08.2026 10:${10 + i}:00` }));
     const { entries } = entriesFromBookJournal('УКСиМП', spread);
     expect(foldRowEvents(entries)).toHaveLength(8);
+  });
+});
+
+describe('одно событие со всеми подтверждениями', () => {
+  const source = () => entriesFromBookJournal('УО', [rec('K177', '№ 38', '100', '120', '14.08.2026 15:53:44')]).entries[0];
+  it('сохраняет подтверждение эфира при точном совпадении, повторное слияние идемпотентно', () => {
+    const journal = source(), live: ChangeEntry = { ...journal, origin: 'live-stream' };
+    const result = mergeChangeEntries([journal, live]);
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence?.map(e => e.origin)).toEqual(['book-journal', 'live-stream']);
+    expect(mergeChangeEntries([...result, live])).toEqual(result);
+  });
+  it('коллизия прежнего ID не скрывает другое значение и не повторяет ключ карточки', () => {
+    const journal = source();
+    const result = mergeChangeEntries([journal, { ...journal, before: '120', after: '140', origin: 'live-stream' }]);
+    expect(result.map(e => e.after).sort()).toEqual(['120', '140']);
+    expect(new Set(result.map(e => e.id)).size).toBe(2);
+  });
+  it('не объединяет другой номер, книгу, момент или источник без времени', () => {
+    const journal = source();
+    for (const over of [{ rowSeq: '173/1' }, { book: 'УД' }, { at: null, atMs: null }, { at: '2026-08-14T15:53:45' }]) {
+      expect(mergeChangeEntries([journal, { ...journal, ...over, origin: 'live-stream' }])).toHaveLength(2);
+    }
   });
 });
 

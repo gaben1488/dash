@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, notLike, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { CommentWitness } from './google-comment-witnesses.js';
 import type { NativeCommentReading } from './native-comment-read.js';
@@ -53,9 +53,10 @@ export function storeWitnessReading(book: string, fileId: string, kind: string,
 }
 
 /** Historical raw witnesses are bounded and labelled; they are not current edits. */
-export function listCommentWitnesses(book?: string, limit = 100) {
+export function listCommentWitnesses(book?: string, limit = 100, originalsOnly = false) {
   const rows = db.select().from(schema.driveCommentObservations)
-    .where(book ? eq(schema.driveCommentObservations.book, book) : undefined)
+    .where(and(book ? eq(schema.driveCommentObservations.book, book) : undefined,
+      originalsOnly ? notLike(schema.driveCommentObservations.kind, 'reading:%') : undefined))
     .orderBy(desc(schema.driveCommentObservations.readAt), desc(sql`rowid`)).limit(Math.max(1, Math.min(limit, 200))).all();
   return rows.map(row => {
     const parsed = JSON.parse(row.payload) as Record<string, unknown>;
@@ -63,6 +64,20 @@ export function listCommentWitnesses(book?: string, limit = 100) {
     const { fileId: _fileId, ...evidence } = parsed;
     return { id: row.id, book: row.book, kind: row.kind, readAt: row.readAt, evidence };
   });
+}
+
+/** Latest channel outcome per source; diagnostics never consume the comment limit. */
+export function listCommentReadings(book?: string) {
+  const table = schema.driveCommentObservations;
+  const ranked = db.select({ id: table.id, book: table.book, kind: table.kind,
+    readAt: table.readAt, payload: table.payload,
+    position: sql<number>`row_number() over (partition by ${table.fileId}, ${table.book}, ${table.kind}
+      order by ${table.readAt} desc, rowid desc)`.as('position'),
+  }).from(table).where(and(like(table.kind, 'reading:%'), book ? eq(table.book, book) : undefined)).as('readings');
+  return db.select({ id: ranked.id, book: ranked.book, kind: ranked.kind, readAt: ranked.readAt, payload: ranked.payload })
+    .from(ranked).where(eq(ranked.position, 1)).all()
+    .map(row => ({ id: row.id, book: row.book, kind: row.kind, readAt: row.readAt,
+      evidence: JSON.parse(row.payload) as Record<string, unknown> }));
 }
 
 export function countCommentWitnesses(book?: string): number {

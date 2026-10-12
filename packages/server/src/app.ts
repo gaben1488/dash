@@ -46,8 +46,6 @@ import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
 import { startWebhookChannels, stopWebhookChannels } from './services/webhook-channel.js';
-import { setChangeAuthorResolver } from './services/live-diff.js';
-import { findChangeAuthor } from './services/changelog-authors.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
@@ -354,10 +352,8 @@ export function preloadData(app: FastifyInstance): void {
   // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
   // официальные ячейки читались свежими, а строки брались из кэша от старта
   // (канон п.66: обе стороны сверки — из одного момента).
-  // Подпись автора под живым событием «строка изменилась» — из журнала правок,
-  // уже осевшего в базе. Резолвер задаётся здесь, а не внутри сравнения книг:
-  // модуль сравнения не должен тянуть за собой базу.
-  setChangeAuthorResolver((book, cell) => findChangeAuthor(book, cell));
+  // Read-diffs have an observation time, not an attributed operator action.
+  // Original journal/comment authors remain on their own source evidence.
 
   setSourceRefresher(async () => {
     await refreshAllSources({

@@ -46,8 +46,9 @@ describe('эфир переводится в те же записи, что пр
     expect(e.origin).toBe('live-stream');
   });
 
-  it('момент эфира приводится к подписи часов книги, без пояса', () => {
+  it('момент эфира явно сохраняется как наблюдение, не момент правки книги', () => {
     const [e] = entriesFromLiveRows([live({})]);
+    expect(e.observedAt).toBe(at(11, 33));
     expect(e.at).toMatch(/^2026-08-21T\d{2}:\d{2}:\d{2}$/);
     expect(bookClockOf('мусор')).toBeNull();
   });
@@ -77,13 +78,17 @@ describe('склейка ответа сервера с эфиром', () => {
     subject: 'Услуги почтовой связи', subordinate: null, origin: 'book-journal',
   }];
 
-  it('одна и та же правка не показывается дважды', () => {
-    const fromLive = entriesFromLiveRows([live({ at: at(11, 33) })]);
+  it('одна доказанно одинаковая правка сохраняет оба подтверждения', () => {
+    const fromLive: ChangeEntry[] = [{ ...fromServer[0], origin: 'live-stream' }];
     const merged = mergeStoryWithLive(fromServer, fromLive);
     expect(merged).toHaveLength(1);
     // Победитель дубля — сервер: у него есть предмет закупки из ключа журнала.
     expect(merged[0].origin).toBe('book-journal');
     expect(merged[0].subject).toBe('Услуги почтовой связи');
+  });
+
+  it('совпадение часов наблюдения с часами правки не доказывает одно событие', () => {
+    expect(mergeStoryWithLive(fromServer, entriesFromLiveRows([live({ at: at(11, 33) })]))).toHaveLength(2);
   });
 
   it('правка, которой в ответе сервера ещё нет, из списка не пропадает', () => {

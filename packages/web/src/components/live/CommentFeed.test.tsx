@@ -28,3 +28,12 @@ it('does not turn malformed successful HTTP into an empty comment cache',async()
  const view=render(<CommentFeed enabled readRevision={null}/>);
  await view.findByText('Комментарии не прочитаны. Это не отсутствие обсуждений.');
 });
+
+it('keeps a different legacy version of the same Drive thread and shows reading gaps',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:1,comments:[{book:'Демо А',commentId:'same',content:'Новое пояснение',resolved:true}],witnesses:[{id:'old',book:'Демо А',kind:'drive_thread',readAt:'2026-10-12T00:00:00Z',evidence:{sourceId:'same',content:'Прежнее пояснение',raw:{resolved:false},posts:[{id:'post',author:'Автор',content:'Прежнее пояснение',raw:{createdTime:'2026-10-11T01:00:00Z'}}]}}],readings:[{id:'gap',book:'Демо Б',kind:'reading:threads',readAt:'2026-10-12T00:00:00Z',evidence:{status:'unavailable',reason:'Нет доступа к обсуждениям.',scope:[],count:null}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Новое пояснение');
+ expect(view.getByText('Нет доступа к обсуждениям.',{exact:false})).toBeTruthy();
+ expect(view.getByText('2026-10-11T01:00:00Z',{exact:false})).toBeTruthy();
+ expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
+});
