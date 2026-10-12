@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react';
 import { Header, NAV_ITEMS } from './Header';
 import { useStore } from '../store';
 vi.mock('../hooks/useLiveEvents', () => ({ useLiveEvents: () => ({newIssues: 0, history: [], connected: false, books: [], recentRows: []}) }));
@@ -9,9 +9,38 @@ vi.mock('../hooks/usePeriodCoverage', () => ({usePeriodCoverage: () => ({status:
 vi.mock('../lib/monitoring/analytics-contract', () => ({fetchMonitoringAnalytics: vi.fn(() => new Promise(() => {}))}));
 beforeEach(() => {useStore.getState().resetAllFilters(); useStore.setState({page: 'dashboard', error: null, isDemo: false, loading: false, bucketCounts: null});});
 afterEach(cleanup);
+it('browses the original navigation drum without changing the selected page', () => {
+ useStore.setState({page: 'monitoring'});
+ const view=render(<Header />);const nav=view.getByRole('navigation',{name:'Навигация'});
+ const centered=()=>nav.querySelector('.np-group-center')?.getAttribute('aria-label');
+ expect(centered()).toBe('Реестры');
+ fireEvent.wheel(nav,{deltaY:80});expect(centered()).toBe('Разборы');
+ expect(useStore.getState().page).toBe('monitoring');
+ fireEvent.keyDown(nav,{key:'End'});expect(centered()).toBe('Надзор');
+ fireEvent.keyDown(nav,{key:'Home'});expect(centered()).toBe('Обзор');
+ fireEvent.wheel(nav,{deltaY:80,ctrlKey:true});expect(centered()).toBe('Обзор');
+});
+it('brings keyboard focus and external navigation into the center of the drum', () => {
+ const view=render(<Header />);const nav=view.getByRole('navigation',{name:'Навигация'});
+ act(()=>within(nav).getByRole('button',{name:'Система'}).focus());
+ expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe('Надзор');
+ act(()=>useStore.setState({page:'report'}));
+ expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe('Обзор');
+ expect(document.activeElement).toBe(within(nav).getByRole('button',{name:'Отчёт'}));
+});
+it('exposes bounded touch controls for every group without selecting a page', () => {
+ const view=render(<Header />);const nav=view.getByRole('navigation',{name:'Навигация'});
+ const next=within(nav).getByRole('button',{name:'Следующая группа разделов'});
+ const previous=within(nav).getByRole('button',{name:'Предыдущая группа разделов'});
+ expect(previous.hasAttribute('disabled')).toBe(true);
+ for(let i=0;i<3;i++)fireEvent.click(next);
+ expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe('Надзор');
+ expect(next.hasAttribute('disabled')).toBe(true);
+ expect(useStore.getState().page).toBe('dashboard');
+});
 it('retains all thirteen functional routes, current state and native keyboard focus', () => {
  const view = render(<Header />); const nav = view.getByRole('navigation', {name: 'Навигация'});
- expect(within(nav).getAllByRole('button')).toHaveLength(13);
+ expect(nav.querySelectorAll('.np-btn')).toHaveLength(13);
  for (const item of NAV_ITEMS) {
   const button = within(nav).getByRole('button', {name: item.label});
   button.focus(); expect(document.activeElement).toBe(button);

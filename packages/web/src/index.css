@@ -1033,31 +1033,70 @@
     to { --np-angle: 360deg; }
   }
 
-  /* Навигация — четыре ряда, ряд = именованная группа (Обзор · Реестры ·
-     Разборы · Надзор; одобрено владельцем, проба линейки 29.08). Подпись
-     группы — мелкая капитель слева, кнопки ряда — те же np-btn.
-     Ширина блока ЗАЖАТА (340px — прежний след сетки 3×N): ряд из четырёх
-     кнопок не раздвигает линейку; длинной подписи тесноту добирает
-     ПЕРЕНОС (§16.1: многоточие в навигации — брак вёрстки), подсказка
-     кнопки остаётся дублёром полного имени. */
+  /* Original pulse.html navigation cylinder: three rows, a focused center,
+     perspective edges, and the existing section colors/glow. Whole labels
+     keep their intrinsic width; small screens scroll inside the drum. */
   .nav-pills-wrap {
     @apply select-none flex-shrink-0;
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    max-width: 340px;
+    align-items: center;
+    gap: 4px;
+    width: 640px;
+    max-width: 100%;
+    --np-row-height: 32px;
+    transition: box-shadow 280ms cubic-bezier(.23,1,.32,1), border-color 180ms ease;
+  }
+  .nav-pills-wrap:hover {
+    border-color: rgba(127,127,127,.22);
+  }
+  .np-drum-window {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--np-row-height) * 3 + 12px);
+    overflow: hidden;
+  }
+  .np-drum-track {
+    width: 100%;
+    padding-block: var(--np-row-height);
+    transform: translateY(calc(var(--np-center, 0) * var(--np-row-height) * -1));
+    transition: transform 220ms cubic-bezier(.23,1,.32,1);
   }
   .np-group {
     display: flex;
     align-items: center;
     gap: 6px;
-    min-width: 0;
+    height: var(--np-row-height);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, transform 220ms cubic-bezier(.16,1,.3,1);
+  }
+  .np-group-center { opacity: 1; pointer-events: auto; }
+  .np-group-top, .np-group-bottom { opacity: .82; pointer-events: auto; }
+  .np-group-top {
+    transform: perspective(300px) rotateX(8deg) scale(.94);
+    transform-origin: center bottom;
+  }
+  .np-group-bottom {
+    transform: perspective(300px) rotateX(-8deg) scale(.94);
+    transform-origin: center top;
+  }
+  .np-group:focus-within { opacity: 1; transform: none; }
+  .np-drum-controls { display: flex; flex: 0 0 auto; flex-direction: column; gap: 4px; }
+  .np-drum-controls button {
+    display: grid; place-items: center; width: 26px; height: 28px;
+    border-radius: 7px; color: var(--ink-muted); background: transparent;
+    transition: color 180ms ease, background 180ms ease;
+  }
+  .np-drum-controls button:hover:not(:disabled) { color: var(--ink-strong); background: rgba(127,127,127,.12); }
+  .np-drum-controls button:disabled { opacity: .3; }
+  .np-drum-controls button:focus-visible, .nav-pills-wrap:focus-visible {
+    outline: 2px solid var(--action); outline-offset: 2px;
   }
   /* Имя группы: мелкая капитель, прижата вправо к своему ряду. Колонка
      фиксированная, чтобы кнопки всех рядов начинались с одной вертикали. */
   .np-group-name {
-    flex: 0 0 56px;
-    width: 56px;
+    flex: 0 0 68px;
+    width: 68px;
     text-align: right;
     font-size: 10px;
     font-weight: var(--weight-strong);
@@ -1072,7 +1111,14 @@
     gap: 3px;
     flex: 1 1 auto;
     min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(127,127,127,.5) rgba(127,127,127,.08);
+    scroll-padding-inline: 2px;
   }
+  .np-group-btns::-webkit-scrollbar { height: 5px; }
+  .np-group-btns::-webkit-scrollbar-track { background: rgba(127,127,127,.08); border-radius: 3px; }
+  .np-group-btns::-webkit-scrollbar-thumb { background: rgba(127,127,127,.5); border-radius: 3px; }
 
   /* Individual nav button — standalone, no shared card */
   /* Тон раздела зависит от темы, и это не прихоть (правка 19.08.2026).
@@ -1095,10 +1141,7 @@
     background: transparent;
     overflow: hidden;
     transition: transform 100ms ease;
-    /* Кнопка умеет ужиматься внутри зажатого ряда группы: подпись
-       не режется, а переносится (§16.1); полное имя — в подсказке. */
-    min-width: 0;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     --np-tone: var(--np-color-light, #7a5f33);
   }
   .dark .np-btn {
@@ -1114,10 +1157,10 @@
     z-index: 1;
     display: flex;
     align-items: center;
-    gap: 3px;
-    padding: 4px 8px;
+    gap: 5px;
+    padding: 5px 8px;
     border-radius: 8px;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: var(--weight-strong);
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -1130,14 +1173,9 @@
     border: 1px solid rgba(43, 38, 28, 0.09);
     transition: all 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
-  /* Подпись раздела НЕ обрезается никогда (§16.1, рецепт .qoi из
-     pulse.html): когда ряду группы тесно, подпись переносится на вторую
-     строку целиком — перенос вместо многоточия. Кегль не тронут: контраст
-     и плотность хрома выверены отдельной волной (см. .np-content). */
+  /* No ellipsis or letter-by-letter wrapping: the original drum owns overflow. */
   .np-label {
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
     line-height: 1.15;
     text-align: left;
   }
@@ -4971,17 +5009,18 @@
   padding: 5px;
   backdrop-filter: blur(16px) saturate(160%);
   -webkit-backdrop-filter: blur(16px) saturate(160%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(0,0,0,.08), inset 0 2px 4px rgba(255,255,255,.03), 0 2px 4px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.05), 0 0 16px rgba(191,161,97,.05);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(0,0,0,.08), inset 0 2px 4px rgba(255,255,255,.03), 0 2px 4px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.05), 0 0 16px rgba(191,161,97,.05), 0 0 32px rgba(191,161,97,.02);
 }
 .dark .hdr-liquid-surface {
-  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.03) 40%, rgba(255,255,255,.01)), rgba(36,35,32,.55);
-  border-color: rgba(255,255,255,.10);
+  /* pulse.html's dark glass stops; the warm/cool light remains underneath. */
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02) 40%, rgba(255,255,255,.005));
+  border-color: rgba(255,255,255,.08);
 }
 .hdr-ugol.hdr-liquid-surface:empty { display: none; }
 @media (max-width: 640px) {
-  .nav-pills-wrap.hdr-liquid-surface { width: 100%; max-width: 100%; flex-shrink: 1; }
-  .np-group-name { flex-basis: 50px; width: 50px; font-size: 9px; }
-  .np-group-btns { flex-wrap: wrap; }
+  .nav-pills-wrap.hdr-liquid-surface { width: 100%; max-width: 100%; flex-shrink: 1; --np-row-height: 52px; }
+  .np-group-name { flex-basis: 64px; width: 64px; }
+  .np-drum-controls button { width: 44px; height: 44px; }
   .np-btn { min-height: 44px; }
   .np-content { min-height: 44px; }
   .hdr-ugol.hdr-liquid-surface { max-width: 100%; margin-left: 0; }
@@ -4989,19 +5028,13 @@
 @media (forced-colors: active) {
   .hdr-liquid-surface { background: Canvas; border-color: CanvasText; box-shadow: none; }
 }
-/* Keep the original wide month barrel on phones; native visible horizontal
-   scroll exposes every month without shrinking the original geometry. */
+/* Keep both original calendar drums in one row on short phones. Native
+   horizontal scroll reveals the full calendar without consuming a second row. */
 @media (max-width: 640px) {
-  .hbar .time-machine { flex-wrap: wrap; max-width: 100%; min-width: 0; }
-  .hbar .tg-drum { max-width: 100%; overflow-x: auto; }
+  .hbar .time-machine { flex-wrap: nowrap; max-width: 100%; min-width: 0; }
+  .hbar .wr-drum { flex-shrink: 0; }
+  .hbar .tg-drum { flex-shrink: 1; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
 }
-/* The App keeps main content in its own viewport-height scroll area. Only the
-   grouped navigation scrolls on short phones; corner popovers remain unclipped. */
-@media (max-width: 640px) {
-  .nav-pills-wrap.hdr-liquid-surface {
-    max-height: min(220px, 20svh);
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    scroll-padding-block: 6px;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .np-drum-track, .np-group { transition: none !important; }
 }

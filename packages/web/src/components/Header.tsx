@@ -6,7 +6,7 @@ import type { BudgetType, FilterGroup, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
-  CalendarX2, Repeat, Radar,
+  CalendarX2, Repeat, Radar, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -740,6 +740,37 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
     ? [...NAV_GROUPS, { name: '', ids: orphans.map((item) => item.id) }]
     : NAV_GROUPS;
 
+  // pulse.html: three-row cylinder. Browsing groups never selects a route.
+  const navRef = useRef<HTMLElement>(null);
+  const activeGroup = Math.max(0, rows.findIndex(group => group.ids.includes(activePage as Page)));
+  const [position, setPosition] = useState({ page: activePage, index: activeGroup });
+  const center = position.page === activePage ? position.index : activeGroup;
+  const lastGroup = rows.length - 1;
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLButtonElement>('.np-btn[aria-current="page"]');
+    if (!active) return;
+    if (nav?.contains(document.activeElement) && document.activeElement?.classList.contains('np-btn')) active.focus();
+    active.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activePage]);
+  const move = useCallback((direction: number) => {
+    setPosition(previous => ({ page: activePage,
+      index: Math.max(0, Math.min(lastGroup,
+        (previous.page === activePage ? previous.index : activeGroup) + direction)) }));
+  }, [activePage, activeGroup, lastGroup]);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || Math.abs(event.deltaY) < 1
+        || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      move(event.deltaY > 0 ? 1 : -1);
+    };
+    nav.addEventListener('wheel', wheel, { passive: false });
+    return () => nav.removeEventListener('wheel', wheel);
+  }, [move]);
+
   const renderButton = (item: (typeof NAV_ITEMS)[number]) => {
     const Icon = item.icon;
     const isActive = item.id === activePage;
@@ -786,11 +817,32 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
   };
 
   return (
-    <nav className="nav-pills-wrap hdr-liquid-surface" aria-label="Навигация">
-      {rows.map((group) => (
+    <nav ref={navRef} className="nav-pills-wrap hdr-liquid-surface" aria-label="Навигация"
+      tabIndex={0}
+      style={{ '--np-center': center } as React.CSSProperties}
+      onFocusCapture={event => {
+        const group = (event.target as HTMLElement).closest<HTMLElement>('[data-nav-group]');
+        if (group) setPosition({ page: activePage, index: Number(group.dataset.navGroup) });
+      }}
+      onKeyDown={event => {
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? lastGroup
+          : ['ArrowDown', 'PageDown'].includes(event.key) ? Math.min(lastGroup, center + 1)
+          : ['ArrowUp', 'PageUp'].includes(event.key) ? Math.max(0, center - 1) : null;
+        if (next === null) return;
+        event.preventDefault();
+        setPosition({ page: activePage, index: next });
+        if (event.target !== event.currentTarget) {
+          navRef.current?.querySelector<HTMLButtonElement>(`[data-nav-group="${next}"] .np-btn`)?.focus();
+        }
+      }}>
+      <div className="np-drum-window">
+      <div className="np-drum-track">
+      {rows.map((group, index) => (
         <div
           key={group.name || 'прочее'}
-          className="np-group"
+          className={clsx('np-group', index === center && 'np-group-center',
+            index === center - 1 && 'np-group-top', index === center + 1 && 'np-group-bottom')}
+          data-nav-group={index}
           role="group"
           aria-label={group.name || undefined}
         >
@@ -805,6 +857,14 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
           </div>
         </div>
       ))}
+      </div>
+      </div>
+      <div className="np-drum-controls">
+        <button type="button" aria-label="Предыдущая группа разделов" disabled={center === 0}
+          onClick={() => move(-1)}><ChevronUp size={14} aria-hidden="true" /></button>
+        <button type="button" aria-label="Следующая группа разделов" disabled={center === lastGroup}
+          onClick={() => move(1)}><ChevronDown size={14} aria-hidden="true" /></button>
+      </div>
     </nav>
   );
 }
@@ -898,7 +958,7 @@ export function Header() {
           onRefresh={() => useStore.getState().refresh()}
         />
 
-        {/* 2. Nav pills — 6 horizontal buttons */}
+        {/* 2. Original navigation cylinder — all thirteen routes */}
         <NavPills activePage={activePage} setPage={setPage} />
 
         {/* 3. Time drums */}

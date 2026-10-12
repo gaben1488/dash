@@ -48,7 +48,7 @@ separate gates; PR #88 main CI was red at its Tests step while browser QA
 passed, so its Design Lab is not assumed safe for whole-branch adoption.
 
 
-Short-phone follow-up: using the actual Header in the same viewport-height
+Earlier short-phone follow-up (superseded by the cylinder follow-up below): using the actual Header in the same viewport-height
 flex shell as App reproduced zero remaining main height at 320×568. Only the
 existing grouped navigation now has a viewport-relative height cap and native
 vertical scrolling; the Header itself remains unclipped so corner/provenance
@@ -56,3 +56,35 @@ popovers keep their existing behavior. All thirteen buttons remain focusable
 and clickable. Chromium checks leave 118px of main area at 320×568 and 198px
 at 390×667, without outer horizontal overflow. Page-body usability and live
 production acceptance still require their own checks.
+
+### Original navigation cylinder follow-up (2026-10-12)
+
+The owner's subsequent request restores the actual three-row navigation from
+`pulse.html` (CSS880–974 / JS9096–9168), using the existing Header routes rather
+than a new menu. DesignLab #88 at `bf5971ee0830702906782fb09566a28111862323`
+explicitly keeps this cylinder as the runtime reference. Center focus, edge
+perspective, wheel/arrow/Home/End browsing, touch arrows, section colors and
+conic selected glow remain. Dark glass uses the original .07/.02/.005 stops
+and eight shadow layers; reduced motion disables cylinder transitions.
+
+The reported regression was reproduced: the previous 340px housing and
+`overflow-wrap:anywhere` split «Реестр» into six lines. Whole labels now scroll
+inside individual rows while group names stay fixed. External route changes
+and keyboard focus center the corresponding group and reveal the selected
+button. The former whole-menu vertical height cap is replaced by the three-row
+cylinder. Short phones keep both original calendar drums beside each other,
+with horizontal scrolling inside the month drum, preserving the week drum.
+
+Real Chromium component checks cover all thirteen selected/focused route bounds,
+native Tab, no outer horizontal overflow and no drum viewport vertical drift
+at 1440/1280/390/320px and 200% zoom in light/dark themes. A 320×568 shell with
+calendar/filters reproduced only 8px of main height before the layout correction;
+the corrected shells leave 102px at 320×568 and 229px at 390×667. Actual animation
+frames show wheel motion from −32px through intermediate positions to −64px;
+the reduced-motion transition computes to 0s. Navigation tests pass (7), the
+four-package regression total is 5775 PASS / 1 existing skip, and web build
+passes. Independent source review accepts the bounded navigation change.
+Screenshots use an isolated Header
+with unavailable API and synthetic counts, not a live full-dashboard acceptance.
+All thirteen page bodies, authorization, original DesignLab palette/settings
+catalog and production owner acceptance remain separate requirements.
