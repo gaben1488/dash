@@ -86,13 +86,14 @@ jobs:
       - name: Install report engine
         run: python -m pip install -e 'packages/report-engine[test]'
       - name: Python lint
-        run: python -m ruff check packages/report-engine
+        run: python -m ruff check packages/report-engine deploy/runtime_guard.py .github/ci/test_runtime_guard.py
       - name: Synthetic VPS retention and runtime guard regressions
         run: |
           python .github/ci/test_report_backup_window.py
           python .github/ci/test_worker_recovery.py
           python .github/ci/test_vps_cache_cleanup.py
           python .github/ci/test_runtime_state_probe.py
+          python .github/ci/test_runtime_guard.py
           python .github/ci/test_weekly_identity_proof.py
       - name: Python tests
         run: python -m pytest packages/report-engine/tests -q

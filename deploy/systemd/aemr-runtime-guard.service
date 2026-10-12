@@ -1,0 +1,22 @@
+[Unit]
+Description=Recover Dash processes independently of report generation
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/etc/aemr/runtime-policy.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/aemr/runtime_guard.py
+TimeoutStartSec=90
+UMask=0077
+Environment=DOCKER_CONFIG=/etc/aemr/docker
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/aemr /run/lock
+MemoryMax=128M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

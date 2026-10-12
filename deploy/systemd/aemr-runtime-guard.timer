@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Dash processes every 30 seconds
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=aemr-runtime-guard.service
+
+[Install]
+WantedBy=timers.target

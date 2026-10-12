@@ -207,6 +207,37 @@ read-only38183214317 подтвердил полный match reports/ и5 native
 обработки source-change, pending и ownership проверяется отдельно; #93/R08
 не закрыты до двух новых самостоятельных успешных циклов.
 
+### Независимое восстановление процессов и ресурсы VPS
+
+Инфраструктурный handoff от 12.10 интегрирован в `deploy/runtime_guard.py`,
+`runtime-policy.json`, systemd service/timer и Compose. Guard проверяет только
+процессы своего Compose project/service; три последовательных HTTP-отказа
+вызывают restart одного сервиса, cooldown 300 секунд ограничивает повторы.
+Отказ публикации `SOURCE_CHANGED_BEFORE_PUBLICATION` не является probe и не
+восстанавливает данные. `worker_enabled=false` сохраняется до отдельного допуска
+воркера; одинаковый image сам по себе не доказывает два успешных цикла.
+
+На VPS инфраструктурный исполнитель подтвердил online limits без смены
+container IDs/images/StartedAt: API 2560 MiB RAM / 3072 MiB RAM+swap, CPU 1.75;
+worker 2304 / 2816 MiB, CPU 1.0. Измеренные пики до ограничения — 2.08/1.71 GiB.
+Предыдущие предложенные меньшие ограничения не применялись. Web/Caddy имеют
+96/192 и 128/256 MiB; их logging уже ограничен 10 MiB × 3 на прежних образах.
+API/worker не пересоздавались: их logging пока только в конфигурации. Это
+свидетельство инфраструктурного исполнителя, не новая приёмка candidate SHA.
+
+Установленный guard использует `/run/lock/aemr-maintenance.lock`. Операция
+stop/recreate/restore должна владеть EX-lock весь срок обслуживания, включая
+промежутки между SSH-командами backup/transfer/match/resume. Один локальный flock
+в `prepare`, освобождённый при выходе, недостаточен. До интеграции и проверки
+защиты всех таких путей старые production workflow запускать нельзя. Источник
+этого ограничения — реально включённый host guard, а не новая процедура допуска.
+
+Linux-регрессии `python .github/ci/test_runtime_guard.py` проверяют изолированный
+restart, ownership, cooldown, image mismatch и сохранение ресурсов при выключенном
+worker recovery. Установщик берёт limits из Compose с `--profile reports`.
+Секреты, private stderr и payload закупок в journal не выводятся. Внешние копии,
+Telegram и новые платные сервисы отложены по последнему уточнению владельца.
+
 ## Common Failures
 
 - `AEMR_API_KEY is required when NODE_ENV=production`: set `AEMR_API_KEY`.

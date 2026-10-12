@@ -690,3 +690,21 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 Тихое принятие SSE не перезаписывает более новое обычное чтение; новый event во время GET, включая одинаковое время события, остаётся непринятым до следующего чтения. Bucket counts обновляются общим store-fetch после принятия, без отдельного UI-запроса и без изменения геометрии «Пульса». Уведомление Drive не считается изменением ячейки или доказательством автора.
 
 Кодовая проверка: отрицательные stop/start, reschedule-in-flight, одинаковые SSE timestamps и конкурирующий dashboard GET; интеграционные тесты startup/close и durable enqueue/read/retry. Live-приёмка ещё требуется: точный runtime SHA, HTTPS callback через Caddy, наличие WEBHOOK_PUBLIC_URL/WEBHOOK_SECRET без раскрытия секрета, права Drive на настроенные книги, подтверждённые каналы/сроки, очередь/readback и принятое SSE-чтение с едиными counts. Наличие конфигурации не доказывает успешной регистрации Google. Автоматического production-запуска из этой проверки нет. Runtime смена списка источников должна вызвать существующий reschedule; production-потребитель этой функции пока не подтверждён.
+
+### R08/R09 — инфраструктурный handoff и изоляция отказов, 2026-10-12
+
+Включены исходники реально установленного инфраструктурным исполнителем host guard,
+systemd timer, online resource limits и bounded logging. Семь Linux-регрессий и Ruff
+PASS. API/worker этой интеграцией не пересоздаются; их logging пока staged. Web/Caddy
+ограничены на прежних image IDs; реальные пики памяти учтены. Default worker admission
+остаётся false, публикационный source-change не запускает восстановление API/данных.
+Новая инфраструктура не доказывает два принятых цикла: attempt 1051cf18296849b1b8e5bf4d5b434d46
+на handoff атрибутирован RUNNING/FLOCK, окончательный результат ещё ожидается.
+
+Следующий release gate обязан учитывать общий maintenance lock: многокомандное
+backup-окно сохраняет владение между prepare/transfer/match/resume; deploy/rollback
+не конкурируют с включённым guard. До независимой проверки этого допуска production
+workflow не запускаются. Существующий RUNBOOK актуализирован; внешняя ветка копий/
+Telegram отложена владельцем. Живой read-only webhook-state: 10 active, 0 expired,
+142 received/0 rejected, 19 refreshRuns/0 refreshFailures; это свидетельство текущего
+runtime, а не приёмка нового startup кандидата.

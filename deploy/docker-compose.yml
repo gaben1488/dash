@@ -3,10 +3,21 @@
 
 name: aemr
 
+x-bounded-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 256m
+    cpus: 0.50
+    pids_limit: 64
+    logging: *bounded-logging
     ports:
       - "80:80"
       - "443:443"
@@ -36,6 +47,11 @@ services:
       dockerfile: deploy/Dockerfile.web
     image: aemr-web:latest
     restart: unless-stopped
+    mem_limit: 96m
+    memswap_limit: 192m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *bounded-logging
     expose: ["80"]
     networks: [aemr]
 
@@ -43,6 +59,13 @@ services:
     profiles: [reports]
     image: aemr-server:latest
     restart: unless-stopped
+    mem_limit: 2304m
+    memswap_limit: 2816m
+    mem_reservation: 256m
+    cpus: 1.00
+    cpu_shares: 256
+    pids_limit: 128
+    logging: *bounded-logging
     init: true
     command:
       - /opt/report-env/bin/proc-report
@@ -73,6 +96,13 @@ services:
       dockerfile: deploy/Dockerfile.server
     image: aemr-server:latest
     restart: unless-stopped
+    mem_limit: 2560m
+    memswap_limit: 3072m
+    mem_reservation: 512m
+    cpus: 1.75
+    cpu_shares: 1024
+    pids_limit: 256
+    logging: *bounded-logging
     expose: ["3000"]
     env_file:
       - ./.env.production
