@@ -11,6 +11,25 @@ function threadState(raw:Record<string,unknown>):string {
   return 'Состояние обсуждения не передано Google';
 }
 
+/** Reply existence is source evidence, not an interpretation of its text. */
+function replyState(raw:Record<string,unknown>):string {
+  if(!Array.isArray(raw.replies))return 'Наличие ответов не передано источником';
+  const replies=records(raw.replies).filter(post=>post.deleted!==true&&
+    ((text(post.content)?.trim().length??0)>0||
+      (typeof post.action!=='string'&&(text(post.id)!==null||text(post.postId)!==null))));
+  return replies.length>0?`Есть ответы · ${replies.length}`:'В этом чтении ответов нет';
+}
+function millisInstant(value:unknown):string|undefined {
+  if(typeof value!=='number'||!Number.isFinite(value))return undefined;
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?undefined:date.toISOString();
+}
+function messageTimes(raw:Record<string,unknown>):string {
+  const created=text(raw.createTime)??text(raw.createdTime),modified=text(raw.updateTime)??text(raw.modifiedTime);
+  return created?`Написано ${created}${modified?` · изменено ${modified}`:''}`:
+    modified?`Изменено ${modified}; время создания источник не передал`:'Время сообщения источник не передал';
+}
+
 /** Cached original evidence: notes, native posts and legacy threads stay distinct. */
 export function CommentFeed({enabled,readRevision}:{enabled:boolean;readRevision:string|null}) {
   const [data,setData]=useState<Record<string,unknown>|null>(null);
@@ -50,21 +69,26 @@ export function CommentFeed({enabled,readRevision}:{enabled:boolean;readRevision
       return <p key={String(w.id)} className="uf-scope"><b>{text(w.book)} · {w.kind==='reading:notes'?'заметки':'обсуждения'}</b>: {e.status==='read'?'прочитано':text(e.reason)??'чтение не подтверждено'} · {text(w.readAt)}{scope.length>0?` · ${scope.join(', ')}`:''}</p>;
     })}</details>}
     {witnesses.map(w=>{
-      const e=record(w.evidence), note=w.kind==='cell_note', posts=records(e.posts);
+      const e=record(w.evidence), note=w.kind==='cell_note', posts=records(e.posts),raw=record(e.raw);
+      const head=w.kind==='native_thread'?record(raw.headPost):raw;
       return <article className="uf-comment" key={String(w.id)}>
         <header><b>{note?'Заметка ячейки':w.kind==='native_thread'?'Обсуждение Google':'Обсуждение Drive'}</b><span>{text(w.book)??'Книга неизвестна'} · {[text(e.sheet),text(e.cell)].filter(Boolean).join('!')||'адрес не доказан'}</span></header>
         <p className="uf-comment-text">{text(e.content)??'Текст не передан'}</p>
         <p className="uf-evidence">{note?'Автор заметки не известен':text(e.author)??'Автор не назван источником'} · прочитано {text(w.readAt)??'в неизвестное время'}</p>
-        {!note&&<p className="uf-scope">{threadState(record(e.raw))}</p>}
+        {!note&&<>
+          <p className="uf-scope">{messageTimes(head)}</p>
+          <p className="uf-scope">{threadState(raw)}</p>
+          <p className="uf-scope">{replyState(raw)}</p>
+        </>}
         {posts.length>0&&<details><summary>Исходные сообщения и ответы · {posts.length}</summary>{posts.map((post,i)=>{
-          const raw=record(post.raw),created=text(raw.createTime)??text(raw.createdTime),modified=text(raw.updateTime)??text(raw.modifiedTime);
-          return <div className="uf-post" key={`${text(post.id)??'post'}:${i}`}><b>{text(post.author)??'Автор не назван'}</b><p>{text(post.content)??'Текст не передан'}</p><p className="uf-scope">{created?`Написано ${created}`:'Время сообщения источник не передал'}{modified?` · изменено ${modified}`:''}</p></div>;
+          const raw=record(post.raw);
+          return <div className="uf-post" key={`${text(post.id)??'post'}:${i}`}><b>{text(post.author)??'Автор не назван'}</b><p>{text(post.content)??'Текст не передан'}</p><p className="uf-scope">{messageTimes(raw)}</p></div>;
         })}</details>}
         {note&&<p className="uf-scope">Имена и даты внутри заметки — её текст, не метаданные авторства Google.</p>}
         <p className="uf-scope">{text(e.sourceRevision)?'Есть ревизия источника':'Ревизия источника не доказана'}. Решение Dash и состояние обсуждения Google независимы.</p>
       </article>;
     })}
-    {legacyVisible.map((c,i)=><article className="uf-comment" key={text(c.commentId)??i}><header><b>Сохранённая проекция Drive</b><span>{text(c.book)}</span></header><p className="uf-comment-text">{text(c.content)??'Текст не передан'}</p><p className="uf-evidence">{text(c.author)??'Автор не назван'} · {c.resolved===true?'Закрыто в сохранённом чтении Google':'Закрытие в Google не подтверждено'}</p><p className="uf-scope">{typeof c.replies==='number'?`Ответов: ${c.replies}; полные тексты не переданы.`:'Число ответов не передано.'} Адрес по цитате не угадываем.</p></article>)}
+    {legacyVisible.map((c,i)=><article className="uf-comment" key={text(c.commentId)??i}><header><b>Сохранённая проекция Drive</b><span>{text(c.book)}</span></header><p className="uf-comment-text">{text(c.content)??'Текст не передан'}</p><p className="uf-evidence">{text(c.author)??'Автор не назван'} · прочитано {text(c.recordedAt)??'в неизвестное время'}</p><p className="uf-scope">{messageTimes({createdTime:millisInstant(c.createdAtMs),modifiedTime:millisInstant(c.modifiedAtMs)})}</p><p className="uf-scope">{threadState(c)}</p><p className="uf-scope">{typeof c.replies==='number'?`Ответов по сохранённой проекции: ${c.replies}; полные тексты не переданы.`:'Число ответов не передано.'} Адрес по цитате не угадываем.</p></article>)}
     {witnesses.length===0&&legacy.length===0&&<p className="uf-empty">В этом ответе сохранённых комментариев нет. Полнота чтения всех книг этим не доказана.</p>}
   </section>;
 }

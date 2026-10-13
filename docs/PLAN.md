@@ -101,6 +101,25 @@ viewport/zoom/keyboard/negative panels/offline proof и независимый s
 PASS; Root повторяет browser/build проверки после интеграции. Артефакт учебный,
 не доказательство production/auth/data и не часть public Git с бизнес-данными.
 
+Root browser proof:78route/theme/viewport/zoom views, keyboard, panels,
+HTML/ZIP selfdownload/reopen offline PASS; полный web2275 PASS и web build PASS.
+CommentFeed дополнен явным наличием ответов отдельно от закрытия Google,
+временем сообщения/изменения отдельно от сохранённого чтения;8tests и
+independent8 PASS. «Отработано» не переводит OPEN в RESOLVED. HTML содержит
+учебные состояния открытого/закрытого обсуждения, не имитирует production Google.
+Полная метаистория всех ячеек ещё не принята: существующий timeline ограничен
+поддерживаемыми столбцами и физической привязкой, автора не передаёт. Нельзя
+объявлять этот неполный DTO полной историей или подменять автора текстом notes.
+
+CI38337712402 на37485061: TS/image SUCCESS, Python5fail/1064PASS.
+Причина — прежний guardian fixture с устаревшими аргументами: watchdog timeout
+оставил lock и вызвал четыре вторичных отказа. Maintenance38337803397 отменён
+до допуска, quiesce/copy SKIPPED, cleanup/resume SUCCESS: runtime не остановлен.
+Fixture теперь вызывает actual recovery script/private record и освобождает
+lock в finally;19consumer tests PASS, pinned Ruff PASS, independent review PASS.
+Следующий backup требует свежие три source jobs на исправленном SHA; прежний
+1069PASS до изменения backup ABI не переносится на этот новый код.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:

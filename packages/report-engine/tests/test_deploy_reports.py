@@ -148,20 +148,43 @@ def test_tmpfiles_recreates_boot_lock_without_replacing_locked_inode(tmp_path):
             fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
+def backup_guardian_fixture(tmp_path):
+    """Exercise the real recovery script and captured record, not a stale shell ABI."""
+    import json
+    session = tmp_path / 'private/worker-1'
+    session.mkdir(parents=True)
+    repo = tmp_path / 'repo'
+    (repo / 'deploy').mkdir(parents=True)
+    (session / 'maintenance-lock.sh').write_text((ROOT / 'deploy/maintenance-lock.sh').read_text())
+    (session / 'recovery-window.sh').write_text((ROOT / 'deploy/report-backup-window.sh').read_text())
+    (session / 'runtime.json').write_text(json.dumps({
+        'candidate': 'd' * 40, 'server': 'a' * 64, 'worker': 'b' * 64,
+        'volume': 'synthetic_data', 'image': 'sha256:' + 'c' * 64,
+        'worker_image': 'sha256:' + 'e' * 64,
+        'worker_was_running': False, 'authorized_quiesce': False,
+    }))
+    (session / 'quiescent').touch()
+    # Keep the prepare caller alive while testing a later deadline independently.
+    (session / 'prepared').touch()
+    args = ['watchdog', str(session), 'a' * 64, str(session), 'd' * 40,
+            '1', str(repo), str(session.parent), '', str(os.getpid())]
+    return session, args
+
+
 def test_backup_guardian_holds_lock_across_caller_exit_and_releases_on_resume(tmp_path):
     import fcntl
     import time
     script = (ROOT / 'deploy/report-backup-window.sh').read_text()
     body = script.split("  nohup bash -c '", 1)[1].split("  ' watchdog", 1)[0]
-    (tmp_path / 'quiescent').touch()
-    guardian = subprocess.Popen(['bash', '-c', body, 'watchdog', str(tmp_path), 'original-server', str(ROOT / 'deploy')],
+    session, args = backup_guardian_fixture(tmp_path)
+    guardian = subprocess.Popen(['bash', '-c', body, *args],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         for _ in range(100):
-            if (tmp_path / 'guardian-ready').exists():
+            if (session / 'guardian-ready').exists():
                 break
             time.sleep(.02)
-        assert (tmp_path / 'guardian-ready').exists()
+        assert (session / 'guardian-ready').exists()
         with open('/run/lock/aemr-maintenance.lock', 'a') as contender:
             try:
                 fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -169,7 +192,7 @@ def test_backup_guardian_holds_lock_across_caller_exit_and_releases_on_resume(tm
                 pass
             else:
                 raise AssertionError('guardian did not retain EX lock')
-        (tmp_path / 'quiescent').unlink()
+        (session / 'quiescent').unlink()
         assert guardian.wait(timeout=5) == 0
         with open('/run/lock/aemr-maintenance.lock', 'a') as contender:
             fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -180,18 +203,37 @@ def test_backup_guardian_holds_lock_across_caller_exit_and_releases_on_resume(tm
 
 
 def test_backup_watchdog_restarts_only_original_server_before_unlock(tmp_path):
+    import json
     script = (ROOT / 'deploy/report-backup-window.sh').read_text()
     body = script.split("  nohup bash -c '", 1)[1].split("  ' watchdog", 1)[0].replace('SECONDS + 1800', 'SECONDS + 0')
     docker = tmp_path / 'docker'
-    docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n')
+    docker.write_text('''#!/usr/bin/env python3
+import json,os,sys
+args=sys.argv[1:]
+with open(os.environ['CALL_LOG'],'a') as log:log.write(json.dumps(args)+'\\n')
+if args[0]=='compose':print(('a' if args[-1]=='server' else 'b')*64)
+elif args[0]=='inspect':
+    fmt=args[2]
+    if '.State.Health' in fmt:print('healthy')
+    elif '.State.Status' in fmt:print('running' if args[-1]=='a'*64 else 'exited')
+    elif '.Image' in fmt:print('sha256:'+('c' if args[-1]=='a'*64 else 'e')*64)
+    else:print('synthetic_data')
+''')
     docker.chmod(0o755)
-    (tmp_path / 'quiescent').touch()
-    guardian = subprocess.Popen(['bash', '-c', body, 'watchdog', str(tmp_path), 'original-server', str(ROOT / 'deploy')],
+    session, args = backup_guardian_fixture(tmp_path)
+    guardian = subprocess.Popen(['bash', '-c', body, *args],
         env={**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'], 'CALL_LOG': str(tmp_path / 'calls')},
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    assert guardian.wait(timeout=5) == 0
-    assert (tmp_path / 'calls').read_text() == 'start original-server\n'
-    assert not (tmp_path / 'quiescent').exists()
+    try:
+        assert guardian.wait(timeout=5) == 0
+        calls = [json.loads(line) for line in (tmp_path / 'calls').read_text().splitlines()]
+        assert [call for call in calls if call[0] == 'start'] == [['start', 'a' * 64]]
+        assert not (session / 'quiescent').exists()
+        assert subprocess.run(['flock', '-n', '/run/lock/aemr-maintenance.lock', 'true'], check=False).returncode == 0
+    finally:
+        if guardian.poll() is None:
+            guardian.terminate()
+            guardian.wait(timeout=5)
 
 
 def recovery_module():

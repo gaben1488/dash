@@ -37,3 +37,31 @@ it('keeps a different legacy version of the same Drive thread and shows reading 
  expect(view.getByText('2026-10-11T01:00:00Z',{exact:false})).toBeTruthy();
  expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
 });
+
+it('shows replies separately from closure and separates message times from reading time',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'thread',book:'Демо',kind:'drive_thread',readAt:'2026-10-13T06:00:00Z',evidence:{sourceId:'thread',author:'Автор вопроса',content:'Вопрос',raw:{resolved:false,createdTime:'2026-10-11T01:00:00Z',modifiedTime:'2026-10-12T02:00:00Z',replies:[{id:'reply',content:'Отработано'},{id:'deleted',content:'Удалённый ответ',deleted:true},{id:'action',action:'resolve'}]},posts:[]}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Есть ответы · 1');
+ expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
+ expect(view.getByText('Написано 2026-10-11T01:00:00Z · изменено 2026-10-12T02:00:00Z')).toBeTruthy();
+ expect(view.getByText('Автор вопроса · прочитано 2026-10-13T06:00:00Z')).toBeTruthy();
+ expect(view.getByText('Решение Dash и состояние обсуждения Google независимы.',{exact:false})).toBeTruthy();
+});
+
+it('keeps native replies and resolved state independent, and does not infer replies when metadata is missing',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'closed',book:'Демо',kind:'native_thread',readAt:'2026-10-13T06:00:00Z',evidence:{content:'Вопрос',raw:{status:'RESOLVED',headPost:{createTime:'2026-10-12T01:00:00Z'},replies:[{postId:'reply',content:'Ответ'}]},posts:[]}},{id:'unknown',book:'Демо',kind:'drive_thread',evidence:{content:'Нет метаданных',posts:[]}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Есть ответы · 1');
+ expect(view.getByText('Закрыто в сохранённом чтении Google')).toBeTruthy();
+ expect(view.getByText('Наличие ответов не передано источником')).toBeTruthy();
+ expect(view.getByText('Написано 2026-10-12T01:00:00Z')).toBeTruthy();
+});
+
+it('labels legacy metadata as a projection and retains its author, times and reply-count limitation',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:1,comments:[{book:'Демо',commentId:'legacy',content:'Прежний вопрос',author:'Автор',resolved:false,replies:2,recordedAt:'2026-10-13T06:00:00Z',createdAtMs:Date.parse('2026-10-11T01:00:00Z'),modifiedAtMs:Date.parse('2026-10-12T02:00:00Z')}],witnesses:[]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Автор · прочитано 2026-10-13T06:00:00Z');
+ expect(view.getByText('Написано 2026-10-11T01:00:00.000Z · изменено 2026-10-12T02:00:00.000Z')).toBeTruthy();
+ expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
+ expect(view.getByText('Ответов по сохранённой проекции: 2; полные тексты не переданы. Адрес по цитате не угадываем.')).toBeTruthy();
+});

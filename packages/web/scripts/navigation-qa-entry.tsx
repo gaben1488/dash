@@ -28,7 +28,7 @@ window.fetch=((input:RequestInfo|URL)=>{
   const entries=mode==='empty'?[]:events;
   return response({since:'2026-10-08',digest:summarizeChanges(entries,[]),gaps:[],deletionsUnobservable:true,note:'Только учебные события',comparison:null,facets:{books:[{book:QA_BOOK,count:entries.length}],authors:[{author:'Учебный автор',count:entries.length}]},total:entries.length,shown:entries.length,entries});
  }
- if(url.pathname==='/api/comments')return response({total:0,shown:0,comments:[],witnesses:[{id:'qa-note',book:QA_BOOK,kind:'cell_note',readAt:at+'Z',evidence:{sheet:'УЧЕБНЫЙ',cell:'M4',content:'Учебная заметка. Автор не устанавливается по тексту.',author:null,sourceRevision:null}},{id:'qa-thread',book:QA_BOOK,kind:'native_thread',readAt:at+'Z',evidence:{sheet:'УЧЕБНЫЙ',cell:'M4',content:'Учебное обсуждение',author:'Учебный автор',raw:{resolved:false},posts:[{id:'qa-reply',author:'Учебный автор',content:'Учебный ответ',raw:{createTime:at+'Z'}}]}}]});
+ if(url.pathname==='/api/comments')return response({total:0,shown:0,comments:[],witnesses:[{id:'qa-note',book:QA_BOOK,kind:'cell_note',readAt:at+'Z',evidence:{sheet:'УЧЕБНЫЙ',cell:'M4',content:'Учебная заметка. Автор не устанавливается по тексту.',author:null,sourceRevision:null}},{id:'qa-thread',book:QA_BOOK,kind:'native_thread',readAt:at+'Z',evidence:{sheet:'УЧЕБНЫЙ',cell:'M4',content:'Учебное обсуждение',author:'Учебный автор',raw:{status:mode==='closed'?'RESOLVED':'OPEN',headPost:{createTime:at+'Z'},replies:[{postId:'qa-reply',content:'Учебный ответ',createTime:at+'Z'}]},posts:[{id:'qa-reply',author:'Учебный автор',content:'Учебный ответ',raw:{createTime:at+'Z'}}]}}]});
  if(url.pathname==='/api/sources')return response(mode==='malformed'?{}:{refresh:{workWindowLabel:'Учебный режим: без источников',withinWorkWindow:true,autoRefreshMinutes:1,webhookConfigured:false}});
  if(url.pathname==='/api/health')return response({status:'ok',timestamp:at+'Z',service:'offline-synthetic-qa',snapshotId:'qa-snapshot'});
  if(url.pathname==='/api/refresh')return response({success:true});
@@ -54,12 +54,12 @@ function Qa(){
  useEffect(()=>{document.documentElement.dataset.qaPage=page;document.documentElement.dataset.qaTheme=theme;},[page,theme]);
  const scenario=(name:string)=>{
   document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
-  mode=name==='API недоступен'?'offline':name==='Журнал пуст'?'empty':name==='Неполный паспорт'?'malformed':'available';
+  mode=name==='API недоступен'?'offline':name==='Журнал пуст'?'empty':name==='Неполный паспорт'?'malformed':name==='Закрыто в Google'?'closed':'available';
   setPreset(name);useStore.getState().resetAllFilters();
   useStore.setState({loading:false,error:null,lastRefreshed:new Date(Date.parse(at+'Z')+(++revision)*1000).toISOString()});
   if(name==='Отбор'){useStore.getState().toggleMethod('single');useStore.getState().setSearchQuery('Учебный пример');}
   if(name==='Журнал'||name==='API недоступен'||name==='Журнал пуст')setTimeout(()=>clickJournal('Изменения'),0);
-  if(name==='Обсуждения')setTimeout(()=>clickJournal('Комментарии'),0);
+  if(name==='Обсуждения'||name==='Закрыто в Google')setTimeout(()=>clickJournal('Комментарии'),0);
   if(name==='Источники'||name==='Неполный паспорт')setTimeout(()=>clickJournal('Источники'),0);
  };
  return <TooltipProvider><Header/><main className="qa-main page-context" style={pageDawnStyle(page)}>
@@ -67,7 +67,7 @@ function Qa(){
   <h1>{NAV_ITEMS.find(p=>p.id===page)?.label}</h1>
   <p>Палитра выбранного раздела меняет настоящий Header. Барабан навигации листается колесом и стрелками; журнал находится справа сверху.</p>
   <section aria-label="Палитры разделов" className="qa-palettes">{NAV_ITEMS.map(p=><button key={p.id} type="button" aria-pressed={page===p.id} onClick={()=>useStore.getState().setPage(p.id)} style={{...pageDawnStyle(p.id),background:'linear-gradient(180deg,var(--page-sky),var(--page-horizon))'}}>{p.label}</button>)}</section>
-  <section aria-label="Интерактивные состояния" className="qa-presets">{['Журнал','Отбор','Обсуждения','Источники','Журнал пуст','API недоступен','Неполный паспорт'].map(name=><button type="button" key={name} onClick={()=>scenario(name)} aria-pressed={preset===name}>{name}</button>)}</section>
+  <section aria-label="Интерактивные состояния" className="qa-presets">{['Журнал','Отбор','Обсуждения','Закрыто в Google','Источники','Журнал пуст','API недоступен','Неполный паспорт'].map(name=><button type="button" key={name} onClick={()=>scenario(name)} aria-pressed={preset===name}>{name}</button>)}</section>
   <p role="status">Учебный сценарий: {preset}. Изображения не подменяют интерактивные элементы.</p>
   <details className="qa-proof"><summary>Версия исходников и способ воспроизведения</summary><p>Git-база: {__QA_PROVENANCE__.sha}</p><p>SHA-256 набора исходников и конфигурации: {__QA_PROVENANCE__.digest}</p><p>Сборка: node scripts/build-navigation-qa.mjs. Журналы, обсуждения и числа выше полностью учебные.</p></details>
   <div className="qa-download"><button type="button" onClick={()=>download(false)}>Скачать HTML</button><button type="button" onClick={()=>download(true)}>Скачать ZIP</button></div>

@@ -73,7 +73,7 @@ async def verify(path, output, glow_only=False):
                 assert not await page.evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth')
                 await page.screenshot(path=str(output.parent / f'navigation-qa-{width}-{zoom}-{theme}.png'))
                 proof.append({'width': width, 'zoom': zoom, 'theme': theme, 'routes': 13, 'actualGradientFamilies': len(set(fills)), 'journal': True, 'popupInViewport': True, 'selectedComputed': selected, 'filterComputed': filters})
-            for preset in ['API недоступен', 'Журнал пуст', 'Неполный паспорт', 'Обсуждения']:
+            for preset in ['API недоступен', 'Журнал пуст', 'Неполный паспорт', 'Обсуждения', 'Закрыто в Google']:
                 await page.locator('.qa-presets button').filter(has_text=preset).first.click()
                 await page.get_by_role('dialog').wait_for()
                 await page.wait_for_timeout(250)
@@ -85,6 +85,9 @@ async def verify(path, output, glow_only=False):
                     assert await page.get_by_role('tab', name='Источники').get_attribute('aria-selected') == 'true'
                 else:
                     assert await page.get_by_text('Учебная заметка. Автор не устанавливается по тексту.', exact=True).is_visible()
+                    assert await page.get_by_text('Есть ответы · 1', exact=True).is_visible()
+                    state = 'Закрыто' if preset == 'Закрыто в Google' else 'Открыто'
+                    assert await page.get_by_text(f'{state} в сохранённом чтении Google', exact=True).is_visible()
                 await page.keyboard.press('Escape')
             proof.append({'width': width, 'zoom': zoom, 'negativeApiAndEmptyJournal': True, 'commentsAndSourcePanels': True})
             assert not network, network
