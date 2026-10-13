@@ -33,6 +33,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,6 +60,8 @@ jobs:
         run: python3 -m unittest discover -s .github/ci -p 'test_stateful_backup.py' -v
       - name: Verify exact-candidate report schema probe (synthetic; no VPS)
         run: python3 .github/ci/test_report_schema_probe.py
+      - name: Verify exact source-job maintenance admission (synthetic; no VPS)
+        run: python3 .github/ci/test_source_ci_gate.py
 
       - name: ESLint
         run: pnpm lint
@@ -80,6 +84,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -104,13 +110,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build server and report engine image
         run: docker build -f deploy/Dockerfile.server -t aemr-server:ci .
       - name: Verify installed publication reader
         run: |
           docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \
             read-publication --state /tmp/report-state --view status > /tmp/report-reader.json
-          python3 -c 'import json; assert json.load(open("/tmp/report-reader.json")) == {"latest": None, "attempt": None}'
+          python3 - <<'PY'
+          import json
+          value = json.load(open('/tmp/report-reader.json'))
+          assert value['latest'] is None and value['attempt'] is None
+          assert value['operations']['worker_state'] == 'unknown'
+          assert value['operations']['check_stale'] is True
+          PY
 
   lint-biome:
     name: Biome lint (advisory)

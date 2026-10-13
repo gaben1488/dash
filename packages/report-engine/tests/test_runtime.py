@@ -227,7 +227,8 @@ def test_cli_busy_worker_is_not_a_successful_release(tmp_path, capsys):
     assert json.loads((state / 'status.json').read_text())['attempt_id'] == 'previous'
 
 
-def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tmp_path):
+def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tmp_path, monkeypatch):
+    from procurement_engine import report_health, runtime
     from procurement_engine.identity_store import IdentityStore
     from test_identity_and_metrics import row
 
@@ -243,9 +244,28 @@ def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tm
     state = tmp_path / 'state'
     identities = IdentityStore(state / 'identity.sqlite')
     initial = identities.ingest([row()], snapshot_id='seed', captured_at='2026-09-01T00:00:00Z')
+    builds = []
+    original_build = runtime.build_from_capture
+    def tracked_build(*args, **kwargs):
+        builds.append(True)
+        return original_build(*args, **kwargs)
+    monkeypatch.setattr(runtime, 'build_from_capture', tracked_build)
     first = run_once(registry, ledger, state, client=FormulaGoogle())
     unchanged = run_once(registry, ledger, state, client=FormulaGoogle())
     assert unchanged['reused_publication'] is True
+    assert len(builds) == 1
+    assert unchanged['publication']['release_id'] == first['publication']['release_id']
+    assert json.loads((state / 'report-health.json').read_text())['last_success_at'] == unchanged['finished_at']
+    original_record = report_health.record_attempt
+    def denied_health(*args):
+        raise OSError('private filesystem detail')
+    monkeypatch.setattr(report_health, 'record_attempt', denied_health)
+    denied = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert denied['status'] == unchanged['status']
+    assert denied['reused_publication'] is True
+    assert denied['publication']['release_id'] == unchanged['publication']['release_id']
+    assert len(builds) == 1
+    monkeypatch.setattr(report_health, 'record_attempt', original_record)
     identities.record_review(snapshot_id='seed', locator=row().physical_row_key,
         uid=initial['rows'][0]['procurement_uid'], reviewer='Ревизор',
         reviewed_at='2026-09-02T00:00:00Z', evidence={'source_ref': 'protocol/1', 'reason': 'Подтверждено'})

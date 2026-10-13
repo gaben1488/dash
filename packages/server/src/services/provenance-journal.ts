@@ -139,7 +139,8 @@ export function parseProvenanceJournal(rows: readonly unknown[][]): {
 }
 
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
-const cache = new Map<string, BookJournal>();
+const cache = new Map<string, { spreadsheetId: string; journal: BookJournal }>();
+const inFlight = new Map<string, { spreadsheetId: string; request: Promise<BookJournal> }>();
 
 /**
  * Сбрасывает окно кэша — нужен тестам и ручной перечитке. Сбрасывается И общий
@@ -148,6 +149,7 @@ const cache = new Map<string, BookJournal>();
  */
 export function resetProvenanceJournalCache(): void {
   cache.clear();
+  inFlight.clear();
   resetChangelogSource();
 }
 
@@ -162,34 +164,25 @@ export async function readBookJournal(
   now: number = Date.now(),
 ): Promise<BookJournal> {
   const cached = cache.get(dept);
-  if (cached && now - cached.readAt < CACHE_TTL_MS) return cached;
+  if (cached?.spreadsheetId === spreadsheetId && now - cached.journal.readAt < CACHE_TTL_MS) return cached.journal;
+  if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
+  const pending = inFlight.get(dept);
+  if (pending?.spreadsheetId === spreadsheetId) return pending.request;
 
-  try {
-    const rows = await readChangelogRows(dept, spreadsheetId, now);
+  const request = readChangelogRows(dept, spreadsheetId, now).then((rows): BookJournal => {
     const { records, rowKeyless } = parseProvenanceJournal(rows);
-    const journal: BookJournal = {
-      dept,
-      available: true,
-      records,
-      rowKeyless,
-      rawRows: rows.length,
-      readAt: now,
-    };
-    cache.set(dept, journal);
+    const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: rows.length, readAt: now };
+    if (inFlight.get(dept)?.request === request) cache.set(dept, { spreadsheetId, journal });
     return journal;
-  } catch (err) {
-    // Кэшировать отказ нельзя: иначе книга, ожившая через минуту, ещё пять
-    // минут числилась бы молчащей.
-    return {
-      dept,
-      available: false,
-      records: [],
-      rowKeyless: 0,
-      rawRows: 0,
-      readAt: now,
-      error: (err as Error).message,
-    };
-  }
+  }).catch((err): BookJournal => {
+    // Отказ не становится успешным пустым чтением и не кэшируется.
+    return { dept, available: false, records: [], rowKeyless: 0, rawRows: 0,
+      readAt: now, error: (err as Error).message };
+  }).finally(() => {
+    if (inFlight.get(dept)?.request === request) inFlight.delete(dept);
+  });
+  inFlight.set(dept, { spreadsheetId, request });
+  return request;
 }
 
 /**

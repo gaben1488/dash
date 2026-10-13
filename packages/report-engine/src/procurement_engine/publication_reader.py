@@ -62,6 +62,8 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
 
         else:
             result = {'latest': store.latest() if store else None, 'attempt': attempt}
+        from .report_health import report_health
+        result['operations'] = report_health(state, attempt, result.get('selected') or result.get('latest') or result.get('latest_matching'))
         return json.dumps(result, ensure_ascii=False, allow_nan=False).encode()
     if view not in {'dashboard', 'main', 'supplement', 'operational'}:
         raise PublicationError('PUBLICATION_VIEW_INVALID')

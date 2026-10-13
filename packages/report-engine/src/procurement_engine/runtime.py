@@ -167,4 +167,9 @@ def _finish_attempt(state, attempt, status):
     status['finished_at'] = datetime.now(timezone.utc).isoformat()
     _write(attempt / 'status.json', status)
     _write(state / 'status.json', status)
+    from .report_health import record_attempt
+    try:
+        record_attempt(state, status)
+    except (OSError, ValueError):
+        print('REPORT_HEALTH_WRITE_FAILED', file=__import__('sys').stderr)
     return status

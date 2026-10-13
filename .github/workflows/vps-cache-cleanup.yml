@@ -438,9 +438,19 @@ jobs:
           # Wait only before the maintenance window; no service has been stopped.
           ready=false
           for attempt in $(seq 1 30); do
-            if gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request"               --jq '.workflow_runs[] | select(.name == "CI" and .conclusion == "success") | .id' | grep -q .; then
-              ready=true
-              break
+            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
+              --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
+            if test -n "$ci_run"; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$RUNNER_TEMP/source-run.json"
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+              python3 - "$RUNNER_TEMP/source-run.json" "$RUNNER_TEMP/source-jobs.json" <<'PYSOURCE' > "$RUNNER_TEMP/source-proof.json"
+          import json, sys
+          print(json.dumps({'run': json.load(open(sys.argv[1])), 'jobs': json.load(open(sys.argv[2]))['jobs']}))
+          PYSOURCE
+              if python3 .github/ci/source_ci_gate.py "$RECOVERY_SHA" < "$RUNNER_TEMP/source-proof.json"; then
+                ready=true
+                break
+              fi
             fi
             sleep 20
           done

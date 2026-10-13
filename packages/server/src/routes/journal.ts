@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { getSnapshot, getDeptLoadMeta, getSHDYURawRowCount } from '../services/snapshot.js';
+import { buildHealthReport } from './health.js';
 import { db, schema } from '../db/index.js';
 import { and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
@@ -429,125 +429,38 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    * Читает реальные spreadsheetId из конфигурации.
    */
   app.get('/api/sources', async (_request, reply) => {
-    let snapshot;
-    try {
-      snapshot = await getSnapshot();
-    } catch (err) {
-      app.log.warn({ err }, 'sources: failed to get snapshot');
-      snapshot = null;
-    }
-
-    const sheetsRead = snapshot?.metadata?.sheetsRead ?? [];
-    const lastSuccess = snapshot?.createdAt ?? null;
-    const isDemo = snapshot?.id?.startsWith('demo-') ?? true;
-
-    // Build sources from real config
-    const sourceList: Array<{
-      name: string;
-      type: string;
-      spreadsheetId: string;
-      status: string;
-      statusLabel?: string;
-      /** Техническая причина отказа (текст Google API) — мелким шрифтом, не заголовком. */
-      statusDetails?: string;
-      lastSuccess: string | null;
-      rowCount: number | null;
-    }> = [
-      {
-        name: SVOD_SHEET_NAME,
-        type: 'summary',
-        spreadsheetId: config.google.spreadsheetId,
-        status: isDemo ? 'warning' : (sheetsRead.includes(SVOD_SHEET_NAME) ? 'ok' : 'error'),
-        // Подпись была только у книг управлений, у сводной — нет: в одной
-        // таблице половина строк объясняла состояние, половина молчала.
-        statusLabel: isDemo
-          ? 'Демонстрационные данные — рабочая книга не прочитана'
-          : (sheetsRead.includes(SVOD_SHEET_NAME) ? 'Активна' : 'Не прочитана — проверьте доступ к книге'),
-        lastSuccess: isDemo ? null : lastSuccess,
-        rowCount: snapshot?.metadata?.perSheetRowCount?.[SVOD_SHEET_NAME] ?? null,
-      },
+    // This passport displays the same accepted source observations as health.
+    // It must not rebuild the analytics pipeline or read Google on every Header GET.
+    const { SHDYU_SPREADSHEET_ID } = await import('../config.js');
+    const definitions = [
+      { name: SVOD_SHEET_NAME, type: 'summary', spreadsheetId: config.google.spreadsheetId },
+      ...Object.entries(DEPARTMENT_SPREADSHEETS).map(([name, spreadsheetId]) => ({
+        name, type: 'department', spreadsheetId,
+      })),
+      { name: SHDYU_MONTHLY_SHEET_NAME, type: 'sheet', spreadsheetId: SHDYU_SPREADSHEET_ID },
     ];
-
-    const deptMeta = getDeptLoadMeta();
-
-    for (const [deptName, sheetId] of Object.entries(DEPARTMENT_SPREADSHEETS)) {
-      const isRead = sheetsRead.includes(deptName);
-      const meta = deptMeta[deptName];
-
-      let status: string;
-      let statusLabel: string;
-      let statusDetails: string | undefined;
-      let lastSuccessTime: string | null = null;
-      let rowCount: number | null = null;
-
-      if (isDemo) {
-        status = 'warning';
-        statusLabel = 'Демонстрационные данные — рабочая книга не прочитана';
-      } else if (meta && !meta.error) {
-        status = 'ok';
-        statusLabel = 'Активна';
-        lastSuccessTime = meta.loadedAt;
-        rowCount = meta.rowCount;
-      } else if (meta?.error) {
-        status = 'error';
-        // Текст ошибки Google API (английский, с кодами) — не подпись состояния:
-        // пользователю нужно действие, техническая причина уходит в details.
-        statusLabel = 'Книга не прочитана — проверьте доступ и обновите данные';
-        statusDetails = safeSourceDetails(String(meta.error));
-        lastSuccessTime = meta.loadedAt;
-      } else if (isRead) {
-        status = 'ok';
-        statusLabel = 'Активна';
-        lastSuccessTime = lastSuccess;
-      } else {
-        status = 'warning';
-        statusLabel = 'Не загружена — обновите данные';
-      }
-
-      sourceList.push({
-        name: deptName,
-        type: 'department',
-        spreadsheetId: sheetId,
-        status,
-        statusLabel,
-        statusDetails,
-        lastSuccess: lastSuccessTime,
-        rowCount,
+    const items = new Map(buildHealthReport().sources.items.map(item => [item.name, item]));
+    if (items.size !== definitions.length || definitions.some(source => !items.has(source.name))) {
+      return reply.status(503).send({
+        error: 'ServiceUnavailable', code: 'SOURCE_PASSPORT_UNAVAILABLE', statusCode: 503,
+        message: 'Паспорт источников недоступен. Повторите чтение.',
       });
     }
-
-    // ШДЮ — лист внутри СВОД_для_Google (та же таблица что и СВОД ТД-ПМ)
-    const { SHDYU_SPREADSHEET_ID } = await import('../config.js');
-    let shdyuRows = 0;
-    let shdyuSnapshotRead = false;
-    try {
-      const snap = await getSnapshot();
-      shdyuSnapshotRead = Boolean(snap);
-      // Use actual sheet row count (from Google Sheets API), not parsed block count
-      shdyuRows = getSHDYURawRowCount();
-      if (shdyuRows === 0 && snap?.shdyuData) {
-        // Fallback: count parsed ГРБС blocks if raw count unavailable
-        shdyuRows = Object.keys(snap.shdyuData).length;
-      }
-    } catch (err) {
-      app.log.warn({ err }, 'sources: monthly sheet state unknown, snapshot unavailable');
-    }
-    sourceList.push({
-      // Легаси-имя «ШДЮ» ушло: источник — лист «СВОД с месяцами» (та же книга, что СВОД).
-      name: SHDYU_MONTHLY_SHEET_NAME,
-      type: 'sheet',
-      spreadsheetId: SHDYU_SPREADSHEET_ID,
-      status: shdyuRows > 0 ? 'ok' : 'warning',
-      statusLabel: shdyuRows > 0
-        ? 'Активна'
-        : (shdyuSnapshotRead
-          ? 'Лист прочитан пустым — проверьте, что помесячные данные заполнены'
-          : 'Данные не собраны — обновите данные и посмотрите снова'),
-      // Раньше сюда подставлялся текущий момент, когда время чтения неизвестно:
-      // «обновлено только что» у листа, который ни разу не прочитан, — выдумка.
-      // Момент берётся у снимка, общего для всех источников этой книги.
-      lastSuccess: shdyuRows > 0 ? lastSuccess : null,
-      rowCount: shdyuRows > 0 ? shdyuRows : null,
+    const sourceList = definitions.map(source => {
+      const observation = items.get(source.name)!;
+      const emptyMonthly = source.type === 'sheet' && observation.state === 'ok' && observation.rowCount === 0;
+      return {
+        ...source,
+        status: observation.state === 'failed' ? 'error'
+          : observation.state === 'pending' || emptyMonthly ? 'warning' : 'ok',
+        statusLabel: observation.state === 'failed'
+          ? 'Книга не прочитана — проверьте доступ и обновите данные'
+          : observation.state === 'pending' ? 'Не загружена — обновите данные'
+          : emptyMonthly ? 'Лист прочитан пустым — проверьте, что помесячные данные заполнены' : 'Активна',
+        statusDetails: observation.reason,
+        lastSuccess: observation.loadedAt,
+        rowCount: observation.state === 'ok' ? observation.rowCount : null,
+      };
     });
 
     const onlineCount = sourceList.filter(s => s.status === 'ok').length;

@@ -9,7 +9,9 @@ from test_publication_store import candidate, revisions
 
 def test_empty_reader_does_not_create_a_database(tmp_path):
     state = tmp_path / 'absent'
-    assert json.loads(read_publication(state, 'status')) == {'latest': None, 'attempt': None}
+    result = json.loads(read_publication(state, 'status'))
+    assert result['latest'] is None and result['attempt'] is None
+    assert result['operations']['worker_state'] == 'unknown'
     assert not state.exists()
 
 

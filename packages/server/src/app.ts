@@ -189,8 +189,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
     shutdownGuards.get(app)?.begin();
-    setSourceLogger(null);
     stopWebhookChannels();
+    setSourceLogger(null);
   });
 
   // Общий вид отказа: `{error, message, statusCode}` как прежде, плюс `code`
@@ -349,6 +349,7 @@ http://localhost:${actualPort}
 }
 
 export function preloadData(app: FastifyInstance): void {
+  if (shutdownGuards.get(app)?.isClosing()) return;
   // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
   // официальные ячейки читались свежими, а строки брались из кэша от старта
   // (канон п.66: обе стороны сверки — из одного момента).
@@ -376,6 +377,7 @@ export function preloadData(app: FastifyInstance): void {
       app.log.warn('Department spreadsheets unavailable at startup: %s', (err as Error).message);
     }
 
+    if (shutdownGuards.get(app)?.isClosing()) return;
     try {
       app.log.info('Loading SVOD snapshot and pipeline...');
       const snapshot = await getSnapshot(true);

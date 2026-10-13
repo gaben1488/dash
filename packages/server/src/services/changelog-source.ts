@@ -36,12 +36,13 @@ export const CHANGELOG_SHEET_NAME = '_ChangeLog';
 export const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CachedRows {
+  spreadsheetId: string;
   rows: unknown[][];
   at: number;
 }
 
 const cache = new Map<string, CachedRows>();
-const inFlight = new Map<string, Promise<unknown[][]>>();
+const inFlight = new Map<string, { spreadsheetId: string; request: Promise<unknown[][]> }>();
 
 /** Сбрасывает окно — нужен стражам и ручной перечитке. */
 export function resetChangelogSource(): void {
@@ -50,16 +51,17 @@ export function resetChangelogSource(): void {
 }
 
 /** Момент последнего успешного чтения журнала книги (мс эпохи); null — не читался. */
-export function changelogReadAt(dept: string): number | null {
-  return cache.get(dept)?.at ?? null;
+export function changelogReadAt(dept: string, spreadsheetId?: string): number | null {
+  const cached = cache.get(dept);
+  return cached && (spreadsheetId === undefined || cached.spreadsheetId === spreadsheetId) ? cached.at : null;
 }
 
 /**
  * Сырые строки листа «_ChangeLog» одной книги.
  *
- * Ключ окна — короткое имя ГРБС: адрес книги за ним закреплён реестром
- * источников, а имя читаемо в журнале сервера, в отличие от идентификатора
- * книги, которому в журнале не место.
+ * Окно и pending принадлежат паре ГРБС + неизменяемый ID книги. На ГРБС
+ * хранится только последнее выбранное чтение: смена адреса и reset не дают
+ * старому ответу заполнить новое окно. ID в журнал сервера не выводится.
  *
  * Отказ пробрасывается как есть — решать, что значит молчание книги (пустой
  * ответ страницы или честная пометка «книга не ответила»), должен потребитель,
@@ -71,20 +73,21 @@ export async function readChangelogRows(
   now: number = Date.now(),
 ): Promise<unknown[][]> {
   const cached = cache.get(dept);
-  if (cached && now - cached.at < CHANGELOG_CACHE_TTL_MS) return cached.rows;
+  if (cached?.spreadsheetId === spreadsheetId && now - cached.at < CHANGELOG_CACHE_TTL_MS) return cached.rows;
+  if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
 
   const pending = inFlight.get(dept);
-  if (pending) return pending;
+  if (pending?.spreadsheetId === spreadsheetId) return pending.request;
 
   const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME)
     .then((rows) => {
-      cache.set(dept, { rows, at: now });
+      if (inFlight.get(dept)?.request === request) cache.set(dept, { spreadsheetId, rows, at: now });
       return rows;
     })
     .finally(() => {
-      inFlight.delete(dept);
+      if (inFlight.get(dept)?.request === request) inFlight.delete(dept);
     });
 
-  inFlight.set(dept, request);
+  inFlight.set(dept, { spreadsheetId, request });
   return request;
 }
