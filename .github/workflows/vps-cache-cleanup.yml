@@ -57,6 +57,44 @@ jobs:
               item=json.loads(result.stdout)[0];state=item['State']
               print(json.dumps({'service':name,'state':state['Status'],'health':state.get('Health',{}).get('Status'),
                 'oom':state['OOMKilled'],'restarts':item['RestartCount']}))
+            if latest and (latest/'stateful_backup.py').is_file() and latest.stat().st_uid==0:
+              tool=latest/'stateful_backup.py'
+              metadata=tool.lstat()
+              assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid==0 and not metadata.st_mode&0o022
+              runtime=json.loads((latest/'runtime.json').read_text())
+              assert re.fullmatch(r'sha256:[a-f0-9]{64}',runtime['image'])
+              assert re.fullmatch(r'[A-Za-z0-9_.-]+',runtime['volume'])
+              probe='''import importlib.util,json,shutil,signal,sys
+            from pathlib import Path
+            def expired(*_):raise TimeoutError('READONLY_PREVIEW_BUDGET_EXCEEDED')
+            signal.signal(signal.SIGALRM,expired);signal.alarm(120)
+            phase='load'
+            try:
+                spec=importlib.util.spec_from_file_location('backup_tool','/tool.py')
+                tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool)
+                phase='inventory';source=Path('/source');files=tool.inventory(source)
+                phase='compression'
+                class Counter:
+                    count=0
+                    def tell(self):return self.count
+                    def write(self,data):self.count+=len(data);return len(data)
+                counter=Counter();limit=shutil.disk_usage('/backups').free-128*1024*1024
+                tool._stream_compressed_state(source,counter,files,limit,1)
+                print(json.dumps({'kind':'readonly_backup_preview','result':'PASS','compressed_bytes':counter.count}))
+            except Exception as error:
+                kind=type(error).__name__
+                allowed={'BackupError','FileNotFoundError','PermissionError','OSError','ValueError','TypeError','AttributeError','TimeoutError'}
+                code=str(error) if kind=='BackupError' and __import__('re').fullmatch(r'BACKUP_[A-Z_]+',str(error)) else None
+                print(json.dumps({'kind':'readonly_backup_preview','result':'FAILED','phase':phase,
+                  'error_type':kind if kind in allowed else 'OtherError','error_code':code}))
+                sys.exit(2)'''
+              result=subprocess.run(['docker','run','--rm','--network','none','--read-only','--user','0',
+                '--memory','256m','--cpus','0.5',
+                '--mount','type=volume,src='+runtime['volume']+',dst=/source,readonly',
+                '--mount','type=bind,src='+str(latest)+',dst=/backups,readonly',
+                '--mount','type=bind,src='+str(tool)+',dst=/tool.py,readonly',
+                '--entrypoint','/opt/report-env/bin/python',runtime['image'],'-B','-c',probe],capture_output=True,timeout=150)
+              print(json.dumps(json.loads(result.stdout)))
             PY
   worker-failure-diagnostics:
     if: >-
