@@ -1,3 +1,4 @@
+import { classifyCellNote } from '@aemr/shared';
 import { createHash } from 'node:crypto';
 import { and, desc, eq, isNull, like, notLike, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
@@ -83,4 +84,68 @@ export function listCommentReadings(book?: string) {
 export function countCommentWitnesses(book?: string): number {
   return db.select({ total: sql<number>`count(*)` }).from(schema.driveCommentObservations)
     .where(book ? eq(schema.driveCommentObservations.book, book) : undefined).get()?.total ?? 0;
+}
+
+type WitnessRow = Pick<typeof schema.driveCommentObservations.$inferSelect,'id'|'book'|'kind'|'readAt'|'payload'>;
+const witnessFields = { id:schema.driveCommentObservations.id, book:schema.driveCommentObservations.book,
+  kind:schema.driveCommentObservations.kind, readAt:sql<string>`${schema.driveCommentObservations.readAt}`.as('readAt'), payload:schema.driveCommentObservations.payload };
+
+/** One ordered SQLite execution; iterator bounds JS memory without repeated
+ * OFFSET sorts. Exact classification precedes the visible window; counts are
+ * witness VERSIONS, never unique discussions or edits. */
+export function listDiscussionWitnesses(book?: string, limit = 20) {
+  const witnesses: ReturnType<typeof listCommentWitnesses> = [];
+  const counts = { eligible: 0, shown: 0, historyNotes: 0, legacyProjections: 0 };
+  const requested = Math.max(1, Math.min(limit, 200));
+  const query = db.select(witnessFields).from(schema.driveCommentObservations)
+    .where(and(book ? eq(schema.driveCommentObservations.book, book) : undefined, notLike(schema.driveCommentObservations.kind, 'reading:%')))
+    .orderBy(sql`CASE WHEN ${schema.driveCommentObservations.kind} = 'legacy_cache' THEN 1 ELSE 0 END`, desc(schema.driveCommentObservations.readAt), desc(sql`rowid`)).toSQL();
+  for (const raw of db.$client.prepare(query.sql).iterate(...query.params)) {
+    const row = raw as WitnessRow;
+    if (row.kind === 'legacy_cache') counts.legacyProjections++;
+    const parsed = JSON.parse(row.payload) as Record<string, unknown>;
+    const note = row.kind === 'cell_note' && typeof parsed.content === 'string' ? classifyCellNote(parsed.content) : null;
+    if (note?.historyOnly) { counts.historyNotes++; continue; }
+    counts.eligible++;
+    if (witnesses.length < requested) {
+      const { fileId: _fileId, ...evidence } = parsed;
+      witnesses.push({ id: row.id, book: row.book, kind: row.kind, readAt: row.readAt, evidence: note ? { ...evidence, discussionText: note.discussionText } : evidence });
+    }
+  }
+  counts.shown = witnesses.length;
+  return { witnesses, counts };
+}
+
+/** Original notes at a physical address; never a purchase-identity assertion. */
+export function listCellNoteMetadata(fileId: string, sheet: string, rowNumber: number, column?: string) {
+  const table = schema.driveCommentObservations;
+  const outcome = db.select().from(table).where(and(eq(table.fileId, fileId), eq(table.kind, 'reading:notes')))
+    .orderBy(desc(table.readAt), desc(sql`rowid`)).limit(1).get();
+  const reading = outcome ? JSON.parse(outcome.payload) as Record<string, unknown> : null;
+  const prefix = `'${sheet.replace(/'/g, "''")}'!`;
+  const covered = Array.isArray(reading?.scope) && reading.scope.some(range => {
+    if (typeof range !== 'string' || !range.startsWith(prefix)) return false;
+    const rows = /^(\d+):(\d+)$/.exec(range.slice(prefix.length));
+    return rows !== null && Number(rows[1]) <= rowNumber && Number(rows[2]) >= rowNumber;
+  });
+  const available = reading?.status === 'read' && covered;
+  const notes: ReturnType<typeof listCommentWitnesses> = [];
+  let total = 0;
+  const query = db.select(witnessFields).from(table).where(and(eq(table.fileId,fileId),eq(table.kind,'cell_note')))
+    .orderBy(desc(table.readAt),desc(sql`rowid`)).toSQL();
+  for (const raw of db.$client.prepare(query.sql).iterate(...query.params)) {
+    const row = raw as WitnessRow;
+    const parsed = JSON.parse(row.payload) as Record<string, unknown>;
+    if (parsed.fileId !== fileId || parsed.sheet !== sheet || typeof parsed.cell !== 'string' ||
+        !new RegExp(`^${column ?? '[A-Z]{1,2}'}${rowNumber}$`).test(parsed.cell) || !Number.isInteger(parsed.sheetId)) continue;
+    total++;
+    if (notes.length < 200) {
+      const { fileId: _fileId, ...evidence } = parsed;
+      notes.push({ id: row.id, book: row.book, kind: row.kind, readAt: row.readAt, evidence });
+    }
+  }
+  return { status: available ? 'read' as const : 'unavailable' as const,
+    reason: available ? null : reading?.reason ?? 'Чтение заметок запрошенного адреса не подтверждено.',
+    readAt: outcome?.readAt ?? null, identity: 'physical-address-only' as const,
+    notes, total, shown: notes.length, truncated: total > notes.length };
 }

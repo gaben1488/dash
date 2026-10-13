@@ -121,10 +121,95 @@ async def verify(path, output, glow_only=False):
         output.write_text(json.dumps(proof, ensure_ascii=False, indent=2))
         print(json.dumps(proof, ensure_ascii=False))
 
+async def verify_motion(path, output):
+    """Normal motion is a separate admission from reduced-motion and live data."""
+    async with async_playwright() as driver:
+        browser = await driver.chromium.launch(headless=True)
+        proof = {'artifact': str(path), 'states': [], 'productionVerified': False,
+                 'gaps': ['OPEN/RESOLVED/OPEN fixture readings do not prove a native REOPEN event or real Google mutation.']}
+        for motion in ['no-preference', 'reduce']:
+            page = await browser.new_page(viewport={'width':1280,'height':900}, reduced_motion=motion)
+            errors, network = [], []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            await page.route('http*://**', lambda route: (network.append(route.request.url), route.abort())[1])
+            await page.goto(path.as_uri())
+            await page.get_by_role('navigation').wait_for()
+            await page.wait_for_timeout(1700)
+            proof['sourceSha'] = await page.locator('meta[name=dash-source-sha]').get_attribute('content')
+            proof['sourceDigest'] = await page.locator('meta[name=dash-source-digest]').get_attribute('content')
+            names = await page.locator('.qa-palettes button').all_text_contents()
+            assert len(names) == 13
+            for theme in ['dark','light']:
+                if theme == 'light':
+                    await page.get_by_role('button', name='Включить светлую тему', exact=True).click()
+                for name in names:
+                    await page.locator('.qa-palettes button').filter(has_text=name).first.click()
+                    await page.wait_for_timeout(180)
+                    state = await page.locator('.header-glass').evaluate("""e=>{
+                      const read=b=>{if(!b)return null;const s=getComputedStyle(b),p=getComputedStyle(b,'::before'),r=b.getBoundingClientRect();return {fill:s.backgroundImage,border:s.borderColor,glow:s.boxShadow,clip:s.overflow,isolation:s.isolation,animation:p.animationName,duration:p.animationDuration,transform:p.transform,rect:{x:r.x,y:r.y,w:r.width,h:r.height}}};
+                      return {active:read(e.querySelector('.np-btn-active .np-content')),week:read(e.querySelector('.wr-row-driving:not(.wr-row-future):not(.wr-row-empty)')),surface:read(e.querySelector('.hdr-liquid-surface')),method:read(e.querySelector('.vf-btn-active')),filter:read(e.querySelector('.filter-instrument')),themeControl:read(e.querySelector('.hf-icon-btn'))};
+                    }""")
+                    assert 'gradient' in state['active']['fill']
+                    assert state['active']['clip']=='hidden' and state['active']['isolation']=='isolate'
+                    assert state['active']['animation']==('none' if motion=='reduce' else 'hdr-button-dawn')
+                    if state['week']:
+                        assert state['week']['clip']=='hidden' and state['week']['isolation']=='isolate'
+                        assert state['week']['animation']==('none' if motion=='reduce' else 'hdr-week-reflection')
+                    proof['states'].append({'motion':motion,'theme':theme,'page':name,**state})
+                await page.locator('.qa-palettes button').filter(has_text='Пульс').click()
+                await page.wait_for_timeout(350)  # allow the intentional drum group transition to settle
+                active=page.locator('.np-btn-active .np-content')
+                before=await active.bounding_box()
+                first=await active.evaluate("e=>getComputedStyle(e,'::before').transform")
+                await page.wait_for_timeout(650)
+                second=await active.evaluate("e=>getComputedStyle(e,'::before').transform")
+                after=await active.bounding_box()
+                assert before==after, 'animation changes active button geometry'
+                assert (first!=second) if motion=='no-preference' else (first==second=='none')
+                assert await page.locator('.uf-preview-row').count()==2
+                assert await page.get_by_role('button',name='Показывать суммы в миллионах рублей',exact=True).is_visible()
+                positions=await page.locator('.hdr-selection-tools').evaluate("e=>{const t=e.querySelector('.hf-icon-btn').getBoundingClientRect(),f=e.querySelector('.filter-instrument').getBoundingClientRect(),m=document.querySelector('.hbar-secondary').getBoundingClientRect();return {themeX:t.x,filterX:f.x,y:t.y,filterY:f.y,bottomRowY:m.y}}")
+                assert positions['themeX']<positions['filterX'] and positions['y']>=positions['bottomRowY']
+                await page.locator('.qa-presets button').filter(has_text='Обсуждения').first.click()
+                await page.get_by_role('dialog').wait_for()
+                await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).wait_for()
+                assert await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).is_visible()
+                await page.get_by_text('Исходные сообщения и ответы · 1',exact=True).click()
+                assert await page.get_by_text('Учебный ответ',exact=True).is_visible()
+                await page.get_by_text('Ревизия источника не доказана. Решение Dash и состояние обсуждения Google независимы.',exact=True).first.wait_for()
+                await page.keyboard.press('Escape')
+                await page.locator('.qa-presets button').filter(has_text='Закрыто в Google').first.click()
+                await page.get_by_text('Закрыто в сохранённом чтении Google',exact=True).wait_for()
+                assert await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).count()==0
+                await page.get_by_text('Исходные сообщения и ответы · 1',exact=True).click()
+                assert await page.get_by_text('Учебный ответ',exact=True).is_visible()
+                assert await page.get_by_text('Закрыто в сохранённом чтении Google',exact=True).is_visible()
+                await page.keyboard.press('Escape')
+                await page.locator('.qa-presets button').filter(has_text='Обсуждения').first.click()
+                await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).wait_for()
+                assert await page.get_by_text('Закрыто в сохранённом чтении Google',exact=True).count()==0
+                await page.get_by_role('tab',name='Источники',exact=True).click()
+                await page.get_by_role('tab',name='Изменения',exact=True).click()
+                await page.keyboard.press('Escape')
+                assert await page.get_by_role('dialog').count()==0
+                assert await active.bounding_box()==after
+            assert not errors and not network, (errors,network)
+            await page.close()
+        assert len(proof['states'])==52
+        for motion in ['no-preference','reduce']:
+            for theme in ['dark','light']:
+                states=[r for r in proof['states'] if r['motion']==motion and r['theme']==theme]
+                assert len(states)==13 and len({r['active']['fill'] for r in states})>=12
+        proof.update({'zeroExternalRequests':True,'zeroPageErrors':True,'normalAndReducedMotionDistinct':True,'geometryStable':True,'journalAndCommentsReply':True,'googleStatusOpenClosedOpenIndependentOfReply':True,'googleStatusIndependentOfDashDecision':True,'bottomFilterAndMillions':True})
+        output.write_text(json.dumps(proof,ensure_ascii=False,indent=2))
+        print(json.dumps({k:v for k,v in proof.items() if k!='states'},ensure_ascii=False))
+        await browser.close()
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--html', type=Path, default=Path(__file__).resolve().parents[1] / 'navigation-qa.html')
     parser.add_argument('--proof', type=Path, default=Path('/tmp/dash-navigation-qa-browser-proof.json'))
     parser.add_argument('--glow-only', action='store_true')
+    parser.add_argument('--motion-only', action='store_true')
     args = parser.parse_args()
-    asyncio.run(verify(args.html.resolve(), args.proof, args.glow_only))
+    asyncio.run(verify_motion(args.html.resolve(), args.proof) if args.motion_only else verify(args.html.resolve(), args.proof, args.glow_only))

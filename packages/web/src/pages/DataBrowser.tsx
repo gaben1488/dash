@@ -387,6 +387,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
   const [selectedRow, setSelectedRow] = useState<any>(null);
+  const [selectedNoteColumn,setSelectedNoteColumn]=useState<string|undefined>(undefined);
   // Затравка признаков от «Дисциплины», «Пульта» и «Экономии»:
   // navigateTo('data', { signals }) кладёт ключи в store, Реестр забирает их
   // одним чтением при открытии и очищает — повторный заход в Реестр без
@@ -1640,6 +1641,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             columns={editorColumns}
             rows={editorRows}
             externalDirtyFields={visibleDraftFields}
+            metadataOpen={selectedRow!==null}
             loading={loadingRows}
             onCellChange={handleEditorCellChange}
             onSaveRow={handleEditorSaveRow}
@@ -1658,6 +1660,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
             }
             rowAddress={(row) => rowAddressOf(row._dept, row._rowIndex)}
+            onCellMetadata={(editorRow,columnKey)=>{
+              const source=paged.find(r=>r.dept===editorRow._dept&&r.rowIndex===editorRow._rowIndex);
+              if(!source)return;
+              const columns:Record<string,string>={id:'A',subordinate:'C',subject:'G',method:'L',planFB:'H',planKB:'I',planMB:'J',planSum:'K',factSum:'Y',factFB:'V',factKB:'W',factMB:'X',planDate:'N',factDate:'Q',flag:'AD',commentGRBS:'AF'};
+              setSelectedNoteColumn(columns[columnKey]);setSelectedRow({...source,noteAddressUnavailable:!columns[columnKey]});
+            }}
             prefsName="registry-editor"
           />
         </>
@@ -2803,7 +2811,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       </div>
       )}
 
-      {selectedRow && <RowDetailCard row={selectedRow} onClose={() => setSelectedRow(null)} />}
+      {selectedRow && <RowDetailCard row={selectedRow} noteColumn={selectedNoteColumn} onClose={() => {setSelectedRow(null);setSelectedNoteColumn(undefined);}} />}
       </>
       )}
     </div>

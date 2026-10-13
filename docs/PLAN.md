@@ -185,6 +185,59 @@ kernel/consumer tests PASS, reserve43 Root/independent PASS; полный Python
 Fresh production copy/independent restore/source-match пока не выполнены;
 обязательность всех трёх сохраняется. R08 повторно не принимается.
 
+### Fresh copy и возврат runtime приняты — 13.10.2026
+
+SHA `abe5a4b4105b4d7102edaa7bd782226dc8f4c9c8`, CI38349045793:
+три exact-source jobs SUCCESS; общий CI FAILURE относится к старому installed
+journal, deployment SKIPPED. Backup38349415596/job115138139276 SUCCESS:
+05:03:05UTC cheap budget admitted;05:07:55UTC полная копия,5416 entries,
+31 246 433 430 logical bytes,4 589 649 313 archive bytes.05:19:26UTC
+independent scratch-verify PASS:93SQLite/215DOCX;05:20:19UTC frozen source-match
+PASS;05:20:36UTC original healthy API + authorized prior worker resumed.
+Все private runner copies/keys удалены; archive сохранён наVPS, public artifacts
+бизнес-данных отсутствуют. Public health после resume HTTP200/statusok.
+Это R06 evidence текущего cut, не свежесть для более позднего изменившегося
+состояния и не R07/R09 full production rollback/deployment acceptance.
+
+Header normal/reduced motion:Root52states13pages×2themes×2motion PASS на
+artifact58ced9b9/sourceDigestf3215792…,0HTTP/JS, OPEN→RESOLVED→OPEN не меняет
+сам факт наличия ответа. Это Header-only/offline proof, не все13productionpages.
+Native REOPEN mutation этим не подтверждается. Исходные78layoutviews сохраняются.
+
+K06/K10/U06 metadata gap подтверждён: CommentFeed показывает всеcell_note,
+а SQL LIMIT20 применяется до отделения pure history notes. Такие заметки могут
+вытеснить настоящие native обсуждения. Legacy total считает только Drive-cache;
+witnessHistoryTotal включает технические reading/legacy виды, неhuman threads.
+Следующий concrete block: exact shared notation parser, discussion selection
+до pagination и separate physical-cell metadata access Registry/editor. RAW и
+mixed/human/malformed notes сохраняются; адрес/readAt не доказывает идентичность
+закупки после переноса строки. RowDto ещё не содержит доказанных sheetId/fileId;
+провенанс автора/перемещения не угадывается. Этот модуль PARTIAL, не DONE.
+
+### Обсуждения и адресные метаданные — 13.10.2026
+
+K06/K10/U06: exact parser отделяет только доказанную текстовую нотацию истории
+значений от обсуждений до ограничения выдачи. Mixed/malformed notes и RAW
+сохраняются; totals считаются версиями свидетельств, не числом уникальных
+разговоров. Один SQLite iterator заменяет повторные OFFSET/sort; 420 history
+versions не вытесняют human/native discussion. Старый API сохранён.
+Registry/editor открывают сохранённые notes выбранного физического адреса;
+неполный/отказанный reading не равен отсутствию истории. Открытие и закрытие
+метаданных сохраняет draft/focus, не вызывает запись. История строки сбрасывает
+cache/pending при смене управления или физической строки; два реальных RED
+показывали старую историю в новой карточке, после keyed scope оба GREEN.
+Связь с переместившейся закупкой, Google author и время ввода не домысливаются.
+Native reply/closed status отделены от Dash case closure. Hover/context menu
+и объединённая cell-level история журнала/diffs ещё не объявляются готовыми.
+
+Root current source: последовательный полный TS-гейт 5876 PASS,1skip
+(shared735/core1869/server977/web2295),4types PASS,lint0errors/304warnings;
+independent17-file review PASS и private14 UI regressions. Предыдущий
+параллельный прогон имел один 5s timeout Report.exports; отдельный4/4 и полный
+последовательный прогон прошли без увеличения таймаутов. Root affected33 UI и
+12 server PASS; Header motion52 остаётся отдельным offline proof. Эта стадия
+«код проверен»; production rollout/новые native browser proofs ещё впереди.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:

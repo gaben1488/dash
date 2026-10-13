@@ -57,6 +57,8 @@ export interface TableEditorProps {
    * он не знает, из какого листа пришла строка, и выдумывать не станет.
    */
   rowAddress?: (row: RowData) => string | null;
+  onCellMetadata?: (row: RowData, columnKey: string) => void;
+  metadataOpen?: boolean;
   /**
    * Имя набора настроек вида (ширины, скрытые столбцы, сортировка) в хранилище
    * браузера. Без него вид не переживает перезагрузку — и это осознанный выбор
@@ -409,6 +411,8 @@ export function TableEditor({
   emptyReason,
   notice,
   rowAddress,
+  onCellMetadata,
+  metadataOpen = false,
   prefsName,
 }: TableEditorProps) {
   // Правки: строка → набор изменённых столбцов
@@ -443,6 +447,9 @@ export function TableEditor({
   // Короткий отчёт о копировании: удалось или почему нет
   const [copyNote, setCopyNote] = useState<string | null>(null);
 
+  const metadataButtonRef = useRef<HTMLButtonElement|null>(null);
+  const metadataFocusTransition = useRef(false);
+  const metadataWasOpen = useRef(false);
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -451,6 +458,14 @@ export function TableEditor({
   // Высота первой строки шапки: на неё опускается прилипшая строка фильтров.
   // Замеряется, а не задаётся числом, — подписи столбцов переносятся по-разному.
   const [headerHeight, setHeaderHeight] = useState(0);
+
+  useEffect(() => {
+    if (!metadataOpen && metadataWasOpen.current) {
+      metadataFocusTransition.current = false;
+      inputRef.current?.focus();
+    }
+    metadataWasOpen.current = metadataOpen;
+  }, [metadataOpen]);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -968,6 +983,12 @@ export function TableEditor({
         </div>
       )}
 
+      {onCellMetadata&&<button type="button" disabled={!focusedCell} className="text-xs underline" ref={metadataButtonRef} onMouseDown={event=>{metadataFocusTransition.current=true;event.preventDefault();}} onClick={()=>{
+        metadataFocusTransition.current=true;
+        const row=rows.find(r=>r._id===focusedCell?.rowId);
+        if(row&&focusedCell)onCellMetadata(row,focusedCell.colKey);
+      }}>Заметки выбранной ячейки</button>}
+
       {/* Отказы записи — над таблицей, чтобы их нельзя было пропустить */}
       {failedCount > 0 && (
         <div className="px-3 py-2 rounded-lg border border-red-200 dark:border-transparent bg-red-50 dark:bg-red-950/30 text-xs space-y-1" role="alert">
@@ -1265,7 +1286,11 @@ export function TableEditor({
                                 ref={el => { inputRef.current = el; }}
                                 value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
-                                onBlur={commitEdit}
+                                onFocus={()=>{metadataFocusTransition.current=false;}}
+                                onBlur={event=>{
+                                  if(metadataOpen||metadataFocusTransition.current||event.relatedTarget===metadataButtonRef.current){metadataFocusTransition.current=true;return;}
+                                  commitEdit();
+                                }}
                                 aria-label={`${col.label}: выбор значения`}
                                 className="w-full px-2 py-0.5 text-sm border-2 border-blue-400 rounded bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 outline-none"
                               >
@@ -1280,7 +1305,11 @@ export function TableEditor({
                                 type="text"
                                 value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
-                                onBlur={commitEdit}
+                                onFocus={()=>{metadataFocusTransition.current=false;}}
+                                onBlur={event=>{
+                                  if(metadataOpen||metadataFocusTransition.current||event.relatedTarget===metadataButtonRef.current){metadataFocusTransition.current=true;return;}
+                                  commitEdit();
+                                }}
                                 aria-label={`${col.label}: значение`}
                                 aria-invalid={cellError ? true : undefined}
                                 placeholder={col.type === 'date' ? 'ДД.ММ.ГГГГ' : ''}

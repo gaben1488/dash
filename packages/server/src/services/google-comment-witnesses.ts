@@ -1,3 +1,5 @@
+import { classifyCellNote } from '@aemr/shared';
+
 /** Read-only native comments and notes; values and edits are separate evidence. */
 export interface CommentWitness {
   kind: 'native_thread' | 'cell_note' | 'drive_thread';
@@ -106,10 +108,7 @@ export function parseCellNotes(value: unknown, fileId: string, readAt: string): 
         if (typeof cell.note !== 'string') return;
         const address = `${columnName(startCol + j)}${startRow + i + 1}`;
         const sheetId = integer(props.sheetId);
-        const noteClaims = cell.note.split(/\r?\n/u).flatMap(line => {
-          const match = /^Было:\s*(.*?)\s*\((\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}),\s*(.*?)\)\s*$/u.exec(line);
-          return match ? [{ before: match[1]!, at: match[2]!, actor: match[3]!, evidenceKind: 'NOTE_TEXT_CLAIM' as const }] : [];
-        });
+        const noteClaims = classifyCellNote(cell.note).claims;
         records.push({ ...base(fileId, `${sheetId}:${address}`, readAt), kind: 'cell_note',
           sheetId, sheet: text(props.title), cell: address, author: null, content: cell.note, posts: [], raw: cell, noteClaims });
       }));

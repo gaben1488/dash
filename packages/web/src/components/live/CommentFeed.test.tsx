@@ -12,7 +12,7 @@ it('keeps cell-note claims, native posts and legacy cache distinct without dropp
  await view.findByText('Автор заметки не известен',{exact:false});
  expect(view.getByText('Прежнее обсуждение')).toBeTruthy();
  expect(view.getByText('Координатор')).toBeTruthy();expect(view.getByText('Отработано')).toBeTruthy();
- expect(fetchJSON).toHaveBeenCalledWith('/comments?limit=20');
+ expect(fetchJSON).toHaveBeenCalledWith('/comments?view=discussions&limit=20');
 });
 it('does not read while the comments layer is closed',()=>{
  render(<CommentFeed enabled={false} readRevision={null}/>);expect(fetchJSON).not.toHaveBeenCalled();
@@ -78,4 +78,12 @@ it('keeps genuine text attached to native actions and no-action-change posts as 
  const view=render(<CommentFeed enabled readRevision={null}/>);
  await view.findByText('Есть ответы · 3');
  expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
+});
+
+it('shows historical unclassified projection and mixed residual without dropping original note text',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'mixed',book:'Демо',kind:'cell_note',evidence:{content:'Было: 327 (21.05.2026 10:17, автор)\nУточнить сумму',discussionText:'Уточнить сумму'}},{id:'legacy',book:'Демо',kind:'legacy_cache',evidence:{original:{content:'Старый вопрос',author:'Автор',resolved:0}}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Историческая проекция Drive');
+ expect(view.getByText('Старый вопрос')).toBeTruthy();expect(view.getByText('Уточнить сумму')).toBeTruthy();
+ expect(view.getByText(/Было: 327.*Уточнить сумму/)).toBeTruthy();
 });

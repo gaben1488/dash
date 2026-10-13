@@ -154,3 +154,13 @@ describe('регексы номеров процедур', () => {
     expect(extractProcedureNumbers('')).toEqual([]);
   });
 });
+
+it('separates exact note history claims from human and mixed note text without inventing authorship', async () => {
+  const { classifyCellNote } = await import('./comment-standards');
+  const line = 'Было: 327 (21.05.2026 10:17, actor@example.test)';
+  expect(classifyCellNote(line)).toMatchObject({ historyOnly: true, discussionText: '', claims: [{ before: '327', evidenceKind: 'NOTE_TEXT_CLAIM' }] });
+  expect(classifyCellNote(`${line}\nНужно уточнить сумму`)).toMatchObject({ historyOnly: false, discussionText: 'Нужно уточнить сумму' });
+  for (const value of ['Было 100; подпись внутри текста', 'Было: 5 (author@example.test)', 'Было: 1 (99.99.2026 10:17, автор)', 'Обычная заметка']) {
+    expect(classifyCellNote(value)).toMatchObject({ historyOnly: false, discussionText: value, claims: [] });
+  }
+});

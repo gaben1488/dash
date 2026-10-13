@@ -9,6 +9,7 @@ import { toCanonicalDeptId } from '../lib/dept-key';
 import { activityRowLabel, signalChipText, rowSignalTone } from '../lib/rows/registry-view';
 import { looksLikeEconomyDisposal } from '../lib/economy/disposal';
 import { RowTimelineSection } from './timeline/RowTimelineSection';
+import { CellNotesMetadata } from './provenance/CellNotesMetadata';
 import { PlanProvenanceSection } from './provenance/PlanProvenanceSection';
 import { toRowSeq } from '../hooks/useRowProvenance';
 import { YearlongBadge } from './yearlong/YearlongBadge';
@@ -51,6 +52,7 @@ export interface RowDetailRow {
 interface RowDetailCardProps {
   row: RowDetailRow;
   onClose: () => void;
+  noteColumn?: string;
 }
 
 /** Число ячейки строки; нечисловое и пустое — ноль (как в расчёте). */
@@ -79,7 +81,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
+export function RowDetailCard({ row, onClose, noteColumn }: RowDetailCardProps) {
   const formatMoney = useStore(s => s.formatMoney);
   /**
    * Дефекты формул этой строки. Берутся из замечаний снимка (их рождает слой
@@ -622,6 +624,11 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
           <div>
             <SectionTitle>История строки</SectionTitle>
             <RowTimelineSection deptId={deptId} sheetRow={rowIndex} />
+          </div>
+
+          <div>
+            <SectionTitle>Заметки источника по физическому адресу</SectionTitle>
+            {row.noteAddressUnavailable===true?<p className="text-xs">Адрес источника для выбранного столбца не установлен. Заметки к другой ячейке не подбираются.</p>:<CellNotesMetadata deptId={deptId} physicalRow={rowIndex} column={noteColumn} rowRevision={typeof row.rowRevision==='string'?row.rowRevision:undefined}/>}
           </div>
 
           {/* Происхождение: где именно лежит первичка */}
