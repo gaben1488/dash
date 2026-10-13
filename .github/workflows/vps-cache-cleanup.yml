@@ -465,7 +465,7 @@ jobs:
       - name: Quiesce writers and create private full compressed backup
         run: |
           set -euo pipefail
-          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- prepare "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- prepare "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
       - name: Transfer privately and prove complete independent scratch restore
         run: |
           set -euo pipefail
@@ -479,14 +479,14 @@ jobs:
       - name: Match still-quiesced original bytes after successful restore
         run: |
           set -euo pipefail
-          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- match-source "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- match-source "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
           echo 'FULL_BACKUP_EXTERNAL_RESTORE_AND_SOURCE_MATCH_PASS'
-      - name: Always resume original server; never start worker or discard private backup
+      - name: Always resume original healthy API and authorized prior worker; retain private backup
         if: always()
         run: |
           set -euo pipefail
           if test -f "$RUNNER_TEMP/worker-backup/key"; then
-            ssh -i "$RUNNER_TEMP/worker-backup/key"               -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes               "$VPS_USER@193.233.91.162" bash -s -- resume "$RECOVERY_SHA" "$RECOVERY_RUN"               /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+            ssh -i "$RUNNER_TEMP/worker-backup/key"               -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes               "$VPS_USER@193.233.91.162" bash -s -- resume "$RECOVERY_SHA" "$RECOVERY_RUN"               /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
           fi
       - name: Remove all private runner copies and credentials
         if: always()

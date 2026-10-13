@@ -78,6 +78,29 @@ Live и recovery gates сохраняют отдельные результат�
 текущего выпуска; проверка actual HTML/API и отсутствие style/motion регрессий
 обязательны, утверждённый «Пульс» не переделывается.
 
+### Допуск к резервной копии и исправленный HTML — текущая итерация
+
+Рабочее дерево: backup-window поддерживает только явный шестой аргумент
+`--quiesce-worker`; прежний five-argument путь не запускает worker. TERM
+дожидается завершения цикла/exit0; EX guardian проверяет исходные IDs/images/
+volume. Read-only compressed capacity preview предшествует остановкам.
+Failure/owner-loss/resume сначала подтверждают healthy API и только затем
+возвращают ранее работавший worker. Реальный stdin-вызов `bash -s` охраняется
+тестом; recovery script берётся из exact candidate Git blob. Root23 и independent23
+синтетических/локальных kernel-lock теста PASS. Live окно ещё не запускалось;
+30-минутный guardian включает preflight/drain/copy/transfer/restore, поэтому
+истечение даёт безопасный resume и отказ source-match, не приёмку backup.
+
+HTML обновлён на месте: actual Header и существующие stores/ThemeProvider,
+без18статичных PNG. Reproducible source generator плюс synthetic-only fixtures
+содержат13 интерактивных палитр/пресеты и видимый журнал. CSS одной строкой
+привязывает только цветной Header halo к выбранной «Заре»; нейтральные границы,
+геометрия/анимации/OrgStrip/«Пульс» сохранены. Public source/config/lock digest,
+embeddedfonts/selfdownload HTML+ZIP; ~3.22MB вместо17.87MB. Author26palette×3
+viewport/zoom/keyboard/negative panels/offline proof и независимый source review
+PASS; Root повторяет browser/build проверки после интеграции. Артефакт учебный,
+не доказательство production/auth/data и не часть public Git с бизнес-данными.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:

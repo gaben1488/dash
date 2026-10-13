@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Quiesce and fully copy state; no worker start, migration or deployment here.
+# Fully copy state; worker quiescence/resumption requires explicit authorization.
 set -euo pipefail
 umask 077
-[ "$#" = 5 ] || { echo 'BACKUP_WINDOW_ARGUMENTS_INVALID' >&2; exit 2; }
+[ "$#" = 5 ] || [ "$#" = 6 ] || { echo 'BACKUP_WINDOW_ARGUMENTS_INVALID' >&2; exit 2; }
+quiesce=false
+if [ "$#" = 6 ]; then
+  [ "$6" = --quiesce-worker ] || { echo 'BACKUP_WINDOW_ARGUMENTS_INVALID' >&2; exit 2; }
+  quiesce=true
+fi
 mode=$1
 candidate=$2
 run_id=$3
@@ -24,7 +29,6 @@ resume_healthy_server() {
   for attempt in $(seq 1 60); do
     if [ "$(docker inspect --format '{{.State.Status}}' "$server")" = running ] &&
        [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server")" = healthy ]; then
-      rm -f "$session/quiescent"
       return 0
     fi
     sleep 2
@@ -33,12 +37,56 @@ resume_healthy_server() {
   return 1
 }
 
+# IDs, image digests and the shared volume must still describe the captured runtime.
+runtime_matches() {
+  maintenance_lock_owned_by "$guardian" || return 1
+  [ "$server" = "$(docker compose --env-file .env.production ps --all --quiet server)" ] &&
+  [ "$worker" = "$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)" ] &&
+  [ "$image" = "$(docker inspect --format '{{.Image}}' "$server")" ] || return 1
+  case "$(docker inspect --format '{{.State.Status}}' "$server")" in running|exited) ;; *) return 1 ;; esac
+  case "$(docker inspect --format '{{.State.Status}}' "$worker")" in running|exited) ;; *) return 1 ;; esac
+  if [ -n "$worker_image" ]; then
+    [ "$worker_image" = "$(docker inspect --format '{{.Image}}' "$worker")" ] || return 1
+  fi
+  [ "$volume" = "$(docker inspect --format "$volume_format" "$server")" ] &&
+  [ "$volume" = "$(docker inspect --format "$volume_format" "$worker")" ]
+}
+
+resume_original_runtime() {
+  runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; return 1; }
+  resume_healthy_server || return 1
+  # The only worker-start authorization is the private captured record plus flag.
+  if [ "$quiesce" = true ] && [ "$authorized_quiesce" = true ] && [ "$worker_was_running" = true ]; then
+    runtime_matches || return 1
+    if [ -f "$session/worker-draining" ] && [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = running ]; then
+      # A TERM-pending process cannot be restored by docker start (a no-op).
+      docker kill --signal TERM "$worker" >/dev/null || return 1
+      for attempt in $(seq 1 60); do
+        [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ] && break
+        sleep 2
+      done
+      [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ] || { echo BACKUP_WORKER_DRAIN_PENDING >&2; return 1; }
+    fi
+    runtime_matches || return 1
+    docker start "$worker" >/dev/null || { echo BACKUP_WORKER_RESTART_FAILED >&2; return 1; }
+    [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = running ] || return 1
+  fi
+  rm -f "$session/quiescent" "$session/worker-draining"
+}
+volume_format='{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}'
+
 if [ "$mode" = prepare ]; then
   [ ! -e "$session" ] || { echo 'BACKUP_TARGET_EXISTS' >&2; exit 2; }
   server=$(docker compose --env-file .env.production ps --status running --quiet server)
   worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
   [[ "$server" =~ ^[a-f0-9]{64}$ ]] && [[ "$worker" =~ ^[a-f0-9]{64}$ ]]
-  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ] || { echo 'BACKUP_WORKER_NOT_QUIESCENT' >&2; exit 2; }
+  worker_state=$(docker inspect --format '{{.State.Status}}' "$worker")
+  case "$worker_state" in exited) worker_was_running=false ;; running)
+    [ "$quiesce" = true ] || { echo BACKUP_WORKER_NOT_QUIESCENT >&2; exit 2; }
+    worker_was_running=true ;; *) echo BACKUP_WORKER_STATE_UNKNOWN >&2; exit 2 ;; esac
+  authorized_quiesce=$quiesce
+  worker_image=$(docker inspect --format '{{.Image}}' "$worker")
+  [[ "$worker_image" =~ ^sha256:[a-f0-9]{64}$ ]]
   volume_format='{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}'
   volume=$(docker inspect --format "$volume_format" "$server")
   case "$volume" in ''|*[!A-Za-z0-9_.-]*) exit 2 ;; esac
@@ -51,18 +99,22 @@ if [ "$mode" = prepare ]; then
   git -C "$repo" show "$candidate:deploy/stateful_backup.py" > "$session/stateful_backup.py"
   git -C "$repo" show "$candidate:deploy/maintenance-lock.sh" > "$session/maintenance-lock.sh"
   . "$session/maintenance-lock.sh"
-  python3 - "$session/runtime.json" "$server" "$worker" "$volume" "$image" "$candidate" <<'PY'
+  python3 - "$session/runtime.json" "$server" "$worker" "$volume" "$image" "$candidate" "$worker_image" "$worker_was_running" "$authorized_quiesce" <<'PY'
 import json, sys
 from pathlib import Path
-Path(sys.argv[1]).write_text(json.dumps(dict(zip(('server', 'worker', 'volume', 'image', 'candidate'), sys.argv[2:], strict=True))))
+x=dict(zip(('server','worker','volume','image','candidate','worker_image','worker_was_running','authorized_quiesce'),sys.argv[2:],strict=True))
+for k in ('worker_was_running','authorized_quiesce'): x[k]=x[k]=='true'
+Path(sys.argv[1]).write_text(json.dumps(x))
 PY
+  git -C "$repo" show "$candidate:deploy/report-backup-window.sh" > "$session/recovery-window.sh"
   stopped=false
+  worker_stopped=false
   restore_on_failure() {
     result=$?
     trap - EXIT
-    if [ "$result" -ne 0 ] && [ "$stopped" = false ]; then rm -f "$session/quiescent"; fi
-    if [ "$result" -ne 0 ] && [ "$stopped" = true ]; then
-      resume_healthy_server || echo 'BACKUP_SERVER_RESTART_FAILED' >&2
+    if [ "$result" -ne 0 ] && [ "$stopped" = false ] && [ "$worker_stopped" = false ]; then rm -f "$session/quiescent"; fi
+    if [ "$result" -ne 0 ] && { [ "$stopped" = true ] || [ "$worker_stopped" = true ]; }; then
+      resume_original_runtime || echo 'BACKUP_SERVER_RESTART_FAILED' >&2
     fi
     exit "$result"
   }
@@ -78,13 +130,13 @@ PY
     echo "$$" > "$1/guardian-ready"
     deadline=$((SECONDS + 1800))
     while [ -f "$1/quiescent" ]; do
-      if [ "$SECONDS" -ge "$deadline" ]; then
+      if [ "$SECONDS" -ge "$deadline" ] || { [ ! -f "$1/prepared" ] && ! kill -0 "$9" 2>/dev/null; }; then
         # Keep exclusion and retry if Docker is temporarily unavailable.
-        timeout 75s docker start "$2" >/dev/null && rm -f "$1/quiescent"
+        timeout 300s bash "$1/recovery-window.sh" resume "$4" "$5" "$6" "$7" ${8:+"$8"} >/dev/null
       fi
       sleep 2
     done
-  ' watchdog "$session" "$server" "$session" </dev/null >"$session/watchdog.log" 2>&1 &
+  ' watchdog "$session" "$server" "$session" "$candidate" "$run_id" "$repo" "$base" "$([ "$quiesce" = true ] && echo --quiesce-worker || true)" "$$" </dev/null >"$session/watchdog.log" 2>&1 &
   guardian=$!
   for attempt in $(seq 1 100); do
     [ -f "$session/guardian-ready" ] && maintenance_lock_owned_by "$guardian" && break
@@ -92,9 +144,48 @@ PY
     sleep 0.1
   done
   maintenance_lock_owned_by "$guardian" || { echo 'BACKUP_GUARDIAN_NOT_READY' >&2; exit 2; }
-  # The guard may have recovered/replaced a service while we acquired exclusion.
-  [ "$server" = "$(docker compose --env-file .env.production ps --status running --quiet server)" ]
-  [ "$worker" = "$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)" ]
+  # Read-only capacity estimate, not a freeze: live writes may invalidate preview.
+  runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
+  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = "$worker_state" ]
+  docker run --rm --network none --read-only --user 0 \
+    --mount "type=volume,src=$volume,dst=/source,readonly" \
+    --mount "type=bind,src=$session,dst=/backups,readonly" \
+    --mount "type=bind,src=$session/stateful_backup.py,dst=/tool.py,readonly" \
+    --entrypoint /opt/report-env/bin/python "$image" -B -c '
+import importlib.util,shutil,sys
+from pathlib import Path
+try:
+    spec=importlib.util.spec_from_file_location("backup_tool","/tool.py")
+    tool=importlib.util.module_from_spec(spec); spec.loader.exec_module(tool)
+    source=Path("/source"); files=tool.inventory(source)
+    class Counter:
+        count=0
+        def tell(self): return self.count
+        def write(self,data): self.count+=len(data); return len(data)
+    limit=shutil.disk_usage("/backups").free-128*1024*1024
+    if limit<=0: raise ValueError("capacity")
+    tool._stream_compressed_state(source,Counter(),files,limit,1)
+except Exception:
+    print("BACKUP_PREFLIGHT_FAILED",file=sys.stderr); sys.exit(2)
+print("BACKUP_PREFLIGHT_OK")'
+  runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
+  [ -f "$session/quiescent" ]
+  [ "$(docker inspect --format '{{.State.Status}}' "$server")" = running ]
+  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = "$worker_state" ]
+  if [ "$worker_was_running" = true ]; then
+    worker_stopped=true
+    touch "$session/worker-draining"
+    # TERM lets the sequential worker finish the current cycle; never force-kill.
+    docker kill --signal TERM "$worker" >/dev/null
+    for attempt in $(seq 1 450); do
+      [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ] && break
+      sleep 2
+    done
+    [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ] || { echo BACKUP_WORKER_DRAIN_TIMEOUT >&2; exit 2; }
+    [ "$(docker inspect --format '{{.State.ExitCode}}' "$worker")" = 0 ] || { echo BACKUP_WORKER_NOT_GRACEFUL >&2; exit 2; }
+  fi
+  runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
+  [ -f "$session/quiescent" ]
   [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
   stopped=true
   docker stop --time 75 "$server" >/dev/null
@@ -113,12 +204,13 @@ PY
   [ -f "$session/quiescent" ]
   [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
   [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
+  touch "$session/prepared"
   trap - EXIT
   echo 'FULL_BACKUP_CREATED_SERVER_QUIESCENT'
   exit 0
 fi
 
-record=$(python3 - "$session/runtime.json" "$candidate" <<'PY'
+record=$(python3 - "$session/runtime.json" "$candidate" "$quiesce" <<'PY'
 import json, re, sys
 from pathlib import Path
 try:
@@ -127,10 +219,14 @@ try:
     assert all(re.fullmatch('[a-f0-9]{64}', x[k]) for k in ('server', 'worker'))
     assert re.fullmatch('[A-Za-z0-9_.-]+', x['volume'])
     assert re.fullmatch('sha256:[a-f0-9]{64}', x['image'])
+    for k in ('worker_was_running','authorized_quiesce'): assert type(x.get(k,False)) is bool
+    assert isinstance(x.get('worker_image',''),str)
+    if x.get('worker_image'): assert re.fullmatch('sha256:[a-f0-9]{64}',x['worker_image'])
+    if sys.argv[3]=='true': assert x.get('authorized_quiesce') is True and x.get('worker_image')
 except (OSError, ValueError, TypeError, KeyError, AssertionError):
     print('BACKUP_RUNTIME_RECORD_UNAVAILABLE', file=sys.stderr)
     sys.exit(2)
-print('\n'.join(x[k] for k in ('server', 'worker', 'volume', 'image')))
+print('\n'.join([*(x[k] for k in ('server','worker','volume','image')),x.get('worker_image',''),str(x.get('worker_was_running',False)).lower(),str(x.get('authorized_quiesce',False)).lower()]))
 PY
 )
 mapfile -t fields <<< "$record"
@@ -138,14 +234,22 @@ server=${fields[0]}
 worker=${fields[1]}
 volume=${fields[2]}
 image=${fields[3]}
+worker_image=${fields[4]}
+worker_was_running=${fields[5]}
+authorized_quiesce=${fields[6]}
 . "$session/maintenance-lock.sh"
 guardian=$(cat "$session/guardian-ready")
 maintenance_lock_owned_by "$guardian" || { echo BACKUP_GUARDIAN_UNAVAILABLE >&2; exit 2; }
 if [ "$mode" = resume ]; then
-  resume_healthy_server
-  echo 'ORIGINAL_SERVER_RESUMED_WORKER_UNCHANGED'
+  resume_original_runtime
+  if [ "$quiesce" = true ] && [ "$worker_was_running" = true ]; then
+    echo ORIGINAL_SERVER_HEALTHY_ORIGINAL_WORKER_RESUMED
+  else
+    echo ORIGINAL_SERVER_RESUMED_WORKER_UNCHANGED
+  fi
   exit 0
 fi
+runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
 [ -f "$session/quiescent" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
 [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
@@ -156,6 +260,7 @@ docker run --rm --network none --read-only --user 0 \
   --entrypoint /opt/report-env/bin/python "$image" -B /tool.py match-source \
   --source /source --backup /backups/backup
 # The watchdog may have fired during the full inventory/hash scan.
+runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
 [ -f "$session/quiescent" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
 [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
