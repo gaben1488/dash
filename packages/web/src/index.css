@@ -5121,6 +5121,7 @@
 /* Page-family dawn lives in the selected object, not merely in its halo.
    OrgStrip and source warning states are outside this header-only surface. */
 .header-glass .hbar {
+  --lazur: var(--hdr-sky);
   --hdr-selected: linear-gradient(180deg, var(--hdr-sky, #5b99f8), var(--hdr-horizon, #e5d3a9));
 }
 .header-glass .hbar :is(.tg-month-active,.tg-year-full,.tg-quarter-tab-full,.wr-row-driving:not(.wr-row-future):not(.wr-row-empty),.vf-btn-active,.vf-cur-active,.np-btn-active .np-content) {

@@ -196,3 +196,15 @@ does not mean the frontend is installed. Existing production journal lacks
 out at15s. The Word check now requires a nonempty real12.10.2026/2026/Q4
 publication, not an empty future-day envelope. Health remains HTTP200/ok.
 Canonical#69/#79/#93 retain the source/fence/fresh recovery release dependencies.
+
+Reproducible offline navigation QA (source base dbfa61c4):
+`node scripts/build-navigation-qa.mjs` bundles the actual Header, ThemeProvider,
+store and journal components with synthetic fixtures only. The standalone
+`packages/web/navigation-qa.html` and ZIP remain private/untracked. The page
+contains 13 interactive palette swatches, journal/filter/error presets and
+HTML/ZIP self-download; it embeds its Git base and SHA-256 source manifest.
+The earlier embedded static screenshot gallery is replaced by these controls.
+Run `node --test scripts/build-navigation-qa.test.mjs` and, with Playwright
+Chromium installed, `python3 packages/web/scripts/navigation-qa-browser.py`.
+This verifies component behavior offline; it does not attest production data,
+source availability, financial calculations, authentication or release readiness.

@@ -1,0 +1,8 @@
+/* Only the QA explanation/presets; production Header geometry is untouched. */
+.qa-main{padding:24px;min-height:calc(100vh - 180px);font-family:'Inter Variable',sans-serif;background-color:var(--surface-base);color:var(--ink)}
+.qa-main h1{font-size:24px;font-weight:650;margin:12px 0}.qa-main p{font-size:12px;line-height:1.6;margin:10px 0;overflow-wrap:anywhere}
+.qa-watermark{color:var(--ink-strong);font-weight:600}.qa-palettes,.qa-presets,.qa-download{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}
+.qa-main button{min-height:44px;padding:8px 14px;border-radius:10px;font-size:12px;border:1px solid var(--line-soft);cursor:pointer;color:var(--ink);background:var(--surface-raised)}
+.qa-palettes button{color:#1b170f!important}.qa-main button[aria-pressed=true]{outline:2px solid var(--ink-strong);outline-offset:2px}.qa-main button:focus-visible{outline:2px solid var(--ink-strong);outline-offset:3px}
+.qa-proof{margin:24px 0;font-size:12px}.qa-proof summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+@media(max-width:640px){.qa-main{padding:14px}}
