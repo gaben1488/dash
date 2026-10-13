@@ -168,6 +168,23 @@ Root не выполнял. Следующий шаг — надёжный bound
 для меняющегося состояния, затем same-owner release/rollback; не новый слепой
 повтор полной генерации или глобальное восстановление API.
 
+### Коррекция backup admission — 13.10.2026
+
+До quiescence проверяется только свободный disk budget ≥4 GiB, без полного
+чтения/hashing/compression живого тома. Это допуск попытки, не доказательство
+размера или целостности. Одна фактическая frozen copy использует gzip level1,
+archive-byte budget с резервом1 GiB и финальный observed floor после fsync
+manifest; другие host writers не дают абсолютной гарантии будущего остатка.
+Частичная ошибка удаляет только свой staging и возвращает исходный runtime.
+После отказа до первого TERM/stop private candidate/run-bound not-entered
+разрешает cleanup без ложного утверждения «API восстановлен»; started markers
+и symlinks запрещают такой shortcut. RED4 + guardian-symlink RED1 → Root32
+kernel/consumer tests PASS, reserve43 Root/independent PASS; полный Python
+1069 PASS (213.38s). Проверки выполнены последовательно: общий /run/lock
+не допускает конкурирующих kernel-fixtures.
+Fresh production copy/independent restore/source-match пока не выполнены;
+обязательность всех трёх сохраняется. R08 повторно не принимается.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:

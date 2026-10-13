@@ -41,7 +41,7 @@ elif args[0]=='inspect':
     else: print('synthetic_data')
 elif args[0]=='kill': pass
 elif args[0]=='run':
-    if 'BACKUP_PREFLIGHT_OK' in ' '.join(args): sys.exit(2 if scenario=='worker-running-capacity' else 0)
+    if 'BACKUP_SPACE_BUDGET_ADMITTED' in ' '.join(args) or 'BACKUP_PREFLIGHT_OK' in ' '.join(args): sys.exit(2 if scenario=='worker-running-capacity' else 0)
     if scenario=='match-watchdog':
         Path(os.environ['WINDOW_MARKER']).unlink()
         sys.exit(0)
@@ -109,7 +109,17 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
                     session.symlink_to(root / 'missing-target')
                 else:
                     session.mkdir()
-                    if scenario == 'never-entered':
+                    if scenario.startswith('never-entered-declined'):
+                        (session / 'guardian-ready').write_text('999999999')
+                        marker=session/'not-entered'
+                        marker.write_text('d'*40+':1\n')
+                        if scenario.endswith('-guardian-symlink'):
+                            ready=session/'guardian-ready'; ready.unlink(); ready.symlink_to(root/'missing')
+                        if scenario.endswith('-wrong'): marker.write_text('e'*40+':1\n')
+                        if scenario.endswith('-prepared'): (session/'prepared').touch()
+                        if scenario=='never-entered-declined-symlink':
+                            marker.unlink(); marker.symlink_to(root/'missing')
+                    elif scenario == 'never-entered':
                         (session / 'runtime.json').write_text('{}')
                     else:
                         (session / scenario.removeprefix('never-entered-')).touch()
@@ -126,6 +136,7 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
                                          'WINDOW_HELPER': str(SCRIPT.parent / 'maintenance-lock.sh'), 'WINDOW_SCRIPT':str(SCRIPT),
                                          'worker_was_running':'true','authorized_quiesce':'true','quiesce':'true'})
             result.git_calls=(root/'git-trace').read_text().splitlines() if (root/'git-trace').exists() else []
+            result.not_entered=(session/'not-entered').read_text() if (session/'not-entered').is_file() else None
             result.runtime=json.loads((session/'runtime.json').read_text()) if (session/'runtime.json').exists() else None
             # A failed health check intentionally retains quiescence. Clean up only
             # the synthetic window after assertions can inspect its command trace.
@@ -252,7 +263,7 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
     def test_capacity_preview_failure_precedes_any_stop(self):
         result,calls=self.run_window('worker-running-capacity',flag='--quiesce-worker')
         self.assertNotEqual(result.returncode,0)
-        self.assertTrue(any(c[0]=='run' and 'BACKUP_PREFLIGHT_OK' in ' '.join(c) for c in calls))
+        self.assertTrue(any(c[0]=='run' and 'BACKUP_SPACE_BUDGET_ADMITTED' in ' '.join(c) for c in calls))
         self.assertFalse(any(c[0] in {'kill','stop','start'} for c in calls))
 
     def test_changed_worker_image_never_quiesced(self):
@@ -272,24 +283,49 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
         self.assertNotIn('ORIGINAL_SERVER_RESUMED',result.stdout)
         self.assertEqual([c for c in calls if c[0]=='start'],[['start','a'*64],['start','b'*64]])
 
-    def test_real_counter_preview_is_read_only_and_enforces_compressed_bound(self):
+    def test_space_admission_does_not_read_or_compress_the_live_volume(self):
         _,calls=self.run_window('worker-running-capacity',flag='--quiesce-worker')
-        code=next(c[c.index('-c')+1] for c in calls if c[0]=='run' and 'BACKUP_PREFLIGHT_OK' in ' '.join(c))
+        call=next(c for c in calls if c[0]=='run' and any(token in ' '.join(c) for token in ('BACKUP_SPACE_BUDGET_ADMITTED','BACKUP_PREFLIGHT_OK')))
+        self.assertFalse(any('dst=/source' in a or 'dst=/tool.py' in a for a in call))
+        code=call[call.index('-c')+1]
+        self.assertNotIn('inventory',code)
+        self.assertNotIn('_stream_compressed',code)
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); source=root/'source'; source.mkdir(); destination=root/'backups'; destination.mkdir()
-            data=os.urandom(4096); (source/'state.bin').write_bytes(data)
-            (source/'aemr.db').write_bytes(b'synthetic')
-            (source/'reports/inputs').mkdir(parents=True); (source/'reports/published').mkdir()
-            (source/'reports/inputs/registry.json').write_text('{}'); (source/'reports/inputs/ledger.json').write_text('{}')
-            (source/'reports/published/report.docx').write_bytes(b'synthetic')
-            actual=code.replace('"/source"',repr(str(source))).replace('"/backups"',repr(str(destination))).replace('"/tool.py"',repr(str(SCRIPT.parent/'stateful_backup.py')))
-            for free,expected in [(128*1024*1024+1,2),(128*1024*1024+100000,0)]:
+            root=Path(tmp)
+            actual=code.replace('"/backups"',repr(str(root)))
+            for free,expected in [(4*1024**3-1,2),(4*1024**3,0)]:
                 prefix=f'import shutil; from types import SimpleNamespace; shutil.disk_usage=lambda _:SimpleNamespace(free={free})\n'
                 result=subprocess.run(['python3','-c',prefix+actual],capture_output=True,text=True,check=False)
                 self.assertEqual(result.returncode,expected,result.stderr)
                 self.assertNotIn('Traceback',result.stderr)
-                self.assertEqual((source/'state.bin').read_bytes(),data)
-                self.assertEqual(list(destination.iterdir()),[])
+                self.assertEqual(list(root.iterdir()),[])
+
+    def test_single_frozen_capture_uses_fast_compression_and_one_gib_reserve(self):
+        _,calls=self.run_window('worker-running-backup-failed',flag='--quiesce-worker')
+        captures=[c for c in calls if c[0]=='run' and '/tool.py' in c and 'create' in c]
+        self.assertEqual(len(captures),1)
+        capture=captures[0]
+        self.assertIn('--compression-level',capture)
+        self.assertEqual(capture[capture.index('--compression-level')+1],'1')
+        self.assertEqual(capture[capture.index('--reserve-bytes')+1],str(1024**3))
+        self.assertLess(calls.index(['stop','--time','75','a'*64]),calls.index(capture))
+
+    def test_declined_budget_records_no_runtime_transition(self):
+        result,calls=self.run_window('worker-running-capacity',flag='--quiesce-worker')
+        self.assertEqual(result.not_entered,'d'*40+':1\n')
+        self.assertFalse(any(c[0] in {'kill','stop','start'} for c in calls))
+
+    def test_declined_window_resume_after_guardian_exit_is_noop(self):
+        result,calls=self.run_window('never-entered-declined','resume')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('BACKUP_WINDOW_NOT_ENTERED',result.stdout)
+        self.assertEqual(calls,[])
+        for suffix in ('wrong','prepared','symlink','guardian-symlink'):
+            with self.subTest(suffix=suffix):
+                result,calls=self.run_window('never-entered-declined-'+suffix,'resume')
+                self.assertNotEqual(result.returncode,0)
+                self.assertNotIn('BACKUP_WINDOW_NOT_ENTERED',result.stdout)
+                self.assertEqual(calls,[])
 
     def test_unknown_worker_state_rejects_before_mutations(self):
         result,calls=self.run_window('worker-unknown',flag='--quiesce-worker')

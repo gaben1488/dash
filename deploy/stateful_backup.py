@@ -229,7 +229,9 @@ def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_on
         os.chmod(target, info["mode"])
 
 
-def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scratch: bool = False, compression_level: int = 9) -> dict:
+def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scratch: bool = False, compression_level: int = 9, reserve_bytes: int = 128 * 1024 * 1024) -> dict:
+    if type(reserve_bytes) is not int or reserve_bytes < 128 * 1024 * 1024:
+        raise BackupError("BACKUP_RESERVE_INVALID")
     source = source.resolve(strict=True)
     backup = backup.resolve(strict=False)
     check_nonoverlapping(source, backup)
@@ -241,8 +243,9 @@ def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scra
     total = sum(int(row["bytes"]) for row in before.values())
     # Requires room for both the backup and its later independent scratch restore.
     free = shutil.disk_usage(backup.parent).free
-    reserve = 128 * 1024 * 1024
-    if free < (reserve if compressed else total * 2 + reserve):
+    reserve = reserve_bytes
+    if ((compressed and free <= reserve + (total if reserve_scratch else 0))
+            or (not compressed and free < total * 2 + reserve)):
         raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
     staging = Path(tempfile.mkdtemp(prefix=".aemr-backup-", dir=backup.parent))
     try:
@@ -265,6 +268,10 @@ def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scra
             json.dump(manifest, stream, ensure_ascii=False, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
+        # Archive bounds exclude filesystem/manifest overhead. Observe the floor
+        # after metadata is durable, before accepting the immutable backup.
+        if shutil.disk_usage(backup.parent).free < reserve + (total if reserve_scratch else 0):
+            raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
         staging.rename(backup)
     finally:
         if staging.exists():
@@ -497,6 +504,7 @@ def main() -> int:
     write.add_argument("--compressed", action="store_true",
                        help="Полная сжатая копия; восстановление может требовать другой диск")
     write.add_argument("--compression-level", type=int, choices=range(1, 10), default=9)
+    write.add_argument("--reserve-bytes", type=int, default=128 * 1024 * 1024, help="Preserve at least this many free bytes (minimum 128 MiB)")
     write.add_argument("--reserve-scratch", action="store_true", help="Reserve one full local scratch restore during compressed capture")
     capacity = sub.add_parser("release-capacity", help="Read-only compressed checkpoint and scratch storage preview")
     capacity.add_argument("--source", type=Path, required=True)
@@ -525,7 +533,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == 'create':
-            result = create(args.source, args.backup, compressed=args.compressed, reserve_scratch=args.reserve_scratch, compression_level=args.compression_level)
+            result = create(args.source, args.backup, compressed=args.compressed, reserve_scratch=args.reserve_scratch, compression_level=args.compression_level, reserve_bytes=args.reserve_bytes)
         elif args.command == 'release-capacity':
             result = release_capacity(args.source, args.backup_parent, args.prior_backup, args.scratch_parent)
         elif args.command == 'match-reports':

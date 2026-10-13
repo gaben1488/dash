@@ -336,6 +336,97 @@ class StatefulBackupTests(unittest.TestCase):
         self.assertIn("BACKUP_PATH_OVERLAP", result.stderr)
         self.assertFalse(target.exists())
 
+    def test_requested_reserve_bounds_actual_compressed_writer(self):
+        reserve = 1024 * 1024 * 1024
+        with (patch.object(self.module.shutil, 'disk_usage', return_value=type('Disk', (), {'free': reserve + 100000})()),
+              patch.object(self.module, '_compress_state', wraps=self.module._compress_state) as writer):
+            self.module.create(self.source, self.backup, compressed=True, reserve_bytes=reserve)
+        self.assertEqual(writer.call_args.args[3], 100000)
+        self.assertTrue((self.backup / 'manifest.json').exists())
+
+    def test_requested_reserve_refuses_before_allocating_compressed_or_plain_backup(self):
+        reserve = 1024 * 1024 * 1024
+        before = self.module.inventory(self.source)
+        for compressed in (True, False):
+            with (self.subTest(compressed=compressed),
+                  patch.object(self.module.shutil, 'disk_usage', return_value=type('Disk', (), {'free': reserve - 1})()),
+                  patch.object(self.module.tempfile, 'mkdtemp') as allocation,
+                  self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT')):
+                self.module.create(self.source, self.backup, compressed=compressed, reserve_bytes=reserve)
+            allocation.assert_not_called()
+        self.assertEqual(self.module.inventory(self.source), before)
+        self.assertFalse(self.backup.exists())
+
+    def test_larger_reserve_and_scratch_budget_combine_without_allocating_at_limit(self):
+        reserve = 1024 * 1024 * 1024
+        total = sum(row['bytes'] for row in self.module.inventory(self.source).values())
+        with (patch.object(self.module.shutil, 'disk_usage', return_value=type('Disk', (), {'free': reserve + total})()),
+              patch.object(self.module.tempfile, 'mkdtemp') as allocation,
+              self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT')):
+            self.module.create(self.source, self.backup, compressed=True, reserve_scratch=True, reserve_bytes=reserve)
+        allocation.assert_not_called()
+
+    def test_larger_reserve_writer_failure_removes_partial_archive_without_source_change(self):
+        import os
+        reserve = 1024 * 1024 * 1024
+        (self.source / 'reports/attempts/noise').write_bytes(os.urandom(100000))
+        before = self.module.inventory(self.source)
+        with (patch.object(self.module.shutil, 'disk_usage', return_value=type('Disk', (), {'free': reserve + 1000})()),
+              self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT')):
+            self.module.create(self.source, self.backup, compressed=True, reserve_bytes=reserve)
+        self.assertEqual(self.module.inventory(self.source), before)
+        self.assertFalse(self.backup.exists())
+        self.assertEqual(list(self.backup.parent.glob('.aemr-backup-*')), [])
+
+    def test_final_observed_floor_includes_manifest_and_reserved_scratch(self):
+        reserve = 1024 * 1024 * 1024
+        before = self.module.inventory(self.source)
+        total = sum(row['bytes'] for row in before.values())
+        for compressed, scratch in ((True, False), (True, True), (False, False)):
+            floor = reserve + (total if scratch else 0)
+            disk = type('Disk', (), {})
+            initial, final = disk(), disk()
+            initial.free, final.free = reserve + 2 * total + 100000, floor - 1
+            with (self.subTest(compressed=compressed, scratch=scratch),
+                  patch.object(self.module.shutil, 'disk_usage', side_effect=[initial, final]),
+                  self.assertRaisesRegex(self.module.BackupError, 'BACKUP_STORAGE_INSUFFICIENT')):
+                self.module.create(self.source, self.backup, compressed=compressed,
+                                   reserve_scratch=scratch, reserve_bytes=reserve)
+            self.assertFalse(self.backup.exists())
+            self.assertEqual(list(self.backup.parent.glob('.aemr-backup-*')), [])
+            self.assertEqual(self.module.inventory(self.source), before)
+
+    def test_final_observed_floor_accepts_exact_reserve_plus_scratch(self):
+        reserve = 1024 * 1024 * 1024
+        total = sum(row['bytes'] for row in self.module.inventory(self.source).values())
+        disk = type('Disk', (), {})
+        initial, final = disk(), disk()
+        initial.free, final.free = reserve + total + 100000, reserve + total
+        with patch.object(self.module.shutil, 'disk_usage', side_effect=[initial, final]):
+            self.module.create(self.source, self.backup, compressed=True,
+                               reserve_scratch=True, reserve_bytes=reserve)
+        self.assertTrue((self.backup / 'manifest.json').exists())
+
+    def test_invalid_requested_reserve_fails_before_source_or_allocation(self):
+        for reserve in (0, -1, 128 * 1024 * 1024 - 1, True, 1.5, '1073741824'):
+            with (self.subTest(reserve=reserve), patch.object(self.module, 'inventory') as inventory,
+                  patch.object(self.module.tempfile, 'mkdtemp') as allocation,
+                  self.assertRaisesRegex(self.module.BackupError, 'BACKUP_RESERVE_INVALID')):
+                self.module.create(self.source, self.backup, reserve_bytes=reserve)
+            inventory.assert_not_called()
+            allocation.assert_not_called()
+
+    def test_create_cli_exposes_reserve_with_fixed_invalid_error(self):
+        result = self.run_cli('create', '--source', self.source, '--backup', self.backup,
+                              '--compressed', '--reserve-bytes', 0)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_RESERVE_INVALID', result.stderr)
+        self.assertFalse(self.backup.exists())
+        result = self.run_cli('create', '--source', self.source, '--backup', self.backup,
+                              '--compressed', '--reserve-bytes', 129 * 1024 * 1024)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['state'], 'BACKUP_CREATED')
+
     def test_compressed_writer_respects_free_space_reserve_and_cleans_partial_archive(self):
         import os
         spec = importlib.util.spec_from_file_location("stateful_backup", SCRIPT)

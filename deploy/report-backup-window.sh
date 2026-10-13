@@ -43,6 +43,18 @@ repo_git() {
 # A failed pre-window prepare has no runtime to resume. Never hide real windows.
 if [ "$mode" = resume ]; then
   [ ! -L "$session" ] || { echo BACKUP_RUNTIME_RECORD_UNAVAILABLE >&2; exit 2; }
+  # Written only by the failure trap before either runtime transition begins.
+  # A dead guardian after declined admission has no stopped runtime to recover.
+  if [ -d "$session" ] && [ -f "$session/not-entered" ] && [ ! -L "$session/not-entered" ] &&
+     [ "$(cat "$session/not-entered")" = "$candidate:$run_id" ] &&
+     [ ! -L "$session/guardian-ready" ] &&
+     { [ ! -e "$session/guardian-ready" ] || [ -f "$session/guardian-ready" ]; } &&
+     [ ! -e "$session/prepared" ] && [ ! -L "$session/prepared" ] &&
+     [ ! -e "$session/worker-draining" ] && [ ! -L "$session/worker-draining" ] &&
+     [ ! -e "$session/quiescent" ] && [ ! -L "$session/quiescent" ]; then
+    echo BACKUP_WINDOW_NOT_ENTERED
+    exit 0
+  fi
   if [ -d "$base" ] && [ -r "$base" ] && [ -x "$base" ] &&
      { [ ! -e "$session" ] || [ -d "$session" ]; } &&
      [ ! -e "$session/guardian-ready" ] && [ ! -L "$session/guardian-ready" ] &&
@@ -149,7 +161,10 @@ PY
   restore_on_failure() {
     result=$?
     trap - EXIT
-    if [ "$result" -ne 0 ] && [ "$stopped" = false ] && [ "$worker_stopped" = false ]; then rm -f "$session/quiescent"; fi
+    if [ "$result" -ne 0 ] && [ "$stopped" = false ] && [ "$worker_stopped" = false ]; then
+      printf '%s:%s\n' "$candidate" "$run_id" > "$session/not-entered"
+      rm -f "$session/quiescent"
+    fi
     if [ "$result" -ne 0 ] && { [ "$stopped" = true ] || [ "$worker_stopped" = true ]; }; then
       resume_original_runtime || echo 'BACKUP_SERVER_RESTART_FAILED' >&2
     fi
@@ -181,30 +196,21 @@ PY
     sleep 0.1
   done
   maintenance_lock_owned_by "$guardian" || { echo 'BACKUP_GUARDIAN_NOT_READY' >&2; exit 2; }
-  # Read-only capacity estimate, not a freeze: live writes may invalidate preview.
+  # Cheap attempt admission only: do not hash/compress mutable live state here.
+  # The frozen writer enforces 1 GiB reserve; full independent restore stays required.
   runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
   [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = "$worker_state" ]
   docker run --rm --network none --read-only --user 0 \
-    --mount "type=volume,src=$volume,dst=/source,readonly" \
     --mount "type=bind,src=$session,dst=/backups,readonly" \
-    --mount "type=bind,src=$session/stateful_backup.py,dst=/tool.py,readonly" \
     --entrypoint /opt/report-env/bin/python "$image" -B -c '
-import importlib.util,shutil,sys
-from pathlib import Path
+import shutil,sys
 try:
-    spec=importlib.util.spec_from_file_location("backup_tool","/tool.py")
-    tool=importlib.util.module_from_spec(spec); spec.loader.exec_module(tool)
-    source=Path("/source"); files=tool.inventory(source)
-    class Counter:
-        count=0
-        def tell(self): return self.count
-        def write(self,data): self.count+=len(data); return len(data)
-    limit=shutil.disk_usage("/backups").free-128*1024*1024
-    if limit<=0: raise ValueError("capacity")
-    tool._stream_compressed_state(source,Counter(),files,limit,1)
-except Exception:
-    print("BACKUP_PREFLIGHT_FAILED",file=sys.stderr); sys.exit(2)
-print("BACKUP_PREFLIGHT_OK")'
+    if shutil.disk_usage("/backups").free < 4*1024**3:
+        print("BACKUP_SPACE_BUDGET_INSUFFICIENT",file=sys.stderr); sys.exit(2)
+except OSError:
+    print("BACKUP_SPACE_BUDGET_UNAVAILABLE",file=sys.stderr); sys.exit(2)
+print("BACKUP_SPACE_BUDGET_ADMITTED")'
+
   runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
   [ -f "$session/quiescent" ]
   [ "$(docker inspect --format '{{.State.Status}}' "$server")" = running ]
@@ -232,7 +238,7 @@ print("BACKUP_PREFLIGHT_OK")'
     --mount "type=bind,src=$session,dst=/backups" \
     --mount "type=bind,src=$session/stateful_backup.py,dst=/tool.py,readonly" \
     --entrypoint /opt/report-env/bin/python "$image" -B /tool.py create \
-    --source /source --backup /backups/backup --compressed
+    --source /source --backup /backups/backup --compressed --compression-level 1 --reserve-bytes 1073741824
   # Outer archive ownership only; original file attributes remain in manifest/tar.
   docker run --rm --network none --read-only --user 0 \
     --mount "type=bind,src=$session,dst=/backups" \
