@@ -120,6 +120,18 @@ lock в finally;19consumer tests PASS, pinned Ruff PASS, independent review PASS
 Следующий backup требует свежие три source jobs на исправленном SHA; прежний
 1069PASS до изменения backup ABI не переносится на этот новый код.
 
+После исправления fixture Root полный report-engine1069 PASS (184.11s).
+R07/R09 code prerequisite: restore-state восстанавливает полный остановленный
+designated volume из форматов1/2 без дополнительного24GB scratch; перед первым
+удалением проверяет verifiedmanifest/content/boundaries/ownership/netcapacity.
+Root35 и independent35 filesystem tests PASS: badarchive/digest/paths не меняют
+source, interrupted retry и реальный незавершённый WAL сохраняют полный exact
+inventory/owner/mode; private backup неизменна. ADR0003 обновлён перед кодом.
+Это ещё не production rollback: durable release-owner-loss recovery, внешнее
+full-restore под тем же EX owner, previous-image compatibility и закрытый ingress
+до acceptance требуют полного контроллера. Нельзя выпускать по одному helper
+или запускать плохой candidate обычным guard после потери release-актора.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:

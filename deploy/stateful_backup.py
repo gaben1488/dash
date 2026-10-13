@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Проверяемая копия всего server_data и отдельно ограниченное восстановление reports/.
 
-Источник ОБЯЗАН быть остановленным для записи (server и report-worker).
-Программа не останавливает службы. Только restore-reports заменяет reports/
-в остановленном источнике; остальные команды источник не изменяют. Согласование окна
+Для capture/recovery источник ОБЯЗАН быть остановленным для записи.
+Программа не останавливает службы: restore-state заменяет весь назначенный том,
+restore-reports — только reports/. Остальные команды источник не изменяют;
+release-capacity является read-only оценкой, не подтверждением frozen состояния. Согласование окна
 и проверка quiescence остаются задачей вызывающего оператора.
 Не публикуйте копии, манифесты и вывод с первичными данными в Git.
 """
@@ -198,16 +199,16 @@ def _validate_archive_content(backup: Path, files: dict) -> None:
         raise BackupError('BACKUP_MISMATCH')
 
 
-def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_only=False) -> None:
+def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_only=False, in_place=False, only_paths=None) -> None:
     """Extract only expected regular files/directories; never use extractall."""
-    if not reports_only:
+    if not reports_only and not in_place:
         restored.mkdir(mode=0o700)
     seen = set()
     directories = []
     with tarfile.open(backup / "state.tar.gz", "r|gz") as stream:
         for member in stream:
             path, info = _checked_member(member, files, seen)
-            if reports_only and path.parts[0] != 'reports':
+            if (reports_only and path.parts[0] != 'reports') or (only_paths is not None and member.name + ('/' if member.isdir() else '') not in only_paths):
                 continue
             target = restored / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -215,17 +216,17 @@ def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_on
                 target.mkdir(exist_ok=True)
                 directories.append((target, info))
             else:
-                with stream.extractfile(member) as src, target.open("xb") as destination:
+                with stream.extractfile(member) as src, target.open("wb" if in_place else "xb") as destination:
                     shutil.copyfileobj(src, destination)
-                os.chmod(target, info["mode"])
                 if os.geteuid() == 0:
                     os.chown(target, info["uid"], info["gid"])
+                os.chmod(target, info["mode"])
     if seen != set(files):
         raise BackupError("BACKUP_MISMATCH")
     for target, info in reversed(directories):
-        os.chmod(target, info["mode"])
         if os.geteuid() == 0:
             os.chown(target, info["uid"], info["gid"])
+        os.chmod(target, info["mode"])
 
 
 def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scratch: bool = False, compression_level: int = 9) -> dict:
@@ -358,6 +359,86 @@ def restore_reports(backup: Path, source: Path, verified_manifest_sha256: str) -
             'sqlite_checked': dbs, 'docx_checked': documents, 'core_state_preserved': True}
 
 
+def _restore_plain(backup: Path, source: Path, files: dict, only_paths=None) -> None:
+    directories = []
+    for relative, info in files.items():
+        if only_paths is not None and relative not in only_paths:
+            continue
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if info.get('kind') == 'directory':
+            target.mkdir(exist_ok=True)
+            directories.append((target, info))
+        else:
+            shutil.copy2(backup / 'state' / relative, target)
+            if os.geteuid() == 0:
+                os.chown(target, info['uid'], info['gid'])
+            os.chmod(target, info['mode'])
+    for target, info in reversed(directories):
+        if os.geteuid() == 0:
+            os.chown(target, info['uid'], info['gid'])
+        os.chmod(target, info['mode'])
+
+
+def restore_state(backup: Path, source: Path, verified_manifest_sha256: str) -> dict:
+    """Full offline recovery only; EX ownership, ingress and writer shutdown are external admission."""
+    for path in (backup.absolute(), source.absolute()):
+        if any(p.is_symlink() for p in (path, *path.parents)):
+            raise BackupError('BACKUP_UNSAFE_FILE')
+    backup, source = backup.resolve(strict=True), source.resolve(strict=True)
+    check_nonoverlapping(source, backup)
+    if source == Path(source.anchor) or not source.is_dir() or (backup / 'manifest.json').is_symlink():
+        raise BackupError('BACKUP_UNSAFE_FILE')
+    if _archive_hash(backup / 'manifest.json') != verified_manifest_sha256:
+        raise BackupError('BACKUP_VERIFIED_MANIFEST_MISMATCH')
+    manifest, files, total = _validated_backup(backup)
+    required = {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}
+    if not required.issubset(files) or not any(k.startswith('reports/published/') and k.endswith('.docx') for k in files):
+        raise BackupError('BACKUP_STATE_INCOMPLETE')
+    if manifest['format'] == 2:
+        _validate_archive_content(backup, files)
+    current = inventory(source, require_complete=False)
+    # Reject nested mounts and ownership we cannot reproduce BEFORE deletion.
+    for relative in current:
+        path = source / relative
+        if path.stat().st_dev != source.stat().st_dev or path.is_mount():
+            raise BackupError('BACKUP_UNSAFE_FILE')
+    if os.geteuid() != 0 and any(info.get('uid') != os.geteuid() or info.get('gid') != os.getegid() for info in files.values()):
+        raise BackupError('BACKUP_OWNERSHIP_UNAVAILABLE')
+    reclaimable = sum((source / k).stat().st_blocks * 512 for k in current
+                      if not k.endswith('/') and (source / k).stat().st_nlink == 1)
+    if shutil.disk_usage(source).free + reclaimable < total + 128 * 1024 * 1024:
+        raise BackupError('BACKUP_STORAGE_INSUFFICIENT')
+    # A retry can start from any partial state. Nothing outside this directory is removed.
+    for child in source.iterdir():
+        if child.is_dir(): shutil.rmtree(child)
+        else: child.unlink()
+    if manifest['format'] == 2:
+        _restore_compressed(backup, source, files, in_place=True)
+    else:
+        _restore_plain(backup, source, files)
+    if inventory(source) != files:
+        raise BackupError('BACKUP_MISMATCH')
+    dbs, documents = verify_restored_documents_and_sqlite(source, files)
+    # Read-only SQLite can still create/change SHM. Close all connections and
+    # replay ONLY changed bytes/attributes, retaining the immutable backup itself.
+    checked = inventory(source, require_complete=False)
+    changed = {key for key, value in files.items() if checked.get(key) != value}
+    for key in sorted(set(checked) - set(files), key=lambda k: len(Path(k).parts), reverse=True):
+        path = source / key
+        if path.is_dir(): path.rmdir()
+        else: path.unlink()
+    if changed:
+        if manifest['format'] == 2:
+            _restore_compressed(backup, source, files, in_place=True, only_paths=changed)
+        else:
+            _restore_plain(backup, source, files, only_paths=changed)
+    if inventory(source) != files or _archive_hash(backup / 'manifest.json') != verified_manifest_sha256:
+        raise BackupError('BACKUP_MISMATCH')
+    return {'state':'STATE_RESTORED','files':len(files),'bytes':total,
+            'sqlite_checked':dbs,'docx_checked':documents,'manifest_sha256':verified_manifest_sha256}
+
+
 def verify(backup: Path, scratch_parent: Path, source: Path | None = None, *, trial_report_restore=False) -> dict:
     backup = backup.resolve(strict=True)
     scratch_parent = scratch_parent.resolve(strict=True)
@@ -431,6 +512,10 @@ def main() -> int:
     match = sub.add_parser('match-source', help='Compare quiesced source with a backup; does not claim restore')
     match.add_argument('--backup', type=Path, required=True)
     match.add_argument('--source', type=Path, required=True)
+    full = sub.add_parser('restore-state', help='Full offline recovery; admission and quiescence are external')
+    full.add_argument('--backup', type=Path, required=True)
+    full.add_argument('--source', type=Path, required=True)
+    full.add_argument('--verified-manifest-sha256', required=True)
     for command in ('match-reports', 'restore-reports'):
         scoped = sub.add_parser(command, help='Worker-only report-state operation, never full release')
         scoped.add_argument('--backup', type=Path, required=True)
@@ -445,6 +530,8 @@ def main() -> int:
             result = release_capacity(args.source, args.backup_parent, args.prior_backup, args.scratch_parent)
         elif args.command == 'match-reports':
             result = match_reports(args.backup, args.source)
+        elif args.command == 'restore-state':
+            result = restore_state(args.backup, args.source, args.verified_manifest_sha256)
         elif args.command == 'restore-reports':
             result = restore_reports(args.backup, args.source, args.verified_manifest_sha256)
         elif args.command == 'match-source':

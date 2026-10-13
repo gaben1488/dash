@@ -49,6 +49,112 @@ class StatefulBackupTests(unittest.TestCase):
             [sys.executable, str(SCRIPT), command, *map(str, args)],
             text=True, capture_output=True, timeout=25, check=False)
 
+    def full_backup(self, compressed=True):
+        import hashlib
+        self.module.create(self.source,self.backup,compressed=compressed)
+        self.module.verify(self.backup,self.scratch)
+        return hashlib.sha256((self.backup/'manifest.json').read_bytes()).hexdigest()
+
+    def test_full_in_place_restore_matches_every_file_and_leaves_backup_immutable(self):
+        for compressed in (True,False):
+            if self.backup.exists():
+                import shutil
+                shutil.rmtree(self.backup)
+            digest=self.full_backup(compressed)
+            expected=self.module.inventory(self.source)
+            frozen={str(p.relative_to(self.backup)):p.read_bytes() for p in self.backup.rglob('*') if p.is_file()}
+            with sqlite3.connect(self.source/'aemr.db') as db: db.execute('update receipt set value=99')
+            (self.source/'extra').write_bytes(b'failed deploy')
+            result=self.run_cli('restore-state','--backup',self.backup,'--source',self.source,'--verified-manifest-sha256',digest)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(json.loads(result.stdout)['state'],'STATE_RESTORED')
+            self.assertEqual(self.module.inventory(self.source),expected)
+            self.assertEqual({str(p.relative_to(self.backup)):p.read_bytes() for p in self.backup.rglob('*') if p.is_file()},frozen)
+            with sqlite3.connect(self.source/'aemr.db') as db: self.assertEqual(db.execute('select value from receipt').fetchone()[0],17)
+
+    def test_bad_verified_manifest_never_mutates_source(self):
+        self.full_backup(); before=self.module.inventory(self.source)
+        result=self.run_cli('restore-state','--backup',self.backup,'--source',self.source,'--verified-manifest-sha256','f'*64)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('BACKUP_VERIFIED_MANIFEST_MISMATCH',result.stderr)
+        self.assertEqual(self.module.inventory(self.source),before)
+
+    def test_full_restore_rejects_bad_archive_before_delete(self):
+        digest=self.full_backup(); before=self.module.inventory(self.source)
+        archive=self.backup/'state.tar.gz'; archive.write_bytes(archive.read_bytes()[:-10])
+        result=self.run_cli('restore-state','--backup',self.backup,'--source',self.source,'--verified-manifest-sha256',digest)
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(self.module.inventory(self.source),before)
+
+    def test_full_restore_rejects_source_symlinks_and_overlap(self):
+        digest=self.full_backup(); (self.source/'link').symlink_to(self.backup)
+        frozen=(self.backup/'manifest.json').read_bytes()
+        for source in (self.source,self.backup,self.backup/'state'):
+            result=self.run_cli('restore-state','--backup',self.backup,'--source',source,'--verified-manifest-sha256',digest)
+            self.assertNotEqual(result.returncode,0)
+        self.assertTrue((self.source/'link').is_symlink())
+        self.assertEqual((self.backup/'manifest.json').read_bytes(),frozen)
+
+    def test_interrupted_restore_is_repeatable_without_second_full_copy(self):
+        digest=self.full_backup(); expected=self.module.inventory(self.source)
+        original=self.module.shutil.copyfileobj
+        calls=[0]
+        def interrupt(*args,**kwargs):
+            original(*args,**kwargs); calls[0]+=1
+            if calls[0]==2: raise OSError('synthetic interrupted write')
+        with patch.object(self.module.shutil,'copyfileobj',side_effect=interrupt), self.assertRaises(OSError):
+            self.module.restore_state(self.backup,self.source,digest)
+        self.assertNotEqual(self.module.inventory(self.source,require_complete=False),expected)
+        self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+
+    def test_full_restore_preserves_uncheckpointed_wal_and_exact_sidecars(self):
+        connection=sqlite3.connect(self.source/'aemr.db')
+        connection.execute('pragma journal_mode=wal'); connection.execute('pragma wal_autocheckpoint=0')
+        connection.execute('update receipt set value=33'); connection.commit()
+        try: digest=self.full_backup(); expected=self.module.inventory(self.source)
+        finally: connection.close()
+        self.assertIn('aemr.db-wal',expected)
+        self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+        with sqlite3.connect((self.source/'aemr.db').as_uri()+'?mode=ro',uri=True) as db:
+            self.assertEqual(db.execute('select value from receipt').fetchone()[0],33)
+
+    def test_full_restore_preserves_modes_and_owner(self):
+        import os
+        target=self.source/'reports/attempts/binary.dat'; target.chmod(0o2755)
+        if os.geteuid()==0: os.chown(target,1000,1000); target.chmod(0o2755)
+        digest=self.full_backup(); expected=self.module.inventory(self.source)
+        with patch.object(self.module.os,'geteuid',return_value=0):
+            self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+
+    def test_full_restore_checks_net_capacity_before_deleting(self):
+        from types import SimpleNamespace
+        digest=self.full_backup(); expected=self.module.inventory(self.source)
+        with patch.object(self.module.shutil,'disk_usage',return_value=SimpleNamespace(free=0)), self.assertRaisesRegex(self.module.BackupError,'BACKUP_STORAGE_INSUFFICIENT'):
+            self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+        # Reclaiming existing state permits in-place recovery without another complete copy.
+        with patch.object(self.module.shutil,'disk_usage',return_value=SimpleNamespace(free=128*1024*1024)):
+            self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+
+    def test_unsafe_full_archive_paths_rejected_even_with_recomputed_hashes(self):
+        import hashlib
+        import io
+        import tarfile
+        self.full_backup(); before=self.module.inventory(self.source)
+        archive=self.backup/'state.tar.gz'
+        with tarfile.open(archive,'w:gz') as stream:
+            member=tarfile.TarInfo('../escape'); member.size=3; stream.addfile(member,io.BytesIO(b'bad'))
+        manifest=self.backup/'manifest.json'; x=json.loads(manifest.read_bytes())
+        x.update(archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),archive_bytes=archive.stat().st_size)
+        manifest.write_text(json.dumps(x)); digest=hashlib.sha256(manifest.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(self.module.BackupError,'BACKUP_UNSAFE_FILE'):
+            self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),before)
+
     def test_complete_archive_and_independent_scratch_restore(self):
         before = sorted(str(p.relative_to(self.source))
                         for p in self.source.rglob("*") if p.is_file())
