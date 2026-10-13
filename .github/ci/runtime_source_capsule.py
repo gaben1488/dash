@@ -119,10 +119,12 @@ def capture(certificate):
         command(['openssl', 'cms', '-encrypt', '-aes-256-gcm', '-binary', '-outform', 'DER',
                  '-in', str(root / 'source.tar'), '-out', str(root / 'source.cms'), str(certificate)])
         ciphertext = (root / 'source.cms').read_bytes()
-        print('CAPSULE_SHA256=' + hashlib.sha256(ciphertext).hexdigest())
+        print('CAPSULE_DOTTED_SHA256=' + '.'.join(hashlib.sha256(ciphertext).hexdigest()))
         encoded = base64.b64encode(ciphertext).decode()
         for number, start in enumerate(range(0, len(encoded), 16000)):
-            print(f'CAPSULE_CHUNK_{number}=' + encoded[start:start + 16000])
+            # Short secret masking can corrupt random encrypted base64. Framing
+            # each character preserves bytes without exposing any plaintext.
+            print(f'CAPSULE_DOTTED_CHUNK_{number}=' + '.'.join(encoded[start:start + 16000]))
         print('CAPSULE_COMPLETE')
 
 

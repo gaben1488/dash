@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -115,6 +116,35 @@ class CapsuleTests(unittest.TestCase):
             self.assertNotEqual(run(decrypt).returncode, 0)
             # OpenSSL may create partial output on failure: consumers must check
             # returncode before opening or extracting any decrypted archive.
+
+    def test_transport_does_not_lose_capsule_to_short_secret_masking(self):
+        # The valid base64 word "aemr" can match a short SSH username. GitHub
+        # masking destroys even encrypted bytes; dot framing separates chars.
+        ciphertext = bytes.fromhex('69e9ab')
+
+        def command(args, **kwargs):
+            if args[:2] == ['docker', 'exec']:
+                return b'synthetic source'
+            if args[:2] == ['docker', 'inspect']:
+                service = args[2].removeprefix('aemr-').removesuffix('-1')
+                return json.dumps([{'Name': f'/aemr-{service}-1', 'Image': 'sha256:' + 'a' * 64,
+                                    'Id': service, 'State': {'StartedAt': 'same'}, 'RestartCount': 0,
+                                    'Config': {'Labels': {'com.docker.compose.project': 'aemr',
+                                                         'com.docker.compose.service': service}}}]).encode()
+            if args[:2] == ['openssl', 'cms']:
+                Path(args[args.index('-out') + 1]).write_bytes(ciphertext)
+                return b''
+            raise AssertionError('Unexpected command')
+
+        output = io.StringIO()
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(self.module, 'command', command), redirect_stdout(output)):
+            self.module.capture(Path(directory) / 'cert.pem')
+        text = output.getvalue().replace('aemr', '***')
+        line = next((line for line in text.splitlines() if line.startswith('CAPSULE_DOTTED_CHUNK_0=')), '')
+        self.assertTrue(line, 'Capsule transport must separate encoded characters')
+        encoded = line.split('=', 1)[1].replace('.', '')
+        self.assertEqual(self.module.base64.b64decode(encoded, validate=True), ciphertext)
 
 
 if __name__ == '__main__':
