@@ -153,6 +153,21 @@ RED1→GREEN10, independent10/type/lint PASS. Оригинальные posts/anc
 сохраняются; Google-closure не закрывает Dash-case. Источник спецификации:
 https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets
 
+Live checkpoint f25d465c: CI38341910345 три source jobs SUCCESS,
+общий FAILURE — старый installed journal без row-identity-candidate.
+Backup38342248590 дошёл до readonly capacity preview и отказал
+BACKUP_PREFLIGHT_FAILED до TERM/API stop; guardian завершился после снятия
+pre-window marker, поэтому внешний resume вернул GUARDIAN_UNAVAILABLE.
+Public health HTTP200/statusok; read-only38343699815/job115120166320 подтвердил
+оба runtime running, APIhealthy/OOMfalse/restarts0, root EX уже был доступен.
+Его ограниченный preview прошёл inventory, затем завершился TimeoutError
+на compression при120s/0.5CPU/256MiB. Это не доказательство причины прошлого
+отказа или недостатка диска. Full copy/independent restore/source-match ещё
+не приняты; source mutations/worker generation/recreate и удаление данных
+Root не выполнял. Следующий шаг — надёжный bounded admission/capture protocol
+для меняющегося состояния, затем same-owner release/rollback; не новый слепой
+повтор полной генерации или глобальное восстановление API.
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:
