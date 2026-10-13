@@ -16,6 +16,7 @@ class BackupWindowTests(unittest.TestCase):
             root = Path(tmp)
             repo, base = root / 'repo', root / 'private'
             (repo / 'deploy').mkdir(parents=True)
+            (repo / '.git').mkdir()
             trace = root / 'trace'
             docker = root / 'docker'
             docker.write_text('''#!/usr/bin/env python3
@@ -51,6 +52,17 @@ elif args[0] in {'stop','start'}:
 else: sys.exit(3)
 ''')
             docker.chmod(0o700)
+            if scenario == 'lock-denied':
+                lock = root / 'denied.lock'
+                lock.touch(); lock.chmod(0o400)
+            if scenario in {'root-git-owner', 'root-owned-repo'}:
+                (root / 'id').write_text('#!/bin/sh\nif [ "$1" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi\n')
+                (root / 'id').chmod(0o700)
+                (root / 'runuser').write_text('#!/bin/sh\necho "$*" >> "$WINDOW_GIT_TRACE"\nshift 3\nexec "$@"\n')
+                (root / 'runuser').chmod(0o700)
+            if scenario == 'root-owned-repo':
+                (root / 'stat').write_text('#!/bin/sh\necho 0\n')
+                (root / 'stat').chmod(0o700)
             git = root / 'git'
             git.write_text('#!/bin/sh\ncase "$*" in *deploy/maintenance-lock.sh*) cat "$WINDOW_HELPER";; *deploy/report-backup-window.sh*) cat "$WINDOW_SCRIPT";; esac\nexit 0\n')
             git.chmod(0o700)
@@ -63,7 +75,7 @@ else: sys.exit(3)
             seq.chmod(0o700)
             guardian = None
             session = base / 'worker-1'
-            if mode != 'prepare':
+            if mode != 'prepare' and not scenario.startswith('never-entered'):
                 session = base / 'worker-1'
                 session.mkdir(parents=True)
                 (session / 'quiescent').touch()
@@ -89,14 +101,31 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
             if mode!='prepare' and scenario=='invalid-record-image':
                 x=json.loads((session/'runtime.json').read_text()); x['worker_image']=None
                 (session/'runtime.json').write_text(json.dumps(x))
+            if scenario.startswith('never-entered'):
+                base.mkdir(parents=True, exist_ok=True)
+                if scenario == 'never-entered-absent':
+                    pass
+                elif scenario == 'never-entered-symlink':
+                    session.symlink_to(root / 'missing-target')
+                else:
+                    session.mkdir()
+                    if scenario == 'never-entered':
+                        (session / 'runtime.json').write_text('{}')
+                    else:
+                        (session / scenario.removeprefix('never-entered-')).touch()
+            script_text = SCRIPT.read_text()
+            if scenario == 'lock-denied':
+                script_text = script_text.replace('/run/lock/aemr-maintenance.lock', str(lock))
+                via_stdin = True
             result = subprocess.run((['bash', '-s', '--'] if via_stdin else ['bash', str(SCRIPT)]) + [mode, 'd' * 40, '1', str(repo), str(base)] + ([flag] if flag is not None else []),
-                                    input=SCRIPT.read_text() if via_stdin else None,
+                                    input=script_text if via_stdin else None,
                                     capture_output=True, text=True, timeout=15, check=False,
                                     env={**os.environ, 'PATH': tmp + os.pathsep + os.environ['PATH'],
-                                         'WINDOW_TRACE': str(trace), 'WINDOW_SCENARIO': scenario, 'WINDOW_MODE': mode,
+                                         'WINDOW_TRACE': str(trace), 'WINDOW_GIT_TRACE':str(root/'git-trace'), 'WINDOW_SCENARIO': scenario, 'WINDOW_MODE': mode,
                                          'WINDOW_MARKER': str(base / 'worker-1/quiescent'),
                                          'WINDOW_HELPER': str(SCRIPT.parent / 'maintenance-lock.sh'), 'WINDOW_SCRIPT':str(SCRIPT),
                                          'worker_was_running':'true','authorized_quiesce':'true','quiesce':'true'})
+            result.git_calls=(root/'git-trace').read_text().splitlines() if (root/'git-trace').exists() else []
             result.runtime=json.loads((session/'runtime.json').read_text()) if (session/'runtime.json').exists() else None
             # A failed health check intentionally retains quiescence. Clean up only
             # the synthetic window after assertions can inspect its command trace.
@@ -116,6 +145,52 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
                 self.assertTrue(released, 'Backup guardian leaked its kernel lock')
             calls = [json.loads(x) for x in trace.read_text().splitlines()] if trace.exists() else []
             return result, calls
+
+    def test_lock_permission_denial_precedes_docker_and_session(self):
+        result, calls = self.run_window('lock-denied')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_MAINTENANCE_PERMISSION_DENIED', result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIsNone(result.runtime)
+
+    def test_resume_never_entered_window_is_explicit_noop(self):
+        result, calls = self.run_window('never-entered', 'resume')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('BACKUP_WINDOW_NOT_ENTERED', result.stdout)
+        self.assertNotIn('RESUMED', result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_missing_session_noop_requires_accessible_base_not_a_session_symlink(self):
+        result, calls = self.run_window('never-entered-absent', 'resume')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('BACKUP_WINDOW_NOT_ENTERED', result.stdout)
+        self.assertNotIn('HEALTHY', result.stdout)
+        self.assertEqual(calls, [])
+        result, calls = self.run_window('never-entered-symlink', 'resume')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('BACKUP_WINDOW_NOT_ENTERED', result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_root_git_delegates_every_operation_to_verified_repo_owner(self):
+        result, _ = self.run_window('root-git-owner')
+        self.assertTrue(result.git_calls)
+        self.assertEqual(len(result.git_calls), 4)
+        owner = __import__('pwd').getpwuid(os.stat(SCRIPT.parents[1]).st_uid).pw_name
+        self.assertTrue(all(c.startswith('-u ' + owner + ' -- git -C ') for c in result.git_calls))
+        self.assertTrue(any(' fetch ' in c for c in result.git_calls))
+
+    def test_root_owned_repo_needs_no_delegation(self):
+        result, calls = self.run_window('root-owned-repo')
+        self.assertEqual(result.git_calls, [])
+        self.assertTrue(any(c[0] == 'stop' for c in calls))
+
+    def test_missing_guardian_never_masks_started_window_markers(self):
+        for marker in ('prepared', 'worker-draining', 'quiescent', 'guardian-ready'):
+            with self.subTest(marker=marker):
+                result, calls = self.run_window('never-entered-' + marker, 'resume')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('BACKUP_WINDOW_NOT_ENTERED', result.stdout)
+                self.assertEqual(calls, [])
 
     def test_backup_failure_resumes_exact_original_server_and_never_worker(self):
         result, calls = self.run_window('backup-failed')

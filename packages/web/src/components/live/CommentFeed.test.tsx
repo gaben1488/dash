@@ -65,3 +65,17 @@ it('labels legacy metadata as a projection and retains its author, times and rep
  expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
  expect(view.getByText('Ответов по сохранённой проекции: 2; полные тексты не переданы. Адрес по цитате не угадываем.')).toBeTruthy();
 });
+
+it('does not count native resolve or reopen actions without text as answers',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'actions',book:'Демо',kind:'native_thread',evidence:{raw:{status:'RESOLVED',replies:[{postId:'resolve',commentAction:'RESOLVE'},{postId:'reopen',commentAction:'REOPEN',content:'   '}]},posts:[]}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('В этом чтении ответов нет');
+ expect(view.getByText('Закрыто в сохранённом чтении Google')).toBeTruthy();
+});
+
+it('keeps genuine text attached to native actions and no-action-change posts as answers',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'answers',book:'Демо',kind:'native_thread',evidence:{raw:{status:'OPEN',replies:[{postId:'resolve',commentAction:'RESOLVE',content:'Проверено по источнику'},{postId:'reopen',commentAction:'REOPEN',content:'Нужна повторная проверка'},{postId:'plain',commentAction:'NO_COMMENT_ACTION_CHANGE'}]},posts:[]}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Есть ответы · 3');
+ expect(view.getByText('Открыто в сохранённом чтении Google')).toBeTruthy();
+});

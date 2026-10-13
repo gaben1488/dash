@@ -24,6 +24,36 @@ case "$base/" in "$repo/"*) echo 'BACKUP_PATH_OVERLAP' >&2; exit 2 ;; esac
 session="$base/worker-$run_id"
 cd "$repo/deploy"
 
+# sudo maintenance must not fetch/write Git as root in an operator-owned repo.
+repo_git() {
+  if [ "$(id -u)" = 0 ]; then
+    owner_uid=$(stat -c %u -- "$repo") || return 1
+    if [ "$owner_uid" != 0 ]; then
+      [ "$(stat -c %u -- "$repo/.git")" = "$owner_uid" ] || { echo BACKUP_REPO_OWNER_INVALID >&2; return 1; }
+      owner_record=$(getent passwd "$owner_uid") || { echo BACKUP_REPO_OWNER_INVALID >&2; return 1; }
+      IFS=: read -r owner_name unused resolved_uid unused_fields <<< "$owner_record"
+      [ -n "$owner_name" ] && [ "$resolved_uid" = "$owner_uid" ] || { echo BACKUP_REPO_OWNER_INVALID >&2; return 1; }
+      runuser -u "$owner_name" -- git -C "$repo" "$@"
+      return $?
+    fi
+  fi
+  git -C "$repo" "$@"
+}
+
+# A failed pre-window prepare has no runtime to resume. Never hide real windows.
+if [ "$mode" = resume ]; then
+  [ ! -L "$session" ] || { echo BACKUP_RUNTIME_RECORD_UNAVAILABLE >&2; exit 2; }
+  if [ -d "$base" ] && [ -r "$base" ] && [ -x "$base" ] &&
+     { [ ! -e "$session" ] || [ -d "$session" ]; } &&
+     [ ! -e "$session/guardian-ready" ] && [ ! -L "$session/guardian-ready" ] &&
+     [ ! -e "$session/prepared" ] && [ ! -L "$session/prepared" ] &&
+     [ ! -e "$session/worker-draining" ] && [ ! -L "$session/worker-draining" ] &&
+     [ ! -e "$session/quiescent" ] && [ ! -L "$session/quiescent" ]; then
+    echo BACKUP_WINDOW_NOT_ENTERED
+    exit 0
+  fi
+fi
+
 resume_healthy_server() {
   docker start "$server" >/dev/null || return 1
   for attempt in $(seq 1 60); do
@@ -76,6 +106,13 @@ resume_original_runtime() {
 volume_format='{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}'
 
 if [ "$mode" = prepare ]; then
+  # Read-only permission admission before Docker or creating private artifacts.
+  lock=/run/lock/aemr-maintenance.lock
+  if [ -L "$lock" ] || { [ -e "$lock" ] && { [ ! -f "$lock" ] || [ ! -w "$lock" ]; }; } ||
+     { [ ! -e "$lock" ] && [ ! -w /run/lock ]; }; then
+    echo BACKUP_MAINTENANCE_PERMISSION_DENIED >&2
+    exit 2
+  fi
   [ ! -e "$session" ] || { echo 'BACKUP_TARGET_EXISTS' >&2; exit 2; }
   server=$(docker compose --env-file .env.production ps --status running --quiet server)
   worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
@@ -93,11 +130,11 @@ if [ "$mode" = prepare ]; then
   [ "$volume" = "$(docker inspect --format "$volume_format" "$worker")" ] || { echo 'BACKUP_WORKER_VOLUME_MISMATCH' >&2; exit 2; }
   image=$(docker inspect --format '{{.Image}}' "$server")
   [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]]
-  git -C "$repo" fetch --quiet origin "$candidate"
+  repo_git fetch --quiet origin "$candidate"
   mkdir -p "$session"
   chmod 700 "$base" "$session"
-  git -C "$repo" show "$candidate:deploy/stateful_backup.py" > "$session/stateful_backup.py"
-  git -C "$repo" show "$candidate:deploy/maintenance-lock.sh" > "$session/maintenance-lock.sh"
+  repo_git show "$candidate:deploy/stateful_backup.py" > "$session/stateful_backup.py"
+  repo_git show "$candidate:deploy/maintenance-lock.sh" > "$session/maintenance-lock.sh"
   . "$session/maintenance-lock.sh"
   python3 - "$session/runtime.json" "$server" "$worker" "$volume" "$image" "$candidate" "$worker_image" "$worker_was_running" "$authorized_quiesce" <<'PY'
 import json, sys
@@ -106,7 +143,7 @@ x=dict(zip(('server','worker','volume','image','candidate','worker_image','worke
 for k in ('worker_was_running','authorized_quiesce'): x[k]=x[k]=='true'
 Path(sys.argv[1]).write_text(json.dumps(x))
 PY
-  git -C "$repo" show "$candidate:deploy/report-backup-window.sh" > "$session/recovery-window.sh"
+  repo_git show "$candidate:deploy/report-backup-window.sh" > "$session/recovery-window.sh"
   stopped=false
   worker_stopped=false
   restore_on_failure() {

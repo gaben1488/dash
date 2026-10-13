@@ -16,7 +16,8 @@ function replyState(raw:Record<string,unknown>):string {
   if(!Array.isArray(raw.replies))return 'Наличие ответов не передано источником';
   const replies=records(raw.replies).filter(post=>post.deleted!==true&&
     ((text(post.content)?.trim().length??0)>0||
-      (typeof post.action!=='string'&&(text(post.id)!==null||text(post.postId)!==null))));
+      (typeof post.action!=='string'&&post.commentAction!=='RESOLVE'&&post.commentAction!=='REOPEN'&&
+        (text(post.id)!==null||text(post.postId)!==null))));
   return replies.length>0?`Есть ответы · ${replies.length}`:'В этом чтении ответов нет';
 }
 function millisInstant(value:unknown):string|undefined {

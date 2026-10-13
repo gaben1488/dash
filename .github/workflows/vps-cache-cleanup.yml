@@ -32,8 +32,9 @@ jobs:
           script_stop: false
           script: |
             set -euo pipefail
-            python3 - <<'PY'
-            import json, os, re, stat, subprocess
+            actor_lock_access=$(test -w /run/lock/aemr-maintenance.lock && echo true || echo false)
+            sudo -n python3 - "$(id -u)" "$actor_lock_access" <<'PY'
+            import json, os, re, stat, subprocess, sys
             from pathlib import Path
             lock=Path('/run/lock/aemr-maintenance.lock')
             info=lock.lstat()
@@ -43,9 +44,9 @@ jobs:
             log=latest/'watchdog.log' if latest else None
             content=log.read_text(errors='replace')[:65536] if log and log.is_file() and not log.is_symlink() else ''
             sudo=subprocess.run(['sudo','-n','true'],capture_output=True,timeout=10)
-            print(json.dumps({'kind':'backup_admission_diagnostic','actor_uid':os.getuid(),
+            print(json.dumps({'kind':'backup_admission_diagnostic','actor_uid':int(sys.argv[1]),'effective_uid':os.getuid(),
               'sudo_noninteractive':sudo.returncode==0,'lock_uid':info.st_uid,'lock_mode':oct(stat.S_IMODE(info.st_mode)),
-              'lock_regular':stat.S_ISREG(info.st_mode),'lock_writable':os.access(lock,os.W_OK),
+              'lock_regular':stat.S_ISREG(info.st_mode),'lock_writable':sys.argv[2]=='true',
               'guardian_ready':bool(latest and (latest/'guardian-ready').is_file()),
               'permission_denied':bool(re.search(r'Permission denied',content)),
               'lock_permission_denied':'aemr-maintenance.lock' in content and bool(re.search(r'Permission denied',content))}))
@@ -509,31 +510,42 @@ jobs:
           printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/worker-backup/key"
           ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/worker-backup/known_hosts" 2>/dev/null
           test -s "$RUNNER_TEMP/worker-backup/known_hosts"
+          # Admission uses the same root owner as the installed 0600 lock.
+          ssh -i "$RUNNER_TEMP/worker-backup/key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes \
+            "$VPS_USER@193.233.91.162" sudo -n test -w /run/lock/aemr-maintenance.lock
       - name: Quiesce writers and create private full compressed backup
         run: |
           set -euo pipefail
-          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- prepare "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" sudo -n bash -s -- prepare "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
       - name: Transfer privately and prove complete independent scratch restore
         run: |
           set -euo pipefail
           umask 077
           mkdir "$RUNNER_TEMP/worker-backup/backup" "$RUNNER_TEMP/worker-backup/scratch"
-          scp -q -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup/manifest.json" \
-            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup/state.tar.gz"             "$RUNNER_TEMP/worker-backup/backup/"
+          # The root-owned private session stays 0700; binary data goes only
+          # to disposable private files, never to public logs/artifacts.
+          for file in manifest.json state.tar.gz; do
+            ssh -i "$RUNNER_TEMP/worker-backup/key" \
+              -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" \
+              "sudo -n cat -- /home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup/$file" \
+              > "$RUNNER_TEMP/worker-backup/backup/$file"
+          done
           # Root is needed to reproduce original file UIDs/GIDs in disposable restore.
           sudo python3 deploy/stateful_backup.py verify             --backup "$RUNNER_TEMP/worker-backup/backup"             --scratch-parent "$RUNNER_TEMP/worker-backup/scratch"             > "$RUNNER_TEMP/worker-backup/restore.json"
           cat "$RUNNER_TEMP/worker-backup/restore.json"
       - name: Match still-quiesced original bytes after successful restore
         run: |
           set -euo pipefail
-          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- match-source "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" sudo -n bash -s -- match-source "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
           echo 'FULL_BACKUP_EXTERNAL_RESTORE_AND_SOURCE_MATCH_PASS'
       - name: Always resume original healthy API and authorized prior worker; retain private backup
         if: always()
         run: |
           set -euo pipefail
           if test -f "$RUNNER_TEMP/worker-backup/key"; then
-            ssh -i "$RUNNER_TEMP/worker-backup/key"               -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes               "$VPS_USER@193.233.91.162" bash -s -- resume "$RECOVERY_SHA" "$RECOVERY_RUN"               /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
+            ssh -i "$RUNNER_TEMP/worker-backup/key"               -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes               "$VPS_USER@193.233.91.162" sudo -n bash -s -- resume "$RECOVERY_SHA" "$RECOVERY_RUN"               /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker < deploy/report-backup-window.sh
           fi
       - name: Remove all private runner copies and credentials
         if: always()

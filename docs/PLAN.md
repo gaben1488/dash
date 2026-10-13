@@ -132,6 +132,27 @@ full-restore под тем же EX owner, previous-image compatibility и зак
 до acceptance требуют полного контроллера. Нельзя выпускать по одному helper
 или запускать плохой candidate обычным guard после потери release-актора.
 
+CI38339254633 на3392e6c0: все три exact-source jobs SUCCESS, native journal
+по-прежнему несовместим со старым installed producer. Backup38339331538
+остановился до preview/drain/API stop: BACKUP_GUARDIAN_FAILED. Read-only
+38340260654/job115109424712 подтвердил actorUID1000, sudo-n доступен,
+root-owned lock0600/writablefalse и настоящий Permission denied в watchdog;
+guardian-ready отсутствует, APIhealthy/worker running/OOMfalse/restarts0.
+Исправление использует sudo-n для трёх maintenance calls, Git делегирует
+проверенному owner repo через runuser; lock/repo permissions не ослабляются.
+Root0700 архив экспортируется sudo-cat только в private runner files.
+Root29 kernel/fixture regressions и independent source review PASS;
+NOT_ENTERED cleanup не утверждает API health и не маскирует начатое окно.
+
+Google API сверена через Context7 и свежую официальную discovery revision
+20261007: commentsViewMode/comments/commentAnchors действительно доступны.
+403 чтения обсуждений отличается от доступности notes и не означает0comments.
+Native Post использует commentAction, Drive — action; пустые RESOLVE/REOPEN
+не считаются человеческим ответом, действия с текстом сохраняются.
+RED1→GREEN10, independent10/type/lint PASS. Оригинальные posts/anchors/status
+сохраняются; Google-closure не закрывает Dash-case. Источник спецификации:
+https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets
+
 ### Terminal checkpoint source0f915d7d — 13.10.2026, Камчатка
 
 Source `0f915d7d7e7342a0ce047184792bfe3afedf5069`, CI38256694762:
