@@ -10,6 +10,53 @@ permissions:
   actions: read
 
 jobs:
+  backup-window-diagnostics:
+    if: >-
+      github.event.label.name == 'maintenance: backup-window-diagnostics' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Read backup admission permissions and fixed error categories only
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            python3 - <<'PY'
+            import json, os, re, stat, subprocess
+            from pathlib import Path
+            lock=Path('/run/lock/aemr-maintenance.lock')
+            info=lock.lstat()
+            base=Path('/home/aemr/.dash-private-backups')
+            sessions=[p for p in base.glob('worker-*') if re.fullmatch(r'worker-[0-9]+',p.name) and p.is_dir() and not p.is_symlink()]
+            latest=max(sessions,key=lambda p:p.stat().st_mtime) if sessions else None
+            log=latest/'watchdog.log' if latest else None
+            content=log.read_text(errors='replace')[:65536] if log and log.is_file() and not log.is_symlink() else ''
+            sudo=subprocess.run(['sudo','-n','true'],capture_output=True,timeout=10)
+            print(json.dumps({'kind':'backup_admission_diagnostic','actor_uid':os.getuid(),
+              'sudo_noninteractive':sudo.returncode==0,'lock_uid':info.st_uid,'lock_mode':oct(stat.S_IMODE(info.st_mode)),
+              'lock_regular':stat.S_ISREG(info.st_mode),'lock_writable':os.access(lock,os.W_OK),
+              'guardian_ready':bool(latest and (latest/'guardian-ready').is_file()),
+              'permission_denied':bool(re.search(r'Permission denied',content)),
+              'lock_permission_denied':'aemr-maintenance.lock' in content and bool(re.search(r'Permission denied',content))}))
+            for name in ('aemr-server-1','aemr-report-worker-1'):
+              result=subprocess.run(['docker','inspect',name],capture_output=True,timeout=15)
+              if result.returncode:
+                print(json.dumps({'service':name,'state':'UNAVAILABLE'}));continue
+              item=json.loads(result.stdout)[0];state=item['State']
+              print(json.dumps({'service':name,'state':state['Status'],'health':state.get('Health',{}).get('Status'),
+                'oom':state['OOMKilled'],'restarts':item['RestartCount']}))
+            PY
   worker-failure-diagnostics:
     if: >-
       github.event.label.name == 'maintenance: worker-failure-diagnostics' &&
