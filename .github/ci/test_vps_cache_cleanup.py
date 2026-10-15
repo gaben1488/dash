@@ -286,11 +286,12 @@ class FailedCandidateImagesTests(unittest.TestCase):
             'f864d5309e5df761c2974d700165063ed693e521': [('server','336cd9b583eb8d4dd0d0967563643e62816701a93c949315bcb15a8286189e54'),('web','c0b78a11a7ca7e1ba573257dd2747306ff45cc2bc11ea159cdd9100ebc89e412')],
             'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b':[('web','a1df67e07481a7fca228261b9553bb25a74c82410a27921c2175fcb1ffc58d56'),('server','7f4507b81634ea968f66805a518f378e27d8aaadfdcd1a0f85e0dbe2c4f4ac10')],
             'fe1979b5b5f8c8de2443c09a3cb952b7e1563513':[('server','e120405deaeb00066fc00f22cbd46b5b93840a9d0e5c78e8a2123b74010d3bd9'),('web','9290cbfe1e201b9c6cc7dd62eda2b3dbc9109bfe84729725e40ffd763646911a')],
+            '944cab705718ec54dca49d028742d4d6cf833d35':[('server','cfda30cf479444ee1a7807138d2676e47761482a26a17529b25e2c094ed1af20'),('web','7b08974ef46cea24615756061f56b18d274692929b968dcf1d51d87c2b31fed8')],
         }.items():
             for role, identity in pairs:
                 tag='aemr-'+role+':release-'+revision
                 images[tag]={'Id':'sha256:'+identity,'RepoTags':[tag],'Config':{'Labels':{'org.opencontainers.image.revision':revision}}}
-        newest=images['aemr-server:release-fe1979b5b5f8c8de2443c09a3cb952b7e1563513']
+        newest=images['aemr-server:release-944cab705718ec54dca49d028742d4d6cf833d35']
         if scenario=='latest-other-tag':newest['RepoTags'].append('aemr-server:previous')
         if scenario=='retagged':next(iter(images.values()))['Id']='sha256:'+'f'*64
         if scenario=='other-tag':next(iter(images.values()))['RepoTags'].append('aemr-server:previous')
@@ -325,7 +326,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
                     with self.assertRaisesRegex(SystemExit,'FAILED_IMAGE_CLEANUP_REJECTED_IMAGE_VALIDATION'):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
-        self.assertEqual(len(removed),16 if scenario in ('valid','mount-order','health-history') else 0)
+        self.assertEqual(len(removed),18 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
         for scenario in ('valid','mount-order','health-history'):

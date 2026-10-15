@@ -12,6 +12,74 @@ from unittest.mock import patch
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/runtime_guard.py'
 
 
+class MaintenanceLockWaitTests(unittest.TestCase):
+    def exercise(self, release):
+        import fcntl
+        import subprocess
+        import time
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);lock=root/'lock';lock.touch()
+            helper=root/'maintenance-lock.sh'
+            helper.write_text((SCRIPT.parent/'maintenance-lock.sh').read_text().replace('/run/lock/aemr-maintenance.lock',str(lock)))
+            marker=root/'entered';inode=lock.stat().st_ino
+            with lock.open('r+') as owner:
+                fcntl.flock(owner,fcntl.LOCK_EX)
+                command=['bash','-c','. "$1"; maintenance_lock_acquire 1 || exit 2; touch "$2"; maintenance_lock_owned_by $$',
+                         'bounded-wait',str(helper),str(marker)]
+                start=time.monotonic()
+                child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                try:
+                    time.sleep(.2)
+                    self.assertFalse(marker.exists(),'Contender entered while another owner held kernel EX')
+                    if release:fcntl.flock(owner,fcntl.LOCK_UN)
+                    _out,err=child.communicate(timeout=3)
+                finally:
+                    if child.poll() is None:child.kill();child.communicate()
+            self.assertEqual(lock.stat().st_ino,inode)
+            if release:
+                self.assertEqual(child.returncode,0,err)
+                self.assertTrue(marker.exists())
+            else:
+                self.assertNotEqual(child.returncode,0)
+                self.assertIn('AEMR_MAINTENANCE_BUSY',err)
+                self.assertFalse(marker.exists())
+                self.assertLess(time.monotonic()-start,3)
+
+    def test_short_supervisor_lock_is_waited_for_without_stealing_it(self):
+        self.exercise(True)
+
+    def test_long_maintenance_remains_excluded_after_bounded_wait(self):
+        self.exercise(False)
+
+    def test_actual_prepare_wrapper_passes_arguments_and_kernel_ownership_to_guardian(self):
+        import os
+        import subprocess
+        import textwrap
+        workflow=(SCRIPT.parents[1]/'.github/workflows/vps-cache-cleanup.yml').read_text().split('  controlled-candidate-release:',1)[1]
+        shell=textwrap.dedent(workflow.split('cat > "$RUNNER_TEMP/release/ssh.sh" <<\'SH\'\n',1)[1].split('\n          SH',1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);deploy=root/'code/release-42/deploy';deploy.mkdir(parents=True)
+            lock=root/'lock';lock.touch()
+            helper=deploy/'maintenance-lock.sh'
+            helper.write_text((SCRIPT.parent/'maintenance-lock.sh').read_text().replace('/run/lock/aemr-maintenance.lock',str(lock)))
+            (root/'bin').mkdir();sudo=root/'bin/sudo'
+            sudo.write_text('#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n');sudo.chmod(0o700)
+            (root/'deploy').mkdir()
+            (root/'deploy/report-backup-window.sh').write_text('set -eu\n. "$HELPER"\nmaintenance_lock_owned_by $$ || exit 73\n[ "$#" = 7 ] && [ "$1" = prepare ] && [ "$2" = "$RECOVERY_SHA" ] && [ "$3" = 42 ]\nbash -c \'. "$HELPER"; maintenance_lock_acquire || exit 74; maintenance_lock_owned_by $$\'\ntouch "$ENTERED"\n')
+            shell=shell.replace('/root/codex-fixes',str(root/'code'))
+            shell+='\nremote() { bash -c "$*"; }\nwindow prepare\n'
+            env={**os.environ,'PATH':str(root/'bin')+os.pathsep+os.environ['PATH'],
+                 'RECOVERY_RUN':'42','RECOVERY_SHA':'a'*40,'HELPER':str(helper),'ENTERED':str(root/'entered')}
+            result=subprocess.run(['bash','-c',shell],cwd=root,env=env,text=True,capture_output=True,timeout=5,check=False)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertTrue((root/'entered').exists())
+
+    def test_installer_and_stage_both_opt_into_bounded_supervisor_wait(self):
+        self.assertIn('maintenance_lock_acquire 45', (SCRIPT.parent/'install-runtime-guard.sh').read_text())
+        workflow=(SCRIPT.parents[1]/'.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertIn('maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage',workflow)
+
+
 class RuntimeGuardTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(SCRIPT.is_file(), 'Host process supervision is missing')

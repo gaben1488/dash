@@ -25,5 +25,7 @@ maintenance_lock_acquire() {
   if maintenance_lock_owned_by $$; then return 0; fi
   [ ! -L /run/lock/aemr-maintenance.lock ] || { echo AEMR_MAINTENANCE_LOCK_INVALID >&2; return 1; }
   exec 9>/run/lock/aemr-maintenance.lock
-  flock -n 9 || { echo 'AEMR_MAINTENANCE_BUSY' >&2; return 1; }
+  local wait_seconds="${1:-0}"
+  case "$wait_seconds" in [0-9]|[1-5][0-9]|60) ;; *) echo AEMR_MAINTENANCE_WAIT_INVALID >&2; return 1 ;; esac
+  flock -w "$wait_seconds" 9 || { echo 'AEMR_MAINTENANCE_BUSY' >&2; return 1; }
 }

@@ -2387,7 +2387,7 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0'),(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521'),(38727198402,'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b'),(38783450204,'fe1979b5b5f8c8de2443c09a3cb952b7e1563513')]:
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0'),(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521'),(38727198402,'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b'),(38783450204,'fe1979b5b5f8c8de2443c09a3cb952b7e1563513'),(38789553245,'944cab705718ec54dca49d028742d4d6cf833d35')]:
               info=read('/actions/runs/'+str(run))
               assert info['head_sha']==sha and info['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
@@ -2451,7 +2451,9 @@ jobs:
                 'aemr-web:release-b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b':'sha256:a1df67e07481a7fca228261b9553bb25a74c82410a27921c2175fcb1ffc58d56',
                 'aemr-server:release-b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b':'sha256:7f4507b81634ea968f66805a518f378e27d8aaadfdcd1a0f85e0dbe2c4f4ac10',
                 'aemr-server:release-fe1979b5b5f8c8de2443c09a3cb952b7e1563513':'sha256:e120405deaeb00066fc00f22cbd46b5b93840a9d0e5c78e8a2123b74010d3bd9',
-                'aemr-web:release-fe1979b5b5f8c8de2443c09a3cb952b7e1563513':'sha256:9290cbfe1e201b9c6cc7dd62eda2b3dbc9109bfe84729725e40ffd763646911a'}
+                'aemr-web:release-fe1979b5b5f8c8de2443c09a3cb952b7e1563513':'sha256:9290cbfe1e201b9c6cc7dd62eda2b3dbc9109bfe84729725e40ffd763646911a',
+                'aemr-server:release-944cab705718ec54dca49d028742d4d6cf833d35':'sha256:cfda30cf479444ee1a7807138d2676e47761482a26a17529b25e2c094ed1af20',
+                'aemr-web:release-944cab705718ec54dca49d028742d4d6cf833d35':'sha256:7b08974ef46cea24615756061f56b18d274692929b968dcf1d51d87c2b31fed8'}
             phase='PRECONDITIONS'
             try:
                 assert os.geteuid()==0
@@ -2605,9 +2607,14 @@ jobs:
               "$VPS_USER@193.233.91.162" "$@"
           }
           window() {
-            remote sudo -n bash -s -- "$1" "$RECOVERY_SHA" "$RECOVERY_RUN" \
-              /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller \
-              < deploy/report-backup-window.sh
+            if test "$1" = prepare; then
+              remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec bash -s -- \"\$@\"' release-window prepare $RECOVERY_SHA $RECOVERY_RUN /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller" \
+                < deploy/report-backup-window.sh
+            else
+              remote sudo -n bash -s -- "$1" "$RECOVERY_SHA" "$RECOVERY_RUN" \
+                /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller \
+                < deploy/report-backup-window.sh
+            fi
           }
           SH
           ready=false
@@ -2770,7 +2777,7 @@ jobs:
             'candidate_images':dict(zip(('server','web'),(x['Id'] for x in images),strict=True)),
             'source_ci':json.loads((p/'source-ci.json').read_text())}))
           PY
-          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire; exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
             < "$RUNNER_TEMP/release/stage-request.json" > "$RUNNER_TEMP/release/stage.log" 2>&1 || { echo RELEASE_RUNTIME_STAGE_FAILED; exit 2; }
           remote sudo -n cat /var/lib/aemr/release-runtime/stage.json > "$RUNNER_TEMP/release/stage.json"
           # Private exact previous images are loaded on runner before downtime.
@@ -2813,8 +2820,8 @@ jobs:
            actual=subprocess.check_output(['docker','image','inspect',identity,'--format','{{.Id}}'],text=True).strip()
            assert actual==identity
           PY
-          remote sudo -n python3 -Es - <<'PYVPSCAPACITY' > "$RUNNER_TEMP/release/capacity-input.json"
-          import fcntl,hashlib,json,os,shutil,subprocess,sys
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es -'" <<'PYVPSCAPACITY' > "$RUNNER_TEMP/release/capacity-input.json"
+          import hashlib,json,os,shutil,subprocess,sys
           from pathlib import Path
           sys.path.insert(0,'/usr/local/libexec/aemr')
           import release_recovery as recovery
@@ -2827,9 +2834,8 @@ jobs:
            # compress differently; the frozen bounded writer remains authoritative.
            estimate=previous['archive_bytes']+max(0,current_bytes-previous['bytes'])
            return estimate+max(256*1024**2,(estimate+9)//10)+1024**3
-          fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
-          with os.fdopen(fd,'r+') as lock:
-           fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+          fd=9;recovery.require_lock(fd)
+          with os.fdopen(os.dup(fd),'r+') as lock:
            stage=json.loads(recovery.read_owned(Path('/var/lib/aemr/release-runtime/stage.json')))
            source=recovery.ReleaseRecovery(lock_fd=fd)._volume(stage)
            size=int(subprocess.check_output(['du','--summarize','--bytes','--count-links','--',str(source)],text=True,timeout=90).split()[0])

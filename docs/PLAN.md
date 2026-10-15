@@ -7,6 +7,25 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+944cab70/source CI38789164321: 3 mandatory source jobs PASS; Python1075,
+shared735/core1869+1skip/server994/web2295. Live browser старого API FAILURE.
+Release38789553245/job116610266616: images/live-envelope PASS; installer FAILED
+AEMR_MAINTENANCE_BUSY19:03UTC, до backup/freeze/deploy. API не останавливался.
+Shared shell lock теперь допускает bounded wait (default0 сохранён); installer,
+stage/capacity и canonical prepare ждут45s. Prepare передаёт kernel-proven EXfd9
+guardian без повторного открытия/конфликта с родителем; resume остаётся у guardian.
+Real short/long crossprocess lock + actual SSH-wrapper argv/guardian tests RED→GREEN;
+15guard/25cleanup/32backup tests PASS. Namespace root suite:5PASS/2ERROR из-за
+недоступного chown1000, НЕ полный зелёный root gate; Linux CI обязателен.
+Independent full39: owner_loss guardian F + root_owned_repo timeout E; оба точных
+кейса отдельно PASS3.72/4.30s, причина первого отказа не доказана. Review code-level
+ownership/stdin/fail-closed PASS; полный локальный прогон не объявляется зелёным.
+Четыре b8/fe docker rm завершились, но cleanup38789170433 postcheck FAILED;
+причина конкретного compare неизвестна. Independent readback38789343819:
+4containers stable, image entries41→37, source/catalog/latest unchanged,
+free8812314624B. Новые944 never-deployed images включены в exact retirement по
+Docker29 exported manifest lists; b8 export hashes отдельно сверены с live census.
+
 Release38783450204/job116589292790, sourcefe1979b5: sourceCI3jobs/image roundtrip/
 environment/real Word envelope/capacity runner PASS. Fresh backup18:18:50–18:28:51UTC
 FAILED; independent restore/deploy SKIPPED; same-owner resume PASS, old API200.

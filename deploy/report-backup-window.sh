@@ -288,9 +288,7 @@ PYRELEASE
   touch "$session/quiescent"
   nohup bash -c '
     . "$3/maintenance-lock.sh"
-    [ ! -L /run/lock/aemr-maintenance.lock ] || exit 1
-    exec 9>/run/lock/aemr-maintenance.lock
-    flock -n 9 || exit 1
+    maintenance_lock_acquire || exit 1
     echo "$$" > "$1/guardian-ready"
     deadline=$((SECONDS + 1800))
     [ "${10}" != true ] || deadline=$((SECONDS + 4500))

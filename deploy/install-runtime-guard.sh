@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 . "$(dirname -- "$0")/maintenance-lock.sh"
-maintenance_lock_acquire
+maintenance_lock_acquire 45
 deploy_dir=${1:-/home/aemr/dash/deploy}
 source_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 # Never replace the executor/tool whose digests an armed release depends on.
