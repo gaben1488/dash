@@ -68,6 +68,25 @@ const {createApp}=await import('./src/app.ts');const app=await createApp({logger
 try{
 const started=Date.now();const response=await app.inject({method:'GET',url:'/api/report-releases',headers:{authorization:'Bearer '+process.env.AEMR_API_KEY}});
 const summary={elapsed_ms:Date.now()-started,http_status:response.statusCode,bytes:response.rawPayload.length,backend_failures:failures.length};
+if(process.env.PROBE_HISTORY==='1'){
+ const shared=await import('@aemr/shared');const history={models:0,invalid:0};
+ function visit(root){
+  if(fs.lstatSync(root).isSymbolicLink())throw Error('UNSAFE_HISTORY');
+  for(const entry of fs.readdirSync(root,{withFileTypes:true})){
+   const file=root+'/'+entry.name;if(entry.isSymbolicLink())throw Error('UNSAFE_HISTORY');
+   if(entry.isDirectory())visit(file);
+   else if(entry.isFile()&&entry.name==='report_model.json'){
+    if(fs.statSync(file).size>134217728)throw Error('HISTORY_TOO_LARGE');
+    const model=JSON.parse(fs.readFileSync(file,'utf8'));history.models++;
+    if(model.automation_assurance!==undefined&&!shared.ReportAssuranceSchema.safeParse(model.automation_assurance).success)history.invalid++;
+   }
+  }
+ }
+ visit('/probe-history/releases');
+ for(const name of fs.readdirSync('/probe-history/archives'))if(name.startsWith('WEEKLY-'))visit('/probe-history/archives/'+name);
+ summary.history=history;
+ summary.envelope_valid=shared.ReportReleaseStatusSchema.safeParse(JSON.parse(response.payload)).success;
+}
 fs.writeFileSync('/app/packages/server/data/probe-private.json',JSON.stringify({summary,failures}),{mode:0o600});
 console.log('NATIVE_STATUS_PROBE='+JSON.stringify(summary));
 }finally{await app.close();}process.exit(0);
@@ -88,7 +107,8 @@ def public_summary(outcomes):
         'native_exit':outcomes.get('native',{}).get('returncode'),'summary':outcomes.get('summary'),
         'backend_codes':codes,'backend_exits':[f.get('code') if type(f.get('code')) is int else None for f in outcomes.get('failures',[])],
         'backend_killed':[f.get('killed') is True for f in outcomes.get('failures',[])],
-        'python_errors':python_errors,'system_codes':system_codes,'timed_out':outcomes.get('timed_out') is True}
+        'python_errors':python_errors,'system_codes':system_codes,'timed_out':outcomes.get('timed_out') is True,
+        'previous_summary':outcomes.get('previous_summary')}
 
 
 def main():
@@ -122,13 +142,16 @@ def main():
             for path in (root,*root.rglob('*')):os.chown(path,1000,1000)
             common = ['docker','run','--rm','--network','none','--read-only','--user','1000:1000',
                 '--memory','768m','--memory-swap','1g','--cpus','0.5','--pids-limit','128',
-                '--tmpfs','/tmp:rw,nosuid,nodev,size=128m','--mount',f'type=bind,src={root},dst=/app/packages/server/data',
+                '--mount',f'type=bind,src={root},dst=/app/packages/server/data',
                 '--workdir','/app/packages/server','--env','AEMR_API_KEY=isolated-native-status-diagnostic',
                 '--env','SOURCE_AUTO_REFRESH_MINUTES=0','--env','REPORT_STATE_DIR=/app/packages/server/data/reports',
                 '--env','SQLITE_PATH=/app/packages/server/data/aemr.db']
             image = plan['candidate_images']['server'];assert re.fullmatch(r'sha256:[a-f0-9]{64}',image)
             identity = uuid.uuid4().hex;name = 'aemr-status-probe-'+identity
             common += ['--name',name,'--label','aemr.native-status-probe='+identity]
+            common += ['--tmpfs','/tmp:rw,nosuid,nodev,size=128m']
+            previous_common = common.copy()
+            active_image = image
             try:
                 override = globals().get('PUBLICATION_STORE_OVERRIDE')
                 if override is not None:
@@ -144,11 +167,22 @@ def main():
                     'initialize-publication-readers','--state','/app/packages/server/data/reports'],capture_output=True,text=True,timeout=60,check=False)
                 outcomes['initializer'] = {'returncode':init.returncode,'stderr':init.stderr[-65536:]}
                 if init.returncode==0:
-                    result = subprocess.run([*common,'--entrypoint','./node_modules/.bin/tsx',image,'--eval',PROGRAM],
+                    assert all(folder.is_dir() and not folder.is_symlink() for folder in (source/'published/releases',source/'archives'))
+                    historical = ['--env','PROBE_HISTORY=1','--mount',f'type=bind,src={source}/published/releases,dst=/probe-history/releases,readonly',
+                                  '--mount',f'type=bind,src={source}/archives,dst=/probe-history/archives,readonly']
+                    result = subprocess.run([*common,*historical,'--entrypoint','./node_modules/.bin/tsx',image,'--eval',PROGRAM],
                         capture_output=True,text=True,timeout=120,check=False)
                     outcomes['native'] = {'returncode':result.returncode,'stdout':result.stdout[-65536:],'stderr':result.stderr[-65536:]}
                     private = root/'probe-private.json'
                     if private.is_file():outcomes.update(json.loads(private.read_bytes()))
+                    # Check the actual prior image unchanged, before a full trial.
+                    prior_image = plan['images']['server'];assert re.fullmatch(r'sha256:[a-f0-9]{64}',prior_image)
+                    active_image = prior_image
+                    prior = subprocess.run([*previous_common,
+                        '--entrypoint','./node_modules/.bin/tsx',prior_image,'--eval',PROGRAM],
+                        capture_output=True,text=True,timeout=120,check=False)
+                    outcomes['previous'] = {'returncode':prior.returncode,'stderr':prior.stderr[-65536:]}
+                    if prior.returncode==0:outcomes['previous_summary'] = json.loads(private.read_bytes()).get('summary')
             except subprocess.TimeoutExpired as error:
                 outcomes['timed_out'] = True
                 outcomes['timeout_stderr'] = (error.stderr or b'')[-65536:].decode('utf8',errors='replace') if isinstance(error.stderr,bytes) else (error.stderr or '')[-65536:]
@@ -156,7 +190,7 @@ def main():
                 inspected = subprocess.run(['docker','inspect',name],capture_output=True,text=True,timeout=20,check=False)
                 if inspected.returncode==0:
                     owned = json.loads(inspected.stdout)[0]
-                    assert owned['Image']==image and owned['Config']['Labels'].get('aemr.native-status-probe')==identity
+                    assert owned['Image']==active_image and owned['Config']['Labels'].get('aemr.native-status-probe')==identity
                     subprocess.run(['docker','rm','--force',name],capture_output=True,text=True,timeout=20,check=True)
         # Keep the original failing receipt for comparison with the reviewed fix.
         suffix = '-'+outcomes['module_override_sha256'] if outcomes.get('module_override_sha256') else ''

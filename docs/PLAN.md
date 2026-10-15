@@ -7,6 +7,16 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Исправленный reader8966f1d4 проверен на реальном b8 image/catalog:
+run38778361400/job116571783394, module35eb647ddd88b9d859efc08202355d451482bc01b09bf0c9ee213ec31ee9411f,
+HTTP200/4575ms/9165922B/0backend failures, прежний tmpfs128MiB; disk-full исчез.
+Baseline private receipt сохранён, patched receipt имеет суффикс moduleSHA.
+CI38778350028: все3 обязательных source jobs PASS; общий CI по-прежнему FAILURE
+по read-only browser проверке старого API. Приложение ещё НЕ установлено.
+Перед полным restore расширен тот же bounded probe: read-only проверка всех
+реальных historical assurance models и unchanged previous image на private clone;
+это диагностика совместимости, не full-restore/release proof.
+
 Native probe38775963107/job116563552714 на реальном b8 image/catalog подтвердил
 первопричину503: sqlite3.OperationalError «database or disk is full». SQLite
 сортировал receipt JSON во временный раздел128MiB; исходные latest файлы целы.
