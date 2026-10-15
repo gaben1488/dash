@@ -57,6 +57,21 @@ jobs:
             capacity=os.statvfs('/')
             print(json.dumps({'kind':'host_capacity','free_bytes':shutil.disk_usage('/').free,
                 'free_inodes':capacity.f_favail,'total_inodes':capacity.f_files}))
+            for category,parent in [('backups','/home/aemr/.dash-private-backups'),
+                    ('operational_scratch','/root/codex-fixes'),('temporary','/tmp'),
+                    ('git_objects','/home/aemr/dash/.git')]:
+                result=subprocess.run(['du','-s','--block-size=1',parent],capture_output=True,timeout=30)
+                amount=result.stdout.split(maxsplit=1)[0] if result.returncode==0 else b''
+                print(json.dumps({'kind':'host_storage_category','category':category,
+                    'allocated_bytes':int(amount) if amount.isdigit() else None}))
+                if category!='backups' or not Path(parent).is_dir():continue
+                for child in Path(parent).iterdir():
+                    if child.is_symlink() or not child.is_dir():continue
+                    result=subprocess.run(['du','-s','--block-size=1',str(child)],capture_output=True,timeout=30)
+                    amount=result.stdout.split(maxsplit=1)[0] if result.returncode==0 else b''
+                    label=child.name if re.fullmatch(r'(?:release|worker|backup)-[0-9]+',child.name) else 'OTHER_PRIVATE_DIRECTORY'
+                    print(json.dumps({'kind':'backup_directory_size','category':label,
+                        'allocated_bytes':int(amount) if amount.isdigit() else None}))
             server=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=10))[0]
             data=[m for m in server['Mounts'] if m['Destination']=='/app/packages/server/data']
             assert len(data)==1 and data[0]['Type']=='volume'
