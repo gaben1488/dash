@@ -10,6 +10,67 @@ permissions:
   actions: read
 
 jobs:
+  release-tool-diagnostics:
+    if: >-
+      github.event.label.name == 'maintenance: release-tool-diagnostics' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Read actual policy types and replay only the failed installer admission
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PY'
+            import hashlib,json,os,stat,subprocess,sys
+            from pathlib import Path
+            source=Path('/root/codex-fixes/release-38687954214/deploy/install-runtime-guard.sh')
+            assert not any(p.is_symlink() for p in (source,*source.parents))
+            info=source.lstat()
+            assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
+            body=source.read_bytes()
+            assert hashlib.sha256(body).hexdigest()=='13fa270b8a1392c3c09aa877537c2851cb7ec1267a5dc70cc90169db68378e41'
+            policy_path=Path('/etc/aemr/runtime-policy.json')
+            metadata=policy_path.lstat()
+            assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid==0 and not policy_path.is_symlink() and metadata.st_size<=1024*1024
+            policy=json.loads(policy_path.read_bytes())
+            roles=('server','web','report-worker','caddy')
+            types={role:{key:type(value).__name__ for key,value in
+                   policy.get('services',{}).get(role,{}).get('limits',{}).items()
+                   if key in ('mem_limit','memswap_limit','mem_reservation','cpus','pids_limit','cpu_shares')} for role in roles}
+            print(json.dumps({'kind':'release_installer_admission','source_sha':'30cfd691',
+                'policy_uid':metadata.st_uid,'policy_mode':oct(stat.S_IMODE(metadata.st_mode)),
+                'limit_types':types,'pending':Path('/var/lib/aemr/pending-release.json').exists(),
+                'progress':Path('/var/lib/aemr/release-recovery-progress.json').exists()}))
+            text=body.decode()
+            for delimiter,arguments in [('PYPOLICY',[str(policy_path)]),('PYVOLUME',[])]:
+                program=text.split("<<'"+delimiter+"'\n",1)[1].split('\n'+delimiter+'\n',1)[0]
+                result=subprocess.run([sys.executable,'-I','-',*arguments],input=program,text=True,
+                    capture_output=True,timeout=20,check=False)
+                permitted={'NEW','PRESERVE','RUNTIME_GUARD_POLICY_INVALID','RUNTIME_GUARD_VOLUME_INVALID'}
+                codes=[line for line in (result.stdout+'\n'+result.stderr).splitlines() if line in permitted]
+                print(json.dumps({'kind':'release_installer_check','check':delimiter,
+                    'returncode':result.returncode,'codes':codes}))
+            for role in roles:
+                result=subprocess.run(['docker','inspect','aemr-'+role+'-1'],capture_output=True,timeout=10,check=False)
+                if result.returncode:print(json.dumps({'service':role,'state':'UNAVAILABLE'}));continue
+                item=json.loads(result.stdout)[0];state=item['State']
+                print(json.dumps({'service':role,'state':state['Status'],'health':state.get('Health',{}).get('Status'),
+                    'oom':state['OOMKilled'],'restarts':item['RestartCount']}))
+            PY
   backup-window-diagnostics:
     if: >-
       github.event.label.name == 'maintenance: backup-window-diagnostics' &&
