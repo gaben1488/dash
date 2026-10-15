@@ -14,6 +14,40 @@ SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "cleanup-build-cache.s
 
 
 class EarlyScratchCapacityTests(unittest.TestCase):
+    def test_observed_archive_headroom_is_required_before_api_freeze(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        program = textwrap.dedent(workflow.split("<<'PYRUNNERCAPACITY'\n",1)[1].split('\n          PYRUNNERCAPACITY',1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary);(root/'release').mkdir()
+            budget = {'source_bytes':36*1024**3,'vps_backup_free_bytes':5900*1024**2,
+                      'vps_backup_required_bytes':6900*1024**2}
+            (root/'release/capacity-input.json').write_text(json.dumps(budget))
+            with patch.dict(os.environ,{'RUNNER_TEMP':temporary}), \
+                 patch('shutil.disk_usage',return_value=SimpleNamespace(free=100*1024**3)), \
+                 contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(SystemExit,'BACKUP_SPACE_BUDGET_INSUFFICIENT'):
+                exec(compile(program,'<observed-archive-budget>','exec'),{})  # noqa: S102 - reviewed actual workflow
+
+    def test_archive_forecast_authenticates_prior_manifest_and_rejects_invalid_sizes(self):
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        program = textwrap.dedent(workflow.split("<<'PYVPSCAPACITY' >",1)[1].split('\n',1)[1].split('\n          PYVPSCAPACITY',1)[0])
+        tree = ast.parse(program)
+        definition = next((node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='archive_budget'),None)
+        self.assertIsNotNone(definition,'Missing authenticated observed archive forecast')
+        scope={'json':json,'hashlib':hashlib}
+        exec(compile(ast.Module(body=[definition],type_ignores=[]),'<archive-forecast>','exec'),scope)  # noqa: S102 - actual workflow
+        body=json.dumps({'format':2,'archive_bytes':5*1024**3,'bytes':30*1024**3}).encode()
+        checksum=hashlib.sha256(body).hexdigest()
+        required=scope['archive_budget'](body,checksum,31*1024**3)
+        self.assertGreaterEqual(required,7*1024**3)
+        for invalid,sha in ((body,'0'*64),(b'{}',checksum),
+                            (json.dumps({'format':2,'archive_bytes':True,'bytes':1}).encode(),None)):
+            with self.subTest(invalid=invalid),self.assertRaises((ValueError,SystemExit)):
+                scope['archive_budget'](invalid,sha or hashlib.sha256(invalid).hexdigest(),31*1024**3)
+
     def test_interpolated_ssh_scripts_fit_github_expression_limit(self):
         import re
         workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
@@ -55,7 +89,7 @@ class EarlyScratchCapacityTests(unittest.TestCase):
             with self.subTest(free=free, source=source), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary);(root/'release').mkdir()
                 (root/'release/capacity-input.json').write_text(json.dumps({
-                    'source_bytes':source,'vps_backup_free_bytes':8*gib}))
+                    'source_bytes':source,'vps_backup_free_bytes':8*gib,'vps_backup_required_bytes':6*gib}))
                 with patch.dict(os.environ, {'RUNNER_TEMP':temporary}), \
                      patch('shutil.disk_usage', return_value=SimpleNamespace(free=free)), \
                      contextlib.redirect_stdout(io.StringIO()) as output:
@@ -128,17 +162,18 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
         private, public = self.programs()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'release';root.mkdir()
-            (root / 'stage.log').write_text('RELEASE_SAVED_RUNTIME_MISMATCH\nRELEASE_CONTROLLER_FAILED\nPRIVATE_BEARER_VALUE\nRELEASE_UNKNOWN_PRIVATE_VALUE\n')
+            (root / 'stage.log').write_text('RELEASE_SAVED_RUNTIME_MISMATCH\nRELEASE_CONTROLLER_FAILED\nPRIVATE_BEARER_VALUE\nRELEASE_UNKNOWN_PRIVATE_VALUE\nSOURCE_CHANGED_DURING_BACKUP\n')
+            (root / 'prepare.log').write_text('{"error":"BACKUP_STORAGE_INSUFFICIENT","private":"PRIVATE_VALUE"}\n')
             (root / 'key').write_text('PRIVATE_SSH_VALUE')
             (root / '.env.production').write_text('PRIVATE_ENV_VALUE')
             with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
                 exec(compile(private, '<private-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
             value = json.loads(output.getvalue())
-            self.assertEqual(set(value), {'stage.log'})
+            self.assertEqual(set(value), {'stage.log','prepare.log'})
             self.assertIn('PRIVATE_BEARER_VALUE', value['stage.log'])  # Preserved only in root-private transport.
             with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
                 exec(compile(public, '<public-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
-            self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=RELEASE_CONTROLLER_FAILED\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\n')
+            self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=BACKUP_STORAGE_INSUFFICIENT\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_CONTROLLER_FAILED\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\nPRIVATE_RELEASE_FAILURE_CODE=SOURCE_CHANGED_DURING_BACKUP\n')
 
     def test_small_failure_phase_survives_a_full_private_log_budget(self):
         import contextlib

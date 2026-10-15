@@ -1675,6 +1675,23 @@ jobs:
             sudo -n python3 -I - <<'PYREPLAYERROR'
             import json,re
             from pathlib import Path
+            failure=json.loads(Path('/root/codex-fixes/release-38783450204/runner-diagnostics.json').read_bytes())
+            prepare=failure.get('prepare.log','')
+            codes=('BACKUP_STORAGE_INSUFFICIENT','SOURCE_CHANGED_DURING_BACKUP','BACKUP_SPACE_BUDGET_INSUFFICIENT',
+                'BACKUP_GUARDIAN_FAILED','BACKUP_GUARDIAN_NOT_READY','BACKUP_RUNTIME_CHANGED','BACKUP_FAILED',
+                'BACKUP_IO_OR_MANIFEST_FAILED','BACKUP_SOURCE_MISMATCH','BACKUP_MISMATCH','BACKUP_SQLITE_INVALID',
+                'BACKUP_STATE_INCOMPLETE','BACKUP_DOCX_INVALID','BACKUP_UNSAFE_FILE','BACKUP_OWNERSHIP_UNAVAILABLE')
+            print(json.dumps({'failed_release':38783450204,'prepare_bytes':len(prepare.encode()),
+                'codes':[code for code in codes if re.search(r'(?<![A-Za-z0-9_])'+code+r'(?![A-Za-z0-9_])',prepare)],
+                'transport_timeout':'Connection timed out' in prepare or 'Timeout' in prepare,
+                'transport_closed':'Connection closed' in prepare or 'Broken pipe' in prepare,
+                'exit_status_124':bool(re.search(r'(?:exit (?:status|code)|returncode)[=: ]+124\b',prepare,re.IGNORECASE)),'disk_full':'No space left on device' in prepare,
+                'error_types':[name for name in ('TimeoutError','PermissionError','RuntimeError','OSError','CalledProcessError')
+                    if name in prepare]}))
+            stage=json.loads(Path('/var/lib/aemr/release-runtime/stage.json').read_bytes())
+            if stage.get('release_sha')=='fe1979b5b5f8c8de2443c09a3cb952b7e1563513':
+                print(json.dumps({'failed_candidate_images':{k:v for k,v in stage.get('candidate_images',{}).items()
+                    if k in ('server','web') and isinstance(v,str) and re.fullmatch(r'sha256:[a-f0-9]{64}',v)}}))
             probe=json.loads(Path('/root/codex-fixes/release-38727198402/native-status-probe-35eb647ddd88b9d859efc08202355d451482bc01b09bf0c9ee213ec31ee9411f-62e89157821b4de1a7c84e91f69c7444.json').read_bytes())
             previous=probe.get('previous_receipt',{})
             private_errors='\n'.join(str(value.get('stderr','')) for value in previous.get('failures',[]))
@@ -2774,25 +2791,39 @@ jobs:
            assert actual==identity
           PY
           remote sudo -n python3 -Es - <<'PYVPSCAPACITY' > "$RUNNER_TEMP/release/capacity-input.json"
-          import fcntl,json,os,shutil,subprocess,sys
+          import fcntl,hashlib,json,os,shutil,subprocess,sys
           from pathlib import Path
           sys.path.insert(0,'/usr/local/libexec/aemr')
           import release_recovery as recovery
+          def archive_budget(body,expected,current_bytes):
+           if hashlib.sha256(body).hexdigest()!=expected:raise ValueError('RELEASE_CHECKPOINT_CHANGED')
+           previous=json.loads(body)
+           if previous.get('format')!=2 or any(type(previous.get(k)) is not int or previous[k]<=0 for k in ('archive_bytes','bytes')):
+            raise ValueError('RELEASE_CAPACITY_INPUT_INVALID')
+           # Forecast only: append growth is budgeted uncompressed. Rewrites can
+           # compress differently; the frozen bounded writer remains authoritative.
+           estimate=previous['archive_bytes']+max(0,current_bytes-previous['bytes'])
+           return estimate+max(256*1024**2,(estimate+9)//10)+1024**3
           fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
           with os.fdopen(fd,'r+') as lock:
            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
            stage=json.loads(recovery.read_owned(Path('/var/lib/aemr/release-runtime/stage.json')))
            source=recovery.ReleaseRecovery(lock_fd=fd)._volume(stage)
            size=int(subprocess.check_output(['du','--summarize','--bytes','--count-links','--',str(source)],text=True,timeout=90).split()[0])
-           print(json.dumps({'source_bytes':size,'vps_backup_free_bytes':shutil.disk_usage('/home/aemr/.dash-private-backups').free}))
+           previous=recovery.validate_plan(json.loads(recovery.read_owned(recovery.RUNTIME_DIR/'trial-plan.json')))
+           manifest=recovery.BACKUP_BASE/previous['backup_reference']/'manifest.json'
+           if any(p.is_symlink() for p in (manifest,*manifest.parents)):raise ValueError('RELEASE_BACKUP_UNSAFE')
+           required=archive_budget(recovery.read_owned(manifest,limit=16*1024**2),previous['manifest_sha256'],size)
+           print(json.dumps({'source_bytes':size,'vps_backup_free_bytes':shutil.disk_usage('/home/aemr/.dash-private-backups').free,
+            'vps_backup_required_bytes':required}))
           PYVPSCAPACITY
           python3 - <<'PYRUNNERCAPACITY'
           import json,os,shutil
           from pathlib import Path
           budget=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/capacity-input.json').read_text())
-          if any(type(budget.get(k)) is not int or budget[k]<0 for k in ('source_bytes','vps_backup_free_bytes')):
+          if any(type(budget.get(k)) is not int or budget[k]<0 for k in ('source_bytes','vps_backup_free_bytes','vps_backup_required_bytes')):
            raise SystemExit('RELEASE_CAPACITY_INPUT_INVALID')
-          if budget['vps_backup_free_bytes']<4*1024**3:raise SystemExit('BACKUP_SPACE_BUDGET_INSUFFICIENT')
+          if budget['vps_backup_free_bytes']<max(4*1024**3,budget['vps_backup_required_bytes']):raise SystemExit('BACKUP_SPACE_BUDGET_INSUFFICIENT')
           # The writer always retains 1 GiB on VPS, which bounds archive growth.
           # Include the entire uncompressed clone + archive + 2 GiB runner reserve.
           required=budget['source_bytes']+budget['vps_backup_free_bytes']-1024**3+2*1024**3
@@ -2911,10 +2942,10 @@ jobs:
           if test -f "$RUNNER_TEMP/release/ssh.sh"; then
             . "$RUNNER_TEMP/release/ssh.sh"
             python3 - <<'PY'
-          import ast,os
+          import ast,os,re
           from pathlib import Path
-          allowed={'AEMR_MAINTENANCE_BUSY','AEMR_MAINTENANCE_LOCK_INVALID'}
-          for name in ('deploy/release-controller.py','deploy/release_recovery.py','deploy/release_trial.py'):
+          allowed={'AEMR_MAINTENANCE_BUSY','AEMR_MAINTENANCE_LOCK_INVALID','SOURCE_CHANGED_DURING_BACKUP'}
+          for name in ('deploy/release-controller.py','deploy/release_recovery.py','deploy/release_trial.py','deploy/stateful_backup.py'):
               for node in ast.walk(ast.parse(Path(name).read_text())):
                   if isinstance(node,ast.Constant):
                       value=node.value
@@ -2924,8 +2955,8 @@ jobs:
           found=set()
           for path in root.glob('*.log'):
               if path.is_file() and not path.is_symlink():
-                  found.update(line.strip() for line in path.read_bytes()[-131072:].decode('utf-8',errors='replace').splitlines()
-                      if line.strip() in allowed)
+                  found.update(set(re.findall(r'(?<![A-Za-z0-9_])(?:RELEASE|BACKUP|AEMR|SOURCE)_[A-Z0-9_]+(?![A-Za-z0-9_])',
+                      path.read_bytes()[-131072:].decode('utf-8',errors='replace')))&allowed)
           for code in sorted(found):print('PRIVATE_RELEASE_FAILURE_CODE='+code)
           PY
             remote sudo -n install -d -m 700 "/root/codex-fixes/release-$RECOVERY_RUN"
