@@ -7,6 +7,22 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Run38727198402/sourceb8e98ec5: exact3sourceCI38726228112 PASS;
+Docker transport/stage/full capacity PASS, full backup+source-match11:32:11–11:43:44UTC
+PASS. Independent trial11:43:44–12:03:14UTC отказал до установки; точная причина
+пока неизвестна: trial.log содержит только RELEASE_NATIVE_TRIAL_FAILED.
+Same-owner resume SUCCESS, свежий domain health200/ok подтверждён после12:04UTC.
+Ни один новый app runtime не установлен. Старый worker остаётся quarantined.
+Полная копия без independent restore не закрывает R06/R09.
+
+Коррекция процесса: следующий диагноз использует уже созданный immutable archive
+при работающем API. Read-only helper проверяет member/hash/attrs и SQLite+WAL,
+DOCX по одному в private scratch (reserve1GiB); источник и archive не переписывает.
+Результат не выдаётся за full restore/native compatibility. Три реальные archive
+теста RED→GREEN,21cleanup/Ruff/actionlint PASS; новый freeze до точного диагноза и
+успешного online rehearsal запрещён. Причина затяжки — поздний контроль реальных
+границ выпуска; владелец не должен повторно координировать этот внутренний дефект.
+
 Run38722058204/sourcef864d530: exact3sourceCI38721657480 PASS, actual Docker
 producer→reader PASS, transport/stage/early full-scratch capacity PASS.
 Freeze10:50:35–11:00:36UTC создал новую копию0600, но base-plan отказал до
@@ -14,11 +30,11 @@ independent trial/deploy; same-owner resume SUCCESS, public health200/ok.
 Отдельный CLI ошибочно передавал закрытый fd9 в read-only Docker RPC. Тест
 реального Popen без наследованного guardian fd: RED→GREEN; main только для
 base-plan использует уже поддержанный lock_fd=None. Stage/prepare/deploy
-сохраняют обязательный EX. Новый native replay на existing frozen capture при
-здоровом API должен подтвердить EBADF старого транспорта и полное прохождение
+сохраняют обязательный EX. Native replay38726235804 на existing frozen capture при
+здоровом API подтвердил EBADF старого транспорта и полное прохождение
 новой цепочки до намеренного terminal writer guard. Capsule заранее существует,
 допуск _saved_runtime отдельно подтверждается; изменений runtime/плана нет.
-Повторное окно до успешного native replay не запускать. Current R06 ещё не принят:
+Native replay принят до run38727198402; дальнейший independent trial пока не принят. Current R06 ещё не принят:
 полная копия без independent restore не является готовностью выпуска.
 
 Run38716276232/sourceeba8f147: exact3source CI38715940755 PASS, Docker29 canary,
@@ -248,8 +264,9 @@ negative cases and exact staged Word proof with a legitimately newer latest. Act
 Второй SSH-агент недоступен; Root выполняет runtime-сценарии через существующий
 Actions SSH-доступ. Один владелец выполняет stop/recreate/update под maintenance lock.
 
-Текущий SHA `f864d5309e5df761c2974d700165063ed693e521` зафиксирован на весь выпуск.
-CI38721657480: три обязательных source jobs PASS;735shared/1869core(+1skip)/
+Последний app-кандидат `b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b` не установлен.
+Диагностические изменения не являются новым приложением или разрешением freeze.
+CI38726228112: три обязательных source jobs PASS;735shared/1869core(+1skip)/
 994server/2295web,1074Python+5native отдельно PASS; lint/typechecks/build/audit PASS.
 Общий CI пока FAILURE: read-only probe прежнего API отклоняет отсутствующий
 `digest.byKind.row-identity-candidate`; его повтор на новом runtime обязателен.

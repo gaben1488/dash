@@ -1654,6 +1654,32 @@ jobs:
             git show "$candidate:deploy/runtime-state-probe.py" > "$tool"
             python3 -B "$tool"
             df -PB1 /
+  frozen-backup-readback:
+    if: >-
+      github.event.label.name == 'maintenance: frozen-backup-readback' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Diagnose existing frozen archive without stopping the API or restoring live data
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 12m
+          script: |
+            set -euo pipefail
+            source='${{ github.event.pull_request.head.sha }}'
+            git -C /home/aemr/dash fetch --quiet origin "$source"
+            git -C /home/aemr/dash show "$source:.github/ci/frozen_backup_readback.py" | sudo -n python3 -I -
   identity-retention-proof:
     if: >-
       github.event.label.name == 'maintenance: identity-retention-proof' &&
