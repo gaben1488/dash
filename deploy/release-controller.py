@@ -79,14 +79,36 @@ class ReleaseController:
                 recovery.fail('RELEASE_SAVED_RUNTIME_MISMATCH')
             for compose_key, docker_key in [('command', 'Cmd'), ('entrypoint', 'Entrypoint'),
                                              ('user', 'User'), ('working_dir', 'WorkingDir')]:
-                expected = declared.get(compose_key, image.get(docker_key))
+                # Compose null inherits the image; [] explicitly clears a command.
+                expected = declared.get(compose_key)
+                if expected is None:
+                    # A non-null entrypoint suppresses the image CMD unless
+                    # Compose also supplies an explicit command.
+                    expected = (None if compose_key == 'command' and declared.get('entrypoint') is not None
+                                else image.get(docker_key))
                 if isinstance(expected, str) and compose_key in {'command', 'entrypoint'}:
                     expected = shlex.split(expected)
-                if expected != actual.get(docker_key):
+                observed = actual.get(docker_key)
+                if compose_key in {'command', 'entrypoint'}:
+                    expected = [] if expected is None else expected
+                    observed = [] if observed is None else observed
+                else:
+                    # Docker omits empty image defaults and materializes them as ''.
+                    expected = '' if expected is None else expected
+                    observed = '' if observed is None else observed
+                if expected != observed:
                     recovery.fail('RELEASE_SAVED_RUNTIME_MISMATCH')
             mounts = declared.get('volumes', [])
-            if {m.get('target') for m in mounts} != {m.get('Destination') for m in record.get('Mounts', [])}:
+            declared_targets = {m.get('target') for m in mounts}
+            image_targets = set(image.get('Volumes') or {})
+            if declared_targets | image_targets != {m.get('Destination') for m in record.get('Mounts', [])}:
                 recovery.fail('RELEASE_SAVED_RUNTIME_MISMATCH')
+            # Image VOLUME declarations create anonymous mounts without Compose entries.
+            for target in image_targets - declared_targets:
+                values = [m for m in record.get('Mounts', []) if m.get('Destination') == target]
+                if (len(values) != 1 or values[0].get('Type') != 'volume'
+                        or not values[0].get('Name') or values[0].get('RW') is not True):
+                    recovery.fail('RELEASE_SAVED_RUNTIME_MISMATCH')
             for mount in mounts:
                 matches = [value for value in record.get('Mounts', []) if value.get('Destination') == mount['target']]
                 if len(matches) != 1:

@@ -288,6 +288,53 @@ class ControllerTests(TrialTests):
                 self.assertEqual(failures[0]['error_code'], 'RELEASE_SAVED_RUNTIME_MISMATCH')
             self.assertNotIn('PRIVATE_TEST_KEY', output.getvalue())
 
+    def test_native_compose_null_inherits_image_defaults_and_empty_user_is_platform_default(self):
+        self.stage_fixture()
+        path = self.operator / 'native-defaults.json'
+        path.write_text(json.dumps({'name': 'aemr', 'services': {'server': {
+            'image': 'synthetic:no-pull', 'command': None, 'entrypoint': None}}}))
+        native = subprocess.run(['docker', 'compose', '-f', str(path), 'config', '--format', 'json'],
+            capture_output=True, text=True, timeout=20, check=False)
+        self.assertEqual(native.returncode, 0, native.stderr)
+        declared = json.loads(native.stdout)['services']['server']
+        self.assertIsNone(declared['command']);self.assertIsNone(declared['entrypoint'])
+        resolved = json.loads(json.dumps(self.compose_sources[str(self.operator / 'docker-compose.yml')]))
+        resolved['services']['server'].update({'command': declared['command'], 'entrypoint': declared['entrypoint']})
+        record = json.loads(json.dumps(self.fixture.records['server']))
+        record['Config'].update({'Cmd': ['node', 'server.js'], 'Entrypoint': ['/entrypoint.sh'], 'User': '', 'WorkingDir': ''})
+        image = {'Config': {'Cmd': ['node', 'server.js'], 'Entrypoint': ['/entrypoint.sh'], 'Env': record['Config']['Env']}}
+        original = self.fixture.executor.command
+        self.fixture.executor.command = lambda args, **kwargs: json.dumps([image]) if args[:2] == ['image', 'inspect'] else original(args, **kwargs)
+        self.controller._saved_runtime(self.plan, {'server': record}, resolved)
+        for field, change in [('Cmd', ['node', 'different.js']), ('Entrypoint', ['/other.sh']), ('User', 'unexpected'), ('WorkingDir', '/elsewhere')]:
+            altered = json.loads(json.dumps(record));altered['Config'][field] = change
+            with self.subTest(field=field), self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_SAVED_RUNTIME_MISMATCH'):
+                self.controller._saved_runtime(self.plan, {'server': altered}, resolved)
+        resolved['services']['server']['command'] = []
+        with self.assertRaises(self.fixture.module.RecoveryError):self.controller._saved_runtime(self.plan, {'server': record}, resolved)
+        record['Config']['Cmd'] = None  # Docker normalizes an explicitly cleared command.
+        self.controller._saved_runtime(self.plan, {'server': record}, resolved)
+        resolved['services']['server'].update({'command': None, 'entrypoint': ['/custom.sh']})
+        record['Config']['Entrypoint'] = ['/custom.sh']
+        self.controller._saved_runtime(self.plan, {'server': record}, resolved)
+        resolved['services']['server']['command'] = ['explicit-command']
+        record['Config']['Cmd'] = ['explicit-command']
+        self.controller._saved_runtime(self.plan, {'server': record}, resolved)
+
+    def test_image_declared_anonymous_volumes_are_distinct_from_unexplained_mounts(self):
+        self.stage_fixture()
+        resolved = json.loads(json.dumps(self.compose_sources[str(self.operator / 'docker-compose.yml')]))
+        record = json.loads(json.dumps(self.fixture.records['web']))
+        record['Mounts'] = [{'Type': 'volume', 'Name': 'a' * 64, 'Destination': '/data', 'RW': True}]
+        image = {'Config': {'Volumes': {'/data': {}}}}
+        original = self.fixture.executor.command
+        self.fixture.executor.command = lambda args, **kwargs: json.dumps([image]) if args[:2] == ['image', 'inspect'] else original(args, **kwargs)
+        self.controller._saved_runtime(self.plan, {'web': record}, resolved)
+        for mount in ({'Type': 'bind'}, {'Destination': '/unexpected'}, {'RW': False}, {'Name': ''}):
+            altered = json.loads(json.dumps(record));altered['Mounts'][0].update(mount)
+            with self.subTest(mount=mount), self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_SAVED_RUNTIME_MISMATCH'):
+                self.controller._saved_runtime(self.plan, {'web': altered}, resolved)
+
     def test_stage_captures_actual_private_configuration_without_runtime_mutation(self):
         self.stage_fixture()
         self.assertTrue(hasattr(self.controller, 'stage'), 'Trusted fixed-path stage producer is missing')

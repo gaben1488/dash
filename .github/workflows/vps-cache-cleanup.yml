@@ -243,7 +243,8 @@ jobs:
                assert result['report-worker']['State']['Status'] in {'running','restarting','created','exited'}
                return result
               def stable(value):
-               return {key:value.get(key) for key in ('Id','Name','Image','Config','Mounts','HostConfig')}
+               return {**{key:value.get(key) for key in ('Id','Name','Image','Config','HostConfig')},
+                'Mounts':sorted(json.dumps(m,sort_keys=True) for m in value.get('Mounts',[]))}
               before=records()
               assert type(before['report-worker'].get('RestartCount')) is int and before['report-worker']['RestartCount']>=3
               until=int(time.time());since=until-1800
@@ -374,7 +375,9 @@ jobs:
           script_stop: false
           script: |
             set -euo pipefail
-            sudo -n python3 -I - <<'PY'
+            candidate='${{ github.event.pull_request.head.sha }}'
+            git -C /home/aemr/dash fetch --quiet origin "$candidate"
+            sudo -n python3 -I - "$candidate" <<'PY'
             import hashlib,json,os,re,shutil,stat,subprocess,sys
             from pathlib import Path
             source=Path('/root/codex-fixes/release-38687954214/deploy/install-runtime-guard.sh')
@@ -523,6 +526,15 @@ jobs:
             import release_recovery as recovery
             spec=importlib.util.spec_from_file_location('stage_diagnostic_controller',tools/'release-controller.py')
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            # Validate the reviewed candidate against live metadata without installing it.
+            import types
+            assert re.fullmatch('[a-f0-9]{40}',sys.argv[1])
+            candidate_body=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash','show',
+                sys.argv[1]+':deploy/release-controller.py'],timeout=15)
+            candidate_module=types.ModuleType('candidate_stage_controller')
+            candidate_module.__file__=str(tools/'release-controller.py')
+            exec(compile(candidate_body,candidate_module.__file__,'exec'),candidate_module.__dict__)
+            module=candidate_module
             fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
             if fd!=9:os.dup2(fd,9);os.close(fd)
             with os.fdopen(9,'r+') as lock:
@@ -1552,7 +1564,8 @@ jobs:
                             assert owned['Config'].get('Labels',{}).get('aemr.maintenance')==name
                             docker(['rm','--force',owned['Id']],timeout=30,pass_fds=(lock.fileno(),))
                 after=inspect('aemr-server-1')
-                assert all(before[key]==after[key] for key in ('Id','Image','Mounts','RestartCount'))
+                assert all(before[key]==after[key] for key in ('Id','Image','RestartCount'))
+                assert sorted(json.dumps(m,sort_keys=True) for m in before['Mounts'])==sorted(json.dumps(m,sort_keys=True) for m in after['Mounts'])
                 assert before['State']['StartedAt']==after['State']['StartedAt']
                 print('WEEKLY_TRANSIENT_MAINTENANCE_API_UNCHANGED')
             PYMAINT
@@ -1630,6 +1643,102 @@ jobs:
             print(json.dumps({'status':'HOST_JOURNAL_RETENTION_PASS','retained_limit_bytes':128*1024*1024,
                 'free_before_bytes':before,'free_after_bytes':shutil.disk_usage('/').free}))
             PY
+  failed-candidate-images:
+    if: >-
+      github.event.label.name == 'maintenance: failed-candidate-images' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Prove both candidates failed before any writer freeze
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,os,urllib.request
+          base='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def read(path):
+              request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
+              with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286')]:
+              info=read('/actions/runs/'+str(run))
+              assert info['head_sha']==sha and info['conclusion']=='failure'
+              jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
+              job=next(value for value in jobs if value['name']=='controlled-candidate-release')
+              freeze=[step for step in job['steps'] if step['name']=='Freeze writers once and create fresh full private backup']
+              assert len(freeze)==1 and freeze[0]['conclusion']=='skipped'
+          print('FAILED_CANDIDATE_LINEAGE_VERIFIED')
+          PY
+      - name: Retire only four unused immutable failed-candidate images
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 3m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PYFAILEDIMAGES'
+            import fcntl,json,os,shutil,subprocess
+            from pathlib import Path
+            def command(args):return subprocess.check_output(['docker',*args],text=True,timeout=45)
+            def containers():
+                identities=command(['ps','--all','--quiet','--no-trunc']).split()
+                assert identities
+                return json.loads(command(['inspect',*identities]))
+            def stable(records):
+                return {value['Id']:{**{key:value.get(key) for key in ('Id','Name','Image','Config','HostConfig','RestartCount')},
+                    'Mounts':sorted(json.dumps(m,sort_keys=True) for m in value.get('Mounts',[])),
+                    'state':{key:value['State'].get(key) for key in ('Status','StartedAt','OOMKilled')},
+                    'health':value['State'].get('Health',{}).get('Status')} for value in records}
+            def tags():
+                return {(v['Repository'],v['Tag'],v['ID']) for v in map(json.loads,
+                    command(['image','ls','--all','--no-trunc','--format','{{json .}}']).splitlines())}
+            expected={
+                'aemr-server:release-30cfd6914a60eddfde3f85fcc9528307b484ef92':'sha256:e711a93ad863d192329ca3d2cb1434f95bcdb54045e2372941782a6c3b14b284',
+                'aemr-web:release-30cfd6914a60eddfde3f85fcc9528307b484ef92':'sha256:15f96a15c16caa947772ff5102a413a535cf7a32fc9ec578dec8a20d27c0573a',
+                'aemr-server:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4',
+                'aemr-web:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295'}
+            try:
+                assert os.geteuid()==0
+                with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
+                    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    assert not any(os.path.lexists('/var/lib/aemr/'+name) for name in ('pending-release.json','release-recovery-progress.json'))
+                    assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+                    before=containers();protected={value['Image'] for value in before}
+                    server=next(value for value in before if value.get('Name')=='/aemr-server-1')
+                    assert server['State']['Status']=='running' and server['State'].get('Health',{}).get('Status')=='healthy'
+                    accepted=Path('/var/lib/aemr/release-accepted.json')
+                    if accepted.exists():
+                        assert not accepted.is_symlink()
+                        protected.update(json.loads(accepted.read_bytes())['acceptance']['candidate_images'].values())
+                    previous_tags=tags();selected=[]
+                    for tag,identity in expected.items():
+                        repository,name=tag.split(':',1)
+                        matches=[value for value in previous_tags if value[:2]==(repository,name)]
+                        if not matches:continue
+                        assert matches==[(repository,name,identity)] and identity not in protected
+                        image=json.loads(command(['image','inspect',tag]))[0]
+                        assert image['Id']==identity and image.get('RepoTags')==[tag]
+                        assert (image.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')==name.removeprefix('release-')
+                        selected.append((tag,identity))
+                    free=shutil.disk_usage('/').free
+                    for tag,identity in selected:command(['image','rm',identity])  # No force; Docker also protects raced references.
+                    assert stable(before)==stable(containers())
+                    retired={(tag.split(':',1)[0],tag.split(':',1)[1],identity) for tag,identity in selected}
+                    assert tags()==previous_tags-retired
+                    print(json.dumps({'status':'FAILED_CANDIDATE_IMAGES_REMOVED','removed':len(selected),
+                        'free_before_bytes':free,'free_after_bytes':shutil.disk_usage('/').free}))
+            except Exception:
+                raise SystemExit('FAILED_IMAGE_CLEANUP_REJECTED') from None
+            PYFAILEDIMAGES
   host-space-reserve:
     if: >-
       github.event.label.name == 'maintenance: host-space-reserve' &&
@@ -1665,7 +1774,8 @@ jobs:
             def runtime():
                 records=json.loads(command(['docker','inspect',*[f'aemr-{name}-1' for name in ('server','web','caddy','report-worker')]]))
                 assert len(records)==4 and records[0]['State']['Status']=='running' and records[3]['State']['Status']=='exited'
-                return [{**{key:value[key] for key in ('Id','Image','Config','Mounts','RestartCount')},
+                return [{**{key:value[key] for key in ('Id','Image','Config','RestartCount')},
+                    'Mounts':sorted(json.dumps(m,sort_keys=True) for m in value['Mounts']),
                     'status':value['State']['Status'],'started':value['State']['StartedAt']} for value in records]
             try:
                 assert os.geteuid()==0

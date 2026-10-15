@@ -102,6 +102,67 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
             self.assertTrue(all(len(body) == 131072 for body in value.values()))
 
 
+class FailedCandidateImagesTests(unittest.TestCase):
+    def exercise(self, scenario):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertTrue("<<'PYFAILEDIMAGES'" in workflow, 'Missing exact failed-candidate image retirement')
+        program = textwrap.dedent(workflow.split("<<'PYFAILEDIMAGES'\n", 1)[1].split('\n            PYFAILEDIMAGES', 1)[0])
+        images = {};removed = []
+        for revision, pairs in {
+            '30cfd6914a60eddfde3f85fcc9528307b484ef92': [('server','e711a93ad863d192329ca3d2cb1434f95bcdb54045e2372941782a6c3b14b284'),('web','15f96a15c16caa947772ff5102a413a535cf7a32fc9ec578dec8a20d27c0573a')],
+            '2d865fe1d3f86c741392b7bbc9cd91e991aeb286': [('server','7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4'),('web','6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295')],
+        }.items():
+            for role, identity in pairs:
+                tag='aemr-'+role+':release-'+revision
+                images[tag]={'Id':'sha256:'+identity,'RepoTags':[tag],'Config':{'Labels':{'org.opencontainers.image.revision':revision}}}
+        if scenario=='retagged':next(iter(images.values()))['Id']='sha256:'+'f'*64
+        if scenario=='other-tag':next(iter(images.values()))['RepoTags'].append('aemr-server:previous')
+        if scenario=='foreign-source':next(iter(images.values()))['Config']['Labels']['org.opencontainers.image.revision']='f'*40
+        protected=[{'Id':'container','Name':'/aemr-server-1',
+            'Image':next(iter(images.values()))['Id'] if scenario=='in-use' else 'sha256:protected',
+            'Mounts':[{'Destination':'/a'},{'Destination':'/b'}],
+            'State':{'Status':'running','StartedAt':'stable','Health':{'Status':'healthy','Log':[]}}}]
+        def command(args, **kwargs):
+            if args[1:3]==['ps','--all']:return 'container\n'
+            if args[1]=='inspect':
+                values=json.loads(json.dumps(protected))
+                if removed and scenario=='mount-order':values[0]['Mounts'].reverse()
+                if removed and scenario=='health-history':values[0]['State']['Health']['Log'].append({'ExitCode':0})
+                return json.dumps(values)
+            if args[1:3]==['image','ls']:
+                return '\n'.join(json.dumps({'Repository':tag.split(':')[0],'Tag':tag.split(':',1)[1],'ID':image['Id']}) for tag,image in images.items())
+            if args[1:3]==['image','inspect']:return json.dumps([images[args[3]]])
+            if args[1:3]==['image','rm']:
+                self.assertNotIn('--force',args)
+                identity=args[3];removed.append(identity)
+                for tag in [tag for tag,image in images.items() if image['Id']==identity]:images.pop(tag)
+                return ''
+            raise AssertionError(args)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);(root/'lock').touch()
+            program=program.replace('/run/lock/aemr-maintenance.lock',str(root/'lock')).replace('/var/lib/aemr',str(root/'state')).replace('/home/aemr/.dash-private-backups',str(root/'backups'))
+            with patch('os.geteuid',return_value=0),patch('subprocess.check_output',side_effect=command), \
+                 patch('shutil.disk_usage',return_value=SimpleNamespace(free=123)),contextlib.redirect_stdout(io.StringIO()) as output:
+                if scenario in ('valid','mount-order','health-history'):
+                    exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
+                    self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
+                else:
+                    with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
+        self.assertEqual(len(removed),4 if scenario in ('valid','mount-order','health-history') else 0)
+
+    def test_only_exact_unreferenced_failed_images_are_retired(self):
+        for scenario in ('valid','mount-order','health-history'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+    def test_live_rollback_retagged_and_foreign_images_are_protected(self):
+        for scenario in ('in-use','retagged','other-tag','foreign-source'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+
 class CacheCleanupTests(unittest.TestCase):
     def run_cleanup(self, scenario="normal"):
         self.assertTrue(SCRIPT.is_file(), "Missing cache-only maintenance implementation")

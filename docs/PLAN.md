@@ -7,6 +7,23 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Подтверждённая причина stage: run38704494952/116320415090 показал у всех4
+служб command/entrypoint=null при унаследованных непустых image defaults,
+а для Caddy/web image User=null соответствует container User="". Это стандарт
+Compose/Docker, не расхождение runtime. Исправление общего _saved_runtime:
+null наследует image, [] очищает команду, явный entrypoint подавляет default CMD;
+пустые image defaults и image-declared anonymous volumes учитываются без допуска
+посторонних команд/пользователей/bind mounts/томов. Нативный Compose2.40.3 RED→GREEN;
+весь controller suite42 PASS (18.876s). Первый локальный прогон имел3 Node
+subprocess timeouts; полный повтор PASS без изменения таймаутов. Все17 cleanup
+и27 worker checks PASS. Повторная live-сверка candidate кода перед выпуском
+выполняется read-only, без установки и переписывания конфигурации.
+Для capacity подготовлено удаление только4 точных unused images двух FAILED
+кандидатов30cfd691/2d865fe1. GitHub должен подтвердить skipped freeze для обоих;
+проверяются immutable image IDs/OCI revision, все container references, rollback
+aliases и отсутствие pending/quiescent. --force не применяется; остальные images
+и business state не являются целями очистки. Фактическое освобождение ещё не принято.
+
 Текущая попытка2d865fe1/run38701054490 остановлена15.10 07:53UTC на stage,
 после успешных source CI38700873755 и live latest Word schema/preflight.
 Установщик теперь PASS. Freeze/backup/deploy не запускались; API не останавливался.
