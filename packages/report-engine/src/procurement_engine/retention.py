@@ -288,12 +288,13 @@ def plan_publication_compaction(store):
     from contextlib import closing
     from datetime import datetime, timedelta, timezone
 
+    from .publication_store import _ordered_publication_rows
     from .readonly_catalog import copied_catalog
 
     if store.releases.is_symlink() or not store.releases.is_dir():
         raise ValueError('PUBLICATION_RETENTION_ROOT_UNSAFE')
     with copied_catalog(store.database_path) as path, closing(sqlite3.connect(path)) as db:
-        records = db.execute('SELECT release_id,report_date,cutoff_at,receipt,files FROM publications ORDER BY report_date DESC,cutoff_at DESC,release_id DESC').fetchall()
+        records = list(_ordered_publication_rows(db))
     keep, weeks, live = set(), {}, []
     for rid, day, cutoff, receipt, files in records:
         # Bind the catalog selector to the same root and civil period validated

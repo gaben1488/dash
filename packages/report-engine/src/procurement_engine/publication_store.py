@@ -305,6 +305,18 @@ def initialize_publication_readers(state_dir):
         raise PublicationError('PUBLICATION_READER_BOOTSTRAP_FAILED') from error
 
 
+def _ordered_publication_rows(db, where='', parameters=(), *, cutoff_only=False):
+    """Sort small immutable IDs, then fetch payloads without spilling receipt JSON.
+
+    Predicates are module-owned SQL; caller values stay bound. Read-only legacy
+    catalogs need no index migration. Retention also reuses this ordered view.
+    """
+    order = 'cutoff_at DESC, release_id DESC' if cutoff_only else 'report_date DESC, cutoff_at DESC, release_id DESC'
+    for (release_id,) in db.execute(f'SELECT release_id FROM publications {where} ORDER BY {order}',parameters):
+        yield db.execute('SELECT release_id,report_date,cutoff_at,receipt,files FROM publications WHERE release_id=?',
+                         (release_id,)).fetchone()
+
+
 def _leased_read(method):
     from functools import wraps
 
@@ -352,30 +364,29 @@ class PublicationStore:
         archive_origin (including an invalid null) is not a live publication.
         """
         for row in rows:
-            if 'archive_origin' not in json.loads(row[0]) and json.loads(row[0]).get('replay_available') is not False:
-                return self._checked(row)
+            payload = row[-2:]
+            receipt = json.loads(payload[0])
+            if 'archive_origin' not in receipt and receipt.get('replay_available') is not False:
+                return self._checked(payload)
         return None
 
     @_leased_read
     def latest(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            return self._first_live(db.execute('''SELECT receipt, files FROM publications
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC'''))
+            return self._first_live(_ordered_publication_rows(db))
 
     @_leased_read
     def history(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            return [json.loads(row[0]) for row in db.execute('''SELECT receipt FROM publications
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''')]
+            return [json.loads(row[-2]) for row in _ordered_publication_rows(db)]
 
     @_leased_read
     def select(self, report_date, report_year, quarter):
         """Exact context only; a nearby date is not an historical release."""
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = db.execute('''SELECT receipt, files FROM publications WHERE report_date = ?
-                ORDER BY cutoff_at DESC, release_id DESC''', (report_date,))
+            rows = _ordered_publication_rows(db,'WHERE report_date = ?', (report_date,),cutoff_only=True)
             for row in rows:
-                receipt = self._checked(row)
+                receipt = self._checked(row[-2:])
                 if receipt.get('replay_available') is False:
                     year, selected_quarter = receipt.get('report_year'), receipt.get('quarter')
                 else:
@@ -396,11 +407,9 @@ class PublicationStore:
         report model, not the receipt date's calendar quarter.
         """
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = db.execute('''SELECT receipt, files FROM publications
-                WHERE report_date <= ?
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (report_date,))
+            rows = _ordered_publication_rows(db,'WHERE report_date <= ?', (report_date,))
             for row in rows:
-                receipt = json.loads(row[0])
+                receipt = json.loads(row[-2])
                 if 'archive_origin' in receipt:
                     continue
                 if receipt.get('replay_available') is False:
@@ -411,7 +420,7 @@ class PublicationStore:
                     selected_quarter = (model.get('headline') or {}).get('current_quarter')
                 if year != report_year or selected_quarter != quarter:
                     continue
-                verified = self._checked(row)
+                verified = self._checked(row[-2:])
                 return {**verified, 'report_year': year, 'quarter': selected_quarter}
         return None
 
@@ -419,8 +428,7 @@ class PublicationStore:
     def previous_model(self, report_date):
         day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = db.execute('''SELECT receipt, files FROM publications WHERE report_date < ?
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (day,))
+            rows = _ordered_publication_rows(db,'WHERE report_date < ?', (day,))
             receipt = self._first_live(rows)
             if receipt is None:
                 return None
@@ -436,9 +444,7 @@ class PublicationStore:
 
         start, end = previous_week_window(report_date)
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = db.execute('''SELECT receipt, files FROM publications
-                WHERE report_date BETWEEN ? AND ?
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (start, end))
+            rows = _ordered_publication_rows(db,'WHERE report_date BETWEEN ? AND ?', (start,end))
             receipt = self._first_live(rows)
             if receipt is None:
                 return None
@@ -489,8 +495,7 @@ class PublicationStore:
                     if (model.get('contract', {}).get('document_content_contract') == 'document-plan-v1'
                             and not model['snapshot'].get('archive_origin')):
                         from .semantic_headers import assert_header_continuity
-                        prior_rows = db.execute('''SELECT receipt, files FROM publications WHERE cutoff_at <= ?
-                            ORDER BY cutoff_at DESC, release_id DESC''', (cutoff,))
+                        prior_rows = _ordered_publication_rows(db,'WHERE cutoff_at <= ?', (cutoff,),cutoff_only=True)
                         prior = self._first_live(prior_rows)
                         if prior is not None:
                             try:

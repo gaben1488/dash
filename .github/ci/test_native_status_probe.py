@@ -17,9 +17,11 @@ class NativeStatusProbeTests(unittest.TestCase):
         body = workflow.read_text().split("<<'PYTRUSTEDPROBE'\n",1)[1].split('\n            PYTRUSTEDPROBE',1)[0]
         program = textwrap.dedent(body)
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary)/'probe.py';path.write_text("print('EXACT_SOURCE_PASS')\n")
-            for expected,accepted in ((hashlib.sha256(path.read_bytes()).hexdigest(),True),('0'*64,False)):
-                result = subprocess.run([sys.executable,'-I','-',str(path),expected],input=program,
+            path = Path(temporary)/'probe.py';path.write_text("assert PUBLICATION_STORE_OVERRIDE==b'reviewed patch'\nprint('EXACT_SOURCE_PASS')\n")
+            patch = Path(temporary)/'store.py';patch.write_bytes(b'reviewed patch')
+            digest,patch_digest = hashlib.sha256(path.read_bytes()).hexdigest(),hashlib.sha256(patch.read_bytes()).hexdigest()
+            for expected,store_expected,accepted in ((digest,patch_digest,True),('0'*64,patch_digest,False),(digest,'0'*64,False)):
+                result = subprocess.run([sys.executable,'-I','-',str(path),expected,str(patch),store_expected],input=program,
                     capture_output=True,text=True,timeout=5,check=False)
                 self.assertEqual(result.returncode==0,accepted)
                 self.assertEqual(result.stdout.strip(),'EXACT_SOURCE_PASS' if accepted else '')

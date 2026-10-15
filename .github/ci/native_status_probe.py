@@ -66,8 +66,8 @@ Object.defineProperty(observed,promisify.custom,{value:async(...args)=>{
 cp.default.execFile=observed;const {syncBuiltinESMExports}=await import('node:module');syncBuiltinESMExports();
 const {createApp}=await import('./src/app.ts');const app=await createApp({logger:false});
 try{
-const response=await app.inject({method:'GET',url:'/api/report-releases',headers:{authorization:'Bearer '+process.env.AEMR_API_KEY}});
-const summary={http_status:response.statusCode,bytes:response.rawPayload.length,backend_failures:failures.length};
+const started=Date.now();const response=await app.inject({method:'GET',url:'/api/report-releases',headers:{authorization:'Bearer '+process.env.AEMR_API_KEY}});
+const summary={elapsed_ms:Date.now()-started,http_status:response.statusCode,bytes:response.rawPayload.length,backend_failures:failures.length};
 fs.writeFileSync('/app/packages/server/data/probe-private.json',JSON.stringify({summary,failures}),{mode:0o600});
 console.log('NATIVE_STATUS_PROBE='+JSON.stringify(summary));
 }finally{await app.close();}process.exit(0);
@@ -84,7 +84,7 @@ def public_summary(outcomes):
     system_codes = [f['code'] for f in outcomes.get('failures',[]) if f.get('code') in
         {'ENOENT','EACCES','ETIMEDOUT','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','ENOBUFS'}]
     disk_full = 'sqlite3.OperationalError: database or disk is full' in bodies
-    return {'sqlite_disk_full':disk_full,'diagnostic_only':True,'initializer_exit':outcomes.get('initializer',{}).get('returncode'),
+    return {'module_override_sha256':outcomes.get('module_override_sha256'),'sqlite_disk_full':disk_full,'diagnostic_only':True,'initializer_exit':outcomes.get('initializer',{}).get('returncode'),
         'native_exit':outcomes.get('native',{}).get('returncode'),'summary':outcomes.get('summary'),
         'backend_codes':codes,'backend_exits':[f.get('code') if type(f.get('code')) is int else None for f in outcomes.get('failures',[])],
         'backend_killed':[f.get('killed') is True for f in outcomes.get('failures',[])],
@@ -130,6 +130,16 @@ def main():
             identity = uuid.uuid4().hex;name = 'aemr-status-probe-'+identity
             common += ['--name',name,'--label','aemr.native-status-probe='+identity]
             try:
+                override = globals().get('PUBLICATION_STORE_OVERRIDE')
+                if override is not None:
+                    assert isinstance(override,bytes) and len(override)<=1024*1024
+                    located = subprocess.run([*common,'--entrypoint','/opt/report-env/bin/python',image,'-c',
+                        'import procurement_engine.publication_store as m;print(m.__file__)'],
+                        capture_output=True,text=True,timeout=30,check=True).stdout.strip()
+                    assert re.fullmatch(r'/opt/report-env/lib/python3\.[0-9]{1,2}/site-packages/procurement_engine/publication_store.py',located)
+                    patch = Path(temporary)/'publication_store.py';patch.write_bytes(override);patch.chmod(0o444)
+                    common += ['--mount',f'type=bind,src={patch},dst={located},readonly']
+                    outcomes['module_override_sha256'] = hashlib.sha256(override).hexdigest()
                 init = subprocess.run([*common,'--entrypoint','/opt/report-env/bin/proc-report',image,
                     'initialize-publication-readers','--state','/app/packages/server/data/reports'],capture_output=True,text=True,timeout=60,check=False)
                 outcomes['initializer'] = {'returncode':init.returncode,'stderr':init.stderr[-65536:]}
@@ -148,7 +158,9 @@ def main():
                     owned = json.loads(inspected.stdout)[0]
                     assert owned['Image']==image and owned['Config']['Labels'].get('aemr.native-status-probe')==identity
                     subprocess.run(['docker','rm','--force',name],capture_output=True,text=True,timeout=20,check=True)
-        target = base/'native-status-probe.json'
+        # Keep the original failing receipt for comparison with the reviewed fix.
+        suffix = '-'+outcomes['module_override_sha256'] if outcomes.get('module_override_sha256') else ''
+        target = base/('native-status-probe'+suffix+'.json')
         with target.with_suffix('.tmp').open('w') as stream:json.dump(outcomes,stream);stream.flush();os.fsync(stream.fileno())
         target.with_suffix('.tmp').replace(target)
         print(json.dumps(public_summary(outcomes)))

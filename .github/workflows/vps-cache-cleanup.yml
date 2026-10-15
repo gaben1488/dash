@@ -1729,6 +1729,7 @@ jobs:
           import hashlib
           from pathlib import Path
           print('sha256='+hashlib.sha256(Path('.github/ci/native_status_probe.py').read_bytes()).hexdigest())
+          print('store_sha256='+hashlib.sha256(Path('packages/report-engine/src/procurement_engine/publication_store.py').read_bytes()).hexdigest())
           PY
       - name: Diagnose actual native report status on bounded private capsule
         if: >-
@@ -1748,15 +1749,20 @@ jobs:
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
             tool=$(mktemp)
-            trap 'rm -f "$tool"' EXIT
+            store=$(mktemp)
+            trap 'rm -f "$tool" "$store"' EXIT
             git show "$candidate:.github/ci/native_status_probe.py" > "$tool"
-            sudo -n python3 -I - "$tool" '${{ steps.native-probe-source.outputs.sha256 }}' <<'PYTRUSTEDPROBE'
+            git show "$candidate:packages/report-engine/src/procurement_engine/publication_store.py" > "$store"
+            sudo -n python3 -I - "$tool" '${{ steps.native-probe-source.outputs.sha256 }}' "$store" '${{ steps.native-probe-source.outputs.store_sha256 }}' <<'PYTRUSTEDPROBE'
             import hashlib,os,re,sys
-            path,expected=sys.argv[1:]
-            assert re.fullmatch('[a-f0-9]{64}',expected)
-            with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:body=source.read(1024*1024+1)
-            assert len(body)<=1024*1024 and hashlib.sha256(body).hexdigest()==expected
-            exec(compile(body,'<reviewed-native-status-probe>','exec'),{'__name__':'__main__'})
+            path,expected,store_path,store_expected=sys.argv[1:]
+            def checked(path,expected):
+             assert re.fullmatch('[a-f0-9]{64}',expected)
+             with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:body=source.read(1024*1024+1)
+             assert len(body)<=1024*1024 and hashlib.sha256(body).hexdigest()==expected
+             return body
+            body,patch=checked(path,expected),checked(store_path,store_expected)
+            exec(compile(body,'<reviewed-native-status-probe>','exec'),{'__name__':'__main__','PUBLICATION_STORE_OVERRIDE':patch})
             PYTRUSTEDPROBE
   frozen-trial-replay:
     if: >-

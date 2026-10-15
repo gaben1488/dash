@@ -7,6 +7,20 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Native probe38775963107/job116563552714 на реальном b8 image/catalog подтвердил
+первопричину503: sqlite3.OperationalError «database or disk is full». SQLite
+сортировал receipt JSON во временный раздел128MiB; исходные latest файлы целы.
+На32MiB synthetic catalog с4MiB file limit публичный reader воспроизводит RED;
+сортировка только immutable IDs с последующим чтением payload даёт GREEN.
+Общий helper применён ко всем8 ordered consumers, включая retention; порядок,
+WHERE, tie-breaks, checksums, readonly и schema сохранены. Independent review PASS.
+Полный локальный Python:1071PASS/4FAIL (watchdog timeout, затем maintenance busy);
+повтор этих4 отдельно:4PASS. Это не полный зелёный прогон. Probe transport:4PASS,
+Ruff/actionlint PASS; fixed module передаётся двумя raw source hashes и readonly
+mount только в private isolated clone; его SHA и отдельный receipt сохраняются.
+Следующий шаг — проверка исправленного reader на том же реальном catalog/tmpfs,
+затем exact-head CI и полный release gate. Приложение ещё не установлено.
+
 Readback38774185814/job116557430780: live latest filemap == catalog == frozen
 manifest;0 unsafe/extra/changed, catalog main+WAL совпадают с capture. Это исключает
 повреждение исходного выпуска на этой границе, но не объясняет native HTTP failure.

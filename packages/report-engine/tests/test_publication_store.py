@@ -81,6 +81,42 @@ def test_complete_bundle_publishes_once_and_survives_reopen(tmp_path):
     assert (tmp_path / 'published' / 'releases' / first['release_id'] / 'main_report.docx').is_file()
 
 
+def test_catalog_reads_do_not_sort_large_receipts_into_temp_files(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    store = PublicationStore(tmp_path/'published')
+    latest = store.publish(candidate(tmp_path/'candidate',date='02.10.2026',quarter=4,
+        cutoff='2026-10-02T00:00:00Z'),read_revisions=revisions)
+    with sqlite3.connect(store.database_path) as db:
+        for index in range(32):
+            release_id = 'REL-'+f'{index:064x}'
+            receipt = {**latest,'release_id':release_id,'archive_origin':'SYNTHETIC',
+                       'padding':'x'*1024**2}
+            db.execute('INSERT INTO publications VALUES(?,?,?,?,?)',(release_id,'2026-10-02',
+                '2026-10-01T00:00:00Z',json.dumps(receipt),'{}'))
+    before = store.database_path.read_bytes()
+    program = '''import resource,signal,sys
+from procurement_engine.publication_store import PublicationStore
+signal.signal(signal.SIGXFSZ,signal.SIG_IGN)
+resource.setrlimit(resource.RLIMIT_FSIZE,(4*1024**2,4*1024**2))
+store=PublicationStore(sys.argv[1],readonly=True);expected=sys.argv[2]
+assert store.latest()['release_id']==expected
+assert store.select('2026-10-02',2026,4)['release_id']==expected
+assert store.latest_for_period('2026-10-03',2026,4)['release_id']==expected
+assert store.previous_model('03.10.2026')['receipt']['release_id']==expected
+assert store.previous_weekly_model('08.10.2026')['receipt']['release_id']==expected
+history=store.history();assert len(history)==33 and history[0]['release_id']==expected
+print('BOUNDED_CATALOG_READS_PASS')
+'''
+    result = subprocess.run([sys.executable,'-c',program,str(store.root),latest['release_id']],
+        capture_output=True,text=True,timeout=30,check=False,env={**os.environ,'SQLITE_TMPDIR':str(tmp_path)})
+    assert result.returncode==0,result.stderr
+    assert result.stdout.strip()=='BOUNDED_CATALOG_READS_PASS'
+    assert store.database_path.read_bytes()==before
+
+
 def test_blocked_candidate_preserves_previous_date(tmp_path):
     store = PublicationStore(tmp_path / 'published')
     first = store.publish(candidate(tmp_path / 'good'), read_revisions=revisions)
