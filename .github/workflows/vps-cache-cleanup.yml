@@ -517,7 +517,7 @@ jobs:
             # Only replay runtime comparisons, never stage, stop, write or restore.
             import fcntl,importlib.util,time
             tools=Path('/usr/local/libexec/aemr')
-            expected_sha='2d865fe1d3f86c741392b7bbc9cd91e991aeb286'
+            expected_sha='b28ad02083c016d8fb920f8091d1490fcb6f0843'
             for name in ('release-controller.py','release_recovery.py','release_trial.py'):
                 expected=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash','show',
                     expected_sha+':deploy/'+name],timeout=15)
@@ -545,6 +545,25 @@ jobs:
                         if time.monotonic()>=deadline:raise
                         time.sleep(1)
                 executor=recovery.ReleaseRecovery();controller=module.ReleaseController(executor)
+                probes={
+                    'reviewed_compose':['docker','compose','--project-directory',str(module.OPERATOR),
+                        '--env-file',str(module.OPERATOR/'.env.production'),'-f',str(module.REVIEWED_COMPOSE),
+                        '--profile','reports','config','--format','json'],
+                    'native_three_word':['docker','exec','aemr-server-1','python3','-c',module.CAPTURE_WORD]}
+                for name,args in probes.items():
+                    result=subprocess.run(args,capture_output=True,text=True,timeout=160,pass_fds=(9,),
+                        env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','DOCKER_CONFIG':'/etc/aemr/docker'})
+                    errors=result.stderr
+                    print(json.dumps({'kind':'stage_command_probe','command':name,'exit_code':result.returncode,
+                        'http_errors':sorted(set(re.findall(r'HTTP Error (4[0-9]{2}|5[0-9]{2})',errors))),
+                        'missing_file':'No such file or directory' in errors or 'no such file or directory' in errors,
+                        'compose_missing':"is not a docker command" in errors,
+                        'python_errors':sorted(set(re.findall(r'(?m)^(ValueError|PermissionError|FileNotFoundError|BadZipFile):',errors))),
+                        'capture_codes':sorted(set(re.findall(r'(?m)^ValueError: (auth|status|size|latest|release|word)$',errors)))}))
+                    private=Path('/root/codex-fixes/release-38707668118')/(name+'-probe-error.log')
+                    if errors:
+                        with os.fdopen(os.open(private,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600),'w') as output:
+                            output.write(errors[-131072:])
                 records={role:json.loads(executor.command(['inspect','aemr-'+role+'-1']))[0] for role in roles}
                 binding={'images':{role:value['Image'] for role,value in records.items()}}
                 sources=[('operator',[str(module.OPERATOR/'docker-compose.yml')])]
