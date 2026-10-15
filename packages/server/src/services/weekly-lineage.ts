@@ -12,9 +12,9 @@
 import { diffSnapshots, entriesFromRowDiff, type ChangeEntry, type SnapshotRow } from '@aemr/core';
 import { DAYS_PER_WEEK, findDept } from '@aemr/shared';
 import { config } from '../config.js';
-import { verifiedBaselineRows } from '../routes/integrity.js';
+import { verifiedBaselineRows } from './weekly-control-validation.js';
 import { productCalendarDay } from './product-calendar.js';
-import { getWeeklySnapshotHistory } from './snapshot.js';
+import { iterateWeeklySnapshotHistory } from './snapshot.js';
 
 export interface WeeklyLineageControl {
   id: string;
@@ -23,6 +23,7 @@ export interface WeeklyLineageControl {
 export interface VerifiedLineageControl extends WeeklyLineageControl {
   rows: Map<string, SnapshotRow[]>;
   error: string | null;
+  skippedAttempts?: number;
 }
 export interface WeeklyLineagePeriod {
   fromId: string;
@@ -90,6 +91,9 @@ export function compareVerifiedWeeklyControls(
       status: 'checked', notes: [], eventCount: 0,
     };
 
+    const skipped = (older.skippedAttempts ?? 0) + (newer.skippedAttempts ?? 0);
+    if (skipped > 0) period.notes.push('Пропущено неполных контрольных попыток: ' + skipped + '. Даты относятся к выбранным проверенным срезам.');
+
     if (dayNew - dayOld !== DAYS_PER_WEEK) {
       period.status = 'unavailable';
       period.notes.push('Между контрольными четвергами отсутствуют срезы; нельзя определять событие в пропущенную неделю.');
@@ -155,6 +159,30 @@ export function compareVerifiedWeeklyControls(
   };
 }
 
+/** Последний проверенный срез дня; если пригодных нет — последняя попытка как разрыв. */
+function* iterateVerifiedWeeklyControls(nowMs: number, offsetHours: number): Generator<VerifiedLineageControl> {
+  let currentDay: number | null = null;
+  let representative: VerifiedLineageControl | null = null;
+  let rejected = 0;
+  for (const item of iterateWeeklySnapshotHistory()) {
+    const at = Date.parse(item.createdAt);
+    if (!Number.isFinite(at) || at > nowMs) continue;
+    const day = productCalendarDay(new Date(at), offsetHours);
+    if (day % DAYS_PER_WEEK !== 0) continue;
+    if (currentDay !== day) {
+      if (representative) yield { ...representative, skippedAttempts: rejected };
+      currentDay = day;
+      representative = null;
+      rejected = 0;
+    }
+    if (representative?.error === null) continue;
+    const checked = { ...item, ...verifiedBaselineRows(item) };
+    if (checked.error === null) representative = checked;
+    else { representative ??= checked; rejected++; }
+  }
+  if (representative) yield { ...representative, skippedAttempts: rejected };
+}
+
 export function getWeeklyProcurementLineage(options: {
   book?: string;
   weeks: number;
@@ -165,22 +193,16 @@ export function getWeeklyProcurementLineage(options: {
 }): WeeklyLineageResult & {
   total: number; shown: number; nextOffset: number | null; book: string | null;
 } {
-  // Метаданные небольшие. Отсекаем и читаем JSON только у недель,
-  // которые требуются выбранной странице; без повторного Google-запроса.
-  const weekly = selectWeeklyControls(
-    getWeeklySnapshotHistory(500),
-    options.now ?? Date.now(),
-    config.weeklySnapshot.utcOffsetHours,
-  );
-  const anchorIndex = options.anchor ? weekly.findIndex((r) => r.id === options.anchor) : 0;
-  if (options.anchor && anchorIndex < 0) {
-    throw new Error('UNKNOWN_WEEKLY_LINEAGE_ANCHOR');
+  const selected: VerifiedLineageControl[] = [];
+  let foundAnchor = !options.anchor;
+  for (const control of iterateVerifiedWeeklyControls(options.now ?? Date.now(), config.weeklySnapshot.utcOffsetHours)) {
+    if (!foundAnchor) foundAnchor = control.id === options.anchor;
+    if (!foundAnchor) continue;
+    selected.push(control);
+    if (selected.length >= options.weeks + 1) break;
   }
-  const selected = weekly.slice(anchorIndex, anchorIndex + options.weeks + 1);
-  const verified = selected.map((control): VerifiedLineageControl => {
-    const result = verifiedBaselineRows(control);
-    return { ...control, ...result };
-  });
+  if (!foundAnchor) throw new Error('UNKNOWN_WEEKLY_LINEAGE_ANCHOR');
+  const verified = selected;
   const selection = options.book ? findDept(options.book)?.id : undefined;
   if (options.book && !selection) throw new Error('UNKNOWN_LINEAGE_DEPARTMENT');
 

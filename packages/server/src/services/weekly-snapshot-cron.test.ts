@@ -35,6 +35,8 @@ const {
 } = await import('./weekly-snapshot-cron.js');
 const { dayNumberOf } = await import('@aemr/shared');
 const { saveSnapshot } = await import('./snapshot.js');
+const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+const { MONITORING_DATA_SHEETS } = await import('@aemr/core');
 
 /** Четверг-фикстура 23.07.2026; сверка % 7 === 0 — в первом тесте. */
 const THURSDAY_ISO = '2026-07-23';
@@ -91,12 +93,13 @@ describe('collectSnapshotDays — дни существующих снимков
       deltas: [],
       issues: [],
       trust: { overall: 100, components: [], grade: 'A' as const, computedAt: createdAt, basedOnSnapshot: id },
-      rowCount: 0,
+      rowCount: Object.keys(DEPARTMENT_SPREADSHEETS).length,
+      rowsByDept: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(name => [name, [['1', '', 'Организация', '', '', '', 'Предмет', '', '', '', 100, 'ЕП']]])),
       ...(completeWeek ? { weeklyTableContext: {
         contract: 'dash-weekly-table-context-v1' as const,
         sealedAt: createdAt,
-        masters: {},
-        monitoring: { readAt: createdAt, version: 1, sheets: {} },
+        masters: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(name => [name, { sheetName: name, startRow: 1, loadedAt: createdAt, headerRows: [[], [], []], formulas: [], formulasRead: true as const }])),
+        monitoring: { readAt: createdAt, version: 1, sheets: Object.fromEntries(MONITORING_DATA_SHEETS.map(name => [name, []])) },
       } } : {}),
       metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
     };

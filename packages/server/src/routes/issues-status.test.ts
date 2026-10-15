@@ -50,6 +50,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
       GOOGLE_PRIVATE_KEY: '',
       GOOGLE_API_KEY: 'test-api-key',
+      GOOGLE_SHEETS_SPREADSHEET_ID: 'x', // Сохранённая книга и запрошенная область совпадают.
     };
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });

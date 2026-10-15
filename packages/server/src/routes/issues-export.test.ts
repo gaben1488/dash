@@ -57,6 +57,7 @@ describe('GET /api/export/issues — отборы выгрузки совпад�
       GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
       GOOGLE_PRIVATE_KEY: '',
       GOOGLE_API_KEY: 'test-api-key',
+      GOOGLE_SHEETS_SPREADSHEET_ID: 'x', // Отказ сети должен читать снимок именно этой книги.
     };
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });

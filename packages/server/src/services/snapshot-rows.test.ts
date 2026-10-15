@@ -48,7 +48,7 @@ function snap(id: string, createdAt: string, rowsByDept?: Record<string, unknown
     trust: { overall: 100, components: [], grade: 'A' as const, computedAt: createdAt, basedOnSnapshot: id },
     rowCount: 0,
     ...(rowsByDept ? { rowsByDept } : {}),
-    metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+    metadata: { targetYear: null, sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
   };
 }
 
@@ -208,7 +208,7 @@ describe('строки-атомы снимка → procurement_rows (блок Е
     const THU = 20657; // четверг 2026-07-23 (день 0 эпохи — четверг)
     const oldThu = THU - 7 * 2;
     const iso = (day: number): string => new Date(day * 86400000 + 10 * 3600000).toISOString();
-    db.insert(schema.snapshots).values({ id: 'bug8-drop-mon', spreadsheetId: 'test', createdAt: iso(oldThu - 3) }).run();
+    db.insert(schema.snapshots).values({ id: 'bug8-drop-mon', spreadsheetId: 'test', createdAt: iso(oldThu - 3), data: JSON.stringify({ metadata: { targetYear: null } }) }).run();
 
     // Даты рабочих снимков — ОТНОСИТЕЛЬНО «сейчас» и на РАЗНЫЕ календарные дни.
     // Первая редакция теста (волна багфиксов 08.08) зашила абсолютные даты
@@ -252,7 +252,7 @@ describe('строки-атомы снимка → procurement_rows (блок Е
 
     // Теперь у bug8-drop-mon появляется недельный победитель — тоже НАПРЯМУЮ,
     // чтобы его появление не запустило ретеншен раньше второго saveSnapshot.
-    db.insert(schema.snapshots).values({ id: 'bug8-keep-thu', spreadsheetId: 'test', createdAt: iso(oldThu) }).run();
+    db.insert(schema.snapshots).values({ id: 'bug8-keep-thu', spreadsheetId: 'test', createdAt: iso(oldThu), data: JSON.stringify({ metadata: { targetYear: null } }) }).run();
 
     // Второй прогон: тот же id замечания — ровно механизм бага #8. До фикса
     // здесь бросало на UNIQUE issues.id внутри цикла вставки issues, внешний

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { retentionKeepIds } from './snapshot-retention.js';
 
 /**
- * Retention-канон снимков (пользователь, 24.07.2026): ежедневные за последнюю
- * неделю + еженедельные по срезам-четвергам за всю историю, остальное — под нож.
+ * Последняя инструкция владельца: недельная история и текущие головы областей;
+ * отдельного пула ежедневных версий больше нет.
  * Числа: день 0 эпохи — четверг; 2026-07-23 (четверг) = 20657, 20657 % 7 === 0.
  */
 
@@ -13,12 +13,14 @@ const snap = (id: string, day: number, hour = 10, hasRows = true, hasWeeklyConte
   createdAt: new Date(day * 86400000 + hour * 3600000).toISOString(),
   hasRows,
   hasWeeklyContext,
+  spreadsheetId: 'fixture',
+  targetYear: null,
 });
 
 const THU = 20657; // четверг 2026-07-23
 
-describe('retentionKeepIds — ежедневные (7 дней) + еженедельные (вся история)', () => {
-  it('внутри последней недели держится последний снимок КАЖДОГО дня', () => {
+describe('retentionKeepIds — недельная история и текущие головы', () => {
+  it('внутри последней недели не остаются проигравшие ежедневные версии', () => {
     const keep = retentionKeepIds(
       [
         snap('mon-early', THU - 3, 9),
@@ -29,9 +31,9 @@ describe('retentionKeepIds — ежедневные (7 дней) + еженед�
       THU + 1, // «сегодня» — пятница
       0,
     );
-    expect(keep.has('mon-late')).toBe(true);
+    expect(keep.has('mon-late')).toBe(false);
     expect(keep.has('mon-early')).toBe(false);
-    expect(keep.has('wed')).toBe(true);
+    expect(keep.has('wed')).toBe(false);
     expect(keep.has('thu')).toBe(true);
   });
 
@@ -104,7 +106,7 @@ describe('retentionKeepIds — ежедневные (7 дней) + еженед�
     );
     expect(keep.has('week-rowful-early')).toBe(true);
     expect(keep.has('week-rowless-late')).toBe(false);
-    expect(keep.has('day-rowful-early')).toBe(true);
+    expect(keep.has('day-rowful-early')).toBe(false);
     expect(keep.has('day-rowless-late')).toBe(false);
   });
 
@@ -123,17 +125,57 @@ describe('retentionKeepIds — ежедневные (7 дней) + еженед�
     expect(keep.has('rows-only-late')).toBe(false);
   });
 
-  it('смещение пояса влияет на границу суток: 16:30 UTC среды = четверг Камчатки', () => {
-    // THU*86400000 - 7.5h = среда 16:30 UTC; при +12 это четверг 04:30 продукта.
-    // Второй снимок — 08:00 UTC четверга (= 20:00 Камчатки, ещё четверг).
-    const wedUtc = { id: 'kam-thu', createdAt: new Date(THU * 86400000 - 7.5 * 3600000).toISOString(), hasRows: true, hasWeeklyContext: false };
-    const keepKam = retentionKeepIds([wedUtc, snap('later-thu', THU, 8)], THU + 1, 12);
-    // При +12 оба — четверг; выживает поздний.
-    expect(keepKam.has('later-thu')).toBe(true);
-    expect(keepKam.has('kam-thu')).toBe(false);
-    // При +0 wedUtc — среда (день THU-1, свой день внутри недели) → хранится как дневной.
-    const keepUtc = retentionKeepIds([wedUtc, snap('later-thu', THU, 8)], THU + 1, 0);
-    expect(keepUtc.has('kam-thu')).toBe(true);
+  it('Камчатка определяет переход четверг/пятница между недельными областями', () => {
+    const early = { ...snap('utc-thursday', THU, 16.5) };
+    const later = snap('utc-friday', THU + 1, 8);
+    expect([...retentionKeepIds([early, later], THU + 2, 12)]).toEqual(['utc-friday']);
+    expect([...retentionKeepIds([early, later], THU + 2, 0)].sort())
+      .toEqual(['utc-friday', 'utc-thursday']);
+  });
+});
+
+describe('C07 — отдельные области, текущие головы и только недельная история', () => {
+  it('не даёт одной книге или году вытеснить недельную историю другой области', () => {
+    const rows = [
+      { ...snap('all-years', THU - 14, 9), spreadsheetId: 'book-a', targetYear: null },
+      { ...snap('year-2026', THU - 14, 10), spreadsheetId: 'book-a', targetYear: 2026 },
+      { ...snap('book-b', THU - 14, 11), spreadsheetId: 'book-b', targetYear: null },
+      { ...snap('latest', THU, 12), spreadsheetId: 'book-a', targetYear: null },
+    ];
+    expect([...retentionKeepIds(rows, THU + 1, 0)].sort()).toEqual(rows.map(r => r.id).sort());
+  });
+
+  it('сохраняет текущую голову независимо от более полного старого контроля и чужого года', () => {
+    const rows = [
+      { ...snap('weekly', THU, 8, true, true), spreadsheetId: 'book-a', targetYear: null },
+      { ...snap('current-all', THU, 10, false), spreadsheetId: 'book-a', targetYear: null },
+      { ...snap('current-year', THU, 11, true, true), spreadsheetId: 'book-a', targetYear: 2026 },
+    ];
+    expect([...retentionKeepIds(rows, THU + 1, 0)].sort()).toEqual(rows.map(r => r.id).sort());
+  });
+
+  it('не удаляет legacy/missing/невалидные области по угаданному общему пулу', () => {
+    const rows = [
+      { ...snap('missing-one', THU - 14, 8), targetYear: undefined },
+      { ...snap('missing-two', THU - 14, 9), targetYear: undefined },
+      { ...snap('bad-year', THU - 14, 10), targetYear: '2026' },
+      { ...snap('known-all', THU - 14, 11), targetYear: null },
+    ];
+    expect([...retentionKeepIds(rows, THU + 1, 0)].sort()).toEqual(rows.map(r => r.id).sort());
+  });
+
+  it.each([-1, 0, 2019, 2101, 999999])('не принимает вне-нормализатора год %s за доказанную область', year => {
+    const rows = [
+      { ...snap('older', THU - 14, 8), targetYear: year },
+      { ...snap('later', THU - 14, 9), targetYear: year },
+    ];
+    expect([...retentionKeepIds(rows, THU + 1, 0)].sort()).toEqual(['later', 'older']);
+  });
+
+  it('не хранит проигравшие ежедневные версии даже внутри последних семи дней', () => {
+    expect([...retentionKeepIds([
+      snap('monday', THU - 3), snap('wednesday', THU - 1), snap('thursday', THU),
+    ], THU + 1, 0)]).toEqual(['thursday']);
   });
 });
 
@@ -158,12 +200,49 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     vi.resetModules();
   });
 
+  it('SQLite сохраняет доказанные all-year/year/book области и голову, удаляя только проигравший daily', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const entries = [
+      { id: 'sealed-all', spreadsheetId: 'a', year: null, hour: 8, weekly: true },
+      { id: 'current-all', spreadsheetId: 'a', year: null, hour: 10, weekly: false },
+      { id: 'current-year', spreadsheetId: 'a', year: 2026, hour: 11, weekly: true },
+      { id: 'other-book', spreadsheetId: 'b', year: null, hour: 12, weekly: true },
+    ];
+    for (const e of entries) db.insert(schema.snapshots).values({ id: e.id, spreadsheetId: e.spreadsheetId,
+      createdAt: new Date((THU * 24 + e.hour) * 3600000).toISOString(),
+      data: JSON.stringify({ metadata: { targetYear: e.year }, rowsByDept: {}, ...(e.weekly ? { weeklyTableContext: {} } : {}) }),
+    }).run();
+    db.insert(schema.snapshots).values({ id: 'daily-loser', spreadsheetId: 'a',
+      createdAt: new Date((THU - 1) * 86400000).toISOString(),
+      data: JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {} }) }).run();
+    expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(1);
+    expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots).all().map(r => r.id).sort())
+      .toEqual(entries.map(e => e.id).sort());
+  });
+
+  it('SQLite не угадывает область missing/null data/invalid JSON/строкового года и сохраняет исходные bytes', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const payloads = [null, '{broken', '{}', '{"metadata":{}}',
+      '{"metadata":{"targetYear":"2026"}}', '{"metadata":{"targetYear":true}}', '{"metadata":{"targetYear":-1}}',
+      '{"metadata":{"targetYear":-1}}', '{"metadata":{"targetYear":999999}}',
+      '{"metadata":{"targetYear":999999}}'];
+    for (const [index, data] of payloads.entries()) db.insert(schema.snapshots).values({
+      id: 'unknown-' + index, spreadsheetId: 'a', data,
+      createdAt: new Date((THU - 14) * 86400000 + index * 3600000).toISOString(),
+    }).run();
+    expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(0);
+    expect(db.select({ data: schema.snapshots.data }).from(schema.snapshots).all().map(r => r.data))
+      .toEqual(payloads);
+  });
+
   it('удаляет проигравший снимок каскадом (issue_history → issues → metric_history → procurement_rows → snapshots), чужие данные целы', async () => {
     const { db, schema } = await import('../db/index.js');
     const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
 
     const iso = (day: number, hour: number): string => new Date(day * 86400000 + hour * 3600000).toISOString();
-    const rowful = JSON.stringify({ rowsByDept: { УЭР: [['r1']] } });
+    const rowful = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: { УЭР: [['r1']] } });
     const oldThu = THU - 7 * 2; // четверг две недели назад — вне дневного окна
 
     // Понедельник старой недели проигрывает четвергу той же недели среза.
@@ -206,7 +285,7 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     const oldThu = THU - 14;
     const iso = (day: number) => new Date(day * 86400000 + 36000000).toISOString();
     for (const [id, day] of [['older-proof', oldThu - 4], ['protected', oldThu - 3], ['ordinary', oldThu - 2], ['winner', oldThu]] as const) {
-      db.insert(schema.snapshots).values({ id, spreadsheetId: 'x', createdAt: iso(day), data: JSON.stringify({ rowsByDept: { 'УКСиМП': [['immutable source']] }, issues: id === 'protected' || id === 'older-proof' ? [{ id: 'case' }] : [] }) }).run();
+      db.insert(schema.snapshots).values({ id, spreadsheetId: 'x', createdAt: iso(day), data: JSON.stringify({ metadata: { targetYear: null }, rowsByDept: { 'УКСиМП': [['immutable source']] }, issues: id === 'protected' || id === 'older-proof' ? [{ id: 'case' }] : [] }) }).run();
     }
     db.insert(schema.issues).values({ id: 'case', snapshotId: 'protected', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', title: 'Budget', detectedAt: iso(oldThu - 3), status: kind === 'status' ? 'false_positive' : 'open', comment: kind === 'comment' ? 'Пояснение' : null }).run();
     if (kind === 'comment_audit') db.insert(schema.auditLog).values({ action: 'issue_comment', entity: 'issue', entityId: 'case', details: 'История пояснения', timestamp: iso(oldThu - 3) }).run();

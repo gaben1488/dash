@@ -738,6 +738,13 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
+      // Scope before limit: retained heads of other years/books are not candidates.
+      .where(and(
+        eq(schema.snapshots.spreadsheetId, config.google.spreadsheetId),
+        targetYear === undefined
+          ? sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') = 'null' END`
+          : sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') = 'integer' AND json_extract(${schema.snapshots.data}, '$.metadata.targetYear') = ${targetYear} END`,
+      ))
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)
       .all();
@@ -991,13 +998,6 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   }
 }
 
-/**
- * Сколько последних снимков просматриваем в поиске строк-атомов. Снимки без
- * rowsByDept (сохранённые до 2026-07-24) пропускаются — лимит не даёт разбору
- * многомегабайтных JSON уйти вглубь истории без шанса на успех.
- */
-const SNAPSHOT_LOOKBACK_LIMIT = 50;
-
 const MS_PER_DAY = 86_400_000;
 const MS_PER_HOUR = 3_600_000;
 
@@ -1020,8 +1020,8 @@ const productDayEndIso = (day: number, utcOffsetHours: number): string =>
  * Камчатка +12): снимок пятницы продукта 00:30 (= четверг 12:30 UTC) в срез
  * «≤ четверг» НЕ входит — иначе он затенял бы настоящий снимок среза (ревью
  * R2a №4). Строконосность префильтруется в SQL маркером instr — до
- * SNAPSHOT_LOOKBACK_LIMIT многомегабайтных JSON не разбираются зря (№10);
- * разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
+ * SQLite cursor держит в памяти не более одного JSON; число отклонённых
+ * кандидатов не обрезает доступ к пригодному архиву. Разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
  * пустого объекта).
  */
 export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
@@ -1032,10 +1032,10 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
       sql`instr(${schema.snapshots.data}, '"rowsByDept"') > 0`,
     ))
     .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK_LIMIT)
-    .all();
+    .toSQL();
 
-  for (const row of rows) {
+  for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
+    const row = raw as { data: string | null };
     if (!row.data) continue;
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
@@ -1049,13 +1049,26 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   return null;
 }
 
-export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
-  return db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
+/** Упорядоченный SQLite cursor: число отклонённых попыток не ограничивает доноров. */
+export function* iterateWeeklySnapshotHistory(): Generator<{ id: string; createdAt: string }> {
+  const query = db.select({ id: schema.snapshots.id, createdAt: sql<string>`${schema.snapshots.createdAt}`.as('createdAt') })
     .from(schema.snapshots)
     .where(sql`instr(${schema.snapshots.data}, '"weeklyTableContext"') > 0`)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(limit)
-    .all();
+    .orderBy(desc(schema.snapshots.createdAt), desc(schema.snapshots.id))
+    .toSQL();
+  for (const raw of db.$client.prepare(query.sql).iterate(...query.params)) {
+    yield raw as { id: string; createdAt: string };
+  }
+}
+
+/** Совместимый metadata API; проверенные потребители используют cursor до своего result-cap. */
+export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
+  const result: Array<{ id: string; createdAt: string }> = [];
+  for (const row of iterateWeeklySnapshotHistory()) {
+    if (result.length >= limit) break;
+    result.push(row);
+  }
+  return result;
 }
 
 export function getSnapshotHistory(limit = 50): Array<{

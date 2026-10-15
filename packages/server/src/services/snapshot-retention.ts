@@ -1,13 +1,9 @@
 /**
- * Retention снимков — канон пользователя (24.07.2026): храним ЕЖЕДНЕВНЫЕ снимки
- * за последнюю неделю (последний снимок каждого календарного дня продукта) и
- * ЕЖЕНЕДЕЛЬНЫЕ по срезам — последний снимок к каждому ЧЕТВЕРГУ за всю историю;
- * остальное удаляется автоматически при каждом сохранении. Ручные чистки
- * (878 МБ, затем 353 МБ / 74 снимка) этим упраздняются.
- *
- * Победитель дня/недели выбирается с приоритетом СТРОКОНОСНОСТИ: снимок со
- * строками-атомами rowsByDept (источник честного отчёта прошлой недели) не
- * должен вытесняться более поздним бесстрочным (блокер ponytail-ревью R2a №2а).
+ * Хранение: недельная история по области книги/расчётного года и последняя
+ * текущая голова каждой области. Отдельного пула ежедневных версий нет
+ * (последняя инструкция владельца). Недельный контроль предпочитает полный
+ * контекст и строки, но не заменяет более свежую текущую голову.
+ * Неизвестные legacy-области сохраняются до доказанной миграции.
  *
  * Чистое решение (retentionKeepIds) отделено от операционной обвязки
  * (pruneSnapshotsByRetention): первое тестируется без БД, второе — один
@@ -23,11 +19,12 @@ import { config } from '../config.js';
 import { logSnapshotChange, logSourceProblem } from './source-log.js';
 import { productCalendarDay } from './product-calendar.js';
 
-const DAILY_WINDOW_DAYS = 7;
-
 interface SnapshotRef {
   id: string;
   createdAt: string;
+  spreadsheetId?: string;
+  /** null — доказанные все годы; отсутствие/иной тип — неизвестная legacy-область. */
+  targetYear?: unknown;
   /** Несёт ли data-JSON строки-атомы rowsByDept (SQL-маркер, JSON не разбирается). */
   hasRows: boolean;
   /** Завершён ли полный weekly table context. */
@@ -52,38 +49,33 @@ const beats = (a: SnapshotRef, b: SnapshotRef): boolean => {
   return a.createdAt > b.createdAt;
 };
 
-/**
- * Какие снимки выживают. Держим: (а) победителя каждого календарного дня
- * из последних DAILY_WINDOW_DAYS дней; (б) победителя каждой недели среза
- * (группировка по sliceThursdayOf) — за всю историю. Снимок с нечитаемым
- * createdAt не удаляется молча (страховка: keep) — разбор руками, не автоматом.
- */
+/** Недельные победители и текущие головы; неизвестное не удаляется молча. */
 export function retentionKeepIds(
   rows: ReadonlyArray<SnapshotRef>,
-  nowDay: number,
+  _nowDay: number,
   utcOffsetHours: number,
 ): Set<string> {
   const keep = new Set<string>();
-  const latestByDay = new Map<number, SnapshotRef>();
-  const latestByWeek = new Map<number, SnapshotRef>();
+  const latestByScope = new Map<string, SnapshotRef>();
+  const latestByWeek = new Map<string, SnapshotRef>();
 
   for (const row of rows) {
     const ms = Date.parse(row.createdAt);
-    if (Number.isNaN(ms)) {
+    if (Number.isNaN(ms) || !row.spreadsheetId
+        || (row.targetYear !== null && (typeof row.targetYear !== 'number'
+          || !Number.isInteger(row.targetYear) || row.targetYear < 2020 || row.targetYear > 2100))) {
       keep.add(row.id);
       continue;
     }
-    const day = productCalendarDay(new Date(ms), utcOffsetHours);
-    const byDay = latestByDay.get(day);
-    if (!byDay || beats(row, byDay)) latestByDay.set(day, row);
-    const week = sliceThursdayOf(day);
+    const scope = JSON.stringify([row.spreadsheetId, row.targetYear]);
+    const head = latestByScope.get(scope);
+    if (!head || row.createdAt > head.createdAt) latestByScope.set(scope, row);
+    const week = JSON.stringify([scope, sliceThursdayOf(productCalendarDay(new Date(ms), utcOffsetHours))]);
     const byWeek = latestByWeek.get(week);
     if (!byWeek || beats(row, byWeek)) latestByWeek.set(week, row);
   }
 
-  for (const [day, row] of latestByDay) {
-    if (day > nowDay - DAILY_WINDOW_DAYS) keep.add(row.id);
-  }
+  for (const row of latestByScope.values()) keep.add(row.id);
   for (const row of latestByWeek.values()) keep.add(row.id);
   return keep;
 }
@@ -108,13 +100,18 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
       .select({
         id: schema.snapshots.id,
         createdAt: schema.snapshots.createdAt,
+        spreadsheetId: schema.snapshots.spreadsheetId,
+        yearType: sql<string | null>`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') END`,
+        yearValue: sql<number | null>`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_extract(${schema.snapshots.data}, '$.metadata.targetYear') END`,
         hasRows: HAS_ROWS_SQL,
         hasWeeklyContext: HAS_WEEKLY_CONTEXT_SQL,
       })
       .from(schema.snapshots)
       .all()
       // data NULL → instr даёт NULL → драйвер вернёт null: считаем бесстрочным.
-      .map((r) => ({ id: r.id, createdAt: r.createdAt, hasRows: r.hasRows === 1,
+      .map((r) => ({ id: r.id, createdAt: r.createdAt, spreadsheetId: r.spreadsheetId,
+        targetYear: r.yearType === 'null' ? null : r.yearType === 'integer' ? r.yearValue : undefined,
+        hasRows: r.hasRows === 1,
         hasWeeklyContext: r.hasWeeklyContext === 1 }));
     const offset = config.weeklySnapshot.utcOffsetHours;
     const keep = retentionKeepIds(rows, productCalendarDay(now, offset), offset);
