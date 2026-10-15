@@ -7,6 +7,25 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Текущий online replay38747783241/job116465879153 на9da841a4: все5 immutable
+images PASS; точный private-stdin env transport в actual candidate И previous
+images PASS (14:07UTC). Копия переносится на runner, полный restore/native/Word/
+in-place результат ожидается; VPS не останавливается. CI38747768281: три
+обязательных source jobs PASS; общий CI пока FAILURE из-за read-only browser
+проверки прежнего API, повтор после принятого приложения обязателен.
+
+Отдельный воспроизведённый release blocker:2700s guardian с900s reserve оставлял
+лишь1800s до dispatch. Уже backup/source-match693s + первая restore/trial-фаза1152s
+превышали этот допуск до второго restore/transfer/native. Actual generator +
+реальный EX dispatcher после3093s: RED RELEASE_HANDOFF_INVALID; prospective
+release-only4500s / workflow120min: GREEN; normal backup1800s, reserve900s,
+finite recovery2100s и исходный момент старта сохраняются. Независимое review PASS.
+Это изменение ещё не установлено и не разрешает freeze до полного online trial.
+39 window tests в штатном non-root запуске (root cases в собственных namespaces),
+Ruff/Bash/actionlint/whitespace PASS. Полный suite сначала ошибочно запущен целиком
+в single-UID root namespace: ownership/permission fixtures там неприменимы;
+исправлен вызов, тесты и production-ограничения не ослаблены.
+
 Причина ENV-отказа подтверждена metadata-only run38745256648/job116457103967:
 в previous и candidate единственный отклонённый env — GOOGLE_PRIVATE_KEY, str
 с LF. Это штатный многострочный формат; native_environment запрещал LF из-за

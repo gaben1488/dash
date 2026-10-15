@@ -243,6 +243,8 @@ PY
       [ "$tool" != source_ci_gate.py ] || source_path=.github/ci/source_ci_gate.py
       repo_git show "$candidate:$source_path" > "$session/$tool.release-source"
     done
+    # Measured full36GB backup + two restores exceed the former30-minute
+    # dispatch allowance. Release only: finite75min, retaining900s admission.
     python3 -I - "$session" "$release_tools" "$candidate" "$run_id" <<'PYRELEASE'
 import hashlib,json,os,stat,sys,time
 from pathlib import Path
@@ -260,7 +262,7 @@ try:
   actual=hashlib.sha256(body).hexdigest();assert actual==hashlib.sha256((s/(name+'.release-source')).read_bytes()).hexdigest()
   pins[name]=actual
  record={'format':'aemr-release-window-v1','candidate':sha,'run_id':run,'module_sha256':pins,
-         'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'deadline_ns':time.monotonic_ns()+2700*10**9}
+         'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'deadline_ns':time.monotonic_ns()+4500*10**9}
  with (s/'release-window.json').open('x') as f:json.dump(record,f,sort_keys=True);f.flush();os.fsync(f.fileno())
 except Exception:
  print('RELEASE_MODULE_PINS_INVALID',file=sys.stderr);sys.exit(2)
@@ -291,7 +293,7 @@ PYRELEASE
     flock -n 9 || exit 1
     echo "$$" > "$1/guardian-ready"
     deadline=$((SECONDS + 1800))
-    [ "${10}" != true ] || deadline=$((SECONDS + 2700))
+    [ "${10}" != true ] || deadline=$((SECONDS + 4500))
     while [ -f "$1/quiescent" ]; do
       if [ "${10}" = true ] && { [ -e "$1/cancel-request.json" ] || [ -L "$1/cancel-request.json" ]; }; then
         bash "$1/recovery-window.sh" resume-release "$4" "$5" "$6" "$7" --quiesce-worker --release-controller >/dev/null

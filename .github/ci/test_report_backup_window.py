@@ -509,6 +509,15 @@ class ReleaseGuardianTests(unittest.TestCase):
             with self.subTest(scenario=scenario):
                 self.run_handoff(scenario)
 
+    def test_generated_window_admits_observed_backup_and_restore_budget(self):
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                'ReleaseGuardianTests.test_generated_window_admits_observed_backup_and_restore_budget', '-q'],
+                capture_output=True, text=True, timeout=40, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        self.run_handoff('long-frozen-trial')
+
     def run_handoff(self, scenario):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -601,6 +610,27 @@ if SCENARIO=='pre-arm-failure':sys.exit(2)
             write(session/'release-window.json',{'format':'aemr-release-window-v1','candidate':plan['release_sha'],'run_id':'1',
                   'module_sha256':pins,'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
                   'deadline_ns':time.monotonic_ns()+(0 if scenario=='cancel-late' else 800 if scenario=='expired' else 2700)*10**9})
+            if scenario=='long-frozen-trial':
+                import re
+                import textwrap
+                from unittest.mock import patch
+                (session/'release-window.json').unlink()
+                for name in pins:
+                    (session/(name+'.release-source')).write_bytes((tools/name).read_bytes())
+                generator = source.split("<<'PYRELEASE'\n",1)[1].split('\nPYRELEASE',1)[0]
+                started = time.monotonic_ns()-3093*10**9  # observed693s backup +2400s budget for two restores, before transfer
+                with patch.object(sys,'argv',['<generator>',str(session),str(tools),plan['release_sha'],'1']), \
+                     patch('time.monotonic_ns',return_value=started):
+                    exec(compile(generator,'<actual-window-generator>','exec'),{})  # noqa: S102 - actual reviewed generator
+                generated = json.loads((session/'release-window.json').read_text())
+                seconds = (generated['deadline_ns']-started)//10**9
+                self.assertLessEqual(seconds,4500,'Release guardian must retain a finite75-minute bound')
+                guardian = re.search(r'^    deadline=.*\n    \[ "\$\{10\}" != true \] \|\| deadline=.*$',source,re.MULTILINE)
+                self.assertIsNotNone(guardian)
+                for release,expected in (('true',seconds),('false',1800)):
+                    actual = subprocess.check_output(['bash','-c','set -- 1 2 3 4 5 6 7 8 9 '+release+
+                        '; SECONDS=0;\n'+textwrap.dedent(guardian[0])+'\nprintf "%s" "$deadline"'],text=True)
+                    self.assertEqual(int(actual),expected,'Persisted and actual guardian clocks disagree')
             docker = root / 'docker'
             docker.write_text("""#!/usr/bin/env python3
 import json,sys;from pathlib import Path
