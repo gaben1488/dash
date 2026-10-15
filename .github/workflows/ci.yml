@@ -119,7 +119,7 @@ jobs:
                     assert r.validate_progress(progress) == {'plan_sha256': plan_hash, 'phase': 'candidate_accept', 'acceptance': expected}
                 if durable is not None:
                     assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
-                if r.PENDING.exists():
+                if os.path.lexists(r.PENDING):
                     assert r.validate_plan(json.loads(r.read_owned(r.PENDING))) == plan
                     assert durable is None or progress is not None
                 else:
@@ -146,7 +146,7 @@ jobs:
                 print('EXISTING_FULL_TRIAL_AND_CANDIDATE_PINS_PASS', flush=True)
                 # Crucially, a failed accept preserves closed ingress. Do not call the old
                 # general rollback path, whose historical-container scan masks that error.
-                if durable is not None and not r.PENDING.exists():
+                if durable is not None and not os.path.lexists(r.PENDING):
                     executor._verify_api_word(plan, candidate=True)
                     executor._verify_candidate_schema()
                     assert records['caddy']['State']['Status'] == 'running'
@@ -155,8 +155,8 @@ jobs:
                         assert executor.accept() == expected
                         print('EXISTING_CANDIDATE_NATIVE_ACCEPT_PASS', flush=True)
                     assert executor.recover() == expected
-                assert not r.PENDING.exists()
-                assert not (r.STATE_DIR / 'release-recovery-progress.json').exists()
+                assert not os.path.lexists(r.PENDING)
+                assert not os.path.lexists(r.STATE_DIR / 'release-recovery-progress.json')
                 durable = json.loads(r.read_owned(r.STATE_DIR / 'release-accepted.json'))
                 assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
                 # Original guardian is absent; this EX owner completes the same verified
