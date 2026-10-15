@@ -2,13 +2,135 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/worker_recovery.py'
+
+
+class WorkerQuarantineWorkflowTests(unittest.TestCase):
+    def exercise(self, scenario):
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertIn("<<'PYQUARANTINE'", workflow, 'Missing tested OOM-only worker quarantine')
+        program = textwrap.dedent(workflow.split("<<'PYQUARANTINE'\n", 1)[1].split('\n            PYQUARANTINE', 1)[0])
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                                     type(self).__name__ + '.' + self._testMethodName, '-q'], capture_output=True, text=True,
+                                    timeout=30, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state, volume, trusted = root / 'state', root / 'volume', root / 'trusted'
+            for path in (state, volume / 'reports/archives', trusted / 'deploy'):
+                path.mkdir(parents=True, mode=0o700)
+            (trusted / 'deploy/worker_recovery.py').write_bytes(SCRIPT.read_bytes())
+            (trusted / 'deploy/worker_recovery.py').chmod(0o775)
+            policy = root / 'policy.json'
+            policy.write_text(json.dumps({'project': 'aemr', 'worker_enabled': False,
+                'services': {name: {'container': 'aemr-' + name + '-1'} for name in ('server', 'web', 'caddy', 'report-worker')}}))
+            policy.chmod(0o600)
+            # Rewrite only fixed host paths in the private trusted helper; bind
+            # its fixture digest below, leaving the stop implementation real.
+            helper = SCRIPT.read_bytes().replace(b'/etc/aemr/runtime-policy.json', str(policy).encode())
+            (trusted / 'deploy/worker_recovery.py').write_bytes(helper)
+            if scenario == 'changed-module':
+                with (trusted / 'deploy/worker_recovery.py').open('ab') as file:file.write(b'\n# unexpected bytes\n')
+            body, inode = policy.read_bytes(), policy.stat().st_ino
+            status = volume / 'reports/status.json'
+            status.write_text(json.dumps({} if scenario == 'missing-status' else {'status': 'RUNNING' if scenario == 'running-attempt' else 'NOT_ISSUED'}))
+            for path in (root / 'lock', volume / 'reports/run.lock', volume / 'reports/archives/.weekly.lock'):
+                path.touch(mode=0o600)
+            image = 'sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+            server = 'de0233d9a09c82cfc48c6813765e833bf60ff3e5b875b2efaad2a9ac62cd57f0'
+            worker = 'f32669a940b4e2c74d6166d59600c398a067a297ed694deeb8cf80d259d2488d'
+            records = {name: {'Id': identity, 'Name': '/aemr-' + name + '-1', 'Image': image,
+                'Config': {'Labels': {'com.docker.compose.project': 'aemr', 'com.docker.compose.service': name}},
+                'State': {'Status': 'running', 'Health': {'Status': 'healthy'}, 'ExitCode': 0, 'OOMKilled': False},
+                'RestartCount': 440 if name == 'report-worker' else 0,
+                'Mounts': [{'Type': 'volume', 'Name': 'aemr_server_data', 'Destination': '/app/packages/server/data'}]}
+                for name, identity in [('server', server), ('report-worker', worker)]}
+            if scenario == 'foreign-image':records['report-worker']['Image'] = 'sha256:' + 'b' * 64
+            if scenario == 'foreign-role':records['report-worker']['Config']['Labels']['com.docker.compose.project'] = 'foreign'
+            if scenario == 'different-worker':records['report-worker']['Id'] = 'b' * 64
+            if scenario == 'not-restarting':records['report-worker']['RestartCount'] = 2
+            if scenario == 'pending':(state / 'pending-release.json').touch()
+            if scenario == 'policy-enabled':
+                value = json.loads(body);value['worker_enabled'] = True;policy.write_text(json.dumps(value));body = policy.read_bytes()
+            trace, registry = root / 'calls.jsonl', root / 'records.json'
+            registry.write_text(json.dumps(records))
+            docker = root / 'docker'
+            docker.write_text('''#!/usr/bin/env python3
+import json,os,sys,time
+from pathlib import Path
+args=sys.argv[1:];root=Path(os.environ['PRIVATE_FIXTURE']);p=root/'records.json';records=json.loads(p.read_text())
+with (root/'calls.jsonl').open('a') as f:f.write(json.dumps(args)+'\\n')
+assert 'FLOCK' in Path('/proc/self/fdinfo/9').read_text()
+if args[0]=='inspect':
+ value=next(v for k,v in records.items() if args[-1] in (v['Id'],'aemr-'+k+'-1'))
+ if os.environ['PRIVATE_SCENARIO']=='valid-restarting' and value['Id']==records['report-worker']['Id'] and value['State']['Status']!='exited':
+  value['RestartCount']+=len((root/'calls.jsonl').read_text().splitlines());value['State']['Status']='restarting'
+ print(json.dumps([value]))
+elif args[0]=='ps':print(records['report-worker']['Id'])
+elif args[0]=='events':
+ for action in ('oom','die'):
+  if os.environ['PRIVATE_SCENARIO']=='no-oom' and action=='oom':continue
+  print(json.dumps({'Type':'container','Action':action,'Actor':{'ID':'b'*64 if os.environ['PRIVATE_SCENARIO']=='foreign-oom' else records['report-worker']['Id'],'Attributes':{'exitCode':'0' if os.environ['PRIVATE_SCENARIO']=='no-137' else '137'}},'time':int(time.time())-(4000 if os.environ['PRIVATE_SCENARIO']=='old-oom' else 60)}))
+elif args[:3]==['stop','--time','75']:
+ assert args[-1]==records['report-worker']['Id'];records['report-worker']['State']['Status']='exited';p.write_text(json.dumps(records))
+else:sys.exit(97)
+''')
+            docker.chmod(0o700)
+            program = (program.replace('/root/codex-fixes/release-38687954214', str(trusted))
+                       .replace('/var/lib/docker/volumes/aemr_server_data/_data', str(volume))
+                       .replace('/etc/aemr/runtime-policy.json', str(policy))
+                       .replace('/run/lock/aemr-maintenance.lock', str(root / 'lock'))
+                       .replace('/home/aemr/.dash-private-backups', str(root / 'backups'))
+                       .replace('/home/aemr/dash', str(root))
+                       .replace('/var/lib/aemr', str(state))
+                       .replace('9d47851385b612d245aeeca108435c76208d74d69b35bd012feb77da1288b5a9', hashlib.sha256(helper).hexdigest()))
+            locks = []
+            if scenario.startswith('busy-'):
+                import fcntl
+                path = {'busy-global': root / 'lock', 'busy-run': volume / 'reports/run.lock',
+                        'busy-weekly': volume / 'reports/archives/.weekly.lock'}[scenario]
+                handle = path.open('r+');fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB);locks.append(handle)
+            try:
+                result = subprocess.run([sys.executable, '-I', '-', 'd' * 40], input=program, capture_output=True,
+                    text=True, timeout=10, check=False, env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                    'PRIVATE_FIXTURE': str(root), 'PRIVATE_SCENARIO': scenario})
+            finally:
+                for handle in locks:handle.close()
+            calls = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+            stops = [args for args in calls if args[0] in {'stop', 'start', 'restart', 'run', 'compose'}]
+            if scenario.startswith('valid'):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(stops, [['stop', '--time', '75', worker]])
+                self.assertEqual(json.loads((state / 'worker-quarantine/quarantine.json').read_text())['state'], 'WORKER_OOM_QUARANTINED')
+                self.assertEqual(result.stdout.strip(), 'WORKER_OOM_QUARANTINED')
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(stops, [])
+                self.assertEqual(result.stdout.strip(), 'WORKER_QUARANTINE_REJECTED')
+            self.assertEqual(policy.read_bytes(), body)
+            self.assertEqual(policy.stat().st_ino, inode)
+            self.assertEqual(json.loads(registry.read_text())['server'], records['server'])
+            self.assertEqual(json.loads(status.read_text()), {} if scenario == 'missing-status' else {'status': 'RUNNING' if scenario == 'running-attempt' else 'NOT_ISSUED'})
+
+    def test_quarantine_stops_only_the_exact_oom_worker_with_all_ex_locks(self):
+        for scenario in ('valid', 'valid-restarting'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+    def test_quarantine_rejects_before_stop_without_actual_oom_ownership_and_custody(self):
+        for scenario in ('no-oom', 'no-137', 'foreign-oom', 'old-oom', 'not-restarting', 'foreign-image', 'foreign-role', 'different-worker',
+                         'running-attempt', 'missing-status', 'changed-module', 'pending', 'policy-enabled', 'busy-global', 'busy-run', 'busy-weekly'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
 
 
 class WorkerRecoveryTests(unittest.TestCase):
@@ -221,7 +343,7 @@ class WorkerRecoveryTests(unittest.TestCase):
             recovery.inspect = Mock(side_effect=[server, worker])
             recovery.compose = Mock(side_effect=lambda *args: 'b'*64 if args[0]=='ps'
                                     else (_ for _ in ()).throw(self.module.RecoveryError('COMPOSE_START_FAILED')))
-            recovery.call = Mock(side_effect=lambda args, **kwargs: 'b'*64 if args[:2]==['docker','ps']
+            recovery.call = Mock(side_effect=lambda args, failure=failure, **kwargs: 'b'*64 if args[:2]==['docker','ps']
                                  else (_ for _ in ()).throw(failure))
             recovery.rollback.reset_mock()
             with tempfile.TemporaryDirectory() as tmp:
@@ -255,9 +377,9 @@ class WorkerRecoveryTests(unittest.TestCase):
             root=Path(tmp)
             observer=Mock()
             observer.recover.side_effect=self.module.RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
-            with patch.object(self.module, 'Recovery', return_value=observer):
-                with patch('sys.argv', ['worker_recovery.py','--repo',str(root),'--session',str(root)]):
-                    self.assertEqual(self.module.main(), 3)
+            with patch.object(self.module, 'Recovery', return_value=observer), \
+                 patch('sys.argv', ['worker_recovery.py','--repo',str(root),'--session',str(root)]):
+                self.assertEqual(self.module.main(), 3)
             self.assertFalse((root/'failure.json').exists())
             self.assertEqual(json.loads((root/'pending.json').read_text())['state'], 'NOT_ACCEPTED')
 
@@ -286,9 +408,9 @@ class WorkerRecoveryTests(unittest.TestCase):
         recovery.rollback=Mock()
         with tempfile.TemporaryDirectory() as tmp:
             recovery.session=Path(tmp)
-            with patch.object(self.module.time,'monotonic',side_effect=[0,9999]):
-                with self.assertRaisesRegex(self.module.RecoveryError,'WORKER_TWO_CYCLES_TIMED_OUT'):
-                    recovery.recover()
+            with patch.object(self.module.time,'monotonic',side_effect=[0,9999]), \
+                 self.assertRaisesRegex(self.module.RecoveryError,'WORKER_TWO_CYCLES_TIMED_OUT'):
+                recovery.recover()
         self.assertTrue(running[0])
         recovery.stop_failed_worker.assert_not_called()
         recovery.rollback.assert_not_called()

@@ -1,4 +1,5 @@
 """Exercise cache-only maintenance with synthetic Docker state, never a VPS."""
+import ast
 import hashlib
 import json
 import os
@@ -169,6 +170,69 @@ class SupersededBackupTests(unittest.TestCase):
         for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second', 'dangling-second', 'dangling-parent-second'):
             with self.subTest(scenario=scenario):
                 self.exercise(scenario)
+
+
+class WeeklyTransientMaintenanceTests(unittest.TestCase):
+    def program(self):
+        root = SCRIPT.parents[1]
+        workflow = (root / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        block = workflow[workflow.index('  attempt-payloads:'):workflow.index('  cache-only:')]
+        host = textwrap.dedent(block.split("<<'PYMAINT'\n", 1)[1].rsplit('\n            PYMAINT', 1)[0])
+        return next(ast.literal_eval(node.value) for node in ast.walk(ast.parse(host))
+                    if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'program'
+                                                           for t in node.targets))
+
+    def test_actual_data_process_holds_ex_on_readonly_open_lock_until_exit(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as temporary:
+            lock = Path(temporary) / 'maintenance.lock'
+            lock.touch()
+            prefix = self.program().split("for module in", 1)[0].replace('/maintenance.lock', str(lock))
+            child = subprocess.Popen([sys.executable, '-I', '-c', prefix + "print('READY',flush=True);sys.stdin.read()"],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), 'READY')
+                with lock.open('r+') as competing:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    child.stdin.close()
+                    self.assertEqual(child.wait(timeout=3), 0)
+                    fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                if child.poll() is None:child.kill();child.wait(timeout=3)
+                child.stdout.close();child.stderr.close()
+
+    def test_cold_isolated_bootstrap_preserves_weekly_and_current_before_compaction(self):
+        root = SCRIPT.parents[1]
+        sys.path.insert(0, str(root / 'packages/report-engine/tests'))
+        from test_weekly_archive import complete_attempt
+        program = self.program()
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = complete_attempt(Path(temporary))
+            (state / 'run.lock').touch()
+            maintenance_lock = Path(temporary) / 'maintenance.lock'
+            maintenance_lock.touch()
+            original = state / 'attempts/attempt-1/status.json'
+            frozen_status = original.read_bytes()
+            for index in range(4):
+                folder = state / 'attempts' / f'non-weekly-{index}'
+                (folder / 'bundle').mkdir(parents=True)
+                (folder / 'bundle/payload').write_bytes(b'synthetic duplicate payload')
+                (folder / 'status.json').write_text(json.dumps({'attempt_id': folder.name,
+                    'report_date': '29.09.2034', 'finished_at': f'2034-09-29T00:00:0{index}Z'}))
+            (state / 'status.json').write_text('{"attempt_id":"non-weekly-3"}')
+            program = (program.replace('/memory-patch/', str(root / 'packages/report-engine/src/procurement_engine') + '/')
+                       .replace('/app/packages/server/data/reports', str(state))
+                       .replace('/maintenance.lock', str(maintenance_lock)))
+            result = subprocess.run([sys.executable, '-B', '-c', program], capture_output=True,
+                                    text=True, timeout=30, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((state / 'archives/WEEKLY-2034-09-28').is_dir())
+            self.assertEqual(original.read_bytes(), frozen_status)
+            self.assertFalse((state / 'attempts/non-weekly-0/bundle').exists())
+            self.assertTrue((state / 'attempts/non-weekly-2/bundle').is_dir())
+            self.assertTrue((state / 'attempts/non-weekly-3/bundle').is_dir())
+            self.assertEqual(json.loads(result.stdout.splitlines()[0]), {'weekly_recovery_status_counts': {'SEALED': 1}})
 
 
 if __name__ == '__main__':

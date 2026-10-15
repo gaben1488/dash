@@ -10,6 +10,138 @@ permissions:
   actions: read
 
 jobs:
+  worker-oom-quarantine:
+    if: >-
+      github.event.label.name == 'maintenance: worker-oom-quarantine' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Quarantine only the proven old OOM worker without stopping the API
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - '${{ github.event.pull_request.head.sha }}' <<'PYQUARANTINE'
+            import fcntl,hashlib,json,os,re,stat,subprocess,sys,time,types,uuid
+            from contextlib import ExitStack
+            from pathlib import Path
+            os.umask(0o077)
+            state=Path('/var/lib/aemr')
+            session=state/'worker-quarantine'
+            policy_path=Path('/etc/aemr/runtime-policy.json')
+            volume=Path('/var/lib/docker/volumes/aemr_server_data/_data')
+            image='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+            server='de0233d9a09c82cfc48c6813765e833bf60ff3e5b875b2efaad2a9ac62cd57f0'
+            worker='f32669a940b4e2c74d6166d59600c398a067a297ed694deeb8cf80d259d2488d'
+            def regular(path, *, private=False, owner=0, maximum=32*1024*1024):
+             assert not any(p.is_symlink() for p in (path,*path.parents))
+             info=path.lstat()
+             assert stat.S_ISREG(info.st_mode) and info.st_nlink==1 and info.st_uid in ({0,1000} if owner is None else {owner})
+             assert info.st_size<=maximum and (not private or stat.S_IMODE(info.st_mode)==0o600)
+             return info
+            def read(path, **kwargs):
+             regular(path,**kwargs)
+             with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:return file.read(32*1024*1024+1)
+            def atomic(path,value):
+             temporary=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
+             fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+             with os.fdopen(fd,'w') as file:json.dump(value,file,sort_keys=True);file.flush();os.fsync(file.fileno())
+             os.replace(temporary,path)
+             fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+             try:os.fsync(fd)
+             finally:os.close(fd)
+            try:
+             assert os.geteuid()==0 and re.fullmatch('[a-f0-9]{40}',sys.argv[1])
+             source=Path('/root/codex-fixes/release-38687954214/deploy/worker_recovery.py')
+             private=source.parents[1].lstat()
+             assert stat.S_ISDIR(private.st_mode) and private.st_uid==0 and stat.S_IMODE(private.st_mode)==0o700
+             body=read(source,maximum=1024*1024)
+             assert hashlib.sha256(body).hexdigest()=='9d47851385b612d245aeeca108435c76208d74d69b35bd012feb77da1288b5a9'
+             module=types.ModuleType('approved_worker_recovery')
+             exec(compile(body,str(source),'exec'),module.__dict__)
+             regular(Path('/run/lock/aemr-maintenance.lock'))
+             fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
+             if fd!=9:os.dup2(fd,9);os.close(fd)
+             with os.fdopen(9,'r+') as global_lock, ExitStack() as locks:
+              fcntl.flock(9,fcntl.LOCK_EX|fcntl.LOCK_NB)
+              assert not any(os.path.lexists(state/name) for name in ('pending-release.json','release-recovery-progress.json'))
+              assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+              policy=json.loads(read(policy_path,private=True,maximum=1024*1024))
+              assert policy.get('project')=='aemr' and policy.get('worker_enabled') is False
+              assert set(policy.get('services',{}))=={'server','web','report-worker','caddy'}
+              assert all(item.get('container')=='aemr-'+role+'-1' for role,item in policy['services'].items())
+              held=[]
+              for path in (volume/'reports/run.lock',volume/'reports/archives/.weekly.lock'):
+               regular(path,owner=None)
+               handle=locks.enter_context(os.fdopen(os.open(path,os.O_RDWR|os.O_NOFOLLOW),'r+'))
+               fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB);held.append(handle.fileno())
+              terminal={'NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS','FAILED','PLAN_CHANGED'}
+              assert json.loads(read(volume/'reports/status.json',owner=None)).get('status') in terminal
+              assert not any(p.is_symlink() for p in (session,*session.parents))
+              session.mkdir(mode=0o700,exist_ok=True)
+              info=session.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o700
+              def call(args, *, timeout=100):
+               # The actual open lock descriptions survive owner/SSH loss in Docker clients.
+               result=subprocess.run(args,capture_output=True,timeout=timeout,check=False,pass_fds=(9,*held))
+               with (session/'private-command.log').open('ab') as log:log.write(result.stderr)
+               if result.returncode:raise module.RecoveryError('WORKER_COMMAND_FAILED')
+               return result.stdout.decode()
+              recovery=module.Recovery.__new__(module.Recovery)
+              recovery.server,recovery.worker,recovery.call=server,worker,call
+              def records():
+               result={}
+               for role,identity in (('server',server),('report-worker',worker)):
+                value=recovery.inspect('aemr-'+role+'-1')
+                assert value['Id']==identity and value['Name']=='/aemr-'+role+'-1' and value['Image']==image
+                labels=value['Config'].get('Labels') or {}
+                assert labels.get('com.docker.compose.project')=='aemr' and labels.get('com.docker.compose.service')==role
+                mounts=[m for m in value.get('Mounts',[]) if m.get('Destination')=='/app/packages/server/data']
+                assert len(mounts)==1 and mounts[0].get('Type')=='volume' and mounts[0].get('Name')=='aemr_server_data'
+                result[role]=value
+               assert result['server']['State']['Status']=='running' and result['server']['State'].get('Health',{}).get('Status')=='healthy'
+               assert result['report-worker']['State']['Status'] in {'running','restarting','created','exited'}
+               return result
+              def stable(value):
+               return {key:value.get(key) for key in ('Id','Name','Image','Config','Mounts','HostConfig')}
+              before=records()
+              assert type(before['report-worker'].get('RestartCount')) is int and before['report-worker']['RestartCount']>=3
+              until=int(time.time());since=until-1800
+              events=call(['docker','events','--since',str(since),'--until',str(until),'--filter','container='+worker,
+               '--filter','event=oom','--filter','event=die','--format','{{json .}}'],timeout=30)
+              assert len(events)<=1024*1024
+              oom=[];died=[]
+              for line in events.splitlines():
+               event=json.loads(line);actor=event.get('Actor') or {};at=event.get('time')
+               if event.get('Type')!='container' or actor.get('ID')!=worker or type(at) is not int or not since<=at<=until:continue
+               if event.get('Action')=='oom':oom.append(at)
+               if event.get('Action')=='die' and (actor.get('Attributes') or {}).get('exitCode')=='137':died.append(at)
+              assert any(0<=death-at<=60 for at in oom for death in died)
+              assert all(stable(value)==stable(before[role]) for role,value in records().items())
+              assert json.loads(read(volume/'reports/status.json',owner=None)).get('status') in terminal
+              # Explicit OOM quarantine is outside the release graceful-exit gate.
+              recovery._stop_failed_worker_locked()
+              after=records()
+              assert all(stable(value)==stable(before[role]) for role,value in after.items())
+              assert after['report-worker']['State']['Status'] in {'created','exited'}
+              assert json.loads(read(policy_path,private=True))['worker_enabled'] is False
+              atomic(session/'quarantine.json',{'state':'WORKER_OOM_QUARANTINED','source_sha':sys.argv[1],
+               'server':server,'worker':worker,'image':image,'quarantined_at':int(time.time())})
+             print('WORKER_OOM_QUARANTINED')
+            except Exception:
+             print('WORKER_QUARANTINE_REJECTED');sys.exit(2)
+            PYQUARANTINE
   superseded-backup-archives:
     if: >-
       github.event.label.name == 'maintenance: superseded-backup-archives' &&
@@ -1075,53 +1207,136 @@ jobs:
   attempt-payloads:
     if: >-
       github.event.label.name == 'maintenance: transient-attempts' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'codex/dash-audit-integrated-20261010'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - name: Compact old transient payloads preserving weekly and current evidence
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Admit exact tested maintenance source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$CANDIDATE"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$CANDIDATE&event=pull_request" --jq '.workflow_runs | map(select(.name == "CI")) | first | .id')
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/maintenance-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" > "$RUNNER_TEMP/maintenance-jobs.json"
+          python3 - <<'PYCI' | python3 .github/ci/source_ci_gate.py "$CANDIDATE"
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          print(json.dumps({'run':json.loads((root/'maintenance-run.json').read_text()),
+              'jobs':json.loads((root/'maintenance-jobs.json').read_text())['jobs']}))
+          PYCI
+      - name: Seal frozen weekly evidence before compacting transient payloads in isolated process
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 6m
-          script_stop: false
+          command_timeout: 9m
           script: |
             set -euo pipefail
-            umask 077
             candidate='${{ github.event.pull_request.head.sha }}'
             case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
             test "${#candidate}" = 40
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
-            tool=$(mktemp)
-            trap 'rm -f "$tool"' EXIT
-            git show "$candidate:packages/report-engine/src/procurement_engine/retention.py" > "$tool"
-            cat >> "$tool" <<'PYCOMPACT'
-            state = "/app/packages/server/data/reports"
-            plan = plan_transient_attempt_retention(state, keep_full=2)
-            print(json.dumps({"attempt_retention_plan": {k: plan.get(k) for k in (
-                "status", "attempt_count", "compact_count", "bytes_reclaimable",
-                "protected_unsealed_thursdays", "malformed_or_unsafe_entries")}}, sort_keys=True))
-            result = apply_transient_attempt_retention(state, keep_full=2,
-                expected_attempts=plan["compact_attempts"])
-            print(json.dumps({"attempt_retention_result": {k: result.get(k) for k in (
-                "status", "compacted", "bytes_reclaimed")}}, sort_keys=True))
-            if result["status"] not in {"COMPACTED", "NO_ATTEMPTS"}:
-                raise SystemExit(2)
-            if result.get("compacted", 0) != plan.get("compact_count", 0):
-                raise SystemExit(2)
-            PYCOMPACT
-            cd deploy
-            df -PB1 /
-            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$tool"
-            df -PB1 /
+            sudo -n python3 -I - "$candidate" <<'PYMAINT'
+            import fcntl,json,os,subprocess,sys,tempfile,uuid
+            from pathlib import Path
+            def docker(args,**kwargs):
+                return subprocess.run(['docker',*args],capture_output=True,check=True,**kwargs).stdout
+            def inspect(name):return json.loads(docker(['inspect',name],timeout=15))[0]
+            with Path('/run/lock/aemr-maintenance.lock').open('r+') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                assert not any((Path('/var/lib/aemr')/n).exists() or (Path('/var/lib/aemr')/n).is_symlink()
+                    for n in ('pending-release.json','release-recovery-progress.json'))
+                assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+                before=inspect('aemr-server-1');worker=inspect('aemr-report-worker-1')
+                assert before['Id']=='de0233d9a09c82cfc48c6813765e833bf60ff3e5b875b2efaad2a9ac62cd57f0'
+                assert worker['Id']=='f32669a940b4e2c74d6166d59600c398a067a297ed694deeb8cf80d259d2488d'
+                image='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+                assert before['Image']==worker['Image']==image and before['State']['Status']=='running'
+                assert before['State'].get('Health',{}).get('Status')=='healthy'
+                assert worker['State']['Status']=='exited'
+                policy=json.loads(Path('/etc/aemr/runtime-policy.json').read_bytes())
+                assert policy.get('worker_enabled') is False
+                mounts=[m for m in before['Mounts'] if m['Destination']=='/app/packages/server/data']
+                assert len(mounts)==1 and mounts[0]['Type']=='volume'
+                assert any(m.get('Type')=='volume' and m.get('Name')==mounts[0]['Name']
+                    and m.get('Destination')=='/app/packages/server/data' for m in worker['Mounts'])
+                name='aemr-weekly-maintenance-'+uuid.uuid4().hex
+                with tempfile.TemporaryDirectory(prefix='weekly-maintenance-',dir='/root/codex-fixes') as temporary:
+                    for module in ('snapshot_bundle_io','retention','weekly_archive'):
+                        source=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',
+                            'show',sys.argv[1]+':packages/report-engine/src/procurement_engine/'+module+'.py'])
+                        Path(temporary,module+'.py').write_bytes(source)
+                    program="""import fcntl,importlib.util,json,os,signal,sys
+            from collections import Counter
+            from pathlib import Path
+            global_lock=Path('/maintenance.lock').open('r')
+            fcntl.flock(global_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            signal.signal(signal.SIGALRM,lambda *_:os._exit(124))
+            signal.alarm(420)
+            for module in ('snapshot_bundle_io','retention','weekly_archive'):
+                key='procurement_engine.'+module
+                spec=importlib.util.spec_from_file_location(key,'/memory-patch/'+module+'.py')
+                value=importlib.util.module_from_spec(spec);sys.modules[key]=value;spec.loader.exec_module(value)
+            from procurement_engine.weekly_archive import recover_weekly_archives
+            from procurement_engine.retention import plan_transient_attempt_retention,apply_transient_attempt_retention
+            state=Path('/app/packages/server/data/reports')
+            with (state/'run.lock').open('r+') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                recovered=recover_weekly_archives(state)
+            counts=dict(Counter(item['status'] for item in recovered))
+            print(json.dumps({'weekly_recovery_status_counts':counts}),flush=True)
+            assert not counts.get('FAILED')
+            plan=plan_transient_attempt_retention(state,keep_full=2)
+            print(json.dumps({'attempt_retention_plan':{k:plan.get(k) for k in
+                ('status','attempt_count','compact_count','bytes_reclaimable','protected_unsealed_thursdays','malformed_or_unsafe_entries')}}),flush=True)
+            result=apply_transient_attempt_retention(state,keep_full=2,expected_attempts=plan['compact_attempts'])
+            print(json.dumps({'attempt_retention_result':{k:result.get(k) for k in
+                ('status','compacted','bytes_reclaimed')}}),flush=True)
+            assert result['status'] in ('COMPACTED','NO_ATTEMPTS')
+            assert result.get('compacted',0)==plan.get('compact_count',0)
+            """
+                    try:
+                        # The actual data-writing process owns EX. Host/CLI
+                        # interruption cannot drop its exclusion prematurely.
+                        # deploy-vps serializes the admission/handoff gap; a
+                        # contended child refuses before any state mutation.
+                        fcntl.flock(lock,fcntl.LOCK_UN)
+                        output=docker(['run','--rm','--name',name,'--label','aemr.maintenance='+name,
+                            '--network','none','--read-only','--user','0','--memory','2304m','--memory-swap','2816m',
+                            '--cpus','1','--tmpfs','/tmp:rw,nosuid,noexec,size=64m',
+                            '--mount','type=volume,src='+mounts[0]['Name']+',dst=/app/packages/server/data',
+                            '--mount','type=bind,src='+temporary+',dst=/memory-patch,readonly',
+                            '--mount','type=bind,src=/run/lock/aemr-maintenance.lock,dst=/maintenance.lock,readonly',
+                            '--entrypoint','/opt/report-env/bin/python',image,'-B','-c',program],
+                            timeout=480,pass_fds=(lock.fileno(),))
+                        for line in output.splitlines():print(json.dumps(json.loads(line)))
+                    finally:
+                        found=subprocess.run(['docker','inspect',name],capture_output=True,timeout=15)
+                        if found.returncode==0:
+                            owned=json.loads(found.stdout)[0]
+                            assert owned['Config'].get('Labels',{}).get('aemr.maintenance')==name
+                            docker(['rm','--force',owned['Id']],timeout=30,pass_fds=(lock.fileno(),))
+                after=inspect('aemr-server-1')
+                assert all(before[key]==after[key] for key in ('Id','Image','Mounts','RestartCount'))
+                assert before['State']['StartedAt']==after['State']['StartedAt']
+                print('WEEKLY_TRANSIENT_MAINTENANCE_API_UNCHANGED')
+            PYMAINT
   cache-only:
     if: >-
       github.event.label.name == 'maintenance: build-cache-only' &&
