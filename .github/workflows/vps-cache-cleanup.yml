@@ -1164,6 +1164,38 @@ jobs:
             # user. Root cannot O_CREAT that operator-owned file in sticky /tmp.
             subprocess.run(['bash'],input=source,check=True)
             PY
+  host-journal-retention:
+    if: >-
+      github.event.label.name == 'maintenance: host-journal-retention' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Bound old host journals without changing application data or services
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PY'
+            import json,shutil,subprocess
+            before=shutil.disk_usage('/').free
+            for command in (['journalctl','--rotate'],['journalctl','--vacuum-size=128M']):
+                result=subprocess.run(command,capture_output=True,timeout=45,check=False)
+                if result.returncode:raise SystemExit('HOST_JOURNAL_RETENTION_FAILED')
+            print(json.dumps({'status':'HOST_JOURNAL_RETENTION_PASS','retained_limit_bytes':128*1024*1024,
+                'free_before_bytes':before,'free_after_bytes':shutil.disk_usage('/').free}))
+            PY
   controlled-candidate-release:
     if: >-
       github.event.label.name == 'maintenance: controlled-candidate-release' &&
