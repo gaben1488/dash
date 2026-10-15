@@ -87,7 +87,17 @@ jobs:
               print(json.dumps({'installed_tool':name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}),flush=True)
              free=os.statvfs('/var/lib/docker')
              print(json.dumps({'root_available_bytes':free.f_bavail*free.f_frsize}),flush=True)
+            def host_operator_capabilities():
+             import importlib.util
+             import shutil
+             import sys
+             data={line.split(':',1)[0]:line.split(':',1)[1].strip() for line in Path('/proc/self/status').read_text().splitlines() if ':' in line}
+             bound=int(data.get('CapBnd','0'),16)
+             versions={name:subprocess.run([name,'-I','-B','-c','import sys;print(".".join(map(str,sys.version_info[:3])))'],capture_output=True,text=True,timeout=10).stdout.strip() for name in ('python3','python3.11','python3.12') if shutil.which(name)}
+             print(json.dumps({'host_operator_capabilities':{'python_versions':{k:v for k,v in versions.items() if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',v)},'setpriv_present':shutil.which('setpriv') is not None,'dac_read_search_bounded':bool(bound&(1<<2)),'sys_ptrace_bounded':bool(bound&(1<<19)),'docx_installed':importlib.util.find_spec('docx') is not None,'venv_installed':importlib.util.find_spec('venv') is not None}}),flush=True)
+
             def main():
+             host_operator_capabilities()
              recovery_preflight()
              print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
              for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
