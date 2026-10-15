@@ -581,6 +581,24 @@ class AcceptedWorkerStartWorkflowTests(unittest.TestCase):
             if scenario == 'valid-group-writable-data':
                 for path in (f.source / 'reports/run.lock', f.source / 'reports/archives/.weekly.lock', f.source / 'reports/status.json'):
                     path.chmod(0o664)
+            if scenario in {'valid-reconstructed','missing-lineage','wrong-lineage-id','wrong-lineage-quarantine','wrong-lineage-recovery','wrong-lineage-image'}:
+                predecessor={name:str(i+5)*64 for i,name in enumerate(r.SERVICES)}
+                stage=json.loads((f.runtime/'stage.json').read_text());stage['container_ids']=predecessor;r.atomic_json(f.runtime/'stage.json',stage)
+                restored_root=f.private/'previous-restore';restored_root.mkdir()
+                restored=f.backup_tool.restore_state(f.backup,restored_root,plan['manifest_sha256'])
+                completed={'state':'RELEASE_RUNTIME_AND_STATE_RECOVERED','plan_sha256':'a'*64,
+                    'release_sha':'b'*40,'manifest_sha256':plan['manifest_sha256'],'restored':restored}
+                r.atomic_json(f.private/'release-recovered.json',completed)
+                bridge={'state':'VERIFIED_CONTROLLED_ROLLBACK_LINEAGE',
+                    'quarantine_sha256':r.digest((quarantine/'quarantine.json').read_bytes()),
+                    'recovered_receipt_sha256':r.digest((f.private/'release-recovered.json').read_bytes()),
+                    'recovered_plan_sha256':completed['plan_sha256'],'recovered_manifest_sha256':completed['manifest_sha256'],
+                    'recovered_release_sha':completed['release_sha'],'container_ids':predecessor,'images':dict(plan['images'])}
+                if scenario=='wrong-lineage-id':bridge['container_ids']={**predecessor,'server':'f'*64}
+                if scenario=='wrong-lineage-quarantine':bridge['quarantine_sha256']='f'*64
+                if scenario=='wrong-lineage-recovery':bridge['recovered_receipt_sha256']='f'*64
+                if scenario=='wrong-lineage-image':bridge['images']={**plan['images'],'report-worker':'sha256:'+'f'*64}
+                if scenario!='missing-lineage':r.atomic_json(quarantine/'rollback-lineage.json',bridge)
             if scenario == 'no-quarantine':(quarantine / 'quarantine.json').unlink()
             if scenario == 'wrong-sha':
                 value = json.loads((f.private / 'release-accepted.json').read_text());value['acceptance']['release_sha'] = 'f' * 40
@@ -627,7 +645,11 @@ class AcceptedWorkerStartWorkflowTests(unittest.TestCase):
         finally:case.doCleanups()
 
     def test_start_only_exact_accepted_new_worker_after_native_contracts(self):
-        for scenario in ('valid', 'valid-group-writable-data'):
+        for scenario in ('valid', 'valid-group-writable-data', 'valid-reconstructed'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+    def test_reconstructed_predecessor_requires_bound_original_quarantine_and_recovery(self):
+        for scenario in ('missing-lineage','wrong-lineage-id','wrong-lineage-quarantine','wrong-lineage-recovery','wrong-lineage-image'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
     def test_start_requires_quarantine_current_acceptance_owned_config_and_native_schema(self):

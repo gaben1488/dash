@@ -10,6 +10,55 @@ permissions:
   actions: read
 
 jobs:
+  rollback-runtime-lineage:
+    if: >-
+      github.event.label.name == 'maintenance: rollback-runtime-lineage' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Require tested exact maintenance source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$CANDIDATE"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$CANDIDATE&event=pull_request" --jq '.workflow_runs | map(select(.name == "CI")) | first | .id')
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/maintenance-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" > "$RUNNER_TEMP/maintenance-jobs.json"
+          python3 - <<'PYCI' | python3 .github/ci/source_ci_gate.py "$CANDIDATE"
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          print(json.dumps({'run':json.loads((root/'maintenance-run.json').read_text()),
+              'jobs':json.loads((root/'maintenance-jobs.json').read_text())['jobs']}))
+          PYCI
+      - name: Record actual restored container lineage without changing quarantine or services
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script: |
+            set -euo pipefail
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            git show "$candidate:.github/ci/record_rollback_lineage.py" | sudo -n python3 -IB -
   accepted-repaired-worker:
     if: >-
       github.event.label.name == 'maintenance: accepted-repaired-worker' &&
@@ -93,7 +142,21 @@ jobs:
               assert plan['original_running']['report-worker'] is False
               stage=json.loads(read(runtime/'stage.json'))
               assert stage['release_sha']==sha and stage['candidate_images']==plan['candidate_images'] and stage['config_sha256']==plan['config_sha256']
-              assert stage['container_ids']['server']==quarantine['server'] and stage['container_ids']['report-worker']==quarantine['worker']
+              if not (stage['container_ids']['server']==quarantine['server'] and stage['container_ids']['report-worker']==quarantine['worker']):
+               # Controlled rollback recreates containers. Keep the original OOM
+               # identities unchanged; require independently recorded re-creation.
+               assert set(stage['container_ids'])==set(r.SERVICES)
+               assert all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in stage['container_ids'].values())
+               recovered_bytes=read(state/'release-recovered.json')
+               recovered=r.validate_completed(json.loads(recovered_bytes))
+               bridge=json.loads(read(state/'worker-quarantine/rollback-lineage.json'))
+               assert bridge=={'state':'VERIFIED_CONTROLLED_ROLLBACK_LINEAGE',
+                'quarantine_sha256':r.digest(read(state/'worker-quarantine/quarantine.json')),
+                'recovered_receipt_sha256':r.digest(recovered_bytes),
+                'recovered_plan_sha256':recovered['plan_sha256'],
+                'recovered_manifest_sha256':recovered['manifest_sha256'],
+                'recovered_release_sha':recovered['release_sha'],
+                'container_ids':stage['container_ids'],'images':plan['images']}
               _,config=executor._files(plan,candidate_runtime=True)
               # _files emits Compose input; decode its one literal-dollar boundary for inspect.
               config=json.loads(json.dumps(config).replace('$$','$'))

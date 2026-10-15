@@ -101,12 +101,13 @@ jobs:
       - name: Install report engine
         run: python -m pip install -e 'packages/report-engine[test]'
       - name: Python lint
-        run: python -m ruff check packages/report-engine deploy/runtime_guard.py deploy/release_recovery.py deploy/release-controller.py deploy/release_trial.py .github/ci/test_runtime_guard.py .github/ci/test_release_recovery.py .github/ci/test_release_controller.py .github/ci/frozen_backup_readback.py .github/ci/test_frozen_backup_readback.py .github/ci/frozen_trial_replay.py .github/ci/test_frozen_trial_replay.py .github/ci/native_status_probe.py .github/ci/test_native_status_probe.py
+        run: python -m ruff check packages/report-engine deploy/runtime_guard.py deploy/release_recovery.py deploy/release-controller.py deploy/release_trial.py .github/ci/test_runtime_guard.py .github/ci/test_release_recovery.py .github/ci/test_release_controller.py .github/ci/frozen_backup_readback.py .github/ci/test_frozen_backup_readback.py .github/ci/frozen_trial_replay.py .github/ci/test_frozen_trial_replay.py .github/ci/native_status_probe.py .github/ci/test_native_status_probe.py .github/ci/record_rollback_lineage.py .github/ci/test_rollback_lineage.py
       - name: Synthetic VPS retention and runtime guard regressions
         run: |
           python .github/ci/test_report_backup_window.py BackupWindowTests
           sudo python3 .github/ci/test_report_backup_window.py ReleaseGuardianTests
           sudo "$(command -v python)" .github/ci/test_worker_recovery.py
+          sudo "$(command -v python)" .github/ci/test_rollback_lineage.py
           python .github/ci/test_vps_cache_cleanup.py
           python .github/ci/test_runtime_state_probe.py
           python .github/ci/test_runtime_guard.py
