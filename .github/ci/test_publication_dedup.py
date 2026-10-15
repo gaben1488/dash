@@ -41,12 +41,12 @@ class PublicationDedupTests(unittest.TestCase):
         self.assertEqual(list(self.stage.iterdir()),[])
         self.assertEqual(self.m.apply_dedup(self.source,self.plan(),self.stage)['linked_files'],0)
 
-    def test_unregistered_paths_changed_hash_and_changed_permissions_are_rejected(self):
+    def test_registered_hash_changed_bytes_and_permissions_are_rejected(self):
         for scenario in ('catalog','hash','mode'):
             with self.subTest(scenario=scenario):
                 original=self.paths[0].read_bytes();mode=self.paths[0].stat().st_mode&0o7777
                 catalog={key:dict(value) for key,value in self.catalog.items()}
-                if scenario=='catalog':self.catalog.clear()
+                if scenario=='catalog':self.catalog[next(iter(self.catalog))]['snapshot_bundle/payloads/source.json']='f'*64
                 elif scenario=='hash':self.paths[0].write_bytes(b'{"value":"fake"}')
                 else:self.paths[0].chmod(0o400)
                 with self.assertRaises(ValueError):self.plan()
@@ -68,6 +68,17 @@ class PublicationDedupTests(unittest.TestCase):
         target=self.paths[0].with_suffix('.sqlite');target.write_bytes(self.paths[0].read_bytes())
         self.files[str(target.relative_to(self.source))]=dict(next(iter(self.files.values())))
         result=self.plan();self.assertEqual(sum(len(group) for group in result),3)
+
+    def test_historical_pending_and_uncatalogued_directories_stay_untouched(self):
+        for folder in ('.pending-legacy','REL-legacy-format','REL-'+'f'*64):
+            relative=f'reports/published/releases/{folder}/payload.json'
+            path=self.source/relative;path.parent.mkdir(parents=True);path.write_bytes(self.paths[0].read_bytes())
+            self.files[relative]=dict(next(iter(self.files.values())))
+        groups=self.plan()
+        self.assertEqual(sum(len(group) for group in groups),3)
+        self.m.apply_dedup(self.source,groups,self.stage)
+        self.assertTrue(all((self.source/f'reports/published/releases/{folder}/payload.json').stat().st_nlink==1
+                            for folder in ('.pending-legacy','REL-legacy-format','REL-'+'f'*64)))
 
     def test_staging_inside_release_tree_is_rejected(self):
         with self.assertRaises(ValueError):self.m.apply_dedup(self.source,self.plan(),self.paths[0].parent)

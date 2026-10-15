@@ -53,9 +53,13 @@ def plan_dedup(source, files, catalog, *, min_bytes=1024**2):
                 or type(value.get('bytes')) is not int or value['bytes']<min_bytes):
             continue
         match=re.fullmatch(r'reports/published/releases/(REL-[a-f0-9]{64})/(.+\.json)',relative)
-        if not match or '..' in Path(relative).parts or Path(relative).as_posix()!=relative:
+        if '..' in Path(relative).parts or Path(relative).as_posix()!=relative:
             raise ValueError('DEDUP_UNSAFE_PATH')
+        # Historical/pending directories are outside the immutable catalog scope.
+        # Their presence is neither corruption nor permission to rewrite them.
+        if not match:continue
         release,name=match.groups()
+        if release not in catalog:continue
         if catalog.get(release,{}).get(name)!=value.get('sha256'):
             raise ValueError('DEDUP_CATALOG_MISMATCH')
         key=tuple(value.get(k) for k in ('sha256','bytes','uid','gid','mode'))
