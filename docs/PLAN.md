@@ -68,6 +68,15 @@ CI обязателен до offline cleanup и выпуска. Последую
 подтвердил исправление общей блокировки и выявил зависимость fixture trusted
 parent от umask: Ubuntu022 создавал755 вместо требуемого700. Явное создание
 private parent воспроизводится RED при022, затем GREEN без изменения runtime.
+Фактический34e66770: CI38699207019 — все3source jobs PASS,1074 Python+5root.
+Offline38699839923 SUCCESS:3weekly ALREADY_SEALED, из687attempts компактирован
+1payload/379 884 314 байт;6unsafe entries сохранены. Readback38700051407
+SUCCESS: runtime/images/mounts стабильны, free3 582 169 088 байт. Этого
+недостаточно для свежего backup. Подготовлен узкий host-reserve путь:
+только проверенный ext4 /dev/vda2 с резервом4–6% можно перевести на1%,
+сохранив аварийный резерв и не удаляя данные; неподходящая FS/device/ratio
+отказывают до изменения. Это ещё не live-результат.
+
 Сначала offline recovery закрепляет сохранённый weekly input, затем retention
 удаляет только прежние transient payloads; процесс изолирован от API, без сети,
 сам удерживает реальный EX и ограничен420s. Native old-code+3module cold smoke,

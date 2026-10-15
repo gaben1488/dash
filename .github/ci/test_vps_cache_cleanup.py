@@ -13,6 +13,49 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "cleanup-build-cache.sh"
 
 
+class HostReserveTests(unittest.TestCase):
+    def exercise(self, scenario):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertTrue("<<'PYRESERVE'" in workflow, 'Missing bounded host reserve maintenance')
+        program = textwrap.dedent(workflow.split("<<'PYRESERVE'\n", 1)[1].split('\n            PYRESERVE', 1)[0])
+        changed = []
+        def command(args, **kwargs):
+            if args[0] == 'findmnt':
+                return json.dumps({'filesystems': [{'source': '/dev/other' if scenario == 'device' else '/dev/vda2',
+                    'fstype': 'xfs' if scenario == 'filesystem' else 'ext4'}]})
+            if args[:2] == ['docker', 'inspect']:
+                return json.dumps([{'Id': str(i), 'Image': 'verified', 'RestartCount': 0, 'Mounts': [],
+                    'Config': {}, 'State': {'Status': 'exited' if i == 3 else 'running', 'StartedAt': 'fixed'}} for i in range(4)])
+            if args[:2] == ['tune2fs', '-l']:
+                reserved = 100 if changed or scenario == 'already' else 2000 if scenario == 'ratio' else 500
+                return f'Block count: 10000\nReserved block count: {reserved}\nBlock size: 4096\n'
+            if args[:2] == ['tune2fs', '-r']:
+                changed.append(args);return ''
+            raise AssertionError(args)
+        with tempfile.TemporaryDirectory() as temporary:
+            lock = Path(temporary) / 'lock';lock.touch()
+            program = program.replace('/run/lock/aemr-maintenance.lock', str(lock))
+            with patch('subprocess.check_output', side_effect=command), patch('os.geteuid', return_value=0), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                if scenario in ('filesystem', 'device', 'ratio'):
+                    with self.assertRaises(SystemExit):exec(compile(program, '<reserve-fixture>', 'exec'), {})  # noqa: S102 - reviewed local workflow fixture
+                else:
+                    exec(compile(program, '<reserve-fixture>', 'exec'), {})  # noqa: S102 - reviewed local workflow fixture
+                    self.assertIn('HOST_RESERVE_', output.getvalue())
+        self.assertEqual(changed, [['tune2fs', '-r', '100', '/dev/vda2']] if scenario == 'valid' else [])
+
+    def test_only_verified_default_ext4_reserve_is_reduced_to_one_percent(self):
+        for scenario in ('valid', 'already'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+    def test_unknown_filesystem_device_or_reservation_is_not_changed(self):
+        for scenario in ('filesystem', 'device', 'ratio'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+
 class CacheCleanupTests(unittest.TestCase):
     def run_cleanup(self, scenario="normal"):
         self.assertTrue(SCRIPT.is_file(), "Missing cache-only maintenance implementation")

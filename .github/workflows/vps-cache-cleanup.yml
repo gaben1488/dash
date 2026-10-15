@@ -1546,6 +1546,70 @@ jobs:
             print(json.dumps({'status':'HOST_JOURNAL_RETENTION_PASS','retained_limit_bytes':128*1024*1024,
                 'free_before_bytes':before,'free_after_bytes':shutil.disk_usage('/').free}))
             PY
+  host-space-reserve:
+    if: >-
+      github.event.label.name == 'maintenance: host-space-reserve' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Make only excess default ext4 reservation available without deleting data
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PYRESERVE'
+            import fcntl,json,os,re,shutil,subprocess
+            from pathlib import Path
+            def command(args):return subprocess.check_output(args,text=True,timeout=30)
+            def filesystem():
+                fields=dict(re.findall(r'^(Block count|Reserved block count|Block size):\s*([0-9]+)\s*$',
+                    command(['tune2fs','-l','/dev/vda2']),re.M))
+                assert set(fields)=={'Block count','Reserved block count','Block size'}
+                return {key:int(value) for key,value in fields.items()}
+            def runtime():
+                records=json.loads(command(['docker','inspect',*[f'aemr-{name}-1' for name in ('server','web','caddy','report-worker')]]))
+                assert len(records)==4 and records[0]['State']['Status']=='running' and records[3]['State']['Status']=='exited'
+                return [{**{key:value[key] for key in ('Id','Image','Config','Mounts','RestartCount')},
+                    'status':value['State']['Status'],'started':value['State']['StartedAt']} for value in records]
+            try:
+                assert os.geteuid()==0
+                with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
+                    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    before_runtime=runtime()
+                    mount=json.loads(command(['findmnt','--json','--target','/','--output','SOURCE,FSTYPE']))['filesystems']
+                    assert len(mount)==1 and mount[0]=={'source':'/dev/vda2','fstype':'ext4'}
+                    before=filesystem();blocks=before['Block count'];reserved=before['Reserved block count']
+                    assert blocks>0 and before['Block size'] in (1024,2048,4096,8192)
+                    target=(blocks+99)//100  # Keep at least 1% for host emergency use.
+                    free_before=shutil.disk_usage('/').free
+                    print(json.dumps({'status':'HOST_RESERVE_CENSUS','block_count':blocks,'reserved_before':reserved,
+                        'reserved_target':target,'free_before_bytes':free_before}),flush=True)
+                    if reserved<=target:
+                        print('HOST_RESERVE_ALREADY_BOUNDED')
+                    else:
+                        assert 4*blocks<=100*reserved<=6*blocks  # Only the known default 5% class.
+                        command(['tune2fs','-r',str(target),'/dev/vda2'])
+                        after=filesystem()
+                        assert after=={**before,'Reserved block count':target}
+                        assert runtime()==before_runtime
+                        print(json.dumps({'status':'HOST_RESERVE_REDUCED','reserved_after':target,
+                            'made_available_bytes':(reserved-target)*before['Block size'],
+                            'free_after_bytes':shutil.disk_usage('/').free,'application_runtime':'UNCHANGED'}))
+            except Exception:
+                raise SystemExit('HOST_RESERVE_REJECTED') from None
+            PYRESERVE
   controlled-candidate-release:
     if: >-
       github.event.label.name == 'maintenance: controlled-candidate-release' &&
