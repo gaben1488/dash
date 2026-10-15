@@ -62,8 +62,22 @@ def attempt_retention_plan():
   except (ValueError,TypeError):pass
  print(json.dumps({'attempt_retention_plan_exit':result.returncode}),flush=True)
 
+def previous_reader_capabilities():
+ image='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+ value=json.loads(subprocess.check_output(['docker','image','inspect',image],text=True,timeout=15))[0]
+ revision=(value.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')
+ print(json.dumps({'previous_runtime_source':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}),flush=True)
+ program="import inspect,json,hashlib,importlib\nfrom pathlib import Path\nfrom procurement_engine.publication_store import PublicationStore\nimport procurement_engine.publication_reader as reader\nresult={'compaction':hasattr(PublicationStore,'compact_publications'),'reader_lease':hasattr(PublicationStore,'reader_lease'),'selects_compact_period':'replay_available' in inspect.getsource(PublicationStore.select),'reader_uses_lease':'reader_lease' in inspect.getsource(reader.read_publication),'module_sha256':{}}\nfor name in ('publication_store','publication_reader','archive_runtime','monitoring_schema','storage_inventory','rehearsal'):\n try:module=importlib.import_module('procurement_engine.'+name);result['module_sha256'][name]=hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()\n except ImportError:result['module_sha256'][name]=None\nprint(json.dumps({'previous_reader_capabilities':result}))\n"
+ result=subprocess.run(['docker','run','--rm','--network','none','--read-only','--memory','256m','--pids-limit','32','--cpus','0.5','--cap-drop','ALL','--security-opt','no-new-privileges','--user','1000:1000','--entrypoint','/usr/bin/timeout',image,'--kill-after=2s','30s','/opt/report-env/bin/python','-B','-c',program],capture_output=True,text=True,timeout=40,check=False)
+ for line in result.stdout.splitlines():
+  try:
+   x=json.loads(line)
+   if 'previous_reader_capabilities' in x:print(json.dumps(x),flush=True)
+  except (ValueError,TypeError):pass
+ print(json.dumps({'previous_reader_capabilities_exit':result.returncode}),flush=True)
+
 def main():
- attempt_retention_plan()
+ previous_reader_capabilities()
  recovery_preflight()
  print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
  for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
