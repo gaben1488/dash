@@ -324,7 +324,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
-                    with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
+                    with self.assertRaisesRegex(SystemExit,'FAILED_IMAGE_CLEANUP_REJECTED_IMAGE_VALIDATION'):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
         self.assertEqual(len(removed),16 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
