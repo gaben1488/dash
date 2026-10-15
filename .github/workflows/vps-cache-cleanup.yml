@@ -302,13 +302,13 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521')]:
+          for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521'),(38727198402,'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b')]:
               value=read('/actions/runs/'+str(run))
               assert value['head_sha']==sha and value['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
               job=next(j for j in jobs if j['name']=='controlled-candidate-release')
               stages={s['name']:s['conclusion'] for s in job['steps']}
-              assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
+              assert stages['Independent one-clone candidate and previous runtime with actual complete restore']==('failure' if run==38727198402 else 'skipped')
               assert stages['Same guardian exact-SHA release with closed-ingress API and Word acceptance']=='skipped'
               assert stages['Always request same-owner resume without reverting an accepted release']=='success'
           print('UNACCEPTED_CHECKPOINT_LINEAGE_VERIFIED')
@@ -357,7 +357,7 @@ jobs:
                     assert 2_000_000_000<item.st_size<3_000_000_000
                     targets.append((target,item.st_size))
                 failed_runtime=None
-                for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521')]:
+                for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521'),(38727198402,'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b')]:
                     failed=base/('worker-'+str(run));candidate=failed/'backup/state.tar.gz'
                     if candidate.exists() or candidate.is_symlink():
                         checkpoint=failed/'backup/manifest.json';regular(checkpoint)
@@ -368,11 +368,22 @@ jobs:
                         assert details.get('format')==2 and item.st_size==details.get('archive_bytes') and item.st_ino!=info.st_ino
                         assert 0<item.st_size<8*1024**3 and digest(candidate)==details.get('archive_sha256')
                         assert {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}<=set(details.get('files',{}))
-                        assert not (failed/'plan-prepared.json').exists()
+                        if run!=38727198402:assert not (failed/'plan-prepared.json').exists()
                         accepted=Path('/var/lib/aemr/release-accepted.json')
                         if accepted.exists():assert json.loads(accepted.read_bytes())['acceptance']['manifest_sha256']!=hashlib.sha256(checkpoint.read_bytes()).hexdigest()
                         trial=Path('/var/lib/aemr/release-runtime/trial-plan.json')
-                        if trial.exists():assert json.loads(trial.read_bytes()).get('backup_reference')!='worker-'+str(run)+'/backup'
+                        if run==38727198402:
+                            # Terminal failed b8 trial is obsolete after the SQL fix.
+                            # Its plan is historical, never an accepted/pending release;
+                            # the next candidate requires a fresh independently checked backup.
+                            regular(trial);regular(failed/'plan-prepared.json')
+                            plan=json.loads(trial.read_bytes())
+                            assert plan['backup_reference']=='worker-'+str(run)+'/backup' and plan['release_sha']==sha
+                            assert plan['manifest_sha256']==hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                            request=json.loads((failed/'plan-prepared.json').read_bytes())
+                            assert request=={'candidate':sha,'run_id':str(run),'stage':'prepare',
+                                'plan_sha256':hashlib.sha256(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+                        elif trial.exists():assert json.loads(trial.read_bytes()).get('backup_reference')!='worker-'+str(run)+'/backup'
                         failed_runtime=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1','aemr-web-1','aemr-caddy-1','aemr-report-worker-1'],timeout=20))
                         assert failed_runtime[0]['Id']==runtime['server'] and failed_runtime[0]['State']['Status']=='running'
                         assert failed_runtime[0]['State'].get('Health',{}).get('Status')=='healthy'

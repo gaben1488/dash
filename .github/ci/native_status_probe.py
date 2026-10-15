@@ -182,7 +182,9 @@ def main():
                         '--entrypoint','./node_modules/.bin/tsx',prior_image,'--eval',PROGRAM],
                         capture_output=True,text=True,timeout=120,check=False)
                     outcomes['previous'] = {'returncode':prior.returncode,'stderr':prior.stderr[-65536:]}
-                    if prior.returncode==0:outcomes['previous_summary'] = json.loads(private.read_bytes()).get('summary')
+                    if prior.returncode==0:
+                        outcomes['previous_receipt'] = json.loads(private.read_bytes())
+                        outcomes['previous_summary'] = outcomes['previous_receipt'].get('summary')
             except subprocess.TimeoutExpired as error:
                 outcomes['timed_out'] = True
                 outcomes['timeout_stderr'] = (error.stderr or b'')[-65536:].decode('utf8',errors='replace') if isinstance(error.stderr,bytes) else (error.stderr or '')[-65536:]

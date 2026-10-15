@@ -7,6 +7,16 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Frozen b8 diagnostic закрыт как terminal FAILED/NOT ACCEPTED: после подтверждения
+SQL-дефекта его immutable app image устарел и не является кандидатом выпуска.
+Новый exact-head выпуск требует НОВУЮ full backup + independent native/in-place
+restore. Для места расширена существующая named-only retirement: только b8
+state.tar.gz после GH lineage/failure/resume proof, exact keeper38349415596/hash,
+target hash/manifest/plan/request binding, no pending/quiescent/accepted reference,
+unchanged healthy runtime. Все manifests/configs/receipts и primary data сохраняются.
+6 новых negative/positive сценариев RED→GREEN;23 cleanup tests PASS. Live cleanup
+ещё не запускалась; завершение старого диагностического trial не заявляется.
+
 Исправленный reader8966f1d4 проверен на реальном b8 image/catalog:
 run38778361400/job116571783394, module35eb647ddd88b9d859efc08202355d451482bc01b09bf0c9ee213ec31ee9411f,
 HTTP200/4575ms/9165922B/0backend failures, прежний tmpfs128MiB; disk-full исчез.

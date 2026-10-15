@@ -193,12 +193,23 @@ class UnacceptedCheckpointRetirementTests(unittest.TestCase):
                      'files':{name:{} for name in ('aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json')}}
             manifest=failed/'backup/manifest.json';manifest.write_text(json.dumps(details))
             (failed/'prepared').touch();(root/'lock').touch();(root/'state/release-runtime').mkdir(parents=True)
-            runtime={'candidate':'eba8f147a1098a7d14dfaefc442055fbcdfa93f2' if run==38716276232 else 'f864d5309e5df761c2974d700165063ed693e521','volume':'aemr_server_data',
+            sha={38716276232:'eba8f147a1098a7d14dfaefc442055fbcdfa93f2',38722058204:'f864d5309e5df761c2974d700165063ed693e521',
+                 38727198402:'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b'}[run]
+            runtime={'candidate':sha,'volume':'aemr_server_data',
                      'image':'sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac','server':'server','worker':'worker'}
             (failed/'runtime.json').write_text(json.dumps(runtime))
             if scenario=='pending':(root/'state/pending-release.json').touch()
             if scenario=='accepted':(root/'state/release-accepted.json').write_text(json.dumps({'acceptance':{'manifest_sha256':__import__('hashlib').sha256(manifest.read_bytes()).hexdigest()}}))
             if scenario=='adopted':(root/'state/release-runtime/trial-plan.json').write_text(json.dumps({'backup_reference':'worker-'+str(run)+'/backup'}))
+            if run==38727198402:
+                plan={'backup_reference':'worker-'+str(run)+'/backup','release_sha':sha,
+                      'manifest_sha256':__import__('hashlib').sha256(manifest.read_bytes()).hexdigest()}
+                if scenario=='wrong-plan':plan['release_sha']='0'*40
+                (root/'state/release-runtime/trial-plan.json').write_text(json.dumps(plan))
+                request={'candidate':sha,'run_id':str(run),'stage':'prepare',
+                         'plan_sha256':__import__('hashlib').sha256(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+                if scenario=='wrong-request':request['plan_sha256']='0'*64
+                (failed/'plan-prepared.json').write_text(json.dumps(request))
             records=[{'Id':name,'Image':'kept','Config':{},'HostConfig':{},'RestartCount':0,'Mounts':[],
                       'State':{'Status':'running' if name!='worker' else 'exited','Health':{'Status':'healthy'},'StartedAt':'kept','OOMKilled':False}}
                      for name in ('server','web','caddy','worker')]
@@ -215,6 +226,10 @@ class UnacceptedCheckpointRetirementTests(unittest.TestCase):
         for run in (38716276232,38722058204):
             for scenario in ('valid','wrong-hash','pending','adopted','accepted'):
                 with self.subTest(run=run,scenario=scenario):self.exercise(scenario,run=run)
+
+    def test_obsolete_failed_frozen_capture_retains_keeper_and_all_metadata(self):
+        for scenario in ('valid','wrong-hash','pending','accepted','wrong-plan','wrong-request'):
+            with self.subTest(scenario=scenario):self.exercise(scenario,run=38727198402)
 
 
 class FailedCandidateImagesTests(unittest.TestCase):
