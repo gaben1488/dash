@@ -139,8 +139,14 @@ jobs:
               atomic(session/'quarantine.json',{'state':'WORKER_OOM_QUARANTINED','source_sha':sys.argv[1],
                'server':server,'worker':worker,'image':image,'quarantined_at':int(time.time())})
              print('WORKER_OOM_QUARANTINED')
-            except Exception:
-             print('WORKER_QUARANTINE_REJECTED');sys.exit(2)
+            except Exception as error:
+             frame=error.__traceback__
+             while frame.tb_next:frame=frame.tb_next
+             print('WORKER_QUARANTINE_REJECTED')
+             kind=type(error).__name__
+             print(json.dumps({'kind':'worker_quarantine_diagnostic','line':frame.tb_lineno,
+              'exception_type':kind if kind in {'AssertionError','FileNotFoundError','PermissionError','BlockingIOError','KeyError','ValueError','RecoveryError','NameError'} else 'OtherError'}))
+             sys.exit(2)
             PYQUARANTINE
   superseded-backup-archives:
     if: >-

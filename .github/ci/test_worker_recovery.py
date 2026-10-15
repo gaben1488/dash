@@ -117,7 +117,7 @@ else:sys.exit(97)
             else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(stops, [])
-                self.assertEqual(result.stdout.strip(), 'WORKER_QUARANTINE_REJECTED')
+                self.assertEqual(result.stdout.splitlines()[0], 'WORKER_QUARANTINE_REJECTED')
             self.assertEqual(policy.read_bytes(), body)
             self.assertEqual(policy.stat().st_ino, inode)
             self.assertEqual(json.loads(registry.read_text())['server'], records['server'])
