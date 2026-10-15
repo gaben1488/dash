@@ -7,6 +7,14 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Fixed replay38747783241/job116465879153 завершён FAILURE14:28UTC:
+initial full restore + native reader initializer прошли по контрольному потоку,
+после чего actual native child отказал в release_trial.run154/RELEASE_COMMAND_FAILED.
+In-place restore не выполнялся. Native stderr сохранён приватно; теперь его exact
+allowlist code включается в public summary (privacy RED→GREEN,5 helper tests,
+Ruff/actionlint + independent review PASS). Runtime unchanged + domain health PASS.
+Новый полный replay/freeze не запускается до чтения этого сохранённого отказа.
+
 Текущий online replay38747783241/job116465879153 на9da841a4: все5 immutable
 images PASS; точный private-stdin env transport в actual candidate И previous
 images PASS (14:07UTC). Копия переносится на runner, полный restore/native/Word/

@@ -28,6 +28,14 @@ class FrozenTrialReplayTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_SENTINEL', json.dumps(self.module.public_summary(result)))
         self.assertEqual(result['state'], 'FROZEN_TRIAL_REPLAY_FAILED')
 
+    def test_native_failure_code_survives_redaction_without_private_body(self):
+        result = {'state':'FROZEN_TRIAL_REPLAY_FAILED','phase':'inventory',
+                  'process_failures':[{'stderr':'PRIVATE_DETAIL\nNATIVE_TRIAL_FAILURE=historyschema\n'
+                    'NATIVE_TRIAL_FAILURE=word PRIVATE_DETAIL\nNATIVE_TRIAL_FAILURE=PRIVATE_DETAIL\n'}]}
+        public = self.module.public_summary(result)
+        self.assertEqual(public.get('native_failure_codes'),['historyschema'])
+        self.assertNotIn('PRIVATE_DETAIL',json.dumps(public))
+
     def test_read_only_ssh_cannot_consume_the_remaining_image_list(self):
         import os
         import tempfile

@@ -54,6 +54,11 @@ def diagnose(trial, plan):
 
 def public_summary(result):
     value = {key: result[key] for key in ('state', 'phase', 'error_code', 'exception_type', 'frames') if key in result}
+    native_codes = {'auth','health','status','latest','schema','history','symlink','size','historyschema','word','runtime'}
+    codes = sorted({line.removeprefix('NATIVE_TRIAL_FAILURE=')
+                    for failure in result.get('process_failures',[]) for line in failure.get('stderr','').splitlines()
+                    if line.startswith('NATIVE_TRIAL_FAILURE=') and line.removeprefix('NATIVE_TRIAL_FAILURE=') in native_codes})
+    if codes:value['native_failure_codes'] = codes
     if result['state'] == 'FROZEN_TRIAL_REPLAY_PASS':
         value.update({key: result['proof']['full_restore'][key] for key in ('sqlite_checked', 'docx_checked')})
     return value

@@ -1675,6 +1675,15 @@ jobs:
                  'has_lf':isinstance(value,str) and '\n' in value,'has_cr':isinstance(value,str) and '\r' in value}))
             current=json.loads(Path('/root/codex-fixes/release-38727198402/replay-38740048799.json').read_bytes())
             print(json.dumps({'current_trap':[code for code in ('RELEASE_TRIAL_AUTH_UNAVAILABLE','RELEASE_TRIAL_ENV_INVALID') if code in current.get('private_trace','')]}))
+            current=json.loads(Path('/root/codex-fixes/release-38727198402/replay-38747783241.json').read_bytes())
+            allowed={'auth','health','status','latest','schema','history','symlink','size','historyschema','word','runtime'}
+            for failure in current.get('process_failures',[])[:8]:
+             body=failure.get('stderr','')
+             codes=[line.removeprefix('NATIVE_TRIAL_FAILURE=') for line in body.splitlines()
+               if line.startswith('NATIVE_TRIAL_FAILURE=') and line.removeprefix('NATIVE_TRIAL_FAILURE=') in allowed]
+             markers=[code for code in ('EACCES','ENOENT','EROFS','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','SQLITE_READONLY','SQLITE_CANTOPEN','PUBLICATION_READER_LEASE_UNINITIALIZED') if code in body]
+             print(json.dumps({'frozen_run':38747783241,'returncode':failure['returncode'],
+               'native_failure_codes':codes,'error_markers':markers,'stderr_bytes':len(body.encode())}))
             PYREPLAYERROR
   frozen-trial-replay:
     if: >-
