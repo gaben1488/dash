@@ -132,7 +132,12 @@ jobs:
                 'free_inodes':capacity.f_favail,'total_inodes':capacity.f_files}))
             for category,parent in [('backups','/home/aemr/.dash-private-backups'),
                     ('operational_scratch','/root/codex-fixes'),('temporary','/tmp'),
-                    ('git_objects','/home/aemr/dash/.git')]:
+                    ('git_objects','/home/aemr/dash/.git'),
+                    ('inactive_host_dependencies','/opt/aemr/node_modules'),
+                    ('host_dependencies','/home/aemr/dash/node_modules'),
+                    ('root_package_cache','/root/.npm'),('deploy_package_cache','/home/aemr/.npm'),
+                    ('root_cache','/root/.cache'),('deploy_cache','/home/aemr/.cache'),
+                    ('apt_cache','/var/cache/apt'),('host_journal','/var/log/journal')]:
                 result=subprocess.run(['du','-s','--block-size=1',parent],capture_output=True,timeout=30)
                 amount=result.stdout.split(maxsplit=1)[0] if result.returncode==0 else b''
                 print(json.dumps({'kind':'host_storage_category','category':category,
