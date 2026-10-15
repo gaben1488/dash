@@ -1,8 +1,11 @@
 """Exercise cache-only maintenance with synthetic Docker state, never a VPS."""
+import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -99,6 +102,67 @@ else:
         result, _ = self.run_cleanup('oneoff')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('CACHE_ONLY_CLEANUP_PASS', result.stdout)
+
+
+class SupersededBackupTests(unittest.TestCase):
+    def exercise(self, scenario):
+        workflow = SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml'
+        program = textwrap.dedent(workflow.read_text().split("sudo -n python3 -I - <<'PY'\n", 1)[1]
+                                  .split('\n            PY\n', 1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = root / 'backups'
+            retained = base / 'worker-38349415596/backup'
+            retained.mkdir(parents=True)
+            content = b'accepted complete archive'
+            (retained / 'state.tar.gz').write_bytes(content)
+            (retained / 'manifest.json').write_text(json.dumps({'format': 2,
+                'archive_bytes': len(content), 'archive_sha256': hashlib.sha256(content).hexdigest()}))
+            originals = []
+            for run in ('worker-38171945386', 'worker-38178244703'):
+                folder = base / run / 'backup'
+                folder.mkdir(parents=True)
+                target = folder / 'state.tar.gz'
+                target.write_bytes(b'old redundant archive')
+                (folder / 'manifest.json').write_bytes(b'keep audit receipt')
+                originals.append(target)
+            (root / 'runtime').mkdir()
+            (root / 'lock').touch()
+            if scenario == 'corrupt-retained':
+                (retained / 'state.tar.gz').write_bytes(b'x' * len(content))
+            elif scenario == 'pending':
+                (root / 'runtime/pending-release.json').touch()
+            elif scenario == 'quiescent':
+                (base / 'worker-38171945386/quiescent').touch()
+            elif scenario == 'symlink-second':
+                originals[1].unlink()
+                originals[1].symlink_to(retained / 'state.tar.gz')
+            program = (program.replace('/home/aemr/.dash-private-backups', str(base))
+                       .replace('/var/lib/aemr', str(root / 'runtime'))
+                       .replace('/run/lock/aemr-maintenance.lock', str(root / 'lock'))
+                       .replace('4589649313', str(len(content)))
+                       .replace('2_000_000_000', '0').replace('3_000_000_000', '1000'))
+            result = subprocess.run([sys.executable, '-I', '-'], input=program, text=True,
+                                    capture_output=True, timeout=10, check=False)
+            if scenario == 'valid':
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['removed'], 2)
+                self.assertTrue(all(not p.exists() for p in originals))
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('AssertionError', result.stderr)
+                self.assertTrue(all(p.exists() for p in originals))
+            self.assertTrue((retained / 'state.tar.gz').exists())
+            self.assertTrue(all(p.with_name('manifest.json').read_bytes() == b'keep audit receipt'
+                                for p in originals))
+
+    def test_exact_old_blobs_only_and_retained_archive_and_receipts_survive(self):
+        self.exercise('valid')
+
+    def test_refuse_before_any_delete_when_retained_proof_or_custody_is_invalid(self):
+        for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second'):
+            with self.subTest(scenario=scenario):
+                self.exercise(scenario)
 
 
 if __name__ == '__main__':

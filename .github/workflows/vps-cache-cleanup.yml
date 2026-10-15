@@ -10,6 +10,78 @@ permissions:
   actions: read
 
 jobs:
+  superseded-backup-archives:
+    if: >-
+      github.event.label.name == 'maintenance: superseded-backup-archives' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Verify accepted retained backup run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/${{ github.repository }}/actions/runs/38349415596 --jq .conclusion)" = success
+      - name: Retire only the two named superseded archive blobs
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PY'
+            import fcntl,hashlib,json,os,shutil,stat
+            from pathlib import Path
+            base=Path('/home/aemr/.dash-private-backups')
+            retained=base/'worker-38349415596'/'backup'
+            def regular(path):
+                assert not any(p.is_symlink() for p in (path,*path.parents))
+                info=path.stat()
+                assert stat.S_ISREG(info.st_mode) and info.st_nlink==1
+                return info
+            def digest(path):
+                with path.open('rb') as source:return hashlib.file_digest(source,'sha256').hexdigest()
+            lock=Path('/run/lock/aemr-maintenance.lock');regular(lock)
+            with lock.open('r+') as handle:
+                fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                assert not any((Path('/var/lib/aemr')/name).exists() or (Path('/var/lib/aemr')/name).is_symlink() for name in
+                    ('pending-release.json','release-recovery-progress.json'))
+                assert not list(base.glob('*/quiescent'))
+                manifest_path=retained/'manifest.json';regular(manifest_path)
+                manifest=json.loads(manifest_path.read_bytes())
+                archive=retained/'state.tar.gz';info=regular(archive)
+                assert manifest.get('format')==2 and info.st_size==manifest.get('archive_bytes')==4589649313
+                assert digest(archive)==manifest.get('archive_sha256')
+                # This cut passed full independent restore in run38349415596.
+                # Preserve it and all audit receipts; retire only older blobs.
+                targets=[]
+                for run in ('worker-38171945386','worker-38178244703'):
+                    target=base/run/'backup'/'state.tar.gz'
+                    if not target.exists():continue
+                    item=regular(target);assert item.st_ino!=info.st_ino
+                    assert 2_000_000_000<item.st_size<3_000_000_000
+                    targets.append((target,item.st_size))
+                before=shutil.disk_usage(base).free
+                for target,_ in targets:
+                    target.unlink()
+                    fd=os.open(target.parent,os.O_RDONLY|os.O_DIRECTORY)
+                    try:os.fsync(fd)
+                    finally:os.close(fd)
+                assert regular(archive).st_size==info.st_size
+                print(json.dumps({'status':'SUPERSEDED_BACKUP_BLOBS_RETIRED',
+                    'removed':len(targets),'reclaimed_logical_bytes':sum(n for _,n in targets),
+                    'free_before_bytes':before,'free_after_bytes':shutil.disk_usage(base).free,
+                    'retained_accepted_run':38349415596}))
+            PY
   release-tool-diagnostics:
     if: >-
       github.event.label.name == 'maintenance: release-tool-diagnostics' &&
