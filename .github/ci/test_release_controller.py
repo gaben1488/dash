@@ -22,9 +22,9 @@ spec.loader.exec_module(fixtures)
 class TrialTests(unittest.TestCase):
     def setUp(self):
         self.fixture = fixtures.ReleaseRecoveryTests('test_kernel_lock_and_private_receipt_are_required')
-        self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
-        path = ROOT / 'deploy/release_trial.py'
+        self.fixture.setUp()
+        path = self.fixture.trusted_source('deploy/release_trial.py')
         self.assertTrue(path.exists(), 'Trusted native one-clone trial is missing')
         sys.modules['release_recovery'] = self.fixture.module
         spec = importlib.util.spec_from_file_location('release_trial', path)
@@ -51,7 +51,7 @@ class TrialTests(unittest.TestCase):
         self.fixture.records['server']['Config']['Env'] = ['AEMR_API_KEY=PRIVATE_TEST_KEY']
         self.fixture.records['caddy']['Mounts'] = [{'Type': 'bind', 'Source': '/home/aemr/dash/deploy/Caddyfile', 'Destination': '/etc/caddy/Caddyfile', 'RW': False}]
         self.fixture.persist_records()
-        source_gate_patch = patch.object(self.module, 'SOURCE_GATE', ROOT / '.github/ci/source_ci_gate.py')
+        source_gate_patch = patch.object(self.module, 'SOURCE_GATE', self.fixture.trusted_source('.github/ci/source_ci_gate.py'))
         source_gate_patch.start()
         self.addCleanup(source_gate_patch.stop)
         self.ci = {'run': {'head_sha': self.plan['release_sha'], 'name': 'CI', 'event': 'pull_request',
@@ -148,15 +148,13 @@ class TrialTests(unittest.TestCase):
 class ControllerTests(TrialTests):
     def setUp(self):
         super().setUp()
-        path = ROOT / 'deploy/release-controller.py'
+        path = self.fixture.trusted_source('deploy/release-controller.py')
         self.assertTrue(path.exists(), 'Trusted release producer is missing')
         sys.modules['release_trial'] = self.module
         spec = importlib.util.spec_from_file_location('release_controller', path)
         self.controller_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.controller_module)
-        source_gate = self.fixture.private / 'source_ci_gate.py'
-        source_gate.write_bytes((ROOT / '.github/ci/source_ci_gate.py').read_bytes())
-        source_gate.chmod(0o600)
+        source_gate = self.module.SOURCE_GATE
         patcher = patch.object(self.controller_module, 'SOURCE_GATE', source_gate)
         patcher.start()
         self.addCleanup(patcher.stop)

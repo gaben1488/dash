@@ -29,20 +29,28 @@ def load(name, path):
 @unittest.skipUnless(os.geteuid() == 0, 'Privileged contract runs in the real user-namespace subprocess below')
 class ReleaseRecoveryTests(unittest.TestCase):
     def setUp(self):
+        # Production backup/installer entrypoints use 077. A CI runner's 022
+        # must not make the private checkpoint manifest or parent directories public.
+        previous_umask = os.umask(0o077)
+        self.addCleanup(os.umask, previous_umask)
         self.assertTrue((ROOT / 'deploy/release_recovery.py').is_file(), 'Complete release recovery executor is missing')
-        self.module = load('release_recovery', ROOT / 'deploy/release_recovery.py')
-        self.backup_tool = load('release_stateful_backup', ROOT / 'deploy/stateful_backup.py')
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
+        self.trusted = root / 'trusted'
+        self.trusted.mkdir(mode=0o700)
+        # Checkout files belong to the CI runner, not root. Exercise the same
+        # root-owned installed bytes that module hashes admit on the host.
+        self.module = load('release_recovery', self.trusted_source('deploy/release_recovery.py'))
+        self.backup_tool = load('release_stateful_backup', self.trusted_source('deploy/stateful_backup.py'))
         self.private = root / 'private'
         self.private.mkdir(mode=0o700)
         self.runtime = self.private / 'release-runtime'
         self.runtime.mkdir(mode=0o700)
         self.backups = root / 'backups'
-        self.backups.mkdir()
+        self.backups.mkdir(mode=0o700)
         self.backup = self.backups / 'worker-123' / 'backup'
-        self.backup.parent.mkdir()
+        self.backup.parent.mkdir(mode=0o700)
         self.volume_base = root / 'volumes'
         self.source = self.volume_base / 'aemr_server_data' / '_data'
         (self.source / 'reports/inputs').mkdir(parents=True)
@@ -76,9 +84,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
                            '.env.production': 'PRIVATE_SECRET=fixture', 'Caddyfile': ':80 { respond "fixture" }', 'candidate-Caddyfile': ':80 { respond "candidate fixture" }'}.items():
             (self.runtime / name).write_text(data)
             (self.runtime / name).chmod(0o600)
-        self.tool = root / 'stateful_backup.py'
-        self.tool.write_bytes((ROOT / 'deploy/stateful_backup.py').read_bytes())
-        self.tool.chmod(0o600)
+        self.tool = Path(self.backup_tool.__file__)
         self.pending = self.private / 'pending-release.json'
         self.lock_path = root / 'maintenance.lock'
         self.lock = self.lock_path.open('w')
@@ -112,6 +118,12 @@ class ReleaseRecoveryTests(unittest.TestCase):
         self.kill_after_ingress = False
         self.fail_health = False
         self.executor = self.module.ReleaseRecovery(self.docker, lock_fd=self.lock.fileno(), sleep=lambda _: None)
+
+    def trusted_source(self, relative):
+        path = self.trusted / Path(relative).name
+        path.write_bytes((ROOT / relative).read_bytes())
+        path.chmod(0o600)
+        return path
 
     def persist_records(self):
         self.daemon_state.write_text(json.dumps(self.records))

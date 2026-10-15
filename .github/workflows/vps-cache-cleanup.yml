@@ -1011,6 +1011,25 @@ jobs:
             -f deploy/Dockerfile.web -t "aemr-web:release-$RECOVERY_SHA" .
           docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" \
             > "$RUNNER_TEMP/release/candidate-images.json"
+      - name: Check real selected Word envelope with candidate schemas before downtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # Raw response travels only over the private pipe; neither side logs it.
+          program="(async()=>{const {SelectedReportReleaseStatusSchema}=await import('@aemr/shared');let size=0;const parts=[];for await(const part of process.stdin){size+=part.length;if(size>33554432)throw Error('size');parts.push(part);}const value=SelectedReportReleaseStatusSchema.safeParse(JSON.parse(Buffer.concat(parts).toString('utf8')));if(!value.success||value.data.selected===null)throw Error('schema');console.log('LIVE_SELECTED_REPORT_SCHEMA_PASS');})().catch(()=>process.exit(2));"
+          remote sudo -n docker exec -i aemr-server-1 python3 -I - 2> "$RUNNER_TEMP/release/live-envelope-read.log" <<'PY' | \
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m -i \
+              --entrypoint node "aemr-server:release-$RECOVERY_SHA" --import tsx --eval "$program"
+          import os,sys,urllib.request
+          key=os.environ.get('AEMR_API_KEY','')
+          if not key:raise SystemExit(2)
+          request=urllib.request.Request('http://127.0.0.1:3000/api/report-releases',headers={'Authorization':'Bearer '+key})
+          with urllib.request.urlopen(request,timeout=25) as response:
+           if response.status!=200:raise SystemExit(2)
+           body=response.read(32*1024*1024+1)
+          if len(body)>32*1024*1024:raise SystemExit(2)
+          sys.stdout.buffer.write(body)
+          PY
       - name: Install reviewed recovery tools and stage actual unchanged runtime
         run: |
           set -euo pipefail
