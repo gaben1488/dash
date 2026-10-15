@@ -35,7 +35,7 @@ jobs:
           script: |
             set -euo pipefail
             sudo -n python3 -I - <<'PY'
-            import hashlib,json,os,re,stat,subprocess,sys
+            import hashlib,json,os,re,shutil,stat,subprocess,sys
             from pathlib import Path
             source=Path('/root/codex-fixes/release-38687954214/deploy/install-runtime-guard.sh')
             assert not any(p.is_symlink() for p in (source,*source.parents))
@@ -54,6 +54,30 @@ jobs:
             assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid==0 and not policy_path.is_symlink() and metadata.st_size<=1024*1024
             policy=json.loads(policy_path.read_bytes())
             roles=('server','web','report-worker','caddy')
+            capacity=os.statvfs('/')
+            print(json.dumps({'kind':'host_capacity','free_bytes':shutil.disk_usage('/').free,
+                'free_inodes':capacity.f_favail,'total_inodes':capacity.f_files}))
+            server=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=10))[0]
+            data=[m for m in server['Mounts'] if m['Destination']=='/app/packages/server/data']
+            assert len(data)==1 and data[0]['Type']=='volume'
+            root=Path(data[0]['Source']);assert root.is_absolute() and not root.is_symlink()
+            reports=root/'reports'
+            for category,path in [('attempts',reports/'attempts'),('published',reports/'published'),
+                    ('archives',reports/'archives'),('snapshots',root/'snapshots')]:
+                result=subprocess.run(['du','-s','--block-size=1',str(path)],capture_output=True,timeout=30)
+                amount=result.stdout.split(maxsplit=1)[0] if result.returncode==0 else b''
+                print(json.dumps({'kind':'storage_category','category':category,
+                    'allocated_bytes':int(amount) if amount.isdigit() else None}))
+            status_sizes=[p.stat().st_size for p in (reports/'attempts').glob('*/status.json') if p.is_file() and not p.is_symlink()]
+            print(json.dumps({'kind':'attempt_status_sizes','count':len(status_sizes),
+                'total_bytes':sum(status_sizes),'max_bytes':max(status_sizes,default=0)}))
+            latest=reports/'status.json'
+            if latest.is_file() and latest.stat().st_size<64*1024*1024:
+                status=json.loads(latest.read_bytes())
+                print(json.dumps({'kind':'worker_latest_stage','status':status.get('status'),
+                    'started_at':status.get('started_at'),'finished_at':status.get('finished_at'),
+                    'has_snapshot':bool(status.get('snapshot_id')),
+                    'has_publication':bool(status.get('publication'))}))
             types={role:{key:type(value).__name__ for key,value in
                    policy.get('services',{}).get(role,{}).get('limits',{}).items()
                    if key in ('mem_limit','memswap_limit','mem_reservation','cpus','pids_limit','cpu_shares')} for role in roles}
@@ -1008,6 +1032,8 @@ jobs:
   cache-only:
     if: >-
       github.event.label.name == 'maintenance: build-cache-only' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'codex/dash-audit-integrated-20261010'
     runs-on: ubuntu-latest
@@ -1032,11 +1058,17 @@ jobs:
             case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
             test "${#candidate}" = 40
             cd /home/aemr/dash
-            git fetch --quiet origin "$candidate"
-            tool=$(mktemp)
-            trap 'rm -f "$tool"' EXIT
-            git show "$candidate:deploy/cleanup-build-cache.sh" > "$tool"
-            bash "$tool"
+            # Admission must work on a full filesystem. Read already fetched
+            # exact reviewed bytes into memory; never need a temporary file.
+            python3 - "$candidate" <<'PY'
+            import hashlib,subprocess,sys
+            revision=sys.argv[1]
+            if subprocess.run(['git','cat-file','-e',revision+'^{commit}'],capture_output=True).returncode:
+                revision='30cfd6914a60eddfde3f85fcc9528307b484ef92'
+            source=subprocess.check_output(['git','show',revision+':deploy/cleanup-build-cache.sh'])
+            assert hashlib.sha256(source).hexdigest()=='705c02bbec88e12483f63d9d80af79c728375e07f0528aec633d1cce6480e85e'
+            subprocess.run(['sudo','-n','bash'],input=source,check=True)
+            PY
   controlled-candidate-release:
     if: >-
       github.event.label.name == 'maintenance: controlled-candidate-release' &&

@@ -118,7 +118,7 @@ jobs:
         # rewrite every host path and exercise root ownership without a skip.
         run: sudo "$(command -v python)" -m pytest packages/report-engine/tests/test_deploy_reports.py -q -k guard_installer_private_policy
       - name: Python tests
-        # The four root-only cases just ran above; execute every remaining case.
+        # The five root-only cases just ran above; execute every remaining case.
         run: python -m pytest packages/report-engine/tests -q -k 'not guard_installer_private_policy'
 
   server-image:
