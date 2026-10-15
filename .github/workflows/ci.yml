@@ -180,8 +180,19 @@ jobs:
              duplicate=[(k,v) for k,v in groups.items() if len(v)>1]
              print(json.dumps({'immutable_duplicate_preview':{'status':'MANIFEST_ONLY_UPPER_BOUND','groups':len(duplicate),'files':sum(len(v) for k,v in duplicate),'logical_duplicate_bytes':sum(k[1]*(len(v)-1) for k,v in duplicate),'content_changed':False}}),flush=True)
 
+            def attempt_json_preview():
+             image='sha256:545fd2b3cf69d73f22cd4a3639d51b37dab582f6bf2e92e78075d22f7be59d25'
+             program="import json\nfrom pathlib import Path\nfrom collections import Counter\nroot=Path('/state/reports');before=after=changed=skipped=valid=0;groups=Counter()\nfor path in (root/'attempts').glob('*/status.json'):\n if path.is_symlink() or path.stat().st_size>32*1024**2:skipped+=1;continue\n raw=path.read_bytes()\n try:value=json.loads(raw);compact=json.dumps(value,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode()\n except (ValueError,TypeError):skipped+=1;continue\n if not isinstance(value,dict):skipped+=1;continue\n valid+=1;before+=len(raw);after+=len(compact);changed+=int(len(raw)>len(compact))\n for key in ('automation_assurance','publication','source_observations','nonprocurement_identity_observations'):\n  if key in value:groups[key]+=len(json.dumps(value[key],ensure_ascii=False,separators=(',',':')).encode())\nprint(json.dumps({'attempt_json_preview':{'valid_files':valid,'skipped':skipped,'before_bytes':before,'compact_bytes':after,'potential_reclaimed':max(0,before-after),'reducible_files':changed,'field_bytes':dict(groups)}}))\n"
+             result=subprocess.run(['docker','run','--rm','--network','none','--read-only','--memory','512m','--pids-limit','32','--cpus','1','--cpu-shares','256','--cap-drop','ALL','--security-opt','no-new-privileges','--user','1000:1000','--entrypoint','/usr/bin/timeout','--mount','type=volume,source=aemr_server_data,target=/state,readonly',image,'--kill-after=2s','150s','/opt/report-env/bin/python','-B','-c',program],capture_output=True,text=True,timeout=170,check=False)
+             for line in result.stdout.splitlines():
+              try:
+               value=json.loads(line)
+               if 'attempt_json_preview' in value:print(json.dumps(value),flush=True)
+              except (ValueError,TypeError):pass
+             print(json.dumps({'attempt_json_preview_exit':result.returncode}),flush=True)
+
             def main():
-             immutable_duplicate_preview()
+             attempt_json_preview()
              recovery_preflight()
              print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
              for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
