@@ -5,10 +5,10 @@
 
 ---
 
-### Текущий выпуск — проверяемое состояние на 15.10.2026, 22:42 UTC
+### Текущий выпуск — проверяемое состояние на 15.10.2026, 23:00 UTC
 
 Канонический кандидат — PR #79; покрытие 56 результатов и приёмка — issue #69.
-Новая версия **ещё не выпущена**. Код API3d0599e9 прошёл3mandatory jobs CI38816469718; дополнительные изменения хранения ниже требуют нового exact-source CI. Публичный сайт восстановлен на прежнем runtime;
+Новая версия **ещё не выпущена**. Кандидат190d94cd прошёл3mandatory jobs CI38819413343; после отмены до freeze готовится исправление created-state backup admission с новым exact-source CI. Публичный сайт восстановлен на прежнем runtime;
 старый OOM-worker выключен. Действий владельца сейчас не требуется.
 
 | Часть | Фактический результат | Доказательство |
@@ -18,16 +18,17 @@
 | Исходники API | Убран повторный квадратичный поиск идентичностей; request-local индексы, прежняя семантика и исторические guards сохранены |3632feaba5b089f80cb327b0c7724fcb2a8a4782; RED13280hashcalls/80rows→bounded GREEN;13targeted/200 differential cases |
 | Исходники release | Строгий полный inventory проверяется до backup/fencing и arm |3632; controller55/recovery33 namespace tests PASS; независимый review |
 | CI | Все3 обязательных source jobs PASS; browserWord FAIL во время закрытого входа, повторяется после реального выпуска |38812385980; images116688536350/Python116688536372/TS116688536509 |
-| Место | Около4.1GB свободно; build-cache prune0B; retention plan687attempts/0compact/0reclaimable/6malformed-or-unsafe. Бизнес-данные не удалялись |38814067438/38815231002 |
+| Место | После exact dedup8.54GB свободно, требуемый запас~6.8GB обеспечен; предшествующие проверки: build-cache prune0B; retention plan687attempts/0compact/0reclaimable/6malformed-or-unsafe. Бизнес-данные не удалялись |38814067438/38815231002 |
 | Совместимость хранения | Прежний runtime не поддерживает compaction/reader leases; сокращать published до перехода нельзя | Read-only image probe38815895031 |
 | Запуск нового worker после отката | Сохранена неизменная OOM-квитанция; отдельное проверяемое lineage связывает новые container IDs полного отката с исходным quarantine |5namespace writer tests/30worker tests PASS; независимый review; root bootstrap изолирован -IB. Live bridge38817157854 PASS22:27UTC, без restart |
-| Дедупликация | Live RO38819092229 отверг неподдерживаемые historical/pending directory shapes до apply; они исключены из registered immutable scope и остаются неизменными. Manifest-only верхняя оценка4492246269B/126groups/908JSON; apply ещё НЕ выполнялся. Код проверяет реальные bytes/attrs/catalog, атомарную замену из staging вне published и замкнутость inode |11negative/16total namespace tests PASS; root callback сохраняет полную inventory/quarantine/Word; независимый review |
+| Дедупликация | LIVE PASS22:53:45UTC,773physicalcopies merged; реальные bytes/catalog/attrs/paths и3Word сохранены, APIok без restart; free4097994752→8538189824B |38820034999; scopedRO38819326199:121groups/894files;16namespace tests+review |
+| Выпуск190 | Отменён до VPS install/freeze: oldworker штатно created после fullrollback, а backup-shell принимал только exited. Исправлены capture/runtime checks и4generic frozen points; running drain по-прежнему строго exited |38820218717 CANCELLED; install/freeze SKIPPED.4новыхсценария RED→GREEN: capture failure file/stdin, resume, fullcapture, match-source; guardian namespace5PASS/2fixture UID-map errors, authoritative Linux CI нужен |
 | Backup lifecycle | Старый blob удаляется только после exact fresh full trial и проверки net rollback capacity, под тем же guardian EX до arm; manifests/receipts и fresh archive сохраняются | controller56 PASS, включая reject подменённого trial до удаления;45backup tests PASS с разворачиванием hardlinks в regular members |
 | HTML Header | Desktop/mobile/200%,13страниц,2темы,52motion-состояния проверены автономно; не live-приёмка | Artifact12001010359; frontend unchanged394→3632 |
 
-Следующие действия: после exact-source CI применить проверенную физическую
-дедупликацию, измерить реальное место, затем новую полную копию и trial; lineage
-уже записан до замены root stage; пропустить точный новый SHA
+Следующие действия: после exact-source CI created-state fix запустить новую полную
+копию и trial; дедупликация и lineage уже live-проверены, дополнительный диск
+не требуется; пропустить точный новый SHA
 через3source jobs и неизменённый25s native API gate; проверить публичные API,
 браузер и3Word. Только затем — новый worker и2самостоятельных цикла. Далее уже
 разрешённое недельное хранение с проверкой всех потребителей. Все56результатов
@@ -36,7 +37,7 @@
 Правила текущей поставки: не добавлять новые продуктовые расширения до принятия
 API/header/journal/Word; проверять реальный объём и rollback inventory/capacity до
 остановки входа. CI проверяет исходники, browser/API/Word — реально установленную
-версию. Новое падение сразу разбирается по сохранённой причине; повтор неизменного
+версию. Тесты с общим kernelEX запускать последовательно одним исполнителем: namespace не изолирует общий inode lock. Новое падение сразу разбирается по сохранённой причине; повтор неизменного
 сценария без нового доказательства не считается работой. Отказ выпуска по изменению
 источника не равен отказу процесса и не должен останавливать Dash.
 

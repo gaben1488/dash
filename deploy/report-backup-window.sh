@@ -119,6 +119,14 @@ resume_healthy_server() {
   return 1
 }
 
+# A reconstructed, never-started container is as quiescent as an exited one.
+# Running-worker drain still requires a real clean exit; never use this there.
+worker_is_quiescent() {
+  case "$(docker inspect --format '{{.State.Status}}' "$worker")" in
+    exited|created) return 0 ;; *) return 1 ;;
+  esac
+}
+
 # IDs, image digests and the shared volume must still describe the captured runtime.
 runtime_matches() {
   maintenance_lock_owned_by "$guardian" || return 1
@@ -126,7 +134,7 @@ runtime_matches() {
   [ "$worker" = "$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)" ] &&
   [ "$image" = "$(docker inspect --format '{{.Image}}' "$server")" ] || return 1
   case "$(docker inspect --format '{{.State.Status}}' "$server")" in running|exited) ;; *) return 1 ;; esac
-  case "$(docker inspect --format '{{.State.Status}}' "$worker")" in running|exited) ;; *) return 1 ;; esac
+  case "$(docker inspect --format '{{.State.Status}}' "$worker")" in running|exited|created) ;; *) return 1 ;; esac
   if [ -n "$worker_image" ]; then
     [ "$worker_image" = "$(docker inspect --format '{{.Image}}' "$worker")" ] || return 1
   fi
@@ -211,7 +219,7 @@ if [ "$mode" = prepare ]; then
   worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
   [[ "$server" =~ ^[a-f0-9]{64}$ ]] && [[ "$worker" =~ ^[a-f0-9]{64}$ ]]
   worker_state=$(docker inspect --format '{{.State.Status}}' "$worker")
-  case "$worker_state" in exited) worker_was_running=false ;; running)
+  case "$worker_state" in exited|created) worker_was_running=false ;; running)
     [ "$quiesce" = true ] || { echo BACKUP_WORKER_NOT_QUIESCENT >&2; exit 2; }
     worker_was_running=true ;; *) echo BACKUP_WORKER_STATE_UNKNOWN >&2; exit 2 ;; esac
   authorized_quiesce=$quiesce
@@ -358,7 +366,7 @@ print("BACKUP_SPACE_BUDGET_ADMITTED")'
   fi
   runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
   [ -f "$session/quiescent" ]
-  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
+  worker_is_quiescent
   stopped=true
   docker stop --time 75 "$server" >/dev/null
   [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
@@ -375,7 +383,7 @@ print("BACKUP_SPACE_BUDGET_ADMITTED")'
     'import os,sys; from pathlib import Path; root=Path("/backups/backup"); [os.chown(p,int(sys.argv[1]),int(sys.argv[2])) for p in [root,*root.iterdir()]]' "$(id -u)" "$(id -g)"
   [ -f "$session/quiescent" ]
   [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
-  [ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
+  worker_is_quiescent
   touch "$session/prepared"
   trap - EXIT
   echo 'FULL_BACKUP_CREATED_SERVER_QUIESCENT'
@@ -585,7 +593,7 @@ fi
 runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
 [ -f "$session/quiescent" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
-[ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
+worker_is_quiescent
 docker run --rm --network none --read-only --user 0 \
   --mount "type=volume,src=$volume,dst=/source,readonly" \
   --mount "type=bind,src=$session,dst=/backups,readonly" \
@@ -596,4 +604,4 @@ docker run --rm --network none --read-only --user 0 \
 runtime_matches || { echo BACKUP_RUNTIME_CHANGED >&2; exit 2; }
 [ -f "$session/quiescent" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$server")" = exited ]
-[ "$(docker inspect --format '{{.State.Status}}' "$worker")" = exited ]
+worker_is_quiescent

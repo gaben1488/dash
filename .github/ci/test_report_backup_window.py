@@ -37,12 +37,14 @@ elif args[0]=='inspect':
     elif '.State.Status' in fmt:
         if args[-1]==worker and scenario=='worker-running-drain-timeout' and old.count('"TERM"')<2: print('running'); sys.exit(0)
         if args[-1]==worker and scenario=='worker-unknown': print('restarting'); sys.exit(0)
+        if args[-1]==worker and scenario.startswith('worker-created'): print('created'); sys.exit(0)
         print(('running' if scenario.startswith('worker-running') and (old.rfind(json.dumps(['start',worker])) > old.rfind('"TERM"') or '"TERM"' not in old) else 'exited') if args[-1]==worker else ('exited' if old.rfind(json.dumps(['stop','--time','75',server])) > old.rfind(json.dumps(['start',server])) or os.environ['WINDOW_MODE']=='match-source' else 'running'))
     elif '.State.ExitCode' in fmt: print('137' if scenario=='worker-running-forced' else '0')
     elif '.Image' in fmt: print('sha256:'+('f' if scenario=='worker-running-changed' and old.count('.Image')>1 and args[-1]==worker else 'e' if args[-1]==worker else 'c')*64)
     else: print('synthetic_data')
 elif args[0]=='kill': pass
 elif args[0]=='run':
+    if scenario=='worker-created-success' or (scenario=='worker-created' and os.environ['WINDOW_MODE']=='match-source'): sys.exit(0)
     if 'BACKUP_SPACE_BUDGET_ADMITTED' in ' '.join(args) or 'BACKUP_PREFLIGHT_OK' in ' '.join(args): sys.exit(2 if scenario=='worker-running-capacity' else 0)
     if scenario=='match-watchdog':
         Path(os.environ['WINDOW_MARKER']).unlink()
@@ -333,6 +335,35 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
         result,calls=self.run_window('worker-unknown',flag='--quiesce-worker')
         self.assertNotEqual(result.returncode,0)
         self.assertFalse(any(c[0] in {'kill','stop','start','run'} for c in calls))
+
+    def test_created_worker_is_quiescent_and_stays_off_when_prepare_recovers_api(self):
+        for via_stdin in (False,True):
+            with self.subTest(via_stdin=via_stdin):
+                result,calls=self.run_window('worker-created',flag='--quiesce-worker',via_stdin=via_stdin)
+                self.assertNotEqual(result.returncode,0)  # Synthetic backup command deliberately fails.
+                self.assertNotIn('BACKUP_WORKER_STATE_UNKNOWN',result.stderr)
+                self.assertIs(result.runtime['worker_was_running'],False)
+                self.assertIn(['stop','--time','75','a'*64],calls)
+                self.assertEqual([c for c in calls if c[0]=='start'],[['start','a'*64]])
+
+    def test_resume_accepts_created_worker_without_starting_it(self):
+        result,calls=self.run_window('worker-created',mode='resume',flag='--quiesce-worker')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([c for c in calls if c[0]=='start'],[['start','a'*64]])
+
+    def test_complete_capture_keeps_created_worker_and_api_quiescent(self):
+        result,calls=self.run_window('worker-created-success',flag='--quiesce-worker')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('FULL_BACKUP_CREATED_SERVER_QUIESCENT',result.stdout)
+        self.assertIs(result.runtime['worker_was_running'],False)
+        self.assertEqual([c for c in calls if c[0]=='start'],[])
+        self.assertFalse(any(c[0]=='kill' for c in calls))
+
+    def test_match_source_rechecks_created_worker_before_and_after_hashing(self):
+        result,calls=self.run_window('worker-created',mode='match-source',flag='--quiesce-worker')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(any(c[0]=='run' and 'match-source' in c for c in calls))
+        self.assertFalse(any(c[0] in {'start','stop','kill'} for c in calls))
 
     def test_owner_loss_guardian_restores_original_api_then_authorized_worker(self):
         result,calls=self.run_window('worker-running-owner-loss',flag='--quiesce-worker')
