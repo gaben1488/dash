@@ -44,7 +44,7 @@ jobs:
           command_timeout: 9m
           script: |
             set -euo pipefail
-            sudo -n bash -c 'set -euo pipefail; test "$(sha256sum /usr/local/libexec/aemr/maintenance-lock.sh | cut -d" " -f1)" = 0eb3463b292152967c08f6666f204c9aa1743e8aa5f9389be73a782b9f5cc5c9; . /usr/local/libexec/aemr/maintenance-lock.sh; maintenance_lock_acquire 45; exec python3 -BEs -' <<'PY'
+            sudo -n bash -c 'set -euo pipefail; test "$(sha256sum /home/aemr/.dash-private-backups/worker-38792810076/maintenance-lock.sh | cut -d" " -f1)" = 0eb3463b292152967c08f6666f204c9aa1743e8aa5f9389be73a782b9f5cc5c9; . /home/aemr/.dash-private-backups/worker-38792810076/maintenance-lock.sh; maintenance_lock_acquire 45; exec python3 -BEs -' <<'PY'
             """Complete the already staged candidate only through unchanged native acceptance."""
             import hashlib
             import importlib.util
