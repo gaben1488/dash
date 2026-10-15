@@ -76,8 +76,17 @@ def previous_reader_capabilities():
   except (ValueError,TypeError):pass
  print(json.dumps({'previous_reader_capabilities_exit':result.returncode}),flush=True)
 
+def host_space_census():
+ paths=('/root/codex-fixes','/home/aemr/dash','/opt/aemr','/tmp','/var/tmp','/root/.cache','/home/aemr/.cache','/root/.local/share','/home/aemr/.local/share','/var/cache','/var/log','/home/aemr/.dash-private-backups')
+ for path in paths:
+  try:
+   result=subprocess.run(['du','-sx','-B1','--',path],capture_output=True,text=True,timeout=20,check=False)
+   field=result.stdout.partition('\t')[0].strip()
+   print(json.dumps({'host_space_census':{'path':path,'bytes':int(field) if result.returncode==0 and field.isdigit() else None,'completed':result.returncode==0}}),flush=True)
+  except subprocess.TimeoutExpired:print(json.dumps({'host_space_census':{'path':path,'completed':False}}),flush=True)
+
 def main():
- previous_reader_capabilities()
+ host_space_census()
  recovery_preflight()
  print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
  for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
