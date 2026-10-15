@@ -48,7 +48,7 @@ def record_lineage(executor, r, plan):
     return bridge
 
 
-def main():
+def main(operation=record_lineage):
     import fcntl
     import hashlib
     import importlib.util
@@ -104,12 +104,16 @@ def main():
         plan=operator._proof(r.validate_plan(raw))
         _,config=executor._files(plan)
         operator._saved_runtime(plan,executor._records(plan,original=True),json.loads(json.dumps(config).replace('$$','$')))
-        record_lineage(executor,r,plan)
-        print('VERIFIED_CONTROLLED_ROLLBACK_LINEAGE',flush=True)
+        operation(executor,r,plan)
+        if operation is record_lineage:print('VERIFIED_CONTROLLED_ROLLBACK_LINEAGE',flush=True)
 
 
 if __name__=='__main__':
-    try:main()
+    try:
+        import sys
+        modes={'--deduplicate':'deduplicate_immutable_payloads'}
+        if len(sys.argv)>2 or (len(sys.argv)==2 and sys.argv[1] not in modes):raise ValueError('MAINTENANCE_ARGUMENT_INVALID')
+        main(globals()[modes[sys.argv[1]]] if len(sys.argv)==2 else record_lineage)
     except Exception as error:  # noqa: BLE001 - only fixed public codes, no private config
         import sys
         print('CONTROLLED_ROLLBACK_LINEAGE_REJECTED',flush=True)

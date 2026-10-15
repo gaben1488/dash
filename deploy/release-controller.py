@@ -337,6 +337,81 @@ class ReleaseController:
         plan['proofs'] = {name: {**bound, 'state': state} for name, state in recovery.PROOF_STATES.items()}
         return recovery.validate_plan(plan)
 
+    def _retire_previous_checkpoint(self,plan):
+        """Retire only after deploy() verifies the exact independent replacement trial."""
+        import hashlib
+        import shutil
+        r=recovery
+        executor=self.executor
+        r.require_lock(executor.lock_fd)
+        binding=r.RUNTIME_DIR/'previous-checkpoint.json'
+        if not os.path.lexists(binding):return
+        if any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json')):
+            raise ValueError('CHECKPOINT_RELEASE_ALREADY_ARMED')
+        records=executor._records(plan,original=True)
+        stage=json.loads(r.read_owned(r.RUNTIME_DIR/'stage.json'))
+        if ({s:value['Id'] for s,value in records.items()}!=stage['container_ids']
+                or any(records[s]['State']['Status'] not in {'exited','created'} for s in ('server','report-worker'))):
+            raise ValueError('CHECKPOINT_WRITER_ACTIVE')
+        executor._no_volume_writers(plan)
+        fresh,_=executor._files(plan)
+        try:new_manifest,files,total=executor.backup_tool._validated_backup(fresh)
+        except executor.backup_tool.BackupError as error:raise ValueError('CHECKPOINT_REPLACEMENT_INVALID') from error
+        if new_manifest['format']!=2:raise ValueError('CHECKPOINT_FORMAT_INVALID')
+        previous=json.loads(r.read_owned(binding))
+        if (set(previous)!={'backup_reference','manifest_sha256'}
+                or not re.fullmatch(r'worker-[0-9]+/backup',previous['backup_reference'])
+                or not re.fullmatch('[a-f0-9]{64}',previous['manifest_sha256'])
+                or previous['backup_reference']==plan['backup_reference']):
+            raise ValueError('CHECKPOINT_PREVIOUS_INVALID')
+        old=r.BACKUP_BASE/previous['backup_reference']
+        if any(p.is_symlink() for p in (old,*old.parents)):raise ValueError('CHECKPOINT_PATH_UNSAFE')
+        for directory in (r.BACKUP_BASE,old.parent,old):r.private_directory(directory)
+        body=r.read_owned(old/'manifest.json',limit=16*1024**2)
+        if r.digest(body)!=previous['manifest_sha256']:raise ValueError('CHECKPOINT_PREVIOUS_CHANGED')
+        manifest=json.loads(body)
+        if manifest.get('format')!=2 or type(manifest.get('archive_bytes')) is not int:
+            raise ValueError('CHECKPOINT_FORMAT_INVALID')
+        expected={'state':'SUPERSEDED_ARCHIVE_RETIRED','retained_backup':plan['backup_reference'],
+                  'retained_manifest_sha256':plan['manifest_sha256'],
+                  'removed_bytes':manifest['archive_bytes'],'removed_sha256':manifest['archive_sha256']}
+        archive=old/'state.tar.gz';receipt=old/'superseded-retirement.json'
+        source=executor._volume(plan)
+        # Keep the installed conservative restore admission unchanged: shared inodes
+        # contribute zero here. A proven fresh backup must STILL fit full flat restore.
+        reclaimable=0
+        for relative in files:
+            path=source/relative
+            if path.is_symlink() or path.is_mount() or path.stat().st_dev!=source.stat().st_dev:
+                raise ValueError('CHECKPOINT_SOURCE_UNSAFE')
+            info=path.stat()
+            if not relative.endswith('/') and info.st_nlink==1:reclaimable+=info.st_blocks*512
+        released=0
+        if os.path.lexists(archive):
+            with os.fdopen(os.open(archive,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+                info=os.fstat(file.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1
+                        or info.st_dev!=source.stat().st_dev
+                        or stat.S_IMODE(info.st_mode)!=0o600 or info.st_size!=manifest['archive_bytes']
+                        or hashlib.file_digest(file,'sha256').hexdigest()!=manifest['archive_sha256']):
+                    raise ValueError('CHECKPOINT_ARCHIVE_CHANGED')
+            released=info.st_blocks*512
+            if shutil.disk_usage(source).free+released+reclaimable<total+128*1024**2:
+                raise ValueError('CHECKPOINT_RESTORE_CAPACITY_INSUFFICIENT')
+            if os.path.lexists(receipt):
+                if json.loads(r.read_owned(receipt))!=expected:raise ValueError('CHECKPOINT_RECEIPT_CHANGED')
+            else:r.atomic_json(receipt,expected)
+            current=archive.lstat()
+            if any(getattr(current,k)!=getattr(info,k) for k in
+                   ('st_dev','st_ino','st_mode','st_uid','st_gid','st_size','st_nlink','st_mtime_ns','st_ctime_ns')):
+                raise ValueError('CHECKPOINT_ARCHIVE_CHANGED')
+            archive.unlink();r.fsync_directory(old)
+        elif json.loads(r.read_owned(receipt))!=expected:
+            raise ValueError('CHECKPOINT_RECEIPT_CHANGED')
+        if shutil.disk_usage(source).free+reclaimable<total+128*1024**2:
+            raise ValueError('CHECKPOINT_RESTORE_CAPACITY_INSUFFICIENT')
+        print('FRESH_FULL_TRIAL_BACKUP_RETAINED_SUPERSEDED_ARCHIVE_RETIRED_ROLLBACK_CAPACITY_PASS',flush=True)
+
     def deploy(self):
         recovery.require_lock(self.executor.lock_fd)
         plan = recovery.validate_plan(json.loads(recovery.read_owned(recovery.RUNTIME_DIR / 'trial-plan.json')))
@@ -354,6 +429,7 @@ class ReleaseController:
         if (service.get('command') not in (None, ['./node_modules/.bin/tsx', 'src/index.ts'])
                 or service.get('entrypoint')):
             recovery.fail('RELEASE_CANDIDATE_STARTUP_INVALID')
+        self._retire_previous_checkpoint(plan)
         self.executor.arm(plan)
         try:
             # Candidate index.ts owns native reader initialization before API listen.

@@ -977,6 +977,27 @@ globalThis.fetch=async(raw,options)=>{
             self.assertIn('live_candidate', [row[1] for row in db.execute('pragma table_info(receipt)')])
         self.assertTrue((self.fixture.private / 'release-accepted.json').exists())
 
+    def test_checkpoint_retirement_requires_real_replacement_trial_before_arm(self):
+        import shutil
+        old=self.fixture.backups/'worker-122/backup';old.parent.mkdir(mode=0o700)
+        shutil.copytree(self.fixture.backup,old)
+        r=self.fixture.module
+        r.atomic_json(self.fixture.runtime/'previous-checkpoint.json',{'backup_reference':'worker-122/backup',
+            'manifest_sha256':r.digest((old/'manifest.json').read_bytes())})
+        r.atomic_json(self.fixture.runtime/'stage.json',{'container_ids':{s:v['Id'] for s,v in self.fixture.records.items()}})
+        self.controller.prepare(self.plan)
+        proof=self.runner.run(self.plan)
+        r.atomic_json(self.fixture.runtime/'trial-proof.json',{**proof,'candidate_native':'UNPROVEN'})
+        with self.assertRaisesRegex(r.RecoveryError,'RELEASE_TRIAL_PROOF_INVALID'):
+            self.controller.deploy()
+        self.assertTrue((old/'state.tar.gz').is_file())
+        self.assertFalse(self.fixture.pending.exists())
+        r.atomic_json(self.fixture.runtime/'trial-proof.json',proof)
+        self.assertEqual(self.controller.deploy()['state'],'RELEASE_CANDIDATE_ACCEPTED')
+        self.assertFalse((old/'state.tar.gz').exists())
+        self.assertTrue((old/'manifest.json').is_file())
+        self.assertTrue((self.fixture.backup/'state.tar.gz').is_file())
+
     def test_candidate_schema_failure_restores_whole_checkpoint_before_old_ingress(self):
         self.controller.prepare(self.plan)
         proof = self.runner.run(self.plan)

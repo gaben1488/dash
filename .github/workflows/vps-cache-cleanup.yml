@@ -12,7 +12,7 @@ permissions:
 jobs:
   rollback-runtime-lineage:
     if: >-
-      github.event.label.name == 'maintenance: rollback-runtime-lineage' &&
+      contains(fromJSON('["maintenance: rollback-runtime-lineage", "maintenance: immutable-publication-dedup"]'), github.event.label.name) &&
       github.event.sender.login == github.repository_owner &&
       github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -43,7 +43,7 @@ jobs:
           print(json.dumps({'run':json.loads((root/'maintenance-run.json').read_text()),
               'jobs':json.loads((root/'maintenance-jobs.json').read_text())['jobs']}))
           PYCI
-      - name: Record actual restored container lineage without changing quarantine or services
+      - name: Maintain proven restored runtime without restarting services
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
@@ -58,7 +58,14 @@ jobs:
             test "${#candidate}" = 40
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
-            git show "$candidate:.github/ci/record_rollback_lineage.py" | sudo -n python3 -IB -
+            mode='${{ github.event.label.name }}'
+            case "$mode" in
+              'maintenance: rollback-runtime-lineage')
+                git show "$candidate:.github/ci/record_rollback_lineage.py" | sudo -n python3 -IB - ;;
+              'maintenance: immutable-publication-dedup')
+                { git show "$candidate:.github/ci/publication_dedup.py"; git show "$candidate:.github/ci/record_rollback_lineage.py"; } | sudo -n python3 -IB - --deduplicate ;;
+              *) exit 2 ;;
+            esac
   accepted-repaired-worker:
     if: >-
       github.event.label.name == 'maintenance: accepted-repaired-worker' &&
@@ -2906,6 +2913,8 @@ jobs:
            manifest=recovery.BACKUP_BASE/previous['backup_reference']/'manifest.json'
            if any(p.is_symlink() for p in (manifest,*manifest.parents)):raise ValueError('RELEASE_BACKUP_UNSAFE')
            required=archive_budget(recovery.read_owned(manifest,limit=16*1024**2),previous['manifest_sha256'],size)
+           recovery.atomic_json(recovery.RUNTIME_DIR/'previous-checkpoint.json',
+             {key:previous[key] for key in ('backup_reference','manifest_sha256')})
            print(json.dumps({'source_bytes':size,'vps_backup_free_bytes':shutil.disk_usage('/home/aemr/.dash-private-backups').free,
             'vps_backup_required_bytes':required}))
           PYVPSCAPACITY

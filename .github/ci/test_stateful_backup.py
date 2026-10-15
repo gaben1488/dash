@@ -153,6 +153,20 @@ class StatefulBackupTests(unittest.TestCase):
             self.module.restore_state(self.backup,self.source,digest)
         self.assertEqual(self.module.inventory(self.source),expected)
 
+    def test_shared_immutable_payload_backup_restores_regular_independent_members(self):
+        import os
+        import tarfile
+        first=self.source/'reports/published/releases/REL-synthetic/payload-one.json'
+        second=first.with_name('payload-two.json')
+        first.write_bytes(b'{"same":"content"}');os.link(first,second)
+        digest=self.full_backup();expected=self.module.inventory(self.source)
+        with tarfile.open(self.backup/'state.tar.gz','r:gz') as archive:
+            self.assertTrue(all(member.isfile() or member.isdir() for member in archive))
+        self.module.verify(self.backup,self.scratch,self.source)
+        self.module.restore_state(self.backup,self.source,digest)
+        self.assertEqual(self.module.inventory(self.source),expected)
+        self.assertNotEqual(first.stat().st_ino,second.stat().st_ino)
+
     def test_unsafe_full_archive_paths_rejected_even_with_recomputed_hashes(self):
         import hashlib
         import io
