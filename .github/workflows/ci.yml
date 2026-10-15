@@ -25,7 +25,7 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       inputs.release_sha == '394c7e853a2b326b9a5c89ea52f60c51e075302e'
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     steps:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
@@ -34,7 +34,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 2m
+          command_timeout: 4m
           script: |
             set -euo pipefail
             sudo -n python3 -IB - <<'PY'
@@ -120,5 +120,14 @@ jobs:
               value=subprocess.check_output(["docker","ps","--all","--quiet","--no-trunc","--filter","label=com.docker.compose.project=aemr","--filter",f"label=com.docker.compose.service={role}","--filter","label=com.docker.compose.oneoff=False"],text=True,timeout=15)
               counts[role]=len(value.split())
              print(json.dumps({"same_filter_counts":counts}),flush=True)
+             program="(async()=>{\nconst {ReportReleaseStatusSchema,DashboardDataSchema}=await import('@aemr/shared');\ndelete process.env.HEADER_PROBE_CLI;\nconst {HEADER_ENDPOINTS,validHeaderPayload,headerShapeIssues}=await import('/opt/aemr/header_api_probe.mjs');\nconst token=process.env.AEMR_API_KEY;if(!token)throw Error('auth');\nconst endpoints=[['reports','/api/report-releases'],['dashboard','/api/dashboard'],['dashboardAll','/api/dashboard?year=all'],...Object.entries(HEADER_ENDPOINTS).map(([n,u])=>[n,n==='comments'?u+'&view=discussions':u])];\nfor(const [name,endpoint] of endpoints){\n const start=Date.now();let status=null,size=0;\n try{\n const response=await fetch('http://127.0.0.1:3000'+endpoint,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(25000)});status=response.status;\n if(status!==200){response.body?.cancel().catch(()=>{});console.log(JSON.stringify({native_check:name,status,valid:false,elapsed_ms:Date.now()-start}));continue;}\n const chunks=[];for await(const part of response.body){size+=part.length;if(size>32*1024*1024)throw Error('size');chunks.push(part);}\n const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));\n const parsed=name==='reports'?ReportReleaseStatusSchema.safeParse(data):name.startsWith('dashboard')?DashboardDataSchema.safeParse(data):null;\n const valid=parsed?(parsed.success&&(name!=='reports'||parsed.data.latest!==null)):validHeaderPayload(name,data);\n console.log(JSON.stringify({native_check:name,status,valid,bytes:size,elapsed_ms:Date.now()-start,issues:parsed?parsed.success?[]:[...new Set(parsed.error.issues.map(x=>x.code))]:headerShapeIssues(name,data)}));\n }catch(error){console.log(JSON.stringify({native_check:name,status,valid:false,bytes:size,elapsed_ms:Date.now()-start,error:['AbortError','TimeoutError','SyntaxError'].includes(error.name)?error.name:'CHECK_FAILED'}));}\n}\n})().catch(()=>process.exit(2));\n"
+             result=subprocess.run(["docker","exec","aemr-server-1","./node_modules/.bin/tsx","--eval",program],capture_output=True,text=True,timeout=200,check=False)
+             for line in result.stdout.splitlines():
+              try:
+               value=json.loads(line)
+               if value.get("native_check") not in {"reports","dashboard","dashboardAll","journal","sources","buckets","comments"}:continue
+               print(json.dumps(value),flush=True)
+              except (ValueError,AttributeError):pass
+             print(json.dumps({"native_diagnostic_exit":result.returncode}),flush=True)
             if __name__=="__main__":main()
             PY
