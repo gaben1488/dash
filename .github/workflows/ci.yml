@@ -104,7 +104,8 @@ jobs:
         run: python -m ruff check packages/report-engine deploy/runtime_guard.py deploy/release_recovery.py deploy/release-controller.py deploy/release_trial.py .github/ci/test_runtime_guard.py .github/ci/test_release_recovery.py .github/ci/test_release_controller.py
       - name: Synthetic VPS retention and runtime guard regressions
         run: |
-          python .github/ci/test_report_backup_window.py
+          python .github/ci/test_report_backup_window.py BackupWindowTests
+          sudo python3 .github/ci/test_report_backup_window.py ReleaseGuardianTests
           python .github/ci/test_worker_recovery.py
           python .github/ci/test_vps_cache_cleanup.py
           python .github/ci/test_runtime_state_probe.py
