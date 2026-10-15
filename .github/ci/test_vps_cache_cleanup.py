@@ -128,7 +128,7 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
         private, public = self.programs()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'release';root.mkdir()
-            (root / 'stage.log').write_text('RELEASE_SAVED_RUNTIME_MISMATCH\nPRIVATE_BEARER_VALUE\nRELEASE_UNKNOWN_PRIVATE_VALUE\n')
+            (root / 'stage.log').write_text('RELEASE_SAVED_RUNTIME_MISMATCH\nRELEASE_CONTROLLER_FAILED\nPRIVATE_BEARER_VALUE\nRELEASE_UNKNOWN_PRIVATE_VALUE\n')
             (root / 'key').write_text('PRIVATE_SSH_VALUE')
             (root / '.env.production').write_text('PRIVATE_ENV_VALUE')
             with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
@@ -138,7 +138,7 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
             self.assertIn('PRIVATE_BEARER_VALUE', value['stage.log'])  # Preserved only in root-private transport.
             with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
                 exec(compile(public, '<public-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
-            self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\n')
+            self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=RELEASE_CONTROLLER_FAILED\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\n')
 
     def test_private_log_capture_is_bounded(self):
         import contextlib
@@ -156,7 +156,7 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
 
 
 class UnacceptedCheckpointRetirementTests(unittest.TestCase):
-    def exercise(self, scenario, workflow=None):
+    def exercise(self, scenario, workflow=None, run=38716276232):
         import contextlib
         import io
         from types import SimpleNamespace
@@ -170,18 +170,18 @@ class UnacceptedCheckpointRetirementTests(unittest.TestCase):
             old=retained/'state.tar.gz'
             with old.open('wb') as stream:stream.truncate(4589649313)
             (retained/'manifest.json').write_text(json.dumps({'format':2,'archive_bytes':4589649313,'archive_sha256':'f'*64}))
-            failed=base/'worker-38716276232';(failed/'backup').mkdir(parents=True)
+            failed=base/('worker-'+str(run));(failed/'backup').mkdir(parents=True)
             candidate=failed/'backup/state.tar.gz';candidate.write_bytes(b'synthetic unaccepted checkpoint')
             details={'format':2,'archive_bytes':candidate.stat().st_size,'archive_sha256':'bad' if scenario=='wrong-hash' else 'f'*64,
                      'files':{name:{} for name in ('aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json')}}
             manifest=failed/'backup/manifest.json';manifest.write_text(json.dumps(details))
             (failed/'prepared').touch();(root/'lock').touch();(root/'state/release-runtime').mkdir(parents=True)
-            runtime={'candidate':'eba8f147a1098a7d14dfaefc442055fbcdfa93f2','volume':'aemr_server_data',
+            runtime={'candidate':'eba8f147a1098a7d14dfaefc442055fbcdfa93f2' if run==38716276232 else 'f864d5309e5df761c2974d700165063ed693e521','volume':'aemr_server_data',
                      'image':'sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac','server':'server','worker':'worker'}
             (failed/'runtime.json').write_text(json.dumps(runtime))
             if scenario=='pending':(root/'state/pending-release.json').touch()
             if scenario=='accepted':(root/'state/release-accepted.json').write_text(json.dumps({'acceptance':{'manifest_sha256':__import__('hashlib').sha256(manifest.read_bytes()).hexdigest()}}))
-            if scenario=='adopted':(root/'state/release-runtime/trial-plan.json').write_text(json.dumps({'backup_reference':'worker-38716276232/backup'}))
+            if scenario=='adopted':(root/'state/release-runtime/trial-plan.json').write_text(json.dumps({'backup_reference':'worker-'+str(run)+'/backup'}))
             records=[{'Id':name,'Image':'kept','Config':{},'HostConfig':{},'RestartCount':0,'Mounts':[],
                       'State':{'Status':'running' if name!='worker' else 'exited','Health':{'Status':'healthy'},'StartedAt':'kept','OOMKilled':False}}
                      for name in ('server','web','caddy','worker')]
@@ -195,8 +195,9 @@ class UnacceptedCheckpointRetirementTests(unittest.TestCase):
             self.assertTrue(old.exists());self.assertTrue(manifest.exists())
 
     def test_only_unaccepted_unreferenced_checkpoint_blob_is_retired(self):
-        for scenario in ('valid','wrong-hash','pending','adopted','accepted'):
-            with self.subTest(scenario=scenario):self.exercise(scenario)
+        for run in (38716276232,38722058204):
+            for scenario in ('valid','wrong-hash','pending','adopted','accepted'):
+                with self.subTest(run=run,scenario=scenario):self.exercise(scenario,run=run)
 
 
 class FailedCandidateImagesTests(unittest.TestCase):
@@ -215,6 +216,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
             'b28ad02083c016d8fb920f8091d1490fcb6f0843': [('server','6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4'),('web','d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b')],
             '211fac62b9ce1b2fb9a3628c1b04e998db5256b0': [('server','2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071'),('web','071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5')],
             'eba8f147a1098a7d14dfaefc442055fbcdfa93f2': [('server','733a007deba806f72741b09b9fc52de12f2a8b32124c9abb49b18c2408830c18'),('web','236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e')],
+            'f864d5309e5df761c2974d700165063ed693e521': [('server','336cd9b583eb8d4dd0d0967563643e62816701a93c949315bcb15a8286189e54'),('web','c0b78a11a7ca7e1ba573257dd2747306ff45cc2bc11ea159cdd9100ebc89e412')],
         }.items():
             for role, identity in pairs:
                 tag='aemr-'+role+':release-'+revision
@@ -252,7 +254,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
                     with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
-        self.assertEqual(len(removed),10 if scenario in ('valid','mount-order','health-history') else 0)
+        self.assertEqual(len(removed),12 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
         for scenario in ('valid','mount-order','health-history'):

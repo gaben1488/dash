@@ -7,6 +7,20 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Run38722058204/sourcef864d530: exact3sourceCI38721657480 PASS, actual Docker
+producer→reader PASS, transport/stage/early full-scratch capacity PASS.
+Freeze10:50:35–11:00:36UTC создал новую копию0600, но base-plan отказал до
+independent trial/deploy; same-owner resume SUCCESS, public health200/ok.
+Отдельный CLI ошибочно передавал закрытый fd9 в read-only Docker RPC. Тест
+реального Popen без наследованного guardian fd: RED→GREEN; main только для
+base-plan использует уже поддержанный lock_fd=None. Stage/prepare/deploy
+сохраняют обязательный EX. Новый native replay на existing frozen capture при
+здоровом API должен подтвердить EBADF старого транспорта и полное прохождение
+новой цепочки до намеренного terminal writer guard. Capsule заранее существует,
+допуск _saved_runtime отдельно подтверждается; изменений runtime/плана нет.
+Повторное окно до успешного native replay не запускать. Current R06 ещё не принят:
+полная копия без independent restore не является готовностью выпуска.
+
 Run38716276232/sourceeba8f147: exact3source CI38715940755 PASS, Docker29 canary,
 оба переноса image IDs, actual stage и latest3Word PASS. Окно10:02:23–10:11UTC
 создало копию, но base-plan отказал RELEASE_OWNED_FILE_INVALID; trial/deploy SKIPPED.
@@ -227,31 +241,36 @@ and lint PASS (304 existing warnings). Guardian23, backup32 and recovery32 sourc
 correction: window38 and controller39 PASS, including real reader/native Zod
 negative cases and exact staged Word proof with a legitimately newer latest. Actual image clone/live release remain required.
 
-### Управление текущим выпуском и зависимостями — 13.10.2026
+### Управление текущим выпуском и зависимостями — 15.10.2026
 
 Единственный кандидат — PR #79; единственный реестр результатов — #69.
-SSH-пакет передан в [#93](https://github.com/gaben1488/dash/issues/93#issuecomment-6135986701).
-Последнее уточнение владельца: второй SSH-агент недоступен, Root выполняет
-runtime-сценарии самостоятельно через существующий Actions SSH-доступ.
-Предыдущее задание не объявляется принятым/выполненным другим агентом;
-runtime stop/recreate/update выполняет один владелец под maintenance lock.
+Исходный SSH-пакет передан 13.10 в [#93](https://github.com/gaben1488/dash/issues/93#issuecomment-6135986701).
+Второй SSH-агент недоступен; Root выполняет runtime-сценарии через существующий
+Actions SSH-доступ. Один владелец выполняет stop/recreate/update под maintenance lock.
 
-Последовательность выпуска имеет конечные входы и выходы:
+Текущий SHA `f864d5309e5df761c2974d700165063ed693e521` зафиксирован на весь выпуск.
+CI38721657480: три обязательных source jobs PASS;735shared/1869core(+1skip)/
+994server/2295web,1074Python+5native отдельно PASS; lint/typechecks/build/audit PASS.
+Общий CI пока FAILURE: read-only probe прежнего API отклоняет отсутствующий
+`digest.byKind.row-identity-candidate`; его повтор на новом runtime обязателен.
+Это известное расхождение установленного кода с кандидатом, а не зелёная live-приёмка.
 
-| Этап | Ответственный | Выход для следующего этапа |
+| Этап | Ответственный | Наблюдаемый выход |
 |---|---|---|
-| Установленный код и диагностика двух GET | Root через Actions SSH | Точные image/source pins, полный доступный программный diff, причина задержки journal/sources |
-| Интеграция | Root, PR #79 | Один SHA, сохранённые runtime-исправления, проверки всех затронутых потребителей и исторических схем |
-| Reader-fence и восстановление | Root под maintenance lock | Корректный owner/quiescent bootstrap, свежая согласованная копия, независимый restore и previous-runtime proof |
-| Допуск | Root | READY для exact SHA после source/live/restore gates; не обещание выпуска |
-| Выпуск и приёмка | Root; независимое source review до запуска | Установленный exact SHA, domain/browser/API/Word readback, сохранённый rollback |
+| Допуск среды и исходников | Root; source review | Exact3sourceCI, native Docker writer→reader, transport ID roundtrip и полный scratch budget ДО freeze |
+| Свежая копия и восстановление | Один Root guardian | Полный manifest, независимый restore, candidate и previous native API/3Word, повторный настоящий restore на одном clone |
+| Установка | Тот же guardian | Exact SHA/images/config, закрытый ingress до native Header/Dashboard/3Word, сохранённый rollback |
+| Живой readback | Root | Domain/Caddy/actual Header APIs, все связанные метрики, три Word и повтор прежнего read-only CI probe |
+| Воркер | Root; отдельный read-only observer | Два разных RUNNING/doubleFLOCK/timer цикла, terminal VERIFIED и native context/snapshot/3Word после каждого; без остановки API |
+| Сокращение хранения | Root после fresh accepted restore | Точный weekly/current keep-plan, сохранённые download/identity/ledger proofs и обратимая проверка перед удалением лишнего |
+| Закрытие итерации | Root | PLAN/#69/PR79 содержат реальные live/технические/blocked статусы; конечная следующая очередь по существующим ID |
 
-Каждая зависимость привязана к конечному ID, SHA/revision, исполнителю,
-проверяемому выходу и конкретному блокеру. Новый SHA или источник повторяет
-только затронутые доказательства; принятые R08 циклы не повторяются. Новые
-пожелания включаются в существующий ID и следующую волну, если не исправляют
-дефект текущего выпуска. Целевая модель W1–W5 сохраняется и уточняется после
-live-приёмки; выпуск не объявляется завершением всех 56 результатов.
+Новые пожелания попадают в соответствующие ID и следующую волну, если не
+исправляют дефект текущего выпуска. После любого отказа сначала читается точная
+private evidence; повтор запуска с неизменённой причиной не является исправлением.
+Worker SOURCE_CHANGED/NOT_ISSUED не разрешает остановку или общий rollback API.
+Приёмка циклов 12.10 историческая: текущий quarantined a2 runtime её не наследует.
+Готовность этой итерации не означает приёмку всех 56 результатов W0–W5.
 
 Source-only передача установленного кода через существующий SSH CI при
 недоступном прямом SSH: приватный scratch, allowlisted code roots,

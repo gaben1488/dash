@@ -138,7 +138,8 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/candidate,readonly" \
             --entrypoint /opt/report-env/bin/python aemr-server:ci -B \
             /candidate/.github/ci/test_release_controller.py \
-            ControllerTests.test_real_backup_writer_meets_release_reader_contract_with_container_umask
+            ControllerTests.test_real_backup_writer_meets_release_reader_contract_with_container_umask \
+            ControllerTests.test_base_plan_cli_without_guardian_fd_uses_only_readonly_docker_rpc
       - name: Verify installed publication reader
         run: |
           docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \

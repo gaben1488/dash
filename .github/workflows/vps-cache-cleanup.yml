@@ -296,19 +296,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(gh api repos/${{ github.repository }}/actions/runs/38349415596 --jq .conclusion)" = success
-          gh api repos/${{ github.repository }}/actions/runs/38716276232 > "$RUNNER_TEMP/failed-checkpoint-run.json"
-          gh api 'repos/${{ github.repository }}/actions/runs/38716276232/jobs?per_page=100' > "$RUNNER_TEMP/failed-checkpoint-jobs.json"
           python3 - <<'PY'
-          import json,os
-          from pathlib import Path
-          root=Path(os.environ['RUNNER_TEMP']);run=json.loads((root/'failed-checkpoint-run.json').read_text())
-          assert run['head_sha']=='eba8f147a1098a7d14dfaefc442055fbcdfa93f2' and run['conclusion']=='failure'
-          jobs=json.loads((root/'failed-checkpoint-jobs.json').read_text())['jobs']
-          job=next(j for j in jobs if j['name']=='controlled-candidate-release')
-          stages={s['name']:s['conclusion'] for s in job['steps']}
-          assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
-          assert stages['Same guardian exact-SHA release with closed-ingress API and Word acceptance']=='skipped'
-          assert stages['Always request same-owner resume without reverting an accepted release']=='success'
+          import json,os,urllib.request
+          base='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def read(path):
+              request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
+              with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
+          for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521')]:
+              value=read('/actions/runs/'+str(run))
+              assert value['head_sha']==sha and value['conclusion']=='failure'
+              jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
+              job=next(j for j in jobs if j['name']=='controlled-candidate-release')
+              stages={s['name']:s['conclusion'] for s in job['steps']}
+              assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
+              assert stages['Same guardian exact-SHA release with closed-ingress API and Word acceptance']=='skipped'
+              assert stages['Always request same-owner resume without reverting an accepted release']=='success'
           print('UNACCEPTED_CHECKPOINT_LINEAGE_VERIFIED')
           PY
       - name: Retire only named superseded or unaccepted archive blobs
@@ -354,27 +356,28 @@ jobs:
                     item=regular(target);assert item.st_ino!=info.st_ino
                     assert 2_000_000_000<item.st_size<3_000_000_000
                     targets.append((target,item.st_size))
-                failed=base/'worker-38716276232';candidate=failed/'backup/state.tar.gz'
                 failed_runtime=None
-                if candidate.exists() or candidate.is_symlink():
-                    checkpoint=failed/'backup/manifest.json';regular(checkpoint)
-                    details=json.loads(checkpoint.read_bytes());item=regular(candidate)
-                    runtime=json.loads((failed/'runtime.json').read_bytes());regular(failed/'prepared')
-                    assert runtime.get('candidate')=='eba8f147a1098a7d14dfaefc442055fbcdfa93f2'
-                    assert runtime.get('volume')=='aemr_server_data' and runtime.get('image')=='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
-                    assert details.get('format')==2 and item.st_size==details.get('archive_bytes') and item.st_ino!=info.st_ino
-                    assert 0<item.st_size<8*1024**3 and digest(candidate)==details.get('archive_sha256')
-                    assert {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}<=set(details.get('files',{}))
-                    assert not (failed/'plan-prepared.json').exists()
-                    accepted=Path('/var/lib/aemr/release-accepted.json')
-                    if accepted.exists():assert json.loads(accepted.read_bytes())['acceptance']['manifest_sha256']!=hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-                    trial=Path('/var/lib/aemr/release-runtime/trial-plan.json')
-                    if trial.exists():assert json.loads(trial.read_bytes()).get('backup_reference')!='worker-38716276232/backup'
-                    failed_runtime=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1','aemr-web-1','aemr-caddy-1','aemr-report-worker-1'],timeout=20))
-                    assert failed_runtime[0]['Id']==runtime['server'] and failed_runtime[0]['State']['Status']=='running'
-                    assert failed_runtime[0]['State'].get('Health',{}).get('Status')=='healthy'
-                    assert failed_runtime[3]['Id']==runtime['worker'] and failed_runtime[3]['State']['Status']=='exited'
-                    targets.append((candidate,item.st_size))
+                for run,sha in [(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521')]:
+                    failed=base/('worker-'+str(run));candidate=failed/'backup/state.tar.gz'
+                    if candidate.exists() or candidate.is_symlink():
+                        checkpoint=failed/'backup/manifest.json';regular(checkpoint)
+                        details=json.loads(checkpoint.read_bytes());item=regular(candidate)
+                        runtime=json.loads((failed/'runtime.json').read_bytes());regular(failed/'prepared')
+                        assert runtime.get('candidate')==sha
+                        assert runtime.get('volume')=='aemr_server_data' and runtime.get('image')=='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+                        assert details.get('format')==2 and item.st_size==details.get('archive_bytes') and item.st_ino!=info.st_ino
+                        assert 0<item.st_size<8*1024**3 and digest(candidate)==details.get('archive_sha256')
+                        assert {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}<=set(details.get('files',{}))
+                        assert not (failed/'plan-prepared.json').exists()
+                        accepted=Path('/var/lib/aemr/release-accepted.json')
+                        if accepted.exists():assert json.loads(accepted.read_bytes())['acceptance']['manifest_sha256']!=hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                        trial=Path('/var/lib/aemr/release-runtime/trial-plan.json')
+                        if trial.exists():assert json.loads(trial.read_bytes()).get('backup_reference')!='worker-'+str(run)+'/backup'
+                        failed_runtime=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1','aemr-web-1','aemr-caddy-1','aemr-report-worker-1'],timeout=20))
+                        assert failed_runtime[0]['Id']==runtime['server'] and failed_runtime[0]['State']['Status']=='running'
+                        assert failed_runtime[0]['State'].get('Health',{}).get('Status')=='healthy'
+                        assert failed_runtime[3]['Id']==runtime['worker'] and failed_runtime[3]['State']['Status']=='exited'
+                        targets.append((candidate,item.st_size))
                 before=shutil.disk_usage(base).free
                 for target,_ in targets:
                     target.unlink()
@@ -796,6 +799,73 @@ jobs:
                     and value['State']['StartedAt']==after[role]['State']['StartedAt'] for role,value in records.items())
                 print('STAGE_DIAGNOSTICS_RUNTIME_UNCHANGED')
             PY
+      - name: Replay base-plan command boundary against frozen capture while API stays online
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - '${{ github.event.pull_request.head.sha }}' <<'PYBASEPLANPROOF'
+            import contextlib,hashlib,io,json,os,stat,subprocess,sys,types
+            from pathlib import Path
+            sys.dont_write_bytecode=True
+            tools=Path('/usr/local/libexec/aemr');sys.path.insert(0,str(tools))
+            import release_recovery as recovery
+            stage=json.loads(recovery.read_owned(Path('/var/lib/aemr/release-runtime/stage.json')))
+            assert stage['release_sha']=='f864d5309e5df761c2974d700165063ed693e521'
+            assert not any(os.path.lexists('/var/lib/aemr/'+name) for name in ('pending-release.json','release-recovery-progress.json'))
+            assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+            def git_source(sha):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash','show',sha+':deploy/release-controller.py'],timeout=20)
+            old_body=(tools/'release-controller.py').read_bytes()
+            assert old_body==git_source(stage['release_sha'])
+            def module(body):
+                value=types.ModuleType('reviewed_controller');value.__file__=str(tools/'release-controller.py')
+                exec(compile(body,value.__file__,'exec'),value.__dict__)
+                return value
+            try:os.fstat(9)
+            except OSError:pass
+            else:raise AssertionError('SEPARATE_SSH_CONNECTION_MUST_NOT_OWN_GUARDIAN_FD')
+            old=module(old_body)
+            try:old.ReleaseController()._images(stage)
+            except OSError as error:assert error.errno==9
+            else:raise AssertionError('OLD_CLI_TRANSPORT_REPRO_REQUIRED')
+            evidence=json.loads(Path('/root/codex-fixes/release-38722058204/runner-diagnostics.json').read_bytes())
+            assert evidence['base-plan.log'].strip()=='RELEASE_CONTROLLER_FAILED'
+            def records():return json.loads(subprocess.check_output(['docker','inspect',*[f'aemr-{s}-1' for s in recovery.SERVICES]],timeout=20))
+            def stable(values):return [{**{k:v[k] for k in ('Id','Image','Config','HostConfig','RestartCount')},
+                'Mounts':sorted(json.dumps(m,sort_keys=True) for m in v['Mounts']),
+                'State':{k:v['State'].get(k) for k in ('Status','StartedAt','OOMKilled')}} for v in values]
+            before=records();server=next(v for v in before if v['Name']=='/aemr-server-1')
+            assert server['State']['Status']=='running' and server['State']['Health']['Status']=='healthy'
+            base_plan=Path('/var/lib/aemr/release-runtime/base-plan.json')
+            original=base_plan.read_bytes() if base_plan.exists() else None
+            capsule=Path('/var/lib/aemr/release-configs')/stage['release_sha']
+            assert not any(p.is_symlink() for p in (capsule,*capsule.parents))
+            for path in (capsule.parent,capsule):recovery.private_directory(path)
+            assert recovery.read_owned(capsule/'Caddyfile')==recovery.read_owned(Path('/var/lib/aemr/release-runtime/Caddyfile'))
+            candidate=module(git_source(sys.argv[1]));output=io.StringIO();errors=io.StringIO()
+            admitted=[];compare=candidate.ReleaseController._saved_runtime
+            def compare_actual(self,*args,**kwargs):
+                result=compare(self,*args,**kwargs);admitted.append(True);return result
+            candidate.ReleaseController._saved_runtime=compare_actual
+            with contextlib.redirect_stdout(output),contextlib.redirect_stderr(errors):
+                result=candidate.main(['base-plan','38722058204'])
+            # Every preceding config/checkpoint/image/native binding must pass.
+            # Healthy running API intentionally rejects writer quiescence before save.
+            assert result==2 and errors.getvalue().strip()=='RELEASE_BACKUP_SESSION_INVALID' and not output.getvalue() and admitted==[True]
+            assert (base_plan.read_bytes() if base_plan.exists() else None)==original
+            assert stable(records())==stable(before)
+            for name in ('manifest.json','state.tar.gz'):
+                path=Path('/home/aemr/.dash-private-backups/worker-38722058204/backup')/name
+                value=path.stat();assert value.st_uid==0 and stat.S_IMODE(value.st_mode)==0o600
+            print(json.dumps({'status':'NATIVE_SEPARATE_SSH_BASE_PLAN_PROOF_PASS',
+                'old_transport_errno':9,'candidate_reached_expected_live_writer_guard':True,
+                'runtime_unchanged':True,'backup_mode':'0600'}))
+            PYBASEPLANPROOF
   backup-window-diagnostics:
     if: >-
       github.event.label.name == 'maintenance: backup-window-diagnostics' &&
@@ -1916,14 +1986,14 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0'),(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2')]:
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0'),(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2'),(38722058204,'f864d5309e5df761c2974d700165063ed693e521')]:
               info=read('/actions/runs/'+str(run))
               assert info['head_sha']==sha and info['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
               job=next(value for value in jobs if value['name']=='controlled-candidate-release')
               freeze=[step for step in job['steps'] if step['name']=='Freeze writers once and create fresh full private backup']
               assert len(freeze)==1
-              if run==38716276232:
+              if run in (38716276232,38722058204):
                   stages={s['name']:s['conclusion'] for s in job['steps']}
                   assert freeze[0]['conclusion']=='failure'
                   assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
@@ -1968,7 +2038,9 @@ jobs:
                 'aemr-server:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071',
                 'aemr-web:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5',
                 'aemr-server:release-eba8f147a1098a7d14dfaefc442055fbcdfa93f2':'sha256:733a007deba806f72741b09b9fc52de12f2a8b32124c9abb49b18c2408830c18',
-                'aemr-web:release-eba8f147a1098a7d14dfaefc442055fbcdfa93f2':'sha256:236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e'}
+                'aemr-web:release-eba8f147a1098a7d14dfaefc442055fbcdfa93f2':'sha256:236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e',
+                'aemr-server:release-f864d5309e5df761c2974d700165063ed693e521':'sha256:336cd9b583eb8d4dd0d0967563643e62816701a93c949315bcb15a8286189e54',
+                'aemr-web:release-f864d5309e5df761c2974d700165063ed693e521':'sha256:c0b78a11a7ca7e1ba573257dd2747306ff45cc2bc11ea159cdd9100ebc89e412'}
             try:
                 assert os.geteuid()==0
                 with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
@@ -2439,8 +2511,8 @@ jobs:
           allowed={'AEMR_MAINTENANCE_BUSY','AEMR_MAINTENANCE_LOCK_INVALID'}
           for name in ('deploy/release-controller.py','deploy/release_recovery.py','deploy/release_trial.py'):
               for node in ast.walk(ast.parse(Path(name).read_text())):
-                  if isinstance(node,ast.Call) and node.args and isinstance(node.args[0],ast.Constant):
-                      value=node.args[0].value
+                  if isinstance(node,ast.Constant):
+                      value=node.value
                       if isinstance(value,str) and value.startswith(('RELEASE_','BACKUP_')) and value.replace('_','').isalnum():
                           allowed.add(value)
           root=Path(os.environ['RUNNER_TEMP'])/'release'

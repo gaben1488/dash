@@ -377,7 +377,9 @@ def main(argv=None):
     parser.add_argument('run_id', nargs='?')
     args = parser.parse_args(argv)
     try:
-        controller = ReleaseController()
+        # base-plan reads the guardian's frozen checkpoint over another SSH
+        # connection. It owns no EX descriptor; prepare/deploy still require it.
+        controller = ReleaseController(recovery.ReleaseRecovery(lock_fd=None) if args.mode == 'base-plan' else None)
         if (args.mode == 'base-plan') != (args.run_id is not None):
             recovery.fail('RELEASE_STAGE_INPUT_INVALID')
         if args.mode in ('stage', 'prepare'):

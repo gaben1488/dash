@@ -253,7 +253,7 @@ class ControllerTests(TrialTests):
         self.stage_fixture()
         workflow = (ROOT / '.github/workflows/vps-cache-cleanup.yml').read_text()
         fragment = workflow[workflow.index('                for label,paths in sources:\n'):]
-        program = textwrap.dedent(fragment.split('\n            PY\n  backup-window-diagnostics:', 1)[0])
+        program = textwrap.dedent(fragment.split('\n            PY\n', 1)[0])
         extra = {'Type': 'bind', 'Source': '/fixture-extra', 'Destination': '/fixture-extra', 'RW': True}
         self.fixture.records['caddy']['Mounts'].append(extra)
         self.compose_sources[str(self.operator / 'docker-compose.yml')]['services']['caddy']['volumes'].append(
@@ -618,6 +618,38 @@ class ControllerTests(TrialTests):
         self.assertEqual(plan['word'], self.plan['word'])
         self.assertFalse(self.fixture.pending.exists())
         self.assertFalse((self.fixture.runtime / 'trial-plan.json').exists())
+
+    def test_base_plan_cli_without_guardian_fd_uses_only_readonly_docker_rpc(self):
+        self.stage_fixture()
+        self.controller.stage(self.request)
+        self.backup_session()
+        actual = self.fixture.executor.command
+        observed = []
+        def rpc(args, *, lock_fd=None, **kwargs):
+            # Real Popen verifies inherited descriptors before the fake daemon
+            # replies. Production base-plan runs on a separate SSH connection.
+            subprocess.run([sys.executable,'-c','pass'],check=True,
+                           pass_fds=() if lock_fd is None else (lock_fd,))
+            observed.append(args)
+            return actual(args,**kwargs)
+        try:
+            inherited = os.get_inheritable(9)
+            saved = os.dup(9)
+        except OSError:
+            saved = None
+        try:
+            if saved is not None:os.close(9)
+            output = io.StringIO()
+            with patch.object(self.fixture.module,'docker',side_effect=rpc), contextlib.redirect_stdout(output):
+                result = self.controller_module.main(['base-plan','123'])
+            self.assertEqual(result,0,output.getvalue())
+            self.assertIn('RELEASE_BASE_PLAN_CREATED',output.getvalue())
+            self.assertTrue(observed)
+            self.assertTrue(all(args[0] in {'inspect','ps'} or args[:2]==['image','inspect'] for args in observed))
+            self.assertFalse(self.fixture.pending.exists())
+        finally:
+            if saved is not None:
+                os.dup2(saved,9,inheritable=inherited);os.close(saved)
 
     def test_base_plan_rejects_session_image_drift_and_staged_config_tampering(self):
         self.stage_fixture()
