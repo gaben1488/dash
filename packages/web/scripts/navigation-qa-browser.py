@@ -7,20 +7,37 @@ import zipfile
 from pathlib import Path
 from playwright.async_api import async_playwright
 
+async def assert_journal_unobscured(page):
+    """Visibility alone does not detect the lower glass rail painting over a title."""
+    # React scenarios close/reopen the panel; allow the browser's :has() style
+    # invalidation to settle, then require every target's real center hit.
+    await page.wait_for_function("""()=>{
+      const targets=[...document.querySelectorAll('.uf-panel-head strong,.hbar-provenance [role=tab]')];
+      return targets.length===4&&targets.every(e=>{const r=e.getBoundingClientRect(),top=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e===top||e.contains(top)});
+    }""", timeout=2000)
+    for locator in [page.locator('.uf-panel-head strong'), *[page.get_by_role('tab', name=name, exact=True) for name in ['Изменения', 'Комментарии', 'Источники']]]:
+        hit = await locator.evaluate("""e=>{
+          const r=e.getBoundingClientRect(),top=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+          return {text:e.textContent,unobscured:e===top||e.contains(top),cover:top?.className};
+        }""")
+        assert hit['unobscured'], f"journal content obscured: {hit}"
+
 async def verify(path, output, glow_only=False):
     async with async_playwright() as driver:
         browser = await driver.chromium.launch(headless=True)
         proof = []
-        cases = [(1280, 900, 1), (320, 740, 1), (1280, 900, 2)] if not glow_only else [(1280, 900, 1)]
+        # 200% browser zoom at a physical 1280x900 is a 640x450 CSS viewport
+        # with DPR 2. CSS body.zoom scales fixed Radix portal coordinates again
+        # and is not the browser zoom behavior used by the application.
+        cases = [(1280, 900, 1), (320, 740, 1), (640, 450, 2)] if not glow_only else [(1280, 900, 1)]
         for width, height, zoom in cases:
-            page = await browser.new_page(viewport={"width": width, "height": height}, reduced_motion="reduce")
+            page = await browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=zoom, reduced_motion="reduce")
             errors, network = [], []
             page.on("pageerror", lambda error: errors.append(str(error)))
             await page.route("http*://**", lambda route: (network.append(route.request.url), route.abort())[1])
             await page.goto(path.as_uri())
             await page.get_by_role("navigation").wait_for()
             await page.wait_for_timeout(1700)
-            await page.evaluate("z => document.body.style.zoom=z", zoom)
             if glow_only:
                 shadows = []
                 for name in ["Пульс", "Экономия"]:
@@ -58,6 +75,7 @@ async def verify(path, output, glow_only=False):
                 await page.locator('.qa-presets button').filter(has_text='Журнал').first.click()
                 dialog = page.get_by_role('dialog')
                 await dialog.wait_for()
+                await assert_journal_unobscured(page)
                 assert await page.locator('.uf-event:visible').count() == 2
                 await page.get_by_role('tab', name='Изменения', exact=True).focus()
                 await page.keyboard.press('ArrowRight')
@@ -70,12 +88,30 @@ async def verify(path, output, glow_only=False):
                 assert rect and rect['x'] >= 0 and rect['x'] + rect['width'] <= width + 1
                 await page.keyboard.press('Escape')
                 assert await dialog.count() == 0
+                # Opening the panel must not move either rail or leave its stack raised.
+                rails = await page.locator('.hbar-primary,.hbar-secondary').evaluate_all("es=>es.map(e=>e.getBoundingClientRect().toJSON())")
+                await page.locator('.uf-trigger').click()
+                await dialog.wait_for()
+                await assert_journal_unobscured(page)
+                assert rails == await page.locator('.hbar-primary,.hbar-secondary').evaluate_all("es=>es.map(e=>e.getBoundingClientRect().toJSON())")
+                await page.locator('.np-btn-active').click()  # outside the journal
+                assert await dialog.count() == 0
+                await page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                assert await page.locator('.hbar-primary').evaluate("e=>getComputedStyle(e).zIndex") == '1'
+                await page.locator('.filter-instrument').click()
+                filter_panel = page.locator('.fi-panel')
+                await filter_panel.wait_for()
+                await page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                assert await filter_panel.evaluate("e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}"), f'filter panel obscured at {width=} {zoom=} {theme=}'
+                await page.keyboard.press('Escape')
+                assert await filter_panel.count() == 0
                 assert not await page.evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth')
                 await page.screenshot(path=str(output.parent / f'navigation-qa-{width}-{zoom}-{theme}.png'))
-                proof.append({'width': width, 'zoom': zoom, 'theme': theme, 'routes': 13, 'actualGradientFamilies': len(set(fills)), 'journal': True, 'popupInViewport': True, 'selectedComputed': selected, 'filterComputed': filters})
+                proof.append({'width': width, 'height':height, 'zoom': zoom, 'deviceScaleFactor':zoom, 'layout':'200%-equivalent CSS viewport' if zoom==2 else 'CSS viewport', 'physicalWidth':width*zoom, 'physicalHeight':height*zoom, 'theme': theme, 'routes': 13, 'actualGradientFamilies': len(set(fills)), 'journal': True, 'journalUnobscured': True, 'filterPortalUnobscured':True, 'railsUnmoved':True, 'outsideClickAndEscape':True, 'popupInViewport': True, 'selectedComputed': selected, 'filterComputed': filters})
             for preset in ['API недоступен', 'Журнал пуст', 'Неполный паспорт', 'Обсуждения', 'Закрыто в Google']:
                 await page.locator('.qa-presets button').filter(has_text=preset).first.click()
                 await page.get_by_role('dialog').wait_for()
+                await assert_journal_unobscured(page)
                 await page.wait_for_timeout(250)
                 if preset == 'API недоступен':
                     assert await page.get_by_text('Журнал изменений не прочитан — сервер не ответил. Это не «правок не было».', exact=True).is_visible()
@@ -172,6 +208,7 @@ async def verify_motion(path, output):
                 assert positions['themeX']<positions['filterX'] and positions['y']>=positions['bottomRowY']
                 await page.locator('.qa-presets button').filter(has_text='Обсуждения').first.click()
                 await page.get_by_role('dialog').wait_for()
+                await assert_journal_unobscured(page)
                 await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).wait_for()
                 assert await page.get_by_text('Открыто в сохранённом чтении Google',exact=True).is_visible()
                 await page.get_by_text('Исходные сообщения и ответы · 1',exact=True).click()

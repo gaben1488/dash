@@ -521,6 +521,8 @@ jobs:
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
@@ -534,6 +536,17 @@ jobs:
           node .github/ci/build_browser_contract.mjs
       - name: Verify read-only Header probe
         run: node --test .github/ci/test_header_api_probe.mjs
+      - name: Build autonomous Header review file from exact source (synthetic data only)
+        run: node scripts/build-navigation-qa.mjs
+      - name: Publish downloadable synthetic Header HTML and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: dash-header-${{ github.event.pull_request.head.sha }}
+          path: |
+            packages/web/navigation-qa.html
+            packages/web/navigation-qa.zip
+          if-no-files-found: error
+          retention-days: 3
       - name: Prepare private exact-candidate scratch directory
         id: header_scratch
         uses: appleboy/ssh-action@v1.2.0

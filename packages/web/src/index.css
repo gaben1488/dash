@@ -5043,6 +5043,10 @@
   to { transform: translate3d(0, 2px, 0); opacity: 1; }
 }
 .hbar-primary, .hbar-secondary { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Both rails inherit z-index:1. Lift the journal's rail only while its panel
+   is open, so the later lower glass rail cannot paint over the panel title. */
+.hbar-primary:has(.hbar-provenance > [role=dialog]),
+.hdr-ugol:has(.hbar-provenance > [role=dialog]) { z-index: 2; }
 .hbar-drumline {
   display: flex; align-items: center; gap: 5px; flex: 0 1 auto;
   min-width: 0; max-width: 100%; overflow-x: auto;

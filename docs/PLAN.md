@@ -5,6 +5,34 @@
 
 ---
 
+### Текущая приёмка Header и выпуска — 15.10.2026
+
+PR #79 actual HEAD `ae606007`; CI38357283483: три source jobs PASS,
+общий CI FAILURE — read-only consumer проверяет старый installed journal.
+DB38357283484 PASS; read-only upgrade38357283497 ещё BLOCK на reader bootstrap.
+Fresh public health 15.10 HTTP200/statusok; Root production не менял.
+Backup38349415596 остаётся принятым историческим cut, не новой копией 15.10.
+
+U02/U03/U07: реальный hit-test обнаружил перекрытие заголовка журнала нижней
+glass-линией. Scoped z-context только открытого журнала исправляет его, не
+двигая controls/rails. RED по elementFromPoint →78 layout/route states и
+52 motion states PASS; 28 affected component tests и11 builder/probe tests PASS.
+Проверяются title/3tabs, filter popup, keyboard/Escape, outside close, миллионы,
+offline HTML/ZIP self-download/reopen и13палитр. Прежняя имитация масштаба через
+body.style.zoom ошибочно называлась browser zoom. Product body zoom не задаёт;
+200%-equivalent layout теперь CSS640×450/DPR2 при физических1280×900.
+Unsupported CSS bodyzoom2/offscreen Radix diagnostic сохранён отдельно.
+Синтетический preview не объявляется live Google mutation или полной UI-приёмкой
+всех страниц. Existing CI выдаёт HTML/ZIP artifact exact PR HEAD, synthetic only.
+
+R07/R09: завершение private producer/guardian workflow остаётся следующим
+блоком до rollout. Реальные negative tests нашли отсутствие восстановления при
+пропавшем контейнере и потерю EX дочерней CLI после SIGKILL owner; исправления
+проверяются до любого stop/recreate VPS. Accepted candidate data нельзя
+перезаписывать checkpoint после открытия ingress. Целевые W1–W5 и56 ID не
+закрываются этим Header/release-блоком; новые пожелания не расширяют текущий
+выпуск, если не устраняют воспроизведённый дефект.
+
 ### Управление текущим выпуском и зависимостями — 13.10.2026
 
 Единственный кандидат — PR #79; единственный реестр результатов — #69.
@@ -18,11 +46,11 @@ runtime stop/recreate/update выполняет один владелец под
 
 | Этап | Ответственный | Выход для следующего этапа |
 |---|---|---|
-| Установленный код и диагностика двух GET | SSH-исполнитель; Root сверяет | Точные image/source pins, полный доступный программный diff, причина задержки journal/sources |
+| Установленный код и диагностика двух GET | Root через Actions SSH | Точные image/source pins, полный доступный программный diff, причина задержки journal/sources |
 | Интеграция | Root, PR #79 | Один SHA, сохранённые runtime-исправления, проверки всех затронутых потребителей и исторических схем |
-| Reader-fence и восстановление | SSH-исполнитель под maintenance lock | Корректный owner/quiescent bootstrap, свежая согласованная копия, независимый restore и previous-runtime proof |
+| Reader-fence и восстановление | Root под maintenance lock | Корректный owner/quiescent bootstrap, свежая согласованная копия, независимый restore и previous-runtime proof |
 | Допуск | Root | READY для exact SHA после source/live/restore gates; не обещание выпуска |
-| Выпуск и приёмка | SSH-исполнитель; Root сверяет | Установленный exact SHA, domain/browser/API/Word readback, сохранённый rollback |
+| Выпуск и приёмка | Root; независимое source review до запуска | Установленный exact SHA, domain/browser/API/Word readback, сохранённый rollback |
 
 Каждая зависимость привязана к конечному ID, SHA/revision, исполнителю,
 проверяемому выходу и конкретному блокеру. Новый SHA или источник повторяет
