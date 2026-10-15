@@ -131,6 +131,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build server and report engine image
         run: docker build -f deploy/Dockerfile.server -t aemr-server:ci .
+      - name: Verify real container backup producer against strict release reader
+        run: |
+          docker run --rm --network none --read-only --user 0 --memory 256m \
+            --tmpfs /tmp:rw,nosuid,size=128m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/candidate,readonly" \
+            --entrypoint /opt/report-env/bin/python aemr-server:ci -B \
+            /candidate/.github/ci/test_release_controller.py \
+            ControllerTests.test_real_backup_writer_meets_release_reader_contract_with_container_umask
       - name: Verify installed publication reader
         run: |
           docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \

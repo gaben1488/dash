@@ -129,6 +129,7 @@ def _stream_compressed_state(source: Path, output, files: dict, max_bytes: int, 
 def _compress_state(source: Path, archive: Path, files: dict, max_bytes: int, compression_level: int = 9) -> None:
     """Stream a full copy; refuse to consume the caller's free-space reserve."""
     with archive.open("xb") as output:
+        os.fchmod(output.fileno(), 0o600)
         _stream_compressed_state(source, output, files, max_bytes, compression_level)
         output.flush()
         os.fsync(output.fileno())
@@ -265,6 +266,7 @@ def create(source: Path, backup: Path, *, compressed: bool = False, reserve_scra
                             archive_bytes=(staging / "state.tar.gz").stat().st_size)
         receipt = staging / "manifest.json"
         with receipt.open("x", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
             json.dump(manifest, stream, ensure_ascii=False, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())

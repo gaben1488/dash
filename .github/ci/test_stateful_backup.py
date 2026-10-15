@@ -49,6 +49,19 @@ class StatefulBackupTests(unittest.TestCase):
             [sys.executable, str(SCRIPT), command, *map(str, args)],
             text=True, capture_output=True, timeout=25, check=False)
 
+    def test_generated_archive_and_manifest_are_private_under_container_umasks(self):
+        import os
+        import stat
+        for mask in (0o022, 0):
+            with self.subTest(umask=mask):
+                target=self.backup.with_name('backup-'+str(mask))
+                previous=os.umask(mask)
+                try:self.module.create(self.source,target,compressed=True,compression_level=1)
+                finally:os.umask(previous)
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode),0o700)
+                for name in ('manifest.json','state.tar.gz'):
+                    self.assertEqual(stat.S_IMODE((target/name).stat().st_mode),0o600,name)
+
     def full_backup(self, compressed=True):
         import hashlib
         self.module.create(self.source,self.backup,compressed=compressed)

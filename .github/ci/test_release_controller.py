@@ -338,6 +338,15 @@ class ControllerTests(TrialTests):
             with self.subTest(mount=mount), self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_SAVED_RUNTIME_MISMATCH'):
                 self.controller._saved_runtime(self.plan, {'web': altered}, resolved)
 
+    def test_real_backup_writer_meets_release_reader_contract_with_container_umask(self):
+        import os
+        fresh=self.fixture.backup.with_name('container-default-umask-backup')
+        previous=os.umask(0o022)
+        try:self.fixture.backup_tool.create(self.fixture.source,fresh,compressed=True,compression_level=1)
+        finally:os.umask(previous)
+        body=self.fixture.module.read_owned(fresh/'manifest.json',128*1024*1024)
+        self.assertEqual(json.loads(body)['files'],self.fixture.backup_tool.inventory(self.fixture.source))
+
     def test_stage_captures_actual_private_configuration_without_runtime_mutation(self):
         self.stage_fixture()
         self.assertTrue(hasattr(self.controller, 'stage'), 'Trusted fixed-path stage producer is missing')
