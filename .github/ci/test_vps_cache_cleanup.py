@@ -137,6 +137,12 @@ class SupersededBackupTests(unittest.TestCase):
             elif scenario in ('symlink-second', 'dangling-second'):
                 originals[1].unlink()
                 originals[1].symlink_to(retained / 'state.tar.gz' if scenario == 'symlink-second' else root / 'missing')
+            elif scenario == 'dangling-parent-second':
+                folder = originals[1].parent
+                saved = folder.with_name('saved-receipt')
+                folder.rename(saved)
+                folder.symlink_to(root / 'missing-directory', target_is_directory=True)
+                originals[1] = saved / 'state.tar.gz'
             program = (program.replace('/home/aemr/.dash-private-backups', str(base))
                        .replace('/var/lib/aemr', str(root / 'runtime'))
                        .replace('/run/lock/aemr-maintenance.lock', str(root / 'lock'))
@@ -160,7 +166,7 @@ class SupersededBackupTests(unittest.TestCase):
         self.exercise('valid')
 
     def test_refuse_before_any_delete_when_retained_proof_or_custody_is_invalid(self):
-        for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second', 'dangling-second'):
+        for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second', 'dangling-second', 'dangling-parent-second'):
             with self.subTest(scenario=scenario):
                 self.exercise(scenario)
 
