@@ -559,7 +559,18 @@ jobs:
                                 while frame:
                                     if frame.tb_frame.f_code.co_name=='_saved_runtime':comparison_line=frame.tb_lineno
                                     frame=frame.tb_next
+                                image_config=json.loads(executor.command(['image','inspect',binding['images'][role]]))[0].get('Config',{})
+                                def shape(item):
+                                    return {'type':type(item).__name__,'empty':not bool(item),
+                                        'length':len(item) if isinstance(item,(str,list)) else None}
+                                fields=[]
+                                for compose_key,docker_key in [('command','Cmd'),('entrypoint','Entrypoint'),('user','User'),('working_dir','WorkingDir')]:
+                                    expected=resolved['services'][role].get(compose_key,image_config.get(docker_key))
+                                    actual=value['Config'].get(docker_key)
+                                    fields.append({'field':docker_key,'declared':compose_key in resolved['services'][role],
+                                        'expected':shape(expected),'actual':shape(actual),'equal':expected==actual})
                                 outcomes.append({'role':role,'result':'MISMATCH','comparison_line':comparison_line,
+                                    'configuration_shapes':fields,
                                     'error_code':str(error) if isinstance(error,recovery.RecoveryError) and str(error) in
                                         {'RELEASE_SAVED_RUNTIME_MISMATCH','RELEASE_COMMAND_FAILED','RELEASE_OWNED_FILE_INVALID'} else None,
                                     'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'})
