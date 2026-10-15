@@ -29,7 +29,7 @@ class WorkerQuarantineWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             state, volume, trusted = root / 'state', root / 'volume', root / 'trusted'
-            for path in (state, volume / 'reports/archives', trusted / 'deploy'):
+            for path in (state, volume / 'reports/archives', trusted, trusted / 'deploy'):
                 path.mkdir(parents=True, mode=0o700)
             (trusted / 'deploy/worker_recovery.py').write_bytes(SCRIPT.read_bytes())
             (trusted / 'deploy/worker_recovery.py').chmod(0o775)
@@ -124,7 +124,7 @@ else:sys.exit(97)
             calls = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
             stops = [args for args in calls if args[0] in {'stop', 'start', 'restart', 'run', 'compose'}]
             if scenario.startswith('valid'):
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(stops, [['stop', '--time', '75', worker]])
                 self.assertEqual(json.loads((state / 'worker-quarantine/quarantine.json').read_text())['state'], 'WORKER_OOM_QUARANTINED')
                 self.assertEqual(result.stdout.strip(), 'WORKER_OOM_QUARANTINED')

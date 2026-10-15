@@ -64,7 +64,10 @@ Exact-source CI38697094046: TS/tests/build и production image PASS; Python
 job116296228947 выявил столкновение тестов с общей /run/lock блокировкой
 после перехода sudo. Изолированы временные lock paths и в fixture helper,
 и в RecoveryTests; production lock/допуски не меняются. Повторный exact-SHA
-CI обязателен до offline cleanup и выпуска.
+CI обязателен до offline cleanup и выпуска. Последующий38698870595
+подтвердил исправление общей блокировки и выявил зависимость fixture trusted
+parent от umask: Ubuntu022 создавал755 вместо требуемого700. Явное создание
+private parent воспроизводится RED при022, затем GREEN без изменения runtime.
 Сначала offline recovery закрепляет сохранённый weekly input, затем retention
 удаляет только прежние transient payloads; процесс изолирован от API, без сети,
 сам удерживает реальный EX и ограничен420s. Native old-code+3module cold smoke,
