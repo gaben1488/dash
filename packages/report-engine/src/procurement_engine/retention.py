@@ -135,6 +135,7 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
 
     current = _load_json(state / "status.json") or {}
     current_id = current.get("attempt_id") if isinstance(current.get("attempt_id"), str) else None
+    del current
     sealed_days, weekly_source_attempts = _sealed_week_evidence(state)
     valid: list[tuple[Path, dict[str, Any]]] = []
     protected: set[str] = set(weekly_source_attempts)
@@ -148,7 +149,8 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
         if status is None or status.get("attempt_id") != root.name:
             malformed += 1
             continue
-        valid.append((root, status))
+        # Preserve status files, but retain only fields used by this plan in memory.
+        valid.append((root, {key: status.get(key) for key in ("finished_at", "started_at", "report_date")}))
         if root.name == current_id:
             protected.add(root.name)
         day = _report_day(status.get("report_date"))
