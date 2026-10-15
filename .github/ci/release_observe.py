@@ -98,8 +98,35 @@ def image_space_census():
   tags=v.get('RepoTags') or []
   print(json.dumps({'image_space':{'id':v['Id'],'bytes':v['Size'],'referenced':v['Id'] in references,'source':sha if isinstance(sha,str) and re.fullmatch('[a-f0-9]{40}',sha) else None,'release_tags':[t for t in tags if re.fullmatch('aemr-(server|web):release-[a-f0-9]{40}',t)],'tag_count':len(tags)}}),flush=True)
 
+def report_space_census():
+ root=Path('/var/lib/docker/volumes/aemr_server_data/_data/reports')
+ for name in ('attempts','published','archives','inputs'):
+  path=root/name
+  result=subprocess.run(['du','-sx','-B1','--',str(path)],capture_output=True,text=True,timeout=25,check=False)
+  field=result.stdout.partition('\t')[0].strip()
+  print(json.dumps({'report_space':{'kind':name,'bytes':int(field) if result.returncode==0 and field.isdigit() else None}}),flush=True)
+ large=[]
+ for directory in (root/'attempts').iterdir():
+  if directory.is_symlink() or not directory.is_dir():continue
+  result=subprocess.run(['du','-sx','-B1','--',str(directory)],capture_output=True,text=True,timeout=15,check=False)
+  field=result.stdout.partition('\t')[0].strip()
+  if result.returncode or not field.isdigit() or int(field)<10*1024**2:continue
+  status=directory/'status.json';value={}
+  if status.is_file() and not status.is_symlink() and status.stat().st_size<1024**2:
+   try:value=json.loads(status.read_bytes())
+   except (ValueError,TypeError):pass
+  if not isinstance(value,dict):value={}
+  known={'capture.json','bundle','status.json','error.json','failure-status.json','snapshot_bundle','report_model.json','identity.sqlite','identity.sqlite-wal','identity.sqlite-shm'}
+  items=[]
+  for child in directory.iterdir():
+   result=subprocess.run(['du','-sx','-B1','--',str(child)],capture_output=True,text=True,timeout=15,check=False)
+   field=result.stdout.partition('\t')[0].strip()
+   items.append({'kind':child.name if child.name in known else 'OTHER','name_sha256':hashlib.sha256(child.name.encode()).hexdigest(),'bytes':int(field) if result.returncode==0 and field.isdigit() else None,'symlink':child.is_symlink()})
+  large.append({'id':directory.name if re.fullmatch('[a-f0-9]{32}',directory.name) else hashlib.sha256(directory.name.encode()).hexdigest(),'bytes':int(subprocess.check_output(['du','-sx','-B1','--',str(directory)],text=True,timeout=15).split()[0]),'status_matches':value.get('attempt_id')==directory.name,'state':value.get('state') if value.get('state') in {'RUNNING','NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS','FAILED'} else None,'items':items})
+ print(json.dumps({'large_attempts':large}),flush=True)
+
 def main():
- image_space_census()
+ report_space_census()
  recovery_preflight()
  print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
  for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
