@@ -284,15 +284,19 @@ class FailedCandidateImagesTests(unittest.TestCase):
             '211fac62b9ce1b2fb9a3628c1b04e998db5256b0': [('server','2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071'),('web','071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5')],
             'eba8f147a1098a7d14dfaefc442055fbcdfa93f2': [('server','733a007deba806f72741b09b9fc52de12f2a8b32124c9abb49b18c2408830c18'),('web','236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e')],
             'f864d5309e5df761c2974d700165063ed693e521': [('server','336cd9b583eb8d4dd0d0967563643e62816701a93c949315bcb15a8286189e54'),('web','c0b78a11a7ca7e1ba573257dd2747306ff45cc2bc11ea159cdd9100ebc89e412')],
+            'b8e98ec5b255bf32d1aafb68a7e5d1e018db3e7b':[('server','a1df67e07481a7fca228261b9553bb25a74c82410a27921c2175fcb1ffc58d56'),('web','7f4507b81634ea968f66805a518f378e27d8aaadfdcd1a0f85e0dbe2c4f4ac10')],
+            'fe1979b5b5f8c8de2443c09a3cb952b7e1563513':[('server','e120405deaeb00066fc00f22cbd46b5b93840a9d0e5c78e8a2123b74010d3bd9'),('web','9290cbfe1e201b9c6cc7dd62eda2b3dbc9109bfe84729725e40ffd763646911a')],
         }.items():
             for role, identity in pairs:
                 tag='aemr-'+role+':release-'+revision
                 images[tag]={'Id':'sha256:'+identity,'RepoTags':[tag],'Config':{'Labels':{'org.opencontainers.image.revision':revision}}}
+        newest=images['aemr-server:release-fe1979b5b5f8c8de2443c09a3cb952b7e1563513']
+        if scenario=='latest-other-tag':newest['RepoTags'].append('aemr-server:previous')
         if scenario=='retagged':next(iter(images.values()))['Id']='sha256:'+'f'*64
         if scenario=='other-tag':next(iter(images.values()))['RepoTags'].append('aemr-server:previous')
         if scenario=='foreign-source':next(iter(images.values()))['Config']['Labels']['org.opencontainers.image.revision']='f'*40
         protected=[{'Id':'container','Name':'/aemr-server-1',
-            'Image':next(iter(images.values()))['Id'] if scenario=='in-use' else 'sha256:protected',
+            'Image':newest['Id'] if scenario=='latest-in-use' else next(iter(images.values()))['Id'] if scenario=='in-use' else 'sha256:protected',
             'Mounts':[{'Destination':'/a'},{'Destination':'/b'}],
             'State':{'Status':'running','StartedAt':'stable','Health':{'Status':'healthy','Log':[]}}}]
         def command(args, **kwargs):
@@ -321,14 +325,14 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
                     with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
-        self.assertEqual(len(removed),12 if scenario in ('valid','mount-order','health-history') else 0)
+        self.assertEqual(len(removed),16 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
         for scenario in ('valid','mount-order','health-history'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
     def test_live_rollback_retagged_and_foreign_images_are_protected(self):
-        for scenario in ('in-use','retagged','other-tag','foreign-source'):
+        for scenario in ('in-use','retagged','other-tag','foreign-source','latest-in-use','latest-other-tag'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
 

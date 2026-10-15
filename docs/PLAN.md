@@ -10,11 +10,14 @@
 Release38783450204/job116589292790, sourcefe1979b5: sourceCI3jobs/image roundtrip/
 environment/real Word envelope/capacity runner PASS. Fresh backup18:18:50–18:28:51UTC
 FAILED; independent restore/deploy SKIPPED; same-owner resume PASS, old API200.
-Новая версия НЕ установлена. Private prepare.log сохранён на VPS; точная причина
-ещё читается, недостаток места пока гипотеза. Отдельно воспроизведён дефект admission:
+Новая версия НЕ установлена. Private prepare.log сохранён на VPS; причина
+подтверждена readback38787930739/job116604662441: BACKUP_STORAGE_INSUFFICIENT,
+transport timeout/closed=false; VPSfree5916561408B. Воспроизведён дефект admission:
 4GiB floor пропускает VPS5.9GiB при archive forecast6.9GiB. Admission теперь проверяет
 SHA-bound previous manifest/archive+logical growth+margin+1GiB reserve до API freeze;
 это прогноз, не backup proof. Writer reserve/fresh complete restore сохранены.
+Только два terminal failed/never-deployed image набора b8/fe добавлены в exact-ID
+retirement; no-force/reference/OCI-label/runtime guards сохранены.
 Public failure classifier теперь извлекает только allowlisted codes и из JSON,
 private payload не публикуется. 3 regressions RED→GREEN;25 cleanup tests PASS.
 Short native38782931719/job116587507527: candidate200/3482ms, unchanged previous
