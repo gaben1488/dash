@@ -66,8 +66,8 @@ def main():
     expected = executor._acceptance(plan)
     progress_path = r.STATE_DIR / 'release-recovery-progress.json'
     accepted_path = r.STATE_DIR / 'release-accepted.json'
-    progress = json.loads(r.read_owned(progress_path)) if progress_path.exists() else None
-    durable = json.loads(r.read_owned(accepted_path)) if accepted_path.exists() else None
+    progress = json.loads(r.read_owned(progress_path)) if os.path.lexists(progress_path) else None
+    durable = json.loads(r.read_owned(accepted_path)) if os.path.lexists(accepted_path) else None
     if progress is not None:
         assert r.validate_progress(progress) == {'plan_sha256': plan_hash, 'phase': 'candidate_accept', 'acceptance': expected}
     if durable is not None:
@@ -76,7 +76,12 @@ def main():
         assert r.validate_plan(json.loads(r.read_owned(r.PENDING))) == plan
         assert durable is None or progress is not None
     else:
-        assert durable is not None and progress is None
+        assert durable is not None
+        if progress is not None:
+            # Existing pinned recovery retires only the matching completed
+            # progress after a crash between pending/progress unlink.
+            assert executor.recover() is None
+            progress = None
     assert plan['backup_reference'] == 'worker-' + RUN + '/backup'
     assert plan['original_running']['report-worker'] is False
     _, config = executor._files(plan, candidate_runtime=True)
