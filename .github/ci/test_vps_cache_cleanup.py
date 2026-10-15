@@ -116,6 +116,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
             '30cfd6914a60eddfde3f85fcc9528307b484ef92': [('server','e711a93ad863d192329ca3d2cb1434f95bcdb54045e2372941782a6c3b14b284'),('web','15f96a15c16caa947772ff5102a413a535cf7a32fc9ec578dec8a20d27c0573a')],
             '2d865fe1d3f86c741392b7bbc9cd91e991aeb286': [('server','7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4'),('web','6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295')],
             'b28ad02083c016d8fb920f8091d1490fcb6f0843': [('server','6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4'),('web','d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b')],
+            '211fac62b9ce1b2fb9a3628c1b04e998db5256b0': [('server','2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071'),('web','071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5')],
         }.items():
             for role, identity in pairs:
                 tag='aemr-'+role+':release-'+revision
@@ -153,7 +154,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
                     with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
-        self.assertEqual(len(removed),6 if scenario in ('valid','mount-order','health-history') else 0)
+        self.assertEqual(len(removed),8 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
         for scenario in ('valid','mount-order','health-history'):

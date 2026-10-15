@@ -351,6 +351,99 @@ jobs:
                     'free_before_bytes':before,'free_after_bytes':shutil.disk_usage(base).free,
                     'retained_accepted_run':38349415596}))
             PY
+  release-configuration-permissions:
+    if: >-
+      github.event.label.name == 'maintenance: release-configuration-permissions' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Tighten only known configuration permissions and exercise the full stage producer
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PYPERMISSIONS'
+            import fcntl,hashlib,importlib.util,json,os,stat,subprocess,sys,urllib.request
+            from pathlib import Path
+            tools=Path('/usr/local/libexec/aemr');operator=Path('/home/aemr/dash/deploy')
+            source='211fac62b9ce1b2fb9a3628c1b04e998db5256b0'
+            def command(args):return subprocess.check_output(['docker',*args],text=True,timeout=45)
+            def records():return json.loads(command(['inspect',*[f'aemr-{role}-1' for role in ('server','web','caddy','report-worker')]]))
+            def stable(values):
+                return [{**{k:v[k] for k in ('Id','Image','Config','HostConfig','RestartCount')},
+                    'Mounts':sorted(json.dumps(m,sort_keys=True) for m in v['Mounts']),
+                    'State':{k:v['State'].get(k) for k in ('Status','StartedAt','OOMKilled')}} for v in values]
+            try:
+                assert os.geteuid()==0
+                for name in ('release-controller.py','release_recovery.py','release_trial.py'):
+                    expected=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',
+                        'show',source+':deploy/'+name],timeout=20)
+                    assert hashlib.sha256((tools/name).read_bytes()).digest()==hashlib.sha256(expected).digest()
+                sys.path.insert(0,str(tools))
+                import release_recovery as recovery
+                spec=importlib.util.spec_from_file_location('approved_controller',tools/'release-controller.py')
+                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                def read_api(path):
+                    with urllib.request.urlopen('https://api.github.com/repos/gaben1488/dash'+path,timeout=25) as response:return json.load(response)
+                run=read_api('/actions/runs/38713137344');jobs=read_api('/actions/runs/38713137344/jobs?per_page=100')['jobs']
+                ci={'run':{k:run[k] for k in ('head_sha','name','event','path','head_repository')},
+                    'jobs':[{k:j[k] for k in ('name','status','conclusion')} for j in jobs]}
+                fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
+                if fd!=9:os.dup2(fd,9);os.close(fd)
+                with os.fdopen(9,'r+') as lock:
+                    fcntl.flock(9,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    executor=recovery.ReleaseRecovery();controller=module.ReleaseController(executor)
+                    controller._idle()
+                    assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+                    before=records()
+                    assert before[0]['Id']=='de0233d9a09c82cfc48c6813765e833bf60ff3e5b875b2efaad2a9ac62cd57f0'
+                    assert before[0]['State']['Status']=='running' and before[0]['State'].get('Health',{}).get('Status')=='healthy'
+                    assert before[3]['Id']=='f32669a940b4e2c74d6166d59600c398a067a297ed694deeb8cf80d259d2488d'
+                    assert before[3]['State']['Status']=='exited'
+                    resolved=json.loads(executor.command(['compose','--project-directory',str(operator),
+                        '--env-file',str(operator/'.env.production'),'-f',str(operator/'docker-compose.yml'),
+                        '--profile','reports','config','--format','json']).replace('$$','$'))
+                    binding={'images':{v['Config']['Labels']['com.docker.compose.service']:v['Image'] for v in before}}
+                    controller._saved_runtime(binding,{v['Config']['Labels']['com.docker.compose.service']:v for v in before},resolved)
+                    controller._operator_file(operator/'.env.production',private=True)
+                    changed=0
+                    for name in ('docker-compose.yml','Caddyfile'):
+                        path=operator/name
+                        assert not any(p.is_symlink() for p in (path,*path.parents))
+                        with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+                            info=os.fstat(file.fileno())
+                            assert stat.S_ISREG(info.st_mode) and info.st_nlink==1 and info.st_uid in {0,operator.stat().st_uid}
+                            assert info.st_size<=1024*1024 and stat.S_IMODE(info.st_mode) in {0o600,0o640,0o644,0o664}
+                            body=file.read()
+                            if stat.S_IMODE(info.st_mode)==0o664:os.fchmod(file.fileno(),0o644);changed+=1
+                            after=os.fstat(file.fileno())
+                            assert (info.st_ino,info.st_uid,info.st_gid)==(after.st_ino,after.st_uid,after.st_gid)
+                            assert path.read_bytes()==body
+                        controller._operator_file(path)
+                    images={role:json.loads(command(['image','inspect','aemr-'+role+':release-'+source]))[0]['Id'] for role in ('server','web')}
+                    result=controller.stage({'release_sha':source,'candidate_images':images,'source_ci':ci})
+                    assert result['state']=='RELEASE_CONFIGURATION_STAGED'
+                    assert stable(records())==stable(before)
+                    print(json.dumps({'status':'CONFIGURATION_PERMISSIONS_AND_FULL_STAGE_PASS','files_tightened':changed,
+                        'candidate_sha':source,'runtime':'UNCHANGED','backup_or_deployment':False}))
+            except Exception as error:
+                print('CONFIGURATION_PERMISSION_PREFLIGHT_REJECTED')
+                if str(error) in {'RELEASE_OPERATOR_FILE_INVALID','RELEASE_SAVED_RUNTIME_MISMATCH','RELEASE_COMMAND_FAILED','RELEASE_IMAGE_SOURCE_INVALID'}:print(str(error))
+                else:print(type(error).__name__)
+                raise SystemExit(2) from None
+            PYPERMISSIONS
   release-tool-diagnostics:
     if: >-
       github.event.label.name == 'maintenance: release-tool-diagnostics' &&
@@ -1703,7 +1796,7 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843')]:
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0')]:
               info=read('/actions/runs/'+str(run))
               assert info['head_sha']==sha and info['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
@@ -1744,7 +1837,9 @@ jobs:
                 'aemr-server:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4',
                 'aemr-web:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295',
                 'aemr-server:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4',
-                'aemr-web:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b'}
+                'aemr-web:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b',
+                'aemr-server:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071',
+                'aemr-web:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5'}
             try:
                 assert os.geteuid()==0
                 with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:

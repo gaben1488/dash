@@ -7,6 +7,19 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Run38713292021/source211fac62: exact3sourceCI38713137344, одинаковый Docker29.1.3/
+containerd, privileged daemon endpoint и реальный двухсторонний canary PASS.
+Новые image IDs сохранены на VPS. Build/latestWord PASS; stage отказал
+RELEASE_SAVED_RUNTIME_MISMATCH ДО freeze/backup/deploy. API не останавливался.
+Read-only38715327033/116356490773 подтвердил точную причину: operator Compose
+mode0664 (group-write) отклоняется _operator_file; по всем4runtime полная parity PASS.
+Прежняя диагностика проверяла параметры без допуска самого файла — пробел закрыт
+отрицательным fixture group-write→отказ при неизменной runtime parity.
+Следующий шаг: сужение только известных0664→0644 с сохранением bytes/uid/gid/inode,
+затем полный stage producer на существующих211 образах ДО новой сборки/остановки.
+Это не ослабление admission и не изменение конфигурационных значений.
+
+
 Обновление после b28ad020/run38707668118: source CI38707018941 (три
 обязательных job) и latest/3Word preflight PASS; stage снова отказал до freeze,
 backup и deploy, RELEASE_COMMAND_FAILED. Предыдущая null/default ошибка ниже
