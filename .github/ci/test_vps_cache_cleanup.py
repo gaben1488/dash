@@ -140,6 +140,23 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
                 exec(compile(public, '<public-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
             self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=RELEASE_CONTROLLER_FAILED\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\n')
 
+    def test_small_failure_phase_survives_a_full_private_log_budget(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        private, _ = self.programs()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'release';root.mkdir()
+            for index in range(40):(root / f'{index:02}.log').write_text('x' * 200000)
+            phase = {'state':'FROZEN_TRIAL_REPLAY_FAILED','phase':'verify_restored_documents_and_sqlite'}
+            (root / 'trial-phase.log').write_text(json.dumps(phase))
+            with patch.dict(os.environ, {'RUNNER_TEMP':temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
+                exec(compile(private,'<phase-preservation-fixture>','exec'),{})  # noqa: S102 - reviewed workflow fixture
+            captured = json.loads(output.getvalue())
+            self.assertIn('trial-phase.log',set(captured),'Full phase attribution was displaced by unrelated private logs')
+            self.assertEqual(json.loads(captured['trial-phase.log']),phase)
+            self.assertEqual(len(captured),32)
+
     def test_private_log_capture_is_bounded(self):
         import contextlib
         import io

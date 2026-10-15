@@ -49,6 +49,41 @@ class FrozenTrialReplayTests(unittest.TestCase):
             self.assertEqual(len(transferred), len(images), 'ssh consumed the batch input; only its first image reached the runner')
             self.assertTrue(all(any(image in call for call in transferred) for image in images))
 
+    def test_cli_proof_mode_preserves_release_binding_and_failed_runs_remain_private(self):
+        import contextlib
+        import io
+        import os
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        proof = {'state':'TRUSTED_RELEASE_TRIAL_PASS','plan_sha256':'PRIVATE_BINDING',
+                 'full_restore':{'sqlite_checked':2,'docx_checked':3}}
+        class Trial:
+            def run(self, plan):
+                if not accepted:raise ValueError('PRIVATE_FAILURE')
+                return proof
+        for accepted, release in ((True,True),(True,False),(False,True),(False,False)):
+            with self.subTest(accepted=accepted, release=release), tempfile.TemporaryDirectory() as temporary:
+                target = Path(temporary) / 'private.json'
+                modules = {'release_trial':SimpleNamespace(ReleaseTrial=Trial),
+                           'release_recovery':SimpleNamespace(RUNTIME_DIR=Path('/unused'),read_owned=lambda path:'{}')}
+                previous = os.umask(0o077)
+                try:
+                    with patch.dict(sys.modules, modules), patch.dict(os.environ, {'GITHUB_ACTIONS':'true','RUNNER_OS':'Linux'}), \
+                         patch.object(sys,'argv',['frozen_trial_replay.py',str(target),*(['--release-proof'] if release else [])]), \
+                         patch.object(sys,'path',sys.path.copy()), patch.object(sys,'dont_write_bytecode',True), \
+                         patch.object(self.module.os,'geteuid',return_value=0), contextlib.redirect_stdout(io.StringIO()) as output:
+                        status = self.module.main()
+                finally:os.umask(previous)
+                public = json.loads(output.getvalue())
+                self.assertEqual(status,0 if accepted else 2)
+                self.assertEqual(target.stat().st_mode & 0o777,0o600)
+                if accepted and release:self.assertEqual(public,proof)
+                else:self.assertNotIn('PRIVATE_',output.getvalue())
+                private = json.loads(target.read_text())
+                if accepted:self.assertEqual(private['proof'],proof)
+                else:self.assertIn('PRIVATE_FAILURE',private['private_trace'])
+
     def test_successful_trial_result_is_returned_without_fabricating_acceptance(self):
         proof = {'state': 'TRUSTED_RELEASE_TRIAL_PASS', 'private_release_id': 'PRIVATE_ID',
                  'full_restore': {'sqlite_checked': 2, 'docx_checked': 3}}

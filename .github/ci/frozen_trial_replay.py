@@ -3,6 +3,7 @@
 Never called on the VPS. Actual trial code, images, archive and native programs
 are unchanged. Only failed subprocess outputs and Python phase names are observed.
 """
+import argparse
 import json
 import os
 import subprocess
@@ -60,6 +61,10 @@ def public_summary(result):
 
 def main():
     assert os.geteuid() == 0 and os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_OS') == 'Linux'
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('private_result', type=Path)
+    parser.add_argument('--release-proof', action='store_true')
+    args = parser.parse_args()
     os.umask(0o077)
     sys.dont_write_bytecode = True
     sys.path.insert(0, '/usr/local/libexec/aemr')
@@ -67,11 +72,12 @@ def main():
     import release_trial
     plan = json.loads(r.read_owned(r.RUNTIME_DIR / 'trial-plan.json'))
     result = diagnose(release_trial.ReleaseTrial(), plan)
-    target = Path(sys.argv[1])
+    target = args.private_result
     with target.open('x', encoding='utf-8') as stream:
         os.fchmod(stream.fileno(), 0o600)
         json.dump(result, stream)
-    print(json.dumps(public_summary(result)))
+    emitted = result['proof'] if args.release_proof and result['state'] == 'FROZEN_TRIAL_REPLAY_PASS' else public_summary(result)
+    print(json.dumps(emitted, sort_keys=True))
     return 0 if result['state'] == 'FROZEN_TRIAL_REPLAY_PASS' else 2
 
 

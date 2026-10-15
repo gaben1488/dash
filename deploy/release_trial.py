@@ -53,7 +53,11 @@ try {
 }finally{await app.close();}
 console.log(candidate?'CANDIDATE_TRIAL_PASS':'PREVIOUS_TRIAL_PASS');
 process.exit(0);
-})().catch(()=>process.exit(2));'''
+})().catch(error=>{
+ const code=['auth','health','status','latest','schema','history','symlink','size','historyschema','word'].includes(error?.message)?error.message:'runtime';
+ console.error('NATIVE_TRIAL_FAILURE='+code);
+ process.exit(2);
+});'''
 
 
 def check_source_ci(plan):

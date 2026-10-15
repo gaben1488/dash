@@ -35,6 +35,25 @@ def bare_status(root, release_id):
     return value
 
 
+class NativeFailureEvidenceTests(unittest.TestCase):
+    def test_real_native_errors_are_classified_without_exposing_private_messages(self):
+        import ast
+        tree = ast.parse((ROOT / 'deploy/release_trial.py').read_text())
+        program = next(ast.literal_eval(node.value) for node in tree.body
+                       if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'NATIVE_PROGRAM' for target in node.targets))
+        for authorized, expected in ((False, 'auth'), (True, 'runtime')):
+            with self.subTest(authorized=authorized):
+                environment = {key:value for key,value in os.environ.items() if key != 'AEMR_API_KEY'}
+                if authorized:environment['AEMR_API_KEY'] = 'PRIVATE_SYNTHETIC_KEY'
+                synthetic = program.replace("import('./src/app.ts')", "Promise.reject(Error('PRIVATE_IMPORT_BODY'))")
+                result = subprocess.run(['node', '--eval', synthetic, 'candidate'], input='{}',
+                                        env=environment, capture_output=True, text=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, 'NATIVE_TRIAL_FAILURE=' + expected + '\n')
+                self.assertNotIn('PRIVATE_', result.stdout + result.stderr)
+
+
 @unittest.skipUnless(os.geteuid() == 0, 'real root ownership exercised by namespace wrapper')
 class TrialTests(unittest.TestCase):
     def setUp(self):

@@ -37,6 +37,17 @@ SDK29/privileged endpoint/cache admission переиспользованы;2 sub
 RED→GREEN,3archive/21cleanup/Ruff/actionlint PASS. Реальная причина исходного trial
 ещё открыта. Принятие replay не является текущим deployment или новым допуском.
 
+Закрывается источник повторной слепой диагностики: обычный controlled release
+теперь переиспользует тот же прозрачный runner helper с --release-proof. Success
+выдаёт исходный strict trial proof без переупаковки; отказ сохраняет private
+phase/trace/subprocess до cleanup, без изменения run/restore/native поведения.
+Большие тела остаются bounded tail128KiB; отдельная small phase summary имеет
+приоритет в лимите32 logs, чтобы не потерять целый JSON причины.
+Native catch выдаёт только exact allowlist кода проверки либо runtime, не error body.
+Real Node privacy RED→GREEN; root controller/trial45 PASS; CLI proof-binding/privacy
+RED→GREEN. Текущий running38740048799 продолжает исходный b8, эти новые исходники
+не выданы за его live-приёмку. SSH batch/real-executor урок включён в AGENTS.
+
 Коррекция процесса: следующий диагноз использует уже созданный immutable archive
 при работающем API. Read-only helper проверяет member/hash/attrs и SQLite+WAL,
 DOCX по одному в private scratch (reserve1GiB); источник и archive не переписывает.

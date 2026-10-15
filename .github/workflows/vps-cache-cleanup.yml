@@ -1829,7 +1829,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          sudo env GITHUB_ACTIONS=true RUNNER_OS=Linux python3 -B .github/ci/frozen_trial_replay.py \
+          sudo env GITHUB_ACTIONS=true RUNNER_OS=Linux python3 -EsB .github/ci/frozen_trial_replay.py \
             "$RUNNER_TEMP/release/replay-private.json" > "$RUNNER_TEMP/release/replay-public.log" \
             2> "$RUNNER_TEMP/release/replay-stderr.log" || status=$?
           cat "$RUNNER_TEMP/release/replay-public.log"
@@ -2674,8 +2674,19 @@ jobs:
           if type(m.get('bytes')) is not int or m['bytes']<0 or shutil.disk_usage('/var/lib/aemr').free<m['bytes']+2*1024**3:
            raise SystemExit('RELEASE_INDEPENDENT_SCRATCH_INSUFFICIENT')
           PY
-          sudo sh -c 'python3 -Es /usr/local/libexec/aemr/release_trial.py < /var/lib/aemr/release-runtime/trial-plan.json' \
-            > "$RUNNER_TEMP/release/trial-proof.json" 2> "$RUNNER_TEMP/release/trial.log" || { echo RELEASE_INDEPENDENT_TRIAL_FAILED; exit 2; }
+          trial_status=0
+          sudo env GITHUB_ACTIONS=true RUNNER_OS=Linux python3 -EsB .github/ci/frozen_trial_replay.py \
+            "$RUNNER_TEMP/release/trial-private.json" --release-proof \
+            > "$RUNNER_TEMP/release/trial-proof.json" 2> "$RUNNER_TEMP/release/trial.log" || trial_status=$?
+          # Retain the existing proof unchanged on success; keep attribution only
+          # in private failure evidence, before the runner removes its clone.
+          if sudo test -f "$RUNNER_TEMP/release/trial-private.json"; then
+            sudo cat "$RUNNER_TEMP/release/trial-private.json" > "$RUNNER_TEMP/release/trial-diagnostic.log"
+          fi
+          if test "$trial_status" != 0; then
+            cp "$RUNNER_TEMP/release/trial-proof.json" "$RUNNER_TEMP/release/trial-phase.log"
+            echo RELEASE_INDEPENDENT_TRIAL_FAILED; exit 2
+          fi
           # Never upload primary data, the archive, env, logs, or private receipts as artifacts.
           remote "sudo -n install -m 600 /dev/stdin /var/lib/aemr/release-runtime/trial-proof.json" \
             < "$RUNNER_TEMP/release/trial-proof.json"
@@ -2754,7 +2765,7 @@ jobs:
           import json,os
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'release'
-          files=sorted(root.glob('*.log'))[:32]
+          files=sorted(root.glob('*.log'),key=lambda p:(p.name!='trial-phase.log',p.name))[:32]
           print(json.dumps({p.name:p.read_bytes()[-131072:].decode('utf-8',errors='replace')
               for p in files if p.is_file() and not p.is_symlink()}))
           PY
