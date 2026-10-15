@@ -7,6 +7,15 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Retirement38779610733/job116576089163 PASS17:43UTC: ровно1 obsolete failed archive
+5226265010B удалён, свободно7401029632B; keeper38349415596/source/metadata/runtime
+сохранены. Это не удаление published reports и не принятие нового приложения.
+Expanded probe38779214354/job116574741499 завершился diagnostic timeout120s:
+совместный API+history не дал native/previous результата; зелёный job не является
+совместимостью. Fast API и unchanged previous теперь отделены от dedicated history
+process (1CPU/no app, numeric per-model progress);5tests с настоящей shared schema,
+v1/v2/missing-v2/v3/symlink и source guards PASS. Schema sources b8==current по git.
+
 Frozen b8 diagnostic закрыт как terminal FAILED/NOT ACCEPTED: после подтверждения
 SQL-дефекта его immutable app image устарел и не является кандидатом выпуска.
 Новый exact-head выпуск требует НОВУЮ full backup + independent native/in-place

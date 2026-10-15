@@ -68,29 +68,39 @@ const {createApp}=await import('./src/app.ts');const app=await createApp({logger
 try{
 const started=Date.now();const response=await app.inject({method:'GET',url:'/api/report-releases',headers:{authorization:'Bearer '+process.env.AEMR_API_KEY}});
 const summary={elapsed_ms:Date.now()-started,http_status:response.statusCode,bytes:response.rawPayload.length,backend_failures:failures.length};
-if(process.env.PROBE_HISTORY==='1'){
- const shared=await import('@aemr/shared');const history={models:0,invalid:0};
- function visit(root){
-  if(fs.lstatSync(root).isSymbolicLink())throw Error('UNSAFE_HISTORY');
-  for(const entry of fs.readdirSync(root,{withFileTypes:true})){
-   const file=root+'/'+entry.name;if(entry.isSymbolicLink())throw Error('UNSAFE_HISTORY');
-   if(entry.isDirectory())visit(file);
-   else if(entry.isFile()&&entry.name==='report_model.json'){
-    if(fs.statSync(file).size>134217728)throw Error('HISTORY_TOO_LARGE');
-    const model=JSON.parse(fs.readFileSync(file,'utf8'));history.models++;
-    if(model.automation_assurance!==undefined&&!shared.ReportAssuranceSchema.safeParse(model.automation_assurance).success)history.invalid++;
-   }
-  }
- }
- visit('/probe-history/releases');
- for(const name of fs.readdirSync('/probe-history/archives'))if(name.startsWith('WEEKLY-'))visit('/probe-history/archives/'+name);
- summary.history=history;
+if(process.env.PROBE_SCHEMA==='1'){
+ const shared=await import('@aemr/shared');
  summary.envelope_valid=shared.ReportReleaseStatusSchema.safeParse(JSON.parse(response.payload)).success;
 }
 fs.writeFileSync('/app/packages/server/data/probe-private.json',JSON.stringify({summary,failures}),{mode:0o600});
 console.log('NATIVE_STATUS_PROBE='+JSON.stringify(summary));
 }finally{await app.close();}process.exit(0);
 })().catch(error=>{console.error(error?.stack??'PROBE_RUNTIME_FAILED');process.exit(2);});'''
+
+
+HISTORY_PROGRAM = r'''(async()=>{
+const fs=await import('node:fs');const shared=await import('@aemr/shared');const history={models:0,invalid:0};
+function save(){
+ const file='/app/packages/server/data/probe-history-private.json';
+ fs.writeFileSync(file+'.tmp',JSON.stringify(history),{mode:0o600});fs.renameSync(file+'.tmp',file);
+}
+function visit(root){
+ if(fs.lstatSync(root).isSymbolicLink())throw Error('UNSAFE_HISTORY');
+ for(const entry of fs.readdirSync(root,{withFileTypes:true})){
+  const file=root+'/'+entry.name;if(entry.isSymbolicLink())throw Error('UNSAFE_HISTORY');
+  if(entry.isDirectory())visit(file);
+  else if(entry.isFile()&&entry.name==='report_model.json'){
+   if(fs.statSync(file).size>134217728)throw Error('HISTORY_TOO_LARGE');
+   const model=JSON.parse(fs.readFileSync(file,'utf8'));history.models++;
+   if(model.automation_assurance!==undefined&&!shared.ReportAssuranceSchema.safeParse(model.automation_assurance).success)history.invalid++;
+   save();
+  }
+ }
+}
+visit('/probe-history/releases');
+for(const name of fs.readdirSync('/probe-history/archives'))if(name.startsWith('WEEKLY-'))visit('/probe-history/archives/'+name);
+save();process.exit(0);
+})().catch(()=>{console.error('HISTORY_SCHEMA_PROBE_FAILED');process.exit(2);});'''
 
 
 def public_summary(outcomes):
@@ -103,12 +113,13 @@ def public_summary(outcomes):
     system_codes = [f['code'] for f in outcomes.get('failures',[]) if f.get('code') in
         {'ENOENT','EACCES','ETIMEDOUT','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','ENOBUFS'}]
     disk_full = 'sqlite3.OperationalError: database or disk is full' in bodies
-    return {'module_override_sha256':outcomes.get('module_override_sha256'),'sqlite_disk_full':disk_full,'diagnostic_only':True,'initializer_exit':outcomes.get('initializer',{}).get('returncode'),
+    return {'probe_id':outcomes.get('probe_id'),'module_override_sha256':outcomes.get('module_override_sha256'),'sqlite_disk_full':disk_full,'diagnostic_only':True,'initializer_exit':outcomes.get('initializer',{}).get('returncode'),
         'native_exit':outcomes.get('native',{}).get('returncode'),'summary':outcomes.get('summary'),
         'backend_codes':codes,'backend_exits':[f.get('code') if type(f.get('code')) is int else None for f in outcomes.get('failures',[])],
         'backend_killed':[f.get('killed') is True for f in outcomes.get('failures',[])],
         'python_errors':python_errors,'system_codes':system_codes,'timed_out':outcomes.get('timed_out') is True,
-        'previous_summary':outcomes.get('previous_summary')}
+        'previous_summary':outcomes.get('previous_summary'),'history':outcomes.get('history'),
+        'history_exit':outcomes.get('history_process',{}).get('returncode'),'phase':outcomes.get('phase')}
 
 
 def main():
@@ -148,6 +159,7 @@ def main():
                 '--env','SQLITE_PATH=/app/packages/server/data/aemr.db']
             image = plan['candidate_images']['server'];assert re.fullmatch(r'sha256:[a-f0-9]{64}',image)
             identity = uuid.uuid4().hex;name = 'aemr-status-probe-'+identity
+            outcomes['probe_id'] = identity
             common += ['--name',name,'--label','aemr.native-status-probe='+identity]
             common += ['--tmpfs','/tmp:rw,nosuid,nodev,size=128m']
             previous_common = common.copy()
@@ -168,15 +180,17 @@ def main():
                 outcomes['initializer'] = {'returncode':init.returncode,'stderr':init.stderr[-65536:]}
                 if init.returncode==0:
                     assert all(folder.is_dir() and not folder.is_symlink() for folder in (source/'published/releases',source/'archives'))
-                    historical = ['--env','PROBE_HISTORY=1','--mount',f'type=bind,src={source}/published/releases,dst=/probe-history/releases,readonly',
+                    historical = ['--mount',f'type=bind,src={source}/published/releases,dst=/probe-history/releases,readonly',
                                   '--mount',f'type=bind,src={source}/archives,dst=/probe-history/archives,readonly']
-                    result = subprocess.run([*common,*historical,'--entrypoint','./node_modules/.bin/tsx',image,'--eval',PROGRAM],
+                    outcomes['phase'] = 'candidate'
+                    result = subprocess.run([*common,'--env','PROBE_SCHEMA=1','--entrypoint','./node_modules/.bin/tsx',image,'--eval',PROGRAM],
                         capture_output=True,text=True,timeout=120,check=False)
                     outcomes['native'] = {'returncode':result.returncode,'stdout':result.stdout[-65536:],'stderr':result.stderr[-65536:]}
                     private = root/'probe-private.json'
                     if private.is_file():outcomes.update(json.loads(private.read_bytes()))
                     # Check the actual prior image unchanged, before a full trial.
                     prior_image = plan['images']['server'];assert re.fullmatch(r'sha256:[a-f0-9]{64}',prior_image)
+                    outcomes['phase'] = 'previous'
                     active_image = prior_image
                     prior = subprocess.run([*previous_common,
                         '--entrypoint','./node_modules/.bin/tsx',prior_image,'--eval',PROGRAM],
@@ -185,6 +199,13 @@ def main():
                     if prior.returncode==0:
                         outcomes['previous_receipt'] = json.loads(private.read_bytes())
                         outcomes['previous_summary'] = outcomes['previous_receipt'].get('summary')
+                    outcomes['phase'] = 'history'
+                    active_image = image
+                    history_common = common.copy();history_common[history_common.index('--cpus')+1] = '1.0'
+                    checked = subprocess.run([*history_common,*historical,'--entrypoint','./node_modules/.bin/tsx',image,'--eval',HISTORY_PROGRAM],
+                        capture_output=True,text=True,timeout=120,check=False)
+                    outcomes['history_process'] = {'returncode':checked.returncode,'stderr':checked.stderr[-65536:]}
+                    outcomes['phase'] = 'complete'
             except subprocess.TimeoutExpired as error:
                 outcomes['timed_out'] = True
                 outcomes['timeout_stderr'] = (error.stderr or b'')[-65536:].decode('utf8',errors='replace') if isinstance(error.stderr,bytes) else (error.stderr or '')[-65536:]
@@ -194,8 +215,10 @@ def main():
                     owned = json.loads(inspected.stdout)[0]
                     assert owned['Image']==active_image and owned['Config']['Labels'].get('aemr.native-status-probe')==identity
                     subprocess.run(['docker','rm','--force',name],capture_output=True,text=True,timeout=20,check=True)
+                history_receipt = root/'probe-history-private.json'
+                if history_receipt.is_file():outcomes['history'] = json.loads(history_receipt.read_bytes())
         # Keep the original failing receipt for comparison with the reviewed fix.
-        suffix = '-'+outcomes['module_override_sha256'] if outcomes.get('module_override_sha256') else ''
+        suffix = '-'+outcomes['module_override_sha256']+'-'+identity if outcomes.get('module_override_sha256') else ''
         target = base/('native-status-probe'+suffix+'.json')
         with target.with_suffix('.tmp').open('w') as stream:json.dump(outcomes,stream);stream.flush();os.fsync(stream.fileno())
         target.with_suffix('.tmp').replace(target)

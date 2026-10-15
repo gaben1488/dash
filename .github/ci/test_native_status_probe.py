@@ -11,6 +11,35 @@ from pathlib import Path
 
 
 class NativeStatusProbeTests(unittest.TestCase):
+    def test_history_uses_real_candidate_schema_and_keeps_only_counts(self):
+        import ast
+        tree = ast.parse(Path(__file__).with_name('native_status_probe.py').read_text())
+        program = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign)
+                       and any(isinstance(t,ast.Name) and t.id=='HISTORY_PROGRAM' for t in n.targets))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary);(root/'releases').mkdir();(root/'archives').mkdir()
+            assurance = {'contract':'actionable-assurance-v1','fully_automated':True,'user_action_count':0,
+                'engine_action_count':0,'active_recommendations':0,'link_status_counts':{},'action_status_counts':{},
+                'actions':[],'meaning':'PRIVATE'}
+            values = [assurance,{**assurance,'contract':'actionable-assurance-v2'},
+                      {**assurance,'contract':'actionable-assurance-v2','source_observations':[],
+                       'nonprocurement_identity_observations':0},{**assurance,'contract':'actionable-assurance-v3'}]
+            for index,value in enumerate(values):
+                folder = root/'releases'/str(index);folder.mkdir()
+                (folder/'report_model.json').write_text(json.dumps({'automation_assurance':value}))
+            rewritten = program.replace('/probe-history/',temporary+'/').replace('/app/packages/server/data',temporary)
+            server = Path(__file__).parents[2]/'packages/server'
+            result = subprocess.run(['./node_modules/.bin/tsx','--eval',rewritten],cwd=server,
+                                    capture_output=True,text=True,timeout=15,check=False)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(json.loads((root/'probe-history-private.json').read_bytes()),{'models':4,'invalid':2})
+            self.assertEqual(result.stdout,'');self.assertEqual(result.stderr,'')
+            (root/'releases/unsafe').symlink_to(root/'archives',target_is_directory=True)
+            result = subprocess.run(['./node_modules/.bin/tsx','--eval',rewritten],cwd=server,
+                                    capture_output=True,text=True,timeout=15,check=False)
+            self.assertEqual(result.returncode,2)
+            self.assertEqual(result.stderr.strip(),'HISTORY_SCHEMA_PROBE_FAILED')
+
     def test_remote_exec_accepts_exact_runner_file_hash_and_rejects_mismatch(self):
         import sys
         workflow = Path(__file__).parents[1]/'workflows/vps-cache-cleanup.yml'
