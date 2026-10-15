@@ -205,10 +205,17 @@ jobs:
               assert set(policy.get('services',{}))=={'server','web','report-worker','caddy'}
               assert all(item.get('container')=='aemr-'+role+'-1' for role,item in policy['services'].items())
               held=[]
+              deadline=time.monotonic()+150
               for path in (volume/'reports/run.lock',volume/'reports/archives/.weekly.lock'):
                regular(path,owner=None)
                handle=locks.enter_context(os.fdopen(os.open(path,os.O_RDWR|os.O_NOFOLLOW),'r+'))
-               fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB);held.append(handle.fileno())
+               while True:
+                try:
+                 fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+                except BlockingIOError:
+                 if time.monotonic()>=deadline:raise
+                 time.sleep(1)
+               held.append(handle.fileno())
               terminal={'NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS','FAILED','PLAN_CHANGED'}
               assert json.loads(read(volume/'reports/status.json',owner=None)).get('status') in terminal
               assert not any(p.is_symlink() for p in (session,*session.parents))

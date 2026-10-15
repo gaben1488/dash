@@ -49,6 +49,11 @@ worker_enabled=false отказывало до вызова предусмотр
 Устранено: принимается только boolean, true штатно отключается перед stop;
 false сохраняет bytes/inode, остальные policy fields сохраняются.
 27 worker checks PASS, включая enabled→disabled и invalid-type negative.
+Run38696631476 прошёл policy admission, но встретил временно занятый report
+lock. Для этого класса задан общий bounded150s retry только BlockingIOError;
+заклинившая блокировка по сроку всё ещё запрещает stop. Положительная
+проверка освобождения weekly lock и отрицательные busy-lock cases проходят.
+
 Остановка не объявляется выполненной до durable quarantine receipt.
 Сначала offline recovery закрепляет сохранённый weekly input, затем retention
 удаляет только прежние transient payloads; процесс изолирован от API, без сети,

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -96,8 +97,17 @@ else:sys.exit(97)
                        .replace('/home/aemr/.dash-private-backups', str(root / 'backups'))
                        .replace('/home/aemr/dash', str(root))
                        .replace('/var/lib/aemr', str(state))
+                       .replace('time.monotonic()+150', 'time.monotonic()+0.6')
+                       .replace('time.sleep(1)', 'time.sleep(0.02)')
                        .replace('9d47851385b612d245aeeca108435c76208d74d69b35bd012feb77da1288b5a9', hashlib.sha256(helper).hexdigest()))
             locks = []
+            timer = None
+            if scenario == 'valid-weekly-released':
+                import fcntl
+                handle = (volume / 'reports/archives/.weekly.lock').open('r+')
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB);locks.append(handle)
+                timer = threading.Timer(0.25, lambda: fcntl.flock(handle, fcntl.LOCK_UN))
+                timer.start()
             if scenario.startswith('busy-'):
                 import fcntl
                 path = {'busy-global': root / 'lock', 'busy-run': volume / 'reports/run.lock',
@@ -108,6 +118,7 @@ else:sys.exit(97)
                     text=True, timeout=10, check=False, env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
                     'PRIVATE_FIXTURE': str(root), 'PRIVATE_SCENARIO': scenario})
             finally:
+                if timer is not None:timer.join()
                 for handle in locks:handle.close()
             calls = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
             stops = [args for args in calls if args[0] in {'stop', 'start', 'restart', 'run', 'compose'}]
@@ -131,7 +142,7 @@ else:sys.exit(97)
             self.assertEqual(json.loads(status.read_text()), {} if scenario == 'missing-status' else {'status': 'RUNNING' if scenario == 'running-attempt' else 'NOT_ISSUED'})
 
     def test_quarantine_stops_only_the_exact_oom_worker_with_all_ex_locks(self):
-        for scenario in ('valid', 'valid-restarting', 'valid-policy-enabled'):
+        for scenario in ('valid', 'valid-restarting', 'valid-policy-enabled', 'valid-weekly-released'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
     def test_quarantine_rejects_before_stop_without_actual_oom_ownership_and_custody(self):
