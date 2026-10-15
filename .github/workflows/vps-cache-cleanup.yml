@@ -499,6 +499,61 @@ jobs:
                     observed.append({'event':event.get('Action') if event.get('Action') in ('die','oom') else 'OTHER',
                         'exit_code':int(code) if isinstance(code,str) and re.fullmatch(r'[0-9]{1,3}',code) else None})
                 print(json.dumps({'kind':'worker_exit_events','returncode':events.returncode,'events':observed[-20:]}))
+            # Only replay runtime comparisons, never stage, stop, write or restore.
+            import fcntl,importlib.util,time
+            tools=Path('/usr/local/libexec/aemr')
+            expected_sha='2d865fe1d3f86c741392b7bbc9cd91e991aeb286'
+            for name in ('release-controller.py','release_recovery.py','release_trial.py'):
+                expected=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash','show',
+                    expected_sha+':deploy/'+name],timeout=15)
+                assert hashlib.sha256((tools/name).read_bytes()).digest()==hashlib.sha256(expected).digest()
+            sys.path.insert(0,str(tools))
+            import release_recovery as recovery
+            spec=importlib.util.spec_from_file_location('stage_diagnostic_controller',tools/'release-controller.py')
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
+            if fd!=9:os.dup2(fd,9);os.close(fd)
+            with os.fdopen(9,'r+') as lock:
+                deadline=time.monotonic()+45
+                while True:
+                    try:fcntl.flock(9,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+                    except BlockingIOError:
+                        if time.monotonic()>=deadline:raise
+                        time.sleep(1)
+                executor=recovery.ReleaseRecovery();controller=module.ReleaseController(executor)
+                records={role:json.loads(executor.command(['inspect','aemr-'+role+'-1']))[0] for role in roles}
+                binding={'images':{role:value['Image'] for role,value in records.items()}}
+                sources=[('operator',[str(module.OPERATOR/'docker-compose.yml')])]
+                sources.extend(('private-'+str(index),[str(recovery.RUNTIME_DIR/name)]) for index,name in enumerate(
+                    ('candidate-resume.json','recovery-compose.json','compose.json','candidate-compose.json'))
+                    if (recovery.RUNTIME_DIR/name).is_file())
+                chains={tuple((value['Config'].get('Labels') or {}).get('com.docker.compose.project.config_files','').split(','))
+                    for value in records.values()}
+                sources.extend(('observed-'+str(index),list(chain)) for index,chain in enumerate(sorted(chains))
+                    if chain and all(Path(path).is_file() and not Path(path).is_symlink() for path in chain))
+                for label,paths in sources:
+                    try:
+                        args=['compose','--project-directory',str(module.OPERATOR),'--env-file',str(module.OPERATOR/'.env.production')]
+                        for path in paths:args.extend(['-f',path])
+                        resolved=json.loads(executor.command([*args,'--profile','reports','config','--format','json']).replace('$$','$'))
+                        outcomes=[]
+                        for role,value in records.items():
+                            try:
+                                controller._saved_runtime(binding,{role:value},resolved)
+                                outcomes.append({'role':role,'result':'PASS'})
+                            except Exception as error:
+                                frame=error.__traceback__
+                                while frame.tb_next:frame=frame.tb_next
+                                outcomes.append({'role':role,'result':'MISMATCH','comparison_line':frame.tb_lineno,
+                                    'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'})
+                        print(json.dumps({'kind':'stage_source_comparison','source':label,'source_files':len(paths),'outcomes':outcomes}))
+                    except Exception as error:
+                        print(json.dumps({'kind':'stage_source_comparison','source':label,'result':'UNAVAILABLE',
+                            'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'}))
+                after={role:json.loads(executor.command(['inspect','aemr-'+role+'-1']))[0] for role in roles}
+                assert all(all(value.get(key)==after[role].get(key) for key in ('Id','Image','Config','Mounts','RestartCount'))
+                    and value['State']['StartedAt']==after[role]['State']['StartedAt'] for role,value in records.items())
+                print('STAGE_DIAGNOSTICS_RUNTIME_UNCHANGED')
             PY
   backup-window-diagnostics:
     if: >-
@@ -1862,6 +1917,41 @@ jobs:
               sleep 2
             done
             test "$closed" = true || { echo RELEASE_RESUME_STILL_PENDING; exit 2; }
+          fi
+      - name: Preserve bounded private release failure evidence
+        if: failure()
+        run: |
+          # Keep bounded failure evidence privately before removing the runner.
+          # SSH keys and private configuration files are never copied or logged.
+          if test -f "$RUNNER_TEMP/release/ssh.sh"; then
+            . "$RUNNER_TEMP/release/ssh.sh"
+            python3 - <<'PY'
+          import ast,os
+          from pathlib import Path
+          allowed={'AEMR_MAINTENANCE_BUSY','AEMR_MAINTENANCE_LOCK_INVALID'}
+          for name in ('deploy/release-controller.py','deploy/release_recovery.py','deploy/release_trial.py'):
+              for node in ast.walk(ast.parse(Path(name).read_text())):
+                  if isinstance(node,ast.Call) and node.args and isinstance(node.args[0],ast.Constant):
+                      value=node.args[0].value
+                      if isinstance(value,str) and value.startswith(('RELEASE_','BACKUP_')) and value.replace('_','').isalnum():
+                          allowed.add(value)
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          found=set()
+          for path in root.glob('*.log'):
+              if path.is_file() and not path.is_symlink():
+                  found.update(line.strip() for line in path.read_bytes()[-131072:].decode('utf-8',errors='replace').splitlines()
+                      if line.strip() in allowed)
+          for code in sorted(found):print('PRIVATE_RELEASE_FAILURE_CODE='+code)
+          PY
+            remote sudo -n install -d -m 700 "/root/codex-fixes/release-$RECOVERY_RUN"
+            python3 - <<'PY' | remote sudo -n tee "/root/codex-fixes/release-$RECOVERY_RUN/runner-diagnostics.json" >/dev/null
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          files=sorted(root.glob('*.log'))[:32]
+          print(json.dumps({p.name:p.read_bytes()[-131072:].decode('utf-8',errors='replace')
+              for p in files if p.is_file() and not p.is_symlink()}))
+          PY
           fi
       - name: Remove private runner state and credentials
         if: always()

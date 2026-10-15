@@ -7,6 +7,18 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Текущая попытка2d865fe1/run38701054490 остановлена15.10 07:53UTC на stage,
+после успешных source CI38700873755 и live latest Word schema/preflight.
+Установщик теперь PASS. Freeze/backup/deploy не запускались; API не останавливался.
+Host-reserve38700906945 принят: ext4 reserved786405→157282 blocks (5%→1%),
++2 576 887 808 доступных байт, free6 154 686 464; runtime unchanged.
+Дефект процесса: private stage.log удалялся до диагностики. Исправляется сохранением
+ограниченных *.log в root-private VPS transport, отдельной always-очисткой ключей
+и выводом только известных фиксированных error codes. Read-only comparison
+реальных Compose sources добавлен в существующий diagnostics job; значения
+environment и содержимое источников не публикуются. Повторный rollout до диагноза
+не запускать. Новых пользовательских согласований или платных ресурсов не требуется.
+
 PR #79: source SHA `1118899d`, CI38692995115 — три обязательных
 source jobs PASS (включая C07 и memory fix); read-only runtime job не зелёный. Release38687954214
 прошёл сборку и настоящий latest/3Word preflight, но остановился ДО stage,

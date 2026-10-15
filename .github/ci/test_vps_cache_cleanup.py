@@ -56,6 +56,52 @@ class HostReserveTests(unittest.TestCase):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
 
+class ReleaseFailureEvidenceTests(unittest.TestCase):
+    def programs(self):
+        import re
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertTrue('      - name: Preserve bounded private release failure evidence\n' in workflow)
+        step = workflow.split('      - name: Preserve bounded private release failure evidence\n', 1)[1]
+        programs = re.findall(r"python3 - <<'PY'[^\n]*\n(.*?)\n          PY", step, re.DOTALL)
+        self.assertEqual(len(programs), 2, 'Private failure evidence must survive runner cleanup')
+        cleanup = step.split('      - name: Remove private runner state and credentials\n', 1)[1]
+        self.assertIn('if: always()', cleanup)
+        return [textwrap.dedent(program) for program in reversed(programs)]
+
+    def test_only_known_failure_codes_are_public_and_private_credentials_are_not_copied(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        private, public = self.programs()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'release';root.mkdir()
+            (root / 'stage.log').write_text('RELEASE_SAVED_RUNTIME_MISMATCH\nPRIVATE_BEARER_VALUE\nRELEASE_UNKNOWN_PRIVATE_VALUE\n')
+            (root / 'key').write_text('PRIVATE_SSH_VALUE')
+            (root / '.env.production').write_text('PRIVATE_ENV_VALUE')
+            with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
+                exec(compile(private, '<private-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
+            value = json.loads(output.getvalue())
+            self.assertEqual(set(value), {'stage.log'})
+            self.assertIn('PRIVATE_BEARER_VALUE', value['stage.log'])  # Preserved only in root-private transport.
+            with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
+                exec(compile(public, '<public-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
+            self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\n')
+
+    def test_private_log_capture_is_bounded(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        private, _ = self.programs()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'release';root.mkdir()
+            for index in range(40):(root / f'{index:02}.log').write_text('x' * 200000)
+            with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
+                exec(compile(private, '<bounded-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
+            value = json.loads(output.getvalue())
+            self.assertEqual(len(value), 32)
+            self.assertTrue(all(len(body) == 131072 for body in value.values()))
+
+
 class CacheCleanupTests(unittest.TestCase):
     def run_cleanup(self, scenario="normal"):
         self.assertTrue(SCRIPT.is_file(), "Missing cache-only maintenance implementation")
