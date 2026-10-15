@@ -140,7 +140,17 @@ jobs:
                name=Path(f"/proc/{pid}/comm").read_text().strip()
                holders.append({"pid":pid,"process":name if name in {"bash","sh","python","python3","flock","docker"} else "OTHER"})
               except (OSError,ValueError):pass
-             print(json.dumps({"maintenance_holders":holders}),flush=True)
+             for holder in holders:
+              try:
+               counters={}
+               for line in Path('/proc/'+str(holder['pid'])+'/io').read_text().splitlines():
+                key,value=line.split(':',1)
+                if key in {'rchar','wchar','read_bytes','write_bytes'} and value.strip().isdigit():counters[key]=int(value.strip())
+               holder['io_bytes']=counters
+               fields=Path('/proc/'+str(holder['pid'])+'/stat').read_text().rsplit(')',1)[1].split()
+               holder['cpu_ticks']=int(fields[11])+int(fields[12])
+              except (OSError,ValueError,IndexError):pass
+             print(json.dumps({'maintenance_holders':holders}),flush=True)
              counts={}
              for role in ("server","web","caddy","report-worker"):
               value=subprocess.check_output(["docker","ps","--all","--quiet","--no-trunc","--filter","label=com.docker.compose.project=aemr","--filter",f"label=com.docker.compose.service={role}","--filter","label=com.docker.compose.oneoff=False"],text=True,timeout=15)
