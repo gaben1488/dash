@@ -37,14 +37,14 @@ jobs:
           command_timeout: 2m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - <<'PY'
+            sudo -n python3 -IB - <<'PY'
             import json
             import os
             import re
             import stat
             import subprocess
             from pathlib import Path
-            
+
             SERVICES={"/aemr-"+name+"-1":name for name in ("server","web","caddy","report-worker")}
             OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
             def safe_record(value):
