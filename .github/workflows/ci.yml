@@ -45,7 +45,7 @@ jobs:
             import stat
             import subprocess
             from pathlib import Path
-            
+
             SERVICES={"/aemr-"+name+"-1":name for name in ("server","web","caddy","report-worker")}
             OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
             def safe_record(value):
@@ -88,7 +88,7 @@ jobs:
               print(json.dumps({'installed_tool':name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}),flush=True)
              free=os.statvfs('/var/lib/docker')
              print(json.dumps({'root_available_bytes':free.f_bavail*free.f_frsize}),flush=True)
-            
+
             def attempt_retention_plan():
              image='sha256:545fd2b3cf69d73f22cd4a3639d51b37dab582f6bf2e92e78075d22f7be59d25'
              value=json.loads(subprocess.check_output(['docker','image','inspect',image],text=True,timeout=15))[0]
@@ -101,7 +101,7 @@ jobs:
                if 'attempt_retention_plan' in x:print(json.dumps(x),flush=True)
               except (ValueError,TypeError):pass
              print(json.dumps({'attempt_retention_plan_exit':result.returncode}),flush=True)
-            
+
             def previous_reader_capabilities():
              image='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
              value=json.loads(subprocess.check_output(['docker','image','inspect',image],text=True,timeout=15))[0]
@@ -115,7 +115,7 @@ jobs:
                if 'previous_reader_capabilities' in x:print(json.dumps(x),flush=True)
               except (ValueError,TypeError):pass
              print(json.dumps({'previous_reader_capabilities_exit':result.returncode}),flush=True)
-            
+
             def host_space_census():
              paths=('/root/codex-fixes','/home/aemr/dash','/opt/aemr','/tmp','/var/tmp','/root/.cache','/home/aemr/.cache','/root/.local/share','/home/aemr/.local/share','/var/cache','/var/log','/home/aemr/.dash-private-backups')
              for path in paths:
@@ -124,7 +124,7 @@ jobs:
                field=result.stdout.partition('\t')[0].strip()
                print(json.dumps({'host_space_census':{'path':path,'bytes':int(field) if result.returncode==0 and field.isdigit() else None,'completed':result.returncode==0}}),flush=True)
               except subprocess.TimeoutExpired:print(json.dumps({'host_space_census':{'path':path,'completed':False}}),flush=True)
-            
+
             def main():
              host_space_census()
              recovery_preflight()
@@ -193,6 +193,6 @@ jobs:
               value=subprocess.check_output(["docker","ps","--all","--quiet","--no-trunc","--filter","label=com.docker.compose.project=aemr","--filter",f"label=com.docker.compose.service={role}","--filter","label=com.docker.compose.oneoff=False"],text=True,timeout=15)
               counts[role]=len(value.split())
              print(json.dumps({"same_filter_counts":counts}),flush=True)
-            
+
             if __name__=="__main__":main()
             PY
