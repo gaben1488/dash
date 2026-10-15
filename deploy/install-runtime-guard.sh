@@ -36,8 +36,12 @@ try:
   limits=item.get('limits',{})
   assert isinstance(limits,dict)
   for key in ('mem_limit','memswap_limit','mem_reservation','pids_limit','cpu_shares'):
-   if key in limits:assert type(limits[key]) is int and limits[key]>=(-1 if key in ('memswap_limit','pids_limit') else 0)
-  if 'cpus' in limits:assert type(limits['cpus']) in (int,float) and math.isfinite(limits['cpus']) and limits['cpus']>=0
+   if key in limits:
+    cap=limits[key]
+    # Compose JSON encodes byte limits as decimal strings; preserve approved bytes.
+    assert type(cap) is int or (type(cap) is str and cap==str(int(cap)))
+    assert int(cap)>=(-1 if key in ('memswap_limit','pids_limit') else 0)
+  if 'cpus' in limits:assert type(limits['cpus']) in (int,float,str) and math.isfinite(float(limits['cpus'])) and float(limits['cpus'])>=0
  print('PRESERVE')
 except Exception:
  print('RUNTIME_GUARD_POLICY_INVALID',file=sys.stderr);sys.exit(2)

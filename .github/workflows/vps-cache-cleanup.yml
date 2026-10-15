@@ -35,7 +35,7 @@ jobs:
           script: |
             set -euo pipefail
             sudo -n python3 -I - <<'PY'
-            import hashlib,json,os,stat,subprocess,sys
+            import hashlib,json,os,re,stat,subprocess,sys
             from pathlib import Path
             source=Path('/root/codex-fixes/release-38687954214/deploy/install-runtime-guard.sh')
             assert not any(p.is_symlink() for p in (source,*source.parents))
@@ -75,7 +75,46 @@ jobs:
                 if result.returncode:print(json.dumps({'service':role,'state':'UNAVAILABLE'}));continue
                 item=json.loads(result.stdout)[0];state=item['State']
                 print(json.dumps({'service':role,'state':state['Status'],'health':state.get('Health',{}).get('Status'),
-                    'oom':state['OOMKilled'],'restarts':item['RestartCount']}))
+                    'oom':state['OOMKilled'],'restarts':item['RestartCount'],'started_at':state.get('StartedAt'),
+                    'image':item['Image']}))
+                if role!='report-worker':continue
+                argv=item.get('Config',{}).get('Cmd') or []
+                modes=[v for v in argv if v in ('worker','run-google')]
+                print(json.dumps({'kind':'worker_command','subcommands':modes}))
+                logs=subprocess.run(['docker','logs','--tail','500','--since','30m',item['Id']],capture_output=True,timeout=15,check=False)
+                log=(logs.stdout+logs.stderr).decode(errors='replace')
+                classes={'ValueError','TypeError','KeyError','OSError','RuntimeError','PermissionError',
+                    'FileNotFoundError','PublicationError','GoogleReadError','OperationalError',
+                    'AttributeError','ImportError','ModuleNotFoundError','MemoryError','AssertionError'}
+                errors=sorted({v for v in re.findall(r'(?m)^(?:procurement_engine\.[a-z_]+\.)?([A-Za-z_][A-Za-z_0-9]*Error):',log) if v in classes})
+                modules={'runtime.py','worker.py','weekly_archive.py','retention.py','report_health.py',
+                    'publication_store.py','publication_reader.py','cli.py','google_adapter.py','identity_store.py',
+                    'raw_pipeline.py','archive_runtime.py','normalize.py'}
+                functions={'work','main','run_once','_write','_finish_attempt','record_attempt','_index','_fold',
+                    '_read','_instant','_past','_elapsed','recover_weekly_archives','maybe_seal_weekly_archive',
+                    'safe_compact_transient_attempts','apply_transient_attempt_retention','seal_weekly_archive',
+                    '_write_json','_sync_directory','_ready_root','__init__','reader_lease','<module>'}
+                frames=[{'module':m if m in modules else 'OTHER_MODULE','line':int(n),
+                    'function':f if f in functions else 'OTHER_FUNCTION'} for m,n,f in re.findall(
+                    r'/procurement_engine/([a-z_]+\.py)\", line ([0-9]+), in ([A-Za-z_][A-Za-z_0-9]*|<module>)',log)][-8:]
+                codes={'PUBLICATION_READER_LEASE_UNINITIALIZED','PUBLICATION_READER_BOOTSTRAP_FAILED',
+                    'PUBLICATION_CATALOG_UNSAFE','PUBLICATION_CATALOG_CORRUPT','ATTEMPT_RETENTION_FAILED',
+                    'REPORT_HEALTH_WRITE_FAILED','WEEKLY_ARCHIVE_SEAL_FAILED','SOURCE_CHANGED_BEFORE_PUBLICATION'}
+                found=sorted(c for c in codes if re.search(r'\b'+c+r'\b',log))
+                print(json.dumps({'kind':'worker_log_categories','exception_types':errors,'frames':frames,
+                    'codes':found,'traceback_count':log.count('Traceback (most recent call last)'),
+                    'log_bytes':len(log.encode())}))
+                from datetime import datetime,timezone
+                events=subprocess.run(['docker','events','--since','30m','--until',datetime.now(timezone.utc).isoformat(),
+                    '--filter','container='+item['Id'],'--filter','event=die','--filter','event=oom',
+                    '--format','{{json .}}'],capture_output=True,timeout=15,check=False)
+                observed=[]
+                for line in events.stdout.splitlines():
+                    event=json.loads(line);attributes=event.get('Actor',{}).get('Attributes',{})
+                    code=attributes.get('exitCode')
+                    observed.append({'event':event.get('Action') if event.get('Action') in ('die','oom') else 'OTHER',
+                        'exit_code':int(code) if isinstance(code,str) and re.fullmatch(r'[0-9]{1,3}',code) else None})
+                print(json.dumps({'kind':'worker_exit_events','returncode':events.returncode,'events':observed[-20:]}))
             PY
   backup-window-diagnostics:
     if: >-

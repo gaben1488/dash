@@ -139,7 +139,7 @@ def test_guard_installer_validates_volume_before_any_program_install(tmp_path):
     assert not log.exists()
 
 
-def isolated_guard_installer(tmp_path):
+def isolated_guard_installer(tmp_path, *, real_compose=False):
     """Real installer/EX/atomic files; every host path and daemon command private."""
     import shutil
     source = tmp_path / 'source' / 'deploy'
@@ -182,6 +182,8 @@ with open(os.environ['CALL_LOG'],'a') as file:file.write('DOCKER\\n')
 if sys.argv[1:3]==['volume','inspect']:
  print(json.dumps([{'Name':'aemr_server_data','Driver':'local','Options':None,'Mountpoint':os.environ['PRIVATE_VOLUME'],
   'Labels':{'com.docker.compose.project':'aemr','com.docker.compose.volume':'server_data'}}]))
+elif os.environ.get('PRIVATE_COMPOSE_DOCKER'):
+ os.execv(os.environ['PRIVATE_COMPOSE_DOCKER'],[os.environ['PRIVATE_COMPOSE_DOCKER'],*sys.argv[1:]])
 else:print(json.dumps({'services':{s:{'mem_limit':134217728} for s in ('server','web','report-worker','caddy')}}))
 """)
     docker.chmod(0o700)
@@ -192,12 +194,16 @@ else:print(json.dumps({'services':{s:{'mem_limit':134217728} for s in ('server',
     operator = tmp_path / 'operator'
     operator.mkdir()
     (operator / '.env.production').write_text('PRIVATE_FIXTURE=1')
-    (operator / 'docker-compose.yml').write_text('fixture compose')
+    if real_compose:
+        shutil.copyfile(ROOT / 'deploy/docker-compose.yml', operator / 'docker-compose.yml')
+    else:
+        (operator / 'docker-compose.yml').write_text('fixture compose')
     def run():
         return subprocess.run(['bash', str(source / 'install-runtime-guard.sh'), str(operator)], cwd=operator,
             capture_output=True, text=True, timeout=15, check=False,
             env={**os.environ, 'PATH': str(commands) + os.pathsep + os.environ['PATH'],
-                 'CALL_LOG': str(calls), 'PRIVATE_VOLUME': str(volume)})
+                 'CALL_LOG': str(calls), 'PRIVATE_VOLUME': str(volume),
+                 'PRIVATE_COMPOSE_DOCKER': shutil.which('docker') if real_compose else ''})
     return run, policy_dir / 'runtime-policy.json', tools, calls
 
 
@@ -246,6 +252,31 @@ def test_guard_installer_private_policy_new_install_uses_reviewed_defaults(tmp_p
     assert policy.stat().st_uid == 0 and policy.stat().st_mode & 0o777 == 0o600
 
 
+def test_guard_installer_private_policy_preserves_actual_compose_limits_and_legacy_cpu_string(tmp_path):
+    if installer_root_namespace(test_guard_installer_private_policy_preserves_actual_compose_limits_and_legacy_cpu_string.__name__):
+        return
+    import json
+    run, policy, _tools, _calls = isolated_guard_installer(tmp_path, real_compose=True)
+    created = run()
+    assert created.returncode == 0, created.stderr
+    value = json.loads(policy.read_bytes())
+    assert float(value['services']['server']['limits']['cpus']) == 1.75
+    assert float(value['services']['report-worker']['limits']['cpus']) == 1
+    for legacy in (False, True):
+        if legacy:
+            for item in value['services'].values():
+                item['limits']['cpus'] = str(item['limits']['cpus'])
+            value['services']['server']['limits'].update(memswap_limit='-1', pids_limit='-1')
+            policy.write_text(json.dumps(value))
+        body, before = policy.read_bytes(), policy.stat()
+        preserved = run()
+        assert preserved.returncode == 0, (legacy, preserved.stderr)
+        assert policy.read_bytes() == body
+        assert policy.stat().st_ino == before.st_ino
+        assert policy.stat().st_mode == before.st_mode
+        assert policy.stat().st_uid == before.st_uid
+
+
 def test_guard_installer_private_policy_ignores_operator_python_module_shadowing(tmp_path):
     if installer_root_namespace(test_guard_installer_private_policy_ignores_operator_python_module_shadowing.__name__):
         return
@@ -266,7 +297,9 @@ def test_guard_installer_private_policy_invalid_prior_blocks_program_overwrite(t
         return
     import json
     approved = json.loads((ROOT / 'deploy/runtime-policy.json').read_text())
-    for case in ('malformed', 'symlink', 'hardlink', 'public', 'foreign', 'identity', 'worker', 'threshold', 'cooldown', 'limits'):
+    for case in ('malformed', 'symlink', 'hardlink', 'public', 'foreign', 'identity', 'worker', 'threshold', 'cooldown', 'limits',
+                 'cpus_bool', 'cpus_negative', 'cpus_string_negative', 'cpus_nan', 'cpus_inf', 'cpus_invalid',
+                 'mem_bool', 'mem_negative', 'mem_fractional', 'mem_nan', 'mem_inf', 'swap_negative', 'pids_negative'):
         folder = tmp_path / case
         folder.mkdir()
         run, policy, tools, _calls = isolated_guard_installer(folder)
@@ -283,6 +316,16 @@ def test_guard_installer_private_policy_invalid_prior_blocks_program_overwrite(t
             value['cooldown_seconds'] = -1
         elif case == 'limits':
             value['services']['server']['limits'] = {'mem_limit': 'PRIVATE_INVALID_CAP'}
+        elif case.startswith('cpus_'):
+            value['services']['server']['limits'] = {'cpus': {
+                'cpus_bool': True, 'cpus_negative': -1, 'cpus_string_negative': '-1',
+                'cpus_nan': 'NaN', 'cpus_inf': 'Infinity', 'cpus_invalid': 'PRIVATE_INVALID_CAP',
+            }[case]}
+        elif case.startswith(('mem_', 'swap_', 'pids_')):
+            key = 'memswap_limit' if case == 'swap_negative' else 'pids_limit' if case == 'pids_negative' else 'mem_limit'
+            cap = {'mem_bool': True, 'mem_negative': '-1', 'mem_fractional': '1.5', 'mem_nan': 'NaN',
+                   'mem_inf': 'Infinity', 'swap_negative': '-2', 'pids_negative': '-2'}[case]
+            value['services']['server']['limits'] = {key: cap}
         policy.write_text('{PRIVATE_INVALID' if case == 'malformed' else json.dumps(value))
         policy.chmod(0o644 if case == 'public' else 0o600)
         if case in ('symlink', 'hardlink'):
