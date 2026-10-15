@@ -125,8 +125,21 @@ jobs:
                print(json.dumps({'host_space_census':{'path':path,'bytes':int(field) if result.returncode==0 and field.isdigit() else None,'completed':result.returncode==0}}),flush=True)
               except subprocess.TimeoutExpired:print(json.dumps({'host_space_census':{'path':path,'completed':False}}),flush=True)
 
+            def image_space_census():
+             for line in subprocess.check_output(['docker','system','df','--format','{{json .}}'],text=True,timeout=30).splitlines():
+              value=json.loads(line)
+              print(json.dumps({'docker_space':{k:value.get(k) for k in ('Type','TotalCount','Active','Size','Reclaimable')}}),flush=True)
+             ids=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc'],text=True,timeout=15).split()
+             references={v['Image'] for v in json.loads(subprocess.check_output(['docker','inspect',*ids],text=True,timeout=20))}
+             ids=sorted(set(subprocess.check_output(['docker','image','ls','--all','--quiet','--no-trunc'],text=True,timeout=15).split()))
+             for identity in ids:
+              v=json.loads(subprocess.check_output(['docker','image','inspect',identity],text=True,timeout=15))[0]
+              sha=(v.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')
+              tags=v.get('RepoTags') or []
+              print(json.dumps({'image_space':{'id':v['Id'],'bytes':v['Size'],'referenced':v['Id'] in references,'source':sha if isinstance(sha,str) and re.fullmatch('[a-f0-9]{40}',sha) else None,'release_tags':[t for t in tags if re.fullmatch('aemr-(server|web):release-[a-f0-9]{40}',t)],'tag_count':len(tags)}}),flush=True)
+
             def main():
-             host_space_census()
+             image_space_census()
              recovery_preflight()
              print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
              for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
