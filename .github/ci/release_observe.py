@@ -72,6 +72,10 @@ def restore_capacity_metadata():
  print(json.dumps({'restore_capacity':{'files':count,'logical_bytes':logical,'unique_physical_bytes':sum(inodes.values()),'single_link_reclaimable_bytes':reclaimable,'multiple_link_files':linked,'unsafe':unsafe,'nested_mounts':nested,'free_bytes':available.f_bavail*available.f_frsize,'manifest_bytes':m.get('bytes'),'archive_bytes':m.get('archive_bytes')}}),flush=True)
 
 def main():
+ for suffix in ('','/worker-38349415596','/worker-38349415596/backup','/worker-38349415596/backup/manifest.json','/worker-38349415596/backup/state.tar.gz'):
+  path=Path('/home/aemr/.dash-private-backups'+suffix)
+  info=path.lstat()
+  print(json.dumps({'historical_backup_metadata':{'part':suffix,'uid':info.st_uid,'gid':info.st_gid,'mode':oct(stat.S_IMODE(info.st_mode)),'nlink':info.st_nlink,'bytes':info.st_size,'symlink':stat.S_ISLNK(info.st_mode)}}),flush=True)
  restore_capacity_metadata()
  recovery_preflight()
  print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
