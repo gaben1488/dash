@@ -3,7 +3,9 @@
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -134,6 +136,13 @@ class ReleaseTrial:
             record = json.loads(self.command(['image', 'inspect', image]))[0]
             if record.get('Id') != image:
                 recovery.fail('RELEASE_TRIAL_IMAGE_UNAVAILABLE')
+        files = json.loads((backup/'manifest.json').read_bytes())['files']
+        if any(type(info.get('bytes')) is not int or info['bytes']<0 for info in files.values()):
+            recovery.fail('RELEASE_CHECKPOINT_CHANGED')
+        scratch_budget = max(128*1024**2,2*sum(info['bytes'] for path,info in files.items()
+            if path.startswith('reports/published/publications.sqlite')))
+        if shutil.disk_usage(CLONE.parent).free<sum(info['bytes'] for info in files.values())+scratch_budget+1024**3:
+            recovery.fail('RELEASE_TRIAL_STORAGE_INSUFFICIENT')
         # Exact full clone once; the second restore below exercises real recovery
         # after BOTH runtimes have used this same clone, never a second 24GiB copy.
         initial = executor.backup_tool.restore_state(backup, CLONE, plan['manifest_sha256'])
@@ -151,9 +160,26 @@ class ReleaseTrial:
         for kind, image, expected in [('candidate', plan['candidate_images']['server'], 'CANDIDATE_TRIAL_PASS'),
                                       ('previous', plan['images']['server'], 'PREVIOUS_TRIAL_PASS')]:
             self._absent_container(name)
-            value = self.command([*common, '-i', '--entrypoint', '/opt/report-env/bin/python', image,
+            selected = common
+            scratch = None
+            if kind=='previous':
+                # Prior production has disk-backed /tmp. Its unchanged reader
+                # must not be tested under the candidate's new 128 MiB ceiling.
+                if shutil.disk_usage(CLONE.parent).free<scratch_budget+1024**3:
+                    recovery.fail('RELEASE_TRIAL_STORAGE_INSUFFICIENT')
+                scratch = Path(tempfile.mkdtemp(prefix='previous-native-',dir=CLONE.parent))
+                os.chown(scratch,NODE_UID,NODE_UID)
+                selected = common.copy();index = selected.index('--tmpfs');del selected[index:index+2]
+                selected += ['--mount',f'type=bind,src={scratch},dst=/tmp']
+            value = self.command([*selected, '-i', '--entrypoint', '/opt/report-env/bin/python', image,
                                   '-c', NATIVE_LAUNCHER, './node_modules/.bin/tsx', '--eval', NATIVE_PROGRAM, kind], timeout=180,
                                  input=json.dumps({'environment': environments[kind], 'stdin': json.dumps(plan['word'])}))
+            self._absent_container(name)
+            if scratch is not None:
+                # On a failed/timed-out child retain private scratch with the
+                # full clone until the ephemeral runner is disposed. Never erase
+                # files beneath a potentially still-running Docker process.
+                shutil.rmtree(scratch)
             if value.strip() != expected:
                 recovery.fail('RELEASE_NATIVE_TRIAL_FAILED')
         self._absent_container(name)

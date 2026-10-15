@@ -218,6 +218,33 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(proof['in_place_restore']['state'], 'STATE_RESTORED')
         self.assertEqual(len([c for c in self.calls if c[0] == 'run']), 3)
 
+    def test_previous_uses_private_disk_scratch_candidate_keeps_128m_ceiling(self):
+        scratch_paths = []
+        def command(args, **kwargs):
+            if args[0]=='run':
+                if self.plan['images']['server'] in args:
+                    self.assertNotIn('--tmpfs',args)
+                    mounts = [args[i+1] for i,value in enumerate(args) if value=='--mount']
+                    scratch = next(value for value in mounts if value.endswith(',dst=/tmp'))
+                    path = Path(scratch.split('src=',1)[1].split(',',1)[0]);scratch_paths.append(path)
+                    self.assertNotIn(self.clone,(path,*path.parents))
+                    self.assertEqual(path.stat().st_mode&0o777,0o700)
+                    (path/'sqlite-sort').write_bytes(b'PRIVATE_TEMP')
+                else:self.assertIn('/tmp:rw,nosuid,nodev,size=128m',args)
+            return self.command(args,**kwargs)
+        self.runner.command = command
+        self.runner.run(self.plan)
+        self.assertEqual(len(scratch_paths),1)
+        self.assertFalse(scratch_paths[0].exists())
+
+    def test_previous_scratch_capacity_is_admitted_before_full_restore(self):
+        from types import SimpleNamespace
+        with patch('shutil.disk_usage',return_value=SimpleNamespace(free=0)), \
+             self.assertRaisesRegex(self.fixture.module.RecoveryError,'RELEASE_TRIAL_STORAGE_INSUFFICIENT'):
+            self.runner.run(self.plan)
+        self.assertEqual(list(self.clone.iterdir()),[])
+        self.assertFalse(any(call[0]=='run' for call in self.calls))
+
     def test_native_failure_never_returns_pass_or_changes_source(self):
         for field in ('reject_candidate', 'reject_previous'):
             with self.subTest(field=field):

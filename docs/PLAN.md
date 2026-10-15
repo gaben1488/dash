@@ -7,6 +7,19 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Readback38781715224/job116583320152 подтвердил причину previous503:
+OperationalError/database or disk is full. Это искусственный128MiB/tmp full trial,
+а не повреждение/несовместимость данных. Candidate API на том же catalog:
+38780366449,HTTP200/5337ms/envelope_valid=true. Historical probe:89models/0invalid,
+затем120s timeout, НЕ полная приёмка. VPS history diagnostic убран; полный строгий
+history/schema/Word обход остаётся в native trial на hosted runner.
+Previous-only trial теперь использует private disk/tmp внеCLONE, admission всей
+копии+2catalog/WAL+1GiB reserve до restore, cleanup только после container absence.
+Старые image/code/env/checks не меняются; candidate/init сохраняют128MiB/tmp.
+2 resource regressions RED→GREEN;54 controller/trial +5 replay +4 probe/Ruff PASS.
+Следующий этап — короткий real previous-disk proof, exact-head source CI и выпуск.
+CI38781604908:3source jobs PASS; новая версия всё ещё НЕ установлена.
+
 Retirement38779610733/job116576089163 PASS17:43UTC: ровно1 obsolete failed archive
 5226265010B удалён, свободно7401029632B; keeper38349415596/source/metadata/runtime
 сохранены. Это не удаление published reports и не принятие нового приложения.
