@@ -269,17 +269,20 @@ class ControllerTests(TrialTests):
                 return json.dumps(values)
             return result
         self.fixture.executor.command = command
-        for changed in (False, True):
-            if changed:self.fixture.records['server']['Config']['User'] = 'unexpected-fixture-user'
+        original_user = self.fixture.records['server']['Config'].get('User')
+        for changed, trusted in ((False, True), (True, True), (False, False)):
+            self.fixture.records['server']['Config']['User'] = 'unexpected-fixture-user' if changed else original_user
+            (self.operator / 'docker-compose.yml').chmod(0o600 if trusted else 0o666)
             self.fixture.persist_records()
             context = {'json': json, 'module': self.controller_module, 'recovery': self.fixture.module,
                 'executor': self.fixture.executor, 'controller': self.controller, 'roles': tuple(self.fixture.records),
                 'binding': {'images': self.plan['images']}, 'records': json.loads(json.dumps(self.fixture.records)),
-                'sources': [('operator', [str(self.operator / 'docker-compose.yml')])]}
+                'sources': [('operator', [str(self.operator / 'docker-compose.yml')])], 'stat': __import__('stat')}
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 exec(compile(program, '<actual-stage-diagnostic>', 'exec'), context)  # noqa: S102 - trusted workflow fixture
             lines = output.getvalue().splitlines()
             self.assertEqual(lines[-1], 'STAGE_DIAGNOSTICS_RUNTIME_UNCHANGED')
+            self.assertEqual(json.loads(lines[0])['source_admission'], 'PASS' if trusted else 'RELEASE_OPERATOR_FILE_INVALID')
             outcomes = json.loads(lines[0])['outcomes']
             failures = [value for value in outcomes if value['result'] != 'PASS']
             self.assertEqual(len(failures), int(changed))

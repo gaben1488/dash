@@ -584,6 +584,15 @@ jobs:
                 sources.extend(('observed-'+str(index),list(chain)) for index,chain in enumerate(sorted(chains))
                     if chain and all(Path(path).is_file() and not Path(path).is_symlink() for path in chain))
                 for label,paths in sources:
+                    admission='NOT_ALLOWLISTED_BY_STAGE'
+                    try:
+                        if label=='operator':controller._operator_file(module.Path(paths[0]));admission='PASS'
+                        elif label.startswith('private-'):recovery.read_owned(module.Path(paths[0]));admission='PASS'
+                    except recovery.RecoveryError as error:
+                        admission=str(error) if str(error) in {'RELEASE_OPERATOR_FILE_INVALID','RELEASE_OWNED_FILE_INVALID'} else 'REJECTED'
+                    metadata=[module.Path(path).lstat() for path in paths]
+                    print_metadata=[{'mode':oct(stat.S_IMODE(value.st_mode)),'links':value.st_nlink,
+                        'regular':stat.S_ISREG(value.st_mode),'owner_matches_operator':value.st_uid in {0,module.OPERATOR.stat().st_uid}} for value in metadata]
                     try:
                         args=['compose','--project-directory',str(module.OPERATOR),'--env-file',str(module.OPERATOR/'.env.production')]
                         for path in paths:args.extend(['-f',path])
@@ -614,7 +623,7 @@ jobs:
                                     'error_code':str(error) if isinstance(error,recovery.RecoveryError) and str(error) in
                                         {'RELEASE_SAVED_RUNTIME_MISMATCH','RELEASE_COMMAND_FAILED','RELEASE_OWNED_FILE_INVALID'} else None,
                                     'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'})
-                        print(json.dumps({'kind':'stage_source_comparison','source':label,'source_files':len(paths),'outcomes':outcomes}))
+                        print(json.dumps({'kind':'stage_source_comparison','source':label,'source_files':len(paths),'source_admission':admission,'file_metadata':print_metadata,'outcomes':outcomes}))
                     except Exception as error:
                         print(json.dumps({'kind':'stage_source_comparison','source':label,'result':'UNAVAILABLE',
                             'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'}))
