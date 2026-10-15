@@ -227,7 +227,23 @@ jobs:
              result['known_failure_markers']=[marker for marker in ('No space left on device','TimeoutExpired','MemoryError','OOMKilled','NATIVE_TRIAL_FAILURE=auth','NATIVE_TRIAL_FAILURE=health','NATIVE_TRIAL_FAILURE=status','NATIVE_TRIAL_FAILURE=latest','NATIVE_TRIAL_FAILURE=schema','NATIVE_TRIAL_FAILURE=historyschema','NATIVE_TRIAL_FAILURE=word','NATIVE_TRIAL_FAILURE=runtime') if marker in text]
              print(json.dumps(result),flush=True)
 
+            def transfer_host_metadata():
+             import shutil
+             result={'transfer_host_metadata':True,'paths':{}}
+             for name,path in [('stdin',Path('/dev/stdin')),('fd0',Path('/proc/self/fd/0')),('runtime',Path('/var/lib/aemr/release-runtime')),('target',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
+              row={'exists':path.exists(),'lexists':os.path.lexists(path)}
+              try:
+               info=path.stat();row.update(mode=stat.S_IMODE(info.st_mode),directory=stat.S_ISDIR(info.st_mode),regular=stat.S_ISREG(info.st_mode),fifo=stat.S_ISFIFO(info.st_mode),uid=info.st_uid)
+              except OSError as error:row['errno']=error.errno
+              result['paths'][name]=row
+             binary=shutil.which('install');result['install_present']=binary is not None
+             if binary:
+              value=subprocess.run([binary,'--version'],capture_output=True,text=True,timeout=5)
+              result['install_provider']='uutils' if 'uutils' in value.stdout.lower() else 'GNU' if 'GNU coreutils' in value.stdout else 'OTHER'
+             print(json.dumps(result),flush=True)
+
             def main():
+             transfer_host_metadata()
              release_failure_metadata()
              checkpoint_metadata()
              host_operator_capabilities()
