@@ -15,6 +15,12 @@ Same-owner resume SUCCESS, свежий domain health200/ok подтверждё
 Ни один новый app runtime не установлен. Старый worker остаётся quarantined.
 Полная копия без independent restore не закрывает R06/R09.
 
+Hosted-only replay38736175868/job116425926760 воспроизвёл отказ исходного b8
+на image inspect (release_trial.py:121), до restore. Это RELEASE_COMMAND_FAILED;
+точный Docker stderr сохранён приватно, классификация читается отдельно.
+Runtime unchanged + public health PASS; история/данные/образы VPS не менялись.
+Полное восстановление и native compatibility этим запуском не подтверждены.
+
 Archive-only run38733386925/job116416457291 завершён без вмешательства в runtime:
 DIAGNOSTIC_SCRATCH_INSUFFICIENT на reports/identity.sqlite; runtime_unchanged=true.
 Это лимит диагностической временной копии, не доказательство повреждения SQLite.

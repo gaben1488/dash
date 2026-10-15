@@ -1654,6 +1654,18 @@ jobs:
             git show "$candidate:deploy/runtime-state-probe.py" > "$tool"
             python3 -B "$tool"
             df -PB1 /
+            sudo -n python3 -I - <<'PYREPLAYERROR'
+            import json,re
+            from pathlib import Path
+            evidence=json.loads(Path('/root/codex-fixes/release-38727198402/replay-38736175868.json').read_bytes())
+            plan=json.loads(Path('/var/lib/aemr/release-runtime/trial-plan.json').read_bytes())
+            for failure in evidence.get('process_failures',[])[:8]:
+             body=failure.get('stderr','')
+             missing=re.findall(r'(?:No such image:|image not found:?)\s*(sha256:[a-f0-9]{64})',body,re.IGNORECASE)
+             category='IMAGE_UNAVAILABLE' if missing else 'DAEMON_UNAVAILABLE' if 'Cannot connect to the Docker daemon' in body else 'PERMISSION_DENIED' if 'permission denied' in body.lower() else 'DOCKER_ERROR_UNCLASSIFIED'
+             roles={kind:[name for name,image in plan[kind].items() if image in missing] for kind in ('images','candidate_images')}
+             print(json.dumps({'returncode':failure['returncode'],'category':category,'roles':roles,'stderr_bytes':len(body.encode())}))
+            PYREPLAYERROR
   frozen-trial-replay:
     if: >-
       github.event.label.name == 'maintenance: frozen-trial-replay' &&
