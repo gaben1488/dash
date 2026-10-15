@@ -1623,16 +1623,23 @@ jobs:
             docker run --rm --network none --read-only --user 0               --mount "type=volume,src=$volume,dst=/source,readonly"               --entrypoint /opt/report-env/bin/python "$server_image" -B -c 'import json,shutil; from pathlib import Path; root=Path("/source"); paths=list(root.rglob("*")); print(json.dumps({"source_files":sum(p.is_file() for p in paths),"source_logical_bytes":sum(p.stat().st_size for p in paths if p.is_file()),"source_unsafe_entries":sum(p.is_symlink() or not(p.is_dir() or p.is_file()) for p in paths),"free_bytes":shutil.disk_usage(root).free},sort_keys=True))'
   runtime-readback:
     if: >-
-      github.event.label.name == 'maintenance: runtime-readback' &&
+      (github.event.label.name == 'maintenance: runtime-readback' || github.event.label.name == 'maintenance: native-status-probe') &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'codex/dash-audit-integrated-20261010'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Compare two read-only Docker state samples without cleanup
+        if: >-
+          github.event.label.name == 'maintenance: runtime-readback'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
@@ -1713,6 +1720,44 @@ jobs:
               'live_changed_files':sum(actual.get(k)!=v for k,v in expected.items()),
               'frozen_changed_files':sum(frozen.get(k)!=v for k,v in expected.items())}))
             PYREPLAYERROR
+      - name: Bind probe code to exact raw SHA256 from reviewed checkout
+        if: >-
+          github.event.label.name == 'maintenance: native-status-probe'
+        id: native-probe-source
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import hashlib
+          from pathlib import Path
+          print('sha256='+hashlib.sha256(Path('.github/ci/native_status_probe.py').read_bytes()).hexdigest())
+          PY
+      - name: Diagnose actual native report status on bounded private capsule
+        if: >-
+          github.event.label.name == 'maintenance: native-status-probe'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            [[ "$candidate" =~ ^[a-f0-9]{40}$ ]]
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            tool=$(mktemp)
+            trap 'rm -f "$tool"' EXIT
+            git show "$candidate:.github/ci/native_status_probe.py" > "$tool"
+            sudo -n python3 -I - "$tool" '${{ steps.native-probe-source.outputs.sha256 }}' <<'PYTRUSTEDPROBE'
+            import hashlib,os,re,sys
+            path,expected=sys.argv[1:]
+            assert re.fullmatch('[a-f0-9]{64}',expected)
+            with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:body=source.read(1024*1024+1)
+            assert len(body)<=1024*1024 and hashlib.sha256(body).hexdigest()==expected
+            exec(compile(body,'<reviewed-native-status-probe>','exec'),{'__name__':'__main__'})
+            PYTRUSTEDPROBE
   frozen-trial-replay:
     if: >-
       (github.event.label.name == 'maintenance: frozen-trial-replay' || github.event.label.name == 'maintenance: frozen-fixed-trial-replay' || github.event.label.name == 'maintenance: frozen-image-replay') &&

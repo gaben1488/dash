@@ -7,6 +7,18 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Readback38774185814/job116557430780: live latest filemap == catalog == frozen
+manifest;0 unsafe/extra/changed, catalog main+WAL совпадают с capture. Это исключает
+повреждение исходного выпуска на этой границе, но не объясняет native HTTP failure.
+Для дешёвого диагноза добавлен owner-only isolated native-status probe: read-only
+SQLite backup + только latest release/status в bounded private temporary capsule;
+network none/rootfs read-only/768MiB/unique cleanup, никаких live initializer/write.
+Actual encoding:buffer observer RED→GREEN, WAL copy/source preservation, qualified
+error redaction и exact raw source-hash guard:4tests + Ruff/actionlint/review PASS.
+Никакая capsule-проверка не заменяет полный frozen release trial.
+CI38774177343/sourcea5fe767a: три обязательных source jobs PASS, old-API browser
+по-прежнему FAILURE; версия приложения ещё не установлена.
+
 Readback38772952703/job116553226446: frozen native failure — exact code
 `status` (GET report-releases не200 либо тело>32MiB), не ошибка схемы; stderr28B.
 Следующий read-only readback сравнивает latest catalog/filemap и captured manifest,
