@@ -134,7 +134,7 @@ jobs:
       - name: Verify real container backup producer against strict release reader
         run: |
           docker run --rm --network none --read-only --user 0 --memory 256m \
-            --tmpfs /tmp:rw,nosuid,size=128m \
+            --tmpfs /tmp:rw,nosuid,size=2g \
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/candidate,readonly" \
             --entrypoint /opt/report-env/bin/python aemr-server:ci -B \
             /candidate/.github/ci/test_release_controller.py \

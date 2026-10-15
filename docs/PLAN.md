@@ -17,6 +17,10 @@ Docker umask022 создаёт manifest0644, а reader требует0600. Archi
 содержимого сохраняются. RED→GREEN на000/022;44backup/43controller/29worker PASS.
 В source CI добавлен настоящий Docker producer→consumer тест ДО допуска к VPS.
 Full-copy наличие не объявляется R06 acceptance без независимого restore.
+GHA38721301103 выявил ошибку оснастки нового native test: tmpfs128MiB меньше
+неизменённого1GiB backup reserve; tmpfs поднят до2GiB без выделения такого объёма RAM.
+Workflow38721290938 отклонён GitHub до исполнения: expression21582>21000.
+Диагностика разделена, guard длины RED→GREEN, actionlint1.7.7 PASS; runtime не затронут.
 Перед freeze добавлен отдельный полный budget runner: logical source (включая каждый hardlink path),
 максимум будущего архива по VPS free−1GiB и2GiB reserve. Hosted-only очистка старого
 неактивного Docker store допускается лишь при проверенном SDK root и inactive service/socket;

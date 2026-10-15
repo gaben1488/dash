@@ -593,9 +593,9 @@ jobs:
                     info=path.stat()
                     print(json.dumps({'kind':'failed_backup_file_metadata','file':name,'mode':oct(stat.S_IMODE(info.st_mode)),
                         'uid':info.st_uid,'links':info.st_nlink,'bytes':info.st_size}))
-            metadata=failed/'backup/manifest.json'
-            if metadata.is_file() and not metadata.is_symlink():
-                checkpoint=json.loads(metadata.read_bytes())
+            checkpoint_path=failed/'backup/manifest.json'
+            if checkpoint_path.is_file() and not checkpoint_path.is_symlink():
+                checkpoint=json.loads(checkpoint_path.read_bytes())
                 print(json.dumps({'kind':'failed_backup_manifest_summary','format':checkpoint.get('format'),
                     'files':len(checkpoint.get('files',{})),'source_bytes':checkpoint.get('bytes'),'archive_bytes':checkpoint.get('archive_bytes')}))
             latest=reports/'status.json'
@@ -666,10 +666,25 @@ jobs:
                     observed.append({'event':event.get('Action') if event.get('Action') in ('die','oom') else 'OTHER',
                         'exit_code':int(code) if isinstance(code,str) and re.fullmatch(r'[0-9]{1,3}',code) else None})
                 print(json.dumps({'kind':'worker_exit_events','returncode':events.returncode,'events':observed[-20:]}))
+            PY
+      - name: Compare current source with actual runtime without installing or stopping
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 3m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - '${{ github.event.pull_request.head.sha }}' <<'PY'
+            import hashlib,json,os,re,stat,subprocess,sys
+            from pathlib import Path
+            roles=('server','web','caddy','report-worker')
             # Only replay runtime comparisons, never stage, stop, write or restore.
             import fcntl,importlib.util,time
             tools=Path('/usr/local/libexec/aemr')
-            expected_sha='b28ad02083c016d8fb920f8091d1490fcb6f0843'
+            expected_sha='eba8f147a1098a7d14dfaefc442055fbcdfa93f2'
             for name in ('release-controller.py','release_recovery.py','release_trial.py'):
                 expected=subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash','show',
                     expected_sha+':deploy/'+name],timeout=15)

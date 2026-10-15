@@ -14,6 +14,16 @@ SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "cleanup-build-cache.s
 
 
 class EarlyScratchCapacityTests(unittest.TestCase):
+    def test_interpolated_ssh_scripts_fit_github_expression_limit(self):
+        import re
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        for match in re.finditer(r'^          script: \|\n((?:^            .*\n|^\n)*)',workflow,re.MULTILINE):
+            script = textwrap.dedent(match[1])
+            if '${{' not in script:continue
+            # GitHub converts mixed strings to format(), escaping quotes/braces.
+            bound = len(script.encode('utf-16-le'))//2 + sum(script.count(c) for c in "'{}") + 100
+            self.assertLess(bound,21000,'Split oversized SSH diagnostics before GitHub rejects the entire workflow')
+
     def test_capacity_counts_each_hardlink_path_that_restore_will_materialize(self):
         workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
         program = textwrap.dedent(workflow.split("<<'PYVPSCAPACITY' >", 1)[1].split('\n', 1)[1]
