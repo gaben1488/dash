@@ -165,8 +165,23 @@ jobs:
               large.append({'id':directory.name if re.fullmatch('[a-f0-9]{32}',directory.name) else hashlib.sha256(directory.name.encode()).hexdigest(),'bytes':int(subprocess.check_output(['du','-sx','-B1','--',str(directory)],text=True,timeout=15).split()[0]),'status_matches':value.get('attempt_id')==directory.name,'state':value.get('state') if value.get('state') in {'RUNNING','NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS','FAILED'} else None,'items':items})
              print(json.dumps({'large_attempts':large}),flush=True)
 
+            def immutable_duplicate_preview():
+             path=Path('/home/aemr/.dash-private-backups/worker-38792810076/backup/manifest.json')
+             assert not any(p.is_symlink() for p in (path,*path.parents))
+             info=path.stat();assert info.st_uid==0 and info.st_size<16*1024**2
+             manifest=json.loads(path.read_bytes());groups={}
+             for name,value in manifest['files'].items():
+              if not name.startswith('reports/published/') or name.endswith('/') or not name.endswith('.json'):continue
+              if not isinstance(value,dict) or value.get('kind')=='directory':continue
+              sha=value.get('sha256');size=value.get('bytes')
+              if not isinstance(sha,str) or not re.fullmatch('[a-f0-9]{64}',sha) or type(size) is not int or size<1024**2:continue
+              key=(sha,size,value.get('uid'),value.get('gid'),value.get('mode'))
+              groups.setdefault(key,[]).append(name)
+             duplicate=[(k,v) for k,v in groups.items() if len(v)>1]
+             print(json.dumps({'immutable_duplicate_preview':{'status':'MANIFEST_ONLY_UPPER_BOUND','groups':len(duplicate),'files':sum(len(v) for k,v in duplicate),'logical_duplicate_bytes':sum(k[1]*(len(v)-1) for k,v in duplicate),'content_changed':False}}),flush=True)
+
             def main():
-             report_space_census()
+             immutable_duplicate_preview()
              recovery_preflight()
              print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
              for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
