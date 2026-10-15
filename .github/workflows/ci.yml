@@ -74,6 +74,33 @@ jobs:
                 result["phase"]=value.get("phase") if value.get("phase") in {"candidate_accept","runtime_resume"} else None
                except (OSError,ValueError,AssertionError,AttributeError):result["readable"]=False
               print(json.dumps(result),flush=True)
+             for name in ("release-controller.log","release-result","resume.log"):
+              path=Path("/home/aemr/.dash-private-backups/worker-38792810076")/name
+              result={"operational_file":name,"present":os.path.lexists(path)}
+              if result["present"]:
+               try:
+                with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),"rb") as file:
+                 info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0
+                 file.seek(max(0,info.st_size-65536));body=file.read(65536).decode("utf-8",errors="replace")
+                result["bytes"]=info.st_size
+                allowed={"RELEASE_CANDIDATE_SCHEMA_INVALID","RELEASE_CANDIDATE_REJECTED_AND_RECOVERED","RELEASE_API_NOT_HEALTHY","RELEASE_NATIVE_WORD_MISMATCH","RELEASE_RECOVERY_FAILED","RELEASE_ACCEPTED_RUNTIME_UNAVAILABLE","RELEASE_CONTROLLER_FAILED","RELEASE_RUNTIME_RECOVERY_FAILED","RELEASE_CANDIDATE_ACCEPTED"}
+                result["codes"]=sorted(set(body.split())&allowed)
+                if name=="release-result":result["outcome"]=int(body.strip()) if re.fullmatch(r"[0-9]{1,3}",body.strip()) and int(body.strip())<=255 else None
+               except (OSError,ValueError,AssertionError):result["readable"]=False
+              print(json.dumps(result),flush=True)
+             processes=[]
+             for proc in Path("/proc").glob("[0-9]*"):
+              try:
+               name=(proc/"comm").read_text().strip()
+               if name not in {"python3","python","bash","sh","timeout","docker","node","flock"}:continue
+               args=(proc/"cmdline").read_bytes().split(b"\0")
+               known={"release-controller.py","report-backup-window.sh","release_guardian.py","runtime_guard.py","stateful_backup.py","header_api_probe.mjs"}
+               operations=sorted({Path(a.decode(errors="replace")).name for a in args}&known)
+               if not operations and name not in {"node","docker"}:continue
+               info=(proc/"stat").read_text().rsplit(")",1)[1].split()
+               processes.append({"pid":int(proc.name),"ppid":int(info[1]),"process":name,"operations":operations,"state":info[0],"cpu_ticks":int(info[11])+int(info[12])})
+              except (OSError,ValueError,IndexError):pass
+             print(json.dumps({"processes":processes}),flush=True)
              lock=Path("/run/lock/aemr-maintenance.lock").stat();holders=[]
              for path in Path("/proc").glob("[0-9]*/fdinfo/9"):
               try:
