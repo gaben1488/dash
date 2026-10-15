@@ -1796,38 +1796,21 @@ jobs:
           . "$RUNNER_TEMP/release/ssh.sh"
           while IFS= read -r image; do
             [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]]
-            remote "sudo -n docker save $image | nice -n 15 gzip -1" | docker load > "$RUNNER_TEMP/release/image-load.log" 2>&1
+            remote "sudo -n docker save $image | nice -n 15 gzip -1" < /dev/null | docker load > "$RUNNER_TEMP/release/image-load.log" 2>&1
             test "$(docker image inspect "$image" --format '{{.Id}}')" = "$image"
           done < "$RUNNER_TEMP/release/images.txt"
           echo FROZEN_REPLAY_EXACT_IMAGES_AVAILABLE
-      - name: Diagnose complete image-set survival across loader and privileged executor
-        if: >-
-          github.event.label.name == 'maintenance: frozen-image-replay'
+      - name: Prove the complete image set with the actual privileged trial executor
         run: |
           set -euo pipefail
-          . "$RUNNER_TEMP/release/ssh.sh"
           expected=$(docker info --format '{{.ID}}')
           actual=$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker info --format '{{.ID}}')
           test "$expected" = "$actual"
-          docker version --format 'USER_CLIENT={{.Client.Version}} USER_API={{.Client.APIVersion}} SERVER={{.Server.Version}}'
-          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker version --format 'ROOT_CLIENT={{.Client.Version}} ROOT_API={{.Client.APIVersion}} SERVER={{.Server.Version}}'
-          while IFS= read -r image; do
-            if docker image inspect "$image" >/dev/null 2>&1; then user_state=PRESENT; else user_state=MISSING; fi
-            if sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$image" >/dev/null 2>&1; then root_state=PRESENT; else root_state=MISSING; fi
-            printf 'AFTER_ALL_LOADS %s USER=%s ROOT=%s\n' "$image" "$user_state" "$root_state"
-          done < "$RUNNER_TEMP/release/images.txt"
-          # One-variable experiment on this disposable runner only: keep a unique
-          # reference after each load, then repeat the same complete-set proof.
-          while IFS= read -r image; do
-            [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]]
-            remote "sudo -n docker save $image | nice -n 15 gzip -1" | docker load > "$RUNNER_TEMP/release/image-pin-load.log" 2>&1
-            docker tag "$image" "aemr-replay-pin:${image#sha256:}"
-          done < "$RUNNER_TEMP/release/images.txt"
           while IFS= read -r image; do
             test "$(docker image inspect "$image" --format '{{.Id}}')" = "$image"
             test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$image" --format '{{.Id}}')" = "$image"
           done < "$RUNNER_TEMP/release/images.txt"
-          echo FROZEN_IMAGE_REFERENCE_SURVIVAL_EXPERIMENT_PASS
+          echo FROZEN_COMPLETE_PRIVILEGED_IMAGE_SET_PASS
       - name: Transfer only the existing private archive while API remains online
         if: >-
           github.event.label.name == 'maintenance: frozen-trial-replay'

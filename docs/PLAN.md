@@ -15,11 +15,17 @@ Same-owner resume SUCCESS, свежий domain health200/ok подтверждё
 Ни один новый app runtime не установлен. Старый worker остаётся quarantined.
 Полная копия без independent restore не закрывает R06/R09.
 
-Hosted-only replay38736175868/job116425926760 воспроизвёл отказ исходного b8
-на image inspect (release_trial.py:121), до restore. Это RELEASE_COMMAND_FAILED;
-точный Docker stderr сохранён приватно, классификация читается отдельно.
-Runtime unchanged + public health PASS; история/данные/образы VPS не менялись.
-Полное восстановление и native compatibility этим запуском не подтверждены.
+Hosted-only replay38736175868/job116425926760 отказал на image inspect до restore.
+Readback38738569875 классифицировал отсутствующий Caddy. Изолированный image-only
+38738995880 доказал: loader/executor оба Docker29.1.3/API1.52, один daemon;
+после batch существует только первый из5 images. Причина именно диагностического
+транспорта: ssh читает stdin цикла и съедает оставшиеся4 ID. Bash с настоящим child
+stdin drain воспроизвёл1/5 RED; перенаправление только read-only save из /dev/null
+даёт5/5 GREEN. После всех загрузок добавлен полный actual privileged image proof
+ДО переноса архива. Гипотеза про удаление images загрузчиком не подтвердилась;
+лишнее tag-экспериментирование удалено. Первоначальная причина b8 trial всё ещё
+не доказана: этот дефект существовал только в новом replay. Все диагностические
+запуски сохранили runtime/API; restore/native acceptance ещё нет.
 
 Archive-only run38733386925/job116416457291 завершён без вмешательства в runtime:
 DIAGNOSTIC_SCRATCH_INSUFFICIENT на reports/identity.sqlite; runtime_unchanged=true.
