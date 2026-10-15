@@ -1684,6 +1684,34 @@ jobs:
              markers=[code for code in ('EACCES','ENOENT','EROFS','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','SQLITE_READONLY','SQLITE_CANTOPEN','PUBLICATION_READER_LEASE_UNINITIALIZED') if code in body]
              print(json.dumps({'frozen_run':38747783241,'returncode':failure['returncode'],
                'native_failure_codes':codes,'error_markers':markers,'stderr_bytes':len(body.encode())}))
+            import hashlib,sqlite3,subprocess
+            from contextlib import closing
+            volume=json.loads(subprocess.check_output(['docker','volume','inspect','aemr_server_data'],timeout=20))[0]
+            assert volume['Name']=='aemr_server_data' and volume['Driver']=='local' and not volume.get('Options')
+            state=Path(volume['Mountpoint'])/'reports'
+            assert not any(p.is_symlink() for p in (state,*state.parents))
+            manifest=json.loads(Path('/home/aemr/.dash-private-backups/worker-38727198402/backup/manifest.json').read_bytes())
+            def digest(path):
+             with path.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
+            catalog=state/'published/publications.sqlite'
+            same_catalog=all((not path.exists())==('reports/'+str(path.relative_to(state)) not in manifest['files'])
+              and (not path.exists() or digest(path)==manifest['files']['reports/'+str(path.relative_to(state))]['sha256'])
+              for path in (catalog,Path(str(catalog)+'-wal')))
+            with closing(sqlite3.connect(catalog.as_uri()+'?mode=ro',uri=True)) as db:
+             rows=db.execute('SELECT receipt,files FROM publications ORDER BY report_date DESC,cutoff_at DESC,release_id DESC')
+             record,expected=next((json.loads(receipt),json.loads(files)) for receipt,files in rows
+               if 'archive_origin' not in json.loads(receipt) and json.loads(receipt).get('replay_available') is not False)
+            release=state/'published/releases'/record['release_id']
+            assert release.parent==state/'published/releases' and not release.is_symlink()
+            paths=list(release.rglob('*'));unsafe=sum(path.is_symlink() or not(path.is_file() or path.is_dir()) for path in paths)
+            actual={str(path.relative_to(release)):digest(path) for path in paths if path.is_file() and not path.is_symlink()}
+            frozen={name.removeprefix('reports/published/releases/'+record['release_id']+'/'):details['sha256']
+              for name,details in manifest['files'].items() if name.startswith('reports/published/releases/'+record['release_id']+'/') and 'sha256' in details}
+            print(json.dumps({'status_catalog_matches_frozen':same_catalog,'latest_live_filemap_matches_catalog':not unsafe and actual==expected,'unsafe_entries':unsafe,
+              'latest_frozen_filemap_matches_catalog':frozen==expected,
+              'live_extra_files':len(set(actual)-set(expected)),'frozen_extra_files':len(set(frozen)-set(expected)),
+              'live_changed_files':sum(actual.get(k)!=v for k,v in expected.items()),
+              'frozen_changed_files':sum(frozen.get(k)!=v for k,v in expected.items())}))
             PYREPLAYERROR
   frozen-trial-replay:
     if: >-

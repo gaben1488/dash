@@ -619,9 +619,13 @@ if SCENARIO=='pre-arm-failure':sys.exit(2)
                     (session/(name+'.release-source')).write_bytes((tools/name).read_bytes())
                 generator = source.split("<<'PYRELEASE'\n",1)[1].split('\nPYRELEASE',1)[0]
                 started = time.monotonic_ns()-3093*10**9  # observed693s backup +2400s budget for two restores, before transfer
-                with patch.object(sys,'argv',['<generator>',str(session),str(tools),plan['release_sha'],'1']), \
-                     patch('time.monotonic_ns',return_value=started):
-                    exec(compile(generator,'<actual-window-generator>','exec'),{})  # noqa: S102 - actual reviewed generator
+                previous_umask = os.umask(0o077)  # actual shell entrypoint sets this before PYRELEASE
+                try:
+                    with patch.object(sys,'argv',['<generator>',str(session),str(tools),plan['release_sha'],'1']), \
+                         patch('time.monotonic_ns',return_value=started):
+                        exec(compile(generator,'<actual-window-generator>','exec'),{})  # noqa: S102 - actual reviewed generator
+                finally:os.umask(previous_umask)
+                self.assertEqual((session/'release-window.json').stat().st_mode & 0o777,0o600)
                 generated = json.loads((session/'release-window.json').read_text())
                 seconds = (generated['deadline_ns']-started)//10**9
                 self.assertLessEqual(seconds,4500,'Release guardian must retain a finite75-minute bound')

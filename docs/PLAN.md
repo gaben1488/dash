@@ -7,6 +7,15 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Readback38772952703/job116553226446: frozen native failure — exact code
+`status` (GET report-releases не200 либо тело>32MiB), не ошибка схемы; stderr28B.
+Следующий read-only readback сравнивает latest catalog/filemap и captured manifest,
+выдавая только equality/counts. Произвольные stderr/данные остаются закрытыми.
+CI38749739631/source21dbea5e: TS/image PASS, Python gate FAILURE нового fixture:
+actual shell umask077 не был повторён при прямом exec generator. На umask022
+тот же FAIL воспроизведён; fixture повторяет caller077 и проверяет exact0600:
+RED→GREEN. Production permission checks и deadlines не ослаблены.
+
 Fixed replay38747783241/job116465879153 завершён FAILURE14:28UTC:
 initial full restore + native reader initializer прошли по контрольному потоку,
 после чего actual native child отказал в release_trial.run154/RELEASE_COMMAND_FAILED.
