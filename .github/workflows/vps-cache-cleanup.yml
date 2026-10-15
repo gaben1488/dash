@@ -1067,7 +1067,9 @@ jobs:
                 revision='30cfd6914a60eddfde3f85fcc9528307b484ef92'
             source=subprocess.check_output(['git','show',revision+':deploy/cleanup-build-cache.sh'])
             assert hashlib.sha256(source).hexdigest()=='705c02bbec88e12483f63d9d80af79c728375e07f0528aec633d1cce6480e85e'
-            subprocess.run(['sudo','-n','bash'],input=source,check=True)
+            # Docker access and the existing cache lock belong to this deploy
+            # user. Root cannot O_CREAT that operator-owned file in sticky /tmp.
+            subprocess.run(['bash'],input=source,check=True)
             PY
   controlled-candidate-release:
     if: >-
