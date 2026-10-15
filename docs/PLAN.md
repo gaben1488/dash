@@ -38,6 +38,20 @@ run38693046852/job116283156947 SUCCESS: 2 старых blobs удалены,
 Архив38349415596 и receipts сохранены; это не свежий backup cut15.10.
 Выпуск остановлен до устранения нехватки места и памяти.
 
+Операционная граница перед следующим выпуском: quarantine применяется только
+к доказанному a2b6a1b9 OOM worker, под EX и при свободных run/weekly locks;
+API/образы/данные не откатываются. Первый live run38695409469 не принят,
+readback06:58 подтверждает прежний running worker453restarts и API0restarts.
+Добавлена безопасная диагностика типа ошибки/номера строки без её содержимого.
+Остановка не объявляется выполненной до durable quarantine receipt.
+Сначала offline recovery закрепляет сохранённый weekly input, затем retention
+удаляет только прежние transient payloads; процесс изолирован от API, без сети,
+сам удерживает реальный EX и ограничен420s. Native old-code+3module cold smoke,
+14 admission negatives и реальные child-EX/lifetime checks PASS;11 repo wrapper
+checks PASS. После полного принятого release отдельный worker-start проверяет
+точный accepted SHA/новые images/конфигурацию/native API+3Word;27 worker checks
+PASS. Запуск не является приёмкой двух самостоятельных циклов.
+
 R08: две принятые автономные итерации12.10 остаются историческим
 доказательством; установленный15.10 runtime из-за OOM НЕ принят.
 Backup38349415596 — историческая копия, новой копией15.10 не является.
