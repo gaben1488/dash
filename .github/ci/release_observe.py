@@ -54,7 +54,7 @@ def attempt_retention_plan():
  value=json.loads(subprocess.check_output(['docker','image','inspect',image],text=True,timeout=15))[0]
  assert value['Id']==image and value['Config']['Labels']['org.opencontainers.image.revision']=='394c7e853a2b326b9a5c89ea52f60c51e075302e'
  program="from procurement_engine.retention import plan_transient_attempt_retention\nimport json\nx=plan_transient_attempt_retention('/state/reports',keep_full=2)\nprint(json.dumps({'attempt_retention_plan':{k:x.get(k) for k in ('status','attempt_count','compact_count','bytes_reclaimable','protected_unsealed_thursdays','malformed_or_unsafe_entries')}}))\n"
- result=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--memory','256m','--pids-limit','32','--cpus','0.5','--cap-drop','ALL','--security-opt','no-new-privileges','--user','1000:1000','--entrypoint','/usr/bin/timeout','--mount','type=volume,source=aemr_server_data,target=/state,readonly',image,'--kill-after=2s','30s','/opt/report-env/bin/python','-B','-'],input=program,capture_output=True,text=True,timeout=40,check=False)
+ result=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--memory','2304m','--memory-swap','2816m','--pids-limit','32','--cpus','1','--cpu-shares','256','--cap-drop','ALL','--security-opt','no-new-privileges','--user','1000:1000','--entrypoint','/usr/bin/timeout','--mount','type=volume,source=aemr_server_data,target=/state,readonly',image,'--kill-after=2s','120s','/opt/report-env/bin/python','-B','-'],input=program,capture_output=True,text=True,timeout=140,check=False)
  for line in result.stdout.splitlines():
   try:
    x=json.loads(line)
