@@ -54,7 +54,17 @@ lock. Для этого класса задан общий bounded150s retry т�
 заклинившая блокировка по сроку всё ещё запрещает stop. Положительная
 проверка освобождения weekly lock и отрицательные busy-lock cases проходят.
 
-Остановка не объявляется выполненной до durable quarantine receipt.
+Фактически run38697102047/job116296160525 SUCCESS: 15.10 07:12:27 UTC
+получен durable WORKER_OOM_QUARANTINED; остановлен только прежний worker.
+API ID/image/StartedAt/restart count сохранены. Run38697325282/job116296875373
+SUCCESS: архивные системные журналы сокращены до128MiB, free вырос2 600 751 104→3 211 108 352
+байт; данные, контейнеры и образы не удалялись этой операцией.
+
+Exact-source CI38697094046: TS/tests/build и production image PASS; Python
+job116296228947 выявил столкновение тестов с общей /run/lock блокировкой
+после перехода sudo. Изолированы временные lock paths и в fixture helper,
+и в RecoveryTests; production lock/допуски не меняются. Повторный exact-SHA
+CI обязателен до offline cleanup и выпуска.
 Сначала offline recovery закрепляет сохранённый weekly input, затем retention
 удаляет только прежние transient payloads; процесс изолирован от API, без сети,
 сам удерживает реальный EX и ограничен420s. Native old-code+3module cold smoke,

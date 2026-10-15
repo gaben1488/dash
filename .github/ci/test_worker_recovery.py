@@ -39,7 +39,8 @@ class WorkerQuarantineWorkflowTests(unittest.TestCase):
             policy.chmod(0o600)
             # Rewrite only fixed host paths in the private trusted helper; bind
             # its fixture digest below, leaving the stop implementation real.
-            helper = SCRIPT.read_bytes().replace(b'/etc/aemr/runtime-policy.json', str(policy).encode())
+            helper = (SCRIPT.read_bytes().replace(b'/etc/aemr/runtime-policy.json', str(policy).encode())
+                      .replace(b'/run/lock/aemr-maintenance.lock', str(root / 'lock').encode()))
             (trusted / 'deploy/worker_recovery.py').write_bytes(helper)
             if scenario == 'changed-module':
                 with (trusted / 'deploy/worker_recovery.py').open('ab') as file:file.write(b'\n# unexpected bytes\n')
@@ -154,7 +155,14 @@ else:sys.exit(97)
 class WorkerRecoveryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location('worker_recovery', SCRIPT)
+        # Every fixture owns its kernel lock; sudo CI must never reuse the
+        # preceding unprivileged backup test's sticky-directory host lock.
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        source = Path(temporary.name) / SCRIPT.name
+        source.write_text(SCRIPT.read_text().replace(
+            '/run/lock/aemr-maintenance.lock', str(Path(temporary.name) / 'maintenance.lock')))
+        spec = importlib.util.spec_from_file_location('worker_recovery', source)
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
 
