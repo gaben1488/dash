@@ -1,133 +1,201 @@
 name: CI
-
 on:
   workflow_dispatch:
     inputs:
       release_sha:
-        description: "Exact 40-character main SHA to release"
+        description: Exact already staged candidate SHA
         type: string
         required: true
       backup_root:
-        description: "Absolute private backup directory outside repository and server_data"
+        description: Existing independently verified backup root
         type: string
         required: true
       backup_name:
-        description: "Previously verified immutable backup name in that directory"
+        description: Existing independently verified window name
         type: string
         required: true
-
 permissions:
   contents: read
 jobs:
-  observe:
+  finish:
     if: >-
-      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      github.ref == 'refs/heads/codex/release-observe-20261015' &&
-      inputs.release_sha == '394c7e853a2b326b9a5c89ea52f60c51e075302e'
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-finish-20261015' &&
+      inputs.release_sha == '394c7e853a2b326b9a5c89ea52f60c51e075302e' &&
+      inputs.backup_root == '/home/aemr/.dash-private-backups' &&
+      inputs.backup_name == 'worker-38792810076'
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
     steps:
-      - name: Read operational metadata only without lock or state changes
+      - name: Require the unchanged canonical candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api repos/${{ github.repository }}/pulls/79 --jq .head.sha)" = '${{ inputs.release_sha }}'
+      - name: Complete existing release only through unchanged full native acceptance
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 4m
+          command_timeout: 9m
           script: |
             set -euo pipefail
-            sudo -n python3 -IB - <<'PY'
+            sudo -n bash -c 'set -euo pipefail; test "$(sha256sum /usr/local/libexec/aemr/maintenance-lock.sh | cut -d" " -f1)" = 0eb3463b292152967c08f6666f204c9aa1743e8aa5f9389be73a782b9f5cc5c9; . /usr/local/libexec/aemr/maintenance-lock.sh; maintenance_lock_acquire 45; exec python3 -BEs -' <<'PY'
+            """Complete the already staged candidate only through unchanged native acceptance."""
+            import hashlib
+            import importlib.util
             import json
             import os
             import re
             import stat
-            import subprocess
+            import sys
+            import time
             from pathlib import Path
 
-            SERVICES={"/aemr-"+name+"-1":name for name in ("server","web","caddy","report-worker")}
-            OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
-            def safe_record(value):
-             state=value.get("State",{});config=value.get("Config",{});image=value.get("Image","");labels=config.get("Labels") or {}
-             return {"service":SERVICES.get(value.get("Name"),"OTHER"),
-              "project_owned":labels.get("com.docker.compose.project")=="aemr",
-              "compose_service":labels.get("com.docker.compose.service") if labels.get("com.docker.compose.service") in {"server","web","caddy","report-worker"} else None,
-              "oneoff":labels.get("com.docker.compose.oneoff") if labels.get("com.docker.compose.oneoff") in {"False","false","True","true"} else None,
-              "image":image if re.fullmatch(r"sha256:[a-f0-9]{64}",image) else None,
-              "state":state.get("Status") if state.get("Status") in {"created","running","paused","restarting","exited","dead","removing"} else None,
-              "health":state.get("Health",{}).get("Status") if state.get("Health",{}).get("Status") in {"healthy","unhealthy","starting"} else None,
-              "oom":state.get("OOMKilled") is True,"restarts":value.get("RestartCount") if type(value.get("RestartCount")) is int else None,
-              "pid":state.get("Pid") if type(state.get("Pid")) is int else None,
-              "data_volume":any(m.get("Name")=="aemr_server_data" for m in value.get("Mounts",[])),
-              "operations":sorted(set(config.get("Cmd") or [])&OPERATIONS)}
-            def snapshot(command):
-             ids=command(["docker","ps","--all","--quiet","--no-trunc"]).split()
-             records=json.loads(command(["docker","inspect",*ids])) if ids else []
-             return [safe_record(v) for v in records]
+            SHA = '394c7e853a2b326b9a5c89ea52f60c51e075302e'
+            RUN = '38792810076'
+
+
             def main():
-             print(json.dumps({"containers":snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
-             for name in ("pending-release.json","release-recovery-progress.json","release-accepted.json","release-recovered.json"):
-              path=Path("/var/lib/aemr")/name;result={"marker":name,"present":os.path.lexists(path)}
-              if result["present"]:
-               try:
-                with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),"rb") as file:
-                 info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_size<=65536
-                 value=json.load(file)
-                result["expected_source"]=value.get("release_sha",value.get("acceptance",{}).get("release_sha"))=="394c7e853a2b326b9a5c89ea52f60c51e075302e"
-                result["phase"]=value.get("phase") if value.get("phase") in {"candidate_accept","runtime_resume"} else None
-               except (OSError,ValueError,AssertionError,AttributeError):result["readable"]=False
-              print(json.dumps(result),flush=True)
-             for name in ("release-controller.log","release-recovery.log","watchdog.log","release-result","resume.log"):
-              path=Path("/home/aemr/.dash-private-backups/worker-38792810076")/name
-              result={"operational_file":name,"present":os.path.lexists(path)}
-              if result["present"]:
-               try:
-                with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),"rb") as file:
-                 info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0
-                 file.seek(max(0,info.st_size-65536));body=file.read(65536).decode("utf-8",errors="replace")
-                result["bytes"]=info.st_size
-                allowed={'RELEASE_TRIAL_PROOF_INVALID', 'RELEASE_RECOVERY_ARMED', 'RELEASE_RECOVERY_FAILED', 'RELEASE_NATIVE_WORD_MISMATCH', 'RELEASE_CANDIDATE_REJECTED_AND_RECOVERED', 'RELEASE_IMAGE_SOURCE_INVALID', 'RELEASE_PROOF_INVALID', 'RELEASE_COMMAND_FAILED', 'RELEASE_CHECKPOINT_CHANGED', 'RELEASE_CADDY_CAPSULE_CHANGED', 'RELEASE_SAVED_RUNTIME_MISMATCH', 'BACKUP_SPACE_BUDGET_ADMITTED', 'BACKUP_SPACE_BUDGET_UNAVAILABLE', 'BACKUP_WORKER_VOLUME_MISMATCH', 'RELEASE_VOLUME_WRITER_PRESENT', 'RELEASE_CONFIGURATION_STAGED', 'RELEASE_STAGE_INPUT_INVALID', 'RELEASE_CONTROLLER_FAILED', 'RELEASE_MODULE_PINS_INVALID', 'RELEASE_HANDOFF_INVALID', 'RELEASE_PREPARED_PLAN_INVALID', 'RELEASE_PROGRESS_INVALID', 'BACKUP_RUNTIME_RECORD_UNAVAILABLE', 'RELEASE_INGRESS_NOT_FENCED', 'RELEASE_CANDIDATE_ACCEPTED', 'RELEASE_TOOL_CHANGED', 'RELEASE_WORD_PROOF_INVALID', 'RELEASE_ACCEPTANCE_INVALID', 'RELEASE_CADDY_SOURCE_INVALID', 'RELEASE_SOURCE_CI_INVALID', 'RELEASE_BASE_PLAN_CREATED', 'RELEASE_RECOVERY_UNAVAILABLE', 'RELEASE_CANCEL_ADMITTED', 'RELEASE_RUNTIME_NOT_OWNED', 'BACKUP_GUARDIAN_NOT_READY', 'RELEASE_CONFIG_CHANGED', 'RELEASE_RUNTIME_RECOVERY_FAILED', 'RELEASE_LOCK_REQUIRED', 'RELEASE_ACCEPTED_RUNTIME_UNAVAILABLE', 'BACKUP_TARGET_EXISTS', 'BACKUP_SERVER_RESTART_FAILED', 'RELEASE_ALREADY_PENDING', 'RELEASE_IMAGE_UNAVAILABLE', 'RELEASE_ROLLBACK_IMAGE_UNAVAILABLE', 'RELEASE_STATE_RESTORE_FAILED', 'RELEASE_ALREADY_RECOVERED', 'RELEASE_OPERATOR_FILE_INVALID', 'BACKUP_PATH_OVERLAP', 'RELEASE_API_NOT_HEALTHY', 'RELEASE_PRIVATE_DIRECTORY_INVALID', 'BACKUP_GUARDIAN_FAILED', 'BACKUP_SERVER_NOT_HEALTHY', 'RELEASE_RESUME_REQUEST_QUEUED', 'RELEASE_BACKUP_SESSION_INVALID', 'BACKUP_WINDOW_ARGUMENTS_INVALID', 'RELEASE_RECEIPT_INVALID', 'RELEASE_RUNTIME_AND_STATE_RECOVERED', 'RELEASE_VOLUME_NOT_OWNED', 'RELEASE_CONFIG_INVALID', 'RELEASE_CANDIDATE_SCHEMA_INVALID', 'BACKUP_SPACE_BUDGET_INSUFFICIENT', 'RELEASE_CANDIDATE_STARTUP_INVALID', 'RELEASE_ROOT_REQUIRED', 'RELEASE_CANCEL_INVALID', 'RELEASE_COMPLETION_INVALID', 'RELEASE_STATE_RESTORE_UNVERIFIED', 'RELEASE_STAGE_INVALID', 'RELEASE_OWNED_FILE_INVALID', 'RELEASE_WRITER_NOT_QUIESCENT', 'RELEASE_BACKUP_UNSAFE', 'RELEASE_TRIAL_PREPARED'}
-                result["codes"]=sorted(set(body.split())&allowed)
-                if name=="release-result":result["outcome"]=int(body.strip()) if re.fullmatch(r"[0-9]{1,3}",body.strip()) and int(body.strip())<=255 else None
-               except (OSError,ValueError,AssertionError):result["readable"]=False
-              print(json.dumps(result),flush=True)
-             processes=[]
-             for proc in Path("/proc").glob("[0-9]*"):
-              try:
-               name=(proc/"comm").read_text().strip()
-               if name not in {"python3","python","bash","sh","timeout","docker","node","flock"}:continue
-               args=(proc/"cmdline").read_bytes().split(b"\0")
-               known={"release-controller.py","report-backup-window.sh","release_guardian.py","runtime_guard.py","stateful_backup.py","header_api_probe.mjs"}
-               operations=sorted({Path(a.decode(errors="replace")).name for a in args}&known)
-               if not operations and name not in {"node","docker"}:continue
-               info=(proc/"stat").read_text().rsplit(")",1)[1].split()
-               processes.append({"pid":int(proc.name),"ppid":int(info[1]),"process":name,"operations":operations,"state":info[0],"cpu_ticks":int(info[11])+int(info[12])})
-              except (OSError,ValueError,IndexError):pass
-             print(json.dumps({"processes":processes}),flush=True)
-             lock=Path("/run/lock/aemr-maintenance.lock").stat();holders=[]
-             for path in Path("/proc").glob("[0-9]*/fdinfo/9"):
-              try:
-               pid=int(path.parts[2]);st=Path(f"/proc/{pid}/fd/9").stat()
-               if (st.st_dev,st.st_ino)!=(lock.st_dev,lock.st_ino):continue
-               text=path.read_text()
-               if "FLOCK" not in text or "WRITE" not in text:continue
-               name=Path(f"/proc/{pid}/comm").read_text().strip()
-               holders.append({"pid":pid,"process":name if name in {"bash","sh","python","python3","flock","docker"} else "OTHER"})
-              except (OSError,ValueError):pass
-             print(json.dumps({"maintenance_holders":holders}),flush=True)
-             counts={}
-             for role in ("server","web","caddy","report-worker"):
-              value=subprocess.check_output(["docker","ps","--all","--quiet","--no-trunc","--filter","label=com.docker.compose.project=aemr","--filter",f"label=com.docker.compose.service={role}","--filter","label=com.docker.compose.oneoff=False"],text=True,timeout=15)
-              counts[role]=len(value.split())
-             print(json.dumps({"same_filter_counts":counts}),flush=True)
-             program="(async()=>{\nconst {ReportReleaseStatusSchema,DashboardDataSchema}=await import('@aemr/shared');\ndelete process.env.HEADER_PROBE_CLI;\nconst {HEADER_ENDPOINTS,validHeaderPayload,headerShapeIssues}=await import('/opt/aemr/header_api_probe.mjs');\nconst token=process.env.AEMR_API_KEY;if(!token)throw Error('auth');\nconst endpoints=[['reports','/api/report-releases'],['dashboard','/api/dashboard'],['dashboardAll','/api/dashboard?year=all'],...Object.entries(HEADER_ENDPOINTS).map(([n,u])=>[n,n==='comments'?u+'&view=discussions':u])];\nfor(const [name,endpoint] of endpoints){\n const start=Date.now();let status=null,size=0;\n try{\n const response=await fetch('http://127.0.0.1:3000'+endpoint,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(25000)});status=response.status;\n if(status!==200){response.body?.cancel().catch(()=>{});console.log(JSON.stringify({native_check:name,status,valid:false,elapsed_ms:Date.now()-start}));continue;}\n const chunks=[];for await(const part of response.body){size+=part.length;if(size>32*1024*1024)throw Error('size');chunks.push(part);}\n const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));\n const parsed=name==='reports'?ReportReleaseStatusSchema.safeParse(data):name.startsWith('dashboard')?DashboardDataSchema.safeParse(data):null;\n const valid=parsed?(parsed.success&&(name!=='reports'||parsed.data.latest!==null)):validHeaderPayload(name,data);\n console.log(JSON.stringify({native_check:name,status,valid,bytes:size,elapsed_ms:Date.now()-start,issues:parsed?parsed.success?[]:[...new Set(parsed.error.issues.map(x=>x.code))]:headerShapeIssues(name,data)}));\n }catch(error){console.log(JSON.stringify({native_check:name,status,valid:false,bytes:size,elapsed_ms:Date.now()-start,error:['AbortError','TimeoutError','SyntaxError'].includes(error.name)?error.name:'CHECK_FAILED'}));}\n}\n})().catch(()=>process.exit(2));\n"
-             result=subprocess.run(["docker","exec","-e","TSX_DISABLE_CACHE=1","aemr-server-1","./node_modules/.bin/tsx","--eval",program],capture_output=True,text=True,timeout=200,check=False)
-             for line in result.stdout.splitlines():
-              try:
-               value=json.loads(line)
-               if value.get("native_check") not in {"reports","dashboard","dashboardAll","journal","sources","buckets","comments"}:continue
-               print(json.dumps(value),flush=True)
-              except (ValueError,AttributeError):pass
-             print(json.dumps({"native_diagnostic_exit":result.returncode}),flush=True)
-            if __name__=="__main__":main()
+                assert os.geteuid() == 0
+                tools = Path('/usr/local/libexec/aemr')
+                runtime = Path('/var/lib/aemr/release-runtime')
+                session = Path('/home/aemr/.dash-private-backups') / ('worker-' + RUN)
+                for path in (tools, runtime, session):
+                    assert not any(p.is_symlink() for p in (path, *path.parents))
+                    assert path.stat().st_uid == 0 and not path.stat().st_mode & 0o022
+                # Pins are fixed by the original independent full-restore gate; no tool,
+                # candidate image, contract, checkpoint, or source is replaced by this retry.
+                with os.fdopen(os.open(session / 'release-window.json', os.O_RDONLY | os.O_NOFOLLOW), 'rb') as file:
+                    info = os.fstat(file.fileno())
+                    assert stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                    assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 65536
+                    window = json.load(file)
+                assert set(window) == {'format', 'candidate', 'run_id', 'module_sha256', 'boot_id', 'deadline_ns'}
+                assert window['format'] == 'aemr-release-window-v1'
+                assert window['candidate'] == SHA and window['run_id'] == RUN
+                assert window['boot_id'] == Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+                assert type(window['deadline_ns']) is int
+                names = {'release-controller.py', 'release_recovery.py', 'release_trial.py', 'stateful_backup.py', 'source_ci_gate.py'}
+                assert set(window['module_sha256']) == names
+                for name, digest in window['module_sha256'].items():
+                    path = tools / name
+                    assert re.fullmatch('[a-f0-9]{64}', digest)
+                    assert not path.is_symlink() and path.stat().st_uid == 0 and not path.stat().st_mode & 0o022
+                    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+                sys.path.insert(0, str(tools))
+                import release_recovery as r
+                r.require_lock(9)
+                spec = importlib.util.spec_from_file_location('pinned_release_controller', tools / 'release-controller.py')
+                controller = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(controller)
+                executor = r.ReleaseRecovery()
+                command = executor.command
+                def measured(args, **kwargs):
+                    stage = None
+                    if args[:2] == ['exec', 'aemr-server-1']:
+                        stage = 'schema' if args[2] == './node_modules/.bin/tsx' else 'word' if args[2] == 'python3' else None
+                    started = time.monotonic()
+                    try:
+                        return command(args, **kwargs)
+                    finally:
+                        if stage:
+                            print(json.dumps({'native_stage': stage, 'elapsed_ms': int((time.monotonic()-started)*1000)}), flush=True)
+                executor.command = measured
+                operator = controller.ReleaseController(executor)
+                plan = operator._proof(r.validate_plan(json.loads(r.read_owned(runtime / 'trial-plan.json'))))
+                assert plan['release_sha'] == SHA
+                plan_hash = r.digest(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode())
+                expected = executor._acceptance(plan)
+                progress_path = r.STATE_DIR / 'release-recovery-progress.json'
+                accepted_path = r.STATE_DIR / 'release-accepted.json'
+                progress = json.loads(r.read_owned(progress_path)) if progress_path.exists() else None
+                durable = json.loads(r.read_owned(accepted_path)) if accepted_path.exists() else None
+                if progress is not None:
+                    assert r.validate_progress(progress) == {'plan_sha256': plan_hash, 'phase': 'candidate_accept', 'acceptance': expected}
+                if durable is not None:
+                    assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
+                if r.PENDING.exists():
+                    assert r.validate_plan(json.loads(r.read_owned(r.PENDING))) == plan
+                    assert durable is None or progress is not None
+                else:
+                    assert durable is not None and progress is None
+                assert plan['backup_reference'] == 'worker-' + RUN + '/backup'
+                assert plan['original_running']['report-worker'] is False
+                _, config = executor._files(plan, candidate_runtime=True)
+                records = executor._records(plan, candidate=True)
+                operator._saved_runtime({**plan, 'images': plan['candidate_images']}, records,
+                                        json.loads(json.dumps(config).replace('$$', '$')))
+                assert records['server']['State']['Status'] == 'running'
+                assert records['server']['State']['Health']['Status'] == 'healthy'
+                assert records['web']['State']['Status'] == 'running'
+                assert records['report-worker']['State']['Status'] in {'created', 'exited'}
+                assert records['caddy']['State']['Status'] in ({'running', 'created', 'exited'} if progress is not None or durable is not None else {'created', 'exited'})
+                for service in ('server', 'web'):
+                    image = json.loads(executor.command(['image', 'inspect', plan['candidate_images'][service]]))[0]
+                    assert image['Config']['Labels']['org.opencontainers.image.revision'] == SHA
+                print('EXISTING_FULL_TRIAL_AND_CANDIDATE_PINS_PASS', flush=True)
+                # Crucially, a failed accept preserves closed ingress. Do not call the old
+                # general rollback path, whose historical-container scan masks that error.
+                if durable is not None and not r.PENDING.exists():
+                    executor._verify_api_word(plan, candidate=True)
+                    executor._verify_candidate_schema()
+                    assert records['caddy']['State']['Status'] == 'running'
+                else:
+                    if progress is None:
+                        assert executor.accept() == expected
+                        print('EXISTING_CANDIDATE_NATIVE_ACCEPT_PASS', flush=True)
+                    assert executor.recover() == expected
+                assert not r.PENDING.exists()
+                assert not (r.STATE_DIR / 'release-recovery-progress.json').exists()
+                durable = json.loads(r.read_owned(r.STATE_DIR / 'release-accepted.json'))
+                assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
+                # Original guardian is absent; this EX owner completes the same verified
+                # window only after durable acceptance. No state restore or image changes.
+                cleanup = []
+                request = runtime / 'guardian-request.json'
+                if os.path.lexists(request):
+                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'plan_sha256': plan_hash, 'stage': 'deploy'}
+                    cleanup.append(request)
+                request = session / 'cancel-request.json'
+                if os.path.lexists(request):
+                    original = r.read_owned(session / 'runtime.json')
+                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'runtime_sha256': r.digest(original)}
+                    cleanup.append(request)
+                for name in ('quiescent', 'worker-draining'):
+                    path = session / name
+                    if os.path.lexists(path):
+                        r.read_owned(path)
+                        cleanup.append(path)
+                for path in cleanup:
+                    path.unlink()
+                r.fsync_directory(session)
+                r.fsync_directory(runtime)
+                print('EXISTING_EXACT_CANDIDATE_ACCEPTED_AND_RESUMED', flush=True)
+
+
+            if __name__ == '__main__':
+                try:
+                    main()
+                except Exception as error:  # noqa: BLE001 - fixed public diagnostics boundary
+                    # Fixed-code diagnostics only; never print runtime source values.
+                    code = str(error)
+                    allowed = {'RELEASE_COMMAND_FAILED', 'RELEASE_CANDIDATE_SCHEMA_INVALID', 'RELEASE_API_NOT_HEALTHY', 'RELEASE_NATIVE_WORD_MISMATCH', 'RELEASE_RUNTIME_NOT_OWNED', 'RELEASE_SOURCE_CI_INVALID', 'RELEASE_ACCEPTED_RUNTIME_UNAVAILABLE', 'RELEASE_TRIAL_PROOF_INVALID', 'RELEASE_LOCK_REQUIRED'}
+                    print(code if code in allowed else 'EXISTING_RELEASE_FINISH_REJECTED', flush=True)
+                    kind = type(error).__name__
+                    print(json.dumps({'finish_failure_type': kind if kind in {'AssertionError', 'FileNotFoundError', 'PermissionError', 'RecoveryError'} else 'OtherError', 'entry_line': error.__traceback__.tb_lineno}), flush=True)
+                    sys.exit(2)
             PY
+      - name: Confirm public API availability
+        run: |
+          curl --fail --silent --show-error --max-time 20 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/health.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          assert json.loads((Path(os.environ['RUNNER_TEMP'])/'health.json').read_text())['status']=='ok'
+          print('PUBLIC_HEALTH_PASS')
+          PY
