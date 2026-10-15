@@ -453,5 +453,107 @@ class WorkerRecoveryTests(unittest.TestCase):
         self.assertNotIn('compose up', probe)
 
 
+class AcceptedWorkerStartWorkflowTests(unittest.TestCase):
+    def exercise(self, scenario):
+        import contextlib
+        import fcntl
+        import io
+        import os
+        import sys
+        import textwrap
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertTrue("<<'PYWORKERSTART'" in workflow, 'Missing exact-accepted worker start job')
+        program = textwrap.dedent(workflow.split("<<'PYWORKERSTART'\n", 1)[1].split('\n            PYWORKERSTART', 1)[0])
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                type(self).__name__ + '.' + self._testMethodName, '-q'], capture_output=True, text=True, timeout=40, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        spec = importlib.util.spec_from_file_location('accepted_start_fixtures', SCRIPT.parents[1] / '.github/ci/test_release_controller.py')
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        case = module.ControllerTests('test_prepare_binds_source_jobs_and_current_frozen_checkpoint_without_arming')
+        try:
+            case.setUp();f = case.fixture;r = f.module;plan = case.plan
+            old = 'sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+            for name in ('server', 'report-worker'):plan['images'][name] = old
+            plan['candidate_images']['report-worker'] = plan['candidate_images']['server']
+            plan['original_running']['report-worker'] = False
+            old_ids = {name: value['Id'] for name, value in f.records.items()}
+            f.mutate();f.records['report-worker']['State']['Status'] = 'exited'
+            f.records['caddy']['Mounts'][0]['Source'] = str(f.private / 'release-configs' / plan['release_sha'] / 'candidate-Caddyfile')
+            f.persist_records()
+            quarantine = f.private / 'worker-quarantine';quarantine.mkdir(mode=0o700)
+            r.atomic_json(quarantine / 'quarantine.json', {'state': 'WORKER_OOM_QUARANTINED', 'image': old,
+                'server': old_ids['server'], 'worker': old_ids['report-worker']})
+            r.atomic_json(f.runtime / 'trial-plan.json', plan)
+            r.atomic_json(f.runtime / 'stage.json', {'release_sha': plan['release_sha'], 'candidate_images': plan['candidate_images'],
+                'config_sha256': plan['config_sha256'], 'container_ids': old_ids})
+            r.atomic_json(f.private / 'release-accepted.json', {'plan_sha256': r.digest(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode()),
+                'acceptance': f.executor._acceptance(plan)})
+            f.trusted_source('.github/ci/source_ci_gate.py')
+            names = ('release-controller.py', 'release_recovery.py', 'release_trial.py', 'stateful_backup.py', 'source_ci_gate.py')
+            r.atomic_json(f.backup.parent / 'release-window.json', {'format': 'aemr-release-window-v1', 'candidate': plan['release_sha'],
+                'module_sha256': {name: r.digest((f.trusted / name).read_bytes()) for name in names}})
+            policy = f.private / 'policy.json';r.atomic_json(policy, {'project': 'aemr', 'worker_enabled': False})
+            for path in (f.source / 'reports/run.lock', f.source / 'reports/archives/.weekly.lock'):
+                path.parent.mkdir(parents=True, exist_ok=True);path.touch(mode=0o600)
+            (f.source / 'reports/status.json').write_text('{"status":"NOT_ISSUED"}')
+            if scenario == 'valid-group-writable-data':
+                for path in (f.source / 'reports/run.lock', f.source / 'reports/archives/.weekly.lock', f.source / 'reports/status.json'):
+                    path.chmod(0o664)
+            if scenario == 'no-quarantine':(quarantine / 'quarantine.json').unlink()
+            if scenario == 'wrong-sha':
+                value = json.loads((f.private / 'release-accepted.json').read_text());value['acceptance']['release_sha'] = 'f' * 40
+                r.atomic_json(f.private / 'release-accepted.json', value)
+            if scenario == 'pending':(f.private / 'pending-release.json').touch()
+            if scenario == 'foreign-image':f.records['report-worker']['Image'] = old;f.persist_records()
+            if scenario == 'config-drift':f.records['report-worker']['Config']['Env'] = ['PRIVATE_DRIFT=1'];f.persist_records()
+            if scenario == 'changed-module':
+                with (f.trusted / 'release_trial.py').open('a') as file:file.write('\n# changed\n')
+            if scenario == 'public-tools':f.trusted.chmod(0o777)
+            before = f.backup_tool.inventory(f.source);policy_bytes = policy.read_bytes()
+            actual = f.docker
+            def command(args, **kwargs):
+                kwargs.pop('lock_fd', None)
+                if args[:2] == ['image', 'inspect']:
+                    f.calls.append(args)
+                    return json.dumps([{'Id': args[2], 'Config': {'Labels': {'org.opencontainers.image.revision': plan['release_sha']}}}])
+                if args[0] == 'start':
+                    f.calls.append(args);self.assertEqual(args[-1], f.records['report-worker']['Id'])
+                    f.records['report-worker']['State']['Status'] = 'running';f.persist_records();return ''
+                if args[0] == 'exec' and './node_modules/.bin/tsx' in args and scenario == 'schema-failure':
+                    f.calls.append(args);return 'INVALID_SCHEMA'
+                return actual(args, **kwargs)
+            program = (program.replace('/var/lib/aemr', str(f.private)).replace('/usr/local/libexec/aemr', str(f.trusted))
+                .replace('/home/aemr/.dash-private-backups', str(f.backups)).replace('/run/lock/aemr-maintenance.lock', str(f.lock_path))
+                .replace('/etc/aemr/runtime-policy.json', str(policy)))
+            fcntl.flock(f.lock, fcntl.LOCK_UN)
+            output = io.StringIO();outcome = 0
+            with patch.object(r, 'docker', side_effect=command), patch.object(sys, 'argv', ['worker-start', plan['release_sha']]), \
+                 patch.object(sys, 'path', list(sys.path)), contextlib.redirect_stdout(output):
+                try:exec(compile(program, '<accepted-worker-start>', 'exec'), {})  # noqa: S102 - tracked fixed program, private paths and Docker adapter only
+                except SystemExit as error:outcome = error.code
+            mutations = [args for args in f.calls if args[0] in {'start', 'stop', 'restart', 'compose', 'run', 'rm'}]
+            if scenario.startswith('valid'):
+                self.assertEqual(outcome, 0, output.getvalue())
+                self.assertEqual(mutations, [['start', f.records['report-worker']['Id']]])
+                self.assertEqual(output.getvalue().strip(), 'REPAIRED_WORKER_STARTED_NOT_ACCEPTED')
+                self.assertTrue((quarantine / 'worker-start.json').is_file())
+            else:
+                self.assertEqual(outcome, 2);self.assertEqual(mutations, [])
+                self.assertEqual(output.getvalue().splitlines()[0], 'REPAIRED_WORKER_START_REJECTED')
+            self.assertEqual(policy.read_bytes(), policy_bytes)
+            self.assertEqual(f.backup_tool.inventory(f.source), before)
+        finally:case.doCleanups()
+
+    def test_start_only_exact_accepted_new_worker_after_native_contracts(self):
+        for scenario in ('valid', 'valid-group-writable-data'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+    def test_start_requires_quarantine_current_acceptance_owned_config_and_native_schema(self):
+        for scenario in ('no-quarantine', 'wrong-sha', 'pending', 'foreign-image', 'config-drift', 'changed-module', 'public-tools', 'schema-failure'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+
 if __name__ == '__main__':
     unittest.main()

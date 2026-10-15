@@ -10,6 +10,128 @@ permissions:
   actions: read
 
 jobs:
+  accepted-repaired-worker:
+    if: >-
+      github.event.label.name == 'maintenance: accepted-repaired-worker' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Require the accepted release to be the current candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/${{ github.repository }}/pulls/79 --jq .head.sha)" = '${{ github.event.pull_request.head.sha }}'
+      - name: Start only the accepted repaired worker after native API and Word checks
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - '${{ github.event.pull_request.head.sha }}' <<'PYWORKERSTART'
+            import fcntl,hashlib,importlib.util,json,os,re,stat,sys
+            from contextlib import ExitStack
+            from pathlib import Path
+            os.umask(0o077)
+            state=Path('/var/lib/aemr');runtime=state/'release-runtime';tools=Path('/usr/local/libexec/aemr')
+            old_image='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+            def read(path, *, private=True, owner=0, limit=1024*1024):
+             assert not any(p.is_symlink() for p in (path,*path.parents))
+             with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+              info=os.fstat(file.fileno())
+              assert stat.S_ISREG(info.st_mode) and info.st_nlink==1 and info.st_uid in ({0,1000} if owner is None else {owner})
+              assert info.st_size<=limit
+              if owner is not None:assert stat.S_IMODE(info.st_mode)==0o600 if private else not info.st_mode&0o022
+              return file.read(limit+1)
+            try:
+             sha=sys.argv[1];assert os.geteuid()==0 and re.fullmatch('[a-f0-9]{40}',sha)
+             for directory in (state,runtime,tools,tools.parent):
+              assert not any(p.is_symlink() for p in (directory,*directory.parents))
+              info=directory.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
+             fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
+             info=os.fstat(fd);assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1
+             if fd!=9:os.dup2(fd,9);os.close(fd)
+             with os.fdopen(9,'r+') as lock, ExitStack() as held:
+              fcntl.flock(9,fcntl.LOCK_EX|fcntl.LOCK_NB)
+              assert not any(os.path.lexists(state/name) for name in ('pending-release.json','release-recovery-progress.json'))
+              assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
+              policy=json.loads(read(Path('/etc/aemr/runtime-policy.json')))
+              assert policy.get('project')=='aemr' and policy.get('worker_enabled') is False
+              quarantine=json.loads(read(state/'worker-quarantine/quarantine.json'))
+              assert quarantine.get('state')=='WORKER_OOM_QUARANTINED' and quarantine.get('image')==old_image
+              raw_plan=json.loads(read(runtime/'trial-plan.json'))
+              reference=raw_plan.get('backup_reference')
+              assert isinstance(reference,str) and re.fullmatch('worker-[0-9]+/backup',reference)
+              window=json.loads(read(Path('/home/aemr/.dash-private-backups')/Path(reference).parent/'release-window.json'))
+              assert window.get('format')=='aemr-release-window-v1' and window.get('candidate')==sha
+              pins=window.get('module_sha256')
+              names={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
+              assert isinstance(pins,dict) and set(pins)==names
+              for name,pin in pins.items():
+               assert isinstance(pin,str) and re.fullmatch('[a-f0-9]{64}',pin)
+               assert hashlib.sha256(read(tools/name,private=False)).hexdigest()==pin
+              sys.path.insert(0,str(tools))
+              import release_recovery as r
+              plan=r.validate_plan(raw_plan)
+              accepted=json.loads(read(state/'release-accepted.json'))
+              assert set(accepted)=={'plan_sha256','acceptance'}
+              assert accepted['plan_sha256']==r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode())
+              executor=r.ReleaseRecovery()
+              assert accepted['acceptance']==executor._acceptance(plan) and plan['release_sha']==sha
+              assert plan['images']['server']==plan['images']['report-worker']==old_image
+              assert plan['candidate_images']['server']==plan['candidate_images']['report-worker']!=old_image
+              assert plan['original_running']['report-worker'] is False
+              stage=json.loads(read(runtime/'stage.json'))
+              assert stage['release_sha']==sha and stage['candidate_images']==plan['candidate_images'] and stage['config_sha256']==plan['config_sha256']
+              assert stage['container_ids']['server']==quarantine['server'] and stage['container_ids']['report-worker']==quarantine['worker']
+              _,config=executor._files(plan,candidate_runtime=True)
+              # _files emits Compose input; decode its one literal-dollar boundary for inspect.
+              config=json.loads(json.dumps(config).replace('$$','$'))
+              spec=importlib.util.spec_from_file_location('approved_release_controller',tools/'release-controller.py')
+              controller=importlib.util.module_from_spec(spec);spec.loader.exec_module(controller)
+              def check():
+               records=executor._records(plan,candidate=True)
+               controller.ReleaseController(executor)._saved_runtime({**plan,'images':plan['candidate_images']},records,config)
+               assert records['server']['State']['Status']=='running' and records['server']['State'].get('Health',{}).get('Status')=='healthy'
+               assert all(records[name]['State']['Status']=='running' for name in ('web','caddy'))
+               for name in ('server','web'):
+                image=json.loads(executor.command(['image','inspect',plan['candidate_images'][name]]))[0]
+                assert (image.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')==sha
+               return records
+              records=check()
+              assert records['report-worker']['State']['Status'] in {'created','exited'}
+              volume=executor._volume(plan)
+              for path in (volume/'reports/run.lock',volume/'reports/archives/.weekly.lock'):
+               read(path,private=False,owner=None)
+               handle=held.enter_context(os.fdopen(os.open(path,os.O_RDWR|os.O_NOFOLLOW),'r+'))
+               fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+              assert json.loads(read(volume/'reports/status.json',private=False,owner=None,limit=32*1024*1024)).get('status') in {'NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS','FAILED','PLAN_CHANGED'}
+              executor._verify_api_word(plan,candidate=True)
+              executor._verify_candidate_schema()
+              assert check()['report-worker']['State']['Status'] in {'created','exited'}
+              # No Compose/recreation or policy enable: only the already accepted new worker.
+              executor.command(['start',records['report-worker']['Id']])
+              assert check()['report-worker']['State']['Status']=='running'
+              r.atomic_json(state/'worker-quarantine/worker-start.json',{'state':'REPAIRED_WORKER_STARTED_NOT_ACCEPTED',
+               'release_sha':sha,'worker':records['report-worker']['Id'],'image':plan['candidate_images']['report-worker']})
+             print('REPAIRED_WORKER_STARTED_NOT_ACCEPTED')
+            except Exception as error:
+             kind=type(error).__name__
+             print('REPAIRED_WORKER_START_REJECTED')
+             print(json.dumps({'kind':'worker_start_diagnostic','entry_line':error.__traceback__.tb_lineno,
+              'exception_type':kind if kind in {'AssertionError','FileNotFoundError','PermissionError','BlockingIOError','KeyError','ValueError','RecoveryError','NameError'} else 'OtherError'}))
+             sys.exit(2)
+            PYWORKERSTART
   worker-oom-quarantine:
     if: >-
       github.event.label.name == 'maintenance: worker-oom-quarantine' &&
@@ -144,7 +266,7 @@ jobs:
              while frame.tb_next:frame=frame.tb_next
              print('WORKER_QUARANTINE_REJECTED')
              kind=type(error).__name__
-             print(json.dumps({'kind':'worker_quarantine_diagnostic','line':frame.tb_lineno,
+             print(json.dumps({'kind':'worker_quarantine_diagnostic','line':frame.tb_lineno,'entry_line':error.__traceback__.tb_lineno,
               'exception_type':kind if kind in {'AssertionError','FileNotFoundError','PermissionError','BlockingIOError','KeyError','ValueError','RecoveryError','NameError'} else 'OtherError'}))
              sys.exit(2)
             PYQUARANTINE
