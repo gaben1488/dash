@@ -61,8 +61,10 @@ class WorkerQuarantineWorkflowTests(unittest.TestCase):
             if scenario == 'different-worker':records['report-worker']['Id'] = 'b' * 64
             if scenario == 'not-restarting':records['report-worker']['RestartCount'] = 2
             if scenario == 'pending':(state / 'pending-release.json').touch()
-            if scenario == 'policy-enabled':
+            if scenario == 'valid-policy-enabled':
                 value = json.loads(body);value['worker_enabled'] = True;policy.write_text(json.dumps(value));body = policy.read_bytes()
+            if scenario == 'invalid-policy':
+                value = json.loads(body);value['worker_enabled'] = 'false';policy.write_text(json.dumps(value));body = policy.read_bytes()
             trace, registry = root / 'calls.jsonl', root / 'records.json'
             registry.write_text(json.dumps(records))
             docker = root / 'docker'
@@ -118,18 +120,23 @@ else:sys.exit(97)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(stops, [])
                 self.assertEqual(result.stdout.splitlines()[0], 'WORKER_QUARANTINE_REJECTED')
-            self.assertEqual(policy.read_bytes(), body)
-            self.assertEqual(policy.stat().st_ino, inode)
+            if scenario == 'valid-policy-enabled':
+                expected = json.loads(body);expected['worker_enabled'] = False
+                self.assertEqual(json.loads(policy.read_bytes()), expected)
+                self.assertEqual(policy.stat().st_mode & 0o777, 0o600)
+            else:
+                self.assertEqual(policy.read_bytes(), body)
+                self.assertEqual(policy.stat().st_ino, inode)
             self.assertEqual(json.loads(registry.read_text())['server'], records['server'])
             self.assertEqual(json.loads(status.read_text()), {} if scenario == 'missing-status' else {'status': 'RUNNING' if scenario == 'running-attempt' else 'NOT_ISSUED'})
 
     def test_quarantine_stops_only_the_exact_oom_worker_with_all_ex_locks(self):
-        for scenario in ('valid', 'valid-restarting'):
+        for scenario in ('valid', 'valid-restarting', 'valid-policy-enabled'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
     def test_quarantine_rejects_before_stop_without_actual_oom_ownership_and_custody(self):
         for scenario in ('no-oom', 'no-137', 'foreign-oom', 'old-oom', 'not-restarting', 'foreign-image', 'foreign-role', 'different-worker',
-                         'running-attempt', 'missing-status', 'changed-module', 'pending', 'policy-enabled', 'busy-global', 'busy-run', 'busy-weekly'):
+                         'running-attempt', 'missing-status', 'changed-module', 'pending', 'invalid-policy', 'busy-global', 'busy-run', 'busy-weekly'):
             with self.subTest(scenario=scenario):self.exercise(scenario)
 
 

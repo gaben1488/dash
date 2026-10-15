@@ -40,9 +40,15 @@ run38693046852/job116283156947 SUCCESS: 2 старых blobs удалены,
 
 Операционная граница перед следующим выпуском: quarantine применяется только
 к доказанному a2b6a1b9 OOM worker, под EX и при свободных run/weekly locks;
-API/образы/данные не откатываются. Первый live run38695409469 не принят,
+API/образы/данные не откатываются. Quarantine reuse helper сначала
+отключает worker admission, если он включён; resources не меняются.
+Первый live run38695409469 не принят,
 readback06:58 подтверждает прежний running worker453restarts и API0restarts.
-Добавлена безопасная диагностика типа ошибки/номера строки без её содержимого.
+Диагностика run38696183281 выявила live policy precondition: требование
+worker_enabled=false отказывало до вызова предусмотренного disable helper.
+Устранено: принимается только boolean, true штатно отключается перед stop;
+false сохраняет bytes/inode, остальные policy fields сохраняются.
+27 worker checks PASS, включая enabled→disabled и invalid-type negative.
 Остановка не объявляется выполненной до durable quarantine receipt.
 Сначала offline recovery закрепляет сохранённый weekly input, затем retention
 удаляет только прежние transient payloads; процесс изолирован от API, без сети,

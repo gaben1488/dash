@@ -201,7 +201,7 @@ jobs:
               assert not any(os.path.lexists(state/name) for name in ('pending-release.json','release-recovery-progress.json'))
               assert not list(Path('/home/aemr/.dash-private-backups').glob('*/quiescent'))
               policy=json.loads(read(policy_path,private=True,maximum=1024*1024))
-              assert policy.get('project')=='aemr' and policy.get('worker_enabled') is False
+              assert policy.get('project')=='aemr' and isinstance(policy.get('worker_enabled'),bool)
               assert set(policy.get('services',{}))=={'server','web','report-worker','caddy'}
               assert all(item.get('container')=='aemr-'+role+'-1' for role,item in policy['services'].items())
               held=[]
