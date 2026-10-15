@@ -400,6 +400,10 @@ jobs:
             capacity=os.statvfs('/')
             print(json.dumps({'kind':'host_capacity','free_bytes':shutil.disk_usage('/').free,
                 'free_inodes':capacity.f_favail,'total_inodes':capacity.f_files}))
+            engine=json.loads(subprocess.check_output(['docker','version','--format','{{json .Server}}'],timeout=15))
+            store=json.loads(subprocess.check_output(['docker','info','--format','{{json .}}'],timeout=15))
+            print(json.dumps({'kind':'docker_engine','version':engine.get('Version'),'driver':store.get('Driver'),
+                'driver_status':store.get('DriverStatus')}))
             for category,parent in [('backups','/home/aemr/.dash-private-backups'),
                     ('operational_scratch','/root/codex-fixes'),('temporary','/tmp'),
                     ('git_objects','/home/aemr/dash/.git'),
@@ -564,6 +568,11 @@ jobs:
                     if errors:
                         with os.fdopen(os.open(private,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600),'w') as output:
                             output.write(errors[-131072:])
+                # Classic Docker28 build IDs observed in the failed runner log.
+                for label,identity in [('server','sha256:5e0b11fac4f82903d86f1f307992e715c7e02fe24dfeb2722e405804eb2c9ac1'),
+                    ('web','sha256:825a6829b9b8ba670a37b41ce31bbe44325ef90a9bcfcf5f0eac2356922ed516')]:
+                    result=subprocess.run(['docker','image','inspect',identity],capture_output=True,timeout=20)
+                    print(json.dumps({'kind':'runner_image_id_probe','role':label,'available_on_vps':result.returncode==0}))
                 records={role:json.loads(executor.command(['inspect','aemr-'+role+'-1']))[0] for role in roles}
                 binding={'images':{role:value['Image'] for role,value in records.items()}}
                 sources=[('operator',[str(module.OPERATOR/'docker-compose.yml')])]
