@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
 jobs:
-  finish:
+  restore:
     if: >-
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-restore-20261015' &&
@@ -30,7 +30,7 @@ jobs:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - name: Require the unchanged canonical candidate
+      - name: Require the unchanged failed candidate before restoration
         env:
           GH_TOKEN: ${{ github.token }}
         run: test "$(gh api repos/${{ github.repository }}/pulls/79 --jq .head.sha)" = '${{ inputs.release_sha }}'
@@ -62,6 +62,8 @@ jobs:
             LEGACY = '485545e6e5afb846ff126887530c9c69ebbb7ab76ad4ae50d25196ed067b3260'
             LEGACY_IMAGE = 'sha256:9df39cca24e19ebd4b4ce7b2b252dac1a0df67ce656607b3c9ab503b4f6dd134'
             TAG = 'aemr-private-preserved:legacy-485545e6-20261015'
+            FRESH_ARCHIVE_BYTES = 5226094530
+            OLD_ARCHIVE_BYTES = 4589649313
 
 
             def validate_legacy(value):
@@ -114,6 +116,41 @@ jobs:
                 return 'PRESERVED_AND_RETIRED'
 
 
+            def retire_superseded_backup(executor, r, plan):
+                fresh, _ = executor._files(plan)
+                manifest, _, _ = executor.backup_tool._validated_backup(fresh)
+                assert manifest['format'] == 2 and manifest['archive_bytes'] == FRESH_ARCHIVE_BYTES
+                old = r.BACKUP_BASE / 'worker-38349415596' / 'backup'
+                assert old != fresh and not any(p.is_symlink() for p in (old, *old.parents))
+                for directory in (r.BACKUP_BASE, old.parent, old): r.private_directory(directory)
+                old_manifest = json.loads(r.read_owned(old / 'manifest.json', 64*1024*1024))
+                assert old_manifest['format'] == 2 and old_manifest['archive_bytes'] == OLD_ARCHIVE_BYTES
+                archive = old / 'state.tar.gz'
+                record = old / 'superseded-retirement.json'
+                expected = {'state': 'SUPERSEDED_ARCHIVE_RETIRED', 'retained_backup': plan['backup_reference'],
+                            'retained_manifest_sha256': plan['manifest_sha256'],
+                            'removed_bytes': old_manifest['archive_bytes'], 'removed_sha256': old_manifest['archive_sha256']}
+                if os.path.lexists(archive):
+                    with os.fdopen(os.open(archive, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as file:
+                        info = os.fstat(file.fileno())
+                        assert stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                        assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_size == expected['removed_bytes']
+                        assert hashlib.file_digest(file, 'sha256').hexdigest() == expected['removed_sha256']
+                    assert archive.stat().st_ino != (fresh / 'state.tar.gz').stat().st_ino
+                    r.private_directory(old)
+                    # Durable admission before unlink makes interruption after removal safe.
+                    if os.path.lexists(record): assert json.loads(r.read_owned(record)) == expected
+                    else: r.atomic_json(record, expected)
+                    current = archive.lstat()
+                    fields = ('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_uid','st_gid','st_mode','st_nlink')
+                    assert all(getattr(current,key) == getattr(info,key) for key in fields)
+                    archive.unlink()
+                    r.fsync_directory(old)
+                else:
+                    assert json.loads(r.read_owned(record)) == expected
+                print('SUPERSEDED_ARCHIVE_RETIRED_FRESH_FULL_TRIAL_BACKUP_PRESERVED', flush=True)
+
+
             def main():
                 assert os.geteuid() == 0
                 tools = Path('/usr/local/libexec/aemr')
@@ -163,6 +200,7 @@ jobs:
                         assert progress['phase'] == 'runtime_resume'
                         assert progress['plan_sha256'] == expected_plan
                     assert retire_stopped_legacy(executor.command, r) in {'PRESERVED_AND_RETIRED', 'ALREADY_PRESERVED_AND_RETIRED'}
+                    retire_superseded_backup(executor, r, plan)
                     print('STOPPED_LEGACY_PRESERVED_AND_RETIRED', flush=True)
                     # The unchanged recovery validator admits only bound original/candidate
                     # survivors and handles an interrupted, partially reconstructed rollback.
@@ -207,9 +245,17 @@ jobs:
             if __name__ == '__main__':
                 try:
                     main()
-                except Exception as error:  # noqa: BLE001 - fixed public codes; private config never leaves host
-                    allowed={'RELEASE_RECOVERY_FAILED','RELEASE_RUNTIME_NOT_OWNED','RELEASE_API_NOT_HEALTHY','RELEASE_NATIVE_WORD_MISMATCH','RELEASE_TRIAL_PROOF_INVALID','RELEASE_CHECKPOINT_CHANGED','RELEASE_LOCK_REQUIRED','RELEASE_COMMAND_FAILED'}
-                    print(str(error) if str(error) in allowed else 'PINNED_ROLLBACK_REJECTED',flush=True)
+                except Exception as error:  # noqa: BLE001 - fixed public codes only, no private details
+                    allowed={'RELEASE_RECOVERY_FAILED','RELEASE_RUNTIME_NOT_OWNED','RELEASE_API_NOT_HEALTHY','RELEASE_NATIVE_WORD_MISMATCH','RELEASE_TRIAL_PROOF_INVALID','RELEASE_CHECKPOINT_CHANGED','RELEASE_LOCK_REQUIRED','RELEASE_COMMAND_FAILED','RELEASE_STATE_RESTORE_FAILED','BACKUP_STORAGE_INSUFFICIENT','BACKUP_MISMATCH','BACKUP_UNSAFE_FILE','BACKUP_STATE_INCOMPLETE','BACKUP_MANIFEST_INVALID','BACKUP_SQLITE_INVALID','BACKUP_DOCX_INVALID','BACKUP_OWNERSHIP_UNAVAILABLE','BACKUP_VERIFIED_MANIFEST_MISMATCH'}
+                    seen=set()
+                    while error is not None and id(error) not in seen and len(seen)<6:
+                        seen.add(id(error))
+                        kind=type(error).__name__
+                        print(json.dumps({'rollback_failure':str(error) if str(error) in allowed else 'PRIVATE_DETAILS_WITHHELD',
+                            'kind':kind if kind in {'AssertionError','BackupError','RecoveryError','OSError','PermissionError','FileNotFoundError'} else 'OtherError',
+                            'entry_line':error.__traceback__.tb_lineno if error.__traceback__ else None,
+                            'errno':error.errno if isinstance(error,OSError) else None}),flush=True)
+                        error=error.__cause__ or error.__context__
                     sys.exit(2)
             PY
       - name: Confirm public API availability
