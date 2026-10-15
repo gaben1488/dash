@@ -18,6 +18,10 @@ SHA-bound previous manifest/archive+logical growth+margin+1GiB reserve до API 
 это прогноз, не backup proof. Writer reserve/fresh complete restore сохранены.
 Только два terminal failed/never-deployed image набора b8/fe добавлены в exact-ID
 retirement; no-force/reference/OCI-label/runtime guards сохранены.
+Cleanup38788357799/38788603344 остановлены до rm: b8 server/web IDs были ошибочно
+переставлены. Actual Docker census38788724513/job116607399774 подтвердил weba1df67,
+server7f4507; fixture и exact table исправлены RED→GREEN. Сам diagnostic job FAILED
+на позднем legacy replay, image census/healthy old API readback состоялись.
 Public failure classifier теперь извлекает только allowlisted codes и из JSON,
 private payload не публикуется. 3 regressions RED→GREEN;25 cleanup tests PASS.
 Short native38782931719/job116587507527: candidate200/3482ms, unchanged previous
