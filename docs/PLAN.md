@@ -7,7 +7,24 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
-Подтверждённая причина stage: run38704494952/116320415090 показал у всех4
+Обновление после b28ad020/run38707668118: source CI38707018941 (три
+обязательных job) и latest/3Word preflight PASS; stage снова отказал до freeze,
+backup и deploy, RELEASE_COMMAND_FAILED. Предыдущая null/default ошибка ниже
+была реальным дефектом сравнения, но её исправление не устранило весь путь.
+Read-only probe38711452116: VPS Docker29.1.3/containerd, hosted builder Docker28.0.4;
+оба builder image IDs на VPS отсутствуют после load, там получены другие IDs.
+Подготовлены одинаковые Docker29.1.3/containerd на hosted builder и реальный
+малый two-way transport canary ДО сборки приложения. Привилегированные trial
+команды сверяют endpoint того же daemon; старые rollback image IDs проверяются
+после обратного переноса ДО остановки API. Это проверяемая гипотеза исправления;
+новый production выпуск пока не состоялся.
+Capacity38707421375: удалены ровно4 unused images30c/2d, free3 763 650 560→
+8 799 674 368B, runtime unchanged. После загрузки failed b28 free6 130 876 416B;
+в allowlist добавлены только2 его точных образа при GitHub proof skipped freeze.
+Все используемые/rollback/accepted images сохраняются, business data не удаляются.
+
+
+Отдельный подтверждённый дефект stage: run38704494952/116320415090 показал у всех4
 служб command/entrypoint=null при унаследованных непустых image defaults,
 а для Caddy/web image User=null соответствует container User="". Это стандарт
 Compose/Docker, не расхождение runtime. Исправление общего _saved_runtime:

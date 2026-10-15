@@ -1684,7 +1684,7 @@ jobs:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - name: Prove both candidates failed before any writer freeze
+      - name: Prove the exact candidates failed before any writer freeze
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1694,7 +1694,7 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286')]:
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843')]:
               info=read('/actions/runs/'+str(run))
               assert info['head_sha']==sha and info['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
@@ -1703,7 +1703,7 @@ jobs:
               assert len(freeze)==1 and freeze[0]['conclusion']=='skipped'
           print('FAILED_CANDIDATE_LINEAGE_VERIFIED')
           PY
-      - name: Retire only four unused immutable failed-candidate images
+      - name: Retire only exact unused immutable failed-candidate images
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
@@ -1733,7 +1733,9 @@ jobs:
                 'aemr-server:release-30cfd6914a60eddfde3f85fcc9528307b484ef92':'sha256:e711a93ad863d192329ca3d2cb1434f95bcdb54045e2372941782a6c3b14b284',
                 'aemr-web:release-30cfd6914a60eddfde3f85fcc9528307b484ef92':'sha256:15f96a15c16caa947772ff5102a413a535cf7a32fc9ec578dec8a20d27c0573a',
                 'aemr-server:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4',
-                'aemr-web:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295'}
+                'aemr-web:release-2d865fe1d3f86c741392b7bbc9cd91e991aeb286':'sha256:6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295',
+                'aemr-server:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4',
+                'aemr-web:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b'}
             try:
                 assert os.geteuid()==0
                 with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
@@ -1900,6 +1902,56 @@ jobs:
             sleep 20
           done
           test "$ready" = true
+      - name: Match the production Docker engine and image store
+        id: release-docker
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
+        with:
+          version: v29.1.3
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Bind privileged trial commands to the same pinned runner daemon
+        env:
+          RELEASE_DOCKER_SOCKET: ${{ steps.release-docker.outputs.sock }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          selected_cli=$(command -v docker)
+          selected_socket=${RELEASE_DOCKER_SOCKET#unix://}
+          test -S "$selected_socket"
+          # Ephemeral hosted runner only. Recovery deliberately uses the fixed
+          # /usr/bin/docker + default socket, without inherited endpoint variables.
+          sudo systemctl stop docker.service docker.socket
+          if test "$(readlink -f "$selected_cli")" != /usr/bin/docker; then sudo install -m 755 "$selected_cli" /usr/bin/docker; fi
+          sudo ln -sfn "$selected_socket" /var/run/docker.sock
+          sudo install -d -m 700 /etc/aemr/docker
+          expected=$(docker info --format '{{.ID}}')
+          actual=$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker info --format '{{.ID}}')
+          test "$expected" = "$actual"
+          test "$(docker version --format '{{.Server.Version}}')" = 29.1.3
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys; assert ["driver-type","io.containerd.snapshotter.v1"] in json.load(sys.stdin)'
+          echo RUNNER_ENGINE_AND_PRIVILEGED_ENDPOINT_MATCH
+      - name: Prove immutable image IDs survive the actual two-way transport
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          canary="aemr-transport-canary:$RECOVERY_SHA-$RECOVERY_RUN"
+          cleanup_canary() {
+            remote sudo -n docker image rm "$canary" > "$RUNNER_TEMP/release/canary-remote-cleanup.log" 2>&1 || true
+            docker image rm "$canary" > "$RUNNER_TEMP/release/canary-local-cleanup.log" 2>&1 || true
+          }
+          trap cleanup_canary EXIT
+          mkdir -m 700 "$RUNNER_TEMP/release/empty-context"
+          docker build --label aemr.transport-canary=true -t "$canary" -f - "$RUNNER_TEMP/release/empty-context" <<'DOCKERFILE'
+          FROM scratch
+          CMD ["never-run"]
+          DOCKERFILE
+          expected=$(docker image inspect "$canary" --format '{{.Id}}')
+          docker save "$canary" | remote sudo -n docker load > "$RUNNER_TEMP/release/canary-load.log" 2>&1
+          actual=$(remote sudo -n docker image inspect "$canary" --format '{{.Id}}')
+          test "$expected" = "$actual" || { echo IMAGE_TRANSPORT_IDENTITY_MISMATCH; exit 2; }
+          remote sudo -n docker save "$actual" | docker load > "$RUNNER_TEMP/release/canary-return.log" 2>&1
+          test "$(docker image inspect "$actual" --format '{{.Id}}')" = "$expected"
+          echo IMAGE_TRANSPORT_ROUNDTRIP_PASS
       - name: Build immutable candidate images while API remains online
         run: |
           set -euo pipefail
@@ -1992,6 +2044,11 @@ jobs:
           PY
           )
           remote sudo -n docker save $previous | docker load > "$RUNNER_TEMP/release/previous-image-load.log" 2>&1
+          # A restore trial cannot use a host-specific image identifier. Verify
+          # actual previous images before the guardian stops any production writer.
+          for identity in $previous; do
+            test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$identity" --format '{{.Id}}')" = "$identity"
+          done
           echo RELEASE_IMAGES_AND_CONFIGURATION_READY
       - name: Freeze writers once and create fresh full private backup
         run: |
