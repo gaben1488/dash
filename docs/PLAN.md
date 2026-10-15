@@ -15,6 +15,16 @@ Same-owner resume SUCCESS, свежий domain health200/ok подтверждё
 Ни один новый app runtime не установлен. Старый worker остаётся quarantined.
 Полная копия без independent restore не закрывает R06/R09.
 
+Archive-only run38733386925/job116416457291 завершён без вмешательства в runtime:
+DIAGNOSTIC_SCRATCH_INSUFFICIENT на reports/identity.sqlite; runtime_unchanged=true.
+Это лимит диагностической временной копии, не доказательство повреждения SQLite.
+Следующий hosted-only replay переносит существующий archive/config/immutable images,
+использует исходный b8 trial без изменения native programs и сохраняет private
+subprocess/trace attribution. API остаётся online, никаких повторных freeze/backup.
+SDK29/privileged endpoint/cache admission переиспользованы;2 subprocess/privacy
+RED→GREEN,3archive/21cleanup/Ruff/actionlint PASS. Реальная причина исходного trial
+ещё открыта. Принятие replay не является текущим deployment или новым допуском.
+
 Коррекция процесса: следующий диагноз использует уже созданный immutable archive
 при работающем API. Read-only helper проверяет member/hash/attrs и SQLite+WAL,
 DOCX по одному в private scratch (reserve1GiB); источник и archive не переписывает.
