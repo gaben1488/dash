@@ -106,40 +106,5 @@ def main():
   value=subprocess.check_output(["docker","ps","--all","--quiet","--no-trunc","--filter","label=com.docker.compose.project=aemr","--filter",f"label=com.docker.compose.service={role}","--filter","label=com.docker.compose.oneoff=False"],text=True,timeout=15)
   counts[role]=len(value.split())
  print(json.dumps({"same_filter_counts":counts}),flush=True)
- database=Path("/var/lib/docker/volumes/aemr_server_data/_data/aemr.db")
- assert database.is_file() and not any(p.is_symlink() for p in (database,*database.parents))
- assert all(not Path(str(database)+suffix).is_symlink() for suffix in ("-wal","-shm"))
- print(json.dumps({"snapshot_database_sizes":{name:Path(str(database)+suffix).stat().st_size if Path(str(database)+suffix).is_file() else None for name,suffix in (("main_bytes",""),("wal_bytes","-wal"))}}),flush=True)
- expected="sha256:545fd2b3cf69d73f22cd4a3639d51b37dab582f6bf2e92e78075d22f7be59d25"
- record=json.loads(subprocess.check_output(["docker","inspect","aemr-server-1"],text=True,timeout=15))[0]
- assert record["Image"]==expected and record["State"]["Status"]=="running"
- mounts=[m for m in record.get("Mounts",[]) if m.get("Destination")=="/app/packages/server/data"]
- assert len(mounts)==1 and mounts[0].get("Type")=="volume" and mounts[0].get("Name")=="aemr_server_data" and mounts[0].get("Source")==str(database.parent)
- program='import json,re,sqlite3,time\nfrom pathlib import Path\npath=Path(\'/state/aemr.db\')\nassert all(not p.is_symlink() for p in (path,Path(str(path)+\'-wal\'),Path(str(path)+\'-shm\')))\nassert path.is_file() and Path(str(path)+\'-shm\').is_file()\nconnection=sqlite3.connect(\'file:/state/aemr.db?mode=ro\',uri=True,timeout=2)\ndeadline=time.monotonic()+5\nconnection.set_progress_handler(lambda:int(time.monotonic()>deadline),10000)\nsizes={}\ndef number(value):return value if type(value) is int and 0<=value<=2**53-1 else None\ntry:\n connection.execute(\'PRAGMA query_only=ON\')\n sizes[\'snapshots\']=number(connection.execute(\'SELECT COUNT(*) FROM snapshots\').fetchone()[0])\n sizes[\'recent\']=[]\n for created,read_ms,pipeline_ms,rows,issues in connection.execute(\'SELECT created_at,read_duration_ms,pipeline_duration_ms,row_count,issue_count FROM snapshots ORDER BY created_at DESC LIMIT 5\'):\n  at=created if isinstance(created,str) and re.fullmatch(r\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|[+-][0-9]{2}:[0-9]{2})\',created) else None\n  sizes[\'recent\'].append({\'at\':at,\'read_ms\':number(read_ms),\'pipeline_ms\':number(pipeline_ms),\'rows\':number(rows),\'issues\':number(issues)})\n sizes[\'nonopen_or_commented\']=number(connection.execute("SELECT COUNT(*) FROM issues WHERE status <> \'open\' OR length(trim(coalesce(comment,\'\')))>0").fetchone()[0])\nexcept sqlite3.Error:sizes[\'query_incomplete\']=True\nfinally:connection.close()\nprint(json.dumps({\'snapshot_runtime_metadata\':sizes}),flush=True)\n'
- result=subprocess.run(["docker","run","--rm","-i","--network","none","--read-only","--memory","128m","--pids-limit","32","--cpus","0.25","--cap-drop","ALL","--security-opt","no-new-privileges","--user","1000:1000","--entrypoint","/usr/bin/timeout","--mount","type=volume,source=aemr_server_data,target=/state,readonly",expected,"--kill-after=2s","25s","python3","-B","-"],input=program,capture_output=True,text=True,timeout=40,check=False)
- for line in result.stdout.splitlines():
-  try:
-   value=json.loads(line)
-   if "snapshot_runtime_metadata" in value:print(json.dumps(value),flush=True)
-  except (ValueError,AttributeError):pass
- print(json.dumps({"metadata_reader_exit":result.returncode}),flush=True)
- result=subprocess.run(["docker","logs","--since","2026-10-15T20:12:00Z","--tail","4000","aemr-server-1"],capture_output=True,text=True,timeout=15,check=False)
- requests={};events=[]
- for line in (result.stdout+"\n"+result.stderr).splitlines():
-  try:value=json.loads(line)
-  except ValueError:continue
-  if not isinstance(value,dict):continue
-  at=value.get("time")
-  if type(at) is not int or not 0<=at<=2**53-1:continue
-  message=value.get("msg","");req=value.get("req") if isinstance(value.get("req"),dict) else {}
-  endpoint=req.get("url")
-  names={"/api/dashboard":"dashboard","/api/dashboard?year=all":"dashboardAll","/api/report-releases":"reports","/api/change-story?limit=1":"journal"}
-  request_id=value.get("reqId") if isinstance(value.get("reqId"),str) else None
-  if request_id is not None and isinstance(endpoint,str) and endpoint in names:requests[request_id]=names[endpoint];events.append({"stage":"request_start","endpoint":names[endpoint],"at_ms":at})
-  if request_id is not None and request_id in requests and type(value.get("responseTime")) in {int,float} and 0<=value["responseTime"]<=2**53-1:
-   events.append({"stage":"request_end","endpoint":requests[request_id],"at_ms":at,"elapsed_ms":int(value["responseTime"]),"status":value["res"].get("statusCode") if isinstance(value.get("res"),dict) and type(value["res"].get("statusCode")) is int and 100<=value["res"]["statusCode"]<=599 else None})
-  prefixes={"Снимок сохраняется:":"persist_start","Строки-атомы снимка записаны:":"atoms_saved","Периметр строк собран":"inputs_complete"}
-  for prefix,stage in prefixes.items():
-   if isinstance(message,str) and message.startswith(prefix):events.append({"stage":stage,"at_ms":at})
- print(json.dumps({"snapshot_stage_events":sorted(events,key=lambda e:e["at_ms"])[-60:]}),flush=True)
+
 if __name__=="__main__":main()
