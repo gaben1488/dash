@@ -431,6 +431,18 @@ jobs:
             status_sizes=[p.stat().st_size for p in (reports/'attempts').glob('*/status.json') if p.is_file() and not p.is_symlink()]
             print(json.dumps({'kind':'attempt_status_sizes','count':len(status_sizes),
                 'total_bytes':sum(status_sizes),'max_bytes':max(status_sizes,default=0)}))
+            published=(reports/'published').stat()
+            print(json.dumps({'kind':'publication_owner','uid':published.st_uid,'mode':oct(stat.S_IMODE(published.st_mode))}))
+            seen_images=set()
+            for line in subprocess.check_output(['docker','image','ls','--all','--no-trunc','--format','{{json .}}'],timeout=20).splitlines():
+                value=json.loads(line)
+                if value.get('Repository') not in ('aemr-server','aemr-web','caddy') or value['ID'] in seen_images:continue
+                seen_images.add(value['ID'])
+                image=json.loads(subprocess.check_output(['docker','image','inspect',value['ID']],timeout=15))[0]
+                revision=(image.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')
+                print(json.dumps({'kind':'runtime_image_census','image':image['Id'],'bytes':image.get('Size'),
+                    'tags':[tag for tag in image.get('RepoTags',[]) if tag.startswith(('aemr-server:','aemr-web:','caddy:'))],
+                    'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}))
             latest=reports/'status.json'
             if latest.is_file() and latest.stat().st_size<64*1024*1024:
                 status=json.loads(latest.read_bytes())
@@ -543,15 +555,21 @@ jobs:
                                 outcomes.append({'role':role,'result':'PASS'})
                             except Exception as error:
                                 frame=error.__traceback__
-                                while frame.tb_next:frame=frame.tb_next
-                                outcomes.append({'role':role,'result':'MISMATCH','comparison_line':frame.tb_lineno,
+                                comparison_line=None
+                                while frame:
+                                    if frame.tb_frame.f_code.co_name=='_saved_runtime':comparison_line=frame.tb_lineno
+                                    frame=frame.tb_next
+                                outcomes.append({'role':role,'result':'MISMATCH','comparison_line':comparison_line,
+                                    'error_code':str(error) if isinstance(error,recovery.RecoveryError) and str(error) in
+                                        {'RELEASE_SAVED_RUNTIME_MISMATCH','RELEASE_COMMAND_FAILED','RELEASE_OWNED_FILE_INVALID'} else None,
                                     'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'})
                         print(json.dumps({'kind':'stage_source_comparison','source':label,'source_files':len(paths),'outcomes':outcomes}))
                     except Exception as error:
                         print(json.dumps({'kind':'stage_source_comparison','source':label,'result':'UNAVAILABLE',
                             'exception_type':type(error).__name__ if isinstance(error,(recovery.RecoveryError,KeyError,ValueError,TypeError)) else 'OtherError'}))
                 after={role:json.loads(executor.command(['inspect','aemr-'+role+'-1']))[0] for role in roles}
-                assert all(all(value.get(key)==after[role].get(key) for key in ('Id','Image','Config','Mounts','RestartCount'))
+                assert all(all(value.get(key)==after[role].get(key) for key in ('Id','Image','Config','RestartCount'))
+                    and sorted(json.dumps(v,sort_keys=True) for v in value['Mounts'])==sorted(json.dumps(v,sort_keys=True) for v in after[role]['Mounts'])
                     and value['State']['StartedAt']==after[role]['State']['StartedAt'] for role,value in records.items())
                 print('STAGE_DIAGNOSTICS_RUNTIME_UNCHANGED')
             PY

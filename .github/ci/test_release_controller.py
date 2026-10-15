@@ -248,6 +248,46 @@ class ControllerTests(TrialTests):
         self.fixture.records['server']['State']['Status'] = 'exited'
         self.fixture.persist_records()
 
+    def test_actual_diagnostic_keeps_comparison_frame_and_ignores_mount_order(self):
+        import textwrap
+        self.stage_fixture()
+        workflow = (ROOT / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        fragment = workflow[workflow.index('                for label,paths in sources:\n'):]
+        program = textwrap.dedent(fragment.split('\n            PY\n  backup-window-diagnostics:', 1)[0])
+        extra = {'Type': 'bind', 'Source': '/fixture-extra', 'Destination': '/fixture-extra', 'RW': True}
+        self.fixture.records['caddy']['Mounts'].append(extra)
+        self.compose_sources[str(self.operator / 'docker-compose.yml')]['services']['caddy']['volumes'].append(
+            {'type': 'bind', 'source': '/fixture-extra', 'target': '/fixture-extra'})
+        for record in self.fixture.records.values():
+            record['State']['StartedAt'] = 'stable';record['RestartCount'] = 0
+        original = self.fixture.executor.command
+        def command(args, **kwargs):
+            result = original(args, **kwargs)
+            if args[0] == 'inspect':
+                values = json.loads(result)
+                for value in values:value['Mounts'].reverse()
+                return json.dumps(values)
+            return result
+        self.fixture.executor.command = command
+        for changed in (False, True):
+            if changed:self.fixture.records['server']['Config']['User'] = 'unexpected-fixture-user'
+            self.fixture.persist_records()
+            context = {'json': json, 'module': self.controller_module, 'recovery': self.fixture.module,
+                'executor': self.fixture.executor, 'controller': self.controller, 'roles': tuple(self.fixture.records),
+                'binding': {'images': self.plan['images']}, 'records': json.loads(json.dumps(self.fixture.records)),
+                'sources': [('operator', [str(self.operator / 'docker-compose.yml')])]}
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                exec(compile(program, '<actual-stage-diagnostic>', 'exec'), context)  # noqa: S102 - trusted workflow fixture
+            lines = output.getvalue().splitlines()
+            self.assertEqual(lines[-1], 'STAGE_DIAGNOSTICS_RUNTIME_UNCHANGED')
+            outcomes = json.loads(lines[0])['outcomes']
+            failures = [value for value in outcomes if value['result'] != 'PASS']
+            self.assertEqual(len(failures), int(changed))
+            if changed:
+                self.assertGreater(failures[0]['comparison_line'], self.controller._saved_runtime.__code__.co_firstlineno)
+                self.assertEqual(failures[0]['error_code'], 'RELEASE_SAVED_RUNTIME_MISMATCH')
+            self.assertNotIn('PRIVATE_TEST_KEY', output.getvalue())
+
     def test_stage_captures_actual_private_configuration_without_runtime_mutation(self):
         self.stage_fixture()
         self.assertTrue(hasattr(self.controller, 'stage'), 'Trusted fixed-path stage producer is missing')

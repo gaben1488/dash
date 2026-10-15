@@ -17,7 +17,12 @@ Host-reserve38700906945 принят: ext4 reserved786405→157282 blocks (5%→
 и выводом только известных фиксированных error codes. Read-only comparison
 реальных Compose sources добавлен в существующий diagnostics job; значения
 environment и содержимое источников не публикуются. Повторный rollout до диагноза
-не запускать. Новых пользовательских согласований или платных ресурсов не требуется.
+не запускать. Диагностика38703188664 подтвердила стабильный API и остановленный
+worker; comparison error был скрыт общим fail-frame. Исправлены trace attribution
+и сравнение Mounts без зависимости от порядка Docker; фактический workflow
+проверен на valid/mismatch/reordered-mount fixture, все40 controller tests PASS.
+Новый image census нужен для удаления только ненужных кандидатных образов:
+после загрузки candidate доступный free3,777GB, business27,2GB ещё не уплотнялся. Новых пользовательских согласований или платных ресурсов не требуется.
 
 PR #79: source SHA `1118899d`, CI38692995115 — три обязательных
 source jobs PASS (включая C07 и memory fix); read-only runtime job не зелёный. Release38687954214
