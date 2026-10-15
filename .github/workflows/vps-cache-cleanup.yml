@@ -66,7 +66,7 @@ jobs:
                 targets=[]
                 for run in ('worker-38171945386','worker-38178244703'):
                     target=base/run/'backup'/'state.tar.gz'
-                    if not target.exists():continue
+                    if not target.exists() and not target.is_symlink():continue
                     item=regular(target);assert item.st_ino!=info.st_ino
                     assert 2_000_000_000<item.st_size<3_000_000_000
                     targets.append((target,item.st_size))

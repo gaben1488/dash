@@ -134,9 +134,9 @@ class SupersededBackupTests(unittest.TestCase):
                 (root / 'runtime/pending-release.json').touch()
             elif scenario == 'quiescent':
                 (base / 'worker-38171945386/quiescent').touch()
-            elif scenario == 'symlink-second':
+            elif scenario in ('symlink-second', 'dangling-second'):
                 originals[1].unlink()
-                originals[1].symlink_to(retained / 'state.tar.gz')
+                originals[1].symlink_to(retained / 'state.tar.gz' if scenario == 'symlink-second' else root / 'missing')
             program = (program.replace('/home/aemr/.dash-private-backups', str(base))
                        .replace('/var/lib/aemr', str(root / 'runtime'))
                        .replace('/run/lock/aemr-maintenance.lock', str(root / 'lock'))
@@ -151,7 +151,7 @@ class SupersededBackupTests(unittest.TestCase):
             else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('AssertionError', result.stderr)
-                self.assertTrue(all(p.exists() for p in originals))
+                self.assertTrue(all(p.exists() or p.is_symlink() for p in originals))
             self.assertTrue((retained / 'state.tar.gz').exists())
             self.assertTrue(all(p.with_name('manifest.json').read_bytes() == b'keep audit receipt'
                                 for p in originals))
@@ -160,7 +160,7 @@ class SupersededBackupTests(unittest.TestCase):
         self.exercise('valid')
 
     def test_refuse_before_any_delete_when_retained_proof_or_custody_is_invalid(self):
-        for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second'):
+        for scenario in ('corrupt-retained', 'pending', 'quiescent', 'symlink-second', 'dangling-second'):
             with self.subTest(scenario=scenario):
                 self.exercise(scenario)
 
