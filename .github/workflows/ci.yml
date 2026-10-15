@@ -20,12 +20,12 @@ jobs:
   finish:
     if: >-
       github.actor == github.repository_owner &&
-      github.ref == 'refs/heads/codex/release-finish-20261015' &&
+      github.ref == 'refs/heads/codex/release-restore-20261015' &&
       inputs.release_sha == '394c7e853a2b326b9a5c89ea52f60c51e075302e' &&
       inputs.backup_root == '/home/aemr/.dash-private-backups' &&
       inputs.backup_name == 'worker-38792810076'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 40
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
@@ -34,18 +34,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: test "$(gh api repos/${{ github.repository }}/pulls/79 --jq .head.sha)" = '${{ inputs.release_sha }}'
-      - name: Complete existing release only through unchanged full native acceptance
+      - name: Restore previously proven checkpoint and runtime
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 9m
+          command_timeout: 35m
           script: |
             set -euo pipefail
             sudo -n bash -c 'set -euo pipefail; test "$(sha256sum /home/aemr/.dash-private-backups/worker-38792810076/maintenance-lock.sh | cut -d" " -f1)" = 0eb3463b292152967c08f6666f204c9aa1743e8aa5f9389be73a782b9f5cc5c9; . /home/aemr/.dash-private-backups/worker-38792810076/maintenance-lock.sh; maintenance_lock_acquire 45; exec python3 -BEs -' <<'PY'
-            """Complete the already staged candidate only through unchanged native acceptance."""
+            """Restore the proven previous runtime with the pinned checkpoint executor."""
             import hashlib
             import importlib.util
             import json
@@ -53,11 +53,65 @@ jobs:
             import re
             import stat
             import sys
-            import time
             from pathlib import Path
 
             SHA = '394c7e853a2b326b9a5c89ea52f60c51e075302e'
             RUN = '38792810076'
+
+
+            LEGACY = '485545e6e5afb846ff126887530c9c69ebbb7ab76ad4ae50d25196ed067b3260'
+            LEGACY_IMAGE = 'sha256:9df39cca24e19ebd4b4ce7b2b252dac1a0df67ce656607b3c9ab503b4f6dd134'
+            TAG = 'aemr-private-preserved:legacy-485545e6-20261015'
+
+
+            def validate_legacy(value):
+                labels = value.get('Config', {}).get('Labels') or {}
+                assert value['Id'] == LEGACY and value['Image'] == LEGACY_IMAGE
+                assert value['State']['Status'] == 'exited' and value['State'].get('Pid', 0) == 0
+                assert labels.get('com.docker.compose.project') == 'aemr'
+                assert labels.get('com.docker.compose.service') == 'server'
+                assert value['Name'] not in {'/aemr-' + service + '-1' for service in ('server', 'web', 'caddy', 'report-worker')}
+                assert value.get('Mounts') == []
+                assert type(value['SizeRw']) is int and 0 <= value['SizeRw'] <= 256*1024*1024
+
+
+            def retire_stopped_legacy(command, r):
+                private = Path('/root/codex-fixes/release-38792810076/legacy-preserved')
+                # Protect every path component before any secret-bearing inspect is saved.
+                for parent in [*reversed(private.parents), private]:
+                    if not parent.exists(): parent.mkdir(mode=0o700)
+                    value = parent.lstat()
+                    assert stat.S_ISDIR(value.st_mode) and value.st_uid == 0 and not value.st_mode & 0o022
+                assert stat.S_IMODE(private.stat().st_mode) == 0o700
+                inspect_path = private / 'container.json'
+                receipt_path = private / 'preservation.json'
+                identifiers = command(['ps', '--all', '--quiet', '--no-trunc']).split()
+                if LEGACY not in identifiers:
+                    saved = json.loads(r.read_owned(receipt_path))
+                    assert saved['container'] == LEGACY and saved['original_image'] == LEGACY_IMAGE
+                    assert json.loads(command(['image', 'inspect', saved['preserved_image']]))[0]['Id'] == saved['preserved_image']
+                    assert json.loads(r.read_owned(inspect_path, 8*1024*1024))['Id'] == LEGACY
+                    return 'ALREADY_PRESERVED_AND_RETIRED'
+                raw = command(['inspect', '--size', LEGACY])
+                value = json.loads(raw)[0]
+                validate_legacy(value)
+                available = os.statvfs('/var/lib/docker')
+                assert available.f_bavail*available.f_frsize > value['SizeRw'] + 1024*1024*1024
+                # Private inspect preserves configuration; commit preserves the stopped
+                # writable layer. Neither is exported or pushed to the public repository.
+                if os.path.lexists(inspect_path):
+                    assert json.loads(r.read_owned(inspect_path, 8*1024*1024)) == value
+                else:
+                    r.atomic_json(inspect_path, value)
+                preserved = command(['commit', LEGACY, TAG], timeout=180).strip()
+                assert re.fullmatch('sha256:[a-f0-9]{64}', preserved)
+                assert json.loads(command(['image', 'inspect', TAG]))[0]['Id'] == preserved
+                r.atomic_json(receipt_path, {'container': LEGACY, 'original_image': LEGACY_IMAGE, 'preserved_image': preserved})
+                # State may not change between preservation and exact non-force removal.
+                current = json.loads(command(['inspect', '--size', LEGACY]))[0]
+                assert current == value
+                command(['rm', LEGACY])  # No force; no volume removal; exact stopped ID only.
+                return 'PRESERVED_AND_RETIRED'
 
 
             def main():
@@ -94,122 +148,68 @@ jobs:
                 controller = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(controller)
                 executor = r.ReleaseRecovery()
-                command = executor.command
-                def measured(args, **kwargs):
-                    stage = None
-                    if args[:2] == ['exec', 'aemr-server-1']:
-                        stage = ('startup_warmup' if 'EXISTING_CANDIDATE_STARTUP_WARMUP' in args[-1] else 'schema') if args[2] == './node_modules/.bin/tsx' else 'word' if args[2] == 'python3' else None
-                    started = time.monotonic()
-                    try:
-                        return command(args, **kwargs)
-                    finally:
-                        if stage:
-                            print(json.dumps({'native_stage': stage, 'elapsed_ms': int((time.monotonic()-started)*1000)}), flush=True)
-                executor.command = measured
                 operator = controller.ReleaseController(executor)
                 plan = operator._proof(r.validate_plan(json.loads(r.read_owned(runtime / 'trial-plan.json'))))
                 assert plan['release_sha'] == SHA
-                plan_hash = r.digest(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode())
-                expected = executor._acceptance(plan)
-                progress_path = r.STATE_DIR / 'release-recovery-progress.json'
-                accepted_path = r.STATE_DIR / 'release-accepted.json'
-                progress = json.loads(r.read_owned(progress_path)) if os.path.lexists(progress_path) else None
-                durable = json.loads(r.read_owned(accepted_path)) if os.path.lexists(accepted_path) else None
-                if progress is not None:
-                    assert r.validate_progress(progress) == {'plan_sha256': plan_hash, 'phase': 'candidate_accept', 'acceptance': expected}
-                if durable is not None:
-                    assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
-                if os.path.lexists(r.PENDING):
-                    assert r.validate_plan(json.loads(r.read_owned(r.PENDING))) == plan
-                    assert durable is None or progress is not None
-                else:
-                    assert durable is not None
-                    if progress is not None:
-                        # Existing pinned recovery retires only the matching completed
-                        # progress after a crash between pending/progress unlink.
-                        assert executor.recover() is None
-                        progress = None
                 assert plan['backup_reference'] == 'worker-' + RUN + '/backup'
                 assert plan['original_running']['report-worker'] is False
-                _, config = executor._files(plan, candidate_runtime=True)
-                records = executor._records(plan, candidate=True)
-                operator._saved_runtime({**plan, 'images': plan['candidate_images']}, records,
-                                        json.loads(json.dumps(config).replace('$$', '$')))
-                assert records['server']['State']['Status'] == 'running'
-                assert records['server']['State']['Health']['Status'] == 'healthy'
-                assert records['web']['State']['Status'] == 'running'
-                assert records['report-worker']['State']['Status'] in {'created', 'exited'}
-                assert records['caddy']['State']['Status'] in ({'running', 'created', 'exited'} if progress is not None or durable is not None else {'created', 'exited'})
-                for service in ('server', 'web'):
-                    image = json.loads(executor.command(['image', 'inspect', plan['candidate_images'][service]]))[0]
-                    assert image['Config']['Labels']['org.opencontainers.image.revision'] == SHA
-                print('EXISTING_FULL_TRIAL_AND_CANDIDATE_PINS_PASS', flush=True)
-                if durable is None:
-                    warmup_program = "// EXISTING_CANDIDATE_STARTUP_WARMUP\n(async()=>{\n const {DashboardDataSchema}=await import('@aemr/shared');\n delete process.env.HEADER_PROBE_CLI;\n const {validHeaderPayload}=await import('/opt/aemr/header_api_probe.mjs');\n const token=process.env.AEMR_API_KEY;if(!token)throw Error('auth');\n const deadline=Date.now()+240000,checks=[];\n for(const [name,path] of [['journal','/api/change-story?limit=1'],['currentYear','/api/dashboard?year=2026'],['allYears','/api/dashboard']]){\n  const started=Date.now();let status=null,size=0;\n  try{\n   const remaining=deadline-Date.now();if(remaining<=0)throw Error('budget');\n   const response=await fetch('http://127.0.0.1:3000'+path,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(Math.min(120000,remaining))});status=response.status;\n   if(status!==200){response.body?.cancel().catch(()=>{});throw Error('status');}\n   const chunks=[];for await(const part of response.body){size+=part.length;if(size>32*1024*1024)throw Error('size');chunks.push(part);}\n   const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));\n   const valid=name==='journal'?validHeaderPayload('journal',data):DashboardDataSchema.safeParse(data).success;\n   checks.push({name,status,valid,bytes:size,elapsed_ms:Date.now()-started});\n   if(!valid)break;\n  }catch{checks.push({name,status,valid:false,bytes:size,elapsed_ms:Date.now()-started});break;}\n }\n console.log(JSON.stringify({startup_warmup:checks}));\n})().catch(()=>console.log(JSON.stringify({startup_warmup:[]})));\n"
-                    value = executor.command(['exec', 'aemr-server-1', './node_modules/.bin/tsx', '--eval', warmup_program], timeout=255)
-                    checked = json.loads(value)
-                    assert set(checked) == {'startup_warmup'}
-                    checks = checked['startup_warmup']
-                    assert isinstance(checks, list) and len(checks) <= 3
-                    for item in checks:
-                        assert set(item) == {'name', 'status', 'valid', 'bytes', 'elapsed_ms'}
-                        assert item['name'] in {'allYears', 'currentYear', 'journal'}
-                        assert item['status'] is None or type(item['status']) is int
-                        assert type(item['valid']) is bool
-                        assert all(type(item[k]) is int and 0 <= item[k] <= 2**53-1 for k in ('bytes', 'elapsed_ms'))
-                    print(json.dumps(checked), flush=True)
-                    assert [item['name'] for item in checks] == ['journal', 'currentYear', 'allYears']
-                    assert all(item['valid'] and item['status'] == 200 for item in checks)
-                    print('STARTUP_DATA_PREPARED_NOT_ACCEPTED', flush=True)
-                # Crucially, a failed accept preserves closed ingress. Do not call the old
-                # general rollback path, whose historical-container scan masks that error.
-                if durable is not None and not os.path.lexists(r.PENDING):
-                    executor._verify_api_word(plan, candidate=True)
-                    executor._verify_candidate_schema()
-                    assert records['caddy']['State']['Status'] == 'running'
+                assert not os.path.lexists(r.STATE_DIR / 'release-accepted.json')
+                progress_path = r.STATE_DIR / 'release-recovery-progress.json'
+                expected_plan = r.digest(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode())
+                if os.path.lexists(r.PENDING):
+                    assert r.validate_plan(json.loads(r.read_owned(r.PENDING))) == plan
+                    if os.path.lexists(progress_path):
+                        progress = r.validate_progress(json.loads(r.read_owned(progress_path)))
+                        assert progress['phase'] == 'runtime_resume'
+                        assert progress['plan_sha256'] == expected_plan
+                    assert retire_stopped_legacy(executor.command, r) in {'PRESERVED_AND_RETIRED', 'ALREADY_PRESERVED_AND_RETIRED'}
+                    print('STOPPED_LEGACY_PRESERVED_AND_RETIRED', flush=True)
+                    # The unchanged recovery validator admits only bound original/candidate
+                    # survivors and handles an interrupted, partially reconstructed rollback.
+                    executor._recovery_records(plan)
+                    print('PINNED_FULL_ROLLBACK_START', flush=True)
+                    receipt = executor.recover()
                 else:
-                    if progress is None:
-                        assert executor.accept() == expected
-                        print('EXISTING_CANDIDATE_NATIVE_ACCEPT_PASS', flush=True)
-                    assert executor.recover() == expected
+                    receipt = r.validate_completed(json.loads(r.read_owned(r.STATE_DIR / 'release-recovered.json')))
+                    assert receipt['release_sha'] == SHA and receipt['manifest_sha256'] == plan['manifest_sha256']
+                    assert receipt['plan_sha256'] == expected_plan
+                    assert executor.recover() is None  # Retire only exactly matching crash progress.
+                    executor._verify_api_word(plan)
+                assert receipt['state'] == 'RELEASE_RUNTIME_AND_STATE_RECOVERED'
+                assert receipt['release_sha'] == SHA
+                assert receipt['manifest_sha256'] == plan['manifest_sha256']
+                assert receipt['plan_sha256'] == expected_plan
+                records = executor._records(plan, original=True)
+                assert records['server']['State']['Status'] == 'running'
+                assert records['caddy']['State']['Status'] == 'running'
+                assert records['report-worker']['State']['Status'] in {'created', 'exited'}
                 assert not os.path.lexists(r.PENDING)
-                assert not os.path.lexists(r.STATE_DIR / 'release-recovery-progress.json')
-                durable = json.loads(r.read_owned(r.STATE_DIR / 'release-accepted.json'))
-                assert durable == {'plan_sha256': plan_hash, 'acceptance': expected}
-                # Original guardian is absent; this EX owner completes the same verified
-                # window only after durable acceptance. No state restore or image changes.
+                assert not os.path.lexists(progress_path)
                 cleanup = []
                 request = runtime / 'guardian-request.json'
                 if os.path.lexists(request):
-                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'plan_sha256': plan_hash, 'stage': 'deploy'}
+                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'plan_sha256': expected_plan, 'stage': 'deploy'}
                     cleanup.append(request)
                 request = session / 'cancel-request.json'
                 if os.path.lexists(request):
-                    original = r.read_owned(session / 'runtime.json')
-                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'runtime_sha256': r.digest(original)}
+                    assert json.loads(r.read_owned(request)) == {'candidate': SHA, 'run_id': RUN, 'runtime_sha256': r.digest(r.read_owned(session / 'runtime.json'))}
                     cleanup.append(request)
                 for name in ('quiescent', 'worker-draining'):
                     path = session / name
                     if os.path.lexists(path):
                         r.read_owned(path)
                         cleanup.append(path)
-                for path in cleanup:
-                    path.unlink()
+                for path in cleanup: path.unlink()
                 r.fsync_directory(session)
                 r.fsync_directory(runtime)
-                print('EXISTING_EXACT_CANDIDATE_ACCEPTED_AND_RESUMED', flush=True)
-
+                print('PREVIOUS_RUNTIME_AND_STATE_RECOVERED_WORKER_QUARANTINED', flush=True)
 
             if __name__ == '__main__':
                 try:
                     main()
-                except Exception as error:  # noqa: BLE001 - fixed public diagnostics boundary
-                    # Fixed-code diagnostics only; never print runtime source values.
-                    code = str(error)
-                    allowed = {'RELEASE_COMMAND_FAILED', 'RELEASE_CANDIDATE_SCHEMA_INVALID', 'RELEASE_API_NOT_HEALTHY', 'RELEASE_NATIVE_WORD_MISMATCH', 'RELEASE_RUNTIME_NOT_OWNED', 'RELEASE_SOURCE_CI_INVALID', 'RELEASE_ACCEPTED_RUNTIME_UNAVAILABLE', 'RELEASE_TRIAL_PROOF_INVALID', 'RELEASE_LOCK_REQUIRED'}
-                    print(code if code in allowed else 'EXISTING_RELEASE_FINISH_REJECTED', flush=True)
-                    kind = type(error).__name__
-                    print(json.dumps({'finish_failure_type': kind if kind in {'AssertionError', 'FileNotFoundError', 'PermissionError', 'RecoveryError'} else 'OtherError', 'entry_line': error.__traceback__.tb_lineno}), flush=True)
+                except Exception as error:  # noqa: BLE001 - fixed public codes; private config never leaves host
+                    allowed={'RELEASE_RECOVERY_FAILED','RELEASE_RUNTIME_NOT_OWNED','RELEASE_API_NOT_HEALTHY','RELEASE_NATIVE_WORD_MISMATCH','RELEASE_TRIAL_PROOF_INVALID','RELEASE_CHECKPOINT_CHANGED','RELEASE_LOCK_REQUIRED','RELEASE_COMMAND_FAILED'}
+                    print(str(error) if str(error) in allowed else 'PINNED_ROLLBACK_REJECTED',flush=True)
                     sys.exit(2)
             PY
       - name: Confirm public API availability
