@@ -45,6 +45,13 @@ class ArchiveRetirement(unittest.TestCase):
   self.run_retirement();self.assertFalse((self.old/'state.tar.gz').exists())
   self.assertTrue((self.old/'manifest.json').is_file());self.assertTrue((self.old/'superseded-retirement.json').is_file())
   self.run_retirement();self.assertEqual((self.fresh/'state.tar.gz').read_bytes(),before)
+ def test_historical644_inside_root_private_tree_is_compatible(self):
+  (self.old/'manifest.json').chmod(0o644);(self.old/'state.tar.gz').chmod(0o644)
+  self.run_retirement();self.assertFalse((self.old/'state.tar.gz').exists())
+ def test_writable_historical_archive_is_rejected(self):
+  (self.old/'state.tar.gz').chmod(0o666)
+  with self.assertRaises(AssertionError):self.run_retirement()
+  self.assertTrue((self.old/'state.tar.gz').is_file())
  def test_corrupt_fresh_archive_never_retires_old(self):
   (self.fresh/'state.tar.gz').write_bytes(b'corrupt')
   with self.assertRaises(self.tool.BackupError):self.run_retirement()

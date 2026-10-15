@@ -76,7 +76,7 @@ def retire_superseded_backup(executor, r, plan):
     old = r.BACKUP_BASE / 'worker-38349415596' / 'backup'
     assert old != fresh and not any(p.is_symlink() for p in (old, *old.parents))
     for directory in (r.BACKUP_BASE, old.parent, old): r.private_directory(directory)
-    old_manifest = json.loads(r.read_owned(old / 'manifest.json', 64*1024*1024))
+    old_manifest = json.loads(r.read_owned(old / 'manifest.json', 64*1024*1024, private=False))
     assert old_manifest['format'] == 2 and old_manifest['archive_bytes'] == OLD_ARCHIVE_BYTES
     archive = old / 'state.tar.gz'
     record = old / 'superseded-retirement.json'
@@ -87,7 +87,7 @@ def retire_superseded_backup(executor, r, plan):
         with os.fdopen(os.open(archive, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as file:
             info = os.fstat(file.fileno())
             assert stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
-            assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_size == expected['removed_bytes']
+            assert stat.S_IMODE(info.st_mode) in {0o600, 0o644} and info.st_size == expected['removed_bytes']
             assert hashlib.file_digest(file, 'sha256').hexdigest() == expected['removed_sha256']
         assert archive.stat().st_ino != (fresh / 'state.tar.gz').stat().st_ino
         r.private_directory(old)
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:  # noqa: BLE001 - fixed public codes only, no private details
-        allowed={'RELEASE_RECOVERY_FAILED','RELEASE_RUNTIME_NOT_OWNED','RELEASE_API_NOT_HEALTHY','RELEASE_NATIVE_WORD_MISMATCH','RELEASE_TRIAL_PROOF_INVALID','RELEASE_CHECKPOINT_CHANGED','RELEASE_LOCK_REQUIRED','RELEASE_COMMAND_FAILED','RELEASE_STATE_RESTORE_FAILED','BACKUP_STORAGE_INSUFFICIENT','BACKUP_MISMATCH','BACKUP_UNSAFE_FILE','BACKUP_STATE_INCOMPLETE','BACKUP_MANIFEST_INVALID','BACKUP_SQLITE_INVALID','BACKUP_DOCX_INVALID','BACKUP_OWNERSHIP_UNAVAILABLE','BACKUP_VERIFIED_MANIFEST_MISMATCH'}
+        allowed={'RELEASE_RECOVERY_FAILED','RELEASE_RUNTIME_NOT_OWNED','RELEASE_API_NOT_HEALTHY','RELEASE_NATIVE_WORD_MISMATCH','RELEASE_TRIAL_PROOF_INVALID','RELEASE_CHECKPOINT_CHANGED','RELEASE_LOCK_REQUIRED','RELEASE_COMMAND_FAILED','RELEASE_STATE_RESTORE_FAILED','RELEASE_OWNED_FILE_INVALID','RELEASE_PRIVATE_DIRECTORY_INVALID','BACKUP_STORAGE_INSUFFICIENT','BACKUP_MISMATCH','BACKUP_UNSAFE_FILE','BACKUP_STATE_INCOMPLETE','BACKUP_MANIFEST_INVALID','BACKUP_SQLITE_INVALID','BACKUP_DOCX_INVALID','BACKUP_OWNERSHIP_UNAVAILABLE','BACKUP_VERIFIED_MANIFEST_MISMATCH'}
         seen=set()
         while error is not None and id(error) not in seen and len(seen)<6:
             seen.add(id(error))
