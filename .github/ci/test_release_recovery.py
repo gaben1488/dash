@@ -199,6 +199,25 @@ class ReleaseRecoveryTests(unittest.TestCase):
             self.records[s]['State']['Status'] = 'running'
         self.persist_records()
 
+    def test_arm_rejects_legacy_survivor_before_pending_or_runtime_stop(self):
+        foreign = json.loads(json.dumps(self.records['server']))
+        foreign.update({'Id': 'f' * 64, 'Name': '/retired-native-helper', 'Image': 'sha256:' + 'e' * 64, 'Mounts': []})
+        foreign['State'] = {'Status': 'exited', 'Pid': 0}
+        foreign['Config']['Labels'].pop('com.docker.compose.oneoff', None)
+        self.records['foreign'] = foreign
+        self.persist_records()
+        previous = self.executor.command
+        def command(args, **kwargs):
+            if args[0] == 'ps' and 'label=com.docker.compose.oneoff=False' in args:
+                role = next(x.split('=')[-1] for x in args if x.startswith('label=com.docker.compose.service='))
+                return self.records[role]['Id']
+            return previous(args, **kwargs)
+        self.executor.command = command
+        with self.assertRaisesRegex(self.module.RecoveryError, 'RELEASE_RUNTIME_NOT_OWNED'):
+            self.executor.arm(self.plan)
+        self.assertFalse(self.pending.exists())
+        self.assertFalse(any(c[0] in ('stop', 'start', 'rm', 'run') for c in self.calls))
+
     def test_foreign_writer_blocks_restore_without_deleting_current_data(self):
         self.executor.arm(self.plan)
         self.mutate()

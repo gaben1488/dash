@@ -172,6 +172,8 @@ class ReleaseController:
         candidate_images = {**images, **request['candidate_images'], 'report-worker': request['candidate_images']['server']}
         binding = {'images': images, 'candidate_images': candidate_images, 'volume': 'aemr_server_data'}
         records = self.executor._records(binding, original=True)
+        # Rollback must own the complete inventory before ingress is ever fenced.
+        self.executor._recovery_records(binding)
         self.executor._volume(binding)
         if (any(r['State']['Status'] not in {'running', 'exited', 'created'} for r in records.values())
                 or records['server']['State']['Status'] != 'running'

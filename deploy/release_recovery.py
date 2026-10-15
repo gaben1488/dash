@@ -532,6 +532,7 @@ print(json.dumps(out))"""
         if PENDING.exists() or PENDING.is_symlink():
             fail('RELEASE_ALREADY_PENDING')
         self._retire_completed_progress()
+        self._recovery_records(plan)
         backup, _ = self._files(plan)
         self._images(plan)
         records = self._records(plan, original=True)

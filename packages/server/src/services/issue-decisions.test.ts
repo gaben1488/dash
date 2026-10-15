@@ -51,4 +51,36 @@ describe('rule decision identity compatibility', () => {
     expect(reconnectRuleDecisions(current, [saved, { ...saved, snapshot: changed }])[0].status).toBe('open');
   });
 
+  it('recomputes identity when the same source arrays change between requests', () => {
+    const old = snapshot([row()], 4, true);
+    const current = snapshot([row()]);
+    const saved = [{ id: old.issues[0].id, status: 'false_positive', snapshot: old }];
+    expect(reconnectRuleDecisions(current, saved)[0].status).toBe('false_positive');
+    current.rowsByDept!['УКСиМП'][0][2] = 'Changed organization';
+    expect(reconnectRuleDecisions(current, saved)[0].status).toBe('open');
+    current.rowsByDept!['УКСиМП'][0][2] = 'Учреждение';
+    current.rowsByDept!['УКСиМП'].push(row());
+    expect(reconnectRuleDecisions(current, saved)[0].status).toBe('open');
+  });
+  it('keeps rule and column scopes separate even when rows are shared', () => {
+    const old = snapshot([row()], 4, true);
+    const current = snapshot([row()]);
+    const scoped = (checkId: string, column: string, legacy: boolean): Issue => {
+      const source = legacy ? old : current;
+      return { ...source.issues[0], checkId, detectedBy: `rule:${checkId}`, cell: `${column}4`,
+        id: issueIdentity([...ruleIssueIdentityParts(checkId, 'УКСиМП', `${column}4`, buildCellDict(source.rowsByDept!['УКСиМП'][0]), legacy), 0]) };
+    };
+    old.issues.push(scoped('other_rule', 'K', true), scoped('budget_sum_plan', 'N', true));
+    current.issues.push(scoped('other_rule', 'K', false), scoped('budget_sum_plan', 'N', false));
+    const saved = old.issues.map(issue => ({ id: issue.id, status: 'false_positive', snapshot: old }));
+    expect(reconnectRuleDecisions(current, saved).map(issue => issue.id)).toEqual(old.issues.map(issue => issue.id));
+    expect(reconnectRuleDecisions(current, saved).every(issue => issue.status === 'false_positive')).toBe(true);
+  });
+  it('refuses a saved decision when two current issues prove the same anchor', () => {
+    const old = snapshot([row()], 4, true);
+    const current = snapshot([row()]);
+    current.issues.push({ ...current.issues[0] });
+    expect(reconnectRuleDecisions(current, [{ id: old.issues[0].id, status: 'false_positive', snapshot: old }]).every(issue => issue.status === 'open')).toBe(true);
+  });
+
 });

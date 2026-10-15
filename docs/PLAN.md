@@ -5,6 +5,42 @@
 
 ---
 
+### Текущий выпуск — проверяемое состояние на 15.10.2026, 21:40 UTC
+
+Канонический кандидат — PR #79; покрытие 56 результатов и приёмка — issue #69.
+Выпуск `394c7e853a2b326b9a5c89ea52f60c51e075302e` **не принят**. Следующий
+исправляющий коммит проверяется как новый кандидат; прежние live-проверки ему
+автоматически не приписываются.
+
+| Часть | Фактический результат | Доказательство |
+|---|---|---|
+| Сохранность | Свежая полная копия и независимые полное/повторное восстановления PASS, candidate и прежний runtime проверены | Release 38792810076, backup19:28–19:41UTC, trial до20:12UTC |
+| Production | Публичный вход закрыт; текущий выпуск не принят, worker выключен. Откат38810410207 завершился `RELEASE_RECOVERY_FAILED`; точный этап уточняется | Observer38811136588; root pending394 сохранён, acceptance отсутствует |
+| Медленный API | Прогрев не исправил дефект: currentYear50.177s/allYears46.611s, схемы валидны; затем неизменённый25s gate снова FAIL | Finish38807725180; pipeline отдельно3217ms, metadata38806526219 |
+| Исправление API в исходниках | Устранён повторный O(n²) поиск точной идентичности правил/решений; request-local индексы, без изменения хеша, истории или правил переноса | До исправления13280 hash calls на80строк; отрицательный work-bound тест RED→GREEN;13 targeted PASS,200 независимых differential cases |
+| Защита выпуска в исходниках | Полный строгий inventory проверяется до backup/fencing и до arm, чтобы старый служебный контейнер не блокировал откат уже после остановки входа | Stage/arm regressions RED→GREEN; root namespace controller55/recovery33 PASS; независимый review |
+| Старый служебный контейнер | Точный stopped legacy без mounts сохранён частным Docker commit и root700/600 metadata, затем удалён без force/volumes | Recovery38810410207: `STOPPED_LEGACY_PRESERVED_AND_RETIRED`;13402112B |
+| HTML Header | Автономный HTML/ZIP: desktop/mobile/200%,13 страниц,2 темы и reduced motion проверены. Это не live браузерная приёмка | Artifact12001010359; локальные browser/motion proof,52 motion-состояния |
+
+Непосредственная последовательность, без новых продуктовых расширений:
+
+1. Вернуть прежний API и публичный вход проверенным полным откатом; установить
+   причину отказа самого восстановления. Старый OOM-worker не запускать.
+2. Пропустить исправленный API через exact-source CI и реальный native gate;
+   выпустить только новый проверенный SHA. Prewarm не считать исправлением скорости.
+3. После публичного API200 — зависимая браузерная проверка, запуск принятого
+   исправленного worker и два самостоятельных цикла без остановки API.
+4. Завершить уже разрешённое недельное хранение и сокращение избыточности по
+   проверенным потребителям/identity proof; не удалять `reports` целиком. Далее —
+   оставшиеся волны issue #69; все56 результатов не объявляются принятыми.
+
+Действий владельца сейчас не требуется: подтверждённого внешнего блокера нет.
+Новые правки пока не имеют live-доказательства скорости. Полный локальный TS-гейт:
+shared735/core1869+1skip/server998/web2295, typecheck всех4 и ESLint без errors.
+
+<details>
+<summary>Предыдущие операционные проверки 15.10 — история, не текущий статус</summary>
+
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
 944cab70/source CI38789164321: 3 mandatory source jobs PASS; Python1075,
@@ -457,6 +493,9 @@ Local frozen full report engine1075 PASS (193.13s), four-package TypeScript
 and lint PASS (304 existing warnings). Guardian23, backup32 and recovery32 source checks PASS. Latest-envelope
 correction: window38 and controller39 PASS, including real reader/native Zod
 negative cases and exact staged Word proof with a legitimately newer latest. Actual image clone/live release remain required.
+
+
+</details>
 
 ### Управление текущим выпуском и зависимостями — 15.10.2026
 

@@ -460,6 +460,29 @@ class ControllerTests(TrialTests):
         self.assertFalse(any(c[0] in ('stop', 'start', 'run', 'rm') for c in self.fixture.calls))
         self.assertFalse(self.fixture.pending.exists())
 
+    def test_stage_rejects_legacy_owned_survivor_before_any_backup_or_ingress_change(self):
+        self.stage_fixture()
+        foreign = json.loads(json.dumps(self.fixture.records['server']))
+        foreign.update({'Id': 'f' * 64, 'Name': '/retired-native-helper', 'Image': 'sha256:' + 'e' * 64, 'Mounts': []})
+        foreign['State'] = {'Status': 'exited', 'Pid': 0}
+        foreign['Config']['Labels'].pop('com.docker.compose.oneoff', None)
+        self.fixture.records['foreign'] = foreign
+        self.fixture.persist_records()
+        previous = self.fixture.executor.command
+        def command(args, **kwargs):
+            # Real Docker's canonical oneoff=False selector excludes this legacy
+            # helper; the full recovery inventory must still detect it.
+            if args[0] == 'ps' and 'label=com.docker.compose.oneoff=False' in args:
+                role = next(x.split('=')[-1] for x in args if x.startswith('label=com.docker.compose.service='))
+                return self.fixture.records[role]['Id']
+            return previous(args, **kwargs)
+        self.fixture.executor.command = command
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_RUNTIME_NOT_OWNED'):
+            self.controller.stage(self.request)
+        self.assertFalse((self.fixture.runtime / 'stage.json').exists())
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(c[0] in ('stop', 'start', 'rm', 'run') for c in self.fixture.calls))
+
     def test_stage_actual_compose_dollars_match_inspected_runtime_and_replay_once(self):
         self.stage_fixture()
         # Config JSON escapes dollars for replay; inspect Env contains the actual
