@@ -1678,7 +1678,7 @@ jobs:
             PYREPLAYERROR
   frozen-trial-replay:
     if: >-
-      (github.event.label.name == 'maintenance: frozen-trial-replay' || github.event.label.name == 'maintenance: frozen-image-replay') &&
+      (github.event.label.name == 'maintenance: frozen-trial-replay' || github.event.label.name == 'maintenance: frozen-fixed-trial-replay' || github.event.label.name == 'maintenance: frozen-image-replay') &&
       github.event.sender.login == github.repository_owner &&
       github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -1800,6 +1800,22 @@ jobs:
           done
           git show "$RECOVERY_SHA:.github/ci/source_ci_gate.py" | sudo tee /usr/local/libexec/aemr/source_ci_gate.py >/dev/null
           sudo chmod 755 /usr/local/libexec/aemr/source_ci_gate.py
+      - name: Admit reviewed native environment fix against unchanged frozen inputs
+        if: >-
+          github.event.label.name == 'maintenance: frozen-fixed-trial-replay'
+        run: |
+          set -euo pipefail
+          git show '${{ github.event.pull_request.head.sha }}:deploy/release_trial.py' | sudo tee /usr/local/libexec/aemr/release_trial.py >/dev/null
+          sudo chmod 755 /usr/local/libexec/aemr/release_trial.py
+          sudo python3 -EsB - <<'PYTRIALENV'
+          import json,sys
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as r
+          import release_trial as t
+          plan=json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json'))
+          for kind in ('candidate','previous'):t.native_environment(plan,kind)
+          print('FROZEN_REVIEWED_NATIVE_ENVIRONMENT_ADMISSION_PASS')
+          PYTRIALENV
       - name: Read exact existing immutable images without changing VPS runtime
         run: |
           set -euo pipefail
@@ -1821,9 +1837,30 @@ jobs:
             test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$image" --format '{{.Id}}')" = "$image"
           done < "$RUNNER_TEMP/release/images.txt"
           echo FROZEN_COMPLETE_PRIVILEGED_IMAGE_SET_PASS
+      - name: Prove exact multiline environment through both actual immutable images
+        if: >-
+          github.event.label.name == 'maintenance: frozen-fixed-trial-replay'
+        run: |
+          set -euo pipefail
+          sudo python3 -EsB - <<'PYEXACTENV'
+          import json,sys
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as r
+          import release_trial as t
+          plan=json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json'))
+          probe="import hashlib,json,os,sys;keys=json.load(sys.stdin);print(hashlib.sha256(json.dumps({k:os.environ[k] for k in keys},sort_keys=True).encode()).hexdigest())"
+          for kind,field in (('candidate','candidate_images'),('previous','images')):
+           environment=t.native_environment(plan,kind)
+           payload=json.dumps({'environment':environment,'stdin':json.dumps(list(environment))})
+           actual=r.docker(['run','--rm','-i','--network','none','--read-only','--user','1000:1000',
+            '--entrypoint','/opt/report-env/bin/python',plan[field]['server'],'-c',t.NATIVE_LAUNCHER,
+            '/opt/report-env/bin/python','-c',probe],input=payload).strip()
+           assert actual==r.digest(json.dumps(environment,sort_keys=True).encode()),'NATIVE_ENVIRONMENT_TRANSFER_MISMATCH'
+          print('FROZEN_CANDIDATE_PREVIOUS_EXACT_ENVIRONMENT_PASS')
+          PYEXACTENV
       - name: Transfer only the existing private archive while API remains online
         if: >-
-          github.event.label.name == 'maintenance: frozen-trial-replay'
+          github.event.label.name != 'maintenance: frozen-image-replay'
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
@@ -1835,7 +1872,7 @@ jobs:
           echo FROZEN_REPLAY_ARCHIVE_TRANSFERRED
       - name: Replay original complete restore and both native runtimes with private failure attribution
         if: >-
-          github.event.label.name == 'maintenance: frozen-trial-replay'
+          github.event.label.name != 'maintenance: frozen-image-replay'
         run: |
           set -euo pipefail
           status=0
@@ -2599,6 +2636,16 @@ jobs:
           for identity in $previous; do
             test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$identity" --format '{{.Id}}')" = "$identity"
           done
+          # Read only the staged, hash-bound environment before any API freeze.
+          remote sudo -n python3 -EsB - <<'PYENVBEFOREFREEZE'
+          import json,sys
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as r
+          import release_trial as t
+          stage=json.loads(r.read_owned(r.RUNTIME_DIR/'stage.json'))
+          for kind in ('candidate','previous'):t.native_environment(stage,kind)
+          print('RELEASE_NATIVE_ENVIRONMENT_ADMISSION_PASS')
+          PYENVBEFOREFREEZE
           echo RELEASE_IMAGES_AND_CONFIGURATION_READY
       - name: Admit independent full-restore capacity before production downtime
         run: |

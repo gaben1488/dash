@@ -36,6 +36,23 @@ def bare_status(root, release_id):
 
 
 class NativeFailureEvidenceTests(unittest.TestCase):
+    def test_launcher_preserves_multiline_environment_and_exact_child_stdin(self):
+        import ast
+        tree = ast.parse((ROOT / 'deploy/release_trial.py').read_text())
+        launchers = [ast.literal_eval(node.value) for node in tree.body
+                     if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='NATIVE_LAUNCHER' for target in node.targets)]
+        self.assertEqual(len(launchers),1,'Missing exact multiline environment transport')
+        environment = {'GOOGLE_PRIVATE_KEY':'PRIVATE_BEGIN\nprivate line\nPRIVATE_END\n',
+                       'TRIAL_TEXT':'quotes\" $literal\r\nтекст', 'DOCKER_HOST':'unix:///inside-only', 'PATH':'/inside-only'}
+        child_stdin = '{"word":"PRIVATE_BINDING"}\n'
+        child = 'import json,os,sys;print(json.dumps({"environment":{k:os.environ[k] for k in ' + repr(list(environment)) + '},"stdin":sys.stdin.read()}))'
+        before = {key:os.environ.get(key) for key in environment}
+        result = subprocess.run([sys.executable,'-c',launchers[0],sys.executable,'-c',child],
+                                input=json.dumps({'environment':environment,'stdin':child_stdin}), capture_output=True,text=True,timeout=10,check=False)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout),{'environment':environment,'stdin':child_stdin})
+        self.assertEqual({key:os.environ.get(key) for key in environment},before)
+
     def test_real_native_errors_are_classified_without_exposing_private_messages(self):
         import ast
         tree = ast.parse((ROOT / 'deploy/release_trial.py').read_text())
@@ -159,6 +176,37 @@ class TrialTests(unittest.TestCase):
                 self.assertEqual(result.returncode, expected, result.stderr)
                 self.assertNotIn('PRIVATE_', result.stdout + result.stderr)
                 self.assertEqual(result.stdout.strip(), 'CANDIDATE_TRIAL_PASS' if expected == 0 else '')
+
+    def test_both_native_images_receive_exact_multiline_values_without_secret_argv(self):
+        secret = 'PRIVATE_BEGIN\nprivate body\nPRIVATE_END\n'
+        for name in ('compose.json','candidate-compose.json'):
+            path = self.fixture.runtime / name
+            value = json.loads(path.read_text());value['services']['server']['environment']['GOOGLE_PRIVATE_KEY'] = secret
+            path.write_text(json.dumps(value));self.plan['config_sha256'][name] = self.fixture.module.digest(path.read_bytes())
+        calls = []
+        def command(args, **kwargs):
+            if args[0]=='run':calls.append((args,kwargs))
+            return self.command(args,**kwargs)
+        self.runner.command = command
+        try:self.runner.run(self.plan)
+        except self.fixture.module.RecoveryError:self.fail('Valid captured multiline environment was rejected')
+        self.assertEqual(len(calls),3)
+        for args,kwargs in calls:
+            payload = json.loads(kwargs['input'])
+            self.assertEqual(payload['environment']['GOOGLE_PRIVATE_KEY'],secret)
+            self.assertEqual(payload['environment']['SOURCE_AUTO_REFRESH_MINUTES'],'0')
+            self.assertNotIn(secret,json.dumps(args))
+            if '/opt/report-env/bin/proc-report' in args:self.assertEqual(payload['stdin'],'')
+            else:self.assertEqual(json.loads(payload['stdin']),self.plan['word'])
+
+    def test_invalid_environment_is_rejected_before_restoring_the_clone(self):
+        path = self.fixture.runtime / 'candidate-compose.json'
+        value = json.loads(path.read_text());value['services']['server']['environment']['BROKEN'] = 'invalid\x00value'
+        path.write_text(json.dumps(value));self.plan['config_sha256']['candidate-compose.json'] = self.fixture.module.digest(path.read_bytes())
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError,'RELEASE_TRIAL_ENV_INVALID'):
+            self.runner.run(self.plan)
+        self.assertEqual(list(self.clone.iterdir()),[])
+        self.assertFalse(any(args[0]=='run' for args in self.calls))
 
     def test_one_clone_candidate_then_previous_then_actual_full_restore(self):
         proof = self.runner.run(self.plan)

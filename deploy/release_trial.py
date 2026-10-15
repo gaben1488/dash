@@ -12,6 +12,23 @@ import release_recovery as recovery
 CLONE = Path('/var/lib/aemr/release-trial-clone')
 NODE_UID = 1000
 SOURCE_GATE = Path('/usr/local/libexec/aemr/source_ci_gate.py')
+# Docker --env-file is line based; preserve the captured Compose environment
+# through private stdin instead. exec keeps the actual native program as PID1,
+# and only its bounded original stdin is forwarded after environment decoding.
+NATIVE_LAUNCHER = r'''import json,os,sys
+body=sys.stdin.buffer.read(1048577)
+if len(body)>1048576:raise ValueError('NATIVE_ENV_PAYLOAD_TOO_LARGE')
+payload=json.loads(body)
+forward=payload['stdin'].encode('utf-8')
+if len(forward)>4096:raise ValueError('NATIVE_STDIN_TOO_LARGE')
+os.environ.update(payload['environment'])
+reader,writer=os.pipe()
+with os.fdopen(writer,'wb') as stream:stream.write(forward)
+os.dup2(reader,0)
+os.close(reader)
+os.execvpe(sys.argv[1],sys.argv[1:],os.environ)
+'''
+
 NATIVE_PROGRAM = r'''(async()=>{
 const fs=await import('node:fs');const crypto=await import('node:crypto');
 const {spawnSync}=await import('node:child_process');
@@ -79,28 +96,19 @@ def module_digest(path):
 
 def native_environment(plan, kind):
     name = 'candidate-compose.json' if kind == 'candidate' else 'compose.json'
-    resolved = json.loads(recovery.read_owned(recovery.RUNTIME_DIR / name))
+    body = recovery.read_owned(recovery.RUNTIME_DIR / name)
+    if recovery.digest(body) != plan['config_sha256'][name]:
+        recovery.fail('RELEASE_CONFIG_CHANGED')
+    resolved = json.loads(body)
     environment = resolved['services']['server'].get('environment', {})
     if (not isinstance(environment, dict) or not isinstance(environment.get('AEMR_API_KEY'), str)
             or not environment['AEMR_API_KEY']):
         recovery.fail('RELEASE_TRIAL_AUTH_UNAVAILABLE')
-    lines = []
     for key, value in environment.items():
-        if (not isinstance(key, str) or not key or '=' in key or '\n' in key or '\r' in key
-                or not isinstance(value, str) or '\n' in value or '\r' in value):
+        if (not isinstance(key, str) or not key or any(char in key for char in ('=', '\n', '\r', '\0'))
+                or not isinstance(value, str) or '\0' in value):
             recovery.fail('RELEASE_TRIAL_ENV_INVALID')
-        lines.append(key + '=' + value)
-    path = recovery.RUNTIME_DIR / (kind + '-trial.env')
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, 'w') as file:
-        value = os.fstat(file.fileno())
-        if value.st_uid != 0 or value.st_nlink != 1 or value.st_mode & 0o077:
-            recovery.fail('RELEASE_TRIAL_ENV_INVALID')
-        os.ftruncate(file.fileno(), 0)
-        file.write('\n'.join(lines) + '\n')
-        file.flush()
-        os.fsync(file.fileno())
-    return path
+    return {**environment, 'SOURCE_AUTO_REFRESH_MINUTES': '0'}
 
 
 class ReleaseTrial:
@@ -116,6 +124,7 @@ class ReleaseTrial:
         source_ci_sha256 = check_source_ci(plan)
         executor = recovery.ReleaseRecovery(self.command)
         backup, _ = executor._files(plan)
+        environments = {kind: native_environment(plan, kind) for kind in ('candidate', 'previous')}
         recovery.private_directory(CLONE.parent)
         if not CLONE.is_dir() or any(path.is_symlink() for path in (CLONE, *CLONE.parents)):
             recovery.fail('RELEASE_TRIAL_CLONE_UNSAFE')
@@ -135,14 +144,16 @@ class ReleaseTrial:
                   '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m', '--mount',
                   f'type=bind,src={CLONE},dst=/app/packages/server/data',
                   '--env', 'SOURCE_AUTO_REFRESH_MINUTES=0', '--workdir', '/app/packages/server']
-        self.command([*common, '--env-file', str(native_environment(plan, 'candidate')), '--entrypoint', '/opt/report-env/bin/proc-report', plan['candidate_images']['server'],
-                      'initialize-publication-readers', '--state', '/app/packages/server/data/reports'], timeout=120)
+        self.command([*common, '-i', '--entrypoint', '/opt/report-env/bin/python', plan['candidate_images']['server'],
+                      '-c', NATIVE_LAUNCHER, '/opt/report-env/bin/proc-report',
+                      'initialize-publication-readers', '--state', '/app/packages/server/data/reports'], timeout=120,
+                     input=json.dumps({'environment': environments['candidate'], 'stdin': ''}))
         for kind, image, expected in [('candidate', plan['candidate_images']['server'], 'CANDIDATE_TRIAL_PASS'),
                                       ('previous', plan['images']['server'], 'PREVIOUS_TRIAL_PASS')]:
             self._absent_container(name)
-            value = self.command([*common, '--env-file', str(native_environment(plan, kind)), '-i', '--entrypoint', './node_modules/.bin/tsx', image,
-                                  '--eval', NATIVE_PROGRAM, kind], timeout=180,
-                                 input=json.dumps(plan['word']))
+            value = self.command([*common, '-i', '--entrypoint', '/opt/report-env/bin/python', image,
+                                  '-c', NATIVE_LAUNCHER, './node_modules/.bin/tsx', '--eval', NATIVE_PROGRAM, kind], timeout=180,
+                                 input=json.dumps({'environment': environments[kind], 'stdin': json.dumps(plan['word'])}))
             if value.strip() != expected:
                 recovery.fail('RELEASE_NATIVE_TRIAL_FAILED')
         self._absent_container(name)

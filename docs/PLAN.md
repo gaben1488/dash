@@ -7,6 +7,23 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Причина ENV-отказа подтверждена metadata-only run38745256648/job116457103967:
+в previous и candidate единственный отклонённый env — GOOGLE_PRIVATE_KEY, str
+с LF. Это штатный многострочный формат; native_environment запрещал LF из-за
+линейного --env-file. Root runtime state stable, значений/ключей в logs нет.
+Исправление передаёт hash-bound окружение приватным JSON stdin и exec внутри
+изолированного контейнера; реальные значения/кавычки/$/CRLF/Unicode сохраняются,
+host Docker env и argv секретов не получают. Word stdin сохраняется отдельно,
+actual native command остаётся PID1. NUL/type/key failures остаются fail-closed.
+Env admission moved before clone restore и до production freeze. Fixed frozen
+replay отдельно помечает reviewed trial source при прежних b8 app images/config/
+archive; прежний original replay не подменяется. Native/live/in-place приёмка
+исправления ещё не выполнена.
+Локально: 50 root controller/trial tests, 22 cleanup tests, 4 replay helper tests,
+Ruff/actionlint/whitespace PASS. Независимое ревью нашло пропущенный Docker -i
+только в новом image-env probe; исправлено до запуска. Три native trial запуска
+уже сохраняли stdin. Следующая проверка — fixed-only frozen replay при online API.
+
 Replay38740048799/job116439061491 на da51084e прошёл полный5-image proof и перенос
 архива; initial restore_state + validate_restore_proof прошли по контрольному
 потоку b8, затем13:39:18UTC отказ native_environment/RELEASE_TRIAL_ENV_INVALID
@@ -17,8 +34,8 @@ Native/in-place acceptance ещё нет; API/runtime unchanged + domain health 
 
 Run38727198402/sourceb8e98ec5: exact3sourceCI38726228112 PASS;
 Docker transport/stage/full capacity PASS, full backup+source-match11:32:11–11:43:44UTC
-PASS. Independent trial11:43:44–12:03:14UTC отказал до установки; точная причина
-пока неизвестна: trial.log содержит только RELEASE_NATIVE_TRIAL_FAILED.
+PASS. Independent trial11:43:44–12:03:14UTC отказал до установки; первоначальный лог
+содержал только RELEASE_NATIVE_TRIAL_FAILED; причина ENV установлена выше.
 Same-owner resume SUCCESS, свежий domain health200/ok подтверждён после12:04UTC.
 Ни один новый app runtime не установлен. Старый worker остаётся quarantined.
 Полная копия без independent restore не закрывает R06/R09.
