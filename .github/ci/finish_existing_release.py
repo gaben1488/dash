@@ -51,7 +51,7 @@ def main():
     def measured(args, **kwargs):
         stage = None
         if args[:2] == ['exec', 'aemr-server-1']:
-            stage = 'schema' if args[2] == './node_modules/.bin/tsx' else 'word' if args[2] == 'python3' else None
+            stage = ('startup_warmup' if 'EXISTING_CANDIDATE_STARTUP_WARMUP' in args[-1] else 'schema') if args[2] == './node_modules/.bin/tsx' else 'word' if args[2] == 'python3' else None
         started = time.monotonic()
         try:
             return command(args, **kwargs)
@@ -97,6 +97,23 @@ def main():
         image = json.loads(executor.command(['image', 'inspect', plan['candidate_images'][service]]))[0]
         assert image['Config']['Labels']['org.opencontainers.image.revision'] == SHA
     print('EXISTING_FULL_TRIAL_AND_CANDIDATE_PINS_PASS', flush=True)
+    if durable is None:
+        warmup_program = "// EXISTING_CANDIDATE_STARTUP_WARMUP\n(async()=>{\n const {DashboardDataSchema}=await import('@aemr/shared');\n delete process.env.HEADER_PROBE_CLI;\n const {validHeaderPayload}=await import('/opt/aemr/header_api_probe.mjs');\n const token=process.env.AEMR_API_KEY;if(!token)throw Error('auth');\n const deadline=Date.now()+240000,checks=[];\n for(const [name,path] of [['journal','/api/change-story?limit=1'],['currentYear','/api/dashboard?year=2026'],['allYears','/api/dashboard']]){\n  const started=Date.now();let status=null,size=0;\n  try{\n   const remaining=deadline-Date.now();if(remaining<=0)throw Error('budget');\n   const response=await fetch('http://127.0.0.1:3000'+path,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(Math.min(120000,remaining))});status=response.status;\n   if(status!==200){response.body?.cancel().catch(()=>{});throw Error('status');}\n   const chunks=[];for await(const part of response.body){size+=part.length;if(size>32*1024*1024)throw Error('size');chunks.push(part);}\n   const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));\n   const valid=name==='journal'?validHeaderPayload('journal',data):DashboardDataSchema.safeParse(data).success;\n   checks.push({name,status,valid,bytes:size,elapsed_ms:Date.now()-started});\n   if(!valid)break;\n  }catch{checks.push({name,status,valid:false,bytes:size,elapsed_ms:Date.now()-started});break;}\n }\n console.log(JSON.stringify({startup_warmup:checks}));\n})().catch(()=>console.log(JSON.stringify({startup_warmup:[]})));\n"
+        value = executor.command(['exec', 'aemr-server-1', './node_modules/.bin/tsx', '--eval', warmup_program], timeout=255)
+        checked = json.loads(value)
+        assert set(checked) == {'startup_warmup'}
+        checks = checked['startup_warmup']
+        assert isinstance(checks, list) and len(checks) <= 3
+        for item in checks:
+            assert set(item) == {'name', 'status', 'valid', 'bytes', 'elapsed_ms'}
+            assert item['name'] in {'allYears', 'currentYear', 'journal'}
+            assert item['status'] is None or type(item['status']) is int
+            assert type(item['valid']) is bool
+            assert all(type(item[k]) is int and 0 <= item[k] <= 2**53-1 for k in ('bytes', 'elapsed_ms'))
+        print(json.dumps(checked), flush=True)
+        assert [item['name'] for item in checks] == ['journal', 'currentYear', 'allYears']
+        assert all(item['valid'] and item['status'] == 200 for item in checks)
+        print('STARTUP_DATA_PREPARED_NOT_ACCEPTED', flush=True)
     # Crucially, a failed accept preserves closed ingress. Do not call the old
     # general rollback path, whose historical-container scan masks that error.
     if durable is not None and not os.path.lexists(r.PENDING):
