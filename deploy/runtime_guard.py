@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Recover owned Docker processes without restoring data or judging report outcomes."""
+"""Process supervision and explicit release recovery under one host lock."""
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
+import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -97,6 +101,22 @@ def supervise(policy, state, command=docker, *, now=None, maintenance=False):
     return events
 
 
+RELEASE_MARKERS = (Path('/var/lib/aemr/pending-release.json'),
+                   Path('/var/lib/aemr/release-recovery-progress.json'))
+
+
+def recover_release(lock_fd):
+    """Installed root-owned executor shares this process and the exact EX lock."""
+    script=Path(__file__).with_name('release_recovery.py')
+    value=script.lstat()
+    if not stat.S_ISREG(value.st_mode) or value.st_uid!=0 or value.st_mode & 0o022:
+        raise RuntimeError('RELEASE_EXECUTOR_INVALID')
+    spec=importlib.util.spec_from_file_location('aemr_release_recovery',script)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.ReleaseRecovery(lock_fd=lock_fd).recover()
+
+
 def main():
     import fcntl  # Linux host only; pure supervision logic is tested on all platforms.
     parser = argparse.ArgumentParser(description=__doc__)
@@ -109,6 +129,16 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0  # Deliberate maintenance owns the lock; never race data restoration.
+        # Recovery owns the data boundary; ordinary process starts cannot bypass it.
+        # lexists catches dangling evidence, which must fail closed instead of vanish.
+        if any(os.path.lexists(marker) for marker in RELEASE_MARKERS):
+            try:
+                result = recover_release(lock.fileno())
+            except Exception:  # noqa: BLE001 - fixed-code boundary; private config must not reach journald
+                print('RELEASE_RECOVERY_UNAVAILABLE',file=sys.stderr)
+                return 2
+            print(result['state'] if result else 'NO_PENDING_RELEASE')
+            return 0
         policy = json.loads(args.policy.read_text())
         state = json.loads(args.state.read_text()) if args.state.exists() else {}
         events = supervise(policy, state)

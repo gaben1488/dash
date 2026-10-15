@@ -117,7 +117,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const force = query.refresh === 'true';
     const yearParam = query.year; // e.g. '2026' or 'all'
     // Strict validation: only 4-digit year in plausible range is accepted.
-    // 'all', missing, or invalid → undefined (snapshot falls back to current year).
+    // 'all', missing, or invalid → undefined (snapshot aggregates all years).
     let targetYear: number | undefined;
     if (yearParam && yearParam !== 'all') {
       const parsed = parseInt(yearParam, 10);

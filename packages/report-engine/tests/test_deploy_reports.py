@@ -115,6 +115,190 @@ def test_guard_installation_is_excluded_before_any_host_mutation(tmp_path):
     assert not log.exists()
 
 
+def test_guard_installer_refuses_pending_receipt_before_overwriting_programs(tmp_path):
+    private=tmp_path/'private';private.mkdir();(private/'pending-release.json').touch()
+    source=(ROOT/'deploy/install-runtime-guard.sh').read_text().replace('/var/lib/aemr/pending-release.json',str(private/'pending-release.json')).replace('/var/lib/aemr/release-recovery-progress.json',str(private/'release-recovery-progress.json'))
+    script=tmp_path/'installer.sh';script.write_text(source)
+    (tmp_path/'maintenance-lock.sh').write_text((ROOT/'deploy/maintenance-lock.sh').read_text())
+    install=tmp_path/'install';install.write_text('#!/bin/sh\necho mutation >> "$CALL_LOG"\nexit 19\n');install.chmod(0o755)
+    log=tmp_path/'calls'
+    result=subprocess.run(['bash',str(script)],env={**os.environ,'PATH':str(tmp_path)+os.pathsep+os.environ['PATH'],'CALL_LOG':str(log)},capture_output=True,text=True,check=False)
+    assert result.returncode!=0
+    assert 'RUNTIME_GUARD_RELEASE_PENDING' in result.stderr
+    assert not log.exists()
+
+
+def test_guard_installer_validates_volume_before_any_program_install(tmp_path):
+    install=tmp_path/'install';install.write_text('#!/bin/sh\necho mutation >> "$CALL_LOG"\nexit 19\n');install.chmod(0o755)
+    docker=tmp_path/'docker';docker.write_text('#!/bin/sh\ncat <<\'JSON\'\n[{"Name":"foreign"}]\nJSON\n');docker.chmod(0o755)
+    log=tmp_path/'calls'
+    result=subprocess.run(['bash',str(ROOT/'deploy/install-runtime-guard.sh')],env={**os.environ,'PATH':str(tmp_path)+os.pathsep+os.environ['PATH'],'CALL_LOG':str(log)},capture_output=True,text=True,check=False)
+    assert result.returncode!=0
+    assert 'RUNTIME_GUARD_VOLUME_INVALID' in result.stderr
+    assert 'Traceback' not in result.stderr
+    assert not log.exists()
+
+
+def isolated_guard_installer(tmp_path):
+    """Real installer/EX/atomic files; every host path and daemon command private."""
+    import shutil
+    source = tmp_path / 'source' / 'deploy'
+    source.mkdir(parents=True)
+    host = tmp_path / 'host'
+    policy_dir = host / 'etc/aemr'
+    policy_dir.mkdir(parents=True, mode=0o700)
+    (host / 'etc/systemd/system').mkdir(parents=True)
+    volume = host / 'volumes/aemr_server_data/_data'
+    volume.mkdir(parents=True)
+    tools = host / 'libexec'
+    tools.mkdir()
+    (tools / 'runtime_guard.py').write_text('previous reviewed program')
+    for path in (ROOT / 'deploy').rglob('*'):
+        if path.is_file() and '__pycache__' not in path.parts:
+            target = source / path.relative_to(ROOT / 'deploy')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+    gate = source.parent / '.github/ci/source_ci_gate.py'
+    gate.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / '.github/ci/source_ci_gate.py', gate)
+    lock = tmp_path / 'maintenance.lock'
+    helper = (source / 'maintenance-lock.sh').read_text().replace('/run/lock/aemr-maintenance.lock', str(lock))
+    (source / 'maintenance-lock.sh').write_text(helper)
+    replacements = {'/usr/local/libexec/aemr': str(tools), '/var/lib/aemr': str(host / 'state'),
+                    '/etc/aemr': str(policy_dir), '/etc/systemd/system': str(host / 'etc/systemd/system'),
+                    '/etc/tmpfiles.d': str(host / 'etc/tmpfiles.d'), '/var/lib/docker/volumes': str(host / 'volumes'),
+                    '/home/aemr/.dash-private-backups': str(host / 'backups')}
+    script = (source / 'install-runtime-guard.sh').read_text()
+    for before, after in replacements.items():
+        script = script.replace(before, after)
+    (source / 'install-runtime-guard.sh').write_text(script)
+    commands = tmp_path / 'commands'
+    commands.mkdir()
+    calls = tmp_path / 'calls'
+    docker = commands / 'docker'
+    docker.write_text("""#!/usr/bin/env python3
+import json,os,sys
+with open(os.environ['CALL_LOG'],'a') as file:file.write('DOCKER\\n')
+if sys.argv[1:3]==['volume','inspect']:
+ print(json.dumps([{'Name':'aemr_server_data','Driver':'local','Options':None,'Mountpoint':os.environ['PRIVATE_VOLUME'],
+  'Labels':{'com.docker.compose.project':'aemr','com.docker.compose.volume':'server_data'}}]))
+else:print(json.dumps({'services':{s:{'mem_limit':134217728} for s in ('server','web','report-worker','caddy')}}))
+""")
+    docker.chmod(0o700)
+    for name in ('systemctl', 'systemd-analyze', 'systemd-tmpfiles'):
+        command = commands / name
+        command.write_text('#!/bin/sh\nprintf "SYSTEMD\\n" >> "$CALL_LOG"\n')
+        command.chmod(0o700)
+    operator = tmp_path / 'operator'
+    operator.mkdir()
+    (operator / '.env.production').write_text('PRIVATE_FIXTURE=1')
+    (operator / 'docker-compose.yml').write_text('fixture compose')
+    def run():
+        return subprocess.run(['bash', str(source / 'install-runtime-guard.sh'), str(operator)], cwd=operator,
+            capture_output=True, text=True, timeout=15, check=False,
+            env={**os.environ, 'PATH': str(commands) + os.pathsep + os.environ['PATH'],
+                 'CALL_LOG': str(calls), 'PRIVATE_VOLUME': str(volume)})
+    return run, policy_dir / 'runtime-policy.json', tools, calls
+
+
+def installer_root_namespace(test_name):
+    """Exercise actual root ownership in ordinary non-root pytest runs too."""
+    if os.geteuid() == 0:
+        return False
+    import sys
+    result = subprocess.run(['unshare', '-Ur', sys.executable, '-m', 'pytest',
+                             str(Path(__file__).resolve()) + '::' + test_name, '-q'],
+                            capture_output=True, text=True, timeout=45, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return True
+
+
+def test_guard_installer_private_policy_preserves_every_approved_field_and_caps(tmp_path):
+    if installer_root_namespace(test_guard_installer_private_policy_preserves_every_approved_field_and_caps.__name__):
+        return
+    import json
+    run, policy, tools, _calls = isolated_guard_installer(tmp_path)
+    approved = json.loads((ROOT / 'deploy/runtime-policy.json').read_text())
+    approved.update(worker_enabled=True, failure_threshold=9, cooldown_seconds=987, operator_note='PRIVATE_APPROVAL')
+    approved['services']['server']['limits'] = {'mem_limit': 123456789, 'cpus': 0.75, 'pids_limit': 50}
+    body = json.dumps(approved, indent=3).encode()
+    policy.write_bytes(body)
+    policy.chmod(0o600)
+    inode = policy.stat().st_ino
+    result = run()
+    assert result.returncode == 0, result.stderr
+    assert policy.read_bytes() == body
+    assert policy.stat().st_ino == inode
+    assert (tools / 'runtime_guard.py').read_bytes() == (ROOT / 'deploy/runtime_guard.py').read_bytes()
+    assert 'PRIVATE_APPROVAL' not in result.stdout + result.stderr
+
+
+def test_guard_installer_private_policy_new_install_uses_reviewed_defaults(tmp_path):
+    if installer_root_namespace(test_guard_installer_private_policy_new_install_uses_reviewed_defaults.__name__):
+        return
+    import json
+    run, policy, _tools, _calls = isolated_guard_installer(tmp_path)
+    result = run()
+    assert result.returncode == 0, result.stderr
+    value = json.loads(policy.read_bytes())
+    assert value['worker_enabled'] is False
+    assert value['services']['server']['limits']['mem_limit'] == 134217728
+    assert policy.stat().st_uid == 0 and policy.stat().st_mode & 0o777 == 0o600
+
+
+def test_guard_installer_private_policy_ignores_operator_python_module_shadowing(tmp_path):
+    if installer_root_namespace(test_guard_installer_private_policy_ignores_operator_python_module_shadowing.__name__):
+        return
+    run, policy, _tools, _calls = isolated_guard_installer(tmp_path)
+    marker = tmp_path / 'untrusted-import'
+    shadow = tmp_path / 'operator/json.py'
+    shadow.write_text('import os\nfrom pathlib import Path\nPath(' + repr(str(marker))
+                      + ').write_text(str(os.geteuid()))\nraise RuntimeError("PRIVATE_UNTRUSTED_MODULE")\n')
+    result = run()
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+    assert policy.exists()
+    assert 'PRIVATE_' not in result.stdout + result.stderr
+
+
+def test_guard_installer_private_policy_invalid_prior_blocks_program_overwrite(tmp_path):
+    if installer_root_namespace(test_guard_installer_private_policy_invalid_prior_blocks_program_overwrite.__name__):
+        return
+    import json
+    approved = json.loads((ROOT / 'deploy/runtime-policy.json').read_text())
+    for case in ('malformed', 'symlink', 'hardlink', 'public', 'foreign', 'identity', 'worker', 'threshold', 'cooldown', 'limits'):
+        folder = tmp_path / case
+        folder.mkdir()
+        run, policy, tools, _calls = isolated_guard_installer(folder)
+        value = json.loads(json.dumps(approved))
+        if case == 'foreign':
+            value['project'] = 'foreign'
+        elif case == 'identity':
+            value['services']['server']['container'] = 'foreign-container'
+        elif case == 'worker':
+            value['worker_enabled'] = 'true'
+        elif case == 'threshold':
+            value['failure_threshold'] = 0
+        elif case == 'cooldown':
+            value['cooldown_seconds'] = -1
+        elif case == 'limits':
+            value['services']['server']['limits'] = {'mem_limit': 'PRIVATE_INVALID_CAP'}
+        policy.write_text('{PRIVATE_INVALID' if case == 'malformed' else json.dumps(value))
+        policy.chmod(0o644 if case == 'public' else 0o600)
+        if case in ('symlink', 'hardlink'):
+            original = policy.with_name('approved.json')
+            policy.rename(original)
+            if case == 'symlink':
+                policy.symlink_to(original)
+            else:
+                os.link(original, policy)
+        result = run()
+        assert result.returncode != 0, case
+        assert 'RUNTIME_GUARD_POLICY_INVALID' in result.stderr, (case, result.stderr)
+        assert (tools / 'runtime_guard.py').read_text() == 'previous reviewed program', case
+        assert 'PRIVATE_' not in result.stdout + result.stderr
+
+
 def test_tmpfiles_recreates_boot_lock_without_replacing_locked_inode(tmp_path):
     import fcntl
     import shutil

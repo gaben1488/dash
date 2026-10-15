@@ -5,6 +5,19 @@ from deploy_scope import is_non_runtime, runtime_changed
 
 
 class DeploymentScopeTests(unittest.TestCase):
+    def test_legacy_dispatch_cannot_reach_ssh_or_a_checkpoint(self):
+        import subprocess
+        from pathlib import Path
+        text = (Path(__file__).resolve().parents[1] / 'workflows/ci.yml').read_text()
+        deploy = text.split('    name: Deploy to VPS', 1)[1]
+        first_step = deploy.split('    steps:\n', 1)[1].split('      - name:', 2)
+        self.assertIn('Refuse superseded deployment path', first_step[1])
+        script = first_step[1].split('        run: |\n', 1)[1]
+        script = '\n'.join(line.removeprefix('          ') for line in script.splitlines())
+        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), 'RELEASE_REQUIRES_CONTROLLED_CANDIDATE_WORKFLOW')
+
     def test_current_signal_probe_is_bounded_private_and_unknown_safe(self):
         import json
         import subprocess

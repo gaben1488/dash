@@ -7,9 +7,9 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
-PR #79 actual HEAD `ae606007`; CI38357283483: три source jobs PASS,
+PR #79 last published HEAD `8fbdda09`; CI38682344007: три source jobs PASS,
 общий CI FAILURE — read-only consumer проверяет старый installed journal.
-DB38357283484 PASS; read-only upgrade38357283497 ещё BLOCK на reader bootstrap.
+DB38682343924 PASS; read-only upgrade38682343865 ещё BLOCK на reader bootstrap.
 Fresh public health 15.10 HTTP200/statusok; Root production не менял.
 Backup38349415596 остаётся принятым историческим cut, не новой копией 15.10.
 
@@ -32,6 +32,32 @@ R07/R09: завершение private producer/guardian workflow остаётс�
 перезаписывать checkpoint после открытия ingress. Целевые W1–W5 и56 ID не
 закрываются этим Header/release-блоком; новые пожелания не расширяют текущий
 выпуск, если не устраняют воспроизведённый дефект.
+
+
+R07/R09 current source: trusted stage/base-plan/prepare/trial/deploy connected
+in existing maintenance workflow, opt-in owner label only for PR79/exact current
+HEAD, with a second current-head check after the independent trial. Legacy CI
+manual deploy declines before SSH; it cannot invoke its historical unsafe path.
+All private backup/config/previous images stay off public artifacts/logs. One
+full independent clone runs candidate native reader/API/3Word, then the exact
+previous runtime, then full in-place restore; no second full clone is needed.
+The same guardian retains EX throughout freeze → prepare → deploy/recovery.
+Cancellation requests immediate same-owner resume; accepted releases never
+restore a pre-release checkpoint over new user data.
+
+Independent review produced concrete RED cases: missing containers during
+interrupted recreation, child Docker CLI outliving the lock owner, mutable active
+Caddy bind source, Compose dollar double escaping, prior policy replacement and
+root Python importing an operator-directory json.py. Fixes preserve incomplete
+recovery custody, immutable SHA-addressed Caddy config, single Compose decoding,
+exact approved policy bytes/inode and isolated inline Python imports. This is
+source verification, not a claim of actual Docker daemon RPC cancellation or
+production rollback. Closed-ingress acceptance reuses real shared schemas and
+existing Header validators for selected report, Dashboard and four Header APIs;
+only startup503 repeats. Bad auth/schema/oversize fails before durable ACCEPT.
+Local frozen full report engine1075 PASS (193.13s), four-package TypeScript
+and lint PASS (304 existing warnings). Guardian23, backup32, controller36 and
+recovery32 source checks PASS. Actual image clone/live release remain required.
 
 ### Управление текущим выпуском и зависимостями — 13.10.2026
 

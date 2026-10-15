@@ -931,3 +931,213 @@ jobs:
             trap 'rm -f "$tool"' EXIT
             git show "$candidate:deploy/cleanup-build-cache.sh" > "$tool"
             bash "$tool"
+  controlled-candidate-release:
+    if: >-
+      github.event.label.name == 'maintenance: controlled-candidate-release' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    env:
+      RECOVERY_SHA: ${{ github.event.pull_request.head.sha }}
+      RECOVERY_RUN: ${{ github.run_id }}
+      VPS_USER: ${{ secrets.DEPLOY_USER }}
+      VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Admit exact current candidate before any maintenance
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          mkdir -m 700 "$RUNNER_TEMP/release"
+          printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/release/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/release/known_hosts" 2>/dev/null
+          test -s "$RUNNER_TEMP/release/known_hosts"
+          cat > "$RUNNER_TEMP/release/ssh.sh" <<'SH'
+          remote() {
+            ssh -i "$RUNNER_TEMP/release/key" -o BatchMode=yes -o ConnectTimeout=15 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -o UserKnownHostsFile="$RUNNER_TEMP/release/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" "$@"
+          }
+          window() {
+            remote sudo -n bash -s -- "$1" "$RECOVERY_SHA" "$RECOVERY_RUN" \
+              /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller \
+              < deploy/report-backup-window.sh
+          }
+          SH
+          ready=false
+          for attempt in $(seq 1 30); do
+            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
+              --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
+            if test -n "$ci_run"; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$RUNNER_TEMP/release/run.json"
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$RUNNER_TEMP/release/jobs.json"
+              python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release'
+          r=json.loads((p/'run.json').read_text());j=json.loads((p/'jobs.json').read_text())['jobs']
+          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository')},
+                 'jobs':[{k:x[k] for k in ('name','status','conclusion')} for x in j]}
+          (p/'source-ci.json').write_text(json.dumps(value))
+          PY
+              if python3 .github/ci/source_ci_gate.py "$RECOVERY_SHA" < "$RUNNER_TEMP/release/source-ci.json"; then ready=true; break; fi
+            fi
+            sleep 20
+          done
+          test "$ready" = true
+      - name: Build immutable candidate images while API remains online
+        run: |
+          set -euo pipefail
+          # Disposable hosted-runner SDKs only. Never a VPS or business-state cleanup.
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker build --label "org.opencontainers.image.revision=$RECOVERY_SHA" \
+            -f deploy/Dockerfile.server -t "aemr-server:release-$RECOVERY_SHA" .
+          docker build --label "org.opencontainers.image.revision=$RECOVERY_SHA" \
+            -f deploy/Dockerfile.web -t "aemr-web:release-$RECOVERY_SHA" .
+          docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" \
+            > "$RUNNER_TEMP/release/candidate-images.json"
+      - name: Install reviewed recovery tools and stage actual unchanged runtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # No checkout reset, runtime recreation, or business-state write here.
+          remote git -C /home/aemr/dash fetch --quiet origin "$RECOVERY_SHA"
+          git archive "$RECOVERY_SHA" deploy .github/ci/source_ci_gate.py | \
+            remote "sudo -n install -d -m 700 /root/codex-fixes/release-$RECOVERY_RUN && sudo -n tar --no-same-owner -xf - -C /root/codex-fixes/release-$RECOVERY_RUN"
+          docker save "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" | gzip -1 | \
+            remote sudo -n docker load > "$RUNNER_TEMP/release/image-load.log" 2>&1
+          remote sudo -n bash "/root/codex-fixes/release-$RECOVERY_RUN/deploy/install-runtime-guard.sh" \
+            /home/aemr/dash/deploy > "$RUNNER_TEMP/release/install.log" 2>&1 || { echo RELEASE_TOOL_INSTALL_FAILED; exit 2; }
+          python3 - <<'PY' > "$RUNNER_TEMP/release/stage-request.json"
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release';images=json.loads((p/'candidate-images.json').read_text())
+          print(json.dumps({'release_sha':os.environ['RECOVERY_SHA'],
+            'candidate_images':dict(zip(('server','web'),(x['Id'] for x in images),strict=True)),
+            'source_ci':json.loads((p/'source-ci.json').read_text())}))
+          PY
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire; exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
+            < "$RUNNER_TEMP/release/stage-request.json" > "$RUNNER_TEMP/release/stage.log" 2>&1 || { echo RELEASE_RUNTIME_STAGE_FAILED; exit 2; }
+          remote sudo -n cat /var/lib/aemr/release-runtime/stage.json > "$RUNNER_TEMP/release/stage.json"
+          # Private exact previous images are loaded on runner before downtime.
+          previous=$(python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          x=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/stage.json').read_text())
+          print(' '.join(sorted(set(x['images'].values()))))
+          PY
+          )
+          remote sudo -n docker save $previous | docker load > "$RUNNER_TEMP/release/previous-image-load.log" 2>&1
+          echo RELEASE_IMAGES_AND_CONFIGURATION_READY
+      - name: Freeze writers once and create fresh full private backup
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
+          remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
+            > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
+          window request-plan > "$RUNNER_TEMP/release/request-plan.log" 2>&1 || { echo RELEASE_PLAN_REQUEST_FAILED; exit 2; }
+          ready=false
+          for attempt in $(seq 1 180); do
+            if remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/plan-prepared.json"; then ready=true; break; fi
+            remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/quiescent" || break
+            sleep 2
+          done
+          test "$ready" = true || { echo RELEASE_PLAN_NOT_PREPARED; exit 2; }
+      - name: Independent one-clone candidate and previous runtime with actual complete restore
+        run: |
+          set -euo pipefail
+          umask 077
+          . "$RUNNER_TEMP/release/ssh.sh"
+          backup="/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup"
+          sudo install -d -m 700 /var/lib/aemr /var/lib/aemr/release-runtime \
+            /var/lib/aemr/release-trial-clone /home/aemr/.dash-private-backups \
+            "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN" "$backup" /usr/local/libexec/aemr
+          for file in manifest.json state.tar.gz; do
+            remote sudo -n cat -- "$backup/$file" | sudo tee "$backup/$file" >/dev/null
+            sudo chmod 600 "$backup/$file"
+          done
+          for file in compose.json candidate-compose.json .env.production Caddyfile candidate-Caddyfile source-ci.json trial-plan.json; do
+            remote sudo -n cat -- "/var/lib/aemr/release-runtime/$file" | sudo tee "/var/lib/aemr/release-runtime/$file" >/dev/null
+            sudo chmod 600 "/var/lib/aemr/release-runtime/$file"
+          done
+          sudo install -m 755 deploy/stateful_backup.py deploy/release_recovery.py deploy/release_trial.py \
+            .github/ci/source_ci_gate.py /usr/local/libexec/aemr/
+          sudo python3 - "$backup" <<'PY'
+          import json,shutil,sys
+          from pathlib import Path
+          m=json.loads((Path(sys.argv[1])/'manifest.json').read_text())
+          if type(m.get('bytes')) is not int or m['bytes']<0 or shutil.disk_usage('/var/lib/aemr').free<m['bytes']+2*1024**3:
+           raise SystemExit('RELEASE_INDEPENDENT_SCRATCH_INSUFFICIENT')
+          PY
+          sudo sh -c 'python3 -Es /usr/local/libexec/aemr/release_trial.py < /var/lib/aemr/release-runtime/trial-plan.json' \
+            > "$RUNNER_TEMP/release/trial-proof.json" 2> "$RUNNER_TEMP/release/trial.log" || { echo RELEASE_INDEPENDENT_TRIAL_FAILED; exit 2; }
+          # Never upload primary data, the archive, env, logs, or private receipts as artifacts.
+          remote "sudo -n install -m 600 /dev/stdin /var/lib/aemr/release-runtime/trial-proof.json" \
+            < "$RUNNER_TEMP/release/trial-proof.json"
+          echo RELEASE_FULL_RESTORE_CANDIDATE_AND_PREVIOUS_RUNTIME_PASS
+      - name: Same guardian exact-SHA release with closed-ingress API and Word acceptance
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
+          done=false
+          for attempt in $(seq 1 300); do
+            if remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/release-result"; then done=true; break; fi
+            sleep 2
+          done
+          test "$done" = true || { echo RELEASE_RESULT_TIMEOUT; exit 2; }
+          result=$(remote sudo -n cat "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/release-result")
+          test "$result" = 0 || { echo RELEASE_CANDIDATE_REJECTED; exit 2; }
+          remote sudo -n cat /var/lib/aemr/release-accepted.json > "$RUNNER_TEMP/release/accepted.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release';plan=json.loads((p/'stage.json').read_text());a=json.loads((p/'accepted.json').read_text())['acceptance']
+          assert a['state']=='RELEASE_CANDIDATE_ACCEPTED' and a['release_sha']==os.environ['RECOVERY_SHA']
+          assert a['candidate_images']==plan['candidate_images'] and a['config_sha256']==plan['config_sha256']
+          print('EXACT_SHA_CANDIDATE_ACCEPTED')
+          PY
+          curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          assert json.loads((Path(os.environ['RUNNER_TEMP'])/'release/public-health.json').read_text())['status']=='ok'
+          print('PUBLIC_HEALTH_PASS')
+          PY
+      - name: Always request same-owner resume without reverting an accepted release
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/release/ssh.sh"; then
+            . "$RUNNER_TEMP/release/ssh.sh"
+            window request-resume > "$RUNNER_TEMP/release/resume.log" 2>&1 || { echo RELEASE_RESUME_REQUEST_FAILED; exit 2; }
+            closed=false
+            for attempt in $(seq 1 150); do
+              if remote sudo -n test ! -e "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/quiescent"; then closed=true; break; fi
+              sleep 2
+            done
+            test "$closed" = true || { echo RELEASE_RESUME_STILL_PENDING; exit 2; }
+          fi
+      - name: Remove private runner state and credentials
+        if: always()
+        run: |
+          sudo rm -rf "$RUNNER_TEMP/release" /var/lib/aemr/release-trial-clone \
+            /var/lib/aemr/release-runtime "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN"

@@ -1,8 +1,13 @@
 """Fault recovery remains isolated from report data and other services."""
+import contextlib
 import importlib.util
+import io
 import json
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/runtime_guard.py'
 
@@ -87,6 +92,69 @@ class RuntimeGuardTests(unittest.TestCase):
                 self.check()
                 self.assertIn(['update', '--memory', str(2304 * 1024 * 1024), 'aemr-report-worker-1'], self.calls)
                 self.assertNotIn(['start', 'aemr-report-worker-1'], self.calls)
+
+    def run_main(self, kind=None, *, failure=False):
+        import fcntl
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); policy=root/'policy.json'; state=root/'state.json'; lock=root/'lock'
+            policy.write_text(json.dumps(self.policy)); lock.touch()
+            pending=root/'pending-release.json'; progress=root/'release-recovery-progress.json'
+            if kind=='pending': pending.write_text('{}')
+            elif kind=='progress': progress.write_text('{}')
+            elif kind=='symlink': pending.symlink_to(root/'absent')
+            captured=[]
+            def recovery(fd):
+                self.assertEqual(__import__('os').fstat(fd).st_ino,lock.stat().st_ino)
+                with lock.open('a') as rival,self.assertRaises(BlockingIOError):
+                    fcntl.flock(rival,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                captured.append('release')
+                if failure: raise RuntimeError('PRIVATE_CONFIG_MUST_NOT_ESCAPE')
+                return {'state':'RELEASE_RUNTIME_AND_STATE_RECOVERED'}
+            out=io.StringIO();err=io.StringIO();original_supervise=self.module.supervise
+            with patch.object(self.module,'RELEASE_MARKERS',(pending,progress),create=True), \
+                 patch.object(self.module,'recover_release',side_effect=recovery,create=True), \
+                 patch.object(self.module,'supervise',side_effect=lambda p,s:original_supervise(p,s,self.docker,now=1000)), \
+                 patch('sys.argv',['runtime_guard','--policy',str(policy),'--state',str(state),'--lock',str(lock)]), \
+                 contextlib.redirect_stdout(out),contextlib.redirect_stderr(err):
+                result=self.module.main()
+            return result,captured,out.getvalue(),err.getvalue()
+
+    @unittest.skipUnless(sys.platform=='linux','Real release exclusion requires Linux flock')
+    def test_pending_release_prevents_ordinary_api_start_and_owns_kernel_lock(self):
+        self.records['server']['State']['Status']='exited'
+        result,events,out,err=self.run_main('pending')
+        self.assertEqual(events,['release'])
+        self.assertEqual(result,0,err)
+        self.assertIn('RELEASE_RUNTIME_AND_STATE_RECOVERED',out)
+        self.assertEqual(self.calls,[])
+
+    @unittest.skipUnless(sys.platform=='linux','Real release exclusion requires Linux flock')
+    def test_failed_release_recovery_never_falls_through_to_api_or_leaks_config(self):
+        self.records['server']['State']['Status']='exited'
+        result,events,out,err=self.run_main('pending',failure=True)
+        self.assertEqual(events,['release'])
+        self.assertEqual(result,2)
+        self.assertIn('RELEASE_RECOVERY_UNAVAILABLE',err)
+        self.assertNotIn('PRIVATE_CONFIG',out+err)
+        self.assertEqual(self.calls,[])
+
+    @unittest.skipUnless(sys.platform=='linux','Real release exclusion requires Linux flock')
+    def test_orphan_progress_and_dangling_pending_are_checked_before_supervision(self):
+        for kind in ('progress','symlink'):
+            with self.subTest(kind=kind):
+                self.calls.clear()
+                result,events,_,err=self.run_main(kind)
+                self.assertEqual(events,['release'])
+                self.assertEqual(result,0,err)
+                self.assertEqual(self.calls,[])
+
+    @unittest.skipUnless(sys.platform=='linux','Real release exclusion requires Linux flock')
+    def test_no_release_marker_preserves_existing_independent_process_recovery(self):
+        self.records['server']['State']['Status']='exited'
+        result,events,_,err=self.run_main()
+        self.assertEqual(result,0,err)
+        self.assertEqual(events,[])
+        self.assertIn(['start','aemr-server-1'],self.calls)
 
 
 if __name__ == '__main__':

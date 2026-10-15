@@ -1,6 +1,6 @@
 # Source from maintenance scripts. fd9 is inherited only after kernel verification.
 maintenance_lock_owned_by() {
-  python3 - "$1" <<'PY'
+  python3 -I - "$1" <<'PY'
 import os,sys,stat
 try:
     pid=int(sys.argv[1]); st=os.stat(f'/proc/{pid}/fd/9')

@@ -1,7 +1,9 @@
 """Exercise maintenance failure recovery using synthetic Docker, never production."""
+import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -387,6 +389,236 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('/tmp/nonexistent-private-window', result.stderr)
         self.assertNotIn('Traceback', result.stderr)
+
+
+class ReleaseGuardianTests(unittest.TestCase):
+    def test_operator_cwd_module_cannot_execute_in_privileged_record_parser(self):
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                                     'ReleaseGuardianTests.test_operator_cwd_module_cannot_execute_in_privileged_record_parser', '-q'],
+                                    capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);repo=root/'repo';(repo/'deploy').mkdir(parents=True)
+            base=root/'backups';session=base/'worker-1';session.mkdir(parents=True)
+            for name in ('prepared','quiescent'):(session/name).touch()
+            (session/'runtime.json').write_text('{}')
+            marker=root/'unreviewed-root-execution'
+            (repo/'deploy/json.py').write_text('from pathlib import Path\nPath('+repr(str(marker))+').write_text("executed")\n')
+            result=subprocess.run(['bash',str(SCRIPT),'resume','d'*40,'1',str(repo),str(base)],
+                                  capture_output=True,text=True,timeout=5,check=False,
+                                  env={**os.environ,'PYTHONPATH':str(repo/'deploy')})
+            self.assertFalse(marker.exists(), 'Unreviewed operator CWD/PYTHONPATH executed before the root record gate')
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('BACKUP_RUNTIME_RECORD_UNAVAILABLE',result.stderr)
+            self.assertNotIn('Traceback',result.stderr)
+
+    def test_real_root_namespace_cancellation_contract(self):
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                                     'ReleaseGuardianTests.test_real_root_namespace_cancellation_contract', '-q'],
+                                    capture_output=True, text=True, timeout=40, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        for scenario in ('cancel-before-plan', 'cancel-armed', 'cancel-accepted', 'cancel-wrong-binding', 'cancel-late', 'cancel-stale-plan', 'cancel-dead-guardian', 'cancel-no-window', 'cancel-symlink', 'cancel-accepted-missing-plan', 'cancel-blocks-deploy'):
+            with self.subTest(scenario=scenario):
+                self.run_handoff(scenario)
+
+    def test_real_root_namespace_handoff_contract(self):
+        if os.geteuid() != 0:
+            result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),
+                                     'ReleaseGuardianTests.test_real_root_namespace_handoff_contract', '-q'],
+                                    capture_output=True, text=True, timeout=40, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+        for scenario in ('accepted', 'pre-arm-failure', 'armed-failure', 'wrong-plan', 'expired', 'changed-module', 'wrong-origin-status', 'prepare-plan', 'prepare-failure', 'prepare-plan-changed', 'prepare-untrusted-env'):
+            with self.subTest(scenario=scenario):
+                self.run_handoff(scenario)
+
+    def run_handoff(self, scenario):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, base = root / 'repo', root / 'backups'
+            (repo / 'deploy').mkdir(parents=True)
+            session = base / 'worker-1'
+            session.mkdir(parents=True)
+            state = root / 'state'
+            state.mkdir(mode=0o700)
+            runtime = state / 'release-runtime'
+            runtime.mkdir(mode=0o700)
+            tools = root / 'tools'
+            tools.mkdir(mode=0o700)
+            lock = root / 'lock'
+            lock.touch(mode=0o600)
+            trace = root / 'trace'
+            for directory in (session, base):
+                directory.chmod(0o700)
+            source = SCRIPT.read_text().replace('/run/lock/aemr-maintenance.lock', str(lock))
+            source = source.replace('/home/aemr/.dash-private-backups', str(base))
+            source = source.replace('/var/lib/aemr', str(state)).replace('/usr/local/libexec/aemr', str(tools))
+            script = root / 'window.sh'
+            script.write_text(source)
+            helper = (SCRIPT.parent / 'maintenance-lock.sh').read_text().replace('/run/lock/aemr-maintenance.lock', str(lock))
+            (session / 'maintenance-lock.sh').write_text(helper)
+            (session / 'quiescent').touch()
+            (session / 'prepared').touch()
+            (session / 'quiescent').chmod(0o600)
+            (session / 'prepared').chmod(0o600)
+            plan = {'format':'aemr-release-recovery-v1','release_sha':'d'*40,'manifest_sha256':'a'*64,
+                    'images':{name:'sha256:'+str(i+1)*64 for i,name in enumerate(('server','web','report-worker','caddy'))},
+                    'candidate_images':{name:'sha256:'+str(i+5)*64 for i,name in enumerate(('server','web','report-worker','caddy'))},
+                    'config_sha256':{name:'b'*64 for name in ('compose.json','.env.production','Caddyfile','candidate-compose.json','candidate-Caddyfile')},
+                    'backup_reference':'worker-1/backup','volume':'aemr_server_data','tool_sha256':'c'*64,
+                    'original_running':{name:True for name in ('server','web','report-worker','caddy')},
+                    'word':{'release_id':'REL-'+'e'*64,'sha256':{name:'f'*64 for name in ('main','supplement','operational')}}}
+            bound={key:plan[key] for key in ('release_sha','manifest_sha256','images','config_sha256')}
+            plan['proofs']={name:{**bound,'state':value} for name,value in {'full_restore':'VERIFIED_IN_SCRATCH','in_place_restore':'STATE_RESTORED','previous_runtime':'PREVIOUS_RUNTIME_COMPATIBLE'}.items()}
+            def write(path, value):
+                path.write_text(json.dumps(value));path.chmod(0o600)
+            if scenario=='wrong-origin-status':plan['original_running']['report-worker']=False
+            preparing = scenario.startswith('prepare-')
+            cancelling = scenario.startswith('cancel-')
+            if scenario=='cancel-before-plan':(session/'prepared').unlink()
+            if scenario != 'cancel-before-plan':
+                write(runtime/('base-plan.json' if preparing else 'trial-plan.json'),plan)
+            write(session/'runtime.json',{'server':'1'*64,'worker':'3'*64,'volume':'aemr_server_data',
+                  'image':plan['images']['server'],'worker_image':plan['images']['report-worker'],'candidate':plan['release_sha'],
+                  'worker_was_running':True,'authorized_quiesce':True,'release_controller':True})
+            plan_sha=hashlib.sha256(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            completion={'state':'RELEASE_RUNTIME_AND_STATE_RECOVERED','release_sha':plan['release_sha'],
+                        'plan_sha256':plan_sha,'manifest_sha256':plan['manifest_sha256'],
+                        'restored':{'state':'STATE_RESTORED','manifest_sha256':plan['manifest_sha256'],'files':6,'bytes':100,'sqlite_checked':1,'docx_checked':3}}
+            if scenario=='cancel-armed':write(state/'pending-release.json',{'pending':True})
+            if scenario.startswith('cancel-accepted'):
+                write(state/'release-accepted.json',{'plan_sha256':plan_sha,'acceptance':{'state':'RELEASE_CANDIDATE_ACCEPTED',
+                    'release_sha':plan['release_sha'],'manifest_sha256':plan['manifest_sha256'],
+                    'candidate_images':plan['candidate_images'],'config_sha256':plan['config_sha256'],'word_sha256':plan['word']['sha256']}})
+            if scenario=='cancel-accepted-missing-plan':(runtime/'trial-plan.json').unlink()
+            if scenario=='cancel-stale-plan':
+                stale=json.loads(json.dumps(plan));stale['release_sha']='e'*40
+                for value in stale['proofs'].values():value['release_sha']=stale['release_sha']
+                write(runtime/'trial-plan.json',stale)
+            driver="""import json,os,sys;from pathlib import Path
+root=Path(ROOT);trace=Path(TRACE)
+assert 'FLOCK  ADVISORY  WRITE' in Path('/proc/self/fdinfo/9').read_text() or 'FLOCK ADVISORY WRITE' in Path('/proc/self/fdinfo/9').read_text()
+if sys.argv[1]=='prepare':
+ with trace.open('a') as f:f.write('PREPARE\\n')
+ if SCENARIO=='prepare-failure':sys.exit(2)
+ p=root/'release-runtime/trial-plan.json';p.write_text(json.dumps(json.load(sys.stdin)));p.chmod(0o600);sys.exit(0)
+with trace.open('a') as f:f.write('DEPLOY\\n')
+if SCENARIO=='armed-failure':(root/'pending-release.json').write_text('pending');sys.exit(2)
+if SCENARIO=='pre-arm-failure':sys.exit(2)
+(root/'release-recovered.json').write_text(json.dumps(COMPLETION));(root/'release-recovered.json').chmod(0o600)
+""".replace('ROOT',repr(str(state))).replace('TRACE',repr(str(trace))).replace('SCENARIO',repr(scenario)).replace('COMPLETION',repr(completion))
+            (tools/'release-controller.py').write_text(driver)
+            recovery_source=(SCRIPT.parent/'release_recovery.py').read_text()
+            recovery_source=recovery_source[:recovery_source.rindex("if __name__ == '__main__':")]
+            recovery_source+='\nif __name__ == "__main__":\n'+(' root=Path('+repr(str(state))+'); trace=Path('+repr(str(trace))+')\n'
+                ' with trace.open("a") as f:f.write("RECOVER\\n")\n'
+                ' (root/"release-recovered.json").write_text(json.dumps('+repr(completion)+'))\n'
+                ' (root/"release-recovered.json").chmod(0o600)\n'
+                ' (root/"pending-release.json").unlink(missing_ok=True)\n')
+            (tools/'release_recovery.py').write_text(recovery_source)
+            for name in ('release_trial.py','stateful_backup.py','source_ci_gate.py'):
+                (tools/name).write_text('# synthetic trusted module\n')
+            pins={}
+            for path in tools.iterdir():
+                path.chmod(0o600);pins[path.name]=hashlib.sha256(path.read_bytes()).hexdigest()
+            write(session/'release-window.json',{'format':'aemr-release-window-v1','candidate':plan['release_sha'],'run_id':'1',
+                  'module_sha256':pins,'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                  'deadline_ns':time.monotonic_ns()+(0 if scenario=='cancel-late' else 800 if scenario=='expired' else 2700)*10**9})
+            docker = root / 'docker'
+            docker.write_text("""#!/usr/bin/env python3
+import json,sys;from pathlib import Path
+trace=Path(TRACE);args=sys.argv[1:]
+with trace.open('a') as f:f.write(json.dumps(args)+'\\n')
+if args[0]=='compose':print('1'*64 if args[-1]=='server' else '3'*64)
+elif args[0]=='inspect':
+ fmt=args[2]
+ if '.State.Health' in fmt:print('healthy')
+ elif '.Image' in fmt:print('sha256:'+('1' if args[-1]=='1'*64 else '3')*64)
+ elif '.State.Status' in fmt:print('running' if trace.exists() and json.dumps(['start',args[-1]]) in trace.read_text() else 'exited')
+ else:print('aemr_server_data')
+elif args[0]=='start':pass
+else:sys.exit(2)
+""".replace('TRACE',repr(str(trace))))
+            docker.chmod(0o700)
+            environment={**os.environ,'PATH':str(root)+os.pathsep+os.environ['PATH']}
+            unreviewed_marker=root/'unreviewed-cli-execution'
+            if scenario=='prepare-untrusted-env':
+                untrusted=root/'untrusted';untrusted.mkdir()
+                (untrusted/'json.py').write_text('from pathlib import Path\nPath('+repr(str(unreviewed_marker))+').write_text("executed")\n')
+                environment['PYTHONPATH']=str(untrusted)
+            owner=subprocess.Popen(['bash','-c','umask 077; . "$1"; exec 9>"$2"; flock -n 9 || exit 2; echo $$ >"$3/guardian-ready"; read -r line; exec bash "$4" "$8" "$5" 1 "$6" "$7" --quiesce-worker --release-controller',
+                 'actual-guardian',str(session/'maintenance-lock.sh'),str(lock),str(session),str(script),plan['release_sha'],str(repo),str(base),'resume-release' if cancelling and scenario!='cancel-blocks-deploy' else 'release-dispatch'],
+                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
+                 env=environment)
+            try:
+                for _ in range(100):
+                    if (session/'guardian-ready').exists():break
+                    time.sleep(.01)
+                self.assertTrue((session/'guardian-ready').exists())
+                if scenario=='cancel-dead-guardian':owner.kill();owner.wait(timeout=5)
+                if scenario=='cancel-no-window':(session/'quiescent').unlink()
+                if scenario=='cancel-symlink':(session/'cancel-request.json').symlink_to(session/'runtime.json')
+                request=subprocess.run(['bash',str(script),'request-resume' if cancelling else 'request-plan' if preparing else 'request-release',plan['release_sha'],'1',str(repo),str(base),'--quiesce-worker','--release-controller'],
+                        capture_output=True,text=True,timeout=5,check=False,env=environment)
+                if scenario=='cancel-dead-guardian':
+                    self.assertNotEqual(request.returncode,0);self.assertIn('BACKUP_GUARDIAN_UNAVAILABLE',request.stderr);self.assertFalse((session/'cancel-request.json').exists());return
+                if scenario=='cancel-no-window':
+                    self.assertEqual(request.returncode,0,request.stderr);self.assertEqual(request.stdout.strip(),'NO_OPEN_WINDOW')
+                    self.assertFalse((session/'cancel-request.json').exists());self.assertFalse(trace.exists());return
+                if scenario=='cancel-symlink':
+                    self.assertNotEqual(request.returncode,0);self.assertIn('RELEASE_CANCEL_INVALID',request.stderr);self.assertFalse(trace.exists());return
+                if scenario in {'expired','wrong-origin-status'}:
+                    self.assertNotEqual(request.returncode,0);self.assertFalse((runtime/'guardian-request.json').exists())
+                else:
+                    self.assertEqual(request.returncode,0,request.stderr)
+                if scenario=='cancel-wrong-binding':
+                    value=json.loads((session/'cancel-request.json').read_text());value['runtime_sha256']='0'*64;write(session/'cancel-request.json',value)
+                if scenario=='wrong-plan':
+                    value=json.loads((runtime/'guardian-request.json').read_text());value['plan_sha256']='0'*64;write(runtime/'guardian-request.json',value)
+                if scenario=='changed-module':
+                    with (tools/'release-controller.py').open('a') as f:f.write('# changed\n')
+                if scenario=='prepare-plan-changed':
+                    changed=json.loads((runtime/'base-plan.json').read_text());changed['manifest_sha256']='0'*64;write(runtime/'base-plan.json',changed)
+                _stdout,_stderr=owner.communicate('\n',timeout=10)
+                self.assertFalse(unreviewed_marker.exists(), 'Installed trusted CLI imported PYTHONPATH code')
+                lines=trace.read_text().splitlines() if trace.exists() else []
+                if cancelling:
+                    self.assertNotIn('DEPLOY',lines);self.assertNotIn('PREPARE',lines)
+                    starts=[json.loads(line) for line in lines if line.startswith('[') and json.loads(line)[0]=='start']
+                    if scenario in {'cancel-wrong-binding','cancel-accepted-missing-plan','cancel-blocks-deploy'}:
+                        self.assertNotEqual(owner.returncode,0);self.assertTrue((session/'quiescent').exists());self.assertEqual(starts,[])
+                    else:
+                        self.assertEqual(owner.returncode,0,_stderr);self.assertFalse((session/'quiescent').exists())
+                        self.assertEqual('RECOVER' in lines,scenario=='cancel-armed')
+                        self.assertEqual(starts,[] if scenario in {'cancel-armed','cancel-accepted'} else [['start','1'*64],['start','3'*64]])
+                        self.assertFalse((session/'cancel-request.json').exists())
+                elif scenario in {'wrong-plan','expired','changed-module','wrong-origin-status','prepare-plan-changed'}:
+                    self.assertNotEqual(owner.returncode,0);self.assertNotIn('DEPLOY',lines)
+                    self.assertNotIn('PREPARE',lines)
+                    self.assertTrue((session/'quiescent').exists())
+                elif preparing:
+                    self.assertIn('PREPARE',lines);self.assertNotIn('DEPLOY',lines)
+                    starts=[json.loads(line) for line in lines if line.startswith('[') and json.loads(line)[0]=='start']
+                    if scenario=='prepare-failure':
+                        self.assertNotEqual(owner.returncode,0);self.assertFalse((session/'quiescent').exists())
+                        self.assertEqual(starts,[['start','1'*64],['start','3'*64]])
+                    else:
+                        self.assertEqual(owner.returncode,0,_stderr);self.assertTrue((session/'quiescent').exists())
+                        self.assertEqual(starts,[]);self.assertEqual(json.loads((runtime/'trial-plan.json').read_text()),plan)
+                    self.assertFalse((runtime/'guardian-request.json').exists())
+                else:
+                    self.assertIn('DEPLOY',lines)
+                    self.assertFalse((session/'quiescent').exists())
+                    starts=[json.loads(line) for line in lines if line.startswith('[') and json.loads(line)[0]=='start']
+                    if scenario=='pre-arm-failure':self.assertEqual(starts,[['start','1'*64],['start','3'*64]])
+                    else:self.assertEqual(starts,[])
+                    self.assertEqual('RECOVER' in lines,scenario=='armed-failure')
+            finally:
+                if owner.poll() is None:owner.kill();owner.wait(timeout=5)
 
 
 if __name__ == '__main__':
