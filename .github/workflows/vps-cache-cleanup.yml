@@ -1675,6 +1675,18 @@ jobs:
             sudo -n python3 -I - <<'PYREPLAYERROR'
             import json,re
             from pathlib import Path
+            probe=json.loads(Path('/root/codex-fixes/release-38727198402/native-status-probe-35eb647ddd88b9d859efc08202355d451482bc01b09bf0c9ee213ec31ee9411f-62e89157821b4de1a7c84e91f69c7444.json').read_bytes())
+            previous=probe.get('previous_receipt',{})
+            private_errors='\n'.join(str(value.get('stderr','')) for value in previous.get('failures',[]))
+            previous_codes=['PUBLISHED_BUNDLE_CORRUPT','PUBLICATION_READER_LEASE_UNINITIALIZED','PUBLICATION_MAINTENANCE_ACTIVE',
+                'PUBLICATION_RETENTION_RECOVERY_REQUIRED','PUBLICATION_DATA_OWNER_MISMATCH','PUBLICATION_RETENTION_UNSAFE']
+            print(json.dumps({'previous_probe':{'summary':previous.get('summary'),
+                'sqlite_disk_full':'sqlite3.OperationalError: database or disk is full' in private_errors,
+                'sqlite_categories':[code for code,text in [('TEMP_IO','disk I/O error'),('READ_ONLY','attempt to write a readonly database'),
+                    ('MISSING_TABLE','no such table'),('MISSING_COLUMN','no such column'),('CANT_OPEN','unable to open database file')] if text in private_errors],
+                'codes':[code for code in previous_codes if code in private_errors],
+                'python_errors':[code for code in ('PermissionError','ValueError','OperationalError','FileNotFoundError')
+                    if re.search(r'^(?:sqlite3\.)?'+code+':',private_errors,re.MULTILINE)]}}))
             evidence=json.loads(Path('/root/codex-fixes/release-38727198402/replay-38736175868.json').read_bytes())
             plan=json.loads(Path('/var/lib/aemr/release-runtime/trial-plan.json').read_bytes())
             for failure in evidence.get('process_failures',[])[:8]:
