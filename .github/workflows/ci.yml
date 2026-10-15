@@ -137,5 +137,24 @@ jobs:
                if "snapshot_runtime_metadata" in value:print(json.dumps(value),flush=True)
               except (ValueError,AttributeError):pass
              print(json.dumps({"metadata_reader_exit":result.returncode}),flush=True)
+             result=subprocess.run(["docker","logs","--since","2026-10-15T20:12:00Z","--tail","4000","aemr-server-1"],capture_output=True,text=True,timeout=15,check=False)
+             requests={};events=[]
+             for line in (result.stdout+"\n"+result.stderr).splitlines():
+              try:value=json.loads(line)
+              except ValueError:continue
+              if not isinstance(value,dict):continue
+              at=value.get("time")
+              if type(at) is not int or not 0<=at<=2**53-1:continue
+              message=value.get("msg","");req=value.get("req") if isinstance(value.get("req"),dict) else {}
+              endpoint=req.get("url")
+              names={"/api/dashboard":"dashboard","/api/dashboard?year=all":"dashboardAll","/api/report-releases":"reports","/api/change-story?limit=1":"journal"}
+              request_id=value.get("reqId") if isinstance(value.get("reqId"),str) else None
+              if request_id is not None and isinstance(endpoint,str) and endpoint in names:requests[request_id]=names[endpoint];events.append({"stage":"request_start","endpoint":names[endpoint],"at_ms":at})
+              if request_id is not None and request_id in requests and type(value.get("responseTime")) in {int,float} and 0<=value["responseTime"]<=2**53-1:
+               events.append({"stage":"request_end","endpoint":requests[request_id],"at_ms":at,"elapsed_ms":int(value["responseTime"]),"status":value["res"].get("statusCode") if isinstance(value.get("res"),dict) and type(value["res"].get("statusCode")) is int and 100<=value["res"]["statusCode"]<=599 else None})
+              prefixes={"Снимок сохраняется:":"persist_start","Строки-атомы снимка записаны:":"atoms_saved","Периметр строк собран":"inputs_complete"}
+              for prefix,stage in prefixes.items():
+               if isinstance(message,str) and message.startswith(prefix):events.append({"stage":stage,"at_ms":at})
+             print(json.dumps({"snapshot_stage_events":sorted(events,key=lambda e:e["at_ms"])[-60:]}),flush=True)
             if __name__=="__main__":main()
             PY
