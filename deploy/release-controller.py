@@ -28,8 +28,9 @@ def get(path):
  if len(body)>32*1024*1024: raise ValueError('size')
  return body
 get('/api/health')
-selected=json.loads(get('/api/report-releases'))['selected']
-release=selected['release_id']
+latest=json.loads(get('/api/report-releases')).get('latest')
+if not isinstance(latest,dict): raise ValueError('latest')
+release=latest.get('release_id')
 if not isinstance(release,str) or not re.fullmatch('REL-[a-f0-9]{64}',release): raise ValueError('release')
 hashes={}
 for view in ('main','supplement','operational'):

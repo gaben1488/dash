@@ -45,6 +45,11 @@ try:
  for path in (base,session):
   assert not any(p.is_symlink() for p in (path,*path.parents))
   if not path.exists():print('NO_OPEN_WINDOW');sys.exit(0)
+  assert stat.S_ISDIR(path.lstat().st_mode)
+ # Preflight may fail before prepare creates this run's session or migrates
+ # the operator-owned backup base. With no session there is nothing to resume;
+ # only an existing session requires trusting privileged window artifacts.
+ for path in (base,session):
   value=path.lstat();assert stat.S_ISDIR(value.st_mode) and value.st_uid==0 and stat.S_IMODE(value.st_mode)==0o700
  for name in ('quiescent','prepared','runtime.json','guardian-ready','release-window.json','cancel-request.json'):
   path=session/name

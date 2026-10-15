@@ -553,7 +553,7 @@ print(json.dumps(out))"""
     def _verify_candidate_schema(self):
         program = """(async()=>{
 const deadline=Date.now()+90000;
-const {SelectedReportReleaseStatusSchema,DashboardDataSchema}=await import('@aemr/shared');
+const {ReportReleaseStatusSchema,DashboardDataSchema}=await import('@aemr/shared');
 // Import the reviewed validators without activating their standalone CLI path.
 delete process.env.HEADER_PROBE_CLI;
 const {HEADER_ENDPOINTS,validHeaderPayload}=await import('/opt/aemr/header_api_probe.mjs');
@@ -577,8 +577,8 @@ async function read(endpoint){
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
  }
 }
-const parsed=SelectedReportReleaseStatusSchema.safeParse(await read('/api/report-releases'));
-if(!parsed.success||parsed.data.selected===null)throw Error('schema');
+const parsed=ReportReleaseStatusSchema.safeParse(await read('/api/report-releases'));
+if(!parsed.success||parsed.data.latest===null)throw Error('schema');
 for(const endpoint of ['/api/dashboard','/api/dashboard?year=all']){
  if(!DashboardDataSchema.safeParse(await read(endpoint)).success)throw Error('dashboard');
 }

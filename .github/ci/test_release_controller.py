@@ -18,6 +18,23 @@ fixtures = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixtures)
 
 
+def bare_status(root, release_id):
+    """Use the real reader's bare-endpoint envelope, with only its store mocked."""
+    with patch.object(sys, 'path', [str(ROOT / 'packages/report-engine/src'), *sys.path]):
+        from procurement_engine import publication_reader
+    (root / 'published').mkdir(parents=True, exist_ok=True)
+    (root / 'published/publications.sqlite').touch()
+    latest = {'release_id': release_id, 'snapshot_id': 'synthetic', 'report_date': '30.09.2026',
+              'cutoff_at': '2026-09-29T15:00:00Z', 'published_at': '2026-09-30T06:00:00Z',
+              'model_sha256': 'b' * 64, 'rules_version': 'synthetic',
+              'renderer_version': 'synthetic', 'status': 'VERIFIED'}
+    with patch.object(publication_reader, 'PublicationStore') as store:
+        store.return_value.latest.return_value = latest
+        value = json.loads(publication_reader._read_publication(root, 'status'))
+    assert 'latest' in value and 'selected' not in value
+    return value
+
+
 @unittest.skipUnless(os.geteuid() == 0, 'real root ownership exercised by namespace wrapper')
 class TrialTests(unittest.TestCase):
     def setUp(self):
@@ -103,15 +120,21 @@ class TrialTests(unittest.TestCase):
         encoded = base64.b64encode(document.read_bytes()).decode()
         binding = {'release_id': self.fixture.release_id, 'sha256': {view: self.fixture.module.digest(document.read_bytes())
                                                                     for view in ('main', 'supplement', 'operational')}}
-        app = "Promise.resolve({createApp:async()=>({inject:async({url})=>{if(url==='/api/health')return {statusCode:200};if(url==='/api/report-releases'){const payload=JSON.stringify({selected:{},valid:VALID,padding:'p'.repeat(PADDING)});return {statusCode:200,payload,rawPayload:Buffer.from(payload)};}return {statusCode:200,rawPayload:Buffer.from('WORD','base64')};},close:async()=>{}})})"
-        shared = "Promise.resolve({SelectedReportReleaseStatusSchema:{safeParse:v=>({success:v.valid})},ReportAssuranceSchema:{safeParse:()=>({success:true})}})"
-        for valid, word, padding, expected in [('true', encoded, 0, 0), ('false', encoded, 0, 2), ('true', base64.b64encode(b'PRIVATE_NATIVE_BAD_WORD').decode(), 0, 2), ('true', encoded, 9 * 1024**2, 0), ('true', encoded, 33 * 1024**2, 2)]:
+        envelope = bare_status(self.fixture.private / 'native-reader-status', self.fixture.release_id)
+        app = "Promise.resolve({createApp:async()=>({inject:async({url})=>{if(url==='/api/health')return {statusCode:200};if(url==='/api/report-releases'){const payload=JSON.stringify({...ENVELOPE,padding:'p'.repeat(PADDING)});return {statusCode:200,payload,rawPayload:Buffer.from(payload)};}return {statusCode:200,rawPayload:Buffer.from('WORD','base64')};},close:async()=>{}})})"
+        shared = 'import(' + json.dumps((ROOT / 'packages/shared/src/schemas.ts').as_uri()) + ')'
+        for valid, word, padding, expected in [('true', encoded, 0, 0), ('false', encoded, 0, 2), ('null', encoded, 0, 2), ('missing', encoded, 0, 2), ('later', encoded, 0, 0), ('true', base64.b64encode(b'PRIVATE_NATIVE_BAD_WORD').decode(), 0, 2), ('true', encoded, 9 * 1024**2, 0), ('true', encoded, 33 * 1024**2, 2)]:
             with self.subTest(valid=valid, expected=expected):
-                program = self.module.NATIVE_PROGRAM.replace("import('./src/app.ts')", app.replace('VALID', valid).replace('WORD', word).replace('PADDING', str(padding)))
+                value = json.loads(json.dumps(envelope))
+                if valid == 'false':value['latest']['status'] = 'PRIVATE_INVALID_STATUS'
+                if valid == 'null':value['latest'] = None
+                if valid == 'missing':value['selected'] = value.pop('latest')
+                if valid == 'later':value['latest']['release_id'] = 'REL-' + 'c' * 64
+                program = self.module.NATIVE_PROGRAM.replace("import('./src/app.ts')", app.replace('ENVELOPE', json.dumps(value)).replace('WORD', word).replace('PADDING', str(padding)))
                 program = program.replace("import('@aemr/shared')", shared)
                 program = program.replace('/app/packages/server/data/reports', str(native))
                 program = program.replace('/opt/report-env/bin/python', sys.executable)
-                result = subprocess.run(['node', '--eval', program, 'candidate'], input=json.dumps(binding),
+                result = subprocess.run(['node', '--import', str(ROOT / 'packages/server/node_modules/tsx/dist/loader.mjs'), '--eval', program, 'candidate'], input=json.dumps(binding),
                                         text=True, capture_output=True, timeout=15, check=False,
                                         env={**os.environ, 'AEMR_API_KEY': 'PRIVATE_SYNTHETIC_API_TOKEN'})
                 self.assertEqual(result.returncode, expected, result.stderr)
@@ -304,6 +327,7 @@ class ControllerTests(TrialTests):
         word = document.read_bytes()
         expected = {'release_id': self.fixture.release_id,
                     'sha256': {view: self.fixture.module.digest(word) for view in ('main', 'supplement', 'operational')}}
+        envelope = bare_status(self.fixture.private / 'reader-status', self.fixture.release_id)
         for padding, body, succeeds in ((9 * 1024**2, word, True), (33 * 1024**2, word, False),
                                        (0, b'PRIVATE_CORRUPT_DOCUMENT', False)):
             with self.subTest(padding=padding, succeeds=succeeds):
@@ -315,7 +339,7 @@ class ControllerTests(TrialTests):
                     if request.full_url.endswith('/api/health'):
                         value = b'{}'
                     elif request.full_url.endswith('/api/report-releases'):
-                        value = json.dumps({'selected': {'release_id': self.fixture.release_id}, 'padding': 'p' * padding}).encode()
+                        value = json.dumps({**envelope, 'padding': 'p' * padding}).encode()
                     else:
                         value = body
                     response = io.BytesIO(value)
@@ -334,6 +358,55 @@ class ControllerTests(TrialTests):
                 self.assertNotIn('PRIVATE_', output.getvalue())
                 if succeeds:
                     self.assertEqual(len(urls), 5)
+
+    def test_workflow_preflight_uses_bare_reader_and_fixed_private_safe_diagnostics(self):
+        workflow = (ROOT / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        step = workflow.split('          # Raw response travels only over the private pipe;', 1)[1].split('      - name:', 1)[0]
+        if "<<'JSREPORT'" in step:
+            program = step.split("<<'JSREPORT'\n", 1)[1].split('\n          JSREPORT', 1)[0]
+            program = '\n'.join(line.removeprefix('          ') for line in program.splitlines())
+        else:
+            program = step.split('          program="', 1)[1].split('"\n', 1)[0]
+        envelope = bare_status(self.fixture.private / 'preflight-reader-status', self.fixture.release_id)
+        bodies = [(json.dumps(envelope), 'LIVE_LATEST_REPORT_SCHEMA_PASS', False),
+                  (json.dumps({**envelope, 'latest': None}), 'LIVE_REPORT_LATEST_NULL', False),
+                  (json.dumps({'selected': envelope['latest'], 'attempt': None}), 'LIVE_REPORT_LATEST_MISSING', False),
+                  (json.dumps({**envelope, 'latest': {**envelope['latest'], 'status': 'PRIVATE_INVALID_STATUS'}}), 'LIVE_REPORT_SCHEMA_INVALID', False),
+                  ('PRIVATE_NOT_JSON', 'LIVE_REPORT_JSON_INVALID', False),
+                  ('', 'LIVE_REPORT_BODY_EMPTY', False),
+                  (json.dumps(envelope), 'LIVE_REPORT_SCHEMA_IMPORT_FAILED', True)]
+        for body, expected, fail_import in bodies:
+            with self.subTest(expected=expected):
+                shared = 'Promise.reject(Error("PRIVATE_IMPORT_FAILURE"))' if fail_import else 'import(' + json.dumps((ROOT / 'packages/shared/src/schemas.ts').as_uri()) + ')'
+                code = program.replace("import('@aemr/shared')", shared)
+                result = subprocess.run(['node', '--import', str(ROOT / 'packages/server/node_modules/tsx/dist/loader.mjs'), '--eval', code],
+                                        input=body, text=True, capture_output=True, timeout=15, check=False)
+                self.assertEqual(result.returncode, 0 if expected.endswith('_PASS') else 2, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+                self.assertNotIn('PRIVATE_', result.stdout + result.stderr)
+
+    def test_workflow_preflight_read_failure_has_only_fixed_diagnostic(self):
+        import urllib.request
+        workflow = (ROOT / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        step = workflow.split('          # Raw response travels only over the private pipe;', 1)[1].split('      - name:', 1)[0]
+        source = 'import os,sys,urllib.request' + step.split('          import os,sys,urllib.request', 1)[1].split('\n          PY', 1)[0]
+        source = '\n'.join(line.removeprefix('          ') for line in source.splitlines())
+        body = json.dumps(bare_status(self.fixture.private / 'preflight-read-status', self.fixture.release_id)).encode()
+        for status, key in [(200, 'PRIVATE_TOKEN'), (503, 'PRIVATE_TOKEN'), (200, '')]:
+            with self.subTest(status=status, authenticated=bool(key)):
+                response = io.BytesIO(body);response.status = status
+                output = io.BytesIO();pipe = io.TextIOWrapper(output);diagnostic = io.StringIO()
+                with patch.object(urllib.request, 'urlopen', return_value=response), \
+                     patch.dict(os.environ, {'AEMR_API_KEY': key}), \
+                     contextlib.redirect_stdout(pipe), contextlib.redirect_stderr(diagnostic):
+                    if status == 200 and key:
+                        exec(compile(source, '<private-live-read>', 'exec'), {})  # noqa: S102 - tracked fixed read program with isolated HTTP/stdout fixtures
+                    else:
+                        with self.assertRaises(SystemExit) as raised:
+                            exec(compile(source, '<private-live-read>', 'exec'), {})  # noqa: S102 - tracked fixed read program with isolated HTTP/stdout fixtures
+                        self.assertEqual(raised.exception.code, 2)
+                self.assertEqual(output.getvalue(), body if status == 200 and key else b'')
+                self.assertEqual(diagnostic.getvalue(), '' if status == 200 and key else 'LIVE_REPORT_READ_FAILED\n')
 
     def test_stage_rejects_arbitrary_metadata_paths_or_commands_before_docker(self):
         self.stage_fixture()
@@ -490,7 +563,7 @@ class ControllerTests(TrialTests):
 
     def live_api_driver(self, *, padding=9 * 1024**2, broken=None, transient=False, stalled_cancel=False):
         # Actual shared Dashboard schema and public Header validators execute in
-        # Node; only HTTP and the unrelated publication-envelope parser are faked.
+        # Node; only HTTP is faked. Publication envelopes use the real reader shape.
         trust = {'overall': 100, 'components': [], 'grade': 'A', 'computedAt': 'fixture', 'basedOnSnapshot': 'fixture'}
         snapshot = {'id': 'fixture', 'spreadsheetId': 'fixture', 'createdAt': 'fixture', 'officialMetrics': {},
                     'calculatedMetrics': {}, 'deltas': [], 'issues': [], 'trust': trust, 'rowCount': 0,
@@ -502,6 +575,17 @@ class ControllerTests(TrialTests):
                      'recentIssues': [], 'signalCounts': {}, 'issueSummary': {'total': 0, **{key: {} for key in
                      ('bySeverity', 'byCategory', 'byDepartment', 'byOrigin', 'signalCounts')}},
                      'trust': trust, 'lastRefreshed': 'fixture', 'year': 2026}
+        latest = {'release_id': self.fixture.release_id, 'snapshot_id': 'fixture', 'report_date': '15.10.2026',
+                  'cutoff_at': '2026-10-15T00:00:00Z', 'published_at': '2026-10-15T00:00:00Z',
+                  'model_sha256': 'a' * 64, 'rules_version': 'fixture', 'renderer_version': 'fixture',
+                  'status': 'VERIFIED_WITH_WARNINGS'}
+        envelope = {'latest': latest, 'attempt': None}
+        if broken == 'missing-latest':
+            envelope = {'selected': latest, 'attempt': None}
+        elif broken == 'null-latest':
+            envelope['latest'] = None
+        elif broken == 'invalid-latest':
+            latest['status'] = 'PRIVATE_INVALID_STATUS'
         kinds = ('row-vanished', 'row-identity-candidate', 'money', 'dates', 'row-added', 'method', 'comment', 'flag', 'subject', 'other')
         headers = {
             '/api/sources': {'refresh': {'webhookConfigured': False, 'withinWorkWindow': False,
@@ -524,7 +608,7 @@ class ControllerTests(TrialTests):
             if './node_modules/.bin/tsx' not in args:
                 return actual(args, **kwargs)
             shared = (ROOT / 'packages/shared/src/schemas.ts').as_uri()
-            replacement = "(async()=>({...await import(" + json.dumps(shared) + "),SelectedReportReleaseStatusSchema:{safeParse:v=>({success:v.valid,data:v})}}))()"
+            replacement = "import(" + json.dumps(shared) + ")"
             program = args[-1].replace("import('@aemr/shared')", replacement)
             program = program.replace("import('/opt/aemr/header_api_probe.mjs')", 'import(' + json.dumps((ROOT / '.github/ci/header_api_probe.mjs').as_uri()) + ')')
             setup = """const calls=[];const dashboard=DASHBOARD;const headers=HEADERS;const traceFs=require('node:fs');
@@ -533,7 +617,7 @@ globalThis.fetch=async(raw,options)=>{
  const url=new URL(raw);calls.push(url.pathname+url.search);
  if((options.method??'GET')!=='GET'||options.headers.Authorization!=='Bearer PRIVATE_LIVE_TOKEN')throw Error('PRIVATE_BAD_REQUEST');
  if(url.pathname==='/api/report-releases'){
-  const body=JSON.stringify({selected:{},valid:true,padding:'p'.repeat(PADDING)});
+  const body=JSON.stringify({...ENVELOPE,padding:'p'.repeat(PADDING)});
   if(STALLED_CANCEL)return new Response(new ReadableStream({start(c){c.enqueue(Buffer.from(body));},cancel(){return new Promise(()=>{});}}));
   return new Response(body);}
  if(url.pathname==='/api/dashboard'){
@@ -544,7 +628,7 @@ globalThis.fetch=async(raw,options)=>{
  if(headers[url.pathname])return new Response(JSON.stringify(headers[url.pathname]));
  throw Error('PRIVATE_UNEXPECTED_ENDPOINT');};
 """.replace('DASHBOARD', json.dumps(dashboard)).replace('HEADERS', json.dumps(headers)).replace('TRACE', json.dumps(str(trace)))
-            setup = setup.replace('PADDING', str(padding)).replace('TRANSIENT', str(transient).lower()).replace('BROKEN', json.dumps(broken))
+            setup = setup.replace('ENVELOPE', json.dumps(envelope)).replace('PADDING', str(padding)).replace('TRANSIENT', str(transient).lower()).replace('BROKEN', json.dumps(broken))
             setup = setup.replace('STALLED_CANCEL', str(stalled_cancel).lower())
             result = subprocess.run(['node', '--import', str(ROOT / 'packages/server/node_modules/tsx/dist/loader.mjs'), '--eval', setup + program],
                                     capture_output=True, text=True, timeout=15, check=False,
@@ -563,6 +647,14 @@ globalThis.fetch=async(raw,options)=>{
             else:
                 with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_CANDIDATE_SCHEMA_INVALID'):
                     self.fixture.executor._verify_candidate_schema()
+
+    def test_live_gate_requires_real_latest_shape_without_fabricating_selected(self):
+        for broken in ('missing-latest', 'null-latest', 'invalid-latest'):
+            with self.subTest(broken=broken):
+                trace = self.live_api_driver(padding=0, broken=broken)
+                with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_CANDIDATE_SCHEMA_INVALID'):
+                    self.fixture.executor._verify_candidate_schema()
+                self.assertEqual(json.loads(trace.read_text()), ['/api/report-releases'])
 
     def test_live_gate_reads_both_dashboard_scopes_and_all_four_header_contracts(self):
         trace = self.live_api_driver()

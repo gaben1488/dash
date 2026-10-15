@@ -1011,25 +1011,54 @@ jobs:
             -f deploy/Dockerfile.web -t "aemr-web:release-$RECOVERY_SHA" .
           docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" \
             > "$RUNNER_TEMP/release/candidate-images.json"
-      - name: Check real selected Word envelope with candidate schemas before downtime
+      - name: Check real latest Word envelope with candidate schemas before downtime
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
           # Raw response travels only over the private pipe; neither side logs it.
-          program="(async()=>{const {SelectedReportReleaseStatusSchema}=await import('@aemr/shared');let size=0;const parts=[];for await(const part of process.stdin){size+=part.length;if(size>33554432)throw Error('size');parts.push(part);}const value=SelectedReportReleaseStatusSchema.safeParse(JSON.parse(Buffer.concat(parts).toString('utf8')));if(!value.success||value.data.selected===null)throw Error('schema');console.log('LIVE_SELECTED_REPORT_SCHEMA_PASS');})().catch(()=>process.exit(2));"
+          program=$(cat <<'JSREPORT'
+          (async()=>{
+            const fail=code=>{console.log(code);process.exitCode=2;};
+            let size=0;const parts=[];
+            for await(const part of process.stdin){size+=part.length;if(size>33554432)return fail('LIVE_REPORT_BODY_TOO_LARGE');parts.push(part);}
+            if(!size)return fail('LIVE_REPORT_BODY_EMPTY');
+            let value;try{value=JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{return fail('LIVE_REPORT_JSON_INVALID');}
+            let shared;try{shared=await import('@aemr/shared');}catch{return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');}
+            if(typeof shared.ReportReleaseStatusSchema?.safeParse!=='function')return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');
+            if(value&&typeof value==='object'&&!Object.hasOwn(value,'latest'))return fail('LIVE_REPORT_LATEST_MISSING');
+            if(value?.latest===null)return fail('LIVE_REPORT_LATEST_NULL');
+            if(!shared.ReportReleaseStatusSchema.safeParse(value).success)return fail('LIVE_REPORT_SCHEMA_INVALID');
+            console.log('LIVE_LATEST_REPORT_SCHEMA_PASS');
+          })().catch(()=>{console.log('LIVE_REPORT_CHECK_FAILED');process.exitCode=2;});
+          JSREPORT
+          )
+          set +e
           remote sudo -n docker exec -i aemr-server-1 python3 -I - 2> "$RUNNER_TEMP/release/live-envelope-read.log" <<'PY' | \
             docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m -i \
-              --entrypoint node "aemr-server:release-$RECOVERY_SHA" --import tsx --eval "$program"
+              --entrypoint node "aemr-server:release-$RECOVERY_SHA" --import tsx --eval "$program" \
+              > "$RUNNER_TEMP/release/live-envelope-check.log" 2> "$RUNNER_TEMP/release/live-schema-runtime.log"
           import os,sys,urllib.request
-          key=os.environ.get('AEMR_API_KEY','')
-          if not key:raise SystemExit(2)
-          request=urllib.request.Request('http://127.0.0.1:3000/api/report-releases',headers={'Authorization':'Bearer '+key})
-          with urllib.request.urlopen(request,timeout=25) as response:
-           if response.status!=200:raise SystemExit(2)
-           body=response.read(32*1024*1024+1)
-          if len(body)>32*1024*1024:raise SystemExit(2)
-          sys.stdout.buffer.write(body)
+          try:
+           key=os.environ.get('AEMR_API_KEY','')
+           if not key:raise ValueError('auth')
+           request=urllib.request.Request('http://127.0.0.1:3000/api/report-releases',headers={'Authorization':'Bearer '+key})
+           with urllib.request.urlopen(request,timeout=25) as response:
+            if response.status!=200:raise ValueError('status')
+            body=response.read(32*1024*1024+1)
+           if len(body)>32*1024*1024:raise ValueError('size')
+           sys.stdout.buffer.write(body)
+          except Exception:
+           print('LIVE_REPORT_READ_FAILED',file=sys.stderr);raise SystemExit(2) from None
           PY
+          outcome=("${PIPESTATUS[@]}")
+          set -e
+          if test "${outcome[0]}" != 0; then echo LIVE_REPORT_READ_FAILED; fi
+          if test "${outcome[1]}" != 0; then
+            grep -E '^LIVE_REPORT_(BODY_TOO_LARGE|BODY_EMPTY|JSON_INVALID|SCHEMA_IMPORT_FAILED|LATEST_MISSING|LATEST_NULL|SCHEMA_INVALID|CHECK_FAILED)$' \
+              "$RUNNER_TEMP/release/live-envelope-check.log" || echo LIVE_REPORT_NODE_BOOTSTRAP_FAILED
+          fi
+          test "${outcome[0]}:${outcome[1]}" = 0:0
+          grep -Fx LIVE_LATEST_REPORT_SCHEMA_PASS "$RUNNER_TEMP/release/live-envelope-check.log"
       - name: Install reviewed recovery tools and stage actual unchanged runtime
         run: |
           set -euo pipefail

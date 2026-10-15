@@ -151,7 +151,7 @@ working directory/mounts с actual owned Docker runtime и выполняет so
 `/var/lib/aemr/release-trial-clone`. Один фактический full restore создаёт clone;
 candidate-owned `initialize-publication-readers` выполняется только на нём.
 Candidate native `createApp()` импортирует существующий additive SQLite DDL;
-`app.inject()` обращается только к health, selected release и трём native DOCX,
+`app.inject()` обращается только к health, latest release и трём native DOCX,
 проверяет actual shared schemas и всю published/weekly assurance history.
 `preloadData()`, listen, Google/network, generation и refresh не вызываются.
 Контейнеры network-none/read-only, clone RW, UID1000, no published ports.
@@ -249,3 +249,13 @@ cancel-request, сам выполняет recovery/resume под тем же fd9
 окно. Отсутствие открытого окна не выдаётся за проверку здоровья. Наличие
 accepted completion запрещает возврат к captured старым IDs. Полная независимая
 проба и source-match остаются обязательными, даже если synthetic proof зелёный.
+
+
+Уточнение 15.10.2026 после release38686544390: bare GET /api/report-releases
+возвращает latest/attempt, тогда как date/year/quarter задают selected/attempt.
+Релизный gate не должен подменять один ответ другим или выдумывать контекст.
+Preflight/capture/trial/acceptance проверяют соответствующую реальную схему;
+проверки периода остаются на SelectedReportReleaseStatusSchema. Тесты внешнего
+ответа используют publication_reader вместо придуманного selected на bare GET.
+Этот отказ произошёл до любых install/freeze; NO_OPEN_WINDOW в cleanup означает
+только отсутствие сессии, а не доказанное здоровье production.

@@ -7,9 +7,17 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
-PR #79 last published HEAD `8fbdda09`; CI38682344007: три source jobs PASS,
-общий CI FAILURE — read-only consumer проверяет старый installed journal.
-DB38682343924 PASS; read-only upgrade38682343865 ещё BLOCK на reader bootstrap.
+PR #79: последний проверенный source SHA `232cab42`; CI38686086019 —
+три обязательных source jobs PASS, DB38686085999 PASS. Общий CI не зелёный:
+read-only consumer ещё видит старый installed journal; upgrade probe требует
+новый publication reader bootstrap. Release38686544390 остановлен ДО install,
+stage, freeze и backup: preflight ошибочно применял SelectedReportReleaseStatusSchema
+к GET без date/year/quarter, который штатно возвращает latest, а не selected.
+Исправление охватывает preflight, capture, независимый trial и closed-ingress
+acceptance; тесты используют фактический publication reader и shared schemas.
+Ошибки/пустой latest не превращаются в выбранный выпуск или успех.
+Cleanup без начатой сессии возвращает NO_OPEN_WINDOW и не требует миграции
+исторической backup-папки; существующее окно сохраняет проверки владельца.
 Fresh public health 15.10 HTTP200/statusok; Root production не менял.
 Backup38349415596 остаётся принятым историческим cut, не новой копией 15.10.
 
@@ -18,15 +26,15 @@ glass-линией. Scoped z-context только открытого журна�
 двигая controls/rails. RED по elementFromPoint →78 layout/route states и
 52 motion states PASS; 28 affected component tests и11 builder/probe tests PASS.
 Проверяются title/3tabs, filter popup, keyboard/Escape, outside close, миллионы,
-offline HTML/ZIP self-download/reopen и13палитр. Прежняя имитация масштаба через
+offline HTML/ZIP self-download/reopen и13вкладок/12семейств палитр. Прежняя имитация масштаба через
 body.style.zoom ошибочно называлась browser zoom. Product body zoom не задаёт;
 200%-equivalent layout теперь CSS640×450/DPR2 при физических1280×900.
 Unsupported CSS bodyzoom2/offscreen Radix diagnostic сохранён отдельно.
 Синтетический preview не объявляется live Google mutation или полной UI-приёмкой
 всех страниц. Existing CI выдаёт HTML/ZIP artifact exact PR HEAD, synthetic only.
 
-R07/R09: завершение private producer/guardian workflow остаётся следующим
-блоком до rollout. Реальные negative tests нашли отсутствие восстановления при
+R07/R09: private producer/guardian workflow реализован; текущий допуск
+остановлен проверкой до rollout. Реальные negative tests нашли отсутствие восстановления при
 пропавшем контейнере и потерю EX дочерней CLI после SIGKILL owner; исправления
 проверяются до любого stop/recreate VPS. Accepted candidate data нельзя
 перезаписывать checkpoint после открытия ingress. Целевые W1–W5 и56 ID не
@@ -53,11 +61,12 @@ recovery custody, immutable SHA-addressed Caddy config, single Compose decoding,
 exact approved policy bytes/inode and isolated inline Python imports. This is
 source verification, not a claim of actual Docker daemon RPC cancellation or
 production rollback. Closed-ingress acceptance reuses real shared schemas and
-existing Header validators for selected report, Dashboard and four Header APIs;
+existing Header validators for actual latest report, Dashboard and four Header APIs;
 only startup503 repeats. Bad auth/schema/oversize fails before durable ACCEPT.
 Local frozen full report engine1075 PASS (193.13s), four-package TypeScript
-and lint PASS (304 existing warnings). Guardian23, backup32, controller36 and
-recovery32 source checks PASS. Actual image clone/live release remain required.
+and lint PASS (304 existing warnings). Guardian23, backup32 and recovery32 source checks PASS. Latest-envelope
+correction: window38 and controller39 PASS, including real reader/native Zod
+negative cases and exact staged Word proof with a legitimately newer latest. Actual image clone/live release remain required.
 
 ### Управление текущим выпуском и зависимостями — 13.10.2026
 

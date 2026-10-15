@@ -392,6 +392,79 @@ while [ -f "$1/quiescent" ]; do /bin/sleep .02; done
 
 
 class ReleaseGuardianTests(unittest.TestCase):
+    def test_request_resume_without_session_does_not_require_migrated_backup_base(self):
+        self.run_unopened_release_resume(session_exists=False)
+
+    def test_request_resume_existing_session_still_rejects_untrusted_backup_base(self):
+        self.run_unopened_release_resume(session_exists=True)
+
+    def test_request_resume_missing_session_does_not_hide_unsafe_paths(self):
+        for unsafe in ('base-file', 'session-dangling-symlink'):
+            with self.subTest(unsafe=unsafe), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                repo, base = root / 'repo', root / 'backups'
+                (repo / 'deploy').mkdir(parents=True)
+                if unsafe == 'base-file':
+                    base.touch(mode=0o600)
+                else:
+                    base.mkdir(mode=0o700)
+                    (base / 'worker-1').symlink_to(root / 'absent')
+                (root / 'id').write_text('#!/bin/sh\nprintf "0\\n"\n')
+                (root / 'id').chmod(0o700)
+                script = root / 'window.sh'
+                script.write_text(SCRIPT.read_text().replace('/home/aemr/.dash-private-backups', str(base)))
+                result = subprocess.run(['bash', str(script), 'request-resume', 'd' * 40, '1',
+                                         str(repo), str(base), '--quiesce-worker', '--release-controller'],
+                                        capture_output=True, text=True, timeout=5, check=False,
+                                        env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH']})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stderr.strip(), 'RELEASE_CANCEL_INVALID')
+                self.assertNotIn('NO_OPEN_WINDOW', result.stdout)
+
+    def run_unopened_release_resume(self, *, session_exists):
+        # Preflight can fail before the installer migrates the legacy operator
+        # backup directory. Exercise real ownership/mode checks without Docker,
+        # a system lock, or trusting any record from that directory.
+        for legacy in ('operator-owned', 'mode-0750'):
+            with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                repo, base = root / 'repo', root / 'backups'
+                (repo / 'deploy').mkdir(parents=True)
+                base.mkdir(mode=0o700)
+                session = base / 'worker-1'
+                if session_exists:
+                    session.mkdir(mode=0o700)
+                    (session / 'quiescent').touch(mode=0o600)
+                if legacy == 'operator-owned' and os.geteuid() == 0:
+                    os.chown(base, 1000, 1000)
+                elif legacy == 'mode-0750':
+                    base.chmod(0o750)
+                # Only the entrypoint's id command is adapted for an unprivileged
+                # runner; PYOPEN uses actual lstat ownership, never a fake stat.
+                (root / 'id').write_text('#!/bin/sh\nprintf "0\\n"\n')
+                (root / 'id').chmod(0o700)
+                trace = root / 'unexpected-runtime-call'
+                for name in ('docker', 'git'):
+                    (root / name).write_text('#!/bin/sh\ntouch "' + str(trace) + '"\nexit 97\n')
+                    (root / name).chmod(0o700)
+                script = root / 'window.sh'
+                script.write_text(SCRIPT.read_text().replace('/home/aemr/.dash-private-backups', str(base)))
+                result = subprocess.run(['bash', str(script), 'request-resume', 'd' * 40, '1',
+                                         str(repo), str(base), '--quiesce-worker', '--release-controller'],
+                                        capture_output=True, text=True, timeout=5, check=False,
+                                        env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH']})
+                self.assertFalse(trace.exists(), 'Unopened/invalid window invoked runtime or Git')
+                self.assertEqual(session.exists(), session_exists)
+                if session_exists:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stderr.strip(), 'RELEASE_CANCEL_INVALID')
+                    self.assertTrue((session / 'quiescent').exists())
+                    self.assertFalse((session / 'cancel-request.json').exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), 'NO_OPEN_WINDOW')
+                    self.assertEqual(result.stderr, '')
+
     def test_operator_cwd_module_cannot_execute_in_privileged_record_parser(self):
         if os.geteuid() != 0:
             result = subprocess.run(['unshare', '-Ur', sys.executable, str(Path(__file__).resolve()),

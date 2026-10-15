@@ -23,10 +23,10 @@ try {
  const health=await app.inject({method:'GET',url:'/api/health',headers});if(health.statusCode!==200)throw Error('health');
  const status=await app.inject({method:'GET',url:'/api/report-releases',headers});
  if(status.statusCode!==200||status.rawPayload.length>32*1024*1024)throw Error('status');
- const value=JSON.parse(status.payload);if(!value.selected)throw Error('selected');
+ const value=JSON.parse(status.payload);if(!value.latest)throw Error('latest');
  if(candidate){
   const shared=await import('@aemr/shared');
-  if(!shared.SelectedReportReleaseStatusSchema.safeParse(value).success)throw Error('schema');
+  if(!shared.ReportReleaseStatusSchema.safeParse(value).success)throw Error('schema');
   function visit(root){
    if(!fs.existsSync(root))throw Error('history');
    if(fs.lstatSync(root).isSymbolicLink())throw Error('symlink');
