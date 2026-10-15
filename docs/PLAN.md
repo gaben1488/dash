@@ -7,6 +7,14 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Replay38740048799/job116439061491 на da51084e прошёл полный5-image proof и перенос
+архива; initial restore_state + validate_restore_proof прошли по контрольному
+потоку b8, затем13:39:18UTC отказ native_environment/RELEASE_TRIAL_ENV_INVALID
+до запуска приложения. Читаются только metadata имён/типов env, без значений.
+Native/in-place acceptance ещё нет; API/runtime unchanged + domain health PASS.
+Обычный release теперь сохраняет fixed native codes и private phase evidence:
+8a581e4e,45root/22cleanup/4helper/Ruff/actionlint и independent review PASS.
+
 Run38727198402/sourceb8e98ec5: exact3sourceCI38726228112 PASS;
 Docker transport/stage/full capacity PASS, full backup+source-match11:32:11–11:43:44UTC
 PASS. Independent trial11:43:44–12:03:14UTC отказал до установки; точная причина

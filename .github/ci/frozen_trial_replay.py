@@ -15,7 +15,7 @@ from unittest.mock import patch
 PHASES = {'check_source_ci', '_files', '_images', 'restore_state', '_validated_backup',
           '_validate_archive_content', '_restore_compressed', 'inventory',
           'verify_restored_documents_and_sqlite', 'native_environment'}
-CODES = {'RELEASE_COMMAND_FAILED', 'RELEASE_NATIVE_TRIAL_FAILED', 'RELEASE_SOURCE_CI_INVALID',
+CODES = {'RELEASE_TRIAL_AUTH_UNAVAILABLE', 'RELEASE_TRIAL_ENV_INVALID', 'RELEASE_COMMAND_FAILED', 'RELEASE_NATIVE_TRIAL_FAILED', 'RELEASE_SOURCE_CI_INVALID',
          'RELEASE_OWNED_FILE_INVALID', 'RELEASE_CONFIG_CHANGED', 'RELEASE_TOOL_CHANGED',
          'RELEASE_CHECKPOINT_CHANGED', 'RELEASE_WORD_PROOF_INVALID', 'RELEASE_TRIAL_IMAGE_UNAVAILABLE',
          'BACKUP_MISMATCH', 'BACKUP_SQLITE_INVALID', 'BACKUP_DOCX_INVALID', 'BACKUP_STATE_INCOMPLETE',

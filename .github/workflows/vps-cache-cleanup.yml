@@ -1665,6 +1665,16 @@ jobs:
              category='IMAGE_UNAVAILABLE' if missing else 'DAEMON_UNAVAILABLE' if 'Cannot connect to the Docker daemon' in body else 'PERMISSION_DENIED' if 'permission denied' in body.lower() else 'DOCKER_ERROR_UNCLASSIFIED'
              roles={kind:[name for name,image in plan[kind].items() if image in missing] for kind in ('images','candidate_images')}
              print(json.dumps({'returncode':failure['returncode'],'category':category,'roles':roles,'stderr_bytes':len(body.encode())}))
+            for kind in ('compose.json','candidate-compose.json'):
+             config=json.loads((Path('/var/lib/aemr/release-runtime')/kind).read_bytes())
+             environment=config['services']['server'].get('environment',{})
+             for key,value in environment.items():
+              if not isinstance(value,str) or '\n' in value or '\r' in value:
+               public_key=key if re.fullmatch('[A-Z_][A-Z0-9_]{0,79}',key) else 'NONSTANDARD_KEY'
+               print(json.dumps({'environment':kind,'key':public_key,'type':type(value).__name__,
+                 'has_lf':isinstance(value,str) and '\n' in value,'has_cr':isinstance(value,str) and '\r' in value}))
+            current=json.loads(Path('/root/codex-fixes/release-38727198402/replay-38740048799.json').read_bytes())
+            print(json.dumps({'current_trap':[code for code in ('RELEASE_TRIAL_AUTH_UNAVAILABLE','RELEASE_TRIAL_ENV_INVALID') if code in current.get('private_trace','')]}))
             PYREPLAYERROR
   frozen-trial-replay:
     if: >-
