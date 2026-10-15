@@ -7,8 +7,8 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
-PR #79: source SHA `3b3c2ba7`, CI38690837150 — три обязательных
-source jobs PASS; read-only runtime jobs не зелёные. Release38687954214
+PR #79: source SHA `1118899d`, CI38692995115 — три обязательных
+source jobs PASS (включая C07 и memory fix); read-only runtime job не зелёный. Release38687954214
 прошёл сборку и настоящий latest/3Word preflight, но остановился ДО stage,
 freeze и backup: installer не принимал сохранённые Compose memory limits
 строками байтов. Исправление сохраняет policy bytes/inode/owner; 5 тестов
@@ -32,8 +32,10 @@ attempts4 262 563 840, archives385 130 496 байт. Cache38691885273 PASS, но
 Диагностика38692225313: backups9 519 890 432 байта, из них две копии12.10
 по2,439GB и принятая13.10 копия4,591GB. Подготовлена retirement-операция
 ТОЛЬКО двух старых archive blobs, с проверкой принятого архива38349415596,
-maintenance EX, отсутствия pending/quiescent; все receipts остаются. До
-фактического readback освобождение места не объявляется выполненным.
+maintenance EX, отсутствия pending/quiescent; все receipts остаются. Фактический
+run38693046852/job116283156947 SUCCESS: 2 старых blobs удалены,
+4 877 082 741 logical bytes; доступный free вырос0→2 636 230 656 байт.
+Архив38349415596 и receipts сохранены; это не свежий backup cut15.10.
 Выпуск остановлен до устранения нехватки места и памяти.
 
 R08: две принятые автономные итерации12.10 остаются историческим
