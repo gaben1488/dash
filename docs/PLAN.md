@@ -7,6 +7,27 @@
 
 ### Текущая приёмка Header и выпуска — 15.10.2026
 
+Run38716276232/sourceeba8f147: exact3source CI38715940755 PASS, Docker29 canary,
+оба переноса image IDs, actual stage и latest3Word PASS. Окно10:02:23–10:11UTC
+создало копию, но base-plan отказал RELEASE_OWNED_FILE_INVALID; trial/deploy SKIPPED.
+Автоматический resume SUCCESS, public health200/ok; текущий API остаётся прежним.
+Локальная реальная цепочка producer→строгий reader воспроизвела тот же отказ:
+Docker umask022 создаёт manifest0644, а reader требует0600. Archive/manifest
+теперь явно получают0600 независимо от ambient umask; оригинальные атрибуты
+содержимого сохраняются. RED→GREEN на000/022;44backup/43controller/29worker PASS.
+В source CI добавлен настоящий Docker producer→consumer тест ДО допуска к VPS.
+Full-copy наличие не объявляется R06 acceptance без независимого restore.
+Перед freeze добавлен отдельный полный budget runner: logical source (включая каждый hardlink path),
+максимум будущего архива по VPS free−1GiB и2GiB reserve. Hosted-only очистка старого
+неактивного Docker store допускается лишь при проверенном SDK root и inactive service/socket;
+candidate/rollback IDs перепроверяются после удаления regenerable build cache.20cleanup tests
+PASS, source review PASS; live admission/restore этого кандидата ещё не выполнялись.
+Prepared текущий read-only worker observer заменяет устаревшие hardcoded12.10 pins:
+две RUNNING/doubleFLOCK/timer/native3Word цепочки, неизменность sealed history,
+запрет мутаций Docker и независимый historical schema even-on-pending. Source review:
+исправлена отдельная сессия run_id/run_attempt; live-приёмка ещё не выполнялась.
+
+
 Run38713292021/source211fac62: exact3sourceCI38713137344, одинаковый Docker29.1.3/
 containerd, privileged daemon endpoint и реальный двухсторонний canary PASS.
 Новые image IDs сохранены на VPS. Build/latestWord PASS; stage отказал

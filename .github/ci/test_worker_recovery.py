@@ -172,6 +172,60 @@ class WorkerRecoveryTests(unittest.TestCase):
                     publication={'snapshot_id': 'synthetic-snapshot',
                                  'renderer_version': 'renderer-v1.5.0rc25', 'operational_available': True}, **extra)
 
+    def test_current_readonly_observer_requires_attribution_native_words_and_two_timer_cycles(self):
+        import ast
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertTrue("<<'PYACCEPTCURRENT'" in workflow, 'Current accepted worker needs a read-only observer')
+        program = textwrap.dedent(workflow.split("<<'PYACCEPTCURRENT'\n", 1)[1].split('\n            PYACCEPTCURRENT', 1)[0])
+        observe = next(node for node in ast.parse(program).body if isinstance(node, ast.FunctionDef) and node.name == 'observe')
+        code = compile(ast.Module(body=[observe], type_ignores=[]), '<current-observer>', 'exec')
+        first = self.status()
+        second = self.status('second');second.update(started_at='2026-10-11T21:17:04+00:00',finished_at='2026-10-11T21:18:00+00:00')
+        for scenario in ('valid', 'unattributed', 'failed', 'source-change', 'word-failure'):
+            with self.subTest(scenario=scenario):
+                statuses = [{**first, 'status':'RUNNING'}, {**first, 'status':'RUNNING'}, first,
+                            {**second, 'status':'RUNNING'}, {**second, 'status':'RUNNING'}, second]
+                if scenario == 'failed':statuses[2] = {**first, 'status':'FAILED'}
+                if scenario == 'source-change':statuses[2] = {**first, 'status':'NOT_ISSUED', 'error_code':'SOURCE_CHANGED_BEFORE_PUBLICATION', 'failure_stage':'publication'}
+                iterator = iter(statuses);saved = {};last = [second]
+                def read_status(iterator=iterator, last=last):
+                    last[0] = next(iterator, last[0]);return last[0]
+                smoke = Mock(side_effect=[None, self.module.RecoveryError('WORKER_WORD_SMOKE_FAILED')] if scenario == 'word-failure' else None)
+                clock = SimpleNamespace(monotonic=Mock(side_effect=[0, 1, 2, 3, 4, 9999]), sleep=lambda _:None)
+                context = {'m':self.module, 'time':clock, 'since':'2026-10-11T20:59:00+00:00', 'interval':900,
+                           'check':lambda:None, 'read_status':read_status, 'holds_lock':lambda scenario=scenario:scenario!='unattributed',
+                           'save':lambda name, value, saved=saved:saved.update({name:value}), 'native_smoke':smoke,
+                           'image':'sha256:accepted', 'worker_id':'accepted-worker', 're':__import__('re'),
+                           'samples':[{'held':True},{'held':True}]}
+                exec(code, context)  # noqa: S102 - trusted workflow function, real acceptance rules
+                with contextlib.redirect_stdout(io.StringIO()):
+                    if scenario == 'valid':
+                        result = context['observe']()
+                        self.assertEqual(result['state'], 'TWO_AUTONOMOUS_CYCLES_VERIFIED')
+                        self.assertEqual(set(result['attempt_ids']), {'first','second'})
+                        self.assertEqual(smoke.call_count, 2)
+                        self.assertIn('cycle-2.json', saved)
+                    else:
+                        reason = {'failed':'WORKER_NEW_CYCLE_FAILED','word-failure':'WORKER_WORD_SMOKE_FAILED'}.get(scenario, 'WORKER_TWO_CYCLES_TIMED_OUT')
+                        with self.assertRaisesRegex(self.module.RecoveryError, reason):context['observe']()
+                        self.assertNotIn('cycle-2.json', saved)
+
+    def test_current_observer_cannot_invoke_runtime_or_data_mutations(self):
+        import ast
+        program = textwrap.dedent((SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text().split("<<'PYACCEPTCURRENT'\n", 1)[1].split('\n            PYACCEPTCURRENT', 1)[0])
+        node = next(value for value in ast.walk(ast.parse(program)) if isinstance(value, ast.FunctionDef) and value.name == 'readonly')
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, stdout='read', stderr=''))
+        context = {'subprocess':Mock(run=runner), 'm':self.module}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), '<readonly-observer>', 'exec'), context)  # noqa: S102 - actual reviewed workflow guard
+        for args in (['stop','aemr-server-1'],['restart','aemr-report-worker-1'],['compose','up'],
+                     ['image','rm','sha256:old'],['exec','aemr-server-1','sh','-c','touch /data/private']):
+            with self.assertRaisesRegex(AssertionError, 'READ_ONLY_COMMAND_REQUIRED'):context['readonly'](args)
+        runner.assert_not_called()
+        self.assertEqual(context['readonly'](['inspect','aemr-server-1']), 'read')
+
     def test_two_different_cycles_and_frozen_word_are_required(self):
         seen = {}
         self.assertTrue(self.module.accept_cycle(self.status(), '2026-10-11T20:59:00+00:00', seen, {'first', 'second'}, 900))

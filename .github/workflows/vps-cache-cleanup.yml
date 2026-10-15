@@ -296,7 +296,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(gh api repos/${{ github.repository }}/actions/runs/38349415596 --jq .conclusion)" = success
-      - name: Retire only the two named superseded archive blobs
+          gh api repos/${{ github.repository }}/actions/runs/38716276232 > "$RUNNER_TEMP/failed-checkpoint-run.json"
+          gh api 'repos/${{ github.repository }}/actions/runs/38716276232/jobs?per_page=100' > "$RUNNER_TEMP/failed-checkpoint-jobs.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP']);run=json.loads((root/'failed-checkpoint-run.json').read_text())
+          assert run['head_sha']=='eba8f147a1098a7d14dfaefc442055fbcdfa93f2' and run['conclusion']=='failure'
+          jobs=json.loads((root/'failed-checkpoint-jobs.json').read_text())['jobs']
+          job=next(j for j in jobs if j['name']=='controlled-candidate-release')
+          stages={s['name']:s['conclusion'] for s in job['steps']}
+          assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
+          assert stages['Same guardian exact-SHA release with closed-ingress API and Word acceptance']=='skipped'
+          assert stages['Always request same-owner resume without reverting an accepted release']=='success'
+          print('UNACCEPTED_CHECKPOINT_LINEAGE_VERIFIED')
+          PY
+      - name: Retire only named superseded or unaccepted archive blobs
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
@@ -306,8 +321,8 @@ jobs:
           command_timeout: 6m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - <<'PY'
-            import fcntl,hashlib,json,os,shutil,stat
+            sudo -n python3 -I - <<'PYBACKUPRETIRE'
+            import fcntl,hashlib,json,os,shutil,stat,subprocess
             from pathlib import Path
             base=Path('/home/aemr/.dash-private-backups')
             retained=base/'worker-38349415596'/'backup'
@@ -339,6 +354,27 @@ jobs:
                     item=regular(target);assert item.st_ino!=info.st_ino
                     assert 2_000_000_000<item.st_size<3_000_000_000
                     targets.append((target,item.st_size))
+                failed=base/'worker-38716276232';candidate=failed/'backup/state.tar.gz'
+                failed_runtime=None
+                if candidate.exists() or candidate.is_symlink():
+                    checkpoint=failed/'backup/manifest.json';regular(checkpoint)
+                    details=json.loads(checkpoint.read_bytes());item=regular(candidate)
+                    runtime=json.loads((failed/'runtime.json').read_bytes());regular(failed/'prepared')
+                    assert runtime.get('candidate')=='eba8f147a1098a7d14dfaefc442055fbcdfa93f2'
+                    assert runtime.get('volume')=='aemr_server_data' and runtime.get('image')=='sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac'
+                    assert details.get('format')==2 and item.st_size==details.get('archive_bytes') and item.st_ino!=info.st_ino
+                    assert 0<item.st_size<8*1024**3 and digest(candidate)==details.get('archive_sha256')
+                    assert {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}<=set(details.get('files',{}))
+                    assert not (failed/'plan-prepared.json').exists()
+                    accepted=Path('/var/lib/aemr/release-accepted.json')
+                    if accepted.exists():assert json.loads(accepted.read_bytes())['acceptance']['manifest_sha256']!=hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                    trial=Path('/var/lib/aemr/release-runtime/trial-plan.json')
+                    if trial.exists():assert json.loads(trial.read_bytes()).get('backup_reference')!='worker-38716276232/backup'
+                    failed_runtime=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1','aemr-web-1','aemr-caddy-1','aemr-report-worker-1'],timeout=20))
+                    assert failed_runtime[0]['Id']==runtime['server'] and failed_runtime[0]['State']['Status']=='running'
+                    assert failed_runtime[0]['State'].get('Health',{}).get('Status')=='healthy'
+                    assert failed_runtime[3]['Id']==runtime['worker'] and failed_runtime[3]['State']['Status']=='exited'
+                    targets.append((candidate,item.st_size))
                 before=shutil.disk_usage(base).free
                 for target,_ in targets:
                     target.unlink()
@@ -346,11 +382,18 @@ jobs:
                     try:os.fsync(fd)
                     finally:os.close(fd)
                 assert regular(archive).st_size==info.st_size
+                if failed_runtime is not None:
+                    after=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1','aemr-web-1','aemr-caddy-1','aemr-report-worker-1'],timeout=20))
+                    def stable(records):
+                        return [{**{k:r[k] for k in ('Id','Image','Config','HostConfig','RestartCount')},
+                            'Mounts':sorted(json.dumps(m,sort_keys=True) for m in r['Mounts']),
+                            'State':{k:r['State'].get(k) for k in ('Status','StartedAt','OOMKilled')}} for r in records]
+                    assert stable(after)==stable(failed_runtime)
                 print(json.dumps({'status':'SUPERSEDED_BACKUP_BLOBS_RETIRED',
                     'removed':len(targets),'reclaimed_logical_bytes':sum(n for _,n in targets),
                     'free_before_bytes':before,'free_after_bytes':shutil.disk_usage(base).free,
                     'retained_accepted_run':38349415596}))
-            PY
+            PYBACKUPRETIRE
   release-configuration-permissions:
     if: >-
       github.event.label.name == 'maintenance: release-configuration-permissions' &&
@@ -543,6 +586,18 @@ jobs:
                 print(json.dumps({'kind':'runtime_image_census','image':image['Id'],'bytes':image.get('Size'),
                     'tags':[tag for tag in image.get('RepoTags',[]) if tag.startswith(('aemr-server:','aemr-web:','caddy:'))],
                     'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}))
+            failed=Path('/home/aemr/.dash-private-backups/worker-38716276232')
+            for name in ('runtime.json','backup/manifest.json','backup/state.tar.gz'):
+                path=failed/name
+                if path.is_file() and not path.is_symlink():
+                    info=path.stat()
+                    print(json.dumps({'kind':'failed_backup_file_metadata','file':name,'mode':oct(stat.S_IMODE(info.st_mode)),
+                        'uid':info.st_uid,'links':info.st_nlink,'bytes':info.st_size}))
+            metadata=failed/'backup/manifest.json'
+            if metadata.is_file() and not metadata.is_symlink():
+                checkpoint=json.loads(metadata.read_bytes())
+                print(json.dumps({'kind':'failed_backup_manifest_summary','format':checkpoint.get('format'),
+                    'files':len(checkpoint.get('files',{})),'source_bytes':checkpoint.get('bytes'),'archive_bytes':checkpoint.get('archive_bytes')}))
             latest=reports/'status.json'
             if latest.is_file() and latest.stat().st_size<64*1024*1024:
                 status=json.loads(latest.read_bytes())
@@ -945,98 +1000,147 @@ jobs:
   worker-acceptance-readback:
     if: >-
       github.event.label.name == 'maintenance: worker-acceptance-readback' &&
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'codex/dash-audit-integrated-20261010'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 50
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - name: Independently read accepted cycles, preserved releases and web hotfix
+      - name: Observe current accepted worker cycles without restarting or restoring any service
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 11m
-          script_stop: false
+          command_timeout: 47m
           script: |
             set -euo pipefail
-            python3 - <<'PYACCEPT'
-            import hashlib, json, stat, subprocess
+            observer='${{ github.event.pull_request.head.sha }}'
+            git -C /home/aemr/dash fetch --quiet origin "$observer"
+            sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
+            import hashlib,json,os,re,stat,subprocess,sys,time,types
+            from datetime import datetime,timezone
             from pathlib import Path
-            session=Path('/home/aemr/.dash-private-backups/recovery-38184331772')
-            result=json.loads((session/'result.json').read_text())
-            assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['native_word']=='PASS'
-            baseline=json.loads((session.parent/'worker-38178244703/runtime.json').read_text())
-            assert result['worker_image']==baseline['image']
-            ids=[]; cycle_times=[]
-            for number in (1,2):
-                cycle=json.loads((session/f'cycle-{number}.json').read_text())
-                assert cycle['status'] in {'VERIFIED','VERIFIED_WITH_WARNINGS'}
-                assert cycle['snapshot_id']==cycle['publication']['snapshot_id']
-                assert cycle['publication']['operational_available'] is True
-                ids.append(cycle['attempt_id'])
-                cycle_times.append({key:cycle[key] for key in ('started_at','finished_at','status')})
-            assert len(set(ids))==2 and sorted(ids)==result['attempt_ids']
-            server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
-            assert server['Image']==baseline['image'] and server['State']['Status']=='running'
-            assert server['State']['Health']['Status']=='healthy'
-            workers=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc','--filter',
-                'label=com.docker.compose.project=aemr','--filter','label=com.docker.compose.service=report-worker'],text=True).split()
-            assert len(workers)==1
-            worker=json.loads(subprocess.check_output(['docker','inspect',workers[0]]))[0]
-            assert worker['State']['Status']=='running' and worker['Image']==baseline['image']
-            assert not worker['State']['OOMKilled'] and worker['RestartCount']==0
-            web=json.loads(subprocess.check_output(['docker','inspect','aemr-web-1']))[0]
-            assert web['State']['Status']=='running'
-            assert web['Image']=='sha256:43520e97cb59f2f27aeec7144fbf7d19ce9405ab883d0db6c62ced7d12f46334'
-            probe="""import hashlib,json,stat;from pathlib import Path
-            expected=json.loads(Path('/backup/manifest.json').read_text())['files']
-            source=Path('/source'); count=0
-            roots=set()
-            for name in expected:
-                parts=Path(name).parts
-                if len(parts)>=4 and parts[:3]==('reports','published','releases'):roots.add('/'.join(parts[:4]))
-                if len(parts)>=3 and parts[:2]==('reports','archives') and parts[2].startswith('WEEKLY-'):roots.add('/'.join(parts[:3]))
-            for root in roots:
-                tree=source/root
-                actual={p.relative_to(source).as_posix()+('/' if p.is_dir() else '') for p in [tree,*tree.rglob('*')]}
-                sealed={name for name in expected if name.startswith(root+'/')}
-                assert actual==sealed
-            for name,before in expected.items():
-                if not (name.startswith('reports/published/releases/') or name.startswith('reports/archives/WEEKLY-')):continue
-                path=source/name
-                assert not path.is_symlink()
-                meta=path.stat(); after={'uid':meta.st_uid,'gid':meta.st_gid,'mode':stat.S_IMODE(meta.st_mode)}
-                if before.get('kind')=='directory':
-                    assert path.is_dir();after.update(kind='directory',bytes=0)
-                else:
-                    assert path.is_file();digest=hashlib.sha256();size=0
-                    with path.open('rb') as stream:
-                        for block in iter(lambda:stream.read(1024*1024),b''):digest.update(block);size+=len(block)
-                    after.update(sha256=digest.hexdigest(),bytes=size)
-                assert after==before
-                count+=1
-            assert count>0
-            print(json.dumps({'old_sealed_entries':count,'old_sealed_bytes_and_metadata':'PASS'}))"""
-            checked=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--user','0',
-                '--mount','type=volume,src='+baseline['volume']+',dst=/source,readonly',
-                '--mount','type=bind,src='+str(session.parent/'worker-38178244703/backup')+',dst=/backup,readonly',
-                '--entrypoint','/opt/report-env/bin/python',baseline['image'],'-B','-'],
-                input=probe.encode(),capture_output=True,timeout=360)
-            assert checked.returncode==0, 'WORKER_OLD_SEALED_STATE_READBACK_FAILED'
-            print(checked.stdout.decode())
-            smoke=subprocess.run(['docker','exec',baseline['server'],'/opt/report-env/bin/python','-m',
-                'procurement_engine.deployment_smoke'],capture_output=True,timeout=180)
-            assert smoke.returncode==0, 'WORKER_NATIVE_WORD_READBACK_FAILED'
-            fields=json.loads(smoke.stdout)
-            assert all(fields.get(key)=='PASS' for key in ('context','snapshot','main','supplement','operational'))
-            print(json.dumps({'accepted_timer_cycles':2,'cycle_times':cycle_times,'worker_running':True,'server_healthy':True,
-                'worker_image_pinned':True,'web_assurance_v2_hotfix_preserved':True,'native_three_word':'PASS'}))
-            PYACCEPT
+            def observe():
+                seen,attributed={},set()
+                deadline=time.monotonic()+max(2400,2*interval+600)
+                while time.monotonic()<deadline:
+                    check()
+                    status=read_status()
+                    if status.get('status')=='RUNNING' and holds_lock():
+                        confirmed=read_status()
+                        if m.same_running_attempt(status,confirmed) and holds_lock():
+                            if not re.fullmatch('[A-Za-z0-9_-]{1,128}',status['attempt_id']):raise m.RecoveryError('WORKER_CYCLE_PROOF_INVALID')
+                            attributed.add(status['attempt_id'])
+                            save('attribution-'+status['attempt_id']+'.json',{'started_at':status['started_at'],'double_host_flock':True,'samples':list(samples)})
+                    if m.accept_cycle(status,since,seen,attributed,interval):
+                        native_smoke()
+                        save('cycle-'+str(len(seen))+'.json',{k:status[k] for k in
+                            ('status','attempt_id','started_at','finished_at','snapshot_id','publication')})
+                        print('WORKER_AUTONOMOUS_CYCLE_'+str(len(seen))+'_AND_THREE_WORDS_PASS',flush=True)
+                    if len(seen)==2:
+                        return {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','worker':worker_id,'worker_image':image,
+                            'worker_started_at':since,'attempt_ids':sorted(seen),'native_word':'PASS'}
+                    time.sleep(5)
+                raise m.RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
+            try:
+                os.umask(0o077)
+                assert os.geteuid()==0 and re.fullmatch('[a-f0-9]{40}',sys.argv[1]) and re.fullmatch('[0-9]+',sys.argv[2]) and re.fullmatch('[1-9][0-9]*',sys.argv[3])
+                tools=Path('/usr/local/libexec/aemr');sys.path.insert(0,str(tools))
+                import release_recovery as r
+                plan=r.validate_plan(json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json')))
+                accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
+                assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
+                sha=plan['release_sha']
+                def git(*args):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args],timeout=30)
+                changed=git('diff','--name-only',sha,sys.argv[1]).decode().splitlines()
+                assert all((name.startswith(('.github/','docs/')) or name in {'AGENTS.md','CLAUDE.md'}) and name!='.github/ci/header_api_probe.mjs' for name in changed)
+                window=json.loads(r.read_owned(r.BACKUP_BASE/Path(plan['backup_reference']).parent/'release-window.json'))
+                assert window.get('candidate')==sha and set(window['module_sha256'])=={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
+                for name,pin in window['module_sha256'].items():assert r.digest(r.read_owned(tools/name,private=False))==pin
+                m=types.ModuleType('accepted_worker_observation');m.__file__=str(tools/'accepted-worker-source.py')
+                exec(compile(git('show',sha+':deploy/worker_recovery.py'),m.__file__,'exec'),m.__dict__)
+                def readonly(args,*,timeout=45,**kwargs):
+                    allowed=args[0] in {'inspect','ps','top'} or args[:2]==['volume','inspect']
+                    allowed=allowed or args==['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke']
+                    assert allowed,'READ_ONLY_COMMAND_REQUIRED'
+                    result=subprocess.run(['docker',*args],capture_output=True,text=True,timeout=timeout,check=False)
+                    if result.returncode:raise m.RecoveryError('WORKER_OBSERVATION_IO_FAILED')
+                    return result.stdout
+                executor=r.ReleaseRecovery(command=readonly)
+                baseline=executor._records(plan,candidate=True);volume=executor._volume(plan)
+                worker_id=baseline['report-worker']['Id'];image=plan['candidate_images']['report-worker']
+                started=json.loads(r.read_owned(r.STATE_DIR/'worker-quarantine/worker-start.json'))
+                assert started=={'state':'REPAIRED_WORKER_STARTED_NOT_ACCEPTED','release_sha':sha,'worker':worker_id,'image':image}
+                since=baseline['report-worker']['State']['StartedAt'];interval=900
+                cmd=baseline['report-worker']['Config']['Cmd'];assert cmd[cmd.index('--interval-seconds')+1]=='900'
+                session_created=False
+                session=r.STATE_DIR/'worker-quarantine'/('acceptance-'+sys.argv[2]+'-'+sys.argv[3]);session.mkdir(mode=0o700);session_created=True
+                def save(name,value):r.atomic_json(session/name,value)
+                def stable(records):
+                    return {role:{**{k:record[k] for k in ('Id','Image','Config','HostConfig','RestartCount')},
+                        'Mounts':sorted(json.dumps(v,sort_keys=True) for v in record['Mounts']),
+                        'started':record['State']['StartedAt']} for role,record in records.items()}
+                def check():
+                    assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
+                    assert not list(r.BACKUP_BASE.glob('*/quiescent'))
+                    current=executor._records(plan,candidate=True);assert stable(current)==stable(baseline)
+                    assert all(v['State']['Status']=='running' and not v['State']['OOMKilled'] for v in current.values())
+                    assert current['server']['State'].get('Health',{}).get('Status')=='healthy'
+                    top=readonly(['top','aemr-server-1'])
+                    if re.search(r'proc-report\s+(?:run-google|worker)|procurement_engine.*(?:run-google|worker)',top):raise m.RecoveryError('WORKER_CONCURRENT_MANUAL_WRITER')
+                def read_status():
+                    path=volume/'reports/status.json'
+                    assert not path.is_symlink() and path.stat().st_size<=64*1024*1024
+                    return json.loads(path.read_bytes())
+                samples=[]
+                def holds_lock():
+                    info=(volume/'reports/run.lock').stat();metadata=(os.major(info.st_dev),os.minor(info.st_dev),info.st_ino)
+                    pids={int(value) for value in readonly(['top',worker_id,'-eo','pid']).splitlines()[1:]}
+                    locks=Path('/proc/locks').read_text();held=m.worker_lock_held(locks,pids,*metadata)
+                    samples.append({'observed_at':datetime.now(timezone.utc).isoformat(),'device_inode':metadata,'pids':sorted(pids),'held':held,'locks':locks})
+                    samples[:]=samples[-2:]
+                    if held:save('latest-double-lock-samples.json',samples)
+                    return held
+                def native_smoke():
+                    result=json.loads(readonly(['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke'],timeout=180))
+                    if any(result.get(k)!='PASS' for k in ('context','snapshot','main','supplement','operational')):raise m.RecoveryError('WORKER_WORD_SMOKE_FAILED')
+                result=observe();check()
+                manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
+                assert r.digest(manifest_body)==plan['manifest_sha256']
+                expected=json.loads(manifest_body)['files'];count=0
+                roots=set()
+                for name in expected:
+                    parts=Path(name).parts
+                    if len(parts)>=4 and parts[:3]==('reports','published','releases'):roots.add('/'.join(parts[:4]))
+                    if len(parts)>=3 and parts[:2]==('reports','archives') and parts[2].startswith('WEEKLY-'):roots.add('/'.join(parts[:3]))
+                for root in roots:
+                    tree=volume/root
+                    actual={path.relative_to(volume).as_posix()+('/' if path.is_dir() else '') for path in [tree,*tree.rglob('*')]}
+                    assert actual=={name for name in expected if name.startswith(root+'/')}
+                for name,before in expected.items():
+                    if not (name.startswith('reports/published/releases/') or name.startswith('reports/archives/WEEKLY-')):continue
+                    path=volume/name;assert not path.is_symlink();info=path.stat()
+                    after={'uid':info.st_uid,'gid':info.st_gid,'mode':stat.S_IMODE(info.st_mode)}
+                    if before.get('kind')=='directory':assert path.is_dir();after.update(kind='directory',bytes=0)
+                    else:
+                        assert path.is_file()
+                        with path.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
+                        after.update(bytes=info.st_size,sha256=digest)
+                    assert after==before;count+=1
+                assert count>0
+                result.update(source_sha=sha,observer_sha=sys.argv[1],sealed_entries_verified=count)
+                save('result.json',result);print('TWO_AUTONOMOUS_CYCLES_VERIFIED_AND_SEALED_HISTORY_UNCHANGED')
+            except Exception as error:
+                code=str(error) if type(error).__name__=='RecoveryError' and re.fullmatch('[A-Z_]{5,100}',str(error)) else 'WORKER_OBSERVATION_REJECTED'
+                if globals().get('session_created'):save('pending.json',{'state':'NOT_ACCEPTED','reason':code})
+                print(code);raise SystemExit(3 if code=='WORKER_TWO_CYCLES_TIMED_OUT' else 2) from None
+            PYACCEPTCURRENT
       - name: Check actual historical schemas independently of timer acceptance
         if: always()
         uses: appleboy/ssh-action@v1.2.0
@@ -1046,37 +1150,38 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 4m
-          script_stop: false
           script: |
             set -euo pipefail
-            python3 - <<'PYSCHEMA'
-            import json, subprocess
+            sudo -n python3 -I - '${{ github.event.pull_request.head.sha }}' <<'PYSCHEMA'
+            import json,re,subprocess,sys
             from pathlib import Path
-            baseline=json.loads(Path('/home/aemr/.dash-private-backups/worker-38178244703/runtime.json').read_text())
-            server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
-            assert server['State']['Status']=='running' and server['State']['Health']['Status']=='healthy'
-            assert server['Image']==baseline['image']
-            # Compile exact candidate public sources in memory, never import the
-            # installed v1-only shared package or overwrite runtime source files.
-            repo=Path('/home/aemr/dash')
-            candidate='${{ github.event.pull_request.head.sha }}'
-            assert len(candidate)==40 and all(c in '0123456789abcdef' for c in candidate)
-            subprocess.run(['git','fetch','--quiet','origin',candidate],cwd=repo,check=True,capture_output=True)
-            def public_source(name):
-                return subprocess.check_output(['git','show',candidate+':'+name],cwd=repo,text=True)
-            payload=json.dumps({'schemas':public_source('packages/shared/src/schemas.ts'),
-                'registry':public_source('packages/shared/src/department-registry.ts')})
-            program=public_source('.github/ci/report-schema-probe.cjs')
-            program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
-            schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
-                '--env-file',str(repo/'deploy/.env.production'),
-                '--mount','type=volume,src='+baseline['volume']+',dst=/app/packages/server/data,readonly',
-                '--entrypoint','node',baseline['image'],'-e',program],
-                input=payload.encode(),capture_output=True,timeout=180)
-            try: summary=json.loads(schema.stdout)
-            except ValueError: raise AssertionError('CANDIDATE_SCHEMA_PROBE_NO_PROOF') from None
-            print(json.dumps({'candidate_sha':candidate,**summary}))
-            assert schema.returncode==0 and summary['candidate_schema_history']=='PASS', 'CANDIDATE_SCHEMA_HISTORY_READBACK_FAILED'
+            try:
+                sys.path.insert(0,'/usr/local/libexec/aemr')
+                import release_recovery as r
+                plan=r.validate_plan(json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json')))
+                accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
+                assert accepted['acceptance']==r.ReleaseRecovery._acceptance(plan)
+                server=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=20))[0]
+                assert server['State']['Status']=='running' and server['State']['Health']['Status']=='healthy'
+                assert server['Image']==plan['candidate_images']['server']
+                candidate=sys.argv[1];assert re.fullmatch('[a-f0-9]{40}',candidate)
+                repo=Path('/home/aemr/dash')
+                def public_source(name,sha=candidate):
+                    return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts')
+                assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1])})
+                program=public_source('.github/ci/report-schema-probe.cjs')
+                program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
+                schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
+                    '--env-file',str(repo/'deploy/.env.production'),
+                    '--mount','type=volume,src='+plan['volume']+',dst=/app/packages/server/data,readonly',
+                    '--entrypoint','node',server['Image'],'-e',program],input=payload.encode(),capture_output=True,timeout=180)
+                summary=json.loads(schema.stdout)
+                print(json.dumps({'candidate_sha':plan['release_sha'],'observer_sha':candidate,**summary}))
+                assert schema.returncode==0 and summary['candidate_schema_history']=='PASS'
+            except Exception:
+                raise SystemExit('CANDIDATE_SCHEMA_HISTORY_READBACK_FAILED') from None
             PYSCHEMA
   restore-current-worker:
     if: >-
@@ -1786,7 +1891,7 @@ jobs:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - name: Prove the exact candidates failed before any writer freeze
+      - name: Prove the exact candidates were never deployed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1796,13 +1901,20 @@ jobs:
           def read(path):
               request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
               with urllib.request.urlopen(request,timeout=20) as response:return json.load(response)
-          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0')]:
+          for run,sha in [(38687954214,'30cfd6914a60eddfde3f85fcc9528307b484ef92'),(38701054490,'2d865fe1d3f86c741392b7bbc9cd91e991aeb286'),(38707668118,'b28ad02083c016d8fb920f8091d1490fcb6f0843'),(38713292021,'211fac62b9ce1b2fb9a3628c1b04e998db5256b0'),(38716276232,'eba8f147a1098a7d14dfaefc442055fbcdfa93f2')]:
               info=read('/actions/runs/'+str(run))
               assert info['head_sha']==sha and info['conclusion']=='failure'
               jobs=read('/actions/runs/'+str(run)+'/jobs?per_page=100')['jobs']
               job=next(value for value in jobs if value['name']=='controlled-candidate-release')
               freeze=[step for step in job['steps'] if step['name']=='Freeze writers once and create fresh full private backup']
-              assert len(freeze)==1 and freeze[0]['conclusion']=='skipped'
+              assert len(freeze)==1
+              if run==38716276232:
+                  stages={s['name']:s['conclusion'] for s in job['steps']}
+                  assert freeze[0]['conclusion']=='failure'
+                  assert stages['Independent one-clone candidate and previous runtime with actual complete restore']=='skipped'
+                  assert stages['Same guardian exact-SHA release with closed-ingress API and Word acceptance']=='skipped'
+                  assert stages['Always request same-owner resume without reverting an accepted release']=='success'
+              else:assert freeze[0]['conclusion']=='skipped'
           print('FAILED_CANDIDATE_LINEAGE_VERIFIED')
           PY
       - name: Retire only exact unused immutable failed-candidate images
@@ -1839,7 +1951,9 @@ jobs:
                 'aemr-server:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4',
                 'aemr-web:release-b28ad02083c016d8fb920f8091d1490fcb6f0843':'sha256:d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b',
                 'aemr-server:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071',
-                'aemr-web:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5'}
+                'aemr-web:release-211fac62b9ce1b2fb9a3628c1b04e998db5256b0':'sha256:071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5',
+                'aemr-server:release-eba8f147a1098a7d14dfaefc442055fbcdfa93f2':'sha256:733a007deba806f72741b09b9fc52de12f2a8b32124c9abb49b18c2408830c18',
+                'aemr-web:release-eba8f147a1098a7d14dfaefc442055fbcdfa93f2':'sha256:236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e'}
             try:
                 assert os.geteuid()==0
                 with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
@@ -2033,6 +2147,15 @@ jobs:
           test "$expected" = "$actual"
           test "$(docker version --format '{{.Server.Version}}')" = 29.1.3
           docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys; assert ["driver-type","io.containerd.snapshotter.v1"] in json.load(sys.stdin)'
+          # The stopped, preinstalled daemon's cache is disposable on this hosted
+          # runner. The active pinned daemon stores everything in a different tree.
+          sdk_root=$(docker info --format '{{.DockerRootDir}}')
+          case "$sdk_root" in /home/runner/setup-docker-action/*/data) ;; *) exit 2 ;; esac
+          test "$(systemctl is-active docker.service || true)" = inactive
+          test "$(systemctl is-active docker.socket || true)" = inactive
+          test ! -L /var/lib/docker
+          sudo rm -rf -- /var/lib/docker
+          test "$(docker info --format '{{.ID}}')" = "$expected"
           echo RUNNER_ENGINE_AND_PRIVILEGED_ENDPOINT_MATCH
       - name: Prove immutable image IDs survive the actual two-way transport
         run: |
@@ -2154,6 +2277,48 @@ jobs:
             test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$identity" --format '{{.Id}}')" = "$identity"
           done
           echo RELEASE_IMAGES_AND_CONFIGURATION_READY
+      - name: Admit independent full-restore capacity before production downtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # Drop only regenerable runner build cache. All immutable candidate and
+          # previous images remain available for both directions of the trial.
+          docker builder prune --all --force > "$RUNNER_TEMP/release/runner-cache.log" 2>&1
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          stage=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/stage.json').read_text())
+          for identity in set(stage['images'].values())|set(stage['candidate_images'].values()):
+           actual=subprocess.check_output(['docker','image','inspect',identity,'--format','{{.Id}}'],text=True).strip()
+           assert actual==identity
+          PY
+          remote sudo -n python3 -Es - <<'PYVPSCAPACITY' > "$RUNNER_TEMP/release/capacity-input.json"
+          import fcntl,json,os,shutil,subprocess,sys
+          from pathlib import Path
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as recovery
+          fd=os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW)
+          with os.fdopen(fd,'r+') as lock:
+           fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+           stage=json.loads(recovery.read_owned(Path('/var/lib/aemr/release-runtime/stage.json')))
+           source=recovery.ReleaseRecovery(lock_fd=fd)._volume(stage)
+           size=int(subprocess.check_output(['du','--summarize','--bytes','--count-links','--',str(source)],text=True,timeout=90).split()[0])
+           print(json.dumps({'source_bytes':size,'vps_backup_free_bytes':shutil.disk_usage('/home/aemr/.dash-private-backups').free}))
+          PYVPSCAPACITY
+          python3 - <<'PYRUNNERCAPACITY'
+          import json,os,shutil
+          from pathlib import Path
+          budget=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/capacity-input.json').read_text())
+          if any(type(budget.get(k)) is not int or budget[k]<0 for k in ('source_bytes','vps_backup_free_bytes')):
+           raise SystemExit('RELEASE_CAPACITY_INPUT_INVALID')
+          if budget['vps_backup_free_bytes']<4*1024**3:raise SystemExit('BACKUP_SPACE_BUDGET_INSUFFICIENT')
+          # The writer always retains 1 GiB on VPS, which bounds archive growth.
+          # Include the entire uncompressed clone + archive + 2 GiB runner reserve.
+          required=budget['source_bytes']+budget['vps_backup_free_bytes']-1024**3+2*1024**3
+          free=shutil.disk_usage('/var/lib').free
+          if free<required:raise SystemExit('RELEASE_INDEPENDENT_SCRATCH_INSUFFICIENT')
+          print(json.dumps({'status':'RELEASE_INDEPENDENT_CAPACITY_ADMITTED','free_bytes':free,'required_bytes':required}))
+          PYRUNNERCAPACITY
       - name: Freeze writers once and create fresh full private backup
         run: |
           set -euo pipefail

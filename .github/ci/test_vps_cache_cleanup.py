@@ -13,6 +13,49 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "cleanup-build-cache.sh"
 
 
+class EarlyScratchCapacityTests(unittest.TestCase):
+    def test_capacity_counts_each_hardlink_path_that_restore_will_materialize(self):
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        program = textwrap.dedent(workflow.split("<<'PYVPSCAPACITY' >", 1)[1].split('\n', 1)[1]
+                                 .split('\n          PYVPSCAPACITY', 1)[0])
+        arguments = next(node for node in ast.walk(ast.parse(program))
+                         if isinstance(node, ast.List) and node.elts and isinstance(node.elts[0], ast.Constant)
+                         and node.elts[0].value == 'du')
+        flags = [ast.literal_eval(item) for item in arguments.elts[:-1]]
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary);first = source/'first';first.write_bytes(b'x'*32768)
+            (source/'second').hardlink_to(first)
+            total = int(subprocess.check_output([*flags,str(source)],text=True).split()[0])
+            self.assertGreaterEqual(total,65536)
+
+    def test_full_restore_capacity_is_admitted_before_freezing_writers(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        self.assertIn("<<'PYRUNNERCAPACITY'", workflow,
+                      'Runner full-restore capacity must be checked while API remains online')
+        self.assertLess(workflow.index("<<'PYRUNNERCAPACITY'"),
+                        workflow.index('      - name: Freeze writers once'))
+        program = textwrap.dedent(workflow.split("<<'PYRUNNERCAPACITY'\n", 1)[1]
+                                 .split('\n          PYRUNNERCAPACITY', 1)[0])
+        gib = 1024**3
+        for free, source in ((50*gib, 31*gib), (35*gib, 31*gib), (50*gib, -1), (50*gib, True)):
+            with self.subTest(free=free, source=source), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary);(root/'release').mkdir()
+                (root/'release/capacity-input.json').write_text(json.dumps({
+                    'source_bytes':source,'vps_backup_free_bytes':8*gib}))
+                with patch.dict(os.environ, {'RUNNER_TEMP':temporary}), \
+                     patch('shutil.disk_usage', return_value=SimpleNamespace(free=free)), \
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                    if free == 50*gib and type(source) is int and source >= 0:
+                        exec(compile(program,'<runner-capacity>','exec'),{})  # noqa: S102 - reviewed workflow fixture
+                        self.assertIn('RELEASE_INDEPENDENT_CAPACITY_ADMITTED',output.getvalue())
+                    else:
+                        with self.assertRaises(SystemExit):exec(compile(program,'<runner-capacity>','exec'),{})  # noqa: S102 - reviewed workflow fixture
+
+
 class HostReserveTests(unittest.TestCase):
     def exercise(self, scenario):
         import contextlib
@@ -102,6 +145,50 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
             self.assertTrue(all(len(body) == 131072 for body in value.values()))
 
 
+class UnacceptedCheckpointRetirementTests(unittest.TestCase):
+    def exercise(self, scenario, workflow=None):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = workflow or (SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml').read_text()
+        fragment=workflow.split('  superseded-backup-archives:',1)[1].split('  release-configuration-permissions:',1)[0]
+        marker='PYBACKUPRETIRE' if "<<'PYBACKUPRETIRE'" in fragment else 'PY'
+        program=textwrap.dedent(fragment.split("<<'"+marker+"'\n",1)[1].split('\n            '+marker,1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);base=root/'backups';retained=base/'worker-38349415596/backup';retained.mkdir(parents=True)
+            old=retained/'state.tar.gz'
+            with old.open('wb') as stream:stream.truncate(4589649313)
+            (retained/'manifest.json').write_text(json.dumps({'format':2,'archive_bytes':4589649313,'archive_sha256':'f'*64}))
+            failed=base/'worker-38716276232';(failed/'backup').mkdir(parents=True)
+            candidate=failed/'backup/state.tar.gz';candidate.write_bytes(b'synthetic unaccepted checkpoint')
+            details={'format':2,'archive_bytes':candidate.stat().st_size,'archive_sha256':'bad' if scenario=='wrong-hash' else 'f'*64,
+                     'files':{name:{} for name in ('aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json')}}
+            manifest=failed/'backup/manifest.json';manifest.write_text(json.dumps(details))
+            (failed/'prepared').touch();(root/'lock').touch();(root/'state/release-runtime').mkdir(parents=True)
+            runtime={'candidate':'eba8f147a1098a7d14dfaefc442055fbcdfa93f2','volume':'aemr_server_data',
+                     'image':'sha256:a2b6a1b9a4726e620f77405468f877a20ba1de07c69b8ede4e16a52b46198bac','server':'server','worker':'worker'}
+            (failed/'runtime.json').write_text(json.dumps(runtime))
+            if scenario=='pending':(root/'state/pending-release.json').touch()
+            if scenario=='accepted':(root/'state/release-accepted.json').write_text(json.dumps({'acceptance':{'manifest_sha256':__import__('hashlib').sha256(manifest.read_bytes()).hexdigest()}}))
+            if scenario=='adopted':(root/'state/release-runtime/trial-plan.json').write_text(json.dumps({'backup_reference':'worker-38716276232/backup'}))
+            records=[{'Id':name,'Image':'kept','Config':{},'HostConfig':{},'RestartCount':0,'Mounts':[],
+                      'State':{'Status':'running' if name!='worker' else 'exited','Health':{'Status':'healthy'},'StartedAt':'kept','OOMKilled':False}}
+                     for name in ('server','web','caddy','worker')]
+            program=program.replace('/run/lock/aemr-maintenance.lock',str(root/'lock')).replace('/var/lib/aemr',str(root/'state')).replace('/home/aemr/.dash-private-backups',str(base))
+            with patch('hashlib.file_digest',return_value=SimpleNamespace(hexdigest=lambda:'f'*64)), \
+                 patch('subprocess.check_output',return_value=json.dumps(records).encode()),contextlib.redirect_stdout(io.StringIO()):
+                if scenario=='valid':exec(compile(program,'<unaccepted-checkpoint>','exec'),{})  # noqa: S102 - reviewed workflow fixture
+                else:
+                    with self.assertRaises(AssertionError):exec(compile(program,'<unaccepted-checkpoint>','exec'),{})  # noqa: S102 - reviewed workflow fixture
+            self.assertEqual(candidate.exists(),scenario!='valid')
+            self.assertTrue(old.exists());self.assertTrue(manifest.exists())
+
+    def test_only_unaccepted_unreferenced_checkpoint_blob_is_retired(self):
+        for scenario in ('valid','wrong-hash','pending','adopted','accepted'):
+            with self.subTest(scenario=scenario):self.exercise(scenario)
+
+
 class FailedCandidateImagesTests(unittest.TestCase):
     def exercise(self, scenario):
         import contextlib
@@ -117,6 +204,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
             '2d865fe1d3f86c741392b7bbc9cd91e991aeb286': [('server','7899df2a49e2f6bd42a29748789548ad1685525cfc93b9aaba616a70f3f733b4'),('web','6bf15fa3a6943effbe7136690caf1b4a31bc44486be90c96cb022dfb43d44295')],
             'b28ad02083c016d8fb920f8091d1490fcb6f0843': [('server','6240e45f92a653fc3fe3de17b20698b658de251c9dafd90253e50dd4349dc3d4'),('web','d847a369e76d31e22df13485c44742134588f074137bf795b70544a82e56c62b')],
             '211fac62b9ce1b2fb9a3628c1b04e998db5256b0': [('server','2a850d198c080b4fa17ea6f192f4a4ce9d79fc7aefa2c4a90bdc69874510d071'),('web','071ba3bb71b03c27f16ee8f69ce2bb2b785b15967ac4b6c4e8d89c65cab848e5')],
+            'eba8f147a1098a7d14dfaefc442055fbcdfa93f2': [('server','733a007deba806f72741b09b9fc52de12f2a8b32124c9abb49b18c2408830c18'),('web','236d06af1ff152910ed146cc3762b0d7c08b382f99adf6b7d2ee454305a1676e')],
         }.items():
             for role, identity in pairs:
                 tag='aemr-'+role+':release-'+revision
@@ -154,7 +242,7 @@ class FailedCandidateImagesTests(unittest.TestCase):
                     self.assertIn('FAILED_CANDIDATE_IMAGES_REMOVED',output.getvalue())
                 else:
                     with self.assertRaises(SystemExit):exec(compile(program,'<failed-images>','exec'),{})  # noqa: S102 - trusted workflow fixture
-        self.assertEqual(len(removed),8 if scenario in ('valid','mount-order','health-history') else 0)
+        self.assertEqual(len(removed),10 if scenario in ('valid','mount-order','health-history') else 0)
 
     def test_only_exact_unreferenced_failed_images_are_retired(self):
         for scenario in ('valid','mount-order','health-history'):
@@ -260,8 +348,8 @@ else:
 class SupersededBackupTests(unittest.TestCase):
     def exercise(self, scenario):
         workflow = SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml'
-        program = textwrap.dedent(workflow.read_text().split("sudo -n python3 -I - <<'PY'\n", 1)[1]
-                                  .split('\n            PY\n', 1)[0])
+        program = textwrap.dedent(workflow.read_text().split("<<'PYBACKUPRETIRE'\n", 1)[1]
+                                  .split('\n            PYBACKUPRETIRE', 1)[0])
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             base = root / 'backups'
