@@ -2345,9 +2345,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Prove normal-release observation needs no repair receipt
-        run: |
-          python .github/ci/test_worker_observation_release.py
-          python .github/ci/test_attempt_proof_readback.py
+        run: bash .github/ci/run_attempt_readback_tests.sh "$(command -v python)"
       - name: Observe current accepted worker cycles without restarting or restoring any service
         uses: appleboy/ssh-action@v1.2.0
         with:
