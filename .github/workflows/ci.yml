@@ -1145,6 +1145,15 @@ jobs:
               result['exception_type']=next((kind for kind in ('BlockingIOError','AssertionError','PermissionError','FileNotFoundError','OSError') if re.search('^'+kind+':',body,re.M)),'OTHER')
               result['lines']=[int(x) for x in re.findall(r'operator.py", line ([0-9]+)',body)][-4:]
               result['errno11']='[Errno 11]' in body
+             native=Path('/root/codex-fixes/monitoring-38838556612/native-diagnostic.log')
+             result['latest_native_diagnostic_present']=native.exists()
+             if native.exists():
+              with os.fdopen(os.open(native,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+               info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_size<=1024*1024
+               text=stream.read().decode(errors='replace')
+              result['native_exception_type']=next((kind for kind in ('BlockingIOError','AssertionError','PermissionError','FileNotFoundError','OSError','ValueError') if re.search('^'+kind+':',text,re.M)),'OTHER')
+              result['native_lines']=[int(x) for x in re.findall(r'line ([0-9]+)',text)][-4:]
+              result['native_errno11']='[Errno 11]' in text
              lock=Path('/run/lock/aemr-maintenance.lock');info=lock.lstat()
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
