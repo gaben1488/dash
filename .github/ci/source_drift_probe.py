@@ -40,15 +40,38 @@ def compare_source(frozen, contract, payload, digest, normalize, header_hash):
             **value_differences(frozen['values'], payload.semantic_values)}
 
 
-def read_private(path, limit):
+def read_private(path, limit, *, shared=False):
     assert not any(parent.is_symlink() for parent in (path, *path.parents))
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
         info = os.fstat(stream.fileno())
-        assert stat.S_ISREG(info.st_mode) and info.st_uid in {0, 1000} and info.st_nlink == 1
+        assert stat.S_ISREG(info.st_mode) and info.st_uid in {0, 1000} and (shared or info.st_nlink == 1)
         assert not info.st_mode & 0o022 and info.st_size <= limit
         body = stream.read(limit + 1)
         assert len(body) <= limit
     return json.loads(body)
+
+
+def frozen_source(bundle, key, contract, revisions):
+    safe = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in key)
+    body = read_private(bundle / 'payloads' / (safe + '.json'), 16 * 1024 * 1024, shared=True)
+    assert body['source_id'] == key and body['provider_id'] == contract['provider_id']
+    assert body['role'] == contract['role'] and body['sheet_or_tab_id'] == str(contract['sheet_id'])
+    metadata = body['metadata']
+    return {'values': body['semantic_values'], 'sheet': metadata['sheet_title'],
+            'grbs': metadata['grbs'], 'rows': metadata['row_count'], 'columns': metadata['column_count'],
+            'formula_evidence': metadata['formula_evidence'], 'after': revisions[key],
+            'capture_method': metadata['capture_method']}
+
+
+def verify_manifest(path, expected):
+    import hashlib
+
+    assert not any(parent.is_symlink() for parent in (path, *path.parents))
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        assert stat.S_ISREG(info.st_mode) and info.st_uid in {0, 1000}
+        assert not info.st_mode & 0o022 and info.st_size <= 256 * 1024 * 1024
+        assert hashlib.file_digest(stream, 'sha256').hexdigest() == expected
 
 
 def main(attempt):
@@ -63,27 +86,34 @@ def main(attempt):
     root = Path('/app/packages/server/data/reports')
     error = read_private(root / 'attempts' / attempt / 'error.json', 1024 * 1024)
     assert error['error_code'] == 'SOURCE_CHANGED_BEFORE_PUBLICATION' and error['stage'] == 'publication'
-    print(json.dumps({'source_drift_probe': True, 'expected_attempt': True,
+    print(json.dumps({'source_drift_probe': True, 'expected_attempt': True, 'publication_evidence': False,
                       'exception_type': error['error_type'] if error['error_type'] in {'GoogleReadError', 'PublicationError'} else 'OTHER',
                       'stored_evidence_present': isinstance(error.get('evidence'), dict)}), flush=True)
     path = root / 'attempts' / attempt / 'capture.json'
     info = path.lstat()
     print(json.dumps({'capture_metadata': True, 'bytes': info.st_size, 'links': info.st_nlink,
                       'mode': stat.S_IMODE(info.st_mode), 'owner_allowed': info.st_uid in {0, 1000}}), flush=True)
-    capture = read_private(path, 40 * 1024 * 1024)
-    registry = read_private(root / 'inputs/registry.json', 1024 * 1024)
+    # Reuse the existing per-source bundle. The 67 MiB capture and manifest
+    # repeat full evidence; neither is parsed just to select one source.
+    bundle = root / 'attempts' / attempt / 'bundle/snapshot_bundle'
+    meta = read_private(bundle / 'bundle.json', 1024 * 1024)
+    manifest = bundle / 'manifest.json'
+    verify_manifest(manifest, meta['manifest_sha256'])
+    registry = read_private(bundle / 'payloads/SOURCE_CONTRACT.json', 1024 * 1024, shared=True)['semantic_values']
     contracts = {source['source_id']: source for source in registry['sources']}
-    sources = {source['source_id']: source for source in capture['sources']}
-    assert set(contracts) == set(sources)
+    assert set(contracts) <= set(meta['after'])
     client = GoogleReadClient()
     providers = sorted({source['provider_id'] for source in contracts.values()})
     before = {provider: client.revision(provider) for provider in providers}
     start = time.monotonic()
-    for index, key in enumerate(sorted(sources)):
-        frozen, contract = sources[key], contracts[key]
-        if before[contract['provider_id']] == frozen['after']:
+    frozen = payload = None
+    for index, key in enumerate(sorted(contracts)):
+        contract = contracts[key]
+        if before[contract['provider_id']] == meta['after'][key]:
             continue
         assert time.monotonic() - start < 150
+        frozen = payload = None  # Release the previous matrix before reading the next source.
+        frozen = frozen_source(bundle, key, contract, meta['after'])
         payload = GoogleSheetSourceAdapter(contract, client).read_payload()
         result = compare_source(frozen, contract, payload, canonical_semantic_hash, source_semantic_metadata, header_hash)
         # The index is an ordinal within this registry; never publish provider IDs or source titles.

@@ -58,6 +58,50 @@ class DriftProbeTests(unittest.TestCase):
         self.assertTrue(result['schema_equal'])
         self.assertFalse(result['formula_evidence_equal'])
 
+    def test_one_source_reuses_shared_payload_without_loading_full_capture(self):
+        import json
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            (bundle / 'payloads').mkdir()
+            path = bundle / 'payloads/TEST.json'
+            contract = {'provider_id': 'private', 'role': 'master', 'sheet_id': 1}
+            payload = {'source_id': 'TEST', **contract, 'sheet_or_tab_id': '1',
+                       'semantic_values': [['PRIVATE']], 'metadata': {'sheet_title': 'Private', 'grbs': 'Private',
+                       'row_count': 1, 'column_count': 1, 'formula_evidence': {}, 'capture_method': 'native'}}
+            path.write_text(json.dumps(payload))
+            path.chmod(0o600)
+            os.link(path, bundle / 'same-content.json')
+            frozen = self.module.frozen_source(bundle, 'TEST', contract, {'TEST': 'captured'})
+            self.assertEqual(frozen['values'], [['PRIVATE']])
+            self.assertEqual(frozen['after'], 'captured')
+            # Shared payloads are legitimate; mutable private config remains stricter.
+            with self.assertRaises(AssertionError):
+                self.module.read_private(path, 16384)
+
+    def test_streaming_manifest_rejects_fifo_symlink_and_wrong_hash(self):
+        import hashlib
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / 'manifest.json'
+            path.write_bytes(b'private-fixture')
+            path.chmod(0o600)
+            digest = hashlib.sha256(b'private-fixture').hexdigest()
+            self.module.verify_manifest(path, digest)
+            with self.assertRaises(AssertionError):
+                self.module.verify_manifest(path, '0' * 64)
+            os.symlink(path, root / 'link.json')
+            with self.assertRaises(AssertionError):
+                self.module.verify_manifest(root / 'link.json', digest)
+            os.mkfifo(root / 'fifo.json', 0o600)
+            with self.assertRaises(AssertionError):
+                self.module.verify_manifest(root / 'fifo.json', digest)
+
 
 if __name__ == '__main__':
     unittest.main()
