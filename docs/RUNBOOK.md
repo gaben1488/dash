@@ -17,6 +17,39 @@ Expected endpoints:
 
 ## Verification
 
+Текущая установленная версия на 16.10.2026, 21:30 UTC — `bae73c20`.
+[Release38961726925](https://github.com/gaben1488/dash/actions/runs/38961726925)
+завершён: checkpoint 20 996 960 205 B / 3527 файлов, архив 3 179 828 006 B;
+два независимых полных restore по 110 SQLite / 263 DOCX. Exact-SHA API и три
+Word прошли в 21:04:22 UTC, health/resume — PASS. Keeper:
+`/home/aemr/.dash-private-backups/worker-38961726925/backup`; manifest
+`ed9379b46a0803375b6bfbd2ad19fc4f4c669a089cc5fdfafe2559b613d3597d`, proof
+`3759edfa245cfe04436620ffa613ab3ef8622f60410c616c59889896ef2316fe`.
+API/worker image `694f6553c4d8135a9b5344eb98982f2844173b9e75b04f4a5d8a701c47bcc580`;
+web image `33bfe861d66a821b145de985a0af44ff01b37bc978db9d2caddfe2cf560b9c98`.
+Observer38961801554 SUCCESS: 189502ea (21:05:08–21:08:59 UTC) и60fa2873
+(21:24:28–21:27:24 UTC), оба VERIFIED_WITH_WARNINGS, double host FLOCK,
+интервал 929,218 с; context/snapshot/три Word после каждого PASS.
+Sealed1638 неизменны, history8v2/1absent/0invalid, current selected200/PASS.
+Metadata38969648844 независимо подтвердила исходник/образы/две атрибуции;
+all4 running/API healthy/restarts0/State.OOMKilled=false; free13640134656B
+в21:28:58 UTC. Повтор приёмки Bae не требуется; новый runtime принимает
+собственный набор сценариев, старые циклы ему автоматически не засчитываются.
+
+Desktop38967077524 / WebKit38967333129 проверили 13 разделов, Header,
+журнал и три Word; это не весь UX и не физический Safari. Provenance38966956109
+проверил восемь книг и пять исходных свидетелей в выборке; весь журнал не принят.
+Native status38968602253: 1,518 с, same-release / одна проверка файлов;
+HTTP38968752151: 1,690 / 1,641 с на том же 17.10.2026 / 2026 / Q4.
+Не объявлять эти прогретые результаты исправлением browser21,262 с или cold-read.
+
+Стадии выпуска: capture 20:30:12–20:36:29 UTC, независимые restore
+20:36:29–21:01:38, установка/приёмка 21:01:38–21:04:24. Примерно 34 минуты
+capture→health не равны измеренному API downtime: точный момент stop отдельно
+не измерялся. Новые phase timers оснастки относятся только к будущим прогонам,
+не измеряют transfer и не ослабляют restore/source/rollback gate.
+
+История предыдущей установленной версии:
 На16.10.2026,19:54UTC установленbfd625fc: release38949403808 SUCCESS,
 checkpoint20979114829B/3519entries, archive3178137569B; два независимых полных
 restore110SQLite/263DOCX, API/3Word19:25:51UTC/publichealth/resume PASS.
