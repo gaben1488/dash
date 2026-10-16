@@ -1,4 +1,7 @@
 """An archived bad historical source does not become a new engine regression."""
+import json
+
+import pytest
 from procurement_engine.rehearsal_policy import compare_weekly_replay
 
 LEGACY = {
@@ -43,3 +46,23 @@ def test_other_inherited_error_is_not_waived():
 def test_missing_current_or_baseline_replay_is_rejected():
     assert not compare_weekly_replay(LEGACY, {})["ready"]
     assert not compare_weekly_replay({}, LEGACY)["ready"]
+
+
+def test_unproven_failure_explains_both_sides_with_only_fixed_codes_and_counts():
+    failed = {**LEGACY, 'source_error_counts': {'DUPLICATE_PROCEDURE_CODE': 2,
+        'PRIVATE_SENTINEL': 3}, 'message': 'PRIVATE_SENTINEL', 'error_type': 'RuntimeError'}
+    result = compare_weekly_replay(LEGACY, failed)
+    assert result['ready'] is False
+    assert result['baseline']['error_code'] == 'ARCHIVE_BUILD_FAILED'
+    assert result['candidate']['source_error_counts']['DUPLICATE_PROCEDURE_CODE'] == 2
+    assert result['candidate']['source_error_counts']['UNRECOGNIZED_ERROR'] == 3
+    assert 'PRIVATE_SENTINEL' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('malformed', [None, [], {'private': 'PRIVATE_SENTINEL'}])
+def test_malformed_failure_fields_do_not_bypass_the_gate_or_leak_text(malformed):
+    result = compare_weekly_replay(LEGACY, {'replay_status': malformed, 'error_code': malformed,
+        'error_type': malformed, 'os_error_code': malformed})
+    assert result['ready'] is False
+    assert result['candidate']['error_code'] == 'GENERATION_FAILED'
+    assert 'PRIVATE_SENTINEL' not in json.dumps(result)

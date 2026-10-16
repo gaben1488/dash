@@ -621,6 +621,8 @@ export const PublishedReleaseSchema = z.object({
   /** False retains exact artifacts/context but makes no source-replay promise. */
   replay_available: z.boolean().optional(),
   automation_assurance: ReportAssuranceSchema.optional(),
+  /** Equal evidence of this release remains complete in the selected DTO. */
+  automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
 
@@ -633,6 +635,7 @@ export const ReportReleaseStatusSchema = z.object({
     blockers: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
     error_code: z.string().optional(),
     automation_assurance: ReportAssuranceSchema.nullable().optional(),
+    automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   }).nullable(),
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;

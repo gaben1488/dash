@@ -1,10 +1,70 @@
 import json
 import shutil
+from copy import deepcopy
 
 import pytest
 from procurement_engine.publication_reader import read_publication
 from procurement_engine.publication_store import PublicationError, PublicationStore
 from test_publication_store import candidate, revisions
+
+
+@pytest.mark.parametrize('contextual', [True, False])
+def test_status_sends_large_assurance_once_without_rewriting_the_receipt_or_attempt(tmp_path, monkeypatch, contextual):
+    state = tmp_path / 'state'
+    PublicationStore(state / 'published')
+    assurance = {'contract': 'actionable-assurance-v2', 'fully_automated': True,
+        'user_action_count': 0, 'engine_action_count': 0, 'active_recommendations': 0,
+        'link_status_counts': {}, 'action_status_counts': {}, 'actions': [],
+        'source_observations': [], 'nonprocurement_identity_observations': 0,
+        'meaning': 'Synthetic evidence ' * 65536}
+    receipt = {'release_id': 'REL-' + '1' * 64, 'snapshot_id': 'frozen-snapshot',
+        'report_date': '16.10.2026', 'cutoff_at': '2026-10-16T01:00:00+00:00',
+        'status': 'VERIFIED', 'report_year': 2026, 'quarter': 4, 'automation_assurance': assurance}
+    original = deepcopy(receipt)
+    monkeypatch.setattr(PublicationStore, 'select', lambda *_: receipt)
+    monkeypatch.setattr(PublicationStore, 'latest', lambda *_: receipt)
+    monkeypatch.setattr(PublicationStore, 'latest_for_period', lambda *_: deepcopy(receipt))
+    attempt = {'status': 'VERIFIED', 'started_at': '2026-10-16T01:00:00+00:00',
+        'finished_at': '2026-10-16T01:01:00+00:00', 'snapshot_id': receipt['snapshot_id'],
+        'publication': receipt, 'automation_assurance': assurance}
+    saved = json.dumps(attempt).encode()
+    (state / 'status.json').write_bytes(saved)
+    content = read_publication(state, 'status', selection=('2026-10-16', 2026, 4) if contextual else None)
+    status = json.loads(content)
+    visible = status['selected' if contextual else 'latest']
+    assert visible['automation_assurance'] == assurance
+    assert len(content) < len(json.dumps(assurance).encode()) + 16384
+    assert status['attempt']['automation_assurance_release_id'] == receipt['release_id']
+    assert status['attempt']['publication']['automation_assurance_release_id'] == receipt['release_id']
+    if contextual:
+        assert status['latest_matching']['release_id'] == receipt['release_id']
+        assert status['latest_matching']['automation_assurance_release_id'] == receipt['release_id']
+    expanded = deepcopy(status['attempt'])
+    for record in [expanded, expanded['publication']]:
+        assert record.pop('automation_assurance_release_id') == receipt['release_id']
+        record['automation_assurance'] = assurance
+    assert expanded == attempt
+    assert receipt == original
+    assert (state / 'status.json').read_bytes() == saved
+
+
+@pytest.mark.parametrize('same_id', [False, True])
+def test_status_does_not_merge_distinct_attempt_evidence_or_publications(tmp_path, monkeypatch, same_id):
+    state = tmp_path / 'state'
+    PublicationStore(state / 'published')
+    prior = {'release_id': 'REL-' + '1' * 64, 'snapshot_id': 'prior',
+        'report_date': '15.10.2026', 'cutoff_at': '2026-10-15T01:00:00+00:00',
+        'status': 'VERIFIED', 'automation_assurance': {'meaning': 'Prior evidence'}}
+    later = {**prior, 'release_id': prior['release_id'] if same_id else 'REL-' + '2' * 64,
+        'automation_assurance': {'meaning': 'Conflicting evidence'} if same_id else prior['automation_assurance']}
+    monkeypatch.setattr(PublicationStore, 'select', lambda *_: prior)
+    monkeypatch.setattr(PublicationStore, 'latest_for_period', lambda *_: later)
+    attempt = {'status': 'NOT_ISSUED', 'started_at': '2026-10-16T01:00:00+00:00',
+        'automation_assurance': {'meaning': 'New failed-attempt evidence'}}
+    (state / 'status.json').write_text(json.dumps(attempt))
+    status = json.loads(read_publication(state, 'status', selection=('2026-10-16', 2026, 4)))
+    assert status['attempt']['automation_assurance'] == attempt['automation_assurance']
+    assert status['latest_matching']['automation_assurance'] == later['automation_assurance']
 
 
 def test_empty_reader_does_not_create_a_database(tmp_path):

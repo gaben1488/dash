@@ -374,6 +374,17 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
     expect(checked.success).toBe(true);
   });
 
+  it('retains explicit same-release evidence references without stripping the selected assurance', () => {
+    const response = SelectedReportReleaseStatusSchema.parse({
+      selected: { ...receipt, automation_assurance: v2 },
+      latest_matching: { ...receipt, automation_assurance_release_id: receipt.release_id },
+      attempt: { status: 'VERIFIED', automation_assurance_release_id: receipt.release_id },
+    });
+    expect(response.selected?.automation_assurance).toEqual(v2);
+    expect(response.latest_matching?.automation_assurance_release_id).toBe(receipt.release_id);
+    expect(response.attempt?.automation_assurance_release_id).toBe(receipt.release_id);
+  });
+
   it('continues reading historical v1 receipts with the same semantic actions', () => {
     const checked = SelectedReportReleaseStatusSchema.safeParse({
       attempt: null, selected: { ...receipt, automation_assurance: {
