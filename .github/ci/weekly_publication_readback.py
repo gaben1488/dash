@@ -22,6 +22,21 @@ def digest(path):
     return result.hexdigest()
 
 
+def verified_views(store,rid,files,counts,*,sample):
+    # _checked already hashed every file in this immutable root. Calling the
+    # download route for every file repeats that full scan for every view.
+    for name in files:
+        path=store.releases/rid/name
+        if name in {'main_report.docx','management_report.docx','operational_report.docx'}:
+            if sample:require(store.read_artifact(rid,name).startswith(b'PK\x03\x04'))
+            else:
+                with path.open('rb') as source:require(source.read(4)==b'PK\x03\x04')
+            counts['word_artifacts']+=1
+        elif name=='dashboard.json':
+            body=store.read_artifact(rid,name) if sample else path.read_bytes()
+            require(isinstance(json.loads(body),dict));counts['dashboard_artifacts']+=1
+
+
 def compact_contract(original_root,original):
     files=json.loads(original[1]);receipt=json.loads(original[0])
     require(original_root.is_dir() and not original_root.is_symlink()
@@ -84,6 +99,7 @@ def verify(state,plan):
         # Sort identifiers only. Large receipt JSON never enters a SQLite sorter.
         ordered=[row[0] for row in catalog.execute('SELECT release_id FROM publications ORDER BY report_date DESC,cutoff_at DESC,release_id DESC') if row[0] in expected]
         require(set(ordered)==expected)
+        sampled=set()
         for ordinal,rid in enumerate(ordered):
             row=list(catalog.execute('SELECT release_id,report_date,cutoff_at,receipt,files FROM publications WHERE release_id=?',(rid,)).fetchone())
             receipt=store._checked(row[-2:])
@@ -94,14 +110,13 @@ def verify(state,plan):
                 require(item['release_id']==rid and item['compact']==row[-2:])
                 expected_receipt,expected_files=compact_contract(work/'original'/rid,item['original'])
                 require(receipt==expected_receipt and json.loads(row[-1])==expected_files)
-            for name in json.loads(row[-1]):
-                if name in {'main_report.docx','management_report.docx','operational_report.docx'}:
-                    require(store.read_artifact(rid,name).startswith(b'PK\x03\x04'));counts['word_artifacts']+=1
-                elif name=='dashboard.json':
-                    require(isinstance(json.loads(store.read_artifact(rid,name)),dict));counts['dashboard_artifacts']+=1
+            sample=(rid in targets) not in sampled
+            sampled.add(rid in targets)
+            verified_views(store,rid,json.loads(row[-1]),counts,sample=sample)
             if item is not None:row[-2:]=item['original']
             if ordinal:revision.update(b',')
             encode(row);counts['verified_roots']+=1
+            if counts['verified_roots']%10==0:print(json.dumps({'retained_readback_roots':counts['verified_roots']}),file=sys.stderr,flush=True)
         revision.update(b'],');encode(sorted(keep));revision.update(b',');encode(sorted(targets));revision.update(b']')
         require(revision.hexdigest()==plan['catalog_revision'] and marker_path.read_bytes()==marker_body)
     counts['journal_sha256']=digest(work/'entries.sqlite')
@@ -129,6 +144,7 @@ def verify_finalized(state,plan):
         db=stack.enter_context(closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)))
         db.execute('PRAGMA query_only=ON')
         require(expected<={r[0] for r in db.execute('SELECT release_id FROM publications')})
+        sampled=set()
         for rid in sorted(expected):
             pair=db.execute('SELECT receipt,files FROM publications WHERE release_id=?',(rid,)).fetchone()
             receipt=store._checked(pair);files=json.loads(pair[1])
@@ -139,11 +155,9 @@ def verify_finalized(state,plan):
             else:
                 require(receipt.get('replay_available',True) is True and 'report_model.json' in files
                         and 'snapshot_bundle/manifest.json' in files)
-            for name in files:
-                if name in {'main_report.docx','management_report.docx','operational_report.docx'}:
-                    require(store.read_artifact(rid,name).startswith(b'PK\x03\x04'));result['word_artifacts']+=1
-                elif name=='dashboard.json':
-                    require(isinstance(json.loads(store.read_artifact(rid,name)),dict));result['dashboard_artifacts']+=1
+            sample=(rid in targets) not in sampled
+            sampled.add(rid in targets)
+            verified_views(store,rid,files,result,sample=sample)
             result['verified_roots']+=1
         require(not work.exists() and not work.is_symlink())
     counts=plan['_expected_artifacts']

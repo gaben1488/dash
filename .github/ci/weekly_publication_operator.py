@@ -95,7 +95,7 @@ def acquire_lock(descriptor,*,timeout=45):
 def native_readback(image,volume,source,planned):
     require(re.fullmatch('sha256:[a-f0-9]{64}',image) and re.fullmatch('[a-zA-Z0-9_-]+',volume),'READBACK_RUNTIME_INVALID')
     identity=call(['docker','create','-i','--read-only','--network','none','--user','1000',
-        '--memory','768m','--memory-swap','1g','--cpus','0.4','--pids-limit','64',
+        '--memory','768m','--memory-swap','1g','--cpus','1','--cpu-shares','256','--pids-limit','64',
         '--tmpfs','/tmp:rw,nosuid,nodev,size=128m',
         '--label','aemr.operation=retained-readback',
         '--mount','type=volume,src='+volume+',dst=/app/packages/server/data,readonly',
@@ -105,6 +105,10 @@ def native_readback(image,volume,source,planned):
     try:
         return call(['docker','start','--attach','--interactive',identity],
                     input_bytes=json.dumps(planned).encode(),timeout=600)
+    except Exception:
+        record=json.loads(call(['docker','inspect','--format','{{json .State}}',identity],timeout=15))
+        private_diagnostic(json.dumps({'readback_exit':record['ExitCode'],'readback_oom':record['OOMKilled']}).encode())
+        raise
     finally:
         call(['docker','rm','--force',identity],timeout=35)
 

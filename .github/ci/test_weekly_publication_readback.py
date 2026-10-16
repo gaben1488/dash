@@ -18,11 +18,12 @@ class ReadbackTests(unittest.TestCase):
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         return module
 
-    def fixture(self,root):
+    def fixture(self,root,total=2):
         published=root/'published';releases=published/'releases';releases.mkdir(parents=True)
         work=published/'.retirement';work.mkdir();(root/'publication-readers.lock').touch()
         original=[];keep=[];retire=[];entries=[]
-        for n,day in ((2,'2026-10-16'),(1,'2026-10-15')):
+        for n in range(total,0,-1):
+            day=f'2026-10-{14+n:02d}'
             rid='REL-'+f'{n:064x}';folder=releases/rid;folder.mkdir()
             receipt=json.dumps({'release_id':rid,'report_date':day,'snapshot_id':'SNAP-'+str(n)})
             blobs={name:(b'{"headline":{"current_quarter":4}}' if name.endswith('json') else b'PK\x03\x04synthetic')
@@ -49,17 +50,30 @@ class ReadbackTests(unittest.TestCase):
         with sqlite3.connect(published/'publications.sqlite') as db:
             db.execute('CREATE TABLE publications(release_id TEXT PRIMARY KEY,report_date TEXT,cutoff_at TEXT,receipt TEXT,files TEXT)')
             for row in original:
-                changed=(*row[:3],*entries[0]['compact']) if row[0] in retire else row
+                changed=(*row[:3],*next(e['compact'] for e in entries if e['release_id']==row[0])) if row[0] in retire else row
                 db.execute('INSERT INTO publications VALUES(?,?,?,?,?)',changed)
-        plan={'catalog_revision':hashlib.sha256(json.dumps([original,sorted(keep),sorted(retire)],separators=(',',':')).encode()).hexdigest(),'publication_count':2,
+        plan={'catalog_revision':hashlib.sha256(json.dumps([original,sorted(keep),sorted(retire)],separators=(',',':')).encode()).hexdigest(),'publication_count':len(original),
               'keep_release_ids':keep,'retire_release_ids':retire}
         with sqlite3.connect(work/'entries.sqlite') as db:
             db.execute('CREATE TABLE entries(ordinal INTEGER PRIMARY KEY,release_id TEXT UNIQUE,payload TEXT)')
-            db.execute('INSERT INTO entries VALUES(?,?,?)',(0,retire[0],json.dumps(entries[0])))
-        marker={'contract':'publication-compaction-v2','readers_ready':True,'entry_count':1,
+            db.executemany('INSERT INTO entries VALUES(?,?,?)',[(i,e['release_id'],json.dumps(e)) for i,e in enumerate(entries)])
+        marker={'contract':'publication-compaction-v2','readers_ready':True,'entry_count':len(retire),
                 'plan_revision':plan['catalog_revision'],'entries_sha256':hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest()}
         (work/'journal.json').write_text(json.dumps(marker))
         return plan,work,releases
+
+    def test_full_catalog_readback_avoids_rehashing_every_root_for_each_view(self):
+        from procurement_engine.publication_store import PublicationStore
+        tool=self.tool()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);plan,_,_=self.fixture(root,total=8)
+            method=PublicationStore.read_artifact;calls=[]
+            def sampled(store,rid,name):
+                calls.append((rid,name));return method(store,rid,name)
+            with patch.object(PublicationStore,'read_artifact',sampled):result=tool.verify(root,plan)
+            self.assertEqual(result['verified_roots'],8)
+            self.assertLessEqual(len(calls),6,'Native view routes need one retained and one replay sample; every root already has full hash verification')
+            self.assertEqual({rid in set(plan['retire_release_ids']) for rid,_ in calls},{False,True})
 
     def test_finalized_readback_preserves_all_targets_and_replay_roots_without_writes(self):
         tool=self.tool()

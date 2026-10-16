@@ -124,6 +124,7 @@ class WeeklyOperatorTests(unittest.TestCase):
             def run(arguments,*,calls=calls,container=container,failed=failed,**options):
                 calls.append((arguments,options))
                 if arguments[1]=='create':return (container+'\n').encode()
+                if arguments[1]=='inspect':return b'{"ExitCode":124,"OOMKilled":false}'
                 if arguments[1]=='start':
                     if failed:raise ValueError('OPERATOR_COMMAND_FAILED')
                     return b'{"proof":true}'
@@ -135,6 +136,8 @@ class WeeklyOperatorTests(unittest.TestCase):
             create=calls[0][0]
             for flag in ('--read-only','--network','--memory','--memory-swap','--cpus'):self.assertIn(flag,create)
             self.assertIn('none',create);self.assertIn('768m',create)
+            self.assertEqual(create[create.index('--cpus')+1],'1')
+            self.assertEqual(create[create.index('--cpu-shares')+1],'256')
             self.assertIn('type=bind,src=/private/scratch,dst=/scratch',create)
             self.assertIn('TMPDIR=/scratch',create)
             self.assertEqual(create[create.index('--entrypoint')+1],'timeout')

@@ -111,7 +111,7 @@ jobs:
             check=base64.b64decode(os.environ['WEEKLY_READBACK_CODE'],validate=True)
             assert len(check)<=16384 and hashlib.sha256(check).hexdigest()==os.environ['WEEKLY_READBACK_SHA']
             readback=root/'readback.py';readback.write_bytes(check);readback.chmod(0o600)
-            stage=Path('/root/codex-fixes/weekly-38902081199') if mode in {'finalize','finalized-readback'} else Path('/root/codex-fixes/weekly-38895891036')
+            stage=Path('/root/codex-fixes/weekly-38902081199')
             python=stage/'venv/bin/python'
             probe='import sysconfig;print(sysconfig.get_path("purelib"))'
             site=subprocess.check_output([str(python),'-IB','-c',probe],timeout=15,text=True).strip()
