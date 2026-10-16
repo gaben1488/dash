@@ -2309,8 +2309,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
-        inputs.release_sha == 'bae73c20c94b866540e61e63e9d764e41b3ff8a6') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted bae73c20'))
+        inputs.release_sha == 'b96e169d024bd0da218288506b678a3adc27bd58') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted b96e169d'))
     runs-on: ubuntu-latest
     timeout-minutes: 50
     concurrency:
@@ -2333,8 +2333,8 @@ jobs:
           command_timeout: 47m
           script: |
             set -euo pipefail
-            observer='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
-            git -C /home/aemr/dash fetch --quiet origin "$observer"
+            observer='b96e169d024bd0da218288506b678a3adc27bd58'
+            git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$observer"
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
             import hashlib,json,os,re,stat,subprocess,sys,time,types
             from datetime import datetime,timezone
@@ -2484,7 +2484,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - 'bae73c20c94b866540e61e63e9d764e41b3ff8a6' <<'PYSCHEMA'
+            sudo -n python3 -I - 'b96e169d024bd0da218288506b678a3adc27bd58' <<'PYSCHEMA'
             import json,re,subprocess,sys
             from pathlib import Path
             try:

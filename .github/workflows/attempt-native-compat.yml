@@ -30,8 +30,8 @@ jobs:
             set -euo pipefail
             candidate=b96e169d024bd0da218288506b678a3adc27bd58
             tooling='${{ github.sha }}'
-            git -C /home/aemr/dash fetch --quiet origin "$candidate"
-            git -C /home/aemr/dash fetch --quiet origin "$tooling"
+            git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$candidate"
+            git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$tooling"
             sudo -n python3 -IB - "$candidate" "$tooling" '${{ github.run_id }}' <<'PYCOMPAT'
             import hashlib,json,os,re,stat,subprocess,sys
             from pathlib import Path
