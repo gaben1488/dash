@@ -136,6 +136,11 @@ class WeeklyOperatorTests(unittest.TestCase):
                 self.assertFalse(folder.exists())
                 self.assertEqual(sibling.read_text(),'keep')
                 self.assertEqual(self.module.ENV,before)
+                with self.assertRaisesRegex(ValueError,'custodian'),self.module.owner_scratch('124',preserve_on_error=True) as retained:
+                    (retained/'recovery.sqlite').write_bytes(b'custodian still needs this')
+                    raise ValueError('custodian')
+                self.assertTrue((retained/'recovery.sqlite').exists())
+                self.assertEqual(self.module.ENV,before)
 
     def test_busy_guard_lock_is_waited_for_without_replacing_its_inode(self):
         import fcntl

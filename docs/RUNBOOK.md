@@ -33,6 +33,16 @@ retention, identity, leases и оба deploy helpers должны совпада
 apply/recover/readback/finalize под тем же maintenance inode. После принятия
 полного нового приложения временные pins заменяются одной совместимой точкой.
 
+Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске
+`/var/lib/aemr/weekly-scratch`, с UID/GID1000 для временных SQLite clones.
+Не предполагать, что системный `/tmp` — диск: первый dry-run38881943514
+остановился на `PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT` при clone identity,
+а не на доказанном OOM. `MemoryPeak == MemoryMax` само по себе не доказывает OOM.
+Тот же TMPDIR передаётся всем host children. При ошибке мутационной операции
+scratch сохраняется для независимого recovery; после обычного read-only выхода
+удаляются только созданные этим запуском временные копии. Full-CI, свободное
+место, backup coverage и отдельная приёмка apply/finalize остаются обязательны.
+
 Run before handoff or deployment:
 
 ```bash

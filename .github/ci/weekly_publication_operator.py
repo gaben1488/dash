@@ -13,6 +13,7 @@ import json
 import os
 import re
 import select
+import shutil
 import stat
 import subprocess
 import sys
@@ -102,20 +103,27 @@ def private_diagnostic(body):
 
 
 @contextmanager
-def owner_scratch(run):
+def owner_scratch(run,*,preserve_on_error=False):
     """Disk-backed disposable SQLite clones, never the host's default tmpfs."""
     require(re.fullmatch('[0-9]+',run),'OPERATOR_RUN_INVALID')
     SCRATCH.mkdir(mode=0o700,exist_ok=True)
     info=SCRATCH.lstat()
     require(stat.S_ISDIR(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o700,
             'OPERATOR_SCRATCH_UNTRUSTED')
-    with tempfile.TemporaryDirectory(prefix=run+'-',dir=SCRATCH) as temporary:
-        path=Path(temporary);os.chown(path,1000,1000);path.chmod(0o700)
-        before=ENV.get('TMPDIR');ENV['TMPDIR']=str(path)
-        try:yield path
-        finally:
-            if before is None:ENV.pop('TMPDIR',None)
-            else:ENV['TMPDIR']=before
+    path=Path(tempfile.mkdtemp(prefix=run+'-',dir=SCRATCH))
+    before=ENV.get('TMPDIR');remove=True
+    try:
+        os.chown(path,1000,1000);path.chmod(0o700);ENV['TMPDIR']=str(path)
+        yield path
+    except BaseException:
+        # Independent recovery can outlive the supervisor. Its SQLite scratch
+        # must survive an exceptional owner exit, just like its source/tools.
+        remove=not preserve_on_error
+        raise
+    finally:
+        if before is None:ENV.pop('TMPDIR',None)
+        else:ENV['TMPDIR']=before
+        if remove:shutil.rmtree(path)
 
 
 def owned(path, *, limit=1024*1024, private=True):
@@ -340,7 +348,7 @@ def main():
         if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
         try:
             state,backup=admit(args)
-            with owner_scratch(args.operator_run):
+            with owner_scratch(args.operator_run,preserve_on_error=not args.check):
                 privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
                            '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
                 preview=None
