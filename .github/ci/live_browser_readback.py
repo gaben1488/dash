@@ -26,6 +26,12 @@ def browser_settings(profile, devices):
     raise ValueError('BROWSER_PROFILE_INVALID')
 
 
+def readonly_request(url, method):
+    parsed, base = urlsplit(url), urlsplit(BASE)
+    return ((parsed.scheme, parsed.netloc) == (base.scheme, base.netloc)
+            and method in {'GET', 'HEAD', 'OPTIONS'})
+
+
 def record_response(response, proof):
     parsed = urlsplit(response.url)
     if parsed.netloc != urlsplit(BASE).netloc:
@@ -77,7 +83,7 @@ async def run():
 
             async def readonly(route):
                 request = route.request
-                if urlsplit(request.url).netloc != urlsplit(BASE).netloc or request.method not in {'GET', 'HEAD', 'OPTIONS'}:
+                if not readonly_request(request.url, request.method):
                     blocked.append(True)
                     await route.abort()
                 else:
@@ -101,6 +107,28 @@ async def run():
             async with page.expect_response(lambda r: urlsplit(r.url).path == '/api/dashboard' and r.status == 200, timeout=40000) as dashboard:
                 response = await page.goto(BASE, wait_until='domcontentloaded', timeout=30000)
                 proof['document_http_status'] = response.status
+                if response.status == 401:
+                    challenge = response.headers.get('www-authenticate', '')
+                    proof['browser_auth_diagnostic'] = {
+                        'basic_challenge': challenge.lower().startswith('basic '),
+                        'challenge_utf8': 'charset="utf-8"' in challenge.lower(),
+                        'same_origin': readonly_request(response.url, 'GET'),
+                    }
+                    for name, origin in [('explicit_port', BASE + ':443'), ('guarded_origin', None)]:
+                        credentials = {'username': metadata['username'], 'password': password}
+                        if origin is not None:
+                            credentials['origin'] = origin
+                        diagnostic = await browser.new_context(**options, http_credentials=credentials)
+                        # The same guard prevents any credential-bearing off-origin request.
+                        await diagnostic.route('http*://**', readonly)
+                        probe = await diagnostic.new_page()
+                        try:
+                            observed = await probe.goto(BASE, wait_until='commit', timeout=15000)
+                            proof['browser_auth_diagnostic'][name] = observed.status
+                        except Exception:  # noqa: BLE001 - diagnostic emits no page data or credentials.
+                            proof['browser_auth_diagnostic'][name] = 'FAILED'
+                        finally:
+                            await diagnostic.close()
                 assert response.status == 200
                 proof['stage'] = 'dashboard_response'
             await (await dashboard.value).finished()

@@ -32,5 +32,25 @@ class BrowserProfileTests(unittest.TestCase):
             self.settings('unknown')
 
 
+class ReadonlyOriginTests(unittest.TestCase):
+    def test_credentials_never_follow_http_downgrade_or_foreign_origin(self):
+        from urllib.parse import urlsplit
+        source = Path(__file__).with_name('live_browser_readback.py').read_text()
+        node = next((item for item in ast.parse(source).body
+                     if isinstance(item, ast.FunctionDef) and item.name == 'readonly_request'), None)
+        self.assertIsNotNone(node, 'Comparing only netloc permits a credential-bearing HTTPS downgrade')
+        context = {'urlsplit': urlsplit, 'BASE': 'https://dash-elizovo-uer.ru'}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), '<readonly-origin>', 'exec'), context)  # noqa: S102 - trusted local predicate only
+        allowed = context['readonly_request']
+        self.assertTrue(allowed('https://dash-elizovo-uer.ru/api/health', 'GET'))
+        self.assertTrue(allowed('https://dash-elizovo-uer.ru/', 'HEAD'))
+        for url, method in [('http://dash-elizovo-uer.ru/', 'GET'),
+                            ('https://external.invalid/', 'GET'),
+                            ('https://dash-elizovo-uer.ru/', 'POST'),
+                            ('https://dash-elizovo-uer.ru:444/', 'GET')]:
+            with self.subTest(url=url, method=method):
+                self.assertFalse(allowed(url, method))
+
+
 if __name__ == '__main__':
     unittest.main()
