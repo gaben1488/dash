@@ -1211,6 +1211,44 @@ jobs:
               amount=result.stdout.split(maxsplit=1)[0] if result.returncode==0 else b''
               print(json.dumps({'category':category,'allocated_bytes':int(amount) if amount.isdigit() else None}),flush=True)
 
+            def weekly_operator_metadata():
+             unit='aemr-weekly-compaction-38881943514.service'
+             names=['MainPID','ActiveState','SubState','Result','ExecMainStatus','MemoryCurrent','MemoryPeak','CPUUsageNSec','ControlGroup']
+             raw=subprocess.check_output(['systemctl','show',unit,'--property='+','.join(names)],timeout=10,text=True)
+             props=dict(line.split('=',1) for line in raw.splitlines())
+             safe={k:v for k,v in props.items() if k!='ControlGroup' and re.fullmatch('[a-zA-Z0-9-]+',v)}
+             print(json.dumps({'weekly_operator_unit':safe}),flush=True)
+             group=props.get('ControlGroup','')
+             if re.fullmatch('/system.slice/'+re.escape(unit),group):
+              root=Path('/sys/fs/cgroup'+group)
+              if (root/'cgroup.procs').is_file():
+               pids=(root/'cgroup.procs').read_text().split()
+               assert len(pids)<=16
+               for pid in pids:
+                assert pid.isdigit()
+                try:
+                 values={}
+                 for line in (Path('/proc')/pid/'io').read_text().splitlines():
+                  key,_,value=line.partition(':')
+                  if key in {'rchar','read_bytes'} and value.strip().isdigit():values[key]=int(value)
+                 for line in (Path('/proc')/pid/'status').read_text().splitlines():
+                  key,_,value=line.partition(':')
+                  if key in {'VmRSS','VmHWM'} and re.fullmatch(r'\s*[0-9]+ kB',value):values[key]=int(value.split()[0])*1024
+                 print(json.dumps({'weekly_operator_process':int(pid),**values}),flush=True)
+                except FileNotFoundError:pass
+             stage=Path('/root/codex-fixes/weekly-38881380220')
+             plan=stage/'retention-plan-38881943514.json'
+             if plan.is_file() and not plan.is_symlink() and plan.stat().st_size<=1024*1024:
+              value=json.loads(plan.read_text())
+              keys=('publication_count','keep_count','retire_count','bytes_reclaimable','identity_missing_signatures','identity_missing_snapshots','identity_ready')
+              print(json.dumps({'weekly_plan':{k:value[k] for k in keys if isinstance(value.get(k),(int,bool))}}),flush=True)
+             log=Path('/root/codex-fixes/weekly-check-38881943514/operator.log')
+             if log.is_file() and not log.is_symlink() and log.stat().st_size<=1024*1024:
+              body=log.read_text()
+              allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
+              print(json.dumps({'weekly_operator_log_bytes':log.stat().st_size,'codes':sorted(k for k in allowed if k in body),
+               'exceptions':sorted(k for k in ('MemoryError','PermissionError','FileNotFoundError','ModuleNotFoundError','TimeoutExpired','CalledProcessError') if k in body)}),flush=True)
+
             def checkpoint_metadata():
              base=Path('/home/aemr/.dash-private-backups/worker-38831492016')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
@@ -1459,6 +1497,7 @@ jobs:
              transfer_host_metadata()
              release_failure_metadata()
              checkpoint_metadata()
+             weekly_operator_metadata()
              image_storage_metadata()
              host_storage_metadata()
              host_operator_capabilities()
