@@ -26,6 +26,11 @@ def docker_commands(text):
 
 
 class ReportRehearsalScratchTests(unittest.TestCase):
+    def test_new_heads_queue_without_cancelling_native_work_already_running(self):
+        concurrency = WORKFLOW.read_text().split('concurrency:\n', 1)[1].split('\njobs:', 1)[0]
+        self.assertIn('group: report-readonly-rehearsal-${{ github.event.pull_request.number }}', concurrency)
+        self.assertIn('cancel-in-progress: false', concurrency)
+
     def test_replay_waits_for_schema_but_cancellation_cannot_start_more_work(self):
         part = WORKFLOW.read_text().split('  frozen-replay:\n', 1)[1]
         self.assertIn('    needs: source-schema\n', part)

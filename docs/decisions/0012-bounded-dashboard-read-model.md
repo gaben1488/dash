@@ -75,7 +75,8 @@ This proves missing operation bounds, not that it alone caused every API timeout
 The existing source-schema and frozen-replay workflow gains per-container
 1536MiB RAM/1792MiB total memory+swap,1CPU/128PIDs; its existing smaller512MiB
 probe retains that limit. Source-schema and frozen replay run sequentially in
-one workflow. This leaves the service's own limits unchanged. Full execution
+one workflow. New heads queue behind active native work rather than cancelling
+its SSH session. Only the latest pending candidate is needed. This leaves the service's own limits unchanged. Full execution
 must demonstrate whether the chosen rehearsal budget is sufficient; OOM or a
 budget refusal remains FAIL, never a reason to weaken the data check.
 

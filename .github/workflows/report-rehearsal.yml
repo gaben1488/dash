@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: report-readonly-rehearsal-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # A new head queues behind native work; losing SSH does not stop Docker.
+  cancel-in-progress: false
 
 jobs:
   worker-diagnostics:
