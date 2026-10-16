@@ -780,6 +780,8 @@ def _operator_fixture(tmp_path):
     (fake / 'deploy').mkdir()
     for name in ('plan-weekly-publications.py', 'stateful_backup.py'):
         shutil.copy2(repo / 'deploy' / name, fake / 'deploy' / name)
+    (fake / '.github/ci').mkdir(parents=True)
+    shutil.copy2(repo / '.github/ci/source_ci_gate.py', fake / '.github/ci/source_ci_gate.py')
     for args in (['init', '-q'], ['add', '.'], ['-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','synthetic candidate']):
         subprocess.run(['git','-C',str(fake),*args],check=True,capture_output=True)
     sha = subprocess.run(['git','-C',str(fake),'rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()
@@ -860,6 +862,16 @@ def test_native_operator_uses_one_plan_for_preview_and_one_for_locked_apply(tmp_
     calls.clear()
     assert tool.operate(store.root.parent,operation='apply',**options)['status']=='COMPACTED'
     assert len(calls)==1
+
+
+def test_source_qualified_native_operator_preserves_failed_live_observation(tmp_path):
+    tool, store, _, options = _operator_fixture(tmp_path)
+    ci=options['ci'];ci.update(conclusion='failure',event='pull_request',path='.github/workflows/ci.yml')
+    ci['source_jobs']=[{'run_id':ci['id'],'name':name,'status':'completed','conclusion':'success'} for name in (
+        'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime','Production image with report runtime')]
+    assert tool.operate(store.root.parent,operation='apply',**options)['status']=='COMPACTED'
+    assert ci['conclusion']=='failure'
+    assert tool.operate(store.root.parent,operation='rollback',**options)['status']=='ROLLED_BACK'
 
 
 def test_installed_reader_behavior_probe_requires_compacted_word_context(tmp_path):

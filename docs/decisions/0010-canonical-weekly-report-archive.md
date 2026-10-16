@@ -125,3 +125,21 @@ backup. Это условие доказанной восстанавливае�
 этот же объект через внутренний callback; внешнего входа с готовым планом нет.
 Read-only preview может получить итоговую revision от того же preflight;
 actual apply всегда сравнивает явную ожидаемую revision до изменения данных.
+
+### Квалификация инструмента и проверка установленного приложения
+
+CI38894166136 дляb6dc вновь получил live43 READ_UNAVAILABLE/METRIC_READ
+TimeoutError. Maintenance tool ещё не установлен; общий failed CI не становится
+успешным. Допуск public maintenance source использует тот же канонический
+`.github/ci/source_ci_gate.py`, что controlled release: три обязательных exact
+PR-SHA задания исходников/engine/native-image должны завершиться SUCCESS.
+Аутентифицированный job сохраняет исходный run вместе с фактически полученными
+jobs этого run, без подмены conclusion. Native CLI проверяет тот же критерий,
+source helper включён в полный transport hash; root executor сверяет его с
+уже pinned каноническим helper. Полный green CI остаётся допустимым прежним
+свидетельством. Failed source/не тот SHA/не тот job/run не допускаются.
+
+Доступность actual43, exact source hashes, reader behavior, capacity, backup
+coverage/restore, locked plan, recovery и независимый finalize остаются
+отдельными обязательными gates. Source qualification не является приёмкой UI,
+установленного приложения, новой публикации или разрешением на очистку.

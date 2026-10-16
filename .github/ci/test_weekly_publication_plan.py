@@ -118,6 +118,28 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
             self.assertFalse((published / '.retirement').exists())
 
+    def test_maintenance_source_qualification_uses_actual_same_run_jobs(self):
+        tool=self.load_tool();sha='a'*40
+        ci={'id':42,'head_sha':sha,'name':'CI','status':'completed','conclusion':'failure',
+            'event':'pull_request','path':'.github/workflows/ci.yml','head_repository':{'full_name':'gaben1488/dash'},
+            'source_jobs':[{'run_id':42,'name':name,'status':'completed','conclusion':'success'} for name in (
+                'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime','Production image with report runtime')]}
+        tool._require_candidate_ci(sha,ci)
+        self.assertEqual(ci['conclusion'],'failure','Source qualification does not rewrite overall CI')
+        for failure in ('sha','path','repository','run','failed','pending','missing','duplicate','declared_green'):
+            bad=json.loads(json.dumps(ci))
+            if failure=='sha':bad['head_sha']='b'*40
+            if failure=='path':bad['path']='.github/workflows/other.yml'
+            if failure=='repository':bad['head_repository']['full_name']='other/dash'
+            if failure=='run':bad['source_jobs'][0]['run_id']=43
+            if failure in ('failed','declared_green'):bad['source_jobs'][0]['conclusion']='failure'
+            if failure=='declared_green':bad['conclusion']='success'
+            if failure=='pending':bad['source_jobs'][0]['status']='in_progress'
+            if failure=='missing':bad['source_jobs'].pop()
+            if failure=='duplicate':bad['source_jobs'].append(bad['source_jobs'][0])
+            with self.subTest(failure=failure),self.assertRaisesRegex(ValueError,'EXACT_CANDIDATE_CI_REQUIRED'):
+                tool._require_candidate_ci(sha,bad)
+
     def test_publication_root_symlink_is_rejected_before_resolution(self):
         tool = self.load_tool()
         from procurement_engine.publication_store import PublicationStore

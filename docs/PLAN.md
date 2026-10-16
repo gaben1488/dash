@@ -14,6 +14,15 @@ PASS, общий CI отказал на live43 READ_UNAVAILABLE/METRIC_READ. Nat
 v1 hash replay38887010993 PASS:356950016B process/19884349B serialization
 peak. Это не доказательство памяти всего plan/apply.
 
+Следующий sourceb6dc7944 проверен1105 engine и12CLI; отдельный последующий
+qualification patch имеет13CLI/3canonical-gate/
+86store tests PASS. Все три source/native заданияb6 CI38894166136 SUCCESS;
+общий CI FAIL на GET установленного43 (4 READ_UNAVAILABLE/METRIC_READ).
+Повтор old-live check радиgreen не запускается. ADR010 уточняет отдельную
+source qualification по каноническому gate, без подмены conclusion; same-run
+jobs и helper bytes входят в authenticated receipt. Native actual43/backup/
+recovery/independent readback остаются обязательны. Новый tool не установлен.
+
 Законченный участок identity: copy-only38889251691 PASS2snapshots/8126rows/
 16252 nullable signatures, protected digest unchanged. Первая попытка live
 38890817567 остановилась на занятом worker run.lock до connect/write.

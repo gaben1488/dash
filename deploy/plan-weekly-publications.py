@@ -104,9 +104,22 @@ def _require_candidate_ci(candidate, ci):
     import re
     if (not re.fullmatch(r'[a-f0-9]{40}', candidate or '')
             or ci.get('head_sha') != candidate or ci.get('status') != 'completed'
-            or ci.get('conclusion') != 'success'
             or ci.get('name') != 'CI'
             or (ci.get('head_repository') or {}).get('full_name') != 'gaben1488/dash'):
+        raise ValueError('EXACT_CANDIDATE_CI_REQUIRED')
+    if 'source_jobs' not in ci:
+        if ci.get('conclusion') == 'success':
+            return  # Previously qualified full-green evidence stays readable.
+        raise ValueError('EXACT_CANDIDATE_CI_REQUIRED')
+    import importlib.util
+    helper = Path(__file__).resolve().parents[1] / '.github/ci/source_ci_gate.py'
+    spec = importlib.util.spec_from_file_location('canonical_source_ci_gate', helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    jobs = ci['source_jobs']
+    if (type(ci.get('id')) is not int or ci['id'] <= 0 or not isinstance(jobs, list)
+            or any(not isinstance(job, dict) or job.get('run_id') != ci['id'] for job in jobs)
+            or not module.source_ci_passed(ci, jobs, candidate)):
         raise ValueError('EXACT_CANDIDATE_CI_REQUIRED')
 
 
@@ -125,7 +138,7 @@ def candidate_source_receipt(repo, candidate, ci, *, derivation_run_id):
         raise ValueError('TRUSTED_CANDIDATE_JOB_RECEIPT_REQUIRED')
     repo = Path(repo)
     head = subprocess.run(['git','-C',str(repo),'rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()
-    paths = ['deploy/plan-weekly-publications.py','deploy/stateful_backup.py',
+    paths = ['deploy/plan-weekly-publications.py','deploy/stateful_backup.py','.github/ci/source_ci_gate.py',
              'packages/report-engine/src/procurement_engine']
     if head != candidate or subprocess.run(['git','-C',str(repo),'diff','--quiet',candidate,'--',*paths],check=False).returncode:
         raise ValueError('EXACT_CANDIDATE_SOURCE_REQUIRED')
@@ -161,7 +174,7 @@ def validate_operator_runtime(candidate, ci, reader_package, source_receipt=None
         expected_transport = source_receipt.get('file_hashes')
         actual_transport = {p.relative_to(repo).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in (repo / 'packages/report-engine/src/procurement_engine').rglob('*.py')}
-        for name in ('deploy/plan-weekly-publications.py', 'deploy/stateful_backup.py'):
+        for name in ('deploy/plan-weekly-publications.py', 'deploy/stateful_backup.py', '.github/ci/source_ci_gate.py'):
             actual_transport[name] = hashlib.sha256((repo / name).read_bytes()).hexdigest()
         if expected_transport != actual_transport:
             raise ValueError('EXACT_CANDIDATE_SOURCE_REQUIRED')

@@ -119,6 +119,7 @@ jobs:
           sudo python3 .github/ci/test_release_recovery.py
           sudo python3 .github/ci/test_release_controller.py
           python .github/ci/test_weekly_identity_proof.py
+          python .github/ci/test_weekly_publication_plan.py
       - name: Private installer ownership tests on actual root
         # Hosted Ubuntu restricts unprivileged user namespaces. These fixtures
         # rewrite every host path and exercise root ownership without a skip.
