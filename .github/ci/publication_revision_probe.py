@@ -9,13 +9,19 @@ from contextlib import closing
 from pathlib import Path
 
 
-def revision_summary(database, reference, revision):
+def reference_ids(reference):
     keep=reference['keep_release_ids'];targets=reference['retire_release_ids']
     ids=keep+targets
     if (not 0<len(ids)<=256 or len(set(ids))!=len(ids)
             or any(not isinstance(value,str) or not re.fullmatch('REL-[a-f0-9]{64}',value) for value in ids)
             or not re.fullmatch('[a-f0-9]{64}',reference['catalog_revision'])):
         raise ValueError('REFERENCE_INVALID')
+    return ids
+
+
+def revision_summary(database, reference, revision):
+    ids=reference_ids(reference)
+    keep=reference['keep_release_ids'];targets=reference['retire_release_ids']
     deadline=time.monotonic()+150
     with closing(sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
         db.execute('PRAGMA query_only=ON')
@@ -38,10 +44,45 @@ def revision_summary(database, reference, revision):
             'serialization_peak_bytes':peak,'process_peak_bytes':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024}
 
 
+def identity_gap_summary(state,reference):
+    reference_ids(reference)
+    targets=reference['retire_release_ids']
+    if not targets:return {'target_snapshots':0,'missing_signatures':0,'missing_snapshots':0},[]
+    deadline=time.monotonic()+150
+    def reader(path):
+        db=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
+        db.execute('PRAGMA query_only=ON')
+        db.set_progress_handler(lambda:int(time.monotonic()>deadline),1000)
+        db.execute('BEGIN')
+        return db
+    with closing(reader(Path(state)/'published/publications.sqlite')) as db:
+        mapping=db.execute('SELECT release_id,json_extract(receipt,\'$.snapshot_id\') FROM publications WHERE release_id IN ('+
+                           ','.join('?' for _ in targets)+')',targets).fetchall()
+    if len(mapping)!=len(targets) or any(not isinstance(sid,str) or not sid for _,sid in mapping):
+        raise ValueError('TARGET_SNAPSHOT_REFERENCE_MISSING')
+    snapshots=sorted({sid for _,sid in mapping})
+    private=[]
+    with closing(reader(Path(state)/'identity.sqlite')) as db:
+        for sid in snapshots:
+            count,plan,entity=db.execute('SELECT count(*),sum(plan_signature IS NULL),sum(entity_signature IS NULL) '
+                                        'FROM observations WHERE snapshot_id=?',(sid,)).fetchone()
+            if not count or plan or entity:
+                private.append({'snapshot_id':sid,'release_ids':[rid for rid,snapshot in mapping if snapshot==sid],
+                                'observations':count,'missing_plan':plan or 0,'missing_entity':entity or 0})
+    return {'target_snapshots':len(snapshots),'affected_snapshots':len(private),
+            'missing_plan':sum(v['missing_plan'] for v in private),'missing_entity':sum(v['missing_entity'] for v in private),
+            'missing_snapshots':sum(v['observations']==0 for v in private),'atomic':False},private
+
+
 if __name__=='__main__':
+    import sys
     # The authenticated job prepends the actual reviewed function from exact
     # main1666 source. This diagnostic does not maintain a copy of its logic.
     method=globals()['_catalog_revision']
     reference=json.loads(Path('/reference.json').read_text())
-    print(json.dumps({'publication_revision_replay':revision_summary(
-        '/app/packages/server/data/reports/published/publications.sqlite',reference,method)},sort_keys=True))
+    if sys.argv[1]=='identity':
+        summary,private=identity_gap_summary('/app/packages/server/data/reports',reference)
+        print(json.dumps({'identity_signature_gaps':summary,'private_signature_gaps':private},sort_keys=True))
+    else:
+        print(json.dumps({'publication_revision_replay':revision_summary(
+            '/app/packages/server/data/reports/published/publications.sqlite',reference,method)},sort_keys=True))

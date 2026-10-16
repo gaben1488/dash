@@ -45,5 +45,23 @@ class RevisionProbeTests(unittest.TestCase):
             with self.subTest(scenario=scenario),self.assertRaises(ValueError):
                 self.module.revision_summary(self.database,reference,_catalog_revision)
 
+    def test_identity_gaps_remain_bound_to_exact_retirement_targets(self):
+        state=Path(self.temp.name);published=state/'published';published.mkdir()
+        with sqlite3.connect(published/'publications.sqlite') as db:
+            db.execute('CREATE TABLE publications(release_id TEXT PRIMARY KEY,receipt TEXT)')
+            db.executemany('INSERT INTO publications VALUES (?,?)',
+                           [(self.rows[0][0],json.dumps({'snapshot_id':'kept'})),
+                            (self.rows[1][0],json.dumps({'snapshot_id':'target'}))])
+        with sqlite3.connect(state/'identity.sqlite') as db:
+            db.execute('CREATE TABLE observations(snapshot_id TEXT,plan_signature TEXT,entity_signature TEXT)')
+            db.executemany('INSERT INTO observations VALUES (?,?,?)',[('kept',None,None),('target',None,'known')])
+        before=(state/'identity.sqlite').read_bytes()
+        summary,private=self.module.identity_gap_summary(state,self.reference)
+        self.assertEqual(summary,{'target_snapshots':1,'affected_snapshots':1,'missing_plan':1,
+                                  'missing_entity':0,'missing_snapshots':0,'atomic':False})
+        self.assertEqual(private[0]['snapshot_id'],'target')
+        self.assertEqual(private[0]['release_ids'],self.reference['retire_release_ids'])
+        self.assertEqual((state/'identity.sqlite').read_bytes(),before)
+
 
 if __name__=='__main__':unittest.main()
