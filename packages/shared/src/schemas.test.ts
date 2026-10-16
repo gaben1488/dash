@@ -37,6 +37,7 @@ import {
   IssueSeveritySchema,
   TrustGradeSchema,
   DashboardDataSchema,
+  DataSnapshotSchema,
   DepartmentSummarySchema,
   SelectedReportReleaseStatusSchema,
 } from './schemas.js';
@@ -428,4 +429,15 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
       }).success).toBe(false);
     }
   });
+});
+
+
+it('preserves captured scope and transient read state at the snapshot boundary without requiring them in legacy payloads', () => {
+  const metadata = { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 };
+  for (const state of ['refreshing', 'stale'] as const) {
+    const wire = { ...metadata, targetYear: 2026, readModel: { state } };
+    expect(DataSnapshotSchema.shape.metadata.parse(wire)).toEqual(wire);
+  }
+  expect(DataSnapshotSchema.shape.metadata.parse(metadata)).toEqual(metadata);
+  expect(DataSnapshotSchema.shape.metadata.safeParse({ ...metadata, readModel: { state: 'complete' } }).success).toBe(false);
 });

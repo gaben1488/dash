@@ -5,46 +5,70 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 14:18 UTC
+### Текущий выпуск — 16.10.2026, 14:53 UTC
 
-**Установлен `83b813ab`. Эксплуатационная приёмка этой версии завершена.**
+**Установлен `83b813ab`; его restore, два цикла и перечисленные браузерные
+сценарии приняты. Новая расширенная проверка обнаружила отдельный отказ
+чтения API; полная мобильная/продуктовая приёмка остаётся открыта.**
 Это не закрывает весь реестр 56 результатов.
 
 - [Выпуск38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150):
-  свежий checkpoint 21 244 275 001 B, архив 3 222 981 097 B; два независимых
-  restore с новым/предыдущим приложением, 111 SQLite и 266 DOCX в каждом.
+  checkpoint 21 244 275 001 B, архив 3 222 981 097 B; два независимых restore
+  с новым/предыдущим приложением, 111 SQLite и 266 DOCX в каждом.
   Exact-SHA API/Word и public health PASS в13:43UTC.
 - [Observer38906488066](https://github.com/gaben1488/dash/actions/runs/38906488066)
   SUCCESS14:07:36UTC: fe8f4e61 13:43:56–13:47:35; 8a1cf915
   14:03:04–14:06:20UTC. Оба VERIFIED_WITH_WARNINGS, RUNNING/double host FLOCK,
   context/snapshot/три Word после каждого. Интервал929,661с≥900; noOOM/noRestart.
-  1638 sealed entries неизменны. Исторические модели:8v2/1absent/0invalid,
-  current selected HTTP200/PASS; полный retained readback99dashboard/249Word
-  подтверждён отдельно. Metadata38913742654 независимо связала оба attempt.
+  1638 sealed entries неизменны. Исторические модели:8v2/1absent/0invalid;
+  current selected HTTP200/PASS. Metadata38913742654 независимо связала попытки.
 - Desktop38910751084 и iPhone/WebKit touch38911238949 PASS:13разделов,
-  три вкладки журнала и три Word. iPhone также: единицы, способ, деятельность,
-  бюджеты, тема, поиск, popover. **Не вся U01–U07:** права, сохранение решений,
-  сложные таблицы и все периоды требуют отдельной приёмки. Календарь/Undo
-  прошли actual Header на Chromium touch; production WebKit проверяется отдельно.
+  три вкладки журнала/Word; iPhone — единицы, способы, деятельность, бюджеты,
+  тема, поиск и popover. **Расширенный календарь/Undo38914580133 FAIL на
+  dashboard_response/TimeoutError ДО действий.** Live consumer38914725430
+  также FAIL на чтении; три source jobs8488f1b2 PASS не делают весь CI зелёным.
+  Старые браузерные доказательства сохраняются только для проверенных сценариев.
+- Причина ожидания воспроизведена deferred-source тестом: обычный
+  `getSnapshot(false)` после invalidation ждёт импорт/расчёты/SQLite.
+  Ограниченное исправление в работе по [ADR0012](decisions/0012-bounded-dashboard-read-model.md):
+  пригодный материализованный срез того же периметра, исходное время,
+  явная refreshing/stale metadata и общие HTTP headers проекций; один background
+  import, bounded memoization, generation fence. Чужой год/демо/нули не подставляются.
+  Навигация не запускает force-import; UI не гасит события до готового среза и
+  не скачивает тяжёлый ответ каждые2с, учитывает опережающее SSE.
+  **Ещё не установлено; новые cold/API/WebKit доказательства обязательны.**
+  Локально: shared737/core1869(+1skip)/server1012/web2301, lint0errors/303warnings,
+  tsc четырёх пакетов и production build PASS. Независимый review выявил SSE race;
+  воспроизведён и исправлен приоритетом нового события, regression PASS.
+- [Frozen replay38914725365](https://github.com/gaben1488/dash/actions/runs/38914725365):
+  current replay/independent audit/two rebuilt DOCX PASS; weekly archive FAIL
+  и на installed engine, и на candidate: UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN.
+  Это отдельная непроверенная полнота зависимостей сохранённой недели, не
+  доказательство повреждения истории. Начата read-only диагностика причины;
+  gate не ослаблен, существующий архив не изменяется. Native read-only38919215019/38919864786:
+  все3ошибки — unknown:REF, потерянных registered targets нет. Это сохранённые
+  некорректные ссылки, не role/filter loss. Source-schema/runtime PASS.
 - Storage:99выпусков/249Word/99dashboard сохранены,92уплотнены,7защищены.
   Pre38903432153/finalize38904202760/post38905123990 PASS; освобождено
   **12 001 247 232 B физических блоков**. Regular retention не включена.
-  Последний free≈18 210 623 488 B — не освобождённый объём.
-- Cold dashboard по startup-log38912109192:18 797,838мс с pipeline/save;
-  повтор3795,376мс. Ordinary GET38911784923:3,834/3,561с,12 298 373B.
-  Timeout не увеличен; скорость ещё улучшать. Warm не выдаётся за cold.
+  Последний free≈18 210 623 488 B — отдельный исторический замер.
+- Cold83 по startup-log38912109192:18 797,838мс; повтор3795,376мс.
+  Ordinary38911784923:3,834/3,561с,12 298 373B. Новые тайм-ауты не скрываются
+  за этими успешными измерениями; timeout не увеличен.
 
-**Следующий законченный участок — C06/K01/K02/U06:** сохранение решения
-сотрудника → повторное чтение → единые статусы/объяснение KPI/история,
-с проверкой оставшихся мобильных действий. Writer-fix `a80ae142` уже в коде:
-identical retry200/replayed без новой истории, changed5fields/nohistory409,
-blankreason400. Targeted14/full server1004/shared736/core1869(+1skip)/web2297,
-lint0errors/303warnings и tsc PASS; independent review PASS. **Не установлен.**
-`43b1ac8e` переносит actual-browser transport/touch guards в обычный source CI;
-это проверочная инфраструктура, не новая установка UI. Exact CI новой точки
-обязателен. Приёмку83/backup/restore/storage без новой причины не повторять.
-Все56, employee cases/KPI/productjournal, K07–K10, Apps Script/Figma и
-архитектурные вертикали сохраняют свои незавершённые обязательства ниже.
+**Конечный состав ближайшего исправления:** ограниченное чтение API + уже
+реализованный writer-fix `a80ae142` (identical retry без дублирования истории,
+changed5fields/nohistory409, blankreason400), exact-source gates, разрешённая
+установка и API/WebKit readback. Недельный replay требует установить причину
+его отдельного отказа; повтор прежнего ожидания не является исправлением.
+`43b1ac8e` сделал actual-browser transport/touch guards частью source CI;
+это оснастка, не новая установка UI. Принятые проверки83 не повторять без причины.
+
+После этого — законченный C06/K01/K02/U06: решение сотрудника → повторное
+чтение → единые статусы/объяснение KPI/история/журнал, включая остальные мобильные
+действия. Все56, employee cases, K07–K10, Apps Script/Figma и архитектурные
+вертикали сохраняют незавершённые обязательства ниже; проценты готовности
+без пересверки матрицы не заявляются.
 
 <details>
 <summary>Доказательства принятого обслуживания хранения и устранённых препятствий</summary>

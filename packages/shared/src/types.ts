@@ -504,6 +504,8 @@ export interface DataSnapshot {
     pipelineDurationMs: number;
     /** Явный год среза: null = все годы; отсутствие = старый снимок без доказанного scope. */
     targetYear?: number | null;
+    /** HTTP-only read state; original captured time and stored evidence stay unchanged. */
+    readModel?: { state: 'refreshing' | 'stale' };
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */
     perSheetRowCount?: Record<string, number>;
   };

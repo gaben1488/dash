@@ -5,6 +5,7 @@ import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { db, schema } from '../db/index.js';
+import { recordSnapshotRead, snapshotReadContext } from './snapshot-read-context.js';
 import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
 import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
@@ -17,7 +18,22 @@ import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
-const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number }>();
+const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
+// Three calendar years in the UI plus the all-years view; old scopes remain in SQLite.
+const MAX_CACHED_SNAPSHOT_SCOPES = 4;
+let cacheGeneration = 0;
+
+function readState(snapshot: PipelineSnapshot, state: 'refreshing' | 'stale'): PipelineSnapshot {
+  return { ...snapshot, metadata: { ...snapshot.metadata, readModel: { state } } };
+}
+
+function rememberSnapshot(key: number, snapshot: PipelineSnapshot, timestamp: number): void {
+  cachedSnapshots.delete(key);
+  cachedSnapshots.set(key, { snapshot, timestamp, generation: cacheGeneration });
+  while (cachedSnapshots.size > MAX_CACHED_SNAPSHOT_SCOPES) {
+    cachedSnapshots.delete(cachedSnapshots.keys().next().value!);
+  }
+}
 
 /**
  * In-flight load memo per cache key (targetYear/0). Без него параллельные
@@ -430,32 +446,51 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
 
   const cached = cachedSnapshots.get(cacheKey);
   if (!force && cached && (now - cached.timestamp) < ttl) {
-    return cached.snapshot;
+    return recordSnapshotRead(cached.snapshot);
   }
 
-  // Дедуп конкурентных загрузок: если для этого cacheKey уже идёт createSnapshot(),
-  // все параллельные caller'ы дожидаются ОДНОГО общего промиса вместо запуска своего
-  // (иначе — TOCTOU-гонка, дублирующая полную перечитку всех листов, B-9).
+  // Reading a page must not await Google, calculations, persistence and pruning.
+  // Keep the last proven scope; its createdAt remains the actual captured time.
+  if (!force && !isDemoMode) {
+    const needsStorageRead = !cached || cached.generation !== cacheGeneration;
+    const previous = needsStorageRead
+      ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
+      : cached.snapshot;
+    if (previous && needsStorageRead) rememberSnapshot(cacheKey, previous, 0);
+    if (!inFlightLoads.has(cacheKey)) {
+      void snapshotReadContext.exit(() => getSnapshot(true, year)).catch((error: unknown) => {
+        logSourceProblem('Фоновая сборка снимка не завершена', {
+          reason: classifySourceFailure(error instanceof Error ? error.message : String(error)),
+        });
+      });
+    }
+    if (previous) return recordSnapshotRead(readState(previous, 'refreshing'));
+    throw Object.assign(new Error('Срез этого периода ещё готовится. Повторите чтение после обновления.'),
+      { code: 'SNAPSHOT_NOT_READY', statusCode: 503 });
+  }
+
   const inFlight = inFlightLoads.get(cacheKey);
-  if (inFlight) {
-    return inFlight;
-  }
-
+  if (inFlight) return recordSnapshotRead(await inFlight);
+  const generation = cacheGeneration;
   const loadPromise = (async () => {
     try {
       const snapshot = await createSnapshot(year);
+      // An invalidation while loading cannot become a falsely fresh cache hit.
+      const changedDuringLoad = generation !== cacheGeneration;
+      const result = changedDuringLoad && !snapshot.metadata.readModel
+        ? readState(snapshot, 'refreshing') : snapshot;
       if (!snapshot.id.startsWith('demo-')) {
-        cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
+        // A failed import keeps its explicit stale state for the normal retry interval.
+        rememberSnapshot(cacheKey, result, changedDuringLoad && result.metadata.readModel?.state !== 'stale' ? 0 : Date.now());
       }
-      announceSnapshot(snapshot, year ?? null);
-      return snapshot;
+      announceSnapshot(result, year ?? null);
+      return result;
     } finally {
       inFlightLoads.delete(cacheKey);
     }
   })();
-
   inFlightLoads.set(cacheKey, loadPromise);
-  return loadPromise;
+  return recordSnapshotRead(await loadPromise);
 }
 
 /**
@@ -712,7 +747,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
           snapshotId: last.id,
           createdAt: last.createdAt,
         });
-        return last;
+        return readState(last, 'stale');
       }
       throw error;
     }
@@ -730,9 +765,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
 /**
  * Последний сохранённый настоящий снимок из SQL — фолбэк на сбой источника при
  * настроенных кредах. Просматриваем несколько последних строк: повреждённый
- * data-JSON не должен лишать продукт более старого целого снимка. Снимок может
- * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
- * отличие от демо-генератора.
+ * data-JSON не должен лишать продукт более старого целого снимка. Периметр должен точно
+ * совпадать с запрошенным: чужой год или all-years не являются заменой.
  */
 function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
@@ -747,8 +781,9 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
       ))
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)
-      .all();
-    for (const row of rows) {
+      .toSQL();
+    for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
+      const row = raw as { data: string | null };
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
@@ -1120,5 +1155,6 @@ export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
 }
 
 export function invalidateCache(): void {
-  cachedSnapshots.clear();
+  cacheGeneration++;
+  for (const entry of cachedSnapshots.values()) entry.timestamp = 0;
 }

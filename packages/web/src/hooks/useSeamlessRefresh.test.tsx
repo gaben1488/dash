@@ -252,3 +252,35 @@ it('не гасит разные события с одинаковым врем
   await act(async () => { resolve(dashboard('same-event-time', 2026)); });
   expect(acknowledge).not.toHaveBeenCalled();
 });
+
+
+it.each(['refreshing', 'stale'] as const)('does not acknowledge a source update while the returned read model is %s', async (state) => {
+  const data = { year: 2026, lastRefreshed: '2026-10-16T01:00:00Z', snapshot: {
+    id: 'previous-materialized', officialMetrics: {}, spreadsheetId: 'ss', metadata: { readModel: { state } },
+  } };
+  getDashboard.mockResolvedValue(data);
+  setNews(true); vi.useFakeTimers();
+  renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('previous-materialized');
+  await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+  expect(getDashboard).toHaveBeenCalledTimes(1);
+});
+
+
+it('catches up once when materialization finishes before an older refreshing HTTP response arrives', async () => {
+  let resolve!: (value: unknown) => void;
+  getDashboard.mockReturnValueOnce(new Promise(yes => { resolve = yes; })).mockResolvedValue(dashboard('completed', 2026));
+  setNews(true); vi.useFakeTimers();
+  const view = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => { liveState.current = { ...(liveState.current as Record<string, unknown>), lastEventAt: '2026-08-21T05:00:01.000Z' }; view.rerender(); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  await act(async () => { resolve({ year: 2026, snapshot: { id: 'previous', metadata: { readModel: { state: 'refreshing' } } } }); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_001); });
+  expect(getDashboard).toHaveBeenCalledTimes(2);
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('completed');
+  expect(acknowledge).toHaveBeenCalledOnce();
+});

@@ -14,7 +14,7 @@ import {
   DisciplinePage, MonitoringPage, Analytics, QualityPage, SettingsPage, PageSkeleton,
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
-import { LiveUpdateBar } from './components/live/LiveUpdateBar';
+import { LiveUpdateBar, SnapshotFreshnessNotice } from './components/live/LiveUpdateBar';
 import { setKBRegistry } from './components/ui/kb-tooltip';
 import { STANDARD_METRICS } from './lib/metrics-registry';
 
@@ -130,7 +130,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 /* ── App ───────────────────────────────────────────────── */
 
 export function App() {
-  const { page, year, fetchDashboard, fetchSubordinates } = useStore();
+  const { page, year, dashboardData, fetchDashboard, fetchSubordinates } = useStore();
   useThemeInit();
   useUrlSync();
 
@@ -149,7 +149,7 @@ export function App() {
       isFirstRender.current = false;
       return;
     }
-    fetchDashboard(true);
+    fetchDashboard();
   }, [year, fetchDashboard]);
 
   const renderPage = () => {
@@ -212,6 +212,7 @@ export function App() {
                 распирала строку и не выдавливала полосу организаций за край. */}
             <main id="main-content" tabIndex={-1} data-page={page} style={pageDawnStyle(page)} className="page-context flex-1 min-w-0 overflow-y-auto">
               <div className="max-w-[1400px] mx-auto p-6">
+                {page !== 'report' && <SnapshotFreshnessNotice snapshot={dashboardData?.snapshot} />}
                 <ErrorBoundary resetKey={page} scope="раздел">
                   {/* Пока файл раздела едет по сети, на его месте стоит скелет
                       той же формы — экран не прыгает, когда раздел появился. */}

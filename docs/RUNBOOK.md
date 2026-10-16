@@ -17,7 +17,7 @@ Expected endpoints:
 
 ## Verification
 
-На 16.10.2026, 14:13 UTC установлен `83b813ab` (PR #79).
+На 16.10.2026, 14:53 UTC установлен `83b813ab` (PR #79).
 [Выпуск 38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150)
 прошёл свежий checkpoint и два независимых restore: 111 SQLite и 266 DOCX
 в каждом; API/worker `sha256:9aa3c5eb…`, web `sha256:18efa368…`.
@@ -34,6 +34,14 @@ Expected endpoints:
 единицы/способ/деятельность/бюджет/тему/поиск и popover. Сохранение решений,
 права, все периоды, Undo и сложные таблицы этим не приняты.
 Cold dashboard по журналу запуска — 18,798 с; обычные GET — 3,834/3,561 с.
+
+Последующая расширенная WebKit-проверка38914580133 отказала на чтении dashboard
+до календарных действий; live consumer38914725430 также получил timeout.
+Принятые сценарии выше не доказывают стабильную задержку каждого GET.
+Причина ожидания импорта воспроизведена; ADR0012/read model fix ещё не установлен.
+Frozen rehearsal38914725365 прошёл current replay, но weekly replay обоих
+engine отказал UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN. Не повторять сборки без
+диагноза зависимости и не объявлять историческую совместимость полностью закрытой.
 
 Storage: pre-readback38903432153, finalize38904202760, независимый
 post-readback38905123990 PASS. Все 99 выпусков/249 Word/99 dashboard сохранены,

@@ -50,6 +50,7 @@ import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
+import { registerSnapshotReadState } from './plugins/snapshot-read-state.js';
 import { registerDemoMarker } from './plugins/demo-marker.js';
 import { registerErrorShape, sendNotFound } from './plugins/error-shape.js';
 import { registerHttpCache } from './plugins/http-cache.js';
@@ -172,6 +173,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     crossOriginEmbedderPolicy: false,
   });
 
+  registerSnapshotReadState(app);
   installProcessGuards(app.log);
 
   // Журнал обращений к таблицам-источникам — в журнал приложения.

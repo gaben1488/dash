@@ -36,7 +36,7 @@ import { setOfficialProvenance } from '../lib/provenance-registry';
 import { acknowledgeLiveEvents, getLiveState, useLiveEvents } from './useLiveEvents';
 
 /** Почему тихая подмена сейчас невозможна. `null` — можно. */
-export type SwapBlocker = 'ввод' | 'выделение' | 'диалог' | 'вкладка-скрыта' | 'идёт-загрузка';
+export type SwapBlocker = 'ввод' | 'выделение' | 'диалог' | 'вкладка-скрыта' | 'идёт-загрузка' | 'сервер-считает';
 
 /** Человеческое объяснение помехи — для полосы оповещения. */
 export const BLOCKER_WORDS: Record<SwapBlocker, string> = {
@@ -45,6 +45,7 @@ export const BLOCKER_WORDS: Record<SwapBlocker, string> = {
   'диалог': 'открыто окно',
   'вкладка-скрыта': 'вкладка не на виду',
   'идёт-загрузка': 'уже идёт обновление',
+  'сервер-считает': 'сервер завершает расчёты',
 };
 
 /** Правится ли что-то прямо сейчас: поле ввода в фокусе. */
@@ -184,13 +185,17 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
       if (mine !== seq.current) return;
       if (applySnapshotSilently(data, year, requestVersion)) {
         // Ответ покрывает прежнее событие; более новое уведомление не гасим.
-        if (getLiveState() === eventReading) {
+        const readState = data.snapshot.metadata?.readModel?.state;
+        if (getLiveState() !== eventReading) {
+          // A completed build may overtake this older HTTP response. Catch up once.
+          setWaitingBecause('идёт-загрузка');
+        } else if (readState) {
+          setWaitingBecause(readState === 'refreshing' ? 'сервер-считает' : null);
+        } else {
           acknowledgeLiveEvents();
           setWaitingBecause(null);
-        } else {
-          setWaitingBecause('идёт-загрузка');
         }
-        setFailed(false);
+        setFailed(data.snapshot.metadata?.readModel?.state === 'stale');
       } else if (hasPendingNews()) {
         // Обычное чтение успело завершиться: не теряем отложенную перечитку.
         setWaitingBecause('идёт-загрузка');
@@ -217,7 +222,7 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
 
   // Помеха исчезла — новые числа встают на место сами, без нажатия.
   useEffect(() => {
-    if (!enabled || waitingBecause === null) return;
+    if (!enabled || waitingBecause === null || waitingBecause === 'сервер-считает') return;
     const retry = (): void => {
       if (!hasPendingNews()) {
         setWaitingBecause(null);

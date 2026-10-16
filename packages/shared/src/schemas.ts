@@ -275,6 +275,8 @@ export const DataSnapshotSchema = z.object({
     cellsRead: z.number().int(),
     readDurationMs: z.number(),
     pipelineDurationMs: z.number(),
+    targetYear: z.number().int().nullable().optional(),
+    readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
     perSheetRowCount: z.record(z.string(), z.number()).optional(),
   }),
 });
