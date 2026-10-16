@@ -14,7 +14,7 @@ class DeploymentScopeTests(unittest.TestCase):
         self.assertIn('Refuse superseded deployment path', first_step[1])
         script = first_step[1].split('        run: |\n', 1)[1]
         script = '\n'.join(line.removeprefix('          ') for line in script.splitlines())
-        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), 'RELEASE_REQUIRES_CONTROLLED_CANDIDATE_WORKFLOW')
 
@@ -113,8 +113,8 @@ if(url.includes("dashboard")&&scenario==="large_dashboard")data.privatePadding="
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] / "workflows" /
                     "report-rehearsal.yml").read_text()
-        shell = workflow.split('# Startup success is insufficient: observe a later timer attempt.', 1)[1]
-        shell = shell.split('started=$(docker inspect', 1)[0]
+        shell = workflow.split('# The installed worker must be present;', 1)[1]
+        shell = '#' + shell  # Restore the comment prefix after the boundary marker.
         for status, reason in [(0, 'RUNNING_REPORT_WORKER_NOT_FOUND'),
                                (2, 'REPORT_WORKER_LOOKUP_FAILED')]:
             with self.subTest(status=status):
@@ -124,8 +124,16 @@ if(url.includes("dashboard")&&scenario==="large_dashboard")data.privatePadding="
                     text=True, capture_output=True, timeout=5, check=False)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertTrue(result.stdout.strip(), 'Lookup failure lost its blocker diagnostic')
-                self.assertEqual(json.loads(result.stdout)['scheduled_worker_cycle'],
+                self.assertEqual(json.loads(result.stdout)['installed_worker_process'],
                                  {'status': 'BLOCKED', 'reason': reason})
+        # An available worker can be between or inside cycles. Frozen replay
+        # must not poll a transient RUNNING status or claim cycle acceptance.
+        result = subprocess.run(['bash', '-c', 'set -euo pipefail\n'
+            + 'docker() { printf "%s\\n" running-worker-id; }\n' + shell],
+            text=True, capture_output=True, timeout=5, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'worker_acceptance': {
+            'status': 'NOT_RUN', 'reason': 'REQUIRES_EXACT_DEPLOYED_CANDIDATE_TWO_CYCLES'}})
 
     def test_workflow_script_bodies_cannot_escape_yaml_blocks(self):
         import re

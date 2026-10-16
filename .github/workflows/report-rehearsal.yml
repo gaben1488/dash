@@ -601,6 +601,16 @@ jobs:
               -e CANDIDATE_WEEKLY="$candidate_weekly" \
               --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json,os,sys; from procurement_engine.rehearsal_policy import compare_weekly_replay; baseline=json.loads(os.environ["BASELINE_WEEKLY"]); candidate=json.loads(os.environ["CANDIDATE_WEEKLY"]); result=compare_weekly_replay(baseline,candidate); print(json.dumps({"weekly_archive_comparison":result},ensure_ascii=False,sort_keys=True)); sys.exit(0 if result["ready"] else 2)'
+            # The installed worker must be present; this is process availability,
+            # not acceptance of a completed cycle or of the candidate runtime.
+            if ! worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker); then
+              echo '{"installed_worker_process":{"status":"BLOCKED","reason":"REPORT_WORKER_LOOKUP_FAILED"}}'
+              exit 1
+            fi
+            if [ -z "$worker" ]; then
+              echo '{"installed_worker_process":{"status":"BLOCKED","reason":"RUNNING_REPORT_WORKER_NOT_FOUND"}}'
+              exit 1
+            fi
             # A one-shot read of the installed worker may legitimately be RUNNING.
             # It cannot accept automation of this not-yet-installed candidate.
             # Keep worker diagnostics separate; after deployment, require the

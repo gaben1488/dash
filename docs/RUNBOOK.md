@@ -28,6 +28,11 @@ Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/
 Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
 manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
+b6c1da52 CI38943716004 остановился ДО браузера: прежний regression lookup
+ожидал удалённый cycle block. Process-availability guard сохранён отдельно,
+его два отрицательных случая не удалены; добавлен healthy-process/NOT_RUN case.
+Все35deployment-scope и8rehearsal tests PASS; старый b6FAIL сохранён.
+
 Remotea7e0b27e не установлен: CI38941504501 WebKit RAF0/5с даже по HTTP;
 transport/focus-гипотезы отвергнуты. Local headedGTK не исправил touch, отменён.
 Новый bounded initial bitmap с animations=allow сохраняет эффекты и реальные

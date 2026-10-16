@@ -28,6 +28,11 @@ manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Оба restore110SQLite/263DOCX. Keeper:/home/aemr/.dash-private-backups/worker-38927016449/backup.
 Free16714596352B/MemAvailable2588721152B — отдельный замер16:50, не гарантия будущего места.
 
+b6c1da52 CI38943716004 остановился ДО браузера: прежний regression lookup
+ожидал удалённый cycle block. Process-availability guard сохранён отдельно,
+его два отрицательных случая не удалены; добавлен healthy-process/NOT_RUN case.
+Все35deployment-scope и8rehearsal tests PASS; старый b6FAIL сохранён.
+
 Remote `a7e0b27e` включает d158/c4f19, но не установлен. Source CI38941504501
 отказал на WebKit RAF0/5с даже с HTTP fixture: transport/focus-гипотезы не
 подтвердились. JS heartbeat/fonts/visibility/focus исправны. Headed GTK отдельно
