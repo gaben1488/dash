@@ -1116,7 +1116,8 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742'))
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
+        github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -1138,6 +1139,7 @@ jobs:
             import stat
             import subprocess
             from pathlib import Path
+            weekly_only='${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}'
             SERVICES={"/aemr-"+name+"-1":name for name in ("server","web","caddy","report-worker")}
             OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
             def safe_record(value):
@@ -1224,6 +1226,9 @@ jobs:
              group=props.get('ControlGroup','')
              if re.fullmatch('/system.slice/'+re.escape(unit),group):
               root=Path('/sys/fs/cgroup'+group)
+              if (root/'memory.events').is_file():
+               events=dict(line.split() for line in (root/'memory.events').read_text().splitlines())
+               print(json.dumps({'weekly_memory_events':{k:int(v) for k,v in events.items() if k in {'oom','oom_kill','max','high','oom_group_kill'} and v.isdigit()}}),flush=True)
               if (root/'cgroup.procs').is_file():
                pids=(root/'cgroup.procs').read_text().split()
                assert len(pids)<=16
@@ -1544,6 +1549,13 @@ jobs:
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
             def main():
+             if weekly_only=='yes':
+              import shutil
+              weekly_operator_metadata()
+              for category,path in [('host_default','/tmp'),('disk_scratch','/var/lib/aemr/weekly-scratch')]:
+               usage=shutil.disk_usage(path)
+               print(json.dumps({'temporary_filesystem':category,'total':usage.total,'free':usage.free}),flush=True)
+              return
              registry_operator_failure()
              worker_operational_metadata()
              weekly_stage_failure_metadata()
