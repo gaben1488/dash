@@ -1366,6 +1366,31 @@ jobs:
                  values['role']='native_recovery' if b'--watch-owner' in command else 'native_owner'
                  print(json.dumps({'weekly_operator_process':int(pid),**values}),flush=True)
                 except FileNotFoundError:pass
+             ids=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc','--filter','label=aemr.operation=retained-readback'],text=True,timeout=10).split()
+             assert len(ids)<=2 and all(re.fullmatch('[a-f0-9]{64}',v) for v in ids)
+             for identifier in ids:
+              record=json.loads(subprocess.check_output(['docker','inspect','--format','{{json .State}}',identifier],text=True,timeout=10))
+              result={'running':record['Running'],'oom':record['OOMKilled'],'exit':record['ExitCode']}
+              pid=record['Pid']
+              if type(pid) is int and pid>0:
+               groups=(Path('/proc')/str(pid)/'cgroup').read_text().splitlines()
+               group=next((x[3:] for x in groups if x.startswith('0::/')),None)
+               assert group is not None and group.startswith('/') and '..' not in Path(group).parts
+               base=Path('/sys/fs/cgroup')/group.lstrip('/')
+               for name in ('memory.current','memory.peak'):
+                value=(base/name).read_text().strip();assert value.isdigit();result[name]=int(value)
+               for name in ('memory.events','cpu.stat'):
+                values=dict(line.split() for line in (base/name).read_text().splitlines())
+                result[name]={k:int(v) for k,v in values.items() if k in {'oom','oom_kill','usage_usec','throttled_usec'} and v.isdigit()}
+              logged=subprocess.run(['docker','logs','--tail','12',identifier],capture_output=True,text=True,timeout=10,check=False)
+              assert len(logged.stdout)+len(logged.stderr)<=16384
+              counts=[]
+              for line in (logged.stdout+'\n'+logged.stderr).splitlines():
+               try:value=json.loads(line)
+               except ValueError:continue
+               if isinstance(value,dict) and set(value)=={'retained_readback_roots'} and type(value['retained_readback_roots']) is int:counts.append(value['retained_readback_roots'])
+              result['completed_roots']=counts
+              print(json.dumps({'independent_readback_process':result}),flush=True)
              marker=Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/published/.retirement/journal.json')
              if marker.is_file() and not marker.is_symlink() and marker.stat().st_size<=1024*1024:
               value=json.loads(marker.read_text())
