@@ -2246,7 +2246,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Diagnose sealed weekly dependencies for accepted 83b813ab'
+      (github.event.head_commit.message == 'Diagnose sealed weekly dependencies for accepted 83b813ab' ||
+       github.event.head_commit.message == 'Classify sealed weekly dependencies for accepted 83b813ab')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2276,15 +2277,24 @@ jobs:
             weeks=sorted(root.glob('archives/WEEKLY-*'))
             assert weeks
             source=weeks[-1];day=source.name.removeprefix('WEEKLY-')
-            capture,*_=load_frozen_input(source,day=day,year=int(day[:4]),quarter=(int(day[5:7])-1)//3+1)
+            capture,registry,*_=load_frozen_input(source,day=day,year=int(day[:4]),quarter=(int(day[5:7])-1)//3+1)
             proof=audit_formula_dependencies(capture)
             codes=Counter(item.get('code') if item.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR' for item in proof.get('issues',[]))
-            print(json.dumps({'weekly_dependencies':{'closed':proof.get('closed') is True,'source_count':len(capture['sources']),'issues_by_code':dict(codes),'issue_count':len(proof.get('issues',[])),'edges':len(proof.get('edges',[]))}}))
+            classified=Counter()
+            by_id={item['source_id']:item for item in capture['sources']}
+            registered={(item['provider_id'],item['sheet_id']) for item in registry['sources']}
+            for item in proof.get('issues',[]):
+             if item.get('code')!='FORMULA_DEPENDENCY_NOT_CAPTURED':continue
+             target=item.get('target_sheet_id');origin=by_id[item['source_id']]
+             kind=('registered_missing_capture' if (origin['provider_id'],target) in registered else 'unregistered_numeric') if type(target) is int else ('invalid_reference' if str(target).upper() in {'UNKNOWN:REF','UNKNOWN:#REF'} else 'unknown_sheet_name')
+             classified[kind]+=1
+            print(json.dumps({'weekly_dependencies':{'target_classes':dict(classified),'closed':proof.get('closed') is True,'source_count':len(capture['sources']),'issues_by_code':dict(codes),'issue_count':len(proof.get('issues',[])),'edges':len(proof.get('edges',[]))}}))
             '''
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','150s','/opt/report-env/bin/python','-IB','-'],input=code,capture_output=True,text=True,timeout=165,check=False)
             assert result.returncode==0 and len(result.stdout)<=4096
             value=json.loads(result.stdout);assert set(value)=={'weekly_dependencies'}
-            proof=value['weekly_dependencies'];assert set(proof)=={'closed','source_count','issues_by_code','issue_count','edges'}
+            proof=value['weekly_dependencies'];assert set(proof)=={'target_classes','closed','source_count','issues_by_code','issue_count','edges'}
+            assert set(proof['target_classes'])<={'registered_missing_capture','unregistered_numeric','invalid_reference','unknown_sheet_name'} and all(type(n) is int and 0<=n<=1000000 for n in proof['target_classes'].values())
             assert type(proof['closed']) is bool and all(type(proof[key]) is int and 0<=proof[key]<=1000000 for key in ('source_count','issue_count','edges'))
             allowed={'FORMULA_EVIDENCE_MISSING','FORMULA_GRID_INCOMPLETE','FORMULA_CONTEXT_MISSING','FORMULA_CONTEXT_CHANGED','FORMULA_CONTEXT_INVALID','FORMULA_CELL_INVALID','FORMULA_FUNCTION_UNVERIFIED','FORMULA_DEPENDENCY_NOT_CAPTURED','FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED','UNRECOGNIZED_ERROR'}
             assert set(proof['issues_by_code'])<=allowed and all(type(n) is int and 0<=n<=1000000 for n in proof['issues_by_code'].values())
