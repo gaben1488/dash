@@ -1,9 +1,4 @@
-"""Exact43 host adapter for the existing reversible weekly-publication CLI.
-
-Delivery/venv installation and independent finalize readback belong to the
-authenticated management job. This file neither installs dependencies nor
-changes services, images, policy, source receipts, or backup contents.
-"""
+"""Exact43 host adapter; no service, source, backup or retention-policy changes."""
 import argparse
 import ast
 import fcntl
@@ -261,6 +256,60 @@ def prepare_identity_copy(state,gaps):
                 'protected_digest':before,'private_patch':patch}
 
 
+def load_identity_prepared(path):
+    return json.loads(owned(path,limit=8*1024*1024))
+
+
+def apply_identity_patch(state,patch):
+    """CAS only previously empty derived slots; one SQLite transaction for all targets."""
+    import sqlite3
+    from contextlib import closing
+    require(isinstance(patch,list) and 0<len(patch)<=100000,'IDENTITY_PATCH_INVALID')
+    seen=set();fields=rows=0
+    for item in patch:
+        require(set(item)=={'snapshot_id','locator','signature','uid','plan_signature','entity_signature','fillable'}
+                and all(isinstance(item[k],str) and item[k] for k in ('snapshot_id','locator'))
+                and (item['uid'] is None or isinstance(item['uid'],str) and bool(item['uid']))
+                and all(re.fullmatch('[a-f0-9]{64}',item[k]) for k in ('signature','plan_signature'))
+                and (item['entity_signature']=='' or re.fullmatch('[a-f0-9]{64}',item['entity_signature']))
+                and isinstance(item['fillable'],list) and bool(item['fillable'])
+                and set(item['fillable'])<={'plan_signature','entity_signature'},'IDENTITY_PATCH_INVALID')
+        key=(item['snapshot_id'],item['locator'])
+        require(key not in seen,'IDENTITY_PATCH_INVALID');seen.add(key)
+    state=Path(state).absolute();path=state/'identity.sqlite'
+    require(not any(p.is_symlink() for p in (path,*path.parents)),'IDENTITY_PATH_UNTRUSTED')
+    def trusted(file):
+        info=file.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==os.geteuid() and info.st_nlink==1,'IDENTITY_PATH_UNTRUSTED')
+        return info.st_dev,info.st_ino
+    target=trusted(path)
+    for suffix in ('-wal','-shm','-journal'):
+        side=Path(str(path)+suffix)
+        if os.path.lexists(side):trusted(side)
+    lock_target=trusted(state/'run.lock')
+    with os.fdopen(os.open(state/'run.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
+        opened=os.fstat(lock.fileno())
+        require((opened.st_dev,opened.st_ino)==lock_target==trusted(state/'run.lock'),'IDENTITY_PATH_UNTRUSTED')
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with closing(sqlite3.connect(path.as_uri()+'?mode=rw',uri=True,timeout=1)) as db,db:
+            require(trusted(path)==target,'IDENTITY_PATH_UNTRUSTED')
+            db.execute('PRAGMA synchronous=FULL');db.execute('BEGIN IMMEDIATE')
+            require(not db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger'").fetchone(),'IDENTITY_PATCH_TRIGGER')
+            for item in patch:
+                key=(item['snapshot_id'],item['locator'])
+                prior=db.execute('SELECT signature,uid,plan_signature,entity_signature FROM observations WHERE snapshot_id=? AND locator=?',key).fetchone()
+                require(prior is not None and prior[:2]==(item['signature'],item['uid']),'IDENTITY_PATCH_CONFLICT')
+                changed=0
+                for index,name in enumerate(('plan_signature','entity_signature'),2):
+                    value=prior[index]
+                    require(value==item[name] or (value is None and name in item['fillable']),'IDENTITY_PATCH_CONFLICT')
+                    if value is None:
+                        db.execute('UPDATE observations SET '+name+'=? WHERE snapshot_id=? AND locator=?',(item[name],*key));changed+=1
+                rows+=bool(changed);fields+=changed
+            require(trusted(path)==target,'IDENTITY_PATH_UNTRUSTED')
+    return {'updated_observations':rows,'updated_fields':fields,'verified_observations':len(patch)}
+
+
 def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
     require(plan['release_sha']==SHA and plan['backup_reference']==backup_reference,'ACCEPTED_BACKUP_CHANGED')
     require(ci.get('head_sha')==TOOL_SHA and ci.get('status')=='completed' and ci.get('conclusion')=='success'
@@ -407,6 +456,7 @@ def main():
     parser.add_argument('--expected-revision',required=True);parser.add_argument('--finalize-review')
     parser.add_argument('--operation',choices=('apply','recover','rollback','finalize'),required=True)
     parser.add_argument('--check',action='store_true');parser.add_argument('--identity-copy',action='store_true')
+    parser.add_argument('--identity-apply',action='store_true')
     args=parser.parse_args()
     require(os.geteuid()==0 and re.fullmatch('[0-9]+',args.operator_run),'ROOT_OPERATOR_REQUIRED')
     os.umask(0o077);sys.dont_write_bytecode=True
@@ -420,6 +470,18 @@ def main():
             with owner_scratch(args.operator_run,preserve_on_error=not args.check):
                 privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
                            '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
+                if args.identity_apply:
+                    require(not args.check and not args.identity_copy and args.operation=='apply','IDENTITY_PATCH_MODE_INVALID')
+                    proof=load_identity_prepared(args.tree.parent/'identity-prepared-38889251691.json')
+                    require(proof['runtime_source']==SHA and proof['tool_source']==TOOL_SHA
+                            and proof['result']['protected_data_unchanged'] is True
+                            and proof['result']['updated_observations']==len(proof['patch'])==8126
+                            and proof['gap_proof_sha256']==hashlib.sha256(owned(Path('/root/codex-fixes/revision-probe-38887646833/private-result.json'))).hexdigest(),
+                            'IDENTITY_COPY_PROOF_REQUIRED')
+                    program='import json,runpy,sys;tool=runpy.run_path(sys.argv[1]);print(json.dumps(tool["apply_identity_patch"](sys.argv[2],json.load(sys.stdin))))'
+                    result=json.loads(call([*privilege,str(args.python),'-IB','-c',program,str(Path(__file__).resolve()),str(state)],
+                                           input_bytes=json.dumps(proof['patch']).encode(),timeout=120,pass_fds=(9,)))
+                    print(json.dumps({'identity_metadata_apply':result},sort_keys=True));return
                 if args.identity_copy:
                     require(args.check and args.operation=='apply','IDENTITY_COPY_INSPECTION_ONLY')
                     gap_body=owned(Path('/root/codex-fixes/revision-probe-38887646833/private-result.json'))

@@ -33,7 +33,8 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
       (github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742' ||
-       github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742')
+       github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' ||
+       github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -47,12 +48,12 @@ jobs:
           import base64,hashlib,os
           from pathlib import Path
           body=Path('.github/ci/weekly_publication_operator.py').read_bytes()
-          assert len(body)<=32768
+          assert len(body)<=40960
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('WEEKLY_CODE='+base64.b64encode(body).decode()+'\n')
               target.write('WEEKLY_SHA='+hashlib.sha256(body).hexdigest()+'\n')
           PY
-      - name: Verify exact live readers and backup coverage without compaction
+      - name: Verify exact runtime and perform the explicitly selected metadata operation
         uses: appleboy/ssh-action@v1.2.0
         env:
           WEEKLY_CODE: ${{ env.WEEKLY_CODE }}
@@ -69,11 +70,11 @@ jobs:
             import base64,hashlib,json,os,re,stat,subprocess
             from pathlib import Path
             run='${{ github.run_id }}';assert run.isdigit()
-            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || 'plan' }}'
+            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || 'plan' }}'
             root=Path('/root/codex-fixes')/('weekly-check-'+run)
             root.mkdir(mode=0o700);os.umask(0o077)
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
-            assert len(body)<=32768 and hashlib.sha256(body).hexdigest()==os.environ['WEEKLY_SHA']
+            assert len(body)<=40960 and hashlib.sha256(body).hexdigest()==os.environ['WEEKLY_SHA']
             path=root/'operator.py';path.write_bytes(body);path.chmod(0o600)
             stage=Path('/root/codex-fixes/weekly-38881380220')
             python=stage/'venv/bin/python'
@@ -93,6 +94,7 @@ jobs:
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
             if mode=='identity':command.append('--identity-copy')
+            if mode=='identity-apply':command.remove('--check');command.append('--identity-apply')
             result=subprocess.run(command,capture_output=True,timeout=920,check=False)
             for line in (root/'operator.log').read_text().splitlines():
                 if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED',
@@ -106,10 +108,12 @@ jobs:
                     identity_keys={'identity_copy_preparation','snapshots','updated_observations','updated_fields',
                                    'protected_data_unchanged','protected_digest'}
                     if set(value)==identity_keys and value['identity_copy_preparation']=='PASS':print(json.dumps(value,sort_keys=True))
+                    if set(value)=={'identity_metadata_apply'} and set(value['identity_metadata_apply'])=={'updated_observations','updated_fields','verified_observations'}:print(json.dumps(value,sort_keys=True))
             for role in ('MemoryPeak','Result','ExecMainStatus'):
                 value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
                 if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
-            print('READ_ONLY_WEEKLY_PREFLIGHT_PASS' if result.returncode==0 else 'READ_ONLY_WEEKLY_PREFLIGHT_FAILED')
+            prefix='IDENTITY_METADATA_APPLY' if mode=='identity-apply' else 'READ_ONLY_WEEKLY_PREFLIGHT'
+            print(prefix+'_PASS' if result.returncode==0 else prefix+'_FAILED')
             raise SystemExit(0 if result.returncode==0 else 2)
             PY
   unused-images:

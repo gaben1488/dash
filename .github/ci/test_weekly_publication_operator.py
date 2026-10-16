@@ -188,6 +188,61 @@ class WeeklyOperatorTests(unittest.TestCase):
                     self.module.prepare_identity_copy(state,gaps)
                 self.assertEqual((state/'identity.sqlite').read_bytes(),before)
 
+    def test_prepared_proof_reads_real_scale_without_expanding_other_trust_file_limits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'prepared.json'
+            row={'snapshot_id':'snapshot','locator':'row','signature':'a'*64,'uid':'uid',
+                 'plan_signature':'b'*64,'entity_signature':'c'*64,'fillable':['plan_signature','entity_signature']}
+            value={'patch':[{**row,'locator':str(i)} for i in range(8126)]}
+            path.write_text(json.dumps(value,separators=(',',':')));path.chmod(0o600)
+            self.assertGreater(path.stat().st_size,1024*1024)
+            native=os.fstat
+            def root_file(fd):
+                info=native(fd)
+                return SimpleNamespace(st_mode=info.st_mode,st_uid=0,st_nlink=info.st_nlink,st_size=info.st_size)
+            with patch.object(os,'fstat',root_file):
+                with self.assertRaisesRegex(ValueError,'OPERATOR_FILE_UNTRUSTED'):self.module.owned(path)
+                self.assertEqual(self.module.load_identity_prepared(path),value)
+
+    def test_identity_patch_is_atomic_idempotent_and_preserves_all_other_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state=Path(temporary);(state/'run.lock').touch();path=state/'identity.sqlite'
+            with sqlite3.connect(path) as db:
+                db.execute('CREATE TABLE observations(snapshot_id TEXT,locator TEXT,signature TEXT,uid TEXT,plan_signature TEXT,entity_signature TEXT,evidence TEXT,PRIMARY KEY(snapshot_id,locator))')
+                db.executemany('INSERT INTO observations VALUES(?,?,?,?,?,?,?)',[
+                    ('first','a','a'*64,'uid-a',None,None,'frozen-a'),
+                    ('second','b','b'*64,None,None,None,'frozen-b'),
+                    ('new','c','c'*64,'uid-c','d'*64,'e'*64,'new observation')])
+            patch_rows=[{'snapshot_id':sid,'locator':loc,'signature':sig*64,'uid':uid,
+                         'plan_signature':'d'*64,'entity_signature':'','fillable':['entity_signature','plan_signature']}
+                        for sid,loc,sig,uid in [('first','a','a','uid-a'),('second','b','b',None)]]
+            def records():
+                with sqlite3.connect(path) as db:return db.execute('SELECT * FROM observations ORDER BY snapshot_id,locator').fetchall()
+            before=records();changed=copy.deepcopy(patch_rows);changed[1]['uid']='wrong-owner'
+            with self.assertRaisesRegex(ValueError,'IDENTITY_PATCH_CONFLICT'):
+                self.module.apply_identity_patch(state,changed)
+            self.assertEqual(records(),before,'Conflict in the second snapshot rolls back the first')
+            result=self.module.apply_identity_patch(state,patch_rows)
+            self.assertEqual(result,{'updated_observations':2,'updated_fields':4,'verified_observations':2})
+            after=records()
+            self.assertEqual([row[:4]+row[6:] for row in after],[row[:4]+row[6:] for row in before])
+            self.assertEqual(after[1],before[1],'Ordinary newer observations are untouched')
+            self.assertEqual(self.module.apply_identity_patch(state,patch_rows),
+                             {'updated_observations':0,'updated_fields':0,'verified_observations':2})
+            sibling=state/'outside.sqlite';path.rename(sibling);path.symlink_to(sibling)
+            with self.assertRaisesRegex(ValueError,'IDENTITY_PATH_UNTRUSTED'):
+                self.module.apply_identity_patch(state,patch_rows)
+            path.unlink();sibling.rename(path)
+            with sqlite3.connect(path) as db:db.execute("UPDATE observations SET plan_signature=? WHERE locator='b'",('f'*64,))
+            conflict=records()
+            with self.assertRaisesRegex(ValueError,'IDENTITY_PATCH_CONFLICT'):
+                self.module.apply_identity_patch(state,patch_rows)
+            self.assertEqual(records(),conflict)
+            import fcntl
+            with (state/'run.lock').open('r+') as held:
+                fcntl.flock(held,fcntl.LOCK_EX)
+                with self.assertRaises(BlockingIOError):self.module.apply_identity_patch(state,patch_rows)
+
     def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);deploy=root/'deploy';deploy.mkdir()

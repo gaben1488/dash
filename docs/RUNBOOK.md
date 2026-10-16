@@ -45,6 +45,21 @@ scratch сохраняется для независимого recovery; пос�
 
 Run before handoff or deployment:
 
+16.10 identity preparation: exact frozen donors восстановили на отдельной копии
+два старых снимка/8126 наблюдений/16252 nullable signatures
+(38889251691 SUCCESS). Полный protected digest до/после совпал; UID, raw поля,
+история и frozen results не менялись. Private prepared proof root600 хранится
+в `weekly-38881380220/identity-prepared-38889251691.json`, на рабочую БД этот
+запуск не писал. Следующее отдельное применение допускает только NULL slots
+из этого proof, сверяет прежние UID/signature/locator, держит EX maintenance
+и прежний native `run.lock`, пишет все targets в одной SQLite transaction.
+Конфликт откатывает всю транзакцию; уже совпадающее значение идемпотентно.
+DB/sidecars/lock без symlink, regular/native-owner/single-link, inode stable.
+Публикации/доноры не удаляются и frozen rows не переписываются. Применение
+и независимый readback ещё не приняты. Это не допуск publication compaction.
+Ограничение публичного Python source transport40KiB отделено от приватного
+prepared evidence8MiB; общий лимит произвольных trust files остаётся1MiB.
+
 ```bash
 pnpm lint
 pnpm typecheck
