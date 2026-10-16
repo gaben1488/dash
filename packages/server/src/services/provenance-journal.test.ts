@@ -48,3 +48,28 @@ it('late parsed A cannot replace a newer B reading', async () => {
   expect(current.records[0].was).toBe('B');
   expect(source).toHaveBeenCalledTimes(2);
 });
+
+it('preserves the original log row before skipping headers and blanks, bound to the actual cached reading', async () => {
+  const { readChangelogRows } = await import('./changelog-source.js');
+  const raw = [['Лист', 'Ячейка'], [], ...rows(100), ...rows(100)];
+  source.mockResolvedValueOnce(raw);
+  await readChangelogRows('УО', 'file-A', 1000);
+  const result = await readBookJournal('УО', 'file-A', 2000);
+  expect(result.records.map(record => record.source)).toEqual([
+    { spreadsheetId: 'file-A', journalSheet: '_ChangeLog', journalRow: 3, readAt: 1000 },
+    { spreadsheetId: 'file-A', journalSheet: '_ChangeLog', journalRow: 4, readAt: 1000 },
+  ]);
+  expect(raw).toEqual([['Лист', 'Ячейка'], [], ...rows(100), ...rows(100)]);
+});
+
+it('binds an old in-flight reply to its own reading rather than the newer winning cache', async () => {
+  let finish!: (rows: unknown[][]) => void;
+  source.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValueOnce(rows('new'));
+  const old = readBookJournal('УО', 'file-A', 1000);
+  resetProvenanceJournalCache();
+  const newer = await readBookJournal('УО', 'file-A', 2000);
+  finish(rows('old'));
+  expect((await old).records[0].source?.readAt).toBe(1000);
+  expect(newer.records[0].source?.readAt).toBe(2000);
+});

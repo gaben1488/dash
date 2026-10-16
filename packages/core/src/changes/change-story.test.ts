@@ -65,6 +65,23 @@ describe('род правки по колонке — деньги, сроки, 
 });
 
 describe('адрес записи — по № п/п, а не по строке листа', () => {
+  it('retains original log addresses through exact merging and cell-to-row presentation grouping', () => {
+    const sources = [3, 4].map(journalRow => ({ spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow, readAt: 1000 }));
+    const records = sources.map(source => ({ ...rec('K10', '8', '100', '90', '16.10.2026 10:00:00'), source }));
+    const entries = entriesFromBookJournal('УО', records).entries;
+    expect(entries.map(entry => entry.journalSource)).toEqual(sources);
+    const merged = mergeChangeEntries(entries);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].evidence?.map(entry => entry.journalSource)).toEqual(sources);
+    const fills = ['G', 'H', 'I', 'J', 'K', 'L', 'N', 'Q'].map((column, index) => ({
+      ...rec(`${column}10`, '8', '', 'value', '16.10.2026 10:00:00'),
+      source: { ...sources[0], journalRow: index + 10 },
+    }));
+    const folded = foldRowEvents(entriesFromBookJournal('УО', fills).entries);
+    expect(folded).toHaveLength(1);
+    expect(folded[0].evidence?.map(entry => entry.journalSource?.journalRow).sort((a, b) => a! - b!))
+      .toEqual([10, 11, 12, 13, 14, 15, 16, 17]);
+  });
   it('preserves composite labels in journal entries and row groups', () => {
     const labels = ['173', '173/1', '173/18', '00173'];
     const { entries, rowKeyless } = entriesFromBookJournal('УО', labels.map((label, index) =>

@@ -3,10 +3,11 @@ import * as React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
 import {act, cleanup, fireEvent, render, waitFor} from '@testing-library/react';
 import {ProvenanceHub} from './ProvenanceHub';
+import {UpdateFeed} from './UpdateFeed';
 import {useStore} from '../../store';
 import {fetchChangeStory} from '../../lib/changes/change-story-client';
 import type {ChangeStoryResponse} from '../../lib/changes/change-story-client';
-import {CHANGE_KIND_ORDER} from '@aemr/core';
+import {CHANGE_KIND_ORDER, entriesFromBookJournal, mergeChangeEntries} from '@aemr/core';
 import {fetchJSON} from '../../api';
 vi.mock('../../hooks/useLiveEvents',()=>({useLiveEvents:()=>({connected:false,lastEventAt:null,books:[],newIssues:0,recentRows:[]})}));
 vi.mock('../../lib/changes/change-story-client',async original=>({...await original<typeof import('../../lib/changes/change-story-client')>(),fetchChangeStory:vi.fn()}));
@@ -15,6 +16,14 @@ function story(entries:number):ChangeStoryResponse {
  return {since:'2026-10-08',digest:{books:1,booksNamed:['Демо'],rows:1,entries,byKind:Object.fromEntries(CHANGE_KIND_ORDER.map(k=>[k,k==='money'?entries:0])) as ChangeStoryResponse['digest']['byKind'],authors:[],firstAt:null,lastAt:null,emptiness:'none'},gaps:[],deletionsUnobservable:false,note:'',comparison:null,facets:{books:[],authors:[]},total:entries,shown:0,entries:[]};
 }
 afterEach(()=>{cleanup();vi.mocked(fetchChangeStory).mockReset();vi.mocked(fetchJSON).mockReset().mockImplementation(()=>new Promise<never>(()=>{}));useStore.setState({lastRefreshed:null});});
+it('opens every retained original journal witness in its original book',()=>{
+ const entries=entriesFromBookJournal('УО',[3,4].map(journalRow=>({sheet:'ВСЕ',cell:'K10',row:'8',was:100,became:90,
+  at:'2026-10-16T10:00:00',author:'A',source:{spreadsheetId:'original-book',journalSheet:'_ChangeLog',journalRow,readAt:1000}}))).entries;
+ const view=render(<UpdateFeed entries={mergeChangeEntries(entries)} onOpen={()=>{}}/>);
+ const origins=new Set(view.getAllByRole('link').map(link=>link.getAttribute('href')));
+ expect(origins).toEqual(new Set([3,4].map(row=>`https://docs.google.com/spreadsheets/d/original-book/edit?range=${encodeURIComponent(`'_ChangeLog'!A${row}`)}`)));
+ expect(view.getAllByRole('link').every(link=>link.getAttribute('rel')==='noopener noreferrer')).toBe(true);
+});
 it('keeps a delayed journal response and rereads after a confirmed refresh',async()=>{
  let resolve!:(v:ChangeStoryResponse)=>void;
  vi.mocked(fetchChangeStory).mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));

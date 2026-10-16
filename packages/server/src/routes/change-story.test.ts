@@ -60,6 +60,8 @@ vi.mock('../services/google-sheets.js', () => ({
 }));
 
 interface EntryDto {
+  journalSource?: { spreadsheetId: string; journalSheet: string; journalRow: number; readAt: number };
+  evidence?: EntryDto[];
   id: string;
   book: string;
   rowSeq: string | null;
@@ -134,6 +136,15 @@ describe('GET /api/change-story', () => {
     expect(money?.rowSeq).toBe('38');
     expect(money?.sheetRow).toBe(177);
     expect(money?.subject).toBe('Услуги почтовой связи');
+  });
+
+  it('keeps source journal locators on cell and folded row witnesses in the actual response', () => {
+    const money = body.entries.find(e => e.column === 'K');
+    expect(money?.journalSource).toMatchObject({ spreadsheetId: h.UER_ID, journalSheet: '_ChangeLog', journalRow: 2 });
+    expect(Number.isFinite(money?.journalSource?.readAt)).toBe(true);
+    const folded = body.entries.find(e => e.kind === 'row-added');
+    expect(folded?.evidence?.map(e => e.journalSource?.journalRow).sort((a, b) => a! - b!))
+      .toEqual(h.uerJournal.slice(4).map((_, index) => index + 5));
   });
 
   it('род правки назван человеческим словом, а не буквой колонки', () => {

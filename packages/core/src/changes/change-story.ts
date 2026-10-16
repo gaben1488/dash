@@ -214,6 +214,8 @@ export function columnLabelOf(letter: string | null): string | null {
 
 /** Одна правка с полным адресом — то, что читается в подробной глубине. */
 export interface ChangeEntry {
+  /** Original source-log locator, bound to one reading rather than edit identity. */
+  readonly journalSource?: JournalRecord['source'];
   /** Устойчивый ключ: книга + лист + адрес + момент + автор. */
   readonly id: string;
   /** Короткое имя книги ГРБС («УО»). */
@@ -278,6 +280,7 @@ function originalEvidence(entry: ChangeEntry): readonly ChangeEvidence[] {
 /** Exact event identity, including values; a legacy ID collision is not proof. */
 function changeIdentity(entry: ChangeEntry): string {
   return JSON.stringify([entry.book, entry.sheet, entry.rowSeq, entry.sheetRow,
+    entry.journalSource?.spreadsheetId ?? null,
     entry.column, entry.kind, entry.before, entry.after, entry.at, entry.author,
     entry.cells ?? null, entry.comparisonEvidence ?? null,
     // Equal cell counts/addresses do not prove equal folded row payloads.
@@ -438,6 +441,7 @@ export function entriesFromBookJournal(
     const cell = String(rec.cell ?? '').trim().toUpperCase();
 
     entries.push({
+      ...(rec.source ? { journalSource: { ...rec.source } } : {}),
       id: `${book}|${sheet}|${cell}|${at ?? '?'}|${author ?? '?'}`,
       book,
       sheet,
@@ -619,7 +623,8 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
       continue;
     }
     const address = e.rowSeq === null ? `лист-${e.sheetRow ?? '?'}` : `№${e.rowSeq}`;
-    const key = JSON.stringify([e.book, e.sheet, address, e.sheetRow, minuteOf(e.at), e.author]);
+    const key = JSON.stringify([e.book, e.sheet, e.journalSource?.spreadsheetId ?? null,
+      address, e.sheetRow, minuteOf(e.at), e.author]);
     const bucket = groups.get(key);
     if (bucket) bucket.push(e);
     else groups.set(key, [e]);
@@ -650,6 +655,7 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
 /** Одно событие строки из группы ячейковых правок. */
 function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-cleared'): ChangeEntry {
   const head = items[0];
+  const { journalSource: _headSource, ...row } = head;
   // Предмет закупки берётся из той ячейки, где он и живёт, — из колонки
   // предмета. Если её в группе нет, остаётся подпись ключа журнала.
   const subjectCell = items.find((i) => i.column !== null && COL_LETTER_INDEX[i.column] === DEPT_COLUMNS.SUBJECT);
@@ -658,7 +664,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
     : (subjectCell?.before || head.subject);
   const cells = items.map((i) => `${i.column ?? '?'}${i.sheetRow ?? ''}`);
   return {
-    ...head,
+    ...row,
     id: JSON.stringify([head.book, head.sheet, kind, head.rowSeq, head.sheetRow, minuteOf(head.at), head.author]),
     column: null,
     columnLabel: null,

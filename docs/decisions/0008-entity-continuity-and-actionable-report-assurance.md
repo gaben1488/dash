@@ -78,3 +78,40 @@ coordinates, subject similarity or amount.
 Acceptance requires distinct-label journal/API/UI tests, physical-row movement,
 duplicate-label ambiguity and issue-schema round-trip. No new fields are written
 to source books. This clarification is not evidence of live acceptance.
+
+## 2026-10-16 — plan-history witnesses and financial transitions
+
+The existing plan-provenance reader must retain the changed sheet, author,
+both known-value flags and all original `_ChangeLog` row addresses. A source
+address is bound to the immutable source book ID and the particular reading;
+it locates evidence, not a permanent event/entity ID across sorted or compacted
+logs. The source array index is recorded before headers/blank rows are skipped.
+The reading clock is the read-window start, not an edit time or a source revision.
+Raw source payloads, historical identities and source columns are not rewritten.
+
+Exact semantic repeats may share one displayed event only while retaining every
+source address. Replaying the same book/log-row/reading fact does not add a
+witness; distinct source rows and readings remain. Different authors, known-value states, changed sheets and physical
+cells remain distinct witnesses. Counts of source witnesses and confirmed
+financial transitions are separate. Multiple conflicting observations for one
+cell at the same recorded moment cannot acquire a fabricated ordering or be
+summed as independently proved transitions. Their evidence remains visible and
+the financial summary explicitly reports incompleteness, including row, book and
+cross-book consumers. It must never turn that condition into “no plan reduction”.
+Unambiguous history continues to use the existing classification and arithmetic;
+agreed source values remain visible even when event multiplicity is uncertain.
+In particular, merging identical author/value/time observations for display is
+not proof of one financial transition when they occupy different original log
+rows. Those groups (and unaddressed legacy repeats) remain financially incomplete.
+Repeated readings of the same original log row retain their reading addresses,
+but cannot manufacture additional business events. Neither row order nor a
+read-window timestamp establishes stable event identity across log rearrangement.
+A duplicate current A-label cannot duplicate a shared history in book totals or
+lend one chosen current row's fact date to historical witnesses. Existing source
+links open the original book and log row rather than the current configured book.
+This diagnostic projection is not official AD-gated economy or a KPI penalty.
+
+Tests must cover original row addresses through parser/API/UI, exact repeats,
+authors/known flags/sheets/physical cells, conflicting equal-time observations,
+input permutations and an independent arithmetic example. This change is a
+bounded witness-preservation vertical, not acceptance of the complete journal.

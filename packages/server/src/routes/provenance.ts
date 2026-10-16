@@ -324,6 +324,8 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
     const journalEntriesTotal = books.reduce((a, b) => a + b.journalEntries, 0);
     const retroCutCount = books.reduce((a, b) => a + (b.provenance?.retroCutCount ?? 0), 0);
     const retroCutTotal = books.reduce((a, b) => a + (b.provenance?.retroCutTotal ?? 0), 0);
+    const witnessCount = books.reduce((a, b) => a + (b.provenance?.witnessCount ?? 0), 0);
+    const financialAmbiguityCount = books.reduce((a, b) => a + (b.provenance?.financialAmbiguityCount ?? 0), 0);
     const unitFixCount = books.reduce((a, b) => a + (b.provenance?.unitFixCount ?? 0), 0);
     const emptyJournals = readable.filter((b) => b.journalEntries === 0).map((b) => b.dept);
 
@@ -362,6 +364,10 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       `Видно ретро-снижений плана: ${retroCutCount}; исправлений единиц (рубли вместо тысяч) — ` +
       `${unitFixCount}, в «ушедший план» они не входят.`,
     );
+    if (financialAmbiguityCount > 0) {
+      notes.push(`Полный финансовый итог не подтверждён: неоднозначных групп — ${financialAmbiguityCount}; `
+        + `свидетельств сохранено — ${witnessCount}. Числа переходов и суммы — только подтверждённая часть.`);
+    }
 
     return reply.send({
       booksTotal: books.length,
@@ -370,6 +376,8 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       journalEntriesTotal,
       retroCutCount,
       retroCutTotal,
+      witnessCount,
+      financialAmbiguityCount,
       unitFixCount,
       books,
       note: notes.join(' '),
@@ -450,7 +458,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       const row = matches[0];
       const [provenance] = buildPlanProvenance(
         journal.records,
-        [toPlanRowInput(row, rowSeq)],
+        matches.map(match => toPlanRowInput(match, rowSeq)),
         { bookLabel: dept.id },
       );
 

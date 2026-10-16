@@ -526,6 +526,137 @@ describe('PlanObservability — «правок не было» никогда н
 
 // ── Живые повадки журнала ─────────────────────────────────────────────
 
+describe('read-bound witnesses are not a count of financial transitions', () => {
+  const at = '2026-10-16T10:00:00';
+  const witness = (author: string, logRow: number, patch: Partial<JournalRecord> = {}) => ({
+    ...rec('ВСЕ', 'K10', '8', 100, 90, at, author),
+    source: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog' as const, journalRow: logRow, readAt: 1000 },
+    ...patch,
+  });
+  it('retains different authors without inventing a second 100→90 reduction', () => {
+    const [p] = buildPlanProvenance([witness('A', 3), witness('B', 4)], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events.map(e => e.author)).toEqual(['A', 'B']);
+    expect(p.summary).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1, retroCutCount: 0, retroCutTotal: 0 });
+    expect(p.summary.note).toContain('не подтверждён');
+    expect(summarizeBookProvenance([p])).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1 });
+  });
+  it('counts one addressed observation once, but preserves different source rows and readings', () => {
+    const first = witness('A', 3);
+    const [p] = buildPlanProvenance([first, { ...first }, witness('A', 4),
+      { ...first, source: { ...first.source, readAt: 2000 } }], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events).toHaveLength(1);
+    expect(p.events[0].sources).toHaveLength(3);
+    expect(p.events[0].witnessCount).toBe(3);
+    expect(p.summary.witnessCount).toBe(3);
+  });
+  it('uses only confirmed addresses and dates in the financial claim', () => {
+    const [p] = buildPlanProvenance([
+      witness('C', 2, { cell: 'K11', at: '2026-10-15T10:00:00', was: 150, became: 100 }),
+      witness('A', 3), witness('B', 4),
+    ], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.summary.retroCutTotal).toBe(50);
+    expect(p.summary.note).toContain('K11');
+    expect(p.summary.note).toContain('15.10.2026');
+    expect(p.summary.note).not.toContain('K10');
+    expect(p.summary.note).not.toContain('16.10.2026');
+  });
+  it('does not call an unknown predecessor a confirmed zero-change history', () => {
+    const [p] = buildPlanProvenance([witness('A', 3, { was: '(до массовой правки не отслежено)' })],
+      [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events).toHaveLength(1);
+    expect(p.summary.financialAmbiguityCount).toBe(1);
+    expect(p.summary.note).toContain('не подтверждён');
+    expect(p.summary.lastKnownPlan).toBe(90);
+  });
+  it('retains agreed source values while leaving repeated-transition multiplicity unconfirmed', () => {
+    const [p] = buildPlanProvenance([witness('A', 3, { cell: 'H10' }), witness('B', 4, { cell: 'H10' })],
+      [{ ordinal: '8', planNow: 500 }]);
+    expect(p.summary).toMatchObject({ financialAmbiguityCount: 1,
+      firstKnownPlan: 100, lastKnownPlan: 90, retroCutCount: 0 });
+  });
+  it('merges only equivalent witnesses while retaining every original address', () => {
+    const journal = [witness('A', 4), witness('A', 3)];
+    const original = JSON.stringify(journal);
+    const [p] = buildPlanProvenance(journal, [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events).toHaveLength(1);
+    expect(p.events[0].sources?.map(s => s.journalRow)).toEqual([3, 4]);
+    expect(p.events[0].witnessCount).toBe(2);
+    expect(p.summary).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1, retroCutCount: 0, retroCutTotal: 0,
+      firstKnownPlan: 100, lastKnownPlan: 90 });
+    expect(p.summary.note).toContain('не подтверждён');
+    expect(JSON.stringify(journal)).toBe(original);
+  });
+  it('confirms one original log row despite repeated observations and later readings', () => {
+    const first = witness('A', 3);
+    const [p] = buildPlanProvenance([first, { ...first },
+      { ...first, source: { ...first.source, readAt: 2000 } }], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events[0].sources).toHaveLength(2);
+    expect(p.summary).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 0, retroCutCount: 1, retroCutTotal: 10 });
+  });
+  it('does not prove a complete chain when one transition has two original log rows', () => {
+    const first = witness('A', 3), repeat = witness('A', 4);
+    const last = witness('A', 5, { was: 90, became: 80 });
+    for (const journal of [[first, repeat, last], [last, repeat, first]]) {
+      const [p] = buildPlanProvenance(journal, [{ ordinal: '8', planNow: 80 }]);
+      expect(p.events).toHaveLength(2);
+      expect(p.summary).toMatchObject({ witnessCount: 3, financialAmbiguityCount: 1,
+        retroCutCount: 0, retroCutTotal: 0, lastKnownPlan: 80 });
+    }
+  });
+  it('keeps unaddressed identical legacy witnesses without proving their event multiplicity', () => {
+    const { source: _source, ...legacy } = witness('A', 3);
+    const [p] = buildPlanProvenance([legacy, { ...legacy }], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events[0].witnessCount).toBe(2);
+    expect(p.summary).toMatchObject({ financialAmbiguityCount: 1, retroCutCount: 0, retroCutTotal: 0,
+      firstKnownPlan: 100, lastKnownPlan: 90 });
+  });
+  it('retains known-empty and unknown sides separately', () => {
+    const [p] = buildPlanProvenance([
+      witness('A', 3, { was: '(пусто)' }),
+      witness('A', 4, { was: '(до массовой правки не отслежено)' }),
+    ], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events.map(e => [e.wasKnown, e.kind])).toEqual([[true, 'fill'], [false, 'unknown']]);
+    expect(p.summary.financialAmbiguityCount).toBe(1);
+  });
+  it('does not merge changed sheets or physical cells', () => {
+    const [p] = buildPlanProvenance([
+      witness('A', 3), witness('A', 4, { sheet: 'OTHER' }), witness('A', 5, { cell: 'K11' }),
+    ], [{ ordinal: '8', planNow: 90 }]);
+    expect(p.events.map(e => [e.sheet, e.cell])).toEqual([['OTHER', 'K10'], ['ВСЕ', 'K10'], ['ВСЕ', 'K11']]);
+    expect(p.summary).toMatchObject({ witnessCount: 3, financialAmbiguityCount: 0, retroCutCount: 3, retroCutTotal: 30 });
+  });
+  it('keeps a uniquely connected same-second chain and its arithmetic independent of input order', () => {
+    const a = witness('A', 3), b = witness('B', 4, { was: 90, became: 80 });
+    for (const journal of [[a, b], [b, a]]) {
+      const [p] = buildPlanProvenance(journal, [{ ordinal: '8', planNow: 80 }]);
+      expect(p.events).toHaveLength(2);
+      expect(p.summary).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 0,
+        retroCutCount: 2, retroCutTotal: 100 - 80, firstKnownPlan: 100, lastKnownPlan: 80 });
+    }
+  });
+  it('does not invent ordering for a branch, but keeps a later independent reduction', () => {
+    const a = witness('A', 3), b = witness('B', 4, { became: 80 });
+    const later = witness('C', 5, { at: '2026-10-16T10:00:01', was: 80, became: 30 });
+    for (const journal of [[a, b, later], [later, b, a]]) {
+      const [p] = buildPlanProvenance(journal, [{ ordinal: '8', planNow: 30, factDate: '2026-10-15' }]);
+      expect(p.events).toHaveLength(3);
+      expect(p.summary).toMatchObject({ witnessCount: 3, financialAmbiguityCount: 1,
+        retroCutCount: 1, retroCutTotal: 50, retroCutAfterFactCount: 1,
+        retroCutAfterFactTotal: 50, firstKnownPlan: 100, lastKnownPlan: 30 });
+    }
+  });
+  it('does not count one source history twice for two current rows sharing the same label', () => {
+    const list = buildPlanProvenance([witness('A', 3)], [
+      { ordinal: '8', sheetRow: 10, planNow: 90, factDate: '2026-10-15' },
+      { ordinal: '8', sheetRow: 11, planNow: 80, factDate: '2026-10-17' },
+    ]);
+    expect(list.every(p => p.events.length === 1 && p.summary.financialAmbiguityCount === 1)).toBe(true);
+    expect(list.every(p => p.events[0].factAtEdit === null && p.summary.lastKnownPlan === 90)).toBe(true);
+    expect(summarizeBookProvenance(list)).toMatchObject({ rows: 2, rowsCovered: 2,
+      witnessCount: 1, financialAmbiguityCount: 1, retroCutCount: 0, retroCutTotal: 0 });
+  });
+});
+
 describe('buildPlanProvenance — повадки живого журнала', () => {
   it('тройной дубль одной правки (живой УД J177) схлопывается в одно событие', () => {
     const journal = [

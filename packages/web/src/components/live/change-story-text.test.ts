@@ -11,6 +11,7 @@ import {
   entryAddress,
   entryChangeLine,
   entryWhoWhen,
+  originNote,
   shortDate,
   shownLine,
   valueLabel,
@@ -23,6 +24,13 @@ const entry = (over: Partial<ChangeEntry>): ChangeEntry => ({
   at: '2026-08-20T09:00:00', atMs: Date.parse('2026-08-20T09:00:00Z'),
   subject: 'Услуги почтовой связи', subordinate: null, origin: 'book-journal',
   ...over,
+});
+
+it('locates a journal witness in its own source reading without calling it the edit timestamp', () => {
+  const note = originNote(entry({ journalSource: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow: 17, readAt: 1000 } }));
+  expect(note).toContain('_ChangeLog!17');
+  expect(note).toContain('чтение 1970-01-01T00:00:01.000Z');
+  expect(note).toContain('book-A');
 });
 
 describe('краткая глубина — четыре фразы одним взглядом', () => {

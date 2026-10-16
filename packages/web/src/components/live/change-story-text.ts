@@ -220,7 +220,10 @@ export function entryWhoWhen(entry: ChangeEntry): string {
 /** Подпись источника записи — разная полнота источников не прячется. */
 export function originNote(entry: ChangeEntry): string {
   switch (entry.origin) {
-    case 'book-journal': return 'из журнала правок книги';
+    case 'book-journal': return entry.journalSource
+      ? `из журнала правок книги ${entry.journalSource.spreadsheetId} · ${entry.journalSource.journalSheet}!${entry.journalSource.journalRow}`
+        + ` · чтение ${new Date(entry.journalSource.readAt).toISOString()}`
+      : 'из журнала правок книги';
     case 'live-stream': return 'из прямого эфира';
     case 'snapshot-diff': return 'из сверки текущих книг с недельным контролем';
     default: return '';

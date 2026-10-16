@@ -42,7 +42,7 @@ interface CachedRows {
 }
 
 const cache = new Map<string, CachedRows>();
-const inFlight = new Map<string, { spreadsheetId: string; request: Promise<unknown[][]> }>();
+const inFlight = new Map<string, { spreadsheetId: string; request: Promise<CachedRows> }>();
 
 /** Сбрасывает окно — нужен стражам и ручной перечитке. */
 export function resetChangelogSource(): void {
@@ -72,8 +72,17 @@ export async function readChangelogRows(
   spreadsheetId: string,
   now: number = Date.now(),
 ): Promise<unknown[][]> {
+  return (await readChangelogReading(dept, spreadsheetId, now)).rows;
+}
+
+/** Metadata belongs to this reply, including a reply superseded by a reset. */
+export async function readChangelogReading(
+  dept: string,
+  spreadsheetId: string,
+  now: number = Date.now(),
+): Promise<CachedRows> {
   const cached = cache.get(dept);
-  if (cached?.spreadsheetId === spreadsheetId && now - cached.at < CHANGELOG_CACHE_TTL_MS) return cached.rows;
+  if (cached?.spreadsheetId === spreadsheetId && now - cached.at < CHANGELOG_CACHE_TTL_MS) return cached;
   if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
 
   const pending = inFlight.get(dept);
@@ -81,8 +90,9 @@ export async function readChangelogRows(
 
   const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME)
     .then((rows) => {
-      if (inFlight.get(dept)?.request === request) cache.set(dept, { spreadsheetId, rows, at: now });
-      return rows;
+      const reading = { spreadsheetId, rows, at: now };
+      if (inFlight.get(dept)?.request === request) cache.set(dept, reading);
+      return reading;
     })
     .finally(() => {
       if (inFlight.get(dept)?.request === request) inFlight.delete(dept);

@@ -11,6 +11,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { buildPlanProvenance } from '@aemr/core';
 import type { PlanEvent, RowProvenanceResponse } from '../../lib/provenance/contract';
 import { PlanProvenanceView } from './PlanProvenanceView';
 
@@ -62,6 +63,7 @@ function response(patch: Partial<RowProvenanceResponse> = {}): RowProvenanceResp
     journalRowKeyless: 0,
     events: [],
     summary: {
+      witnessCount: 0, financialAmbiguityCount: 0,
       retroCutTotal: 0,
       retroCutCount: 0,
       retroCutAfterFactTotal: null,
@@ -97,6 +99,87 @@ const flat = (node: HTMLElement | null): string =>
   (node?.textContent ?? '').replace(/\s+/g, ' ');
 
 describe('PlanProvenanceView — лента правок', () => {
+  it('shows both authors and original log addresses instead of reporting an ambiguous history as no reduction', () => {
+    const [provenance] = buildPlanProvenance(['A', 'B'].map((author, index) => ({
+      sheet: 'ВСЕ', cell: 'K10', row: '8', was: 100, became: 90,
+      at: '2026-10-16T10:00:00', author,
+      source: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog' as const, journalRow: index + 3, readAt: 1000 },
+    })), [{ ordinal: '8', planNow: 90 }]);
+    const { container } = render(<PlanProvenanceView provenance={response({ ...provenance, rowSeq: '8' })} />);
+    expect(screen.getByText('A')).toBeTruthy();
+    expect(screen.getByText('B')).toBeTruthy();
+    expect(container.textContent).toContain('Запись журнала, строка 3');
+    expect(container.textContent).toContain('Запись журнала, строка 4');
+    expect(container.textContent).toContain('ВСЕ!K10');
+    expect(container.textContent).toContain('не подтверждён');
+    expect(container.textContent).not.toContain('Задним числом план не снижали');
+    expect(container.textContent).not.toContain('20 тыс.');
+    const origins = screen.getAllByRole('link', { name: /Запись журнала, строка/ });
+    expect(origins.map(link => link.getAttribute('href'))).toEqual([3, 4].map(row =>
+      `https://docs.google.com/spreadsheets/d/book-A/edit?range=${encodeURIComponent(`'_ChangeLog'!A${row}`)}`));
+    expect(origins.every(link => link.getAttribute('title')?.includes('book-A'))).toBe(true);
+    expect(container.textContent).not.toContain('book-A');
+  });
+
+  it('shows identical transitions from different log rows as incomplete even with the same author', () => {
+    const [provenance] = buildPlanProvenance([3, 4].map(journalRow => ({
+      sheet: 'ВСЕ', cell: 'K10', row: '8', was: 100, became: 90,
+      at: '2026-10-16T10:00:00', author: 'A',
+      source: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog' as const, journalRow, readAt: 1000 },
+    })), [{ ordinal: '8', planNow: 90 }]);
+    const { container } = render(<PlanProvenanceView provenance={response({ ...provenance, rowSeq: '8' })} />);
+    expect(container.textContent).toContain('не подтверждён');
+    expect(container.textContent).toContain('Эквивалентных свидетельств: 2');
+    expect(screen.getAllByRole('link', { name: /Запись журнала, строка/ })).toHaveLength(2);
+    expect(container.textContent).not.toContain('Задним числом план не снижали');
+    expect(container.textContent).not.toContain('10 тыс.');
+  });
+
+  it('shows one unknown-side witness as incomplete rather than saying the plan was never reduced', () => {
+    const [provenance] = buildPlanProvenance([{
+      sheet: 'ВСЕ', cell: 'K10', row: '8', was: '(до массовой правки не отслежено)', became: 90,
+      at: '2026-10-16T10:00:00', author: '',
+    }], [{ ordinal: '8', planNow: 90 }]);
+    const { container } = render(<PlanProvenanceView provenance={response({ ...provenance, rowSeq: '8' })} />);
+    expect(container.textContent).toContain('не подтверждён');
+    expect(container.textContent).not.toContain('Задним числом план не снижали');
+    expect(container.textContent).toContain('не отслежено');
+  });
+
+  it('keeps distinct original book origins and refuses malformed source URLs', () => {
+    const source = { journalSheet: '_ChangeLog', journalRow: 3, readAt: 1000 };
+    const { rerender } = render(<PlanProvenanceView provenance={response({ events: [{ ...retroCut,
+      sources: [{ ...source, spreadsheetId: 'old-book-A' }, { ...source, spreadsheetId: 'old-book-B' }],
+    }] })} />);
+    const links = screen.getAllByRole('link', { name: /Запись журнала, строка 3/ });
+    expect(links.map(link => new URL(link.getAttribute('href')!).pathname)).toEqual([
+      '/spreadsheets/d/old-book-A/edit', '/spreadsheets/d/old-book-B/edit',
+    ]);
+    rerender(<PlanProvenanceView provenance={response({ events: [{ ...retroCut,
+      sources: [{ ...source, spreadsheetId: 'bad/../../?evil=1' }],
+    }] })} />);
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('keeps a long original book ID and exact reading clock in metadata while showing the project-calendar reading time', () => {
+    const spreadsheetId = 'OriginalBook0123456789abcdefghijklmnopqrstuv';
+    const iso = '2026-10-15T16:34:56.789Z';
+    const original = { ...retroCut, sources: [{ spreadsheetId, journalSheet: '_ChangeLog',
+      journalRow: 460, readAt: Date.parse(iso) }] };
+    const before = JSON.stringify(original);
+    const { container } = render(<PlanProvenanceView provenance={response({ events: [original] })} />);
+    const link = screen.getByRole('link');
+    expect(link.textContent).toContain('Запись журнала, строка 460');
+    expect(link.textContent).toContain('прочитано 16.10.2026, 04:34 (Камчатка)');
+    expect(container.textContent).not.toContain(spreadsheetId);
+    expect(container.textContent).not.toContain(iso);
+    expect(link.getAttribute('title')).toContain(spreadsheetId);
+    expect(link.getAttribute('title')).toContain('_ChangeLog!460');
+    expect(link.getAttribute('title')).toContain(iso);
+    expect(link.getAttribute('href')).toBe(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?range=${encodeURIComponent("'_ChangeLog'!A460")}`);
+    expect(JSON.stringify(original)).toBe(before);
+  });
+
   it('печатает дату, автора, переход было→стало и вид события словами', () => {
     render(<PlanProvenanceView provenance={response({
       events: [unitFix, retroCut],

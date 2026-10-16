@@ -65,6 +65,7 @@ function response(patch: Partial<RowProvenanceResponse> = {}): RowProvenanceResp
     journalRowKeyless: 0,
     events: [],
     summary: {
+      witnessCount: 0, financialAmbiguityCount: 0,
       retroCutTotal: 0,
       retroCutCount: 0,
       retroCutAfterFactTotal: null,

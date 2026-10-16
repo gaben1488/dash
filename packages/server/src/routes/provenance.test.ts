@@ -135,6 +135,54 @@ describe('/api/provenance/*', () => {
   });
 
   describe('GET /api/provenance/:deptId/:rowSeq', () => {
+    it('does not assert a financial total for an original history shared by two current physical rows', async () => {
+      const { resetProvenanceJournalCache } = await import('../services/provenance-journal.js');
+      const priorJournal = [...h.journalRows];
+      try {
+        h.journalRows.splice(1, h.journalRows.length - 1,
+          ['ВСЕ', 'K6', '', '99', 100, 90, '2026-10-16T10:00:00', 'A']);
+        resetProvenanceJournalCache();
+        const body = (await app.inject('/api/provenance/uer/99')).json();
+        expect(body.ambiguity.sheetRows).toEqual([6, 7]);
+        expect(body.events).toHaveLength(1);
+        expect(body.summary).toMatchObject({ witnessCount: 1, financialAmbiguityCount: 1, retroCutCount: 0, lastKnownPlan: 90 });
+        const health = (await app.inject('/api/provenance/health')).json();
+        expect(health).toMatchObject({ witnessCount: 1, financialAmbiguityCount: 1, retroCutCount: 0 });
+      } finally {
+        h.journalRows.splice(0, h.journalRows.length, ...priorJournal);
+        resetProvenanceJournalCache();
+      }
+    });
+
+    it.each(['A', 'B'])('retains distinct log rows with second author %s and marks the row/book financial subtotal incomplete', async (secondAuthor) => {
+      const { resetProvenanceJournalCache } = await import('../services/provenance-journal.js');
+      const priorJournal = [...h.journalRows];
+      try {
+        h.journalRows.splice(1, h.journalRows.length - 1, [],
+          ['ВСЕ', 'K5', '', '26', 100, 90, '2026-10-16T10:00:00', 'A'],
+          ['ВСЕ', 'K5', '', '26', 100, 90, '2026-10-16T10:00:00', secondAuthor]);
+        resetProvenanceJournalCache();
+        const response = await app.inject('/api/provenance/uer/26');
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        expect(body.events.map((event: { author: string }) => event.author)).toEqual(secondAuthor === 'A' ? ['A'] : ['A', 'B']);
+        expect(body.events.flatMap((event: { sources: unknown[] }) => event.sources)).toMatchObject([
+          { spreadsheetId: h.UER_SPREADSHEET_ID, journalSheet: '_ChangeLog', journalRow: 3 },
+          { spreadsheetId: h.UER_SPREADSHEET_ID, journalSheet: '_ChangeLog', journalRow: 4 },
+        ]);
+        expect(body.events.every((event: { sources: { readAt: number }[] }) => Number.isFinite(event.sources[0].readAt))).toBe(true);
+        expect(body.summary).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1, retroCutCount: 0 });
+        const health = (await app.inject('/api/provenance/health')).json();
+        expect(health).toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1 });
+        expect(health.books.find((book: { dept: string }) => book.dept === 'УЭР').provenance)
+          .toMatchObject({ witnessCount: 2, financialAmbiguityCount: 1 });
+        expect(health.note).toContain('не подтверждён');
+      } finally {
+        h.journalRows.splice(0, h.journalRows.length, ...priorJournal);
+        resetProvenanceJournalCache();
+      }
+    });
+
     it('delivers complete textual labels, retains duplicate ambiguity and counts their coverage', async () => {
       const { getDeptSheetCache, setDeptSheetCache } = await import('../services/snapshot.js');
       const { resetProvenanceJournalCache } = await import('../services/provenance-journal.js');
