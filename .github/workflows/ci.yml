@@ -1030,8 +1030,8 @@ jobs:
               return result
              for path in (Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/status.json'),
                           Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/attempts/1be899e5f532466ea176563dd86e57fd/status.json'),
-                          Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/attempts/1be899e5f532466ea176563dd86e57fd/bundle/report_model.json'),
-                          Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/attempts/1be899e5f532466ea176563dd86e57fd/bundle/qa.json')):
+                          Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/attempts/f3026f067a4949538bbedc8420f0fa0f/bundle/report_model.json'),
+                          Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/attempts/f3026f067a4949538bbedc8420f0fa0f/bundle/qa.json')):
               row={'worker_status_metadata':True,'present':os.path.lexists(path),'parsed_metadata_only':True,'saved_attempt':'attempts' in path.parts,'model_details':path.name=='report_model.json','qa_details':path.name=='qa.json'}
               try:
                assert not any(parent.is_symlink() for parent in (path,*path.parents))
