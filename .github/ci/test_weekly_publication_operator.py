@@ -1,0 +1,223 @@
+"""Host adapter boundaries; all process tests use their own temporary lock."""
+import contextlib
+import copy
+import importlib.util
+import io
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+
+class WeeklyOperatorTests(unittest.TestCase):
+    def setUp(self):
+        path = Path(__file__).with_name('weekly_publication_operator.py')
+        self.assertTrue(path.is_file(), 'Missing minimal existing-CLI host adapter')
+        spec = importlib.util.spec_from_file_location('weekly_publication_operator', path)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+
+    def context(self):
+        sha = self.module.SHA
+        plan = {'release_sha':sha, 'backup_reference':'worker-38831492016/backup',
+                'candidate_images':{'server':'sha256:'+'a'*64,'report-worker':'sha256:'+'a'*64}}
+        records = {name:{'Id':name+'-id','Image':plan['candidate_images'][name],
+                    'State':{'Status':'running','StartedAt':'start','OOMKilled':False,
+                             'Health':{'Status':'healthy'}}} for name in ('server','report-worker')}
+        cycle = {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','source_sha':sha,
+                 'worker':'report-worker-id','worker_image':plan['candidate_images']['report-worker'],
+                 'worker_started_at':'start','native_word':'PASS',
+                 'attempt_ids':['first','second'],'sealed_entries_verified':10}
+        native = {name:{'uid':1000,'hashes':{'__init__.py':'f'*64},
+                       'lease_uid':1000,'lease_regular':True,'symlinks':False}
+                  for name in records}
+        ci = {'id':42,'head_sha':sha,'status':'completed','conclusion':'success','name':'CI',
+              'head_repository':{'full_name':'gaben1488/dash'}}
+        return plan,records,cycle,native,{'__init__.py':'f'*64},ci
+
+    def test_exact_accepted_runtime_and_cycle_are_admitted(self):
+        self.module.validate_context(*self.context(),backup_reference='worker-38831492016/backup')
+
+    def test_changed_source_owner_lease_cycle_ci_or_backup_is_rejected(self):
+        for field in ('accepted','source','owner','lease','cycle','restart','ci','backup'):
+            with self.subTest(field=field):
+                args=list(copy.deepcopy(self.context()));reference='worker-38831492016/backup'
+                if field=='accepted':args[0]['release_sha']='0'*40
+                if field=='source':args[3]['server']['hashes']['__init__.py']='0'*64
+                if field=='owner':args[3]['report-worker']['uid']=0
+                if field=='lease':args[3]['server']['lease_regular']=False
+                if field=='cycle':args[2]['attempt_ids']=['first','first']
+                if field=='restart':args[1]['report-worker']['State']['StartedAt']='restarted'
+                if field=='ci':args[5]['head_sha']='0'*40
+                if field=='backup':reference='worker-123/backup'
+                with self.assertRaises(ValueError):self.module.validate_context(*args,backup_reference=reference)
+
+    def test_non_systemd_or_killing_cgroup_is_rejected(self):
+        for properties,cgroup in [({'MainPID':str(os.getpid()),'KillMode':'control-group','ExitType':'cgroup'},'unit'),
+                                  ({'MainPID':'1','KillMode':'process','ExitType':'cgroup'},'unit'),
+                                  ({'MainPID':str(os.getpid()),'KillMode':'process','ExitType':'cgroup'},'other'),
+                                  ({'MainPID':str(os.getpid()),'KillMode':'process','ExitType':'main'},'unit')]:
+            with self.subTest(properties=properties,cgroup=cgroup), self.assertRaises(ValueError):
+                self.module.validate_lifecycle(properties,cgroup,'unit')
+        self.module.validate_lifecycle({'MainPID':str(os.getpid()),'KillMode':'process','ExitType':'cgroup'},'0::/system.slice/unit','unit')
+
+    def test_installed_python_source_is_checked_before_owner_import(self):
+        self.assertTrue(hasattr(self.module,'public_hashes'),'Missing pre-import source-tree verifier')
+        with tempfile.TemporaryDirectory() as temporary:
+            package=Path(temporary)/'procurement_engine';package.mkdir()
+            (package/'__init__.py').write_bytes(b'actual exact code')
+            with patch.object(self.module,'owned',side_effect=lambda path,**kwargs:Path(path).read_bytes()):
+                self.assertEqual(self.module.public_hashes(package),
+                                 {'__init__.py':__import__('hashlib').sha256(b'actual exact code').hexdigest()})
+                (package/'unsafe').symlink_to(package,target_is_directory=True)
+                with self.assertRaises(ValueError):self.module.public_hashes(package)
+
+    def test_root_owned_receipt_may_have_an_operator_owned_home_ancestor(self):
+        # VPS trust files are root600 inside root700 beneath /home/aemr.
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'receipt.json';path.write_bytes(b'{}')
+            info=SimpleNamespace(st_mode=0o100600,st_uid=0,st_nlink=1,st_size=2)
+            with patch.object(self.module.os,'fstat',return_value=info):
+                try:body=self.module.owned(path)
+                except ValueError:self.fail('Root600 receipt rejected only because home ancestor is operator-owned')
+                self.assertEqual(body,b'{}')
+
+    def test_commands_only_call_existing_cli_and_never_stop_or_restore(self):
+        commands=self.module.cli_commands(Path('/tree'),Path('/venv/bin/python'),Path('/reader'),
+                    Path('/ci.json'),Path('/receipt.json'),Path('/state'),Path('/backup'),
+                    operation='apply',revision='b'*64,finalize_review=None)
+        rendered=' '.join(commands)
+        self.assertIn('/tree/deploy/plan-weekly-publications.py',commands)
+        self.assertIn('--source-receipt',commands)
+        self.assertNotIn('docker',rendered)
+        self.assertNotIn('restore',rendered)
+        self.assertNotIn('stop',rendered)
+        with self.assertRaises(ValueError):
+            self.module.cli_commands(Path('/tree'),Path('/venv/bin/python'),Path('/reader'),
+                    Path('/ci.json'),Path('/receipt.json'),Path('/state'),Path('/backup'),
+                    operation='finalize',revision='b'*64,finalize_review=None)
+
+    def test_real_pipe_barrier_prevents_work_when_parent_disappears(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary)/'must-not-exist'
+            read,write=os.pipe()
+            child=subprocess.Popen([sys.executable,'-B','-c',self.module.BARRIER,str(read),
+                                    sys.executable,'-B','-c',f'open({str(output)!r},"w").close()'],pass_fds=(read,))
+            os.close(read);os.close(write)
+            self.assertNotEqual(child.wait(timeout=5),0)
+            self.assertFalse(output.exists())
+
+    def test_real_independent_watcher_retains_private_ex_after_supervisor_sigkill(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            tool=root/'cli.py'
+            tool.write_text('''import os,sys,time
+from pathlib import Path
+def _require_candidate_ci(*args):pass
+def require_watchdog_lifecycle():pass
+def validate_operator_runtime(*args):pass
+def validate_operator_state_owner(*args):pass
+def operate(state,**kwargs):
+ root=Path(state);assert os.environ.get('OWNER_PREFIX')=='present'
+ (root/'applied').write_text(str(os.getpid()));time.sleep(1);return {'status':'SYNTHETIC_ONLY'}
+def main(args):
+ root=Path(args[args.index('--state')+1]); operation=args[args.index('--operation')+1]
+ assert os.environ.get('OWNER_PREFIX')=='present'
+ assert operation=='recover'
+ (root/'watcher').write_text(str(os.getpid()))
+ pid=args[args.index('--watch-owner')+1]; token=args[args.index('--watch-start')+1]
+ until=time.monotonic()+5
+ while time.monotonic()<until:
+  try:
+   fields=Path('/proc/'+pid+'/stat').read_text().rsplit(')',1)[1].split()
+   if fields[0]=='Z' or fields[19]!=token:break
+  except FileNotFoundError:break
+  time.sleep(0.01)
+ time.sleep(0.3);(root/'recovered').touch();return 0
+if __name__=='__main__':raise SystemExit(main(sys.argv[1:]))
+''')
+            program='''import fcntl,importlib.util,os,sys
+from pathlib import Path
+root=Path(sys.argv[1]);spec=importlib.util.spec_from_file_location('operator',sys.argv[2]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+(root/'ci.json').write_text('{"synthetic":true}');(root/'receipt.json').write_text('{"synthetic":true}')
+with (root/'lock').open('w+') as lock:
+ fcntl.flock(lock,fcntl.LOCK_EX);os.dup2(lock.fileno(),9,inheritable=True)
+ command=[sys.executable,'-B',str(root/'cli.py'),'--state',str(root),'--operation','apply','--candidate','synthetic','--ci-evidence',str(root/'ci.json'),'--source-receipt',str(root/'receipt.json'),'--reader-package','synthetic','--expected-revision','synthetic','--backup','synthetic']
+ m.supervise(command,['/usr/bin/env','OWNER_PREFIX=present',sys.executable],owner_prefix=['/usr/bin/env','OWNER_PREFIX=present'],watch_uid=os.geteuid())
+'''
+            driver=subprocess.Popen([sys.executable,'-B','-c',program,str(root),self.module.__file__],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            try:
+                until=time.monotonic()+5
+                while not (root/'applied').exists() and driver.poll() is None and time.monotonic()<until:time.sleep(0.02)
+                self.assertTrue((root/'applied').exists(),driver.communicate(timeout=2) if driver.poll() is not None else 'owner never started')
+                self.assertTrue((root/'watcher').exists())
+                os.kill(driver.pid,signal.SIGKILL);driver.wait(timeout=3)
+                with (root/'lock').open('r+') as lock:
+                    with self.assertRaises(BlockingIOError):fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    until=time.monotonic()+5
+                    while not (root/'recovered').exists() and time.monotonic()<until:time.sleep(0.02)
+                    self.assertTrue((root/'recovered').exists())
+                    until=time.monotonic()+2
+                    while time.monotonic()<until:
+                        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+                        except BlockingIOError:time.sleep(0.02)
+                    else:self.fail('Private EX did not release after native recovery')
+            finally:
+                if driver.poll() is None:driver.kill();driver.wait(timeout=3)
+                driver.communicate(timeout=3)
+
+    def test_actual_native_api_preserves_guards_journal_and_avoids_second_watchdog(self):
+        import runpy
+
+        import procurement_engine.publication_store  # noqa: F401 - dependency smoke before fixture.
+        tests=Path(__file__).parents[2]/'packages/report-engine/tests/test_publication_store.py'
+        spec=importlib.util.spec_from_file_location('native_publication_fixture',tests)
+        fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);tool,store,receipts,options=fixture._operator_fixture(root)
+            ci=root/'ci.json';ci.write_text(json.dumps(options['ci']))
+            receipt=root/'receipt.json'
+            receipt.write_text(json.dumps(tool.candidate_source_receipt(Path(tool.__file__).parents[1],
+                options['candidate'],options['ci'],derivation_run_id=42)))
+            marker=store.root.parent/'mutable-after-backup';marker.write_text('preserve')
+            base=['-c',tool.__file__,'--state',str(store.root.parent),'--candidate',options['candidate'],
+                  '--ci-evidence',str(ci),'--source-receipt',str(receipt),'--reader-package',str(options['reader_package']),
+                  '--expected-revision',options['expected_revision'],'--backup',str(options['backup'])]
+            real_popen=subprocess.Popen
+            def forbid_extra_watchdog(command,*args,**kwargs):
+                self.assertNotIn('--watch-owner',command,'Thin native API must not launch another watchdog')
+                return real_popen(command,*args,**kwargs)
+            def operate(operation,review=None):
+                argv=base+['--operation',operation]
+                if review:argv+=['--finalize-review',review]
+                output=io.StringIO()
+                with patch.object(runpy,'run_path',return_value=tool.__dict__), patch.object(sys,'argv',argv), \
+                     patch.object(subprocess,'Popen',side_effect=forbid_extra_watchdog), contextlib.redirect_stdout(output):
+                    try:exec(compile(self.module.OWNER,'<actual-native-api-adapter>','exec'),{})  # noqa: S102 - execute the reviewed fixed bootstrap.
+                    except SystemExit:
+                        if operation=='apply':self.fail('Native apply must retain guards without creating a second watchdog')
+                        raise
+                return json.loads(output.getvalue())
+            self.assertEqual(operate('apply')['status'],'COMPACTED')
+            self.assertTrue((store.root/'.retirement/original').is_dir())
+            self.assertEqual(operate('recover')['status'],'COMMITTED')
+            with self.assertRaises(SystemExit):operate('finalize','wrong')
+            self.assertTrue((store.root/'.retirement/original').is_dir())
+            # Real retained-download readback before this synthetic finalize.
+            for receipt in receipts:
+                self.assertTrue(store.read_artifact(receipt['release_id'],'main_report.docx').startswith(b'PK'))
+            review=options['candidate']+':'+options['expected_revision']
+            self.assertEqual(operate('finalize',review)['status'],'FINALIZED')
+            self.assertFalse((store.root/'.retirement').exists())
+            self.assertEqual(marker.read_text(),'preserve')
+
+
+if __name__=='__main__':unittest.main()

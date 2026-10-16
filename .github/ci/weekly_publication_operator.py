@@ -1,0 +1,274 @@
+"""Exact43 host adapter for the existing reversible weekly-publication CLI.
+
+Delivery/venv installation and independent finalize readback belong to the
+authenticated management job. This file neither installs dependencies nor
+changes services, images, policy, source receipts, or backup contents.
+"""
+import argparse
+import fcntl
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import select
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+SHA = '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+TOOLS = Path('/usr/local/libexec/aemr')
+BACKUPS = Path('/home/aemr/.dash-private-backups')
+ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','DOCKER_CONFIG':'/etc/aemr/docker',
+       'PYTHONDONTWRITEBYTECODE':'1'}
+MODULES = {'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
+
+# EOF means the supervisor died before independent recovery was proved ready.
+BARRIER = '''import os,sys
+fd=int(sys.argv[1]);ready=os.read(fd,1);os.close(fd)
+if ready!=b'1':raise SystemExit(2)
+os.execv(sys.argv[2],sys.argv[2:])
+'''
+WATCHER = '''import os,runpy,sys
+assert os.geteuid()==int(sys.argv[1])
+tool=runpy.run_path(sys.argv[3]);fd=int(sys.argv[2])
+os.write(fd,b'1');os.close(fd)
+raise SystemExit(tool['main'](sys.argv[4:]))
+'''
+# Call the existing native function, preserving the main()-only authorization
+# gates, without spawning main()'s second, descriptor-closing watchdog.
+OWNER = '''import json,runpy,sys
+from pathlib import Path
+tool=runpy.run_path(sys.argv[1]);args=sys.argv[2:]
+def value(flag):return args[args.index(flag)+1]
+try:
+ operation=value('--operation');state=value('--state')
+ options={'candidate':value('--candidate'),'ci':json.loads(Path(value('--ci-evidence')).read_text()),
+  'reader_package':value('--reader-package'),'expected_revision':value('--expected-revision'),
+  'backup':value('--backup'),'source_receipt':json.loads(Path(value('--source-receipt')).read_text())}
+ if operation=='apply':
+  assert all(options.values())
+  tool['_require_candidate_ci'](options['candidate'],options['ci'])
+  tool['require_watchdog_lifecycle']()
+  tool['validate_operator_runtime'](options['candidate'],options['ci'],options['reader_package'],options['source_receipt'])
+  tool['validate_operator_state_owner'](state)
+ review=value('--finalize-review') if '--finalize-review' in args else None
+ print(json.dumps(tool['operate'](state,operation=operation,finalize_review=review,**options),sort_keys=True))
+except Exception:
+ print('NATIVE_PUBLICATION_OPERATION_BLOCKED');raise SystemExit(2) from None
+'''
+NATIVE = '''import hashlib,json,os,stat
+from pathlib import Path
+import procurement_engine
+root=Path(procurement_engine.__file__).parent
+lease=Path('/app/packages/server/data/reports/publication-readers.lock')
+info=lease.lstat()
+print(json.dumps({'uid':os.geteuid(),'hashes':{p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.py')},'symlinks':any(p.is_symlink() for p in root.rglob('*')),'lease_uid':info.st_uid,'lease_regular':stat.S_ISREG(info.st_mode)}))
+'''
+
+
+def require(value, code):
+    if not value:raise ValueError(code)
+
+
+def owned(path, *, limit=1024*1024, private=True):
+    path=Path(path)
+    for parent in path.parents:
+        info=parent.lstat()
+        # Existing root600/root700 backup sessions live beneath /home/aemr.
+        # Root ownership is required on the opened trust file, not that home.
+        require(stat.S_ISDIR(info.st_mode),'OPERATOR_PATH_UNTRUSTED')
+    with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+        info=os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and info.st_size<=limit,'OPERATOR_FILE_UNTRUSTED')
+        require(stat.S_IMODE(info.st_mode)==0o600 if private else not info.st_mode&0o022,'OPERATOR_FILE_UNTRUSTED')
+        body=stream.read(limit+1)
+        require(len(body)<=limit,'OPERATOR_FILE_TOO_LARGE')
+        return body
+
+
+def validate_lifecycle(properties, cgroup, unit):
+    require(properties.get('MainPID')==str(os.getpid()) and properties.get('KillMode')=='process'
+            and properties.get('ExitType')=='cgroup'
+            and unit in cgroup.split('/') and not Path('/.dockerenv').exists(),'INDEPENDENT_HOST_LIFECYCLE_REQUIRED')
+
+
+def public_hashes(package):
+    require(package.is_dir() and not package.is_symlink() and not any(p.is_symlink() for p in package.rglob('*')),
+            'PUBLIC_CODE_SYMLINK_REJECTED')
+    result={p.relative_to(package).as_posix():hashlib.sha256(owned(p,private=False)).hexdigest()
+            for p in package.rglob('*.py')}
+    require(bool(result),'PUBLIC_CODE_EMPTY')
+    return result
+
+
+def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
+    require(plan['release_sha']==SHA and plan['backup_reference']==backup_reference,'ACCEPTED_BACKUP_CHANGED')
+    require(ci.get('head_sha')==SHA and ci.get('status')=='completed' and ci.get('conclusion')=='success'
+            and ci.get('name')=='CI' and (ci.get('head_repository') or {}).get('full_name')=='gaben1488/dash'
+            and type(ci.get('id')) is int and ci['id']>0,'EXACT_CANDIDATE_CI_REQUIRED')
+    worker=records['report-worker']
+    require(cycle.get('state')=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and cycle.get('source_sha')==SHA
+            and cycle.get('worker')==worker['Id'] and cycle.get('worker_image')==worker['Image']
+            and cycle.get('worker_started_at')==worker['State']['StartedAt'] and cycle.get('native_word')=='PASS'
+            and isinstance(cycle.get('attempt_ids'),list) and len(cycle['attempt_ids'])==2
+            and all(isinstance(v,str) and v for v in cycle['attempt_ids']) and len(set(cycle['attempt_ids']))==2
+            and type(cycle.get('sealed_entries_verified')) is int and cycle['sealed_entries_verified']>0,'ACCEPTED_WORKER_CYCLES_REQUIRED')
+    for role in ('server','report-worker'):
+        record=records[role];proof=native[role]
+        require(record['Image']==plan['candidate_images'][role] and record['State']['Status']=='running'
+                and record['State']['OOMKilled'] is False,'ACCEPTED_RUNTIME_CHANGED')
+        require(proof=={'uid':1000,'hashes':hashes,'lease_uid':1000,'lease_regular':True,'symlinks':False},'LIVE_READER_SOURCE_OR_OWNER_CHANGED')
+    require(records['server']['State']['Health']['Status']=='healthy','ACCEPTED_API_UNHEALTHY')
+
+
+def cli_commands(tree,python,reader,ci,receipt,state,backup,*,operation,revision,finalize_review):
+    require(operation in {'apply','recover','rollback','finalize'} and re.fullmatch('[a-f0-9]{64}',revision),'OPERATION_INVALID')
+    require(operation!='finalize' or finalize_review==SHA+':'+revision,'INDEPENDENT_FINALIZE_REVIEW_REQUIRED')
+    result=[str(python),'-IB',str(tree/'deploy/plan-weekly-publications.py'),'--state',str(state),
+            '--operation',operation,'--candidate',SHA,'--ci-evidence',str(ci),'--source-receipt',str(receipt),
+            '--reader-package',str(reader),'--expected-revision',revision,'--backup',str(backup)]
+    if operation=='finalize':result+=['--finalize-review',finalize_review]
+    return result
+
+
+def call(arguments,*,timeout=180,pass_fds=()):
+    result=subprocess.run(arguments,capture_output=True,env=ENV,timeout=timeout,check=False,pass_fds=pass_fds)
+    require(result.returncode==0 and len(result.stdout)<=8*1024*1024,'OPERATOR_COMMAND_FAILED')
+    return result.stdout
+
+
+def lock_held_by(pid,fd,expected):
+    path=Path('/proc')/str(pid)/'fd'/str(fd)
+    info=path.stat()
+    if (info.st_dev,info.st_ino)!=(expected.st_dev,expected.st_ino):return False
+    for line in (path.parent.parent/'fdinfo'/str(fd)).read_text().splitlines():
+        fields=line.split()
+        if fields and fields[0]=='lock:':fields=fields[1:]
+        if len(fields)==8 and fields[1:4]==['FLOCK','ADVISORY','WRITE']:
+            major,minor,inode=fields[5].split(':')
+            if (int(major,16),int(minor,16),int(inode))==(os.major(expected.st_dev),os.minor(expected.st_dev),expected.st_ino):return True
+    return False
+
+
+def supervise(command,watch_prefix,*,owner_prefix=(),watch_uid=1000):
+    """Both native owner and independent native recovery retain the real EX9.
+
+    No original-state copying or process-control recovery lives in this adapter.
+    A parent death before the readiness barrier produces EOF without mutation.
+    """
+    gate_read,gate_write=os.pipe();ready_read,ready_write=os.pipe()
+    owner=watcher=None
+    try:
+        owner=subprocess.Popen([sys.executable,'-IB','-c',BARRIER,str(gate_read),*owner_prefix,
+                                command[0],'-IB','-c',OWNER,command[2],*command[3:]],
+                               env=ENV,pass_fds=(9,gate_read),start_new_session=True)
+        os.close(gate_read);gate_read=None
+        start=Path('/proc/'+str(owner.pid)+'/stat').read_text().rsplit(')',1)[1].split()[19]
+        recovery=command[3:]
+        recovery[recovery.index('--operation')+1]='recover'
+        if '--finalize-review' in recovery:
+            index=recovery.index('--finalize-review');del recovery[index:index+2]
+        recovery+=['--watch-owner',str(owner.pid),'--watch-start',start]
+        watcher=subprocess.Popen([*watch_prefix,'-IB','-c',WATCHER,str(watch_uid),str(ready_write),command[2],*recovery],
+                                 env=ENV,pass_fds=(9,ready_write),start_new_session=True)
+        os.close(ready_write);ready_write=None
+        require(select.select([ready_read],[],[],30)[0] and os.read(ready_read,1)==b'1'
+                and watcher.poll() is None and lock_held_by(watcher.pid,9,os.fstat(9)),
+                'INDEPENDENT_EX_WATCHDOG_NOT_READY')
+        os.write(gate_write,b'1');os.close(gate_write);gate_write=None
+        outcome=owner.wait()
+        recovered=watcher.wait()
+        require(outcome==0 and recovered==0,'NATIVE_COMPACTION_OR_RECOVERY_FAILED')
+    finally:
+        # Never kill either independent custodian on supervisor/SSH failure.
+        for descriptor in (gate_read,gate_write,ready_read,ready_write):
+            if descriptor is not None:os.close(descriptor)
+
+
+def admit(args):
+    unit='aemr-weekly-compaction-'+args.operator_run+'.service'
+    properties=dict(line.split('=',1) for line in call(['systemctl','show',unit,'--property=MainPID,KillMode,ExitType']).decode().splitlines())
+    validate_lifecycle(properties,Path('/proc/self/cgroup').read_text().strip(),unit)
+    receipt=json.loads(owned(args.source_receipt));ci=json.loads(owned(args.ci_evidence))
+    require(receipt.get('contract')=='exact-ci-public-code-v1' and receipt.get('repository')=='gaben1488/dash'
+            and receipt.get('candidate')==SHA and receipt.get('ci_run_id')==ci.get('id')
+            and type(receipt.get('derivation_run_id')) is int and receipt['derivation_run_id']>0,'SOURCE_RECEIPT_INVALID')
+    hashes=public_hashes(args.tree/'packages/report-engine/src/procurement_engine')
+    observed={'packages/report-engine/src/procurement_engine/'+name:value for name,value in hashes.items()}
+    for name in ('deploy/plan-weekly-publications.py','deploy/stateful_backup.py'):
+        observed[name]=hashlib.sha256(owned(args.tree/name,private=False)).hexdigest()
+    require(observed==receipt.get('file_hashes'),'EXACT_PUBLIC_CODE_REQUIRED')
+    require(public_hashes(args.reader_package)==hashes,'HOST_READER_SOURCE_CHANGED')
+    # Native interpreter may be a venv symlink to the trusted host ABI binary.
+    executable=args.python.resolve(strict=True);info=executable.stat()
+    require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022,'HOST_INTERPRETER_UNTRUSTED')
+    owned(args.python.parent.parent/'pyvenv.cfg',private=False)
+    raw_plan=json.loads(owned(Path('/var/lib/aemr/release-runtime/trial-plan.json')))
+    reference=raw_plan['backup_reference']
+    require(re.fullmatch('worker-[0-9]+/backup',reference) and reference==args.backup_reference,'ACCEPTED_BACKUP_CHANGED')
+    window=json.loads(owned(BACKUPS/Path(reference).parent/'release-window.json'))
+    require(window.get('candidate')==SHA and set(window.get('module_sha256',{}))==MODULES,'ROOT_MODULE_PINS_REQUIRED')
+    for name,pin in window['module_sha256'].items():
+        require(hashlib.sha256(owned(TOOLS/name,private=False)).hexdigest()==pin,'ROOT_MODULE_CHANGED')
+    sys.path.insert(0,str(TOOLS))
+    import release_recovery as r
+    r.require_lock(9);plan=r.validate_plan(raw_plan)
+    accepted=json.loads(owned(r.STATE_DIR/'release-accepted.json'))
+    require(accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),
+                       'acceptance':r.ReleaseRecovery._acceptance(plan)},'EXACT_ACCEPTED_RELEASE_REQUIRED')
+    require(not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
+            and not list(BACKUPS.glob('*/quiescent')),'RELEASE_NOT_IDLE')
+    executor=r.ReleaseRecovery(lock_fd=9);records=executor._records(plan,candidate=True)
+    spec=importlib.util.spec_from_file_location('accepted_release_controller',TOOLS/'release-controller.py')
+    controller=importlib.util.module_from_spec(spec);spec.loader.exec_module(controller)
+    controller.ReleaseController(executor)._proof(plan)
+    _,config=executor._files(plan,candidate_runtime=True)
+    controller.ReleaseController(executor)._saved_runtime({**plan,'images':plan['candidate_images']},records,json.loads(json.dumps(config).replace('$$','$')))
+    cycle=json.loads(owned(args.worker_acceptance))
+    native={role:json.loads(call(['docker','exec',records[role]['Id'],'/opt/report-env/bin/python','-IB','-c',NATIVE]))
+            for role in ('server','report-worker')}
+    validate_context(plan,records,cycle,native,hashes,ci,backup_reference=args.backup_reference)
+    return executor._volume(plan)/'reports',BACKUPS/reference
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    for name in ('tree','python','reader_package','ci_evidence','source_receipt','worker_acceptance'):
+        parser.add_argument('--'+name.replace('_','-'),required=True,type=Path)
+    parser.add_argument('--operator-run',required=True);parser.add_argument('--backup-reference',required=True)
+    parser.add_argument('--expected-revision',required=True);parser.add_argument('--finalize-review')
+    parser.add_argument('--operation',choices=('apply','recover','rollback','finalize'),required=True)
+    parser.add_argument('--check',action='store_true');args=parser.parse_args()
+    require(os.geteuid()==0 and re.fullmatch('[0-9]+',args.operator_run),'ROOT_OPERATOR_REQUIRED')
+    os.umask(0o077);sys.dont_write_bytecode=True
+    with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
+        info=os.fstat(lock.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1,'GLOBAL_LOCK_UNTRUSTED')
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
+        try:
+            state,backup=admit(args)
+            command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
+                                 operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
+            privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
+                       '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
+            # Exercise actual host ABI/dependency closure and existing proof gates
+            # as the real native data owner before any maintenance lock bootstrap.
+            probe='import importlib.util,json,sys;import procurement_engine.runtime,docx;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;spec=importlib.util.spec_from_file_location("weekly",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);m.operator_preflight(sys.argv[2],operation=sys.argv[3],candidate=sys.argv[4],ci=json.load(open(sys.argv[5])),reader_package=sys.argv[6],source_receipt=json.load(open(sys.argv[7])),expected_revision=sys.argv[8],backup=sys.argv[9],store=PublicationStore(Path(sys.argv[2])/"published",readonly=True));print("HOST_NATIVE_PREFLIGHT_PASS")'
+            call([*privilege,str(args.python),'-IB','-c',probe,command[2],str(state),args.operation,SHA,
+                  str(args.ci_evidence),str(args.reader_package),str(args.source_receipt),args.expected_revision,str(backup)],timeout=1800,pass_fds=(9,))
+            if args.check:print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
+            # The barrier execs setpriv in-place, preserving PID birth identity.
+            owner_command=command
+            supervise(owner_command,[*privilege,str(args.python)],owner_prefix=privilege)
+            print('EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE')
+        finally:
+            if lock.fileno()!=9:os.close(9)
+
+
+if __name__=='__main__':
+    try:main()
+    except Exception:  # noqa: BLE001 - private inputs never cross the fixed-code boundary
+        print('WEEKLY_OPERATOR_BLOCKED');raise SystemExit(2) from None
