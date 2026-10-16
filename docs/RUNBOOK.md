@@ -17,7 +17,7 @@ Expected endpoints:
 
 ## Verification
 
-На16.10.2026,17:34UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+На16.10.2026,17:57UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
 health16:25:58UTC PASS. Observer38930502207 SUCCESS16:49:26UTC: два новых
 36d28700/d396cb45, RUNNING/double host FLOCK, interval≥900s, context/snapshot/
@@ -28,21 +28,25 @@ Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/
 Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
 manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
-Remote63370d1d не установлен: CI38938876407 source WebKit RAF0/5с FAIL и
-Header4 FETCH/TIMEOUT15с; report-engine/image PASS. Fonts/JS heartbeat/видимость/
-фокус исправны; bring_to_front не доказал исправление. HTTP fixture9tests
-local Chrome/WebKit PASS — ещё не runner acceptance. Frozen84138935153610
-SUCCESS; frozen63338938876490 ещё идёт. Нельзя выпускать failed candidate.
+Remotea7e0b27e не установлен: CI38941504501 WebKit RAF0/5с даже по HTTP;
+transport/focus-гипотезы отвергнуты. Local headedGTK не исправил touch, отменён.
+Новый bounded initial bitmap с animations=allow сохраняет эффекты и реальные
+click/tap; runner proof ещё нужен. Frozen63338938876490 завершил actual replay/
+audit/qualified old#REF!, но итоговый job FAIL на одном live worker status poll.
+Readback38942301087 RUNNING ff0236ce не доказывает terminal failure. Frozen
+больше не принимает installed worker за кандидата: explicit NOT_RUN; dedicated
+postdeploy2cycle+native3Word observer обязателен, diagnostics сохранены.
+Workflow8tests RED→GREEN и23deployment-smoke tests PASS; review PASS.
 Native weekly index38935736313: тот же selector1096.623→0.312ms, build1127.75ms,
 production index не создан. Native installed validation38938184833 отдельно:
 selector14383.390ms wall/2177ms CPU на0.5CPU;23MB baseline validation4–5s.
 Разные условия wall timing не превращать в общий cold HTTP benchmark.
 Census38939051025: после cancelled CI остался unbounded read-only replay.
-Локальный3e0ccb4a labels run+job/caps/internal timeout/cleanup/serial schema→replay
-проверен6tests; фактический native budget ещё не принят. При отмене CI не считать
-Docker автоматически завершённым. Удалять можно лишь собственные disposable
-контейнеры по точному label/ID и доказанной принадлежности; production не трогать.
-Старые unlabelled процессы не подводятся под новый cleanup по одному image ID.
+Remote3e0/2783/a7: exact run+attempt+job labels, caps/internal timeout, cleanup,
+serial schema→replay, newheads queue. Bounded native38941504634 schema/diagnostics
+PASS; frozen идёт, budget ещё не принят. При отмене CI не считать Docker
+автоматически завершённым. Cleanup только собственных labelled disposable;
+старые unlabelled процессы нельзя выбирать по одному image ID.
 Read-only диагностика сохраняет15с gate и печатает fixed stage/reason/elapsed,
 без сообщений исключений/payload. Работающий192 не пересоздавался.
 

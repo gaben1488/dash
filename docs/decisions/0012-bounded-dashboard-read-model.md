@@ -89,3 +89,18 @@ existing26minute SSH/28minute job deadlines are not raised. Production data stay
 read-only; anonymous scratch is discarded with its container. This closes a
 resource-ownership defect in the existing operator, not a second orchestration
 system or a change to publication/source validity.
+
+### Candidate replay is not installed-worker acceptance
+
+Frozen633 replay38938876490 completed its build, independent audit and qualified
+historical refusal, then failed on one read of the installed worker's global
+status. The nearby readback38942301087 was RUNNING, not a terminal failure.
+`check_worker_cycle(..., attempts=1)` rejects RUNNING by contract. Replaying the
+whole candidate until this unrelated observation lands between cycles cannot
+prove candidate automation. The frozen job therefore stops claiming scheduled
+cycle acceptance. Its output explicitly says NOT_RUN and requires two cycles
+of the exact deployed candidate. The separate read-only worker diagnostics and
+post-deployment attributed two-cycle/native-Word observer remain in place.
+Historical acceptance stays bound to its installed source/image; RUNNING is
+neither a new acceptance nor a terminal worker failure. Real failed attempts
+remain visible in diagnostics and stop the dedicated acceptance observer.

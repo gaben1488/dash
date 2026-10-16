@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 17:34 UTC
+### Текущий выпуск — 16.10.2026, 17:57 UTC
 
 **Установлен `19289667`: release38927016449 SUCCESS, независимые restore
 с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
@@ -28,18 +28,24 @@ manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Оба restore110SQLite/263DOCX. Keeper:/home/aemr/.dash-private-backups/worker-38927016449/backup.
 Free16714596352B/MemAvailable2588721152B — отдельный замер16:50, не гарантия будущего места.
 
-Remote63370d1d включаетd158/c4f19 и проверочную оснастку, но не установлен.
-CI38938876407: report-engine/runtime и production image PASS; source job FAIL
-на первых RAF в WebKit; live job: все4Header FETCH/TIMEOUT15с, не JSON/schema.
-Fonts=true/frames0/heartbeat=true/visible=true/focused=true доказывают, что
-активация вкладки не устранила отказ renderer. Local PASS не закрывает CI.
-Bounded HTTP fixture с тем же compiled Header (только loopback/exact file,
-соседние пути404) проверяется как транспорт настоящего preview. Original
-file period test сохранён; startup5с/click/tap5с и negative controls не ослаблены.
-Local Chromium9/WebKit9 PASS; runner HTTP-эксперимент ещё не выполнен.
-Frozen84138935153610 SUCCESS: current replay/independent audit/two rebuilt
-DOCX и159recommendations без потери подтверждённых связей; weekly — прежний
-квалифицированный отказ #REF!, не принятый архив. Frozen63338938876490 идёт.
+Remote `a7e0b27e` включает d158/c4f19, но не установлен. Source CI38941504501
+отказал на WebKit RAF0/5с даже с HTTP fixture: transport/focus-гипотезы не
+подтвердились. JS heartbeat/fonts/visibility/focus исправны. Headed GTK отдельно
+пропустил первый paint, но touch всё ещё отказал; этот эксперимент отменён.
+Новая узкая проверка требует реальный initial bitmap с animations=allow перед
+прежними RAF5с/action5с. Локальный WPE frame probe показал1RAF/18timer ticks,
+после bitmap настоящие calendar/reset/Undo PASS. Это ещё не runner proof и не
+исправление production CSS; эффекты/анимации/реальные click/tap не отключены.
+Полные local Chromium9/WebKit9 PASS с новой initial-paint проверкой.
+
+Frozen63338938876490 закончил build/audit/twoDOCX и квалификацию неизменного
+старого #REF!, затем job FAIL17:45:20 на одном чтении установленного worker.
+Близкий status38942301087: RUNNING ff0236ce с17:44:16Z. Это не доказанный
+новый терминальный отказ. Исправляется граница: frozen replay явно NOT_RUN
+для worker acceptance; отдельные diagnostics и обязательный postdeploy observer
+двух новых attributed cycles/native Word сохранены. Регрессия8tests RED→GREEN,
+23deployment-smoke tests PASS, independent review PASS. Frozen84138935153610
+SUCCESS сохраняется в своём объёме; исторический #REF! не принят за исправленный.
 **Никакому новому кандидату доказательства192 не засчитываются.**
 
 Native classified38937411651: четыре FETCH/TIMEOUT15с; последующие journal
@@ -50,15 +56,15 @@ Warm empty-live comparison5607.087ms — не полный cold HTTP. Partial in
 отдельно доказал сохранение тех же ID/порядка (см. ниже), пока не production.
 
 Census38939051025 нашёл три concurrent same-image diagnostics без caps;
-rehearsal start17:17:31 оставался17:21 после отмены38937993041. В локальном
-3e0ccb4a существующий workflow ограничен RAM/CPU/PIDs и daemon-side timeout,
-контейнеры labelled run+job, cleanup трогает только свои; source-schema/replay
-последовательны, !cancelled() запрещает новую работу после отмены. Actual
-Bash cleanup сохраняет exit7/защищённый соседний путь;6tests/Ruff/actionlint
-и independent review PASS. Новый resource budget ещё требует native proof.
-Это доказанный дефект владения операцией, не утверждение, что он один
-объясняет каждый API timeout. Старый незавершённый replay не прерывается новым
-push; завершение/ограничение операций не должно становиться cancellation churn.
+rehearsal start17:17:31 оставался17:21 после отмены38937993041. Remote3e0/
+2783/a7 ограничивают RAM/CPU/PIDs, daemon-side timeout и exact run+attempt+job
+cleanup. Новые heads стоят в очереди, не отменяют активный native replay;
+source-schema/replay последовательны. Actual Bash cleanup сохраняет exit7/
+защищённый соседний путь; Ruff/actionlint/review PASS. Первый bounded native
+run38941504634: schema/diagnostics PASS, frozen в работе. Budget ещё не принят.
+Это доказанный дефект владения операцией, не единственное объяснение latency.
+Memory census38941388269 сохранил worker peak2415919104B (точно cap); это
+не доказательство отсутствия child OOM по одному State.OOMKilled=false.
 
 #69 содержит все56 результатов без условных процентов. Уточнены192 install/
 restore/worker/browser; общие решения/KPI/provenance, весь mobile и остальные

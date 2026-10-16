@@ -601,21 +601,8 @@ jobs:
               -e CANDIDATE_WEEKLY="$candidate_weekly" \
               --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json,os,sys; from procurement_engine.rehearsal_policy import compare_weekly_replay; baseline=json.loads(os.environ["BASELINE_WEEKLY"]); candidate=json.loads(os.environ["CANDIDATE_WEEKLY"]); result=compare_weekly_replay(baseline,candidate); print(json.dumps({"weekly_archive_comparison":result},ensure_ascii=False,sort_keys=True)); sys.exit(0 if result["ready"] else 2)'
-            # Startup success is insufficient: observe a later timer attempt.
-            if ! worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker); then
-              echo '{"scheduled_worker_cycle":{"status":"BLOCKED","reason":"REPORT_WORKER_LOOKUP_FAILED"}}'
-              exit 1
-            fi
-            if [ -z "$worker" ]; then
-              echo '{"scheduled_worker_cycle":{"status":"BLOCKED","reason":"RUNNING_REPORT_WORKER_NOT_FOUND"}}'
-              exit 1
-            fi
-            started=$(docker inspect --format '{{.State.StartedAt}}' "$worker")
-            interval=$(docker exec "$worker" /bin/sh -c 'printf "%s" "${REPORT_POLL_SECONDS:-900}"')
-            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
-              -v "$data_volume:/app/packages/server/data:ro" \
-              -v "$work/packages/report-engine:/candidate:ro" \
-              -e PYTHONPATH=/candidate/src \
-              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
-              -c 'import json, sys; from datetime import datetime, timedelta; from pathlib import Path; from procurement_engine.deployment_smoke import check_worker_cycle; since=(datetime.fromisoformat(sys.argv[1])+timedelta(seconds=float(sys.argv[2]))).isoformat(); result=check_worker_cycle(lambda: json.loads(Path("/app/packages/server/data/reports/status.json").read_text()), since, attempts=1); print(json.dumps({"scheduled_worker_cycle": result}, sort_keys=True))' \
-              "$started" "$interval"
+            # A one-shot read of the installed worker may legitimately be RUNNING.
+            # It cannot accept automation of this not-yet-installed candidate.
+            # Keep worker diagnostics separate; after deployment, require the
+            # attributed two-cycle observer and native context/three-Word checks.
+            echo '{"worker_acceptance":{"status":"NOT_RUN","reason":"REQUIRES_EXACT_DEPLOYED_CANDIDATE_TWO_CYCLES"}}'

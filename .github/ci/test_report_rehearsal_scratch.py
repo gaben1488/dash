@@ -26,6 +26,18 @@ def docker_commands(text):
 
 
 class ReportRehearsalScratchTests(unittest.TestCase):
+    def test_frozen_candidate_replay_cannot_claim_installed_worker_cycle_acceptance(self):
+        frozen = WORKFLOW.read_text().split('  frozen-replay:\n', 1)[1]
+        self.assertNotIn('check_worker_cycle', frozen)
+        self.assertNotIn('scheduled_worker_cycle', frozen)
+        self.assertIn('REQUIRES_EXACT_DEPLOYED_CANDIDATE_TWO_CYCLES', frozen)
+        self.assertIn('"status":"NOT_RUN"', frozen)
+        # Strong operational acceptance remains a separate, explicitly invoked
+        # observer. A prior installed success is not a candidate replay result.
+        operator = (WORKFLOW.parent / 'vps-cache-cleanup.yml').read_text()
+        observer = operator.split('  worker-acceptance-readback:\n', 1)[1]
+        self.assertIn('maintenance: worker-acceptance-readback', observer)
+
     def test_new_heads_queue_without_cancelling_native_work_already_running(self):
         concurrency = WORKFLOW.read_text().split('concurrency:\n', 1)[1].split('\njobs:', 1)[0]
         self.assertIn('group: report-readonly-rehearsal-${{ github.event.pull_request.number }}', concurrency)

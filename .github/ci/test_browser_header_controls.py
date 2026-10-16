@@ -54,6 +54,10 @@ def header_fixture(artifact):
 async def open_current_header(page, url):
     await page.goto(url)
     await page.bring_to_front()
+    # Exercise an actual initial paint, including the unmodified glass effects.
+    # WPE's offscreen fixture can run JS timers while withholding paint/RAF;
+    # a native snapshot requests that paint without force-clicks or reduced motion.
+    await page.screenshot(timeout=5000, animations='allow')
     # WebKit's pointer stability check needs rendered frames. Treat initial
     # font/layout startup separately; keep the real action's 5s bound intact.
     try:
@@ -159,7 +163,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
             try:
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
-                await page.goto(artifact.as_uri())
+                await open_current_header(page, artifact.as_uri())
                 await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
                 proof = {}
                 await verifier.verify_header_periods(page, 'iphone', proof)
