@@ -36,9 +36,14 @@ class BrowserAdmissionTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             program='def probe():\n'+textwrap.indent(textwrap.dedent(body),'    ')+'\nprobe()'
             exec(compile(program,'<image-inventory>','exec'),scope)  # noqa: S102 - trusted read-only workflow
-        self.assertEqual(json.loads(output.getvalue()),{'image':ident,'image_bytes':123456,'source_sha':None})
+        self.assertEqual(json.loads(output.getvalue()),{'image':ident,'image_bytes':123456,'source_sha':None,'project_image':True,'tagged':True})
         self.assertNotIn('PRIVATE',output.getvalue())
         self.assertEqual(calls,[['docker','image','ls','--all','--no-trunc','--quiet'],['docker','image','inspect',ident]])
+        record['RepoTags']=None
+        record['Config']['Labels']['org.opencontainers.image.revision']='f'*40
+        calls.clear();output=io.StringIO()
+        with contextlib.redirect_stdout(output):exec(compile(program,'<image-inventory>','exec'),scope)  # noqa: S102 - trusted read-only workflow
+        self.assertEqual(json.loads(output.getvalue()),{'image':ident,'image_bytes':123456,'source_sha':None,'project_image':False,'tagged':False})
 
     def test_host_capacity_inventory_projects_counts_without_private_paths(self):
         import contextlib

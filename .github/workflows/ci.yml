@@ -1058,11 +1058,12 @@ jobs:
              if not identifiers:return
              records=json.loads(subprocess.check_output(['docker','image','inspect',*identifiers],text=True,timeout=15))
              for record in records:
-              if not any(tag.startswith(('aemr-server:','aemr-web:')) for tag in record.get('RepoTags') or []):continue
+              project_image=any(tag.startswith(('aemr-server:','aemr-web:')) for tag in record.get('RepoTags') or [])
               assert record['Id'] in identifiers and type(record['Size']) is int and 0<=record['Size']<2**53
               revision=(record.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')
-              print(json.dumps({'image':record['Id'],'image_bytes':record['Size'],
-               'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}),flush=True)
+              print(json.dumps({'image':record['Id'],'image_bytes':record['Size'],'project_image':project_image,
+               'tagged':bool(record.get('RepoTags')),
+               'source_sha':revision if project_image and isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}),flush=True)
 
             def host_storage_metadata():
              for category,path in [('operational_scratch','/root/codex-fixes'),('temporary','/tmp'),
