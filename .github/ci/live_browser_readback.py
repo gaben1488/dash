@@ -17,6 +17,18 @@ PAGES = ['Пульс', 'Отчёт', 'Свод', 'Реестр', 'Не обес�
          'Мониторинг', 'Экономия', 'Конкуренция', 'Дисциплина', 'Контроль', 'Аналитика', 'Система']
 
 
+def record_response(response, proof):
+    parsed = urlsplit(response.url)
+    if parsed.netloc != urlsplit(BASE).netloc:
+        return
+    names = {'/api/dashboard': 'dashboard_http_statuses', '/api/change-story': 'journal_http_statuses'}
+    name = names.get(parsed.path)
+    if name:
+        statuses = proof.setdefault(name, [])
+        if len(statuses) < 8:
+            statuses.append(response.status)
+
+
 async def select_page(page, nav, label):
     button = nav.locator('.np-btn').filter(has=page.locator('.np-label', has_text=re.compile('^' + re.escape(label) + '$')))
     # Native keyboard navigation, never forced clicks through an overlay.
@@ -64,16 +76,20 @@ async def run():
             errors = []
             word_requests = []
             page.on('pageerror', lambda _: errors.append(True))
+            page.on('response', lambda response: record_response(response, proof))
             def word_request(request):
                 match = re.fullmatch(re.escape(BASE) + r'/api/report-releases/(REL-[a-f0-9]{64})/(main|supplement|operational)\.docx', request.url)
                 if match:
                     word_requests.append(match.groups())
             page.on('request', word_request)
-            proof['stage'] = 'authenticated_navigation'
+            proof['stage'] = 'document_navigation'
             async with page.expect_response(lambda r: urlsplit(r.url).path == '/api/dashboard' and r.status == 200, timeout=40000) as dashboard:
                 response = await page.goto(BASE, wait_until='domcontentloaded', timeout=30000)
+                proof['document_http_status'] = response.status
+                assert response.status == 200
+                proof['stage'] = 'dashboard_response'
             await (await dashboard.value).finished()
-            assert response.status == 200
+            proof['stage'] = 'initial_render'
             nav = page.get_by_role('navigation', name='Навигация', exact=True)
             await nav.wait_for(timeout=30000)
             visited = []

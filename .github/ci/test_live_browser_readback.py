@@ -15,6 +15,22 @@ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 
 
 class BrowserAdmissionTests(unittest.TestCase):
+    def test_response_evidence_never_copies_url_body_or_credentials(self):
+        source=ast.parse((ROOT/'.github/ci/live_browser_readback.py').read_text())
+        function=next(node for node in source.body if isinstance(node,ast.FunctionDef) and node.name=='record_response')
+        from urllib.parse import urlsplit
+        scope={'urlsplit':urlsplit,'BASE':'https://dash-elizovo-uer.ru'}
+        exec(compile(ast.Module(body=[function],type_ignores=[]),'<response-probe>','exec'),scope)  # noqa: S102 - trusted checked-in probe only
+        proof={}
+        for status in (401,200):
+            scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/dashboard?private=do-not-copy',status=status),proof)
+        scope['record_response'](SimpleNamespace(url='https://external.invalid/api/dashboard',status=418),proof)
+        scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/unknown',status=500),proof)
+        self.assertEqual(proof,{'dashboard_http_statuses':[401,200]})
+        for _ in range(100):
+            scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/dashboard',status=500),proof)
+        self.assertEqual(len(proof['dashboard_http_statuses']),8)
+
     def test_actual_workflow_constructor_runs_with_no_maintenance_fd(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  browser-readback:\n',1)[1].split('  observe:\n',1)[0]
