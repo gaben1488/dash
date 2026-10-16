@@ -1,13 +1,18 @@
 """Transparent diagnostics for the original frozen trial on an ephemeral runner.
 
 Never called on the VPS. Actual trial code, images, archive and native programs
-are unchanged. Only failed subprocess outputs and Python phase names are observed.
+are unchanged. Failed outputs stay private; bounded runner timings never include
+the archive/image transfer that happens before this helper starts.
+Phase durations include nested work and must not be summed with command timings.
+RETURNED means subprocess.run returned; its exit code still determines success.
 """
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 from unittest.mock import patch
@@ -20,17 +25,109 @@ CODES = {'RELEASE_TRIAL_STORAGE_INSUFFICIENT', 'RELEASE_TRIAL_AUTH_UNAVAILABLE',
          'RELEASE_CHECKPOINT_CHANGED', 'RELEASE_WORD_PROOF_INVALID', 'RELEASE_TRIAL_IMAGE_UNAVAILABLE',
          'BACKUP_MISMATCH', 'BACKUP_SQLITE_INVALID', 'BACKUP_DOCX_INVALID', 'BACKUP_STATE_INCOMPLETE',
          'BACKUP_STORAGE_INSUFFICIENT', 'BACKUP_UNSAFE_FILE', 'BACKUP_MANIFEST_INVALID'}
+COMMANDS = {'candidate_native', 'previous_native', 'reader_initialization', 'image_inspect', 'container_probe', 'other'}
+TIMING_LIMIT = 64
+MAX_TIMING_MS = 86_400_000
+
+
+def clock():
+    try:
+        value = time.monotonic()
+        return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+    except Exception:  # noqa: BLE001 — failed observation must not replace the native trial result.
+        return None
+
+
+def elapsed(start, end, timings):
+    if start is None or end is None or not 0 <= end - start <= MAX_TIMING_MS / 1000:
+        timings['clock_anomalies'] += 1
+        return None
+    return int((end - start) * 1000)
+
+
+def command_name(args, kwargs):
+    argv = args[0] if args else kwargs.get('args')
+    if isinstance(argv, (list, tuple)) and len(argv) >= 2 and argv[0] == '/usr/bin/docker':
+        if argv[1] == 'run':
+            if argv[-1] in ('candidate', 'previous'):
+                return argv[-1] + '_native'
+            if 'initialize-publication-readers' in argv:
+                return 'reader_initialization'
+        if list(argv[1:3]) == ['image', 'inspect']:
+            return 'image_inspect'
+        if argv[1] == 'ps':
+            return 'container_probe'
+    return 'other'
+
+
+def public_timings(timings):
+    """Project only fixed names and bounded integers, even from a malformed receipt."""
+    def number(value, maximum=MAX_TIMING_MS):
+        return value if type(value) is int and 0 <= value <= maximum else None
+    value = {'scope': 'RUNNER_ONLY', 'transfer': 'NOT_MEASURED',
+             'runner_elapsed_ms': number(timings.get('runner_elapsed_ms'))}
+    for name in ('clock_anomalies', 'dropped_phases', 'dropped_commands'):
+        value[name] = number(timings.get(name), 2**31 - 1)
+    for kind in ('phases', 'commands'):
+        value[kind] = []
+        records = timings.get(kind)
+        if not isinstance(records, list):
+            continue
+        for record in records[:TIMING_LIMIT]:
+            if (not isinstance(record, dict) or not isinstance(record.get('phase'), str)
+                    or record['phase'] not in PHASES | {'entry'}):
+                continue
+            item = {'phase': record['phase'], 'elapsed_ms': number(record.get('elapsed_ms'))}
+            if kind == 'phases':
+                item['call'] = number(record.get('call'), 2**31 - 1)
+            else:
+                if (not isinstance(record.get('command'), str) or record['command'] not in COMMANDS
+                        or not isinstance(record.get('outcome'), str) or record['outcome'] not in {'RETURNED', 'RAISED'}):
+                    continue
+                item.update(command=record['command'], outcome=record['outcome'])
+                code = record.get('returncode')
+                item['returncode'] = code if type(code) is int and abs(code) <= 2**31 - 1 else None
+            value[kind].append(item)
+    return value
 
 
 def diagnose(trial, plan):
     result = {'state': 'FROZEN_TRIAL_REPLAY_FAILED', 'phase': 'entry', 'process_failures': []}
+    timings = {'scope': 'RUNNER_ONLY', 'transfer': 'NOT_MEASURED', 'phases': [], 'commands': [],
+               'clock_anomalies': 0, 'dropped_phases': 0, 'dropped_commands': 0}
+    result['timings'] = timings
+    started = clock()
+    active, calls = {}, {}
+    def record(kind, value):
+        if len(timings[kind]) < TIMING_LIMIT:
+            timings[kind].append(value)
+        else:
+            timings['dropped_' + kind] += 1
     original_run, original_profile = subprocess.run, sys.getprofile()
     def profile(frame, event, arg):
         if (event == 'call' and frame.f_code.co_name in PHASES
                 and Path(frame.f_code.co_filename).name in {'stateful_backup.py', 'release_recovery.py', 'release_trial.py'}):
             result['phase'] = frame.f_code.co_name
+            name = frame.f_code.co_name
+            calls[name] = calls.get(name, 0) + 1
+            if len(active) < TIMING_LIMIT:
+                active[id(frame)] = (name, calls[name], clock())
+            else:
+                timings['dropped_phases'] += 1
+        elif event == 'return' and id(frame) in active:
+            name, call, start = active.pop(id(frame))
+            # Profile returns also cover exception unwinding; duration is not a success claim.
+            record('phases', {'phase': name, 'call': call, 'elapsed_ms': elapsed(start, clock(), timings)})
     def captured(*args, **kwargs):
-        value = original_run(*args, **kwargs)
+        start, outcome, value = clock(), 'RAISED', None
+        phase = next(reversed(active.values()))[0] if active else 'entry'
+        try:
+            value = original_run(*args, **kwargs)
+            outcome = 'RETURNED'
+        finally:
+            record('commands', {'command': command_name(args, kwargs), 'phase': phase,
+                                'outcome': outcome, 'returncode': None if value is None else value.returncode,
+                                'elapsed_ms': elapsed(start, clock(), timings)})
         if value.returncode:
             def bounded(body):
                 return body[-65536:].decode('utf-8', errors='replace') if isinstance(body, bytes) else (body or '')[-65536:]
@@ -49,6 +146,7 @@ def diagnose(trial, plan):
                               for frame in traceback.extract_tb(error.__traceback__)[-8:]])
     finally:
         sys.setprofile(original_profile)
+        timings['runner_elapsed_ms'] = elapsed(started, clock(), timings)
     return result
 
 
@@ -59,6 +157,8 @@ def public_summary(result):
                     for failure in result.get('process_failures',[]) for line in failure.get('stderr','').splitlines()
                     if line.startswith('NATIVE_TRIAL_FAILURE=') and line.removeprefix('NATIVE_TRIAL_FAILURE=') in native_codes})
     if codes:value['native_failure_codes'] = codes
+    if isinstance(result.get('timings'), dict):
+        value['timings'] = public_timings(result['timings'])
     if result['state'] == 'FROZEN_TRIAL_REPLAY_PASS':
         value.update({key: result['proof']['full_restore'][key] for key in ('sqlite_checked', 'docx_checked')})
     return value
