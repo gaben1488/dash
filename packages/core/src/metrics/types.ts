@@ -10,10 +10,11 @@ export type MetricCategory =
   | 'method'      // competitive vs EP breakdown
   | 'trust'       // trust score components
   | 'quality'     // issue counts, data quality
+  | 'operations'  // observed service and worker health; never employee quality
   | 'signal';     // signal pipeline outputs
 
 /** Unit type for display formatting. */
-export type MetricUnit = 'count' | 'currency' | 'percent' | 'rub' | 'score' | 'binary';
+export type MetricUnit = 'count' | 'currency' | 'percent' | 'rub' | 'score' | 'binary' | 'seconds' | 'timestamp';
 
 /**
  * KB entry data — everything needed for a KBTooltip on any metric.

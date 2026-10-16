@@ -39,7 +39,7 @@ export function useReportExport(context: ExportContext | null) {
   const query = context ? new URLSearchParams({ date: context.date, year: String(context.year), quarter: String(context.quarter) }).toString() : null;
   const key = context ? `${context.mode}/${query}` : null;
   const archiveMode = context?.mode === 'archive';
-  const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string } | null>(null);
+  const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string; apiReadFailed?: boolean } | null>(null);
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
   const downloadController = useRef<AbortController | null>(null);
@@ -60,6 +60,7 @@ export function useReportExport(context: ExportContext | null) {
       const abort = () => requestController.abort();
       controller.signal.addEventListener('abort', abort, { once: true });
       let timeout = setTimeout(abort, 35_000);
+      let readCompleted = false;
       try {
         // Caddy may return a short-lived 502 while Fastify reloads. Retry one
         // idempotent GET; never re-run POST refresh, rebuild Word or hide a
@@ -75,6 +76,7 @@ export function useReportExport(context: ExportContext | null) {
           data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
         }
         if (controller.signal.aborted) return;
+        readCompleted = true;
         setState({ key: key!, data, error: '' });
         if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
           preparationRequested = true;
@@ -87,7 +89,11 @@ export function useReportExport(context: ExportContext | null) {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: requestController.signal,
             body: JSON.stringify({ date: params.get('date'), year: Number(params.get('year')), quarter: Number(params.get('quarter')) }),
           });
-          if (!controller.signal.aborted) setState({ key: key!, data: prepared, error: '' });
+          // Preparation does not make a new operational observation. Preserve
+          // only this GET's same-context evidence and its original checked_at.
+          if (!controller.signal.aborted) setState({ key: key!, data: {
+            ...prepared, operations: prepared.operations ?? data.operations,
+          }, error: '' });
           if (prepared.archive?.code === 'ARCHIVE_BUSY') preparationRequested = false;
         }
       } catch (error) {
@@ -99,6 +105,7 @@ export function useReportExport(context: ExportContext | null) {
           // and show the warning; never substitute a different date/snapshot.
           setState(previous => ({
             key: key!, data: previous?.key === key ? previous.data : null, error: warning,
+            apiReadFailed: !readCompleted,
           }));
         }
       } finally {
@@ -153,7 +160,7 @@ export function useReportExport(context: ExportContext | null) {
       status += ' Данные в прямом эфире могут обновиться позднее.';
     }
   }
-  if (archiveMode && !release && current?.data?.archive) {
+  if (archiveMode && !release && current?.data?.archive && !current.error) {
     status = current.data.archive.message;
     const missing = current.data.archive.coverage?.missing_sections;
     if (missing?.length) status += ` Не сохранены: ${missing.join('; ')}.`;
@@ -236,6 +243,8 @@ export function useReportExport(context: ExportContext | null) {
   const assurance = release?.automation_assurance ?? null;
   const failedAttemptAssurance = attemptApplies && attempt?.status === 'NOT_ISSUED'
     ? attempt.automation_assurance ?? null : null;
+  const operations = current?.data?.operations ?? null;
+  const apiState = current?.apiReadFailed ? 'unavailable' as const : current?.data ? 'available' as const : 'checking' as const;
   return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance,
-    canRefresh, refreshing, refreshNotice, refresh };
+    operations, apiState, canRefresh, refreshing, refreshNotice, refresh };
 }

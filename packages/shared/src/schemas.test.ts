@@ -41,8 +41,53 @@ import {
   DataSnapshotSchema,
   DepartmentSummarySchema,
   SelectedReportReleaseStatusSchema,
+  ReportReleaseStatusSchema,
 } from './schemas.js';
 import { z } from 'zod';
+
+describe('operational report observations survive the API boundary', () => {
+  const operations = {
+    checked_at: '2026-10-16T23:03:40+00:00', worker_state: 'idle',
+    running_duration_seconds: null, last_cycle_duration_seconds: 209,
+    last_success_at: '2026-10-16T23:03:13+00:00', last_success_age_seconds: 27,
+    check_stale: false, last_failure_at: '2026-10-15T12:00:00+00:00',
+    last_failure_code: 'SOURCE_CHANGED_BEFORE_PUBLICATION', last_failure_stage: 'publication',
+    failure_resolved: true, publication_cutoff_at: '2026-10-16T12:00:00+00:00',
+  };
+  const contexts = [
+    [ReportReleaseStatusSchema, { latest: null, attempt: null }],
+    [SelectedReportReleaseStatusSchema, { selected: null, attempt: null }],
+  ] as const;
+
+  it('retains actual check age, cycle duration and resolved historical failure in both responses', () => {
+    for (const [schema, payload] of contexts) {
+      expect(schema.parse({ ...payload, operations })).toEqual({ ...payload, operations });
+      expect(schema.parse(payload)).toEqual(payload);
+    }
+  });
+
+  it('rejects impossible durations, timestamps and arbitrary failure text instead of silently dropping them', () => {
+    for (const invalid of [
+      { last_success_age_seconds: -1 }, { last_cycle_duration_seconds: true },
+      { checked_at: 'yesterday' }, { last_failure_code: 'private account: person@example.test' },
+      { worker_state: 'complete' }, { last_failure_stage: 'unreviewed' },
+    ]) {
+      for (const [schema, payload] of contexts) {
+        expect(schema.safeParse({ ...payload, operations: { ...operations, ...invalid } }).success).toBe(false);
+      }
+    }
+  });
+
+  it('preserves missing observations without replacing them with zeros or successful checks', () => {
+    const empty = { ...operations, worker_state: 'unknown', last_cycle_duration_seconds: null,
+      last_success_at: null, last_success_age_seconds: null, check_stale: true,
+      last_failure_at: null, last_failure_code: null, last_failure_stage: null,
+      failure_resolved: false, publication_cutoff_at: null };
+    for (const [schema, payload] of contexts) {
+      expect(schema.parse({ ...payload, operations: empty })).toEqual({ ...payload, operations: empty });
+    }
+  });
+});
 
 describe('Issue API addresses', () => {
   it('preserves distinct procurement labels through the parsed issue list', () => {

@@ -8,6 +8,13 @@ const receipt = {
   report_year: 2026, quarter: 3, cutoff_at: '2026-09-29T16:00:00Z', published_at: '2026-09-29T16:05:00Z',
   model_sha256: 'a'.repeat(64), rules_version: 'test', renderer_version: 'test', status: 'VERIFIED',
 };
+const operations = {
+  checked_at: '2026-10-16T23:03:40+00:00', worker_state: 'idle',
+  running_duration_seconds: null, last_cycle_duration_seconds: 209,
+  last_success_at: '2026-10-16T23:03:13+00:00', last_success_age_seconds: 27,
+  check_stale: false, last_failure_at: null, last_failure_code: null, last_failure_stage: null,
+  failure_resolved: false, publication_cutoff_at: receipt.cutoff_at,
+};
 const context: ExportContext = { date: '2026-09-30', year: 2026, quarter: 3, mode: 'live' };
 const request = vi.fn();
 let poll: () => void;
@@ -25,6 +32,29 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const response = (selected: unknown) => ({ ok: true, json: async () => ({ latest: receipt, selected, attempt: null }) });
+
+it('exposes actual worker observations and marks a failed later read without erasing the last evidence', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({ selected: receipt, attempt: null, operations }) });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.operations).toEqual(operations));
+  expect(result.current.apiState).toBe('available');
+  request.mockRejectedValue(new TypeError('Network unavailable'));
+  await act(async () => { poll(); });
+  await waitFor(() => expect(result.current.apiState).toBe('unavailable'));
+  expect(result.current.operations).toEqual(operations);
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
+});
+
+it('does not misreport a rejected archive action as failure of the preceding successful API read', async () => {
+  request.mockImplementation(async (url: string) => {
+    if (url.endsWith('/prepare')) return { ok: false, status: 403, text: async () => '' };
+    return { ok: true, json: async () => ({ selected: null, attempt: null, operations }) };
+  });
+  const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
+  await waitFor(() => expect(result.current.status).toContain('HTTP 403'));
+  expect(result.current.apiState).toBe('available');
+  expect(result.current.operations).toEqual(operations);
+});
 
 it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
   'loads verified Word receipt with reviewed assurance contract %s', async contract => {
@@ -219,6 +249,23 @@ it('materializes a missing archived pair through the native action with exact da
   const prepare = request.mock.calls.find(([url]) => url === '/api/report-releases/prepare');
   expect(prepare?.[1].method).toBe('POST');
   expect(JSON.parse(prepare?.[1].body)).toEqual({ date: context.date, year: 2026, quarter: 3 });
+});
+
+it.each(['READY', 'NOT_ISSUED'] as const)('retains the original GET observations after archive preparation %s, only in the same context', async status => {
+  const archive = { status, code: status === 'READY' ? 'ARCHIVE_READY' : 'ARCHIVE_NOT_FOUND', message: 'Результат подготовки архива.' };
+  request.mockImplementation(async (url: string) => ({ ok: true, json: async () => url.endsWith('/prepare')
+    ? { selected: status === 'READY' ? receipt : null, attempt: null, archive }
+    : { selected: null, attempt: null, operations } }));
+  const { result, rerender } = renderHook(({ value }) => useReportExport(value), {
+    initialProps: { value: { ...context, mode: 'archive' as const } },
+  });
+  if (status === 'READY') await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  else await waitFor(() => expect(result.current.status).toBe(archive.message));
+  expect(result.current.operations).toEqual(operations);
+  expect(result.current.apiState).toBe('available');
+  request.mockImplementation(() => new Promise(() => {}));
+  rerender({ value: { ...context, mode: 'archive', date: '2026-10-01', quarter: 4 } });
+  expect(result.current.operations).toBeNull();
 });
 
 it('ignores an archive builder response for a previously selected week', async () => {

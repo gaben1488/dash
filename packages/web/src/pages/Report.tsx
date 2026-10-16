@@ -50,6 +50,7 @@ import {
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
 import { useReportExport } from '../lib/report/use-report-export';
+import { ReportOperationsStatus } from '../lib/report/ReportOperationsStatus';
 import { LifecycleStrip, type OpenLifecycleRows } from '../components/report/LifecycleStrip';
 import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
@@ -1057,6 +1058,7 @@ export function ReportPage() {
         </p>
       )}
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
+      <ReportOperationsStatus value={word.operations} apiState={word.apiState} />
       <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 

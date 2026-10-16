@@ -629,7 +629,25 @@ export const PublishedReleaseSchema = z.object({
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
 
+/** Current worker observations; independent of the selected Word's historical cutoff. */
+export const ReportOperationsSchema = z.object({
+  checked_at: z.string().datetime({ offset: true }),
+  worker_state: z.enum(['idle', 'running', 'interrupted', 'unknown']),
+  running_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_cycle_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_success_at: z.string().datetime({ offset: true }).nullable(),
+  last_success_age_seconds: z.number().int().nonnegative().safe().nullable(),
+  check_stale: z.boolean(),
+  last_failure_at: z.string().datetime({ offset: true }).nullable(),
+  last_failure_code: z.string().regex(/^[A-Z][A-Z0-9_]{1,100}$/).nullable(),
+  last_failure_stage: z.enum(['inputs', 'acquisition', 'publication_selection', 'build', 'publication']).nullable(),
+  failure_resolved: z.boolean(),
+  publication_cutoff_at: z.string().datetime({ offset: true }).nullable(),
+});
+export type ReportOperations = z.infer<typeof ReportOperationsSchema>;
+
 export const ReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   latest: PublishedReleaseSchema.nullable(),
   attempt: z.object({
     status: z.enum(['RUNNING', 'NOT_ISSUED', 'VERIFIED', 'VERIFIED_WITH_WARNINGS']),
@@ -659,6 +677,7 @@ const ContextualPublishedReleaseSchema = PublishedReleaseSchema.extend({
 });
 
 export const SelectedReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
   selected: ContextualPublishedReleaseSchema.nullable(),

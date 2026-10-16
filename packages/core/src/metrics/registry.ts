@@ -14,6 +14,42 @@ import { applyKbUplift } from './kb-uplift.js';
 // ── Base Metrics (accumulated from department rows) ────────────────
 
 export const METRIC_KB: Record<string, KBEntryData> = {
+  api_read_available: {
+    label: 'Доступность API при последнем чтении', unit: 'binary', category: 'operations',
+    whatIs: 'Получил ли интерфейс корректный ответ на последнюю проверку сведений о Word.',
+    howCalc: 'Успешный GET с прошедшим типизированную проверку ответом подтверждает доступность в этот момент.',
+    dataSource: 'Ответ API /report-releases и результат его проверки в интерфейсе.',
+    engine: 'useReportExport.apiState; состояние запроса, а не расчёт закупок.',
+    formula: 'last GET accepted by response contract', source: 'useReportExport.apiState',
+    pitfalls: 'Это наблюдение одного запроса, не процент uptime и не доказательство успешной работы генератора.',
+  },
+  report_check_age_seconds: {
+    label: 'Возраст последней успешной проверки', unit: 'seconds', category: 'operations',
+    whatIs: 'Сколько секунд прошло после последней успешной попытки генератора на момент проверки.',
+    howCalc: 'checked_at минус last_success_at; повторное использование неизменного выпуска тоже является новой успешной проверкой.',
+    dataSource: 'Сохранённый индекс report-health.json и текущая попытка worker.',
+    engine: 'report_health.last_success_age_seconds → operations.',
+    formula: 'checked_at - last_success_at', source: 'operations.last_success_age_seconds',
+    pitfalls: 'Это свежесть проверки, не возраст Word-среза. Отсутствующая запись не равна нулевому возрасту.',
+  },
+  worker_cycle_duration_seconds: {
+    label: 'Длительность последнего завершённого цикла', unit: 'seconds', category: 'operations',
+    whatIs: 'Продолжительность последней завершённой попытки генератора, включая ручной запуск и отказ.',
+    howCalc: 'finished_at минус started_at; секунды округлены генератором. Текущая попытка имеет отдельную длительность.',
+    dataSource: 'Времена сохранённой попытки и индекс report-health.json.',
+    engine: 'report_health.last_cycle_duration_seconds → operations.',
+    formula: 'last finished_at - started_at', source: 'operations.last_cycle_duration_seconds',
+    pitfalls: 'Это не интервал расписания и не длительность только успешного рендера.',
+  },
+  worker_last_failure: {
+    label: 'Последний зафиксированный отказ', unit: 'timestamp', category: 'operations',
+    whatIs: 'Время и безопасный код последней сохранённой неуспешной попытки.',
+    howCalc: 'Последняя запись отказа сохраняется и после успешной попытки; failure_resolved показывает последующее успешное выполнение.',
+    dataSource: 'Индекс report-health.json; исходные ошибки и приватные данные не передаются.',
+    engine: 'report_health.last_failure_at/code/failure_resolved → operations.',
+    formula: 'latest recorded failed attempt', source: 'operations.last_failure_at',
+    pitfalls: 'Отсутствие записи не доказывает отсутствие отказов во всей истории. Успешный цикл не стирает прежний отказ.',
+  },
   // ── Counts ──
   pending_count: {
     label: 'Осталось процедур',
