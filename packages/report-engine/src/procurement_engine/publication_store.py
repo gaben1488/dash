@@ -15,7 +15,7 @@ import sqlite3
 import stat
 import tempfile
 from collections.abc import Callable
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -415,9 +415,14 @@ class PublicationStore:
             raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
         return record
 
-    @_leased_read
     def read_attempt(self, attempt_id):
         """Complete original observation; metadata scans deliberately do not hydrate."""
+        existing_publication_state = (os.path.lexists(self.database_path)
+                                      or os.path.lexists(self.root.parent / 'publication-readers.lock'))
+        with self.reader_lease() if existing_publication_state else nullcontext():
+            return self._read_attempt(attempt_id)
+
+    def _read_attempt(self, attempt_id):
         if not isinstance(attempt_id, str) or not re.fullmatch(r'[a-f0-9]{32}', attempt_id):
             raise PublicationError('ATTEMPT_PROOF_INVALID')
         directory = self.root.parent / 'attempts'

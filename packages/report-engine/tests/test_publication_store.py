@@ -104,11 +104,66 @@ def test_attempt_proof_normalizes_malformed_referenced_catalog_evidence(tmp_path
         store.read_attempt('a'*32)
 
 
+def test_attempt_proof_reads_fresh_inline_failure_without_creating_publication_state(tmp_path):
+    state = tmp_path / 'reports'
+    path = state / 'attempts' / ('a'*32) / 'status.json'
+    path.parent.mkdir(parents=True)
+    status = {'attempt_id': 'a'*32, 'status': 'NOT_ISSUED', 'error_code': 'ACQUISITION_FAILED',
+              'started_at': '2026-10-16T00:00:00Z', 'finished_at': '2026-10-16T00:00:01Z'}
+    write_json(path, status)
+    before = sorted(item.relative_to(state) for item in state.rglob('*'))
+    original = path.read_bytes()
+    store = PublicationStore(state / 'published', readonly=True)
+    assert store.read_attempt('a'*32) == status
+    assert sorted(item.relative_to(state) for item in state.rglob('*')) == before
+    assert path.read_bytes() == original
+    assert not store.root.exists()
+    assert not (state / 'publication-readers.lock').exists()
+
+
+@pytest.mark.parametrize('entry', ['publication-readers.lock', 'published/publications.sqlite'])
+def test_attempt_proof_dangling_publication_state_does_not_bypass_reader_fence(tmp_path, entry):
+    state = tmp_path / 'reports'
+    path = state / 'attempts' / ('a'*32) / 'status.json'
+    path.parent.mkdir(parents=True)
+    write_json(path, {'attempt_id': 'a'*32, 'status': 'NOT_ISSUED'})
+    fence = state / entry
+    fence.parent.mkdir(parents=True, exist_ok=True)
+    fence.symlink_to(tmp_path / 'missing')
+    store = PublicationStore(state / 'published', readonly=True)
+    with pytest.raises(PublicationError, match='^PUBLICATION_READER_LEASE_UNINITIALIZED$'):
+        store.read_attempt('a'*32)
+    assert fence.is_symlink()
+    assert not fence.exists()
+
+
+def test_attempt_proof_reference_without_catalog_stays_unavailable_without_creating_state(tmp_path):
+    state = tmp_path / 'reports'
+    path = state / 'attempts' / ('a'*32) / 'status.json'
+    path.parent.mkdir(parents=True)
+    status = {'attempt_id': 'a'*32, 'status': 'VERIFIED', 'snapshot_id': 'snapshot', 'reused_publication': True,
+              'publication': {'status': 'VERIFIED', 'snapshot_id': 'snapshot', 'release_id': 'REL-' + 'b'*64,
+                              'model_sha256': 'b'*64, 'automation_assurance_ref': {
+                                  'release_id': 'REL-' + 'b'*64, 'content_sha256': 'c'*64}}}
+    write_json(path, status)
+    before = sorted(item.relative_to(state) for item in state.rglob('*'))
+    store = PublicationStore(state / 'published', readonly=True)
+    with pytest.raises(sqlite3.OperationalError):
+        store.read_attempt('a'*32)
+    assert sorted(item.relative_to(state) for item in state.rglob('*')) == before
+    assert not store.root.exists()
+
+
 def test_attempt_proof_catalog_unavailability_is_not_a_missing_reference(tmp_path):
     store = PublicationStore(tmp_path / 'state/published')
     receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Exact evidence'}), read_revisions=revisions)
     attempt_receipt(store, receipt)
     store.database_path.rename(store.database_path.with_suffix('.saved'))
+    import fcntl
+    with (store.root.parent / 'publication-readers.lock').open('r') as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PublicationError, match='PUBLICATION_MAINTENANCE_ACTIVE'):
+            store.read_attempt('a'*32)
     with pytest.raises(sqlite3.OperationalError):
         store.read_attempt('a'*32)
     assert not store.database_path.exists()
