@@ -1316,8 +1316,15 @@ jobs:
                  for line in (Path('/proc')/pid/'status').read_text().splitlines():
                   key,_,value=line.partition(':')
                   if key in {'VmRSS','VmHWM'} and re.fullmatch(r'\s*[0-9]+ kB',value):values[key]=int(value.split()[0])*1024
+                 command=(Path('/proc')/pid/'cmdline').read_bytes()
+                 values['role']='native_recovery' if b'--watch-owner' in command else 'native_owner'
                  print(json.dumps({'weekly_operator_process':int(pid),**values}),flush=True)
                 except FileNotFoundError:pass
+             marker=Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/published/.retirement/journal.json')
+             if marker.is_file() and not marker.is_symlink() and marker.stat().st_size<=1024*1024:
+              value=json.loads(marker.read_text())
+              print(json.dumps({'publication_retirement_phase':{key:value.get(key) if type(value.get(key)) in (int,bool) else None
+                  for key in ('entry_count','readers_ready','finalizing','rollback_requested')}}),flush=True)
              stage=Path('/root/codex-fixes/weekly-38895891036')
              plan=stage/('retention-plan-'+run+'.json')
              if plan.is_file() and not plan.is_symlink() and plan.stat().st_size<=1024*1024:
@@ -1327,6 +1334,14 @@ jobs:
              log=latest/'operator.log'
              if log.is_file() and not log.is_symlink() and log.stat().st_size<=1024*1024:
               body=log.read_text()
+              for line in body.splitlines():
+               try:outcome=json.loads(line)
+               except ValueError:continue
+               if isinstance(outcome,dict) and outcome.get('status') in {'COMPACTED','COMMITTED','FINALIZING','UNCHANGED','FINALIZED'}:
+                safe={'status':outcome['status']}
+                for key in ('compacted','quarantine_retained'):
+                 if type(outcome.get(key)) in (int,bool):safe[key]=outcome[key]
+                print(json.dumps({'native_publication_outcome':safe}),flush=True)
               tokens=('SIGKILL','SIGABRT','SIGSEGV','MemoryError','Killed','Permission denied','Operation not permitted','No such file','Fatal Python error','bad allocation','returncode=-9','returncode=-11')
               print(json.dumps({'weekly_operator_diagnostic_tokens':[k for k in tokens if k in body]}),flush=True)
               frames=[{'file':Path(name).name,'line':int(number),'function':function} for name,number,function in re.findall(r'File "([^"\n]+)", line ([0-9]+), in ([A-Za-z_][A-Za-z_0-9<>]*)',body)]
