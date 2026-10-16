@@ -43,8 +43,8 @@ apply запрещён. Первое RO38901759065 timeout без удалени
 Metadata38903934509 подтвердил завершение/exit0/readers_ready=true/no finalizing.
 Free12:55:19=4369240064B, не освобождённое compaction место.
 
-Явный finalize38904202760 запущен после independent review и успешного proof;
-результат ещё не принят. Finalize83 связывает candidate/plan/entries/marker под native locks и
+Явный finalize38904202760 SUCCESS после independent review и успешного proof;
+отдельный post-readback ещё не принят. Finalize83 связывает candidate/plan/entries/marker под native locks и
 использует только этот успешный proof. Resume разрешает лишь штатную durable
 finalizing phase; changed compact/original остатки отвергаются. Watcher может
 только recover, не dispose. После finalize обязателен отдельный native43
