@@ -1,5 +1,6 @@
 """Browser acceptance must detect inert controls using real pointer/touch input."""
 import asyncio
+import json
 import os
 import unittest
 from pathlib import Path
@@ -16,12 +17,28 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
 
 async def open_current_header(page, artifact):
     await page.goto(artifact.as_uri())
+    await page.bring_to_front()
     # WebKit's pointer stability check needs rendered frames. Treat initial
     # font/layout startup separately; keep the real action's 5s bound intact.
-    await asyncio.wait_for(page.evaluate('''async () => {
-        await document.fonts.ready;
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }'''), timeout=5)
+    try:
+        await asyncio.wait_for(page.evaluate('''async () => {
+            window.qaRenderer = {fonts: false, frames: 0, heartbeat: false};
+            setTimeout(() => { window.qaRenderer.heartbeat = true; }, 0);
+            await document.fonts.ready;
+            window.qaRenderer.fonts = true;
+            await new Promise(resolve => requestAnimationFrame(() => {
+                window.qaRenderer.frames = 1;
+                requestAnimationFrame(() => { window.qaRenderer.frames = 2; resolve(); });
+            }));
+        }'''), timeout=5)
+    except TimeoutError:
+        # Fixed synthetic-renderer metadata only; never page text or error data.
+        state = await asyncio.wait_for(page.evaluate('''() => ({
+            ...window.qaRenderer, visible: document.visibilityState === 'visible',
+            focused: document.hasFocus(), fontStatus: document.fonts.status === 'loaded'
+        })'''), timeout=1)
+        print('HEADER_QA_RENDERER_TIMEOUT ' + json.dumps(state), flush=True)
+        raise
 
 
 class FailureEvidenceTests(unittest.TestCase):
