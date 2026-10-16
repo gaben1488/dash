@@ -260,6 +260,36 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     }
   });
 
+  it('acknowledges an identical saved decision once and rejects a different explanation without losing it', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const id = 'status-retry-proof';
+    db.insert(schema.issues).values({ id, title: 'Проверка', severity: 'significant',
+      origin: 'user', category: 'high_economy', status: 'open', detectedAt: new Date().toISOString() }).run();
+    const payload = { status: 'false_positive', reason: 'Меры проверены',
+      justification: 'Обеспечение включено в контракт', comment: 'Подтверждено', responsible: 'Координатор', deadline: '2026-10-22' };
+    const save = (body: typeof payload) => app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: body });
+    expect((await save(payload)).statusCode).toBe(200);
+    const before = db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all();
+    const retry = await save(payload);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({ success: true, issueId: id, toStatus: 'false_positive', replayed: true });
+    expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toEqual(before);
+    for (const field of ['reason', 'justification', 'comment', 'responsible', 'deadline'] as const) {
+      const changed = await save({ ...payload, [field]: 'Другое основание' });
+      expect(changed.statusCode).toBe(409);
+      expect(changed.json()).toMatchObject({ success: false, code: 'ISSUE_DECISION_CONFLICT' });
+      expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toEqual(before);
+    }
+    expect((await save({ ...payload, reason: '   ' })).statusCode).toBe(400);
+    // Reopening is a new real transition; the old request cannot erase it.
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await save({ ...payload, reason: '   ' })).statusCode).toBe(400);
+    expect((await save(payload)).statusCode).toBe(200);
+    expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toHaveLength(3);
+    db.delete(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).run();
+    expect((await save(payload)).statusCode).toBe(409);
+  });
+
   it('does not apply a direct-ID false positive to occurrence zero after an identical row is inserted', async () => {
     const { db, schema } = await import('../db/index.js');
     const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');

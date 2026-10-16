@@ -3,7 +3,7 @@ import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import { readIssueHistory } from '../services/issue-history.js';
 import { db, schema } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
 import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { z } from 'zod';
@@ -205,6 +205,28 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       if (snapshotIssue.status) currentStatus = snapshotIssue.status;
     }
 
+    // Для wont_fix и false_positive — требуется причина
+    if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason?.trim()) {
+      return reply.status(400).send({
+        error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
+      });
+    }
+
+    // A lost response may cause the same decision to be sent again. A retry
+    // acknowledges only the latest identical persisted decision; different
+    // evidence is a conflict, never a successful silent discard or new event.
+    if (body.status === currentStatus && dbIssue) {
+      const latest = db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id))
+        .orderBy(desc(schema.issueHistory.id)).limit(1).get();
+      const fields = ['comment', 'reason', 'justification', 'responsible', 'deadline'] as const;
+      if (latest?.toStatus === currentStatus && fields.every(field => latest[field] === (body[field] ?? null))) {
+        return reply.send({ success: true, issueId: id, fromStatus: latest.fromStatus,
+          toStatus: currentStatus, replayed: true, message: 'Это решение уже сохранено' });
+      }
+      return reply.status(409).send({ success: false, code: 'ISSUE_DECISION_CONFLICT',
+        error: 'Этот статус уже сохранён с другим основанием. Обновите карточку; новое пояснение можно добавить комментарием.' });
+    }
+
     // Проверка допустимости перехода. Текст — фразами продукта: сырые ключи
     // («open → resolved») веб был вынужден прятать за общей заглушкой,
     // потому что показывать их пользователю нельзя.
@@ -218,13 +240,6 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         // Машинный список ключей остаётся для клиента — он рисует по нему кнопки.
         allowed: allowedTransitions || [],
         allowedLabels: allowedNames,
-      });
-    }
-
-    // Для wont_fix и false_positive — требуется причина
-    if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason) {
-      return reply.status(400).send({
-        error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
       });
     }
 
