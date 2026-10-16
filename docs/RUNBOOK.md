@@ -21,12 +21,22 @@ Expected endpoints:
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
 health16:25:58UTC PASS. Observer38930502207 идёт; два цикла192 ещё не приняты.
 iPhone/WebKit38932318516 PASS13touch-разделов/все периоды/reset/Undo/журнал/3Word;
-это эмуляция. Desktop38932107962 FAIL на Header assertion после13разделов;
-диагностика fixed frame/line добавлена без изменения требований и timeout.
+это эмуляция. Desktop38933155485 PASS16:37:55UTC на тех же сценариях.
+Первый desktop38932107962 FAIL сохранён. Compiled Header RED в desktop/touch:
+pressed64 совпали, асинхронные aria-label availability пояснения отличались.
+Оснастка теперь сравнивает все выделения + active year/week context; не требует
+неизменных availability labels. Inert/month-change/week-change negatives PASS;
+local Chromium8/Ruff PASS. Приёмка всех прав/сохранения решений остаётся открыта.
 Ordinary dashboard38932040065:5.652/4.473s, refreshing/captured15:26:42Z;
 journal38932221489:3.347/2.027s. Cold latency и общая свежесть ещё не приняты.
-Три source jobs38923925347 PASS и frozen38923925267 SUCCESS; overall source CI
-FAIL на старом83/journal сохраняется в доказательствах, не переименован в PASS.
+CI38923925347 attempt2 SUCCESS после повторения только failed live job на
+установленном192:425metric nodes/0contradictions, Header endpoints и browser
+schema PASS. Attempt1 FAIL старого83 сохранён отдельно. Frozen38923925267 SUCCESS.
+Последующий ordinary38933996505 подтвердил advancement captured_at до16:37:42Z,
+4.833/4.139s. Не выдавать это за cold latency proof.
+Старый дополнительный Python shape diagnostic обрезал9171500B JSON на2MiB;
+удалён только этот не блокирующий duplicate. Полный candidate schema guard и
+oversize/malformed negatives сохранены; JSON лимит не увеличен.
 Недельный результат — доказанный неизменный отказ #REF! обоих генераторов,
 не успешная публикация исторической недели. Старый FAIL38914725365 сохранён.
 До downtime index-copy38924567639 PASS:434049024B consistent SQLite copy,

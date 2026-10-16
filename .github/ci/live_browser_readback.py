@@ -83,6 +83,8 @@ async def verify_header_controls(page, profile, proof):
     header = page.locator('header[data-page-skin]')
     pressed = header.locator('button[aria-pressed]')
     initial = await pressed.evaluate_all("items=>items.map(b=>[b.getAttribute('aria-label'),b.getAttribute('aria-pressed')])")
+    period_context = header.locator('.tg-row-active .tg-year, .wr-row-active .wr-label')
+    initial_period_context = await period_context.all_text_contents()
     units = ['Показывать суммы в тысячах рублей', 'Показывать суммы в миллионах рублей']
     methods = ['Конкурентные способы, статья 24 44-ФЗ',
                'Единственный поставщик, статья 93 44-ФЗ', 'Все способы закупки']
@@ -118,7 +120,10 @@ async def verify_header_controls(page, profile, proof):
     await expect(dialog).to_be_visible()
     await activate(corner, profile)
     await expect(dialog).to_be_hidden()
-    assert await pressed.evaluate_all("items=>items.map(b=>[b.getAttribute('aria-label'),b.getAttribute('aria-pressed')])") == initial
+    # Coverage can update accessible explanations while these controls are used.
+    # Restore every selection and its calendar context, not provider-readiness labels.
+    assert await pressed.evaluate_all("items=>items.map(b=>b.getAttribute('aria-pressed'))") == [value for _, value in initial]
+    assert await period_context.all_text_contents() == initial_period_context
     proof['header_controls'] = 'PASS'
 
 

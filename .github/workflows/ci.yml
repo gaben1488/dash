@@ -723,45 +723,9 @@ jobs:
                 }));
               })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
             ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); issues=[{"path":"".join(ch for ch in str(entry.get("path","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.")[:90],"code":"".join(ch for ch in str(entry.get("code","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")[:30]} for entry in json.loads(next((ln for ln in out.splitlines() if ln.startswith("{") and "browser_word_status" in ln),"{}")).get("field_errors",[])][:8]; print(json.dumps({"kind":"browser_contract_probe","result":found,"invalid_fields":issues},sort_keys=True))' || echo 'browser_node_probe=FAILED'
-            # Python makes an independent read-only request using the existing
-            # production service token; output only status and schema shape.
-            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - <<'PYREPORT' 2>/dev/null || echo 'browser_python_probe=UNAVAILABLE'
-            import json
-            import os
-            import re
-            from datetime import datetime
-            from pathlib import Path
-            from urllib.request import Request, urlopen
-            from urllib.error import HTTPError
-            from zoneinfo import ZoneInfo
-            day = datetime.now(ZoneInfo("Asia/Kamchatka")).date().isoformat()
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                print(json.dumps({"kind":"report_status_http_shape","result":"NO_DATE"}))
-            else:
-                yy, mm, dd = day.split("-")
-                url = ("http://127.0.0.1:3000/api/report-releases?date="+
-                       day+"&year="+yy+"&quarter="+str((int(mm)+2)//3))
-                request = Request(url, headers={"Authorization": "Bearer "+os.environ.get("AEMR_API_KEY", "")})
-                try:
-                    with urlopen(request, timeout=25) as response:
-                        status = response.status
-                        data = json.loads(response.read(2*1024*1024))
-                    selected = data.get("selected") if isinstance(data, dict) else None
-                    attempt = data.get("attempt") if isinstance(data, dict) else None
-                    required = ("release_id","snapshot_id","report_date","cutoff_at",
-                                "published_at","model_sha256","rules_version",
-                                "renderer_version","status","report_year","quarter")
-                    missing = [k for k in required if isinstance(selected,dict) and k not in selected]
-                    print(json.dumps({"kind":"report_status_http_shape",
-                                      "http_status":status,"body_type":type(data).__name__,
-                                      "selected_type":type(selected).__name__,
-                                      "selected_missing_required":missing,
-                                      "attempt_type":type(attempt).__name__},sort_keys=True))
-                except HTTPError as e:
-                    print(json.dumps({"kind":"report_status_http_shape","http_status":e.code,"result":"HTTP_ERROR"}))
-                except Exception:
-                    print(json.dumps({"kind":"report_status_http_shape","result":"READBACK_FAILED"}))
-            PYREPORT
+            # The exact browser schema above and header_api_probe validate the full
+            # selected response. The former Python-only shape duplicate truncated
+            # real 9 MiB receipts at 2 MiB and supplied no independent domain proof.
             # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
             docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
               | tail -n 2000 \

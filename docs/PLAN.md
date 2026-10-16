@@ -16,17 +16,31 @@ public health16:25:58UTC PASS.** Observer38930502207 уже наблюдает �
 Расширенный iPhone/WebKit38932318516 PASS16:32:30UTC:13разделов touch,
 методы/деятельность/бюджеты/единицы/тема/поиск/popover, year/quarter/month/week,
 corner reset/Undo, три вкладки журнала и три Word с native hashes. Это эмуляция,
-не физический iPhone. Desktop38932107962 FAIL после13разделов на Header
-assertion; HTTP dashboard/journal200. Сохранён FAIL; добавлен privacy-tested
-fixed code-frame diagnostic для установления точной проверки, без ослабления
-assertions/timeout и без production restart.
+не физический iPhone. Desktop38933155485 PASS16:37:55UTC: те же13разделов,
+Header controls/периоды/reset/Undo/журнал/3Word, page_errors0/blocked_requests0.
+Первый desktop38932107962 FAIL сохраняется. Новый тест настоящего compiled
+Header воспроизвёл ложный отказ в desktop/touch: все64 pressed состояния
+совпали, но асинхронно изменились aria-label пояснения наличия данных.
+Проверка исправлена: все выделения + прежний active year/week context;
+individual assertions/timeout сохранены. Inert unit/неожиданный выбор месяца/
+смена недели по-прежнему дают FAIL. Local Chromium8 PASS, Ruff PASS.
+Это не доказательство приёмки всех мобильных действий/прав/сохранения решений.
 
 Native ordinary dashboard38932040065:5.652/4.473s, HTTP200,12298408B,
 state=refreshing/captured15:26:42Z. Journal38932221489:3.347/2.027s, HTTP200,
 13937B. Это наблюдения, не приёмка cold latency и не доказательство свежести.
+Повторная ordinary проверка38933996505:4.833/4.139s, фактический captured_at
+продвинулся до16:37:42Z. Путь не застрял на pre-release срезе; это не cold proof.
 
-Три source jobs38923925347 PASS; overall FAIL из-за
-старого83/journal READ_UNAVAILABLE. Frozen38923925267 SUCCESS: current replay,
+CI38923925347 attempt2 SUCCESS после повторения только прежнего failed live
+job117084744435 на установленном192. Все3 source jobs прежнего exact SHA
+остались PASS; live425 metric nodes/0contradictions, четыре Header endpoints и
+candidate browser/Word schema PASS16:43UTC. Attempt1 FAIL old83/journal сохранён.
+Дополнительный старый Python shape diagnostic READBACK_FAILED: он обрезал
+9171500B status на2MiB. Этот не блокирующий duplicate удалён из следующей CI
+оснастки; полная bounded candidate schema и negative oversize/malformed тесты
+сохранены. Это не отключение publication gate и не увеличение JSON лимита.
+Frozen38923925267 SUCCESS: current replay,
 independent audit/two rebuilt DOCX PASS; weekly — доказанный одинаковый
 `UNCHANGED_FROZEN_SOURCE_REFUSAL`, historical_replay_verified=false.
 Оба генератора отказали на сохранённых буквальных #REF!, архив не изменён.
