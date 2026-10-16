@@ -66,7 +66,7 @@ jobs:
             assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=16384 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
-            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout','-k','5s','175s','/opt/report-env/bin/python','-IB','-','cd8fbf727f5a4075818fd14099264fc7'],input=body,capture_output=True,timeout=190,check=False)
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout','-k','5s','175s','/opt/report-env/bin/python','-IB','-','f20d108be83441189c665b5eca3fe7e1'],input=body,capture_output=True,timeout=190,check=False)
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
             for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)

@@ -116,8 +116,11 @@ def main(attempt):
         frozen = frozen_source(bundle, key, contract, meta['after'])
         payload = GoogleSheetSourceAdapter(contract, client).read_payload()
         result = compare_source(frozen, contract, payload, canonical_semantic_hash, source_semantic_metadata, header_hash)
-        # The index is an ordinal within this registry; never publish provider IDs or source titles.
-        print(json.dumps({'source_comparison': index, **result}), flush=True)
+        # A tab's integer identifier is technical metadata, not a Drive file ID.
+        # Source titles, provider identities, values and revision tokens stay private.
+        roles = {'master', 'procedure_lifecycle', 'formula_dependency', 'historical_control_dependency'}
+        print(json.dumps({'source_comparison': index, 'sheet_id': contract['sheet_id'],
+                          'role': contract['role'] if contract['role'] in roles else 'OTHER', **result}), flush=True)
     after = {provider: client.revision(provider) for provider in providers}
     print(json.dumps({'source_drift_probe_complete': True, 'stable_during_probe': before == after,
                       'elapsed_seconds': round(time.monotonic() - start, 3)}), flush=True)
