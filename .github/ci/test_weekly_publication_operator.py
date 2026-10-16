@@ -69,9 +69,48 @@ class WeeklyOperatorTests(unittest.TestCase):
         native = {name:{'uid':1000,'hashes':{'__init__.py':'f'*64},
                        'lease_uid':1000,'lease_regular':True,'symlinks':False}
                   for name in records}
-        ci = {'id':42,'head_sha':sha,'status':'completed','conclusion':'success','name':'CI',
+        ci = {'id':42,'head_sha':self.module.TOOL_SHA,'status':'completed','conclusion':'success','name':'CI',
               'head_repository':{'full_name':'gaben1488/dash'}}
         return plan,records,cycle,native,{'__init__.py':'f'*64},ci
+
+    def test_maintenance_source_and_installed_runtime_are_separately_pinned(self):
+        prefix='packages/report-engine/src/procurement_engine/'
+        runtime={prefix+'publication_store.py':'a'*64,'deploy/plan-weekly-publications.py':'b'*64}
+        runtime.update({prefix+name:'c'*64 for name in self.module.READER_DIFFERENCES})
+        tool=dict(runtime)
+        tool.update({prefix+name:'d'*64 for name in self.module.READER_DIFFERENCES})
+        manifest={'candidate':self.module.SHA,'hashes':runtime}
+        expected={name[len(prefix):]:value for name,value in runtime.items() if name.startswith(prefix)}
+        self.assertEqual(self.module.runtime_hashes(manifest,tool),expected)
+        for failure in ('candidate','store','deploy','missing','extra'):
+            with self.subTest(failure=failure):
+                changed=copy.deepcopy(manifest)
+                if failure=='candidate':changed['candidate']=self.module.TOOL_SHA
+                if failure=='store':changed['hashes'][prefix+'publication_store.py']='e'*64
+                if failure=='deploy':changed['hashes']['deploy/plan-weekly-publications.py']='e'*64
+                if failure=='missing':changed['hashes'].pop(prefix+'publication_store.py')
+                if failure=='extra':changed['hashes'][prefix+'unexpected.py']='e'*64
+                with self.assertRaises(ValueError):self.module.runtime_hashes(changed,tool)
+
+    def test_old_runtime_failed_ci_cannot_be_presented_as_tool_ci(self):
+        args=list(self.context())
+        args[-1].update(head_sha=self.module.SHA,conclusion='failure')
+        with self.assertRaises(ValueError):
+            self.module.validate_context(*args,backup_reference='worker-38831492016/backup')
+
+    def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);deploy=root/'deploy';deploy.mkdir()
+            (deploy/'plan-weekly-publications.py').write_text(
+                'def verify_reader_compatibility(package):\n raise ValueError("reader behavior broken")\n')
+            with patch.object(self.module,'owned',side_effect=lambda path,**kw:Path(path).read_bytes()):
+                probe=self.module.native_probe(root)
+            probe=probe.replace("lease=Path('/app/packages/server/data/reports/publication-readers.lock')",
+                                'lease=Path('+repr(str(root/'lease'))+')')
+            (root/'lease').touch()
+            result=subprocess.run([sys.executable,'-B','-c',probe],capture_output=True,check=False)
+            self.assertNotEqual(result.returncode,0)
+            self.assertEqual(result.stdout,b'','Broken actual reader must not produce a successful hash proof')
 
     def test_staging_job_only_delivers_and_smokes_public_code(self):
         workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()

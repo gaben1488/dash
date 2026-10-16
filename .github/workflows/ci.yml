@@ -166,12 +166,12 @@ jobs:
           cat > "$private/stage.sh" <<'SHSTAGE'
           set -euo pipefail
           private=$1
-            candidate=43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+            candidate=4a56bdd576424c80693f82ed36c5bcb019bae7ef
             [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
             [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
             root="/root/codex-fixes/weekly-$GITHUB_RUN_ID"
-            # Maintenance targets the pinned installed runtime. PR79 may advance;
-            # the operator independently checks live source/backup/cycles at apply.
+            # Green maintenance source is separate from installed43. The host
+            # adapter verifies both exact trees and the four reviewed differences.
             git fetch --quiet origin "$candidate"
             ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$candidate&event=pull_request" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
@@ -198,6 +198,19 @@ jobs:
           names=subprocess.check_output(['git','ls-tree','-r','--name-only',sha,'--',*paths],text=True).splitlines()
           print(json.dumps({'candidate':sha,'hashes':{name:hashlib.sha256(subprocess.check_output(['git','show',sha+':'+name])).hexdigest() for name in names if name.endswith('.py')}}))
           PYHASHES
+            git worktree add --quiet --detach "$private/receipt-tree" "$candidate"
+            PYTHONDONTWRITEBYTECODE=1 python3 - "$private" "$candidate" <<'PYRECEIPT'
+          import importlib.util,json,os,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]);tree=root/'receipt-tree'
+          spec=importlib.util.spec_from_file_location('source_receipt',tree/'deploy/plan-weekly-publications.py')
+          module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+          receipt=module.candidate_source_receipt(tree,sys.argv[2],json.loads((root/'ci.json').read_text()),
+              derivation_run_id=int(os.environ['GITHUB_RUN_ID']))
+          assert receipt['file_hashes']==json.loads((root/'source-hashes.json').read_text())['hashes']
+          (root/'source-receipt.json').write_text(json.dumps(receipt))
+          PYRECEIPT
+            git worktree remove "$private/receipt-tree"
             cp .github/ci/weekly_publication_operator.py "$private/weekly_publication_operator.py"
             cat > "$private/setup.sh" <<'SHSETUP'
           set -euo pipefail
@@ -235,7 +248,7 @@ jobs:
           from pathlib import Path
           root=Path(sys.argv[1]);source=root/'source'
           expected=json.loads((root/'source-hashes.json').read_text())
-          assert expected['candidate']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+          assert expected['candidate']=='4a56bdd576424c80693f82ed36c5bcb019bae7ef'
           def hashes(package):
               assert package.is_dir() and not package.is_symlink()
               assert not any(p.is_symlink() for p in package.rglob('*'))
@@ -258,11 +271,12 @@ jobs:
           import docx
           spec=importlib.util.spec_from_file_location('exact_public_planner',source/'deploy/plan-weekly-publications.py')
           module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-          module.verify_reader_compatibility(installed)
+          module.validate_operator_runtime(expected['candidate'],json.loads((root/'ci.json').read_text()),installed,
+              json.loads((root/'source-receipt.json').read_text()))
           print('STAGED_CODE_ONLY_NOT_ADMITTED')
           PYVERIFY
             tar -cf "$private/transport.tar" -C "$private" source.tar source-hashes.json \
-              weekly_publication_operator.py setup.sh verify.py get-pip.py
+              weekly_publication_operator.py setup.sh verify.py get-pip.py ci.json source-receipt.json
             digest=$(sha256sum "$private/transport.tar" | cut -d' ' -f1)
             python3 - "$root" "$digest" <<'PYTRANSFER' > "$private/transfer-command"
           import shlex,sys
@@ -273,7 +287,7 @@ jobs:
            info=path.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
           body=sys.stdin.buffer.read(33554433);assert len(body)<=33554432 and hashlib.sha256(body).hexdigest()==sys.argv[2]
           os.umask(0o077);root.mkdir(mode=0o700)
-          expected={'source.tar','source-hashes.json','weekly_publication_operator.py','setup.sh','verify.py','get-pip.py'}
+          expected={'source.tar','source-hashes.json','weekly_publication_operator.py','setup.sh','verify.py','get-pip.py','ci.json','source-receipt.json'}
           with tarfile.open(fileobj=io.BytesIO(body)) as archive:
            items=archive.getmembers();assert len(items)==len(expected) and {m.name for m in items}==expected
            for item in items:
