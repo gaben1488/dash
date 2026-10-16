@@ -18,8 +18,9 @@ Expected endpoints:
 ## Verification
 
 Временная граница обслуживания установленного `43f10742` (16.10):
-следующий инструмент подготовлен из `268f9e5a`; установка и read-only preflight
-ещё не приняты. Это версия инструмента, не новая версия рабочего приложения.
+инструмент из `268f9e5a` staged38895891036 SUCCESS11:46:30UTC; code/dependencies
+проверены в `/root/codex-fixes/weekly-38895891036`. Read-only preflight38896058189
+ещё идёт; допуск apply не получен. Это версия инструмента, не новая версия рабочего приложения.
 Прикладные образы, два принятых цикла38860353565, backup/restore38831492016
 и root release proof остаются привязаны к `43f10742`.
 Полный состав файлов сверяется с неизменяемой квитанцией
@@ -39,7 +40,9 @@ owner workflow получает run/jobs через authenticated GitHub API, п
 Уменьшенный marker+SQLite journal сохраняет v1 recovery compatibility; только
 неизменяемые publication artifacts могут временно делиться inode.
 Apply/recover/readback/finalize и независимая проверка сохранённых выпусков
-остаются обязательны. Пока compaction не выполнялась. После принятия полного
+остаются обязательны. Пока compaction не выполнялась. Owner-only apply transport требует отдельного
+литерального plan revision (пока PREFLIGHT_REQUIRED); live marker не допускает
+мутацию. Finalize transport пока отсутствует. После принятия полного
 приложения временные pins заменяются одной совместимой точкой.
 
 Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске

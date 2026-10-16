@@ -51,6 +51,33 @@ class WeeklyOperatorTests(unittest.TestCase):
             self.assertIn('-m pip --isolated',commands[1])
             self.assertEqual((root/'setup.phase').read_text().strip(),'VERIFY')
 
+    def test_live_apply_transport_requires_a_literal_reviewed_revision(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        self.assertTrue("'compaction-apply'" in workflow,"Missing guarded apply transport")
+        script=workflow[workflow.index("            command=['systemd-run'"):]
+        script=textwrap.dedent(script[:script.index('            result=subprocess.run(command')])
+        scope={'unit':'aemr-weekly-compaction-42.service','root':Path('/private/run'),
+               'run':'42','python':Path('/private/tool/venv/bin/python'),'path':Path('/private/run/operator.py'),
+               'stage':Path('/private/tool'),'site':'/private/tool/site','mode':'compaction-apply','re':re}
+        # Until a real preflight is independently reviewed, an apply request
+        # cannot reuse the read-only live marker as an authorization token.
+        unbound=re.sub(r"revision='[^']*'","revision='PREFLIGHT_REQUIRED'",script)
+        with self.assertRaises(AssertionError):
+            exec(unbound,dict(scope))  # noqa: S102 - trusted local workflow argv, no process calls
+        bound=unbound.replace("revision='PREFLIGHT_REQUIRED'","revision='"+'f'*64+"'")
+        exec(bound,scope)  # noqa: S102 - trusted local workflow argv, no process calls
+        command=scope['command']
+        self.assertNotIn('--check',command)
+        self.assertEqual(command[command.index('--expected-revision')+1],'f'*64)
+        self.assertEqual(command[command.index('--operation')+1],'apply')
+        self.assertIn('--property',command)
+        self.assertIn('KillMode=process',command)
+        self.assertIn('ExitType=cgroup',command)
+        scope['mode']='plan'
+        exec(script,scope)  # noqa: S102 - trusted local workflow argv, no process calls
+        self.assertIn('--check',scope['command'])
+        self.assertEqual(scope['command'][scope['command'].index('--expected-revision')+1],'live')
+
     def setUp(self):
         path = Path(__file__).with_name('weekly_publication_operator.py')
         self.assertTrue(path.is_file(), 'Missing minimal existing-CLI host adapter')

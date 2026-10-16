@@ -34,7 +34,8 @@ jobs:
       github.event_name == 'push' &&
       (github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742' ||
        github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' ||
-       github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742')
+       github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' ||
+       github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -70,7 +71,7 @@ jobs:
             import base64,hashlib,json,os,re,stat,subprocess
             from pathlib import Path
             run='${{ github.run_id }}';assert run.isdigit()
-            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || 'plan' }}'
+            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' && 'compaction-apply' || 'plan' }}'
             root=Path('/root/codex-fixes')/('weekly-check-'+run)
             root.mkdir(mode=0o700);os.umask(0o077)
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
@@ -93,12 +94,18 @@ jobs:
                 '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
+            if mode=='compaction-apply':
+                # Bind only after successful private plan and independent review.
+                revision='PREFLIGHT_REQUIRED'
+                assert re.fullmatch('[a-f0-9]{64}',revision)
+                command.remove('--check')
+                command[command.index('--expected-revision')+1]=revision
             if mode=='identity':command.append('--identity-copy')
             if mode=='identity-apply':command.remove('--check');command.append('--identity-apply')
             result=subprocess.run(command,capture_output=True,timeout=920,check=False)
             for line in (root/'operator.log').read_text().splitlines():
                 if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED',
-                            'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES'}:
+                            'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES','EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE'}:
                     print(line)
                 elif line.startswith('{'):
                     try:value=json.loads(line)
@@ -112,7 +119,7 @@ jobs:
             for role in ('MemoryPeak','Result','ExecMainStatus'):
                 value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
                 if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
-            prefix='IDENTITY_METADATA_APPLY' if mode=='identity-apply' else 'READ_ONLY_WEEKLY_PREFLIGHT'
+            prefix={'identity-apply':'IDENTITY_METADATA_APPLY','compaction-apply':'REVERSIBLE_WEEKLY_COMPACTION'}.get(mode,'READ_ONLY_WEEKLY_PREFLIGHT')
             print(prefix+'_PASS' if result.returncode==0 else prefix+'_FAILED')
             raise SystemExit(0 if result.returncode==0 else 2)
             PY
@@ -1299,7 +1306,7 @@ jobs:
                   if key in {'VmRSS','VmHWM'} and re.fullmatch(r'\s*[0-9]+ kB',value):values[key]=int(value.split()[0])*1024
                  print(json.dumps({'weekly_operator_process':int(pid),**values}),flush=True)
                 except FileNotFoundError:pass
-             stage=Path('/root/codex-fixes/weekly-38881380220')
+             stage=Path('/root/codex-fixes/weekly-38895891036')
              plan=stage/('retention-plan-'+run+'.json')
              if plan.is_file() and not plan.is_symlink() and plan.stat().st_size<=1024*1024:
               value=json.loads(plan.read_text())
