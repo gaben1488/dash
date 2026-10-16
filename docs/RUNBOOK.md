@@ -17,6 +17,16 @@ Expected endpoints:
 
 ## Verification
 
+16.10,13:43UTC: application83b813ab установлен каноническим
+controlled release38905551150. Fresh checkpoint21,244,275,001B,
+archive3,222,981,097B; independent full restore нового и предыдущего
+runtime PASS13:40:09; exact-SHA candidate/API/Word acceptance PASS13:43:07,
+public health PASS13:43:08. Guardian resumed штатно; старый43 уже не runtime.
+Observer38906488066 теперь RUNNING; два будущих автономных цикла83 пока
+не приняты. Desktop browser readback запускается отдельно, без deploy/restart.
+Старые43 maintenance pins ниже — исторические доказательства, не допуск
+для новых мутаций83. Regular weekly retention ещё не включена.
+
 Временная граница обслуживания установленного `43f10742` (16.10,12:56UTC):
 backup/два restore38831492016 и R08/два автономных цикла38860353565 остаются
 принятыми только для43. Прикладные образы и контейнеры не менялись.
