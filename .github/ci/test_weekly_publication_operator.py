@@ -116,6 +116,26 @@ class WeeklyOperatorTests(unittest.TestCase):
             self.assertEqual(saved.stat().st_mode&0o777,0o600)
             saved.unlink()
 
+    def test_host_scratch_is_on_the_admitted_disk_and_removed_after_child_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary)/'scratch';sibling=Path(temporary)/'unrelated';sibling.write_text('keep')
+            before=self.module.ENV.copy()
+            actual_lstat=Path.lstat
+            def trust_only_root_fixture(path):
+                value=actual_lstat(path)
+                return SimpleNamespace(st_mode=value.st_mode,st_uid=0,st_nlink=value.st_nlink) if path==base else value
+            with patch.object(self.module,'SCRATCH',base),patch.object(Path,'lstat',trust_only_root_fixture):
+                with self.assertRaisesRegex(ValueError,'synthetic'),self.module.owner_scratch('123') as folder:
+                    self.assertEqual(folder.parent,base)
+                    self.assertEqual((folder.stat().st_uid,folder.stat().st_gid,folder.stat().st_mode&0o777),(1000,1000,0o700))
+                    child='import tempfile;print(tempfile.gettempdir())'
+                    self.assertEqual(self.module.call([sys.executable,'-IB','-c',child]).decode().strip(),str(folder))
+                    (folder/'disposable.sqlite').write_bytes(b'disposable copy')
+                    raise ValueError('synthetic')
+                self.assertFalse(folder.exists())
+                self.assertEqual(sibling.read_text(),'keep')
+                self.assertEqual(self.module.ENV,before)
+
     def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);deploy=root/'deploy';deploy.mkdir()

@@ -16,6 +16,8 @@ import select
 import stat
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 SHA = '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
@@ -26,6 +28,7 @@ READER_DIFFERENCES = {'deployment_diagnostics.py','publication_reader.py',
                       'readonly_catalog.py','rehearsal_policy.py'}
 TOOLS = Path('/usr/local/libexec/aemr')
 BACKUPS = Path('/home/aemr/.dash-private-backups')
+SCRATCH = Path('/var/lib/aemr/weekly-scratch')
 ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','DOCKER_CONFIG':'/etc/aemr/docker',
        'PYTHONDONTWRITEBYTECODE':'1'}
 MODULES = {'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
@@ -77,6 +80,23 @@ print(json.dumps({'uid':os.geteuid(),'hashes':{p.relative_to(root).as_posix():ha
 
 def require(value, code):
     if not value:raise ValueError(code)
+
+
+@contextmanager
+def owner_scratch(run):
+    """Disk-backed disposable SQLite clones, never the host's default tmpfs."""
+    require(re.fullmatch('[0-9]+',run),'OPERATOR_RUN_INVALID')
+    SCRATCH.mkdir(mode=0o700,exist_ok=True)
+    info=SCRATCH.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o700,
+            'OPERATOR_SCRATCH_UNTRUSTED')
+    with tempfile.TemporaryDirectory(prefix=run+'-',dir=SCRATCH) as temporary:
+        path=Path(temporary);os.chown(path,1000,1000);path.chmod(0o700)
+        before=ENV.get('TMPDIR');ENV['TMPDIR']=str(path)
+        try:yield path
+        finally:
+            if before is None:ENV.pop('TMPDIR',None)
+            else:ENV['TMPDIR']=before
 
 
 def owned(path, *, limit=1024*1024, private=True):
@@ -303,27 +323,28 @@ def main():
         if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
         try:
             state,backup=admit(args)
-            privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
-                       '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
-            preview=None
-            if args.check and args.expected_revision=='live':
-                preview=preview_plan(args.tree,args.python,privilege,state,
-                                     output=args.tree.parent/('retention-plan-'+args.operator_run+'.json'))
-                args.expected_revision=preview['catalog_revision']
-            command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
-                                 operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
-            # Exercise actual host ABI/dependency closure and existing proof gates
-            # as the real native data owner before any maintenance lock bootstrap.
-            probe='import importlib.util,json,sys;import procurement_engine.runtime,docx;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;spec=importlib.util.spec_from_file_location("weekly",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);m.operator_preflight(sys.argv[2],operation=sys.argv[3],candidate=sys.argv[4],ci=json.load(open(sys.argv[5])),reader_package=sys.argv[6],source_receipt=json.load(open(sys.argv[7])),expected_revision=sys.argv[8],backup=sys.argv[9],store=PublicationStore(Path(sys.argv[2])/"published",readonly=True));print("HOST_NATIVE_PREFLIGHT_PASS")'
-            call([*privilege,str(args.python),'-IB','-c',probe,command[2],str(state),args.operation,TOOL_SHA,
-                  str(args.ci_evidence),str(args.reader_package),str(args.source_receipt),args.expected_revision,str(backup)],timeout=1800,pass_fds=(9,))
-            if args.check:
-                if preview:print(json.dumps(preview,sort_keys=True))
-                print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
-            # The barrier execs setpriv in-place, preserving PID birth identity.
-            owner_command=command
-            supervise(owner_command,[*privilege,str(args.python)],owner_prefix=privilege)
-            print('EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE')
+            with owner_scratch(args.operator_run):
+                privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
+                           '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
+                preview=None
+                if args.check and args.expected_revision=='live':
+                    preview=preview_plan(args.tree,args.python,privilege,state,
+                                         output=args.tree.parent/('retention-plan-'+args.operator_run+'.json'))
+                    args.expected_revision=preview['catalog_revision']
+                command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
+                                     operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
+                # Exercise actual host ABI/dependency closure and existing proof gates
+                # as the real native data owner before any maintenance lock bootstrap.
+                probe='import importlib.util,json,sys;import procurement_engine.runtime,docx;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;spec=importlib.util.spec_from_file_location("weekly",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);m.operator_preflight(sys.argv[2],operation=sys.argv[3],candidate=sys.argv[4],ci=json.load(open(sys.argv[5])),reader_package=sys.argv[6],source_receipt=json.load(open(sys.argv[7])),expected_revision=sys.argv[8],backup=sys.argv[9],store=PublicationStore(Path(sys.argv[2])/"published",readonly=True));print("HOST_NATIVE_PREFLIGHT_PASS")'
+                call([*privilege,str(args.python),'-IB','-c',probe,command[2],str(state),args.operation,TOOL_SHA,
+                      str(args.ci_evidence),str(args.reader_package),str(args.source_receipt),args.expected_revision,str(backup)],timeout=1800,pass_fds=(9,))
+                if args.check:
+                    if preview:print(json.dumps(preview,sort_keys=True))
+                    print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
+                # The barrier execs setpriv in-place, preserving PID birth identity.
+                owner_command=command
+                supervise(owner_command,[*privilege,str(args.python)],owner_prefix=privilege)
+                print('EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE')
         finally:
             if lock.fileno()!=9:os.close(9)
 
