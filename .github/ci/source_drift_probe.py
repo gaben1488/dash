@@ -7,6 +7,42 @@ import time
 from pathlib import Path
 
 
+def retention_query_summary(database):
+    """Compare query cost on one read transaction; no retention/deletion runs.
+
+    The newest row simulates a candidate displaced by the next snapshot.
+    This measures SQL cost, not the whole candidate application or policy.
+    """
+    import sqlite3
+    from contextlib import closing
+
+    deadline = time.monotonic() + 145
+    with closing(sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as connection:
+        connection.execute('PRAGMA query_only=ON')
+        connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+        connection.execute('BEGIN')
+        size = connection.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0]
+        cases = connection.execute('''SELECT id FROM issues WHERE status <> 'open'
+            OR length(trim(coalesce(comment, ''))) > 0
+            OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id = issues.id)
+            OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id = issues.id AND audit_log.action = 'issue_comment')
+            LIMIT 129''').fetchall()
+        if not 0 < size <= 256 or not 0 < len(cases) <= 128:
+            raise ValueError('RETENTION_PROBE_WORK_BUDGET_EXCEEDED')
+        candidate = connection.execute('SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1').fetchone()[0]
+        needles = [json.dumps(row[0], ensure_ascii=False) for row in cases]
+        start = time.monotonic()
+        before = [set(connection.execute('SELECT id FROM snapshots WHERE instr(data, ?) > 0', (needle,))) for needle in needles]
+        full = time.monotonic() - start
+        start = time.monotonic()
+        after = [set(connection.execute('SELECT id FROM snapshots WHERE id = ? AND instr(data, ?) > 0', (candidate, needle))) for needle in needles]
+        scoped = time.monotonic() - start
+        if any(new != old & {(candidate,)} for old, new in zip(before, after, strict=True)):
+            raise ValueError('RETENTION_QUERY_RESULTS_CHANGED')
+    return {'snapshot_count': size, 'case_count': len(cases), 'simulated_candidate': True,
+            'scoped_results_preserved': True, 'full_search_seconds': round(full, 3), 'scoped_search_seconds': round(scoped, 3)}
+
+
 def runtime_log_stages(raw, *, logger_utc=False):
     """Decode JSON or the installed multiline pino-pretty format privately."""
     from datetime import datetime, timedelta
@@ -268,5 +304,7 @@ if __name__ == '__main__':
         print(json.dumps({'weekly_formula_dependencies': weekly_formula_summary('/app/packages/server/data/reports')}))
     elif sys.argv[1] == 'snapshot':
         print(json.dumps({'snapshot_stages': snapshot_stage_summary('/app/packages/server/data/aemr.db')}))
+    elif sys.argv[1] == 'retention':
+        print(json.dumps({'retention_query_comparison': retention_query_summary('/app/packages/server/data/aemr.db')}))
     else:
         main(sys.argv[1])

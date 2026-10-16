@@ -12,6 +12,34 @@ class DriftProbeTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def test_retention_query_comparison_preserves_scoped_results_and_private_state(self):
+        import json
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / 'state.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript('''
+                    CREATE TABLE snapshots (id TEXT PRIMARY KEY, created_at TEXT, data TEXT);
+                    CREATE TABLE issues (id TEXT, status TEXT, comment TEXT);
+                    CREATE TABLE issue_history (issue_id TEXT);
+                    CREATE TABLE audit_log (entity_id TEXT, action TEXT);
+                    INSERT INTO snapshots VALUES ('PRIVATE_OLD', '2026-10-01', '{"issues":[{"id":"PRIVATE_CASE"}]}');
+                    INSERT INTO snapshots VALUES ('PRIVATE_CURRENT', '2026-10-16', '{"issues":[{"id":"PRIVATE_CASE"}]}');
+                    INSERT INTO issues VALUES ('PRIVATE_CASE', 'false_positive', NULL);
+                ''')
+            before = database.read_bytes()
+            result = self.module.retention_query_summary(database)
+            self.assertEqual(result['snapshot_count'], 2)
+            self.assertEqual(result['case_count'], 1)
+            self.assertTrue(result['scoped_results_preserved'])
+            self.assertTrue(result['simulated_candidate'])
+            self.assertGreaterEqual(result['full_search_seconds'], 0)
+            self.assertGreaterEqual(result['scoped_search_seconds'], 0)
+            self.assertNotIn('PRIVATE', json.dumps(result))
+            self.assertEqual(database.read_bytes(), before)
+
     def test_runtime_stage_projection_does_not_expose_log_text_or_request_details(self):
         records = [
             {'time': 1000, 'msg': 'incoming request', 'reqId': 'PRIVATE_REQUEST',
