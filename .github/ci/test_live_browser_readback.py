@@ -89,6 +89,16 @@ class BrowserAdmissionTests(unittest.TestCase):
                 self.assertNotIn('section_error_counts',output[1])
                 if existing:self.assertEqual(output[0]['section_error_counts'],{'procedure_source_contract':1})
 
+    def test_repaired_worker_observation_push_is_explicit_and_owner_scoped(self):
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        section=workflow.split('  worker-observe:\n',1)[1]
+        expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
+        marker='Observe repaired source worker for accepted 43f10742'
+        for event,actor,branch,message,mode,expected in [('push','owner','codex/release-observe-20261015',marker,'',True),('push','other','codex/release-observe-20261015',marker,'',False),('push','owner','main',marker,'',False),('push','owner','codex/release-observe-20261015','other','',False),('workflow_dispatch','owner','codex/release-observe-20261015','','worker-observe',True)]:
+            with self.subTest(event=event,actor=actor,branch=branch,message=message):
+                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode=mode,release_sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')}
+                self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
+
     def test_saved_worker_probe_is_readonly_and_owner_scoped(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  observe:\n',1)[1].split('  proof-recovery:\n',1)[0]

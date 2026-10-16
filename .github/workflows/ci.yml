@@ -1435,10 +1435,11 @@ jobs:
 
   worker-observe:
     if: >-
-      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      inputs.mode == 'worker-observe' &&
+      github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
-      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+      ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
+        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe repaired source worker for accepted 43f10742'))
     runs-on: ubuntu-latest
     timeout-minutes: 50
     concurrency:
