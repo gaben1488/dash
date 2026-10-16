@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing]
+        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -1378,3 +1378,191 @@ jobs:
              if 'error_code' in value:assert value['error_code'] in {'TIMEOUT_40S','READ_OR_PARSE_FAILED'}
              print(json.dumps(value),flush=True)
             PYAPITIMING
+
+  worker-observe:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      inputs.mode == 'worker-observe' &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Observe current accepted worker cycles without restarting or restoring any service
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 47m
+          script: |
+            set -euo pipefail
+            observer='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+            git -C /home/aemr/dash fetch --quiet origin "$observer"
+            sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
+            import hashlib,json,os,re,stat,subprocess,sys,time,types
+            from datetime import datetime,timezone
+            from pathlib import Path
+            def observe():
+                seen,attributed={},set()
+                deadline=time.monotonic()+max(2700,2*interval+900)
+                while time.monotonic()<deadline:
+                    check()
+                    status=read_status()
+                    if status.get('status')=='RUNNING' and holds_lock():
+                        confirmed=read_status()
+                        if m.same_running_attempt(status,confirmed) and holds_lock():
+                            if not re.fullmatch('[A-Za-z0-9_-]{1,128}',status['attempt_id']):raise m.RecoveryError('WORKER_CYCLE_PROOF_INVALID')
+                            attributed.add(status['attempt_id'])
+                            save('attribution-'+status['attempt_id']+'.json',{'started_at':status['started_at'],'double_host_flock':True,'samples':list(samples)})
+                    if m.accept_cycle(status,observation_since,seen,attributed,interval):
+                        native_smoke()
+                        save('cycle-'+str(len(seen))+'.json',{k:status[k] for k in
+                            ('status','attempt_id','started_at','finished_at','snapshot_id','publication')})
+                        print('WORKER_AUTONOMOUS_CYCLE_'+str(len(seen))+'_AND_THREE_WORDS_PASS',flush=True)
+                    if len(seen)==2:
+                        return {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','worker':worker_id,'worker_image':image,
+                            'worker_started_at':since,'observation_since':observation_since,'attempt_ids':sorted(seen),'native_word':'PASS'}
+                    time.sleep(5)
+                raise m.RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
+            try:
+                os.umask(0o077)
+                assert os.geteuid()==0 and re.fullmatch('[a-f0-9]{40}',sys.argv[1]) and re.fullmatch('[0-9]+',sys.argv[2]) and re.fullmatch('[1-9][0-9]*',sys.argv[3])
+                tools=Path('/usr/local/libexec/aemr');sys.path.insert(0,str(tools))
+                import release_recovery as r
+                plan=r.validate_plan(json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json')))
+                accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
+                assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
+                sha=plan['release_sha']
+                def git(*args):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args],timeout=30)
+                changed=git('diff','--name-only',sha,sys.argv[1]).decode().splitlines()
+                assert all((name.startswith(('.github/','docs/')) or name in {'AGENTS.md','CLAUDE.md'}) and name!='.github/ci/header_api_probe.mjs' for name in changed)
+                window=json.loads(r.read_owned(r.BACKUP_BASE/Path(plan['backup_reference']).parent/'release-window.json'))
+                assert window.get('candidate')==sha and set(window['module_sha256'])=={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
+                for name,pin in window['module_sha256'].items():assert r.digest(r.read_owned(tools/name,private=False))==pin
+                m=types.ModuleType('accepted_worker_observation');m.__file__=str(tools/'accepted-worker-source.py')
+                exec(compile(git('show',sha+':deploy/worker_recovery.py'),m.__file__,'exec'),m.__dict__)
+                def readonly(args,*,timeout=45,**kwargs):
+                    allowed=args[0] in {'inspect','ps','top'} or args[:2]==['volume','inspect']
+                    allowed=allowed or args==['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke']
+                    assert allowed,'READ_ONLY_COMMAND_REQUIRED'
+                    result=subprocess.run(['docker',*args],capture_output=True,text=True,timeout=timeout,check=False)
+                    if result.returncode:raise m.RecoveryError('WORKER_OBSERVATION_IO_FAILED')
+                    return result.stdout
+                executor=r.ReleaseRecovery(command=readonly)
+                baseline=executor._records(plan,candidate=True);volume=executor._volume(plan)
+                worker_id=baseline['report-worker']['Id'];image=plan['candidate_images']['report-worker']
+                started=json.loads(r.read_owned(r.STATE_DIR/'worker-quarantine/worker-start.json'))
+                assert started=={'state':'REPAIRED_WORKER_STARTED_NOT_ACCEPTED','release_sha':sha,'worker':worker_id,'image':image}
+                since=baseline['report-worker']['State']['StartedAt'];interval=900
+                cmd=baseline['report-worker']['Config']['Cmd'];assert cmd[cmd.index('--interval-seconds')+1]=='900'
+                session_created=False
+                session=r.STATE_DIR/'worker-quarantine'/('acceptance-'+sys.argv[2]+'-'+sys.argv[3]);session.mkdir(mode=0o700);session_created=True
+                def save(name,value):r.atomic_json(session/name,value)
+                def stable(records):
+                    return {role:{**{k:record[k] for k in ('Id','Image','Config','HostConfig','RestartCount')},
+                        'Mounts':sorted(json.dumps(v,sort_keys=True) for v in record['Mounts']),
+                        'started':record['State']['StartedAt']} for role,record in records.items()}
+                def check():
+                    assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
+                    assert not list(r.BACKUP_BASE.glob('*/quiescent'))
+                    current=executor._records(plan,candidate=True);assert stable(current)==stable(baseline)
+                    assert all(v['State']['Status']=='running' and not v['State']['OOMKilled'] for v in current.values())
+                    assert current['server']['State'].get('Health',{}).get('Status')=='healthy'
+                    top=readonly(['top','aemr-server-1'])
+                    if re.search(r'proc-report\s+(?:run-google|worker)|procurement_engine.*(?:run-google|worker)',top):raise m.RecoveryError('WORKER_CONCURRENT_MANUAL_WRITER')
+                def read_status():
+                    path=volume/'reports/status.json'
+                    assert not path.is_symlink() and path.stat().st_size<=64*1024*1024
+                    return json.loads(path.read_bytes())
+                samples=[]
+                def holds_lock():
+                    info=(volume/'reports/run.lock').stat();metadata=(os.major(info.st_dev),os.minor(info.st_dev),info.st_ino)
+                    pids={int(value) for value in readonly(['top',worker_id,'-eo','pid']).splitlines()[1:]}
+                    locks=Path('/proc/locks').read_text();held=m.worker_lock_held(locks,pids,*metadata)
+                    samples.append({'observed_at':datetime.now(timezone.utc).isoformat(),'device_inode':metadata,'pids':sorted(pids),'held':held,'locks':locks})
+                    samples[:]=samples[-2:]
+                    if held:save('latest-double-lock-samples.json',samples)
+                    return held
+                def native_smoke():
+                    result=json.loads(readonly(['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke'],timeout=180))
+                    if any(result.get(k)!='PASS' for k in ('context','snapshot','main','supplement','operational')):raise m.RecoveryError('WORKER_WORD_SMOKE_FAILED')
+                observation_since=datetime.now(timezone.utc).isoformat()
+                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha})
+                result=observe();check()
+                manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
+                assert r.digest(manifest_body)==plan['manifest_sha256']
+                expected=json.loads(manifest_body)['files'];count=0
+                roots=set()
+                for name in expected:
+                    parts=Path(name).parts
+                    if len(parts)>=4 and parts[:3]==('reports','published','releases'):roots.add('/'.join(parts[:4]))
+                    if len(parts)>=3 and parts[:2]==('reports','archives') and parts[2].startswith('WEEKLY-'):roots.add('/'.join(parts[:3]))
+                for root in roots:
+                    tree=volume/root
+                    actual={path.relative_to(volume).as_posix()+('/' if path.is_dir() else '') for path in [tree,*tree.rglob('*')]}
+                    assert actual=={name for name in expected if name.startswith(root+'/')}
+                for name,before in expected.items():
+                    if not (name.startswith('reports/published/releases/') or name.startswith('reports/archives/WEEKLY-')):continue
+                    path=volume/name;assert not path.is_symlink();info=path.stat()
+                    after={'uid':info.st_uid,'gid':info.st_gid,'mode':stat.S_IMODE(info.st_mode)}
+                    if before.get('kind')=='directory':assert path.is_dir();after.update(kind='directory',bytes=0)
+                    else:
+                        assert path.is_file()
+                        with path.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
+                        after.update(bytes=info.st_size,sha256=digest)
+                    assert after==before;count+=1
+                assert count>0
+                result.update(source_sha=sha,observer_sha='${{ github.sha }}',sealed_entries_verified=count)
+                save('result.json',result);print('TWO_AUTONOMOUS_CYCLES_VERIFIED_AND_SEALED_HISTORY_UNCHANGED')
+            except Exception as error:
+                code=str(error) if type(error).__name__=='RecoveryError' and re.fullmatch('[A-Z_]{5,100}',str(error)) else 'WORKER_OBSERVATION_REJECTED'
+                if globals().get('session_created'):save('pending.json',{'state':'NOT_ACCEPTED','reason':code})
+                print(code);raise SystemExit(3 if code=='WORKER_TWO_CYCLES_TIMED_OUT' else 2) from None
+            PYACCEPTCURRENT
+      - name: Check actual historical schemas independently of timer acceptance
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa' <<'PYSCHEMA'
+            import json,re,subprocess,sys
+            from pathlib import Path
+            try:
+                sys.path.insert(0,'/usr/local/libexec/aemr')
+                import release_recovery as r
+                plan=r.validate_plan(json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json')))
+                accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
+                assert accepted['acceptance']==r.ReleaseRecovery._acceptance(plan)
+                server=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=20))[0]
+                assert server['State']['Status']=='running' and server['State']['Health']['Status']=='healthy'
+                assert server['Image']==plan['candidate_images']['server']
+                candidate=sys.argv[1];assert re.fullmatch('[a-f0-9]{40}',candidate)
+                repo=Path('/home/aemr/dash')
+                def public_source(name,sha=candidate):
+                    return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts')
+                assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1])})
+                program=public_source('.github/ci/report-schema-probe.cjs')
+                program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
+                schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
+                    '--env-file',str(repo/'deploy/.env.production'),
+                    '--mount','type=volume,src='+plan['volume']+',dst=/app/packages/server/data,readonly',
+                    '--entrypoint','node',server['Image'],'-e',program],input=payload.encode(),capture_output=True,timeout=180)
+                summary=json.loads(schema.stdout)
+                print(json.dumps({'candidate_sha':plan['release_sha'],'observer_sha':candidate,**summary}))
+                assert schema.returncode==0 and summary['candidate_schema_history']=='PASS'
+            except Exception:
+                raise SystemExit('CANDIDATE_SCHEMA_HISTORY_READBACK_FAILED') from None
+            PYSCHEMA
