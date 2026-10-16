@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 14:53 UTC
+### Текущий выпуск — 16.10.2026, 15:23 UTC
 
 **Установлен `83b813ab`; его restore, два цикла и перечисленные браузерные
 сценарии приняты. Новая расширенная проверка обнаружила отдельный отказ
@@ -36,8 +36,12 @@
   import, bounded memoization, generation fence. Чужой год/демо/нули не подставляются.
   Навигация не запускает force-import; UI не гасит события до готового среза и
   не скачивает тяжёлый ответ каждые2с, учитывает опережающее SSE.
-  **Ещё не установлено; новые cold/API/WebKit доказательства обязательны.**
-  Локально: shared737/core1869(+1skip)/server1012/web2301, lint0errors/303warnings,
+  **`ccbd4213` в ветке, ещё не установлен.** Дополнительно проверен expression
+  index существующих scope metadata: реальных SQLite JSON evaluations0;
+  no-index control обнаруживает scan. Malformed JSON/строковый год не приняты
+  и не изменены. Стоимость создания на рабочей копии проверяется до downtime.
+  Новые cold/API/WebKit доказательства обязательны.
+  Локально: shared737/core1869(+1skip)/server1017/web2301, lint0errors/303warnings,
   tsc четырёх пакетов и production build PASS. Независимый review выявил SSE race;
   воспроизведён и исправлен приоритетом нового события, regression PASS.
 - [Frozen replay38914725365](https://github.com/gaben1488/dash/actions/runs/38914725365):
@@ -47,7 +51,12 @@
   доказательство повреждения истории. Начата read-only диагностика причины;
   gate не ослаблен, существующий архив не изменяется. Native read-only38919215019/38919864786:
   все3ошибки — unknown:REF, потерянных registered targets нет. Это сохранённые
-  некорректные ссылки, не role/filter loss. Source-schema/runtime PASS.
+  некорректные ссылки, не role/filter loss. Qualification patch по ADR0010
+  требует полные hashes frozen bytes до/после и exact issue digest; сохраняет
+  FAIL/historical_replay_verified=false. CandidatePASS при literal#REF запрещён;
+  другие ошибки/missing proof не допускаются. Локально Python1132PASS, reviewed
+  negative/privacy52PASS, workflowguard2PASS; real same-input readback ещё нужен.
+  Source-schema/runtime прежней точки PASS.
 - Storage:99выпусков/249Word/99dashboard сохранены,92уплотнены,7защищены.
   Pre38903432153/finalize38904202760/post38905123990 PASS; освобождено
   **12 001 247 232 B физических блоков**. Regular retention не включена.

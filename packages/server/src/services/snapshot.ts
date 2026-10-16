@@ -8,7 +8,7 @@ import { db, schema } from '../db/index.js';
 import { recordSnapshotRead, snapshotReadContext } from './snapshot-read-context.js';
 import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
-import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
+import { and, eq, desc, getTableColumns, lt, sql, isNull } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
@@ -770,14 +770,15 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
  */
 function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
+    const scopeType = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') END`;
+    const scopeValue = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_extract(${schema.snapshots.data}, '$.metadata.targetYear') END`;
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
       // Scope before limit: retained heads of other years/books are not candidates.
       .where(and(
         eq(schema.snapshots.spreadsheetId, config.google.spreadsheetId),
-        targetYear === undefined
-          ? sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') = 'null' END`
-          : sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') = 'integer' AND json_extract(${schema.snapshots.data}, '$.metadata.targetYear') = ${targetYear} END`,
+        eq(scopeType, targetYear === undefined ? 'null' : 'integer'),
+        targetYear === undefined ? isNull(scopeValue) : eq(scopeValue, targetYear),
       ))
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)

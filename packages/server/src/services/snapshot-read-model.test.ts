@@ -17,7 +17,7 @@ beforeEach(async () => {
     GOOGLE_SHEETS_SPREADSHEET_ID: 'read-model-test' };
   fixture = await seed();
 });
-afterEach(() => { process.env = { ...original }; });
+afterEach(() => { fixture?.db.$client.close(); process.env = { ...original }; });
 
 async function seed() {
   const source = await import('./snapshot.js');
@@ -150,4 +150,40 @@ it('rechecks materialized storage once after invalidation so newly persisted dec
     expect((await source.getSnapshot(false, 2026)).id).toBe(newer.id);
     expect((await source.getSnapshot(false, 2026)).id).toBe(newer.id);
   } finally { reject(new Error('synthetic source failure')); await force; }
+});
+
+it.each([[2026, true], [2027, true], [undefined, true], [2027, false]] as const)(
+  'reads scope %s without decoding historical JSON when metadata is indexed=%s', async (year, indexed) => {
+    const { source, db, reject } = fixture;
+    if (!indexed) db.$client.exec('DROP INDEX idx_snapshots_read_scope');
+    // Count real SQLite expression evaluations, independent of EXPLAIN output wording.
+    // These functions are never needed on an indexed lookup; the no-index control
+    // proves that the detector actually catches historical JSON evaluation.
+    const decode = vi.fn((_payload: unknown, _path: unknown) => null);
+    db.$client.function('json_type', { deterministic: true }, decode);
+    db.$client.function('json_extract', { deterministic: true }, decode);
+    const read = source.getSnapshot(false, year).catch(() => undefined);
+    const force = source.getSnapshot(true, year).catch(() => undefined);
+    try {
+      const result = await read;
+      if (indexed) expect(decode).not.toHaveBeenCalled();
+      else expect(decode).toHaveBeenCalled();
+      if (year === 2026) expect(result?.id).toBe('saved-2026');
+    } finally { reject(new Error('synthetic source failure')); await force; }
+  });
+
+it('builds the metadata index over old malformed payloads without changing them or accepting a string year', async () => {
+  const { source, db, schema, saved, reject } = fixture;
+  db.$client.exec('DROP INDEX idx_snapshots_read_scope');
+  for (const [id, data] of [['bad-json', '{'], ['string-year', JSON.stringify({ ...saved, id: 'string-year', metadata: { targetYear: '2026' } })]]) {
+    db.insert(schema.snapshots).values({ id, data, spreadsheetId: 'read-model-test', createdAt: '2026-10-17T00:00:00Z' }).run();
+  }
+  const before = db.select({ id: schema.snapshots.id, data: schema.snapshots.data }).from(schema.snapshots).all();
+  const { SCHEMA_DDL } = await import('../db/ddl.js');
+  db.$client.exec(SCHEMA_DDL);
+  expect(db.select({ id: schema.snapshots.id, data: schema.snapshots.data }).from(schema.snapshots).all()).toEqual(before);
+  const read = await source.getSnapshot(false, 2026);
+  const force = source.getSnapshot(true, 2026);
+  try { expect(read.id).toBe(saved.id); }
+  finally { reject(new Error('synthetic source failure')); await force; }
 });

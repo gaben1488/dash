@@ -225,6 +225,13 @@ export const SCHEMA_DDL = `
   -- а в строке снимка лежит многомегабайтный data-JSON, поэтому перебор здесь
   -- стоит дороже, чем где-либо ещё в базе.
   CREATE INDEX IF NOT EXISTS idx_snapshots_created ON snapshots(created_at);
+  -- Ready read models are addressed by scope; never parse all historical JSON per GET.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_read_scope ON snapshots(
+    spreadsheet_id,
+    CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END,
+    CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
+    created_at DESC
+  );
 
   -- Журнал и его статистика читают аудит-лог и историю замечаний окном по
   -- времени («последние 100», «за 30 дней»). Индекс по действию (выше) на этих

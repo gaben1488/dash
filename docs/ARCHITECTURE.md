@@ -39,6 +39,30 @@ PostgreSQL остаётся отдельным решением C08: снача�
 импорта. При исчезновении строки сравниваются пригодный live и последний
 подтверждённый четверг Asia/Kamchatka, с сохранением обеих точек и неопределённости.
 
+### Проверяемый ближайший переход, 16.10.2026
+
+[ADR0012](decisions/0012-bounded-dashboard-read-model.md) отделяет обычное HTTP
+чтение готовой модели от импорта. `ccbd4213` реализует background materialization,
+строгий scope, исходное время и явную freshness. Следующее изменение добавляет
+метаданный expression index, чтобы отсутствие нужного года не требовало разбора
+JSON всей истории. Это не общий канонический вход и не доказательство полной
+миграции. На production до новой установки остаётся83b813ab.
+
+Конкурирующие объяснения проверены разными материалами: deferred Google test
+доказал coupling импорта/GET; SQLite expression counter и контроль без индекса
+доказывают стоимость поиска в истории; live frozen diagnostic отделил сохранённые
+unknown:REF от потери registered payload. Последний отказ не исправляется заменой
+БД. Изменение qualification для исторического отказа отдельно обосновано в
+[ADR0010](decisions/0010-canonical-weekly-report-archive.md); исходный FAIL и
+непринятое переиздание сохраняются. Свежая установка/измерения ещё обязательны.
+
+Следующая предметная вертикаль остаётся прежней: один зафиксированный вход →
+официальная экономия → API/BI/Word, плюс общая проекция человеческих решений
+для дела/показателей/журнала. Пригодность границ проверяется изменением адаптера
+и правила на изолированном наборе, независимым пересчётом и сохранностью старых
+результатов. Простое совпадение старого и нового API не является независимым
+расчётом. До этой проверки гибкость всей системы не объявляется доказанной.
+
 ## Layers
 
 ```text
@@ -73,13 +97,18 @@ Registered route groups:
 - `/api/analytics`
 - `/api/health`
 
-`/api/debug/sheets` is registered only outside production.
+`/api/debug/sheets` is registered only in explicitly declared development/test runtimes.
 
 ## Auth Boundary
 
 `registerAuthHook` protects `/api/*` when `AEMR_API_KEY` is set. In production the server refuses to start without this key. `/api/health` is public.
 
-The web client sends `Authorization: Bearer <key>` from `localStorage.aemr_api_key`.
+Production browser access uses Caddy Basic authentication; Caddy injects the
+server-side Bearer token. The production web client deliberately does not send
+`localStorage.aemr_api_key` (see `web/src/api.ts`). Direct development API access
+can use that local key. This is coarse service access, not proof of per-user or
+per-organization authorization; the target roles in PRODUCT.md are not an
+implemented permissions model.
 
 ## Data Sources
 
