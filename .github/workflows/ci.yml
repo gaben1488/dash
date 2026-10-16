@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery, transport-probe]
+        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -23,7 +23,87 @@ on:
 
 permissions:
   contents: read
+  actions: read
 jobs:
+  continue-release:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      (inputs.mode == 'continue-check' || inputs.mode == 'continue-release') &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove independent guardian custody under actual main-process loss
+        run: sudo env GITHUB_ACTIONS=true RUNNER_OS=Linux python3 .github/ci/test_continuation_systemd.py
+      - name: Continue only the exact admitted candidate with independent guardian custody
+        env:
+          VPS_USER: ${{ secrets.DEPLOY_USER }}
+          VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          CONTINUATION_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          candidate=43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$candidate"
+          private="$RUNNER_TEMP/continued-release"
+          root=/root/codex-fixes/release-38821521319
+          helper="$root/continuation-$GITHUB_RUN_ID.py"
+          unit="aemr-release-continuation-$GITHUB_RUN_ID"
+          mkdir -m 700 "$private"
+          trap 'rm -rf -- "$private"' EXIT
+          printf '%s\n' "$VPS_KEY" > "$private/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$private/known_hosts" 2>/dev/null
+          test -s "$private/known_hosts"
+          remote() {
+            ssh -i "$private/key" -o BatchMode=yes -o ConnectTimeout=15 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -o UserKnownHostsFile="$private/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" "$@"
+          }
+          source_digest=$(sha256sum .github/ci/continue_release.py | cut -d' ' -f1)
+          remote "sudo -n python3 -IB -c 'import hashlib,os,sys;body=sys.stdin.buffer.read(1048577);assert len(body)<=1048576 and hashlib.sha256(body).hexdigest()==sys.argv[2];fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o700);f=os.fdopen(fd,\"wb\");f.write(body);f.flush();os.fsync(f.fileno());f.close()' '$helper' '$source_digest'" < .github/ci/continue_release.py
+          checked=0
+          remote sudo -n python3 -IB "$helper" "$GITHUB_RUN_ID" --check > "$private/check.log" 2>&1 || checked=$?
+          remote sudo -n install -m 600 /dev/null "$root/continuation-$GITHUB_RUN_ID-check.log"
+          tail -c 131072 "$private/check.log" | remote sudo -n tee "$root/continuation-$GITHUB_RUN_ID-check.log" >/dev/null
+          test "$checked" = 0 || { echo CONTINUATION_ADMISSION_FAILED; exit 2; }
+          if test "$CONTINUATION_MODE" = continue-check; then echo CONTINUATION_ADMISSION_PASS_NO_RUNTIME_CHANGES; exit 0; fi
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$candidate"
+          remote sudo -n install -m 600 /dev/null "$root/continuation-$GITHUB_RUN_ID-service.log"
+          remote sudo -n systemd-run --quiet --collect --unit "$unit" \
+            --property Type=exec --property KillMode=process --property UMask=0077 \
+            --property "StandardOutput=append:$root/continuation-$GITHUB_RUN_ID-service.log" \
+            --property "StandardError=append:$root/continuation-$GITHUB_RUN_ID-service.log" \
+            /usr/bin/python3 -IB "$helper" "$GITHUB_RUN_ID"
+          remote sudo -n python3 -IB - "$GITHUB_RUN_ID" <<'PY'
+          import json,os,re,stat,subprocess,sys,time
+          from pathlib import Path
+          run=sys.argv[1];assert re.fullmatch('[0-9]+',run)
+          result=Path('/root/codex-fixes/release-38821521319')/('continuation-'+run+'-result.json')
+          for _ in range(900):
+              if os.path.lexists(result):
+                  assert not result.is_symlink()
+                  with os.fdopen(os.open(result,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+                      info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<16384
+                      value=json.load(file)
+                  assert set(value)=={'state','release_sha','worker_started','api_healthy'}
+                  assert value['state'] in {'RELEASE_CANDIDATE_ACCEPTED','SOURCE_CHANGED_RECAPTURE_REQUIRED'}
+                  assert value['release_sha']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa' and value['worker_started'] is False and value['api_healthy'] is True
+                  print(json.dumps(value));break
+              active=subprocess.run(['systemctl','is-active','aemr-release-continuation-'+run+'.service'],capture_output=True,text=True,timeout=10,check=False)
+              if active.stdout.strip() not in {'active','activating','deactivating'}:
+                  print('CONTINUATION_STOPPED_WITHOUT_RECEIPT');raise SystemExit(2)
+              time.sleep(2)
+          else:
+              print('CONTINUATION_OBSERVATION_TIMEOUT_GUARDIAN_REMAINS_RESPONSIBLE');raise SystemExit(2)
+          PY
   transport-probe:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
