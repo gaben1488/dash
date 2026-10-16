@@ -49,6 +49,20 @@ capture→health не равны измеренному API downtime: точны
 не измерялся. Новые phase timers оснастки относятся только к будущим прогонам,
 не измеряют transfer и не ослабляют restore/source/rollback gate.
 
+Следующий кандидат4f630e74/32e9ad6e пока не установлен. Он сохраняет новые
+historical reused-attempt status с hash-ссылкой на опубликованное assurance;
+global status остаётся полным для старого API/оператора. Для полного исторического
+доказательства используется `PublicationStore.read_attempt` под обычной reader
+lease, а не HTTP alias выбранного выпуска. Missing/corrupt reference — явный
+отказ; SQLite unavailable остаётся отдельной ошибкой. Старые файлы не преобразуются.
+Первый inline-отказ читается и до каталога/fence, без bootstrap или создания БД;
+существующий каталог либо fence, включая dangling paths, требует reader lease.
+Metadata-only retention/health/weekly recovery не должны гидрировать весь payload.
+После следующей установки нужно отдельно подтвердить eligible repeated-attempt
+на настоящем runtime и совместимое чтение прежним reader. Два принятых цикла
+Bae не заменяют эту проверку. GET cancellation относится только к native чтению;
+POST archive/refresh продолжают принятую операцию после ухода клиента.
+
 История предыдущей установленной версии:
 На16.10.2026,19:54UTC установленbfd625fc: release38949403808 SUCCESS,
 checkpoint20979114829B/3519entries, archive3178137569B; два независимых полных
