@@ -17,7 +17,7 @@ import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
-import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel } from '@aemr/shared';
+import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel, isTrustIssueApplicable } from '@aemr/shared';
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
 import { kbFor } from '../lib/kb/metric-kb';
@@ -262,7 +262,7 @@ export function TrustPage() {
 
   // Замечания и сверки берутся отфильтрованными — раскрытие компонента
   // обязано показывать те же строки, по которым посчитан балл на экране.
-  const filteredIssues = fd.issues;
+  const filteredIssues = fd.issues.filter(isTrustIssueApplicable);
   const deltas = fd.deltas;
 
   const factors: TrustFactor[] = filteredIssues

@@ -14,6 +14,12 @@ vi.mock('../store', () => {
 vi.mock('../hooks/useFilteredData', () => ({ useFilteredData: () => ({ issues: [fixture.issue] }) }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 beforeEach(() => { fixture.reload.mockClear(); fixture.error = null; fixture.issue.status = 'open'; });
+async function openCase() {
+  const rendered = render(<IssuesPage />);
+  fireEvent.click(rendered.container.querySelector('button[aria-expanded]')!);
+  fireEvent.click(screen.getByRole('button', { name: /Проверка антидемпинга/ }));
+  return rendered;
+}
 async function save() {
   const rendered = render(<IssuesPage />);
   const { container } = rendered;
@@ -25,6 +31,25 @@ async function save() {
   return rendered;
 }
 describe('Issues shared decision refresh', () => {
+  it('shows the saved decision, explanation and separate comments without treating the responsible person as author', async () => {
+    vi.spyOn(api, 'getIssueHistory').mockResolvedValue({ issueId: 'case-1', history: [
+      { eventId: 'issue-history:1', issueId: 'case-1', type: 'status_change', source: 'dash_decision',
+        at: '2026-10-16T01:00:00Z', from: 'open', to: 'false_positive', author: null,
+        reason: 'Меры проверены', justification: 'Обеспечение включено в контракт',
+        responsible: 'Координатор', deadline: '2026-10-22', text: 'Проверку согласовали' },
+      { eventId: 'audit-log:1', issueId: 'case-1', type: 'comment', source: 'dash_comment',
+        at: '2026-10-16T02:00:00Z', author: 'Исполнитель', text: 'Добавлен документ' },
+    ] });
+    await openCase();
+    expect(await screen.findByText(/Обеспечение включено в контракт/)).toBeTruthy();
+    expect(screen.getByText(/Меры проверены/)).toBeTruthy();
+    expect(screen.getByText('Проверку согласовали')).toBeTruthy();
+    expect(screen.getByText('Добавлен документ')).toBeTruthy();
+    expect(screen.getByText('Ответственный: Координатор')).toBeTruthy();
+    expect(screen.getByText('Автор не указан')).toBeTruthy();
+    expect(screen.getByText('Исполнитель')).toBeTruthy();
+  });
+
   it('refreshes shared data after confirmed save, not source sheets', async () => {
     vi.spyOn(api, 'updateIssueStatus').mockResolvedValue({ success: true, issueId: 'case-1', toStatus: 'false_positive' });
     fixture.reload.mockImplementationOnce(async () => { fixture.issue.status = 'false_positive'; return true; });

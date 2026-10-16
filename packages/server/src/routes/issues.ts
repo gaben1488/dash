@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
+import { readIssueHistory } from '../services/issue-history.js';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
@@ -49,21 +50,7 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
 };
 
 /** Строка истории статуса — тип выводится из схемы, не описывается второй раз. */
-type IssueHistoryRow = typeof schema.issueHistory.$inferSelect;
-
-/**
- * История смен статуса замечания.
- * Единственное место чтения: карточка (/:id) и отдельный роут (/:id/history)
- * обязаны показывать одно и то же — иначе «история» зависит от того, откуда смотреть.
- */
-function readIssueHistory(app: FastifyInstance, issueId: string): IssueHistoryRow[] {
-  try {
-    return db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, issueId)).all();
-  } catch (err) {
-    app.log.warn({ err, issueId }, 'issues/history: failed to read issue_history');
-    return [];
-  }
-}
+const HISTORY_UNAVAILABLE = { error: 'История замечания недоступна. Повторите чтение позже.', code: 'ISSUE_HISTORY_UNAVAILABLE' };
 
 export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
@@ -151,10 +138,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     // История отдавалась пустым массивом-заглушкой, хотя таблица issue_history
     // заполняется каждой сменой статуса: карточка замечания показывала «истории
     // нет» там, где история есть. Читаем тот же источник, что и /:id/history.
-    return reply.send({
-      issue,
-      history: readIssueHistory(app, id),
-    });
+    try {
+      return reply.send({ issue, history: readIssueHistory(id) });
+    } catch (err) {
+      app.log.warn({ err, issueId: id }, 'issues/history: read failed');
+      return reply.status(503).send(HISTORY_UNAVAILABLE);
+    }
   });
 
   /**
@@ -399,10 +388,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/issues/:id/history', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    return reply.send({
-      issueId: id,
-      history: readIssueHistory(app, id),
-    });
+    try {
+      return reply.send({ issueId: id, history: readIssueHistory(id) });
+    } catch (err) {
+      app.log.warn({ err, issueId: id }, 'issues/history: read failed');
+      return reply.status(503).send(HISTORY_UNAVAILABLE);
+    }
   });
 
   /**

@@ -181,6 +181,37 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
 
 
   }, 30_000);
+  it('reads decisions and all case comments in the same typed history and journal, without guessing their author', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const id = 'seed-issue-003';
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: {
+      status: 'false_positive', reason: 'Меры проверены', justification: 'Контракт содержит обеспечение',
+      responsible: 'Координатор', deadline: '2026-10-22', comment: 'Проверка завершена',
+    } })).statusCode).toBe(200);
+    for (const comment of ['Первое пояснение', 'Второе пояснение']) {
+      expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/comment`, payload: { comment } })).statusCode).toBe(200);
+    }
+    db.insert(schema.auditLog).values({ action: 'issue_comment', entity: 'row', entityId: id,
+      details: 'Чужая сущность', timestamp: new Date().toISOString() }).run();
+    const history = (await app.inject({ method: 'GET', url: `/api/issues/${id}/history` })).json().history;
+    const { IssueHistoryResponseSchema } = await import('@aemr/shared');
+    expect(IssueHistoryResponseSchema.safeParse({ issueId: id, history }).success).toBe(true);
+    expect(history.filter((entry: { type: string }) => entry.type === 'comment').map((entry: { text: string }) => entry.text))
+      .toEqual(['Первое пояснение', 'Второе пояснение']);
+    const decision = history.find((entry: { reason?: string }) => entry.reason === 'Меры проверены');
+    expect(decision).toMatchObject({ type: 'status_change', from: 'open', to: 'false_positive',
+      author: null, source: 'dash_decision', text: 'Проверка завершена', justification: 'Контракт содержит обеспечение',
+      responsible: 'Координатор', deadline: '2026-10-22' });
+    expect(new Set(history.map((entry: { eventId: string }) => entry.eventId)).size).toBe(history.length);
+    expect((await app.inject({ method: 'GET', url: `/api/issues/${id}` })).json().history).toEqual(history);
+    const journal = (await app.inject({ method: 'GET', url: '/api/journal?limit=100' })).json().entries;
+    expect(journal.find((entry: { details: string }) => entry.details.includes('Меры проверены')))
+      .toMatchObject({ issueId: id, actor: null });
+    expect(journal.find((entry: { details: string }) => entry.details === 'Первое пояснение'))
+      .toMatchObject({ issueId: id, actor: null });
+  }, 30_000);
+
   it('reads a moved rule case through its original decision/history ID and current source address', async () => {
     const { db, schema } = await import('../db/index.js');
     const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');
@@ -214,6 +245,20 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect((await app.inject({ method: 'GET', url: `/api/issues/${oldId}` })).json().history).toHaveLength(2);
     expect(db.select().from(schema.issues).where(eq(schema.issues.id, newId)).get()!.status).toBe('open');
   }, 30_000);
+
+  it('does not report empty history when either persisted history source cannot be read', async () => {
+    const { db } = await import('../db/index.js');
+    const id = (await app.inject({ method: 'GET', url: '/api/issues' })).json().issues[0].id;
+    for (const url of [`/api/issues/${id}/history`, `/api/issues/${id}`]) {
+      const transaction = vi.spyOn(db, 'transaction').mockImplementationOnce(() => { throw new Error('read unavailable'); });
+      try {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toMatchObject({ code: 'ISSUE_HISTORY_UNAVAILABLE' });
+        expect(response.json()).not.toHaveProperty('history');
+      } finally { transaction.mockRestore(); }
+    }
+  });
 
   it('does not apply a direct-ID false positive to occurrence zero after an identical row is inserted', async () => {
     const { db, schema } = await import('../db/index.js');

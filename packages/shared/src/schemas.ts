@@ -446,10 +446,28 @@ export const IssuesListResponseSchema = z.object({
   }).passthrough(),
 }).passthrough();
 
+/** Существующие Dash-решения и комментарии; не Google-посты и не правки ячеек. */
+export const IssueHistoryEventSchema = z.object({
+  eventId: z.string().min(1),
+  issueId: z.string(),
+  type: z.enum(['status_change', 'comment']),
+  source: z.enum(['dash_decision', 'dash_comment']),
+  at: z.string().min(1),
+  author: z.string().nullable(),
+  text: z.string().nullable(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  reason: z.string().nullable().optional(),
+  justification: z.string().nullable().optional(),
+  responsible: z.string().nullable().optional(),
+  deadline: z.string().nullable().optional(),
+}).passthrough();
+export type IssueHistoryEvent = z.infer<typeof IssueHistoryEventSchema>;
+
 /** GET /api/issues/:id/history */
 export const IssueHistoryResponseSchema = z.object({
   issueId: z.string(),
-  history: z.array(z.object({}).passthrough()),
+  history: z.array(IssueHistoryEventSchema),
 }).passthrough();
 
 /** GET /api/journal */

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import type { IssueHistoryEvent } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -98,16 +99,6 @@ function issuesWord(n: number): string {
   return pluralRu(n, 'замечание', 'замечания', 'замечаний');
 }
 
-interface HistoryEntry {
-  type: 'created' | 'status_change' | 'comment';
-  at: string;
-  author?: string;
-  text?: string;
-  from?: string;
-  to?: string;
-  reason?: string;
-}
-
 const HISTORY_ICON: Record<string, typeof GitCommit> = {
   created: PlusCircle,
   status_change: Edit3,
@@ -115,7 +106,7 @@ const HISTORY_ICON: Record<string, typeof GitCommit> = {
 };
 
 function IssueTimeline({ issueId }: { issueId: string }) {
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<IssueHistoryEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -127,7 +118,7 @@ function IssueTimeline({ issueId }: { issueId: string }) {
     setLoading(true);
     try {
       const data = await api.getIssueHistory(issueId);
-      setHistory(Array.isArray(data) ? data : data?.history ?? []);
+      setHistory(data.history);
       setLoadError(null);
     } catch (err) {
       // Молчаливый провал показывал «Нет записей в истории» — то есть выдавал
@@ -191,12 +182,12 @@ function IssueTimeline({ issueId }: { issueId: string }) {
         </div>
       ) : history.length > 0 ? (
         <div className="relative ml-3 border-l-2 border-zinc-200 dark:border-zinc-700 space-y-3 mb-4">
-          {history.map((entry, i) => {
+          {history.map((entry) => {
             const Icon = HISTORY_ICON[entry.type] ?? GitCommit;
             const isComment = entry.type === 'comment';
             const isStatusChange = entry.type === 'status_change';
             return (
-              <div key={i} className="relative pl-5">
+              <div key={entry.eventId} className="relative pl-5">
                 <span className={clsx(
                   'absolute -left-[9px] top-0.5 w-4 h-4 rounded-full flex items-center justify-center',
                   isComment ? 'bg-blue-100 dark:bg-blue-900/40' : isStatusChange ? 'bg-amber-100 dark:bg-amber-900/40' : 'bg-emerald-100 dark:bg-emerald-900/40'
@@ -207,12 +198,9 @@ function IssueTimeline({ issueId }: { issueId: string }) {
                 </span>
                 <div className="text-[11px]">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {entry.author && <span className="font-medium text-zinc-700 dark:text-zinc-200">{entry.author}</span>}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-200">{entry.author ?? 'Автор не указан'}</span>
                     <span className="text-zinc-400 dark:text-zinc-500">{formatEventTime(entry.at)}</span>
                   </div>
-                  {entry.type === 'created' && (
-                    <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">Замечание создано</p>
-                  )}
                   {isStatusChange && (
                     <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">
                       {/* Статус приходит с сервера сырым ключом; фразу даёт словарь продукта. */}
@@ -222,7 +210,10 @@ function IssueTimeline({ issueId }: { issueId: string }) {
                       {entry.reason && <span className="ml-1 text-zinc-400 dark:text-zinc-500">({entry.reason})</span>}
                     </p>
                   )}
-                  {isComment && entry.text && (
+                  {entry.justification && <p className="mt-0.5">Обоснование: {entry.justification}</p>}
+                  {entry.responsible && <p className="mt-0.5">Ответственный: {entry.responsible}</p>}
+                  {entry.deadline && <p className="mt-0.5">Срок: {entry.deadline}</p>}
+                  {entry.text && (
                     <p className="text-zinc-600 dark:text-zinc-300 mt-0.5 bg-white dark:bg-zinc-800/60 rounded-lg px-3 py-2 border border-zinc-100 dark:border-transparent">{entry.text}</p>
                   )}
                 </div>

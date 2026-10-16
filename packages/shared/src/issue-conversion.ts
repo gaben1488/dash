@@ -25,6 +25,16 @@ export function formulaDiagnosticInapplicableReason(issue: {
   return 'Историческая диагностика шапки; к закупкам неприменима. Исходную ячейку исправлять по этому замечанию не нужно.';
 }
 
+/** Одно правило для расчёта доверия и объяснения его вычетов.
+ * «Решено» само по себе не доказывает исправление ещё наблюдаемого дефекта.
+ * Ложное срабатывание и доказанная диагностика шапки вычетов не создают.
+ */
+export function isTrustIssueApplicable(issue: Parameters<typeof formulaDiagnosticInapplicableReason>[0] & {
+  status?: unknown;
+}): boolean {
+  return issue.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(issue);
+}
+
 export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   // Сигналы из SIGNAL_ISSUE_MAP
   overdue: 'overdue',

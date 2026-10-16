@@ -4,10 +4,11 @@ import { db, schema } from '../db/index.js';
 import { and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
 import { getSpreadsheetMetadata } from '../services/google-sheets.js';
-import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept, ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
+import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept } from '@aemr/shared';
 import { validateSource, validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
 import { redactFieldValue } from '../services/source-log.js';
 import { isWithinWorkHours } from '../services/source-refresh.js';
+import { issueCommentEvent, issueDecisionEvent, issueEventDetails } from '../services/issue-history.js';
 
 /**
  * Маршруты журнала (аудит-лог).
@@ -31,7 +32,7 @@ interface JournalEntry {
   type: string;
   timestamp: string;
   /** Кто выполнил — человек или подпись автоматического писателя, по-русски. */
-  actor: string;
+  actor: string | null;
   /** Что произошло — готовая фраза, не ключ. */
   action: string;
   details: string;
@@ -78,16 +79,6 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
 
 const dayWord = (n: number) => pluralRu(n, 'день', 'дня', 'дней');
 const issueWord = (n: number) => pluralRu(n, 'замечание', 'замечания', 'замечаний');
-
-/**
- * Статус замечания — фразой продукта (@aemr/shared), а не внутренним ключом.
- * Подписи не изобретаются локально: одно и то же решение обязано называться
- * одинаково в журнале, в карточке замечания и в выгрузке.
- */
-function statusLabel(status: string | null): string {
-  if (!status) return 'не указан';
-  return ISSUE_STATUS_LABELS[status] ?? productLabel(status);
-}
 
 /**
  * Отказ проверки источника — человеческой фразой.
@@ -232,10 +223,12 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
           id: `J-audit-${entry.id}`,
           type: auditEntryType(entry.action),
           timestamp: entry.timestamp,
-          actor: entry.userId ?? 'Система',
+          actor: entry.userId,
           action: formatAuditAction(entry.action),
           details: entry.details ?? `${entry.oldValue ?? ''} → ${entry.newValue ?? ''}`,
           departmentId: entry.departmentId ?? null,
+          ...(entry.action === 'issue_comment' && entry.entity === 'issue' && entry.entityId
+            ? { issueId: issueCommentEvent(entry).issueId } : {}),
         });
       }
     } catch (err) { app.log.warn({ err }, 'journal: failed to read audit_log'); }
@@ -252,12 +245,12 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
           id: `J-hist-${entry.id}`,
           type: 'issue_status',
           timestamp: entry.timestamp,
-          actor: entry.userId ?? 'Система',
+          actor: entry.userId,
           action: 'Изменение статуса',
           // Переход писался сырыми ключами («open → wont_fix»); веб был вынужден
           // разбирать строку и подменять ключи словарём. Подставляем фразы
           // продукта здесь — у источника, чтобы журнал читался и в выгрузке.
-          details: `${statusLabel(entry.fromStatus)} → ${statusLabel(entry.toStatus)}${entry.comment ? ': ' + entry.comment : ''}`,
+          details: issueEventDetails(issueDecisionEvent(entry)),
           departmentId: null,
           issueId: entry.issueId,
         });

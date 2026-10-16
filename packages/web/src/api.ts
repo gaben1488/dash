@@ -341,10 +341,8 @@ export const api = {
       body: JSON.stringify({ comment }),
     }),
 
-  // Валидация контрактом + широкий тип: страница держит свой локальный HistoryEntry
-  // (passthrough-схема не сужается до него — сузим при типизации DTO).
-  getIssueHistory: (id: string): Promise<any> =>
-    fetchParsed(`/issues/${id}/history`, IssueHistoryResponseSchema),
+  getIssueHistory: (id: string) =>
+    fetchParsed(`/issues/${encodeURIComponent(id)}/history`, IssueHistoryResponseSchema),
 
   // Trust
   getTrust: () =>
