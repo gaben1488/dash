@@ -1132,10 +1132,10 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
-        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 43f10742') ||
-       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 43f10742')) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 43f10742'))
+        inputs.release_sha == '83b813ab250b4533d1b80ba9e306afaa8bc5f383') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 83b813ab') ||
+       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 83b813ab')) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 83b813ab'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -1151,8 +1151,10 @@ jobs:
         run: |
           python -m pip install playwright==1.62.0
           python -m playwright install --with-deps "$BROWSER_ENGINE"
-      - name: Prove browser credentials cannot reach a foreign origin or write request
-        run: python .github/ci/test_browser_auth_isolation.py
+      - name: Prove browser credentials and live catalog read boundaries
+        run: |
+          python .github/ci/test_browser_auth_isolation.py
+          python .github/ci/test_browser_catalog_metadata.py
       - name: Bind browser credentials to the actual accepted runtime
         env:
           VPS_USER: ${{ secrets.DEPLOY_USER }}
@@ -1170,7 +1172,7 @@ jobs:
             "$VPS_USER@193.233.91.162" sudo -n python3 -IB - > "$private/auth.json" <<'PY'
           import hashlib,json,os,re,stat,subprocess,sys
           from pathlib import Path
-          sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+          sha='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
           def owned(path,private=True):
               assert not any(p.is_symlink() for p in (path,*path.parents))
               with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:
@@ -1179,7 +1181,7 @@ jobs:
                   assert stat.S_IMODE(info.st_mode)==0o600 if private else not info.st_mode&0o022
                   return source.read(1024*1024+1)
           tools=Path('/usr/local/libexec/aemr')
-          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-38831492016/release-window.json')))
+          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-38905551150/release-window.json')))
           assert window['candidate']==sha
           assert set(window['module_sha256'])=={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
           for name,pin in window['module_sha256'].items():
@@ -1190,7 +1192,7 @@ jobs:
           assert plan['release_sha']==sha
           accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
           assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
-          assert plan['backup_reference']=='worker-38831492016/backup'
+          assert plan['backup_reference']=='worker-38905551150/backup'
           assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
           executor=r.ReleaseRecovery(lock_fd=None);records=executor._records(plan,candidate=True)
           assert all(records[name]['State']['Status']=='running' for name in ('server','web','caddy'))
@@ -1201,10 +1203,13 @@ jobs:
           program='''import json,re,sqlite3
           from pathlib import Path
           from procurement_engine.publication_store import PublicationStore
-          from procurement_engine.readonly_catalog import copied_catalog
+          from contextlib import closing
           store=PublicationStore(Path('/app/packages/server/data/reports/published'),readonly=True)
           result={};names={'main':'main_report.docx','supplement':'management_report.docx','operational':'operational_report.docx'}
-          with store.reader_lease(),copied_catalog(store.database_path) as copied,sqlite3.connect(copied) as db:
+          # Actual live RW mount supplies SQLite shared memory; mode=ro reads
+          # committed WAL without cloning the full catalog into128MiB tmpfs.
+          with store.reader_lease(),closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)) as db:
+              db.execute('PRAGMA query_only=ON')
               for rid,files in db.execute('SELECT release_id,files FROM publications'):
                   files=json.loads(files)
                   if re.fullmatch('REL-[a-f0-9]{64}',rid) and all(name in files for name in names.values()):
@@ -1220,7 +1225,7 @@ jobs:
       - name: Real browser navigation, journal and three native Word downloads
         env:
           DASH_BROWSER_BASIC_PASSWORD: ${{ secrets.DASH_BROWSER_BASIC_PASSWORD }}
-          EXPECTED_SOURCE_SHA: 43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+          EXPECTED_SOURCE_SHA: 83b813ab250b4533d1b80ba9e306afaa8bc5f383
           BROWSER_AUTH_METADATA: ${{ runner.temp }}/browser-readback/auth.json
           BROWSER_PRIVATE_PROOF: ${{ runner.temp }}/browser-readback/proof.json
         run: python .github/ci/live_browser_readback.py
@@ -1987,14 +1992,20 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
-        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe repaired source worker for accepted 43f10742'))
+        inputs.release_sha == '83b813ab250b4533d1b80ba9e306afaa8bc5f383') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted 83b813ab'))
     runs-on: ubuntu-latest
     timeout-minutes: 50
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove normal-release observation needs no repair receipt
+        run: python .github/ci/test_worker_observation_release.py
       - name: Observe current accepted worker cycles without restarting or restoring any service
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -2005,7 +2016,7 @@ jobs:
           command_timeout: 47m
           script: |
             set -euo pipefail
-            observer='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+            observer='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
             git -C /home/aemr/dash fetch --quiet origin "$observer"
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
             import hashlib,json,os,re,stat,subprocess,sys,time,types
@@ -2067,8 +2078,10 @@ jobs:
                 executor=r.ReleaseRecovery(command=readonly)
                 baseline=executor._records(plan,candidate=True);volume=executor._volume(plan)
                 worker_id=baseline['report-worker']['Id'];image=plan['candidate_images']['report-worker']
-                started=json.loads(r.read_owned(r.STATE_DIR/'worker-quarantine/worker-start.json'))
-                assert started=={'state':'REPAIRED_WORKER_STARTED_NOT_ACCEPTED','release_sha':sha,'worker':worker_id,'image':image}
+                # The validated controlled-release acceptance owns this runtime.
+                # A worker-repair receipt belongs only to the earlier repair path.
+                assert sha==sys.argv[1] and plan['original_running']['report-worker'] is True
+                assert baseline['report-worker']['State']['Status']=='running'
                 since=baseline['report-worker']['State']['StartedAt'];interval=900
                 cmd=baseline['report-worker']['Config']['Cmd'];assert cmd[cmd.index('--interval-seconds')+1]=='900'
                 session_created=False
@@ -2103,7 +2116,8 @@ jobs:
                     result=json.loads(readonly(['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke'],timeout=180))
                     if any(result.get(k)!='PASS' for k in ('context','snapshot','main','supplement','operational')):raise m.RecoveryError('WORKER_WORD_SMOKE_FAILED')
                 observation_since=datetime.now(timezone.utc).isoformat()
-                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha})
+                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha,
+                    'start_provenance':'CONTROLLED_RELEASE_ACCEPTANCE'})
                 result=observe();check()
                 manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
                 assert r.digest(manifest_body)==plan['manifest_sha256']
@@ -2146,7 +2160,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa' <<'PYSCHEMA'
+            sudo -n python3 -I - '83b813ab250b4533d1b80ba9e306afaa8bc5f383' <<'PYSCHEMA'
             import json,re,subprocess,sys
             from pathlib import Path
             try:
