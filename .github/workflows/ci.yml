@@ -1212,7 +1212,10 @@ jobs:
               print(json.dumps({'category':category,'allocated_bytes':int(amount) if amount.isdigit() else None}),flush=True)
 
             def weekly_operator_metadata():
-             unit='aemr-weekly-compaction-38881943514.service'
+             candidates=list(Path('/root/codex-fixes').glob('weekly-check-[0-9]*'))
+             assert 0<len(candidates)<=16 and all(p.is_dir() and not p.is_symlink() and p.name[13:].isdigit() for p in candidates)
+             latest=max(candidates,key=lambda p:int(p.name[13:]))
+             run=latest.name[13:];unit='aemr-weekly-compaction-'+run+'.service'
              names=['MainPID','ActiveState','SubState','Result','ExecMainStatus','MemoryCurrent','MemoryPeak','CPUUsageNSec','ControlGroup']
              raw=subprocess.check_output(['systemctl','show',unit,'--property='+','.join(names)],timeout=10,text=True)
              props=dict(line.split('=',1) for line in raw.splitlines())
@@ -1237,12 +1240,12 @@ jobs:
                  print(json.dumps({'weekly_operator_process':int(pid),**values}),flush=True)
                 except FileNotFoundError:pass
              stage=Path('/root/codex-fixes/weekly-38881380220')
-             plan=stage/'retention-plan-38881943514.json'
+             plan=stage/('retention-plan-'+run+'.json')
              if plan.is_file() and not plan.is_symlink() and plan.stat().st_size<=1024*1024:
               value=json.loads(plan.read_text())
               keys=('publication_count','keep_count','retire_count','bytes_reclaimable','identity_missing_signatures','identity_missing_snapshots','identity_ready')
               print(json.dumps({'weekly_plan':{k:value[k] for k in keys if isinstance(value.get(k),(int,bool))}}),flush=True)
-             log=Path('/root/codex-fixes/weekly-check-38881943514/operator.log')
+             log=latest/'operator.log'
              if log.is_file() and not log.is_symlink() and log.stat().st_size<=1024*1024:
               body=log.read_text()
               tokens=('SIGKILL','SIGABRT','SIGSEGV','MemoryError','Killed','Permission denied','Operation not permitted','No such file','Fatal Python error','bad allocation','returncode=-9','returncode=-11')
@@ -1251,7 +1254,7 @@ jobs:
               exceptions=sorted(set(re.findall(r'(?m)^([a-zA-Z_.]*(?:Error|Exception)):',body)))
               sql=[text for text in ('database or disk is full','unable to open database file','disk I/O error','No space left on device') if text in body]
               print(json.dumps({'weekly_operator_trace_frames':frames,'exception_types':exceptions,'sql_diagnostics':sql}),flush=True)
-              allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
+              allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
               print(json.dumps({'weekly_operator_log_bytes':log.stat().st_size,'codes':sorted(k for k in allowed if k in body),
                'exceptions':sorted(k for k in ('MemoryError','PermissionError','FileNotFoundError','ModuleNotFoundError','TimeoutExpired','CalledProcessError') if k in body)}),flush=True)
 

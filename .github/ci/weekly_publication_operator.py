@@ -17,6 +17,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -80,6 +82,23 @@ print(json.dumps({'uid':os.geteuid(),'hashes':{p.relative_to(root).as_posix():ha
 
 def require(value, code):
     if not value:raise ValueError(code)
+
+
+def acquire_lock(descriptor,*,timeout=45):
+    deadline=time.monotonic()+timeout
+    while True:
+        try:
+            fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic()>=deadline:raise
+            time.sleep(0.2)
+
+
+def private_diagnostic(body):
+    log=os.fstat(2)
+    if stat.S_ISREG(log.st_mode) and log.st_uid==0 and log.st_nlink==1 and stat.S_IMODE(log.st_mode)==0o600:
+        os.write(2,body[:1024*1024])
 
 
 @contextmanager
@@ -201,9 +220,7 @@ def call(arguments,*,timeout=180,pass_fds=()):
     if result.returncode:
         # Child diagnostics may contain private paths/payloads. Preserve them
         # only when stderr is an actual root600 private file, never a console.
-        log=os.fstat(2)
-        if stat.S_ISREG(log.st_mode) and log.st_uid==0 and log.st_nlink==1 and stat.S_IMODE(log.st_mode)==0o600:
-            os.write(2,result.stderr[:1024*1024])
+        private_diagnostic(result.stderr)
     require(result.returncode==0 and len(result.stdout)<=8*1024*1024,'OPERATOR_COMMAND_FAILED')
     return result.stdout
 
@@ -319,7 +336,7 @@ def main():
     with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
         info=os.fstat(lock.fileno())
         require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1,'GLOBAL_LOCK_UNTRUSTED')
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        acquire_lock(lock.fileno())
         if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
         try:
             state,backup=admit(args)
@@ -352,4 +369,5 @@ def main():
 if __name__=='__main__':
     try:main()
     except Exception:  # noqa: BLE001 - private inputs never cross the fixed-code boundary
+        private_diagnostic(traceback.format_exc().encode())
         print('WEEKLY_OPERATOR_BLOCKED');raise SystemExit(2) from None

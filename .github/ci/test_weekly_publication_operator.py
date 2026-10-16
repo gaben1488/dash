@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -135,6 +136,19 @@ class WeeklyOperatorTests(unittest.TestCase):
                 self.assertFalse(folder.exists())
                 self.assertEqual(sibling.read_text(),'keep')
                 self.assertEqual(self.module.ENV,before)
+
+    def test_busy_guard_lock_is_waited_for_without_replacing_its_inode(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'lock';path.touch();inode=path.stat().st_ino
+            with path.open('r+') as held,path.open('r+') as waiting:
+                fcntl.flock(held,fcntl.LOCK_EX)
+                with self.assertRaises(BlockingIOError):self.module.acquire_lock(waiting.fileno(),timeout=0)
+                release=threading.Timer(0.05,lambda:fcntl.flock(held,fcntl.LOCK_UN))
+                release.start()
+                try:self.module.acquire_lock(waiting.fileno(),timeout=1)
+                finally:release.join()
+                self.assertEqual(path.stat().st_ino,inode)
 
     def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
