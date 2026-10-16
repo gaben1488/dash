@@ -2041,8 +2041,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
-        inputs.release_sha == '83b813ab250b4533d1b80ba9e306afaa8bc5f383') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted 83b813ab'))
+        inputs.release_sha == '19289667b0aca6f88ff6225c9a3a8c849a592c9d') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted 19289667'))
     runs-on: ubuntu-latest
     timeout-minutes: 50
     concurrency:
@@ -2065,7 +2065,7 @@ jobs:
           command_timeout: 47m
           script: |
             set -euo pipefail
-            observer='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
+            observer='19289667b0aca6f88ff6225c9a3a8c849a592c9d'
             git -C /home/aemr/dash fetch --quiet origin "$observer"
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
             import hashlib,json,os,re,stat,subprocess,sys,time,types
@@ -2148,10 +2148,17 @@ jobs:
                     assert current['server']['State'].get('Health',{}).get('Status')=='healthy'
                     top=readonly(['top','aemr-server-1'])
                     if re.search(r'proc-report\s+(?:run-google|worker)|procurement_engine.*(?:run-google|worker)',top):raise m.RecoveryError('WORKER_CONCURRENT_MANUAL_WRITER')
+                status_cache={}
                 def read_status():
                     path=volume/'reports/status.json'
-                    assert not path.is_symlink() and path.stat().st_size<=64*1024*1024
-                    return json.loads(path.read_bytes())
+                    info=path.stat()
+                    assert not path.is_symlink() and info.st_size<=64*1024*1024
+                    stamp=(info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+                    if status_cache.get('stamp')==stamp and status_cache['value'].get('status')!='RUNNING':
+                        return status_cache['value']
+                    value=json.loads(path.read_bytes())
+                    status_cache.update(stamp=stamp,value=value)
+                    return value
                 samples=[]
                 def holds_lock():
                     info=(volume/'reports/run.lock').stat();metadata=(os.major(info.st_dev),os.minor(info.st_dev),info.st_ino)
@@ -2209,7 +2216,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - '83b813ab250b4533d1b80ba9e306afaa8bc5f383' <<'PYSCHEMA'
+            sudo -n python3 -I - '19289667b0aca6f88ff6225c9a3a8c849a592c9d' <<'PYSCHEMA'
             import json,re,subprocess,sys
             from pathlib import Path
             try:
