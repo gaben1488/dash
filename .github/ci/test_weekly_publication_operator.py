@@ -8,6 +8,7 @@ import json
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -155,6 +156,37 @@ class WeeklyOperatorTests(unittest.TestCase):
                 try:self.module.acquire_lock(waiting.fileno(),timeout=1)
                 finally:release.join()
                 self.assertEqual(path.stat().st_ino,inode)
+
+    def test_identity_preparation_repairs_only_a_copy_and_keeps_uid_and_history(self):
+        tests=Path(__file__).parents[2]/'packages/report-engine/tests'
+        with patch.object(sys,'path',[str(tests),*sys.path]):
+            from procurement_engine.runtime import run_once
+            from test_clean_documents import BusinessGoogle
+            from test_runtime import inputs
+            with tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);registry,ledger=inputs(root);state=root/'state'
+                result=run_once(registry,ledger,state,client=BusinessGoogle())
+                self.assertEqual(result['status'],'VERIFIED')
+                sid=result['snapshot_id'];rid=result['publication']['release_id']
+                with sqlite3.connect(state/'identity.sqlite') as db:
+                    db.execute('UPDATE observations SET plan_signature=NULL,entity_signature=NULL WHERE snapshot_id=?',(sid,))
+                    count=db.execute('SELECT count(*) FROM observations WHERE snapshot_id=?',(sid,)).fetchone()[0]
+                before=(state/'identity.sqlite').read_bytes()
+                gaps=[{'snapshot_id':sid,'release_ids':[rid],'observations':count,'missing_plan':count,'missing_entity':count}]
+                outcome=self.module.prepare_identity_copy(state,gaps)
+                self.assertEqual(outcome['updated_observations'],count)
+                self.assertEqual(outcome['updated_fields'],count*2)
+                self.assertTrue(outcome['protected_data_unchanged'])
+                self.assertEqual((state/'identity.sqlite').read_bytes(),before)
+                from procurement_engine.identity_store import IdentityStore
+                method=IdentityStore.recover_latest_plan_signatures
+                def unauthorized_change(store,*args,**kwargs):
+                    changed=method(store,*args,**kwargs)
+                    with store.connect() as db:db.execute('UPDATE observations SET uid=? WHERE snapshot_id=?',('wrong-owner',sid))
+                    return changed
+                with patch.object(IdentityStore,'recover_latest_plan_signatures',unauthorized_change),self.assertRaisesRegex(ValueError,'PROTECTED_DATA_CHANGED'):
+                    self.module.prepare_identity_copy(state,gaps)
+                self.assertEqual((state/'identity.sqlite').read_bytes(),before)
 
     def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:

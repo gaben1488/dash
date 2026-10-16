@@ -193,6 +193,74 @@ def preview_plan(tree,python,privilege,state,*,output=None):
     return {name:result[name] for name in ('catalog_revision',*names)}
 
 
+def protected_identity_digest(path,fillable):
+    """Protect every original cell except the exact nullable signature slots."""
+    import sqlite3
+    from contextlib import closing
+    digest=hashlib.sha256()
+    with closing(sqlite3.connect(path)) as db:
+        schema=db.execute('SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name').fetchall()
+        digest.update(json.dumps(schema,separators=(',',':')).encode())
+        for table,order in (('observations','snapshot_id,locator'),('snapshots','seq'),('reviews','review_id')):
+            cursor=db.execute('SELECT * FROM '+table+' ORDER BY '+order)
+            columns=[item[0] for item in cursor.description]
+            for record in cursor:
+                values=list(record)
+                if table=='observations':
+                    key=(values[columns.index('snapshot_id')],values[columns.index('locator')])
+                    for name in fillable.get(key,()):values[columns.index(name)]=None
+                digest.update(json.dumps([table,values],ensure_ascii=False,separators=(',',':')).encode())
+    return digest.hexdigest()
+
+
+def prepare_identity_copy(state,gaps):
+    """Use the existing exact frozen-row backfill on disposable state only."""
+    import sqlite3
+    from contextlib import closing
+
+    from procurement_engine.identity_store import IdentityStore
+    from procurement_engine.readonly_catalog import copied_catalog
+
+    require(isinstance(gaps,list) and 0<len(gaps)<=16,'IDENTITY_GAPS_INVALID')
+    targets={item['snapshot_id'] for item in gaps}
+    require(len(targets)==len(gaps) and all(isinstance(v,str) and 0<len(v)<=256 for v in targets),'IDENTITY_GAPS_INVALID')
+    ids={rid for item in gaps for rid in item['release_ids']}
+    require(0<len(ids)<=256 and all(re.fullmatch('REL-[a-f0-9]{64}',rid) for rid in ids),'IDENTITY_DONORS_INVALID')
+    state=Path(state);original=state/'identity.sqlite'
+    donors=[state/'published/releases'/rid/'snapshot_bundle' for rid in sorted(ids)]
+    require(all(p.is_dir() and not any(v.is_symlink() for v in (p,*p.parents)) for p in donors),'IDENTITY_DONORS_INVALID')
+    with copied_catalog(original) as copied:
+        require(copied.resolve()!=original.resolve(),'IDENTITY_COPY_REQUIRED')
+        fillable={}
+        with closing(sqlite3.connect(copied)) as db:
+            for item in gaps:
+                records=db.execute('SELECT locator,plan_signature,entity_signature FROM observations WHERE snapshot_id=?',
+                                   (item['snapshot_id'],)).fetchall()
+                require(len(records)==item['observations']
+                        and sum(row[1] is None for row in records)==item['missing_plan']
+                        and sum(row[2] is None for row in records)==item['missing_entity'],'IDENTITY_TARGET_CHANGED')
+                for locator,plan,entity in records:
+                    names={name for name,value in (('plan_signature',plan),('entity_signature',entity)) if value is None}
+                    if names:fillable[item['snapshot_id'],locator]=names
+        require(bool(fillable),'IDENTITY_TARGET_EMPTY')
+        before=protected_identity_digest(copied,fillable)
+        diagnostics={}
+        updated=IdentityStore(copied).recover_latest_plan_signatures(donors,required_snapshot_ids=targets,diagnostics=diagnostics)
+        require(updated==len(fillable) and diagnostics.get('unrecovered_snapshots')==0,'IDENTITY_COPY_NOT_RECOVERED')
+        require(protected_identity_digest(copied,fillable)==before,'IDENTITY_PROTECTED_DATA_CHANGED')
+        patch=[]
+        with closing(sqlite3.connect(copied)) as db:
+            for (sid,locator),names in sorted(fillable.items()):
+                signature,uid,plan,entity=db.execute('SELECT signature,uid,plan_signature,entity_signature FROM observations '
+                                                   'WHERE snapshot_id=? AND locator=?',(sid,locator)).fetchone()
+                require(plan is not None and entity is not None,'IDENTITY_COPY_NOT_RECOVERED')
+                patch.append({'snapshot_id':sid,'locator':locator,'signature':signature,'uid':uid,
+                              'plan_signature':plan,'entity_signature':entity,'fillable':sorted(names)})
+        return {'identity_copy_preparation':'PASS','snapshots':len(targets),'updated_observations':updated,
+                'updated_fields':sum(len(names) for names in fillable.values()),'protected_data_unchanged':True,
+                'protected_digest':before,'private_patch':patch}
+
+
 def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
     require(plan['release_sha']==SHA and plan['backup_reference']==backup_reference,'ACCEPTED_BACKUP_CHANGED')
     require(ci.get('head_sha')==TOOL_SHA and ci.get('status')=='completed' and ci.get('conclusion')=='success'
@@ -223,8 +291,8 @@ def cli_commands(tree,python,reader,ci,receipt,state,backup,*,operation,revision
     return result
 
 
-def call(arguments,*,timeout=180,pass_fds=()):
-    result=subprocess.run(arguments,capture_output=True,env=ENV,timeout=timeout,check=False,pass_fds=pass_fds)
+def call(arguments,*,timeout=180,pass_fds=(),input_bytes=None):
+    result=subprocess.run(arguments,input=input_bytes,capture_output=True,env=ENV,timeout=timeout,check=False,pass_fds=pass_fds)
     if result.returncode:
         # Child diagnostics may contain private paths/payloads. Preserve them
         # only when stderr is an actual root600 private file, never a console.
@@ -338,7 +406,8 @@ def main():
     parser.add_argument('--operator-run',required=True);parser.add_argument('--backup-reference',required=True)
     parser.add_argument('--expected-revision',required=True);parser.add_argument('--finalize-review')
     parser.add_argument('--operation',choices=('apply','recover','rollback','finalize'),required=True)
-    parser.add_argument('--check',action='store_true');args=parser.parse_args()
+    parser.add_argument('--check',action='store_true');parser.add_argument('--identity-copy',action='store_true')
+    args=parser.parse_args()
     require(os.geteuid()==0 and re.fullmatch('[0-9]+',args.operator_run),'ROOT_OPERATOR_REQUIRED')
     os.umask(0o077);sys.dont_write_bytecode=True
     with os.fdopen(os.open('/run/lock/aemr-maintenance.lock',os.O_RDWR|os.O_NOFOLLOW),'r+') as lock:
@@ -351,6 +420,27 @@ def main():
             with owner_scratch(args.operator_run,preserve_on_error=not args.check):
                 privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
                            '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
+                if args.identity_copy:
+                    require(args.check and args.operation=='apply','IDENTITY_COPY_INSPECTION_ONLY')
+                    gap_body=owned(Path('/root/codex-fixes/revision-probe-38887646833/private-result.json'))
+                    gaps=json.loads(gap_body)['private_signature_gaps']
+                    program='import json,runpy,sys;tool=runpy.run_path(sys.argv[1]);print(json.dumps(tool["prepare_identity_copy"](sys.argv[2],json.load(sys.stdin))))'
+                    # Only disposable state is written. Keep process supervision
+                    # available during this potentially long read-only rehearsal.
+                    fcntl.flock(9,fcntl.LOCK_UN)
+                    result=json.loads(call([*privilege,str(args.python),'-IB','-c',program,str(Path(__file__).resolve()),str(state)],
+                                           input_bytes=json.dumps(gaps).encode(),timeout=600))
+                    acquire_lock(9)
+                    admit(args)  # Rebind the actual runtime before accepting proof.
+                    patch=result.pop('private_patch')
+                    evidence={'runtime_source':SHA,'tool_source':TOOL_SHA,'gap_proof_sha256':hashlib.sha256(gap_body).hexdigest(),
+                              'result':result,'patch':patch}
+                    output=args.tree.parent/('identity-prepared-'+args.operator_run+'.json')
+                    with os.fdopen(os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600),'w') as file:
+                        json.dump(evidence,file,separators=(',',':'));file.flush();os.fsync(file.fileno())
+                    print(json.dumps(result,sort_keys=True))
+                    print('IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES')
+                    return
                 preview=None
                 if args.check and args.expected_revision=='live':
                     preview=preview_plan(args.tree,args.python,privilege,state,

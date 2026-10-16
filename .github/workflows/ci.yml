@@ -32,7 +32,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742'
+      (github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742' ||
+       github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -68,6 +69,7 @@ jobs:
             import base64,hashlib,json,os,re,stat,subprocess
             from pathlib import Path
             run='${{ github.run_id }}';assert run.isdigit()
+            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || 'plan' }}'
             root=Path('/root/codex-fixes')/('weekly-check-'+run)
             root.mkdir(mode=0o700);os.umask(0o077)
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
@@ -90,15 +92,20 @@ jobs:
                 '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
+            if mode=='identity':command.append('--identity-copy')
             result=subprocess.run(command,capture_output=True,timeout=920,check=False)
             for line in (root/'operator.log').read_text().splitlines():
-                if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED'}:
+                if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED',
+                            'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES'}:
                     print(line)
                 elif line.startswith('{'):
                     try:value=json.loads(line)
                     except ValueError:continue
                     keys={'catalog_revision','publication_count','keep_count','retire_count','bytes_reclaimable'}
                     if set(value)==keys and re.fullmatch('[a-f0-9]{64}',value['catalog_revision']):print(json.dumps(value,sort_keys=True))
+                    identity_keys={'identity_copy_preparation','snapshots','updated_observations','updated_fields',
+                                   'protected_data_unchanged','protected_digest'}
+                    if set(value)==identity_keys and value['identity_copy_preparation']=='PASS':print(json.dumps(value,sort_keys=True))
             for role in ('MemoryPeak','Result','ExecMainStatus'):
                 value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
                 if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
