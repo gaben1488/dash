@@ -117,7 +117,7 @@ def observe():
     # Enumerate the actual image-bearing custody documents, not arbitrary
     # payload/evidence JSON under the operational tree.
     fixed = [STATE / name for name in ('release-runtime/trial-plan.json', 'release-runtime/base-plan.json',
-        'release-runtime/stage.json', 'release-runtime/trial-proof.json',
+        'release-runtime/stage.json', 'release-runtime/trial-proof.json', 'release-runtime/source-ci.json',
         'release-runtime/compose.json', 'release-runtime/candidate-compose.json',
         'release-runtime/candidate-resume.json', 'release-runtime/recovery-compose.json',
         'release-accepted.json', 'release-recovered.json', 'worker-quarantine/quarantine.json',
