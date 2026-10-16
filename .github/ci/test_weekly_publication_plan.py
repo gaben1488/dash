@@ -74,6 +74,25 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             self.assertIn(older, result['keep_release_ids'])
             self.assertIn(archive, result['keep_release_ids'])
 
+    def test_trusted_backup_omissions_are_retained_instead_of_blocking_all_backed_roots(self):
+        tool=self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);published=self.fixture(root)
+            backed=self.add(published,1,'2026-09-28');unbacked=self.add(published,2,'2026-09-29')
+            for n in range(3,7):self.add(published,n,f'2026-10-{n:02d}')
+            backup=root/'backup';backup.mkdir();archive=backup/'state.tar.gz';archive.write_bytes(b'synthetic private fixture')
+            original=published/'releases'/backed/'data.json';info=original.stat()
+            files={f'reports/published/releases/{backed}/data.json':{'sha256':hashlib.sha256(original.read_bytes()).hexdigest(),
+                   'bytes':info.st_size,'uid':info.st_uid,'gid':info.st_gid,'mode':info.st_mode&0o777}}
+            (backup/'manifest.json').write_text(json.dumps({'format':2,'files':files,'bytes':info.st_size,
+                'archive_bytes':archive.stat().st_size,'archive_sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
+            before=(published/'publications.sqlite').read_bytes()
+            result=tool.plan(root,backup=backup)
+            self.assertEqual(result['retire_release_ids'],[backed])
+            self.assertIn(unbacked,result['keep_release_ids'])
+            self.assertNotEqual(result['catalog_revision'],tool.plan(root)['catalog_revision'])
+            self.assertEqual((published/'publications.sqlite').read_bytes(),before)
+
     def test_malformed_catalog_or_link_refuses_a_plan(self):
         tool = self.load_tool()
         with tempfile.TemporaryDirectory() as tmp:

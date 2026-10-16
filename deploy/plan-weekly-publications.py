@@ -13,13 +13,43 @@ import json
 from pathlib import Path
 
 
-def plan(state):
+def _trusted_backup(backup, repo):
+    import importlib.util
+    if backup is None or Path(backup).is_symlink():
+        raise ValueError('TRUSTED_EXTERNAL_BACKUP_REQUIRED')
+    spec = importlib.util.spec_from_file_location('stateful_backup', repo / 'deploy/stateful_backup.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        _, trusted, _ = module._validated_backup(Path(backup))
+    except module.BackupError as error:
+        raise ValueError('TRUSTED_EXTERNAL_BACKUP_INVALID') from error
+    return module, trusted
+
+
+def _unbacked_roots(store, trusted):
+    import re
+    import sqlite3
+    from contextlib import closing
+    backed = set()
+    for name, attributes in trusted.items():
+        match = re.fullmatch(r'reports/published/releases/(REL-[a-f0-9]{64})/.+', name)
+        if match and attributes.get('kind') != 'directory':
+            backed.add(match[1])
+    with closing(sqlite3.connect(store.database_path.absolute().as_uri() + '?mode=ro', uri=True)) as db:
+        return {row[0] for row in db.execute('SELECT release_id FROM publications')} - backed
+
+
+def plan(state, *, backup=None):
     # One keep-policy implementation shared with the reversible apply phase.
     # This adapter remains read-only and preserves the existing census CLI.
     from procurement_engine.publication_store import PublicationStore
 
     store = PublicationStore(Path(state) / 'published', readonly=True)
-    result = store.plan_compaction()
+    protected = _unbacked_roots(store, _trusted_backup(backup, Path(__file__).resolve().parents[1])[1]) if backup else ()
+    result = store.plan_compaction(protected_release_ids=protected)
+    if backup:
+        result['backup_protected_release_ids'] = sorted(protected)
     result.pop('records')
     result['status'] = 'READ_ONLY_PLAN'
     result['bytes_reclaimable'] = result.pop('bytes_reclaimable_upper_bound')
@@ -55,6 +85,14 @@ with tempfile.TemporaryDirectory(prefix='publication-reader-proof-') as temporar
     assert store.latest() is None
     assert store.read_artifact(rid,'main_report.docx')==content
     assert not (release/'report_model.json').exists()
+    work=root/'.retirement';work.mkdir()
+    marker=work/'journal.json'
+    marker.write_text(json.dumps({'contract':'publication-compaction-v2','readers_ready':True}))
+    assert store.read_artifact(rid,'main_report.docx')==content
+    marker.write_text(json.dumps({'contract':'publication-compaction-v2','readers_ready':False}))
+    try:store.read_artifact(rid,'main_report.docx')
+    except ValueError as error:assert str(error)=='PUBLICATION_RETENTION_RECOVERY_REQUIRED'
+    else:raise AssertionError('reader ignored recovery fence')
 """
     result = subprocess.run([sys.executable, '-B', '-c', probe, str(Path(package).parent)],
                             capture_output=True, timeout=30, check=False)
@@ -146,23 +184,25 @@ def validate_operator_runtime(candidate, ci, reader_package, source_receipt=None
 
 
 def operator_preflight(state, *, operation, candidate, ci, reader_package,
-                       expected_revision, backup, store=None, source_receipt=None):
-    """Private preparation only: current runtime has no owned reader drain.
+                       expected_revision, backup, store=None, source_receipt=None, publication_plan=None):
+    """Native admission before the owned reader/writer drain.
 
     CI evidence must come from the authenticated release gate, not a browser.
-    Even successful prerequisites confer no mutation authorization. In particular
-    a Caddy reload is not proof that already-spawned report/archive children ended.
+    A Caddy reload is not proof that already-spawned report/archive children ended.
     No timer, runtime, Caddy configuration or mutable state is changed here.
     """
     if operation not in {'apply', 'recover', 'rollback', 'finalize'}:
         raise ValueError('OPERATION_INVALID')
     repo = validate_operator_runtime(candidate, ci, reader_package, source_receipt)
     validate_operator_state_owner(state)
-    import importlib.util
+    module, trusted = _trusted_backup(backup, repo)
     journal_exists = store is not None and (store.root / '.retirement/journal.json').is_file()
     if operation == 'apply' or (operation == 'recover' and not journal_exists):
-        fresh = store.plan_compaction() if store else plan(state)
-        if operation == 'apply' and fresh['catalog_revision'] != expected_revision:
+        # Only compact_publications supplies this in-process plan, while holding
+        # all native locks. CLI never accepts a caller-serialized plan.
+        fresh = publication_plan if publication_plan is not None else (
+            store.plan_compaction(protected_release_ids=_unbacked_roots(store, trusted)) if store else plan(state, backup=backup))
+        if operation == 'apply' and expected_revision != 'live' and fresh['catalog_revision'] != expected_revision:
             raise ValueError('PUBLICATION_RETENTION_PLAN_CHANGED')
         if not fresh['identity_ready']:
             raise ValueError('PUBLICATION_RETENTION_IDENTITY_MISSING')
@@ -176,15 +216,6 @@ def operator_preflight(state, *, operation, candidate, ci, reader_package,
         originals = {entry['release_id']: (work / 'original' / entry['release_id']
                      if (work / 'original' / entry['release_id']).is_dir()
                      else store.releases / entry['release_id']) for entry in entries}
-    if backup is None or Path(backup).is_symlink():
-        raise ValueError('TRUSTED_EXTERNAL_BACKUP_REQUIRED')
-    spec = importlib.util.spec_from_file_location('stateful_backup', repo / 'deploy/stateful_backup.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    try:
-        _, trusted, _ = module._validated_backup(Path(backup))
-    except module.BackupError as error:
-        raise ValueError('TRUSTED_EXTERNAL_BACKUP_INVALID') from error
     # Only sealed original publication roots must match the trusted old backup.
     # New mutable SQLite/WAL/status/ledger are NOT a rollback target.
     for rid, original_root in originals.items():
@@ -194,7 +225,10 @@ def operator_preflight(state, *, operation, candidate, ci, reader_package,
                          if k.startswith(prefix) and k != prefix}
         if not expected_root or original != expected_root:
             raise ValueError('IMMUTABLE_PUBLICATION_BACKUP_MISMATCH')
-    return {'status': 'PREREQUISITES_VERIFIED', 'original_roots': len(originals)}
+    result = {'status': 'PREREQUISITES_VERIFIED', 'original_roots': len(originals)}
+    if operation == 'apply' and expected_revision == 'live':
+        result['plan'] = {key: value for key, value in fresh.items() if key != 'records'}
+    return result
 
 
 def validate_operator_state_owner(state):
@@ -224,13 +258,15 @@ def operate(state, *, operation, candidate, ci, reader_package, expected_revisio
     store = PublicationStore(Path(state) / 'published', readonly=True)
     if not (store.root.parent / 'publication-readers.lock').is_file() or (store.root.parent / 'publication-readers.lock').is_symlink():
         raise ValueError('PUBLICATION_READER_LEASE_UNINITIALIZED')
-    def gate(locked):
+    def gate(locked, publication_plan=None):
         return operator_preflight(state, operation=operation, candidate=candidate, ci=ci,
             reader_package=reader_package, expected_revision=expected_revision, backup=backup,
-            store=locked, source_receipt=source_receipt)
+            store=locked, source_receipt=source_receipt, publication_plan=publication_plan)
     if operation == 'apply':
         try:
-            return store.compact_publications(expected_revision=expected_revision, preflight=gate)
+            _, trusted = _trusted_backup(backup, Path(__file__).resolve().parents[1])
+            return store.compact_publications(expected_revision=expected_revision, plan_preflight=gate,
+                                              protected_release_ids=_unbacked_roots(store, trusted))
         except BaseException:
             # Release/drain locks first. Only the owned immutable publication
             # transaction is recovered; post-backup mutable state is untouched.
@@ -340,7 +376,7 @@ def main(argv=None):
                                  finalize_review=args.finalize_review)
             print(json.dumps(result, sort_keys=True))
             return 0
-        result = plan(args.state)
+        result = plan(args.state, backup=args.backup)
     except Exception as error:  # noqa: BLE001 — CLI boundary never exposes private paths or content.
         import re
         code = 'RETENTION_CENSUS_FAILED'

@@ -274,6 +274,108 @@ def test_publication_compaction_keeps_weekly_current_previous_and_old_downloads(
     assert all((store.releases / r['release_id'] / 'snapshot_bundle').exists() for r in receipts)
 
 
+def test_compaction_reader_marker_stays_small_with_large_catalog_receipts(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    with sqlite3.connect(store.database_path) as db:
+        for rid, receipt in db.execute('SELECT release_id,receipt FROM publications').fetchall():
+            value=json.loads(receipt);value['retained_diagnostic']='x'*(2*1024*1024)
+            db.execute('UPDATE publications SET receipt=? WHERE release_id=?',(json.dumps(value),rid))
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    work=store.root/'.retirement'
+    assert (work/'journal.json').stat().st_size<64*1024, 'Native GET must not parse every recovery receipt'
+    _, entries=store._retirement_entries()
+    assert len(list(entries))==len(list(entries))==4
+    assert store.recover_compaction()['status']=='COMMITTED'
+    assert store.rollback_compaction()['status']=='ROLLED_BACK'
+    with sqlite3.connect(store.database_path) as db:
+        assert all(json.loads(row[0])['retained_diagnostic']=='x'*(2*1024*1024) for row in db.execute('SELECT receipt FROM publications'))
+
+
+def test_compaction_staging_shares_only_immutable_retained_artifacts(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    plan=store.plan_compaction();rid=plan['retire_release_ids'][0]
+    original=store.releases/rid/'main_report.docx';inode=original.stat().st_ino
+    primary=store.root.parent/'identity.sqlite';primary_before=primary.read_bytes()
+    store.compact_publications(expected_revision=plan['catalog_revision'])
+    quarantine=store.root/'.retirement/original'/rid/'main_report.docx'
+    assert original.stat().st_ino==quarantine.stat().st_ino==inode
+    assert primary.read_bytes()==primary_before
+    store.rollback_compaction()
+    assert original.stat().st_ino==inode
+
+
+def test_finalization_counts_only_blocks_with_no_retained_inode_alias(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    quarantine=store.root/'.retirement/original'
+    records={}
+    logical=0
+    for path in quarantine.rglob('*'):
+        if path.is_file():
+            info=path.stat();key=(info.st_dev,info.st_ino)
+            records.setdefault(key,[info.st_nlink,info.st_blocks*512,0])[2]+=1
+            logical+=info.st_size
+    expected=sum(blocks for links,blocks,aliases in records.values() if links==aliases)
+    result=store.finalize_compaction()
+    assert result['quarantine_bytes_reclaimed']==expected
+    assert result['quarantine_logical_bytes_retired']==logical
+
+
+def test_compaction_additionally_retains_unbacked_roots_in_the_revision(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    default=store.plan_compaction();protected=default['retire_release_ids'][:1]
+    plan=store.plan_compaction(protected_release_ids=protected)
+    assert set(protected)<=set(plan['keep_release_ids'])
+    assert not set(protected)&set(plan['retire_release_ids'])
+    assert plan['retire_count']==default['retire_count']-1
+    assert plan['catalog_revision']!=default['catalog_revision']
+    with pytest.raises(PublicationError,match='PLAN_CHANGED'):
+        store.compact_publications(expected_revision=default['catalog_revision'],protected_release_ids=protected)
+    store.compact_publications(expected_revision=plan['catalog_revision'],protected_release_ids=protected)
+    store.finalize_compaction()
+    assert all((store.releases/rid/'snapshot_bundle').is_dir() for rid in protected)
+    assert all(rid in {item['release_id'] for item in store.history()} for rid in protected)
+
+
+def test_legacy_recovery_payload_remains_readable_without_rewriting_it(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    work, entries=store._retirement_entries()
+    marker=work/'journal.json';journal=json.loads(marker.read_text())
+    legacy={'contract':'publication-compaction-v1','entries':list(entries),
+            'plan_revision':journal['plan_revision'],'readers_ready':True}
+    marker.write_text(json.dumps(legacy));(work/'entries.sqlite').unlink()
+    assert store.recover_compaction()['status']=='COMMITTED'
+    assert store.rollback_compaction()['status']=='ROLLED_BACK'
+
+
+def test_changed_recovery_payload_is_rejected_before_rollback_renames(tmp_path,monkeypatch):
+    import os
+    store, _ = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    path=store.root/'.retirement/entries.sqlite'
+    with path.open('ab') as file:file.write(b'changed recovery payload')
+    def forbidden(*args,**kwargs):
+        pytest.fail('Changed payload reached a filesystem rename')
+    monkeypatch.setattr(os,'rename',forbidden)
+    with pytest.raises(PublicationError,match='JOURNAL_INVALID'):
+        store.rollback_compaction()
+
+
+def test_compaction_validates_backup_against_its_one_locked_plan(tmp_path,monkeypatch):
+    store, _ = _compaction_fixture(tmp_path)
+    plan=store.plan_compaction();native=store.plan_compaction;seen=[]
+    def counted(**kwargs):
+        seen.append('plan');return native(**kwargs)
+    def gate(locked,captured):
+        assert locked is store and captured['catalog_revision']==plan['catalog_revision']
+        assert captured['retire_release_ids']==plan['retire_release_ids']
+        seen.append('backup')
+    monkeypatch.setattr(store,'plan_compaction',counted)
+    store.compact_publications(expected_revision=plan['catalog_revision'],plan_preflight=gate)
+    assert seen==['plan','backup']
+
+
 @pytest.mark.parametrize('problem', ['stale', 'identity', 'corrupt'])
 def test_compaction_blocks_without_mutation(tmp_path, problem):
     store, receipts = _compaction_fixture(tmp_path)
@@ -423,7 +525,7 @@ def test_interrupted_rollback_never_overwrites_changed_catalog(tmp_path):
     journal = json.loads(path.read_text())
     journal['rollback_requested'] = True
     path.write_text(json.dumps(journal))
-    rid = journal['entries'][0]['release_id']
+    rid = next(iter(store._retirement_entries()[1]))['release_id']
     with sqlite3.connect(store.database_path) as db:
         record = json.loads(db.execute('SELECT receipt FROM publications WHERE release_id=?', (rid,)).fetchone()[0])
         record['external_decision'] = 'new'
@@ -559,7 +661,8 @@ def test_prepare_only_recovery_rejects_unknown_empty_directory(tmp_path):
     assert work.exists()
 
 
-def test_actual_process_death_before_journal_recovers_only_staging(tmp_path):
+@pytest.mark.parametrize('partial_marker', [False, True])
+def test_actual_process_death_before_journal_recovers_only_staging(tmp_path, partial_marker):
     import multiprocessing
     import os
 
@@ -570,7 +673,17 @@ def test_actual_process_death_before_journal_recovers_only_staging(tmp_path):
         original = runtime._write
         def write(path, value):
             if path.name == 'journal.json':
-                os._exit(71)
+                if not partial_marker:
+                    os._exit(71)
+                real_dump = runtime.json.dump
+                def interrupted_dump(value, file, **kwargs):
+                    file.write('{"contract":');file.flush();os.fsync(file.fileno())
+                    os._exit(71)
+                runtime.json.dump = interrupted_dump
+                try:
+                    return original(path, value)
+                finally:
+                    runtime.json.dump = real_dump
             return original(path, value)
         runtime._write = write
         store.compact_publications(expected_revision=plan['catalog_revision'])
@@ -583,9 +696,27 @@ def test_actual_process_death_before_journal_recovers_only_staging(tmp_path):
     assert child.exitcode == 71
     assert not (store.root / '.retirement/journal.json').exists()
     assert not (store.root / '.retirement/original').exists()
+    if partial_marker:
+        assert len(list((store.root/'.retirement').glob('journal.json.*.tmp')))==1
     assert store.recover_compaction()['status'] == 'PREPARE_DISCARDED'
     assert store.latest() == receipts[-1]
     assert all((store.releases / r['release_id'] / 'snapshot_bundle').is_dir() for r in receipts)
+
+
+@pytest.mark.parametrize('kind', ['foreign_name','hardlink','symlink'])
+def test_unsealed_cleanup_does_not_remove_foreign_or_aliased_files(tmp_path,kind):
+    import os
+    store, _ = _compaction_fixture(tmp_path)
+    work=store.root/'.retirement';work.mkdir()
+    external=tmp_path/'external';external.write_text('preserve')
+    path=work/('journal.json.'+'a'*32+'.tmp')
+    if kind=='foreign_name':
+        path=work/'journal.json.unknown.tmp';path.write_text('preserve')
+    elif kind=='hardlink':os.link(external,path)
+    else:path.symlink_to(external)
+    with pytest.raises(PublicationError,match='PREPARE_UNSAFE'):
+        store.recover_compaction()
+    assert external.read_text()=='preserve' and path.exists()
 
 
 def test_reader_lease_drains_before_maintenance_and_blocks_prepared_crash(tmp_path):
@@ -714,6 +845,21 @@ def test_operator_apply_preserves_quarantine_and_requires_separate_finalize_gate
     assert tool.operate(store.root.parent, operation='recover', **options)['status'] == 'COMMITTED'
     assert tool.operate(store.root.parent, operation='rollback', **options)['status'] == 'ROLLED_BACK'
     assert not (store.root / '.retirement').exists()
+
+
+def test_native_operator_uses_one_plan_for_preview_and_one_for_locked_apply(tmp_path,monkeypatch):
+    tool, store, _, options = _operator_fixture(tmp_path)
+    original=PublicationStore.plan_compaction;calls=[]
+    def counted(self,**kwargs):
+        calls.append(self.root);return original(self,**kwargs)
+    monkeypatch.setattr(PublicationStore,'plan_compaction',counted)
+    preview=tool.operator_preflight(store.root.parent,operation='apply',store=store,
+                                   **{**options,'expected_revision':'live'})
+    assert preview['plan']['catalog_revision']==options['expected_revision']
+    assert 'records' not in preview['plan'] and len(calls)==1
+    calls.clear()
+    assert tool.operate(store.root.parent,operation='apply',**options)['status']=='COMPACTED'
+    assert len(calls)==1
 
 
 def test_installed_reader_behavior_probe_requires_compacted_word_context(tmp_path):

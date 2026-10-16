@@ -286,7 +286,7 @@ def _catalog_revision(records, keep, targets):
     return digest.hexdigest()
 
 
-def plan_publication_compaction(store):
+def plan_publication_compaction(store, *, protected_release_ids=()):
     """Keep weekly replay roots and current/previous; compact only daily copies.
 
     The catalog keeps exact artifact links. Ledger/RAW/identity databases are
@@ -338,6 +338,12 @@ def plan_publication_compaction(store):
             weeks[week] = priority, rid
     keep.update(live[:2])
     keep.update(rid for _, rid in weeks.values())
+    protected = set(protected_release_ids)
+    if any(not isinstance(rid, str) or not re.fullmatch(r'REL-[a-f0-9]{64}', rid) for rid in protected):
+        raise ValueError('PUBLICATION_RETENTION_PROTECTED_INVALID')
+    if not protected <= {row[0] for row in records}:
+        raise ValueError('PUBLICATION_RETENTION_PROTECTED_MISSING')
+    keep.update(protected)
     status_path = store.root.parent / 'status.json'
     if status_path.exists() or status_path.is_symlink():
         if status_path.is_symlink():

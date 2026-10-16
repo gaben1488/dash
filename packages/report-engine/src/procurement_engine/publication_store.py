@@ -107,6 +107,54 @@ def _sync_directory(path):
         os.close(fd)
 
 
+def _validate_retirement_entry(entry):
+    if (not isinstance(entry, dict)
+            or not isinstance(entry.get('release_id'), str)
+            or not re.fullmatch(r'REL-[a-f0-9]{64}', entry['release_id'])
+            or any(not isinstance(entry.get(key), list) or len(entry[key]) != 2
+                   or not all(isinstance(value, str) for value in entry[key]) for key in ('original', 'compact'))):
+        raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+    for key in ('original', 'compact'):
+        record, files = map(json.loads, entry[key])
+        if not isinstance(record, dict) or record.get('release_id') != entry['release_id'] or not isinstance(files, dict):
+            raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+
+
+class _RetirementEntries:
+    """Repeatable recovery records, bounded to one receipt pair instead of all pairs."""
+    def __init__(self, work, journal):
+        self.path = work / 'entries.sqlite'
+        self.count = journal.get('entry_count')
+        if (type(self.count) is not int or self.count <= 0 or self.path.is_symlink()
+                or not self.path.is_file() or self.path.stat().st_nlink != 1
+                or any(os.path.lexists(str(self.path) + suffix) for suffix in ('-wal', '-shm', '-journal'))
+                or _hash(self.path) != journal.get('entries_sha256')):
+            raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+        with closing(self._connect()) as db:
+            counts = db.execute('SELECT count(*),count(distinct release_id) FROM entries').fetchone()
+            if counts != (self.count, self.count) or db.execute('PRAGMA quick_check').fetchall() != [('ok',)]:
+                raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+        for _ in self:
+            pass  # Validate every pair before any rename/update, without retaining payloads.
+
+    def _connect(self):
+        db = sqlite3.connect(self.path.absolute().as_uri() + '?mode=ro', uri=True)
+        db.execute('PRAGMA query_only=ON')
+        return db
+
+    def __len__(self):
+        return self.count
+
+    def __iter__(self):
+        with closing(self._connect()) as db:
+            for rid, payload in db.execute('SELECT release_id,payload FROM entries ORDER BY ordinal'):
+                entry = json.loads(payload)
+                _validate_retirement_entry(entry)
+                if entry['release_id'] != rid:
+                    raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+                yield entry
+
+
 def _validate(root):
     _files(root)  # Reject symlinks before reading any input through them.
     model = _json(root / 'report_model.json')
@@ -582,9 +630,9 @@ class PublicationStore:
                 raise PublicationError('PUBLICATION_RETENTION_RECOVERY_REQUIRED')
             yield
 
-    def plan_compaction(self):
+    def plan_compaction(self, *, protected_release_ids=()):
         from .retention import plan_publication_compaction
-        return plan_publication_compaction(self)
+        return plan_publication_compaction(self, protected_release_ids=protected_release_ids)
 
     def _maintenance_locks(self, preflight=None):
         """Same lock order as runtime: acquisition, then publication.
@@ -608,25 +656,30 @@ class PublicationStore:
             stack.close()
             raise
 
-    def compact_publications(self, *, expected_revision, preflight=None):
+    def compact_publications(self, *, expected_revision, preflight=None, protected_release_ids=(), plan_preflight=None):
         """Prepare reversible compact artifacts; never delete quarantine here."""
         from .runtime import _write
         with self._maintenance_locks(preflight):
             work = self.root / '.retirement'
             if work.exists() or work.is_symlink():
                 raise PublicationError('PUBLICATION_RETENTION_RECOVERY_REQUIRED')
-            plan = self.plan_compaction()
+            plan = self.plan_compaction(protected_release_ids=protected_release_ids)
             if plan['catalog_revision'] != expected_revision:
                 raise PublicationError('PUBLICATION_RETENTION_PLAN_CHANGED')
             if not plan['identity_ready']:
                 raise PublicationError('PUBLICATION_RETENTION_IDENTITY_MISSING')
+            if plan_preflight is not None:
+                plan_preflight(self, plan)  # Same locked source proof, not another full scan.
             selected = set(plan['retire_release_ids'])
             if not selected:
                 return {'status': 'UNCHANGED', 'compacted': 0}
-            entries = []
             work.mkdir(mode=0o700)
             _sync_directory(self.root)
+            records = sqlite3.connect(work / 'entries.sqlite')
+            count = 0
             try:
+                records.execute('PRAGMA synchronous=FULL')
+                records.execute('CREATE TABLE entries(ordinal INTEGER PRIMARY KEY,release_id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL)')
                 for rid, day, cutoff, receipt, files in plan['records']:
                     if rid not in selected:
                         continue
@@ -636,7 +689,7 @@ class PublicationStore:
                     compact.mkdir(parents=True, mode=0o700)
                     for name in ('dashboard.json', 'main_report.docx', 'management_report.docx', 'operational_report.docx'):
                         if (root / name).is_file():
-                            shutil.copyfile(root / name, compact / name)
+                            os.link(root / name, compact / name, follow_symlinks=False)
                             with (compact / name).open('rb') as file:
                                 os.fsync(file.fileno())
                     # Preserve exact minimal decision/ledger proofs, not a fake
@@ -651,11 +704,11 @@ class PublicationStore:
                         if roles.get(item['source_id']) in {'historical_ledger', 'historical_report_evidence', 'identity_reviews', 'rule_contract'}:
                             target = evidence / relative
                             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                            shutil.copyfile(root / 'snapshot_bundle' / relative, target)
+                            os.link(root / 'snapshot_bundle' / relative, target, follow_symlinks=False)
                     if evidence.exists():
-                        shutil.copyfile(root / 'snapshot_bundle/manifest.json', evidence / 'source_manifest.json')
+                        os.link(root / 'snapshot_bundle/manifest.json', evidence / 'source_manifest.json', follow_symlinks=False)
                     if (root / 'identity.sqlite').is_file():
-                        shutil.copyfile(root / 'identity.sqlite', compact / 'identity.sqlite')
+                        os.link(root / 'identity.sqlite', compact / 'identity.sqlite', follow_symlinks=False)
                     for item in compact.rglob('*'):
                         if item.is_file():
                             with item.open('rb') as file:
@@ -670,14 +723,24 @@ class PublicationStore:
                     record.update(replay_available=False,
                                   report_year=model['snapshot']['report_year'],
                                   quarter=model['headline']['current_quarter'])
-                    entries.append({'release_id': rid, 'original': [receipt, files],
-                                    'compact': [json.dumps(record, ensure_ascii=False), json.dumps(reduced)]})
+                    entry = {'release_id': rid, 'original': [receipt, files],
+                             'compact': [json.dumps(record, ensure_ascii=False), json.dumps(reduced)]}
+                    records.execute('INSERT INTO entries VALUES (?,?,?)', (count, rid, json.dumps(entry)))
+                    count += 1
                     _sync_directory(compact)
+                records.commit()
+                records.close()
+                with (work / 'entries.sqlite').open('rb') as file:
+                    os.fsync(file.fileno())
                 _sync_directory(work / 'staged')
-                _write(work / 'journal.json', {'contract': 'publication-compaction-v1', 'entries': entries, 'plan_revision': expected_revision})
+                _write(work / 'journal.json', {'contract': 'publication-compaction-v2', 'entry_count': count,
+                       'entries_sha256': _hash(work / 'entries.sqlite'), 'plan_revision': expected_revision})
             except BaseException:
+                records.close()
                 shutil.rmtree(work)
                 raise
+            del plan  # Large catalog rows are no longer needed during commit/recovery.
+            _, entries = self._retirement_entries()
             (work / 'original').mkdir(mode=0o700)
             _sync_directory(work)
             # Once journal exists, all failure paths are recoverable; never clean
@@ -708,19 +771,18 @@ class PublicationStore:
         if any((work / name).is_symlink() for name in ('original', 'staged')):
             raise PublicationError('PUBLICATION_RETENTION_UNSAFE')
         journal = _json(work / 'journal.json')
+        if journal.get('contract') == 'publication-compaction-v2':
+            return work, _RetirementEntries(work, journal)
         if journal.get('contract') != 'publication-compaction-v1' or not isinstance(journal.get('entries'), list):
             raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
         entries = journal['entries']
-        if not entries or any(not isinstance(e, dict) or any(not isinstance(e.get(k), list) or len(e[k]) != 2 or not all(isinstance(v, str) for v in e[k]) for k in ('original', 'compact')) for e in entries):
+        if not entries:
             raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
+        for entry in entries:
+            _validate_retirement_entry(entry)
         ids = [e.get('release_id') for e in entries]
         if len(set(ids)) != len(ids) or any(not isinstance(r, str) or not re.fullmatch(r'REL-[a-f0-9]{64}', r) for r in ids):
             raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
-        for entry in entries:
-            for key in ('original', 'compact'):
-                record, files = map(json.loads, entry[key])
-                if not isinstance(record, dict) or record.get('release_id') != entry['release_id'] or not isinstance(files, dict):
-                    raise PublicationError('PUBLICATION_RETENTION_JOURNAL_INVALID')
         return work, entries
 
     def recover_compaction(self, *, preflight=None):
@@ -733,7 +795,11 @@ class PublicationStore:
                 # No originals directory/move is ever created before a durable
                 # journal. A killed preparation can therefore discard only known
                 # staging copies, after every catalog source is checksum proven.
-                if work.is_symlink() or not work.is_dir() or any(p.name != 'staged' for p in work.iterdir()):
+                if (work.is_symlink() or not work.is_dir()
+                        or any(p.name not in {'staged', 'entries.sqlite', 'entries.sqlite-journal'}
+                               and not re.fullmatch(r'journal\.json\.[a-f0-9]{32}\.tmp', p.name) for p in work.iterdir())
+                        or any(p.is_symlink() or not p.is_file() or p.stat().st_nlink != 1 or p.stat().st_uid != work.stat().st_uid
+                               for p in work.iterdir() if p.name != 'staged')):
                     raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
                 records = {r[0]: json.loads(r[4]) for r in self.plan_compaction()['records']}
                 staged = work / 'staged'
@@ -761,15 +827,21 @@ class PublicationStore:
                 return {'status': 'PREPARE_DISCARDED'}
             work, entries = self._retirement_entries()
             with closing(sqlite3.connect(self.database_path)) as db:
-                states = [db.execute('SELECT receipt,files FROM publications WHERE release_id=?', (e['release_id'],)).fetchone() for e in entries]
-            if any(list(row or ()) not in (e['original'], e['compact']) for row, e in zip(states, entries)):
-                raise PublicationError('PUBLICATION_RETENTION_CATALOG_CHANGED')
+                states = set()
+                for entry in entries:
+                    row = list(db.execute('SELECT receipt,files FROM publications WHERE release_id=?', (entry['release_id'],)).fetchone() or ())
+                    if row == entry['compact']:
+                        states.add('compact')
+                    elif row == entry['original']:
+                        states.add('original')
+                    else:
+                        raise PublicationError('PUBLICATION_RETENTION_CATALOG_CHANGED')
             journal = _json(work / 'journal.json')
             if journal.get('rollback_requested'):
                 return self._rollback_compaction(work, entries)
             if journal.get('finalizing'):
                 return {'status': 'FINALIZING'}
-            if all(list(row or ()) == e['compact'] for row, e in zip(states, entries)):
+            if states == {'compact'}:
                 for entry in entries:
                     self._checked(entry['compact'])
                     if _files(work / 'original' / entry['release_id']) != json.loads(entry['original'][1]):
@@ -777,7 +849,7 @@ class PublicationStore:
                 from .runtime import _write
                 _write(work / 'journal.json', {**_json(work / 'journal.json'), 'readers_ready': True})
                 return {'status': 'COMMITTED', 'quarantine_retained': True}
-            if not all(list(row or ()) == e['original'] for row, e in zip(states, entries)):
+            if states != {'original'}:
                 raise PublicationError('PUBLICATION_RETENTION_CATALOG_CHANGED')
             return self._rollback_compaction(work, entries)
 
@@ -862,15 +934,26 @@ class PublicationStore:
             # Keep the journal until all disposable trees have been removed.
             # Interrupted finalization resumes, but cannot roll back without the
             # independently verified full backup required by the caller gate.
-            reclaimed = 0
+            aliases = {}
+            logical = 0
+            for name in ('original', 'staged'):
+                for path in (work / name).rglob('*'):
+                    if path.is_file():
+                        info = path.stat()
+                        logical += info.st_size
+                        aliases.setdefault((info.st_dev, info.st_ino), [info.st_nlink, info.st_blocks * 512, 0])[2] += 1
+            reclaimed = sum(blocks for links, blocks, names in aliases.values() if links == names)
             for name in ('original', 'staged'):
                 target = work / name
                 if target.exists():
-                    from .retention import _payload_bytes
-                    reclaimed += _payload_bytes(target)
                     shutil.rmtree(target)
                     _sync_directory(work)
             (work / 'journal.json').unlink()
+            _sync_directory(work)
+            if (work / 'entries.sqlite').exists():
+                (work / 'entries.sqlite').unlink()
             work.rmdir()
             _sync_directory(self.root)
-            return {'status': 'FINALIZED', 'quarantine_bytes_reclaimed': reclaimed}
+            return {'status': 'FINALIZED', 'quarantine_bytes_reclaimed': reclaimed,
+                    'quarantine_logical_bytes_retired': logical,
+                    'quarantine_reclaim_basis': 'unlinked_exclusive_file_blocks'}

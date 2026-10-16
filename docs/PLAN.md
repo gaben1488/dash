@@ -5,7 +5,52 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 10:19 UTC
+### Текущий выпуск — 16.10.2026, 11:30 UTC
+
+Установлен43f10742. R08/два автономных цикла/3Word/history98 из38860353565 и
+backup/2restore38831492016 остаются принятыми для43. APIhealth HTTP200/ok
+в11:07,2.003s. Прикладной кандидат1666 не установлен: source3CI38886509339
+PASS, общий CI отказал на live43 READ_UNAVAILABLE/METRIC_READ. Native99-row
+v1 hash replay38887010993 PASS:356950016B process/19884349B serialization
+peak. Это не доказательство памяти всего plan/apply.
+
+Законченный участок identity: copy-only38889251691 PASS2snapshots/8126rows/
+16252 nullable signatures, protected digest unchanged. Первая попытка live
+38890817567 остановилась на занятом worker run.lock до connect/write.
+Исправленный25-test/independent25 оператор ждёт с отпущенным maintenance EX,
+затем повторяет admission. Live CAS38891326813 PASS11:04:29UTC:8126rows/
+16252fields, UID/raw/history/frozen results не переписывались. Независимый
+native readback38891473586:95target snapshots,0 missing plan/entity/snapshots.
+Контейнеры и образы не пересоздавались; новых Google writes не было.
+
+Backup index coverage38891425973:92 из95 candidate roots совпали по всему
+составу file hashes;3 отсутствуют,0 mismatch. Это индексная сверка, не новый
+restore или полная проверка нынешних файлов. Код следующего инструмента
+защищает неподкреплённые roots в keep/revision и повторяет полный backup/root
+gate под locks. Удалений публикаций не было. Свободно6427480064B11:01UTC;
+прежняя полная новая backup всё ещё не допущена по месту.
+
+Исправление следующего blocker в ветке: небольшой reader marker + временный
+SQLite recovery payload, чтение по одной записи; legacy-v1 recovery сохранён.
+Три исходных RED: общий journal16.8MB/4records, копирование неизменяемых
+артефактов, отсутствие отдельной защиты unbacked roots. Новые staging hardlinks
+касаются только immutable published files; primaryDB/attempts не участвуют.
+Место учитывается по эксклюзивным blocks отдельно от logical bytes. Полный
+engine1105 и CLI12/Ruff PASS; independent91store-retention+12CLI PASS в
+границах предшествовавших трём дополнительным negative cases. Native
+source/admission/apply/independent readback/finalize ещё не выполнены.
+Реальный atomic write прерывается внутри json.dump: только native UUID tmp
+и известные staging файлы могут очищаться до journal; чужие/aliased файлы
+отклоняются. Внутренняя backup-проверка получает тот же единственный locked
+plan; CLI не принимает сериализованный caller plan.
+
+Следующий конечный шаг: проверить новый инструмент на настоящем объёме и
+старом43 reader, затем только подкреплённые92 candidates, сохраняя3 unbacked
+и все weekly/current/previous roots. До приёмки не объявлять compaction или
+новое приложение установленными. Все56 и мобильный/case/KPI/product-journal
+обязательства сохранены ниже; этот служебный участок их не закрывает.
+
+### Предыдущая точка — 16.10.2026, 10:19 UTC
 
 Установлен43f10742; ранее принятые backup/два restore38831492016 и
 R08/два автономных цикла/три Word/history98 из38860353565 сохраняют силу
