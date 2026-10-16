@@ -1293,7 +1293,7 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release 19289667 metadata' ||
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release bfd625fc metadata' ||
         github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
@@ -1302,7 +1302,7 @@ jobs:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
-          RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release 19289667 metadata' && 'yes' || 'no' }}
+          RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release bfd625fc metadata' && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
           envs: WEEKLY_ONLY,RELEASE_ONLY
@@ -1530,7 +1530,7 @@ jobs:
               'possible_physical_bytes':possible,'hashes_reverified':False}),flush=True)
 
             def accepted_cycle_metadata():
-             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38930502207-1')
+             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38949805075-1')
              def read(name):
               path=base/name
               assert not any(parent.is_symlink() for parent in (path,*path.parents))
@@ -1538,7 +1538,7 @@ jobs:
                info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=8*1024*1024
                return json.loads(stream.read(8*1024*1024+1))
              result=read('result.json')
-             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='19289667b0aca6f88ff6225c9a3a8c849a592c9d'
+             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='bfd625fcb7d66ab504de9fe8827a225ba95a7082'
              assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
              print(json.dumps({'accepted_worker':True,'sealed_entries_verified':result['sealed_entries_verified']}),flush=True)
              # Cycle files retain complete publication evidence. Project the
@@ -1554,7 +1554,7 @@ jobs:
               print(json.dumps({'accepted_attempt_id':attempt,'started_at':proof['started_at'],'double_host_flock':True}),flush=True)
 
             def checkpoint_metadata():
-             base=Path('/home/aemr/.dash-private-backups/worker-38927016449')
+             base=Path('/home/aemr/.dash-private-backups/worker-38949403808')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
               result={'checkpoint_metadata':name,'present':os.path.lexists(path)}
               if result['present']:
@@ -1565,7 +1565,7 @@ jobs:
                result['sha256']=hashlib.sha256(body).hexdigest()
                if name=='fresh_backup':result.update({key:value[key] for key in ('bytes','archive_bytes') if type(value.get(key)) is int});result['files']=len(value.get('files',{}))
                else:
-                result['expected_source']=value.get('release_sha')=='19289667b0aca6f88ff6225c9a3a8c849a592c9d'
+                result['expected_source']=value.get('release_sha')=='bfd625fcb7d66ab504de9fe8827a225ba95a7082'
                 for kind in ('full_restore','in_place_restore'):
                  detail=value.get(kind,{})
                  result[kind]={key:detail[key] for key in ('files','bytes','sqlite_checked','docx_checked') if type(detail.get(key)) is int}
