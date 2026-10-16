@@ -187,3 +187,20 @@ it('builds the metadata index over old malformed payloads without changing them 
   try { expect(read.id).toBe(saved.id); }
   finally { reject(new Error('synthetic source failure')); await force; }
 });
+
+it.each([true, false])('enumerates weekly candidate metadata without rescanning payloads when indexed=%s', async (indexed) => {
+  const { source, db, schema } = fixture;
+  for (const [id, data] of [['weekly-b', '{"weeklyTableContext":{}}'], ['weekly-a', '{"weeklyTableContext":'], ['ordinary', '{}']]) {
+    db.insert(schema.snapshots).values({ id, data, spreadsheetId: 'read-model-test', createdAt: '2026-10-16T02:00:00Z' }).run();
+  }
+  const original = db.select({ id: schema.snapshots.id, data: schema.snapshots.data }).from(schema.snapshots).all();
+  const expected = [...source.iterateWeeklySnapshotHistory()];
+  expect(expected.map((row) => row.id)).toEqual(['weekly-b', 'weekly-a']);
+  if (!indexed) db.$client.exec('DROP INDEX IF EXISTS idx_snapshots_weekly_evidence');
+  const scan = vi.fn((payload: string, needle: string) => payload.indexOf(needle) + 1);
+  db.$client.function('instr', { deterministic: true }, scan);
+  expect([...source.iterateWeeklySnapshotHistory()]).toEqual(expected);
+  if (indexed) expect(scan).not.toHaveBeenCalled();
+  else expect(scan).toHaveBeenCalled();
+  expect(db.select({ id: schema.snapshots.id, data: schema.snapshots.data }).from(schema.snapshots).all()).toEqual(original);
+});

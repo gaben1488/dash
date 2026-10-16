@@ -38,6 +38,15 @@ lint0errors/303existingwarnings, tsc PASS. **Не в192 и не установл
 Это не закрывает общий provenance/KPI: финансовая агрегация неоднозначных
 меток, общие human-decision overlays и живые employee cases ещё требуют приёмки.
 
+Следующее локальное дополнение по ADR0012: частичный weekly metadata index
+устраняет повторный `instr` scan payload при перечислении ID/дат кандидатов.
+Порядок/состав, включая malformed JSON, сохранены; полная baseline validation
+не меняется. RED→GREEN с actual SQLite function-call counter и no-index
+negative control; focused57 и полный shared740/core1872(+1skip)/server1020/
+web2303 PASS, общий lint0errors/303existingwarnings и tsc PASS.
+**Не входит в192, не установлен; native migration-cost ещё не измерен.**
+Это не доказывает устранение cold Google latency и полной задержки журнала.
+
 - [Выпуск38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150):
   checkpoint 21 244 275 001 B, архив 3 222 981 097 B; два независимых restore
   с новым/предыдущим приложением, 111 SQLite и 266 DOCX в каждом.

@@ -225,6 +225,9 @@ export const SCHEMA_DDL = `
   -- а в строке снимка лежит многомегабайтный data-JSON, поэтому перебор здесь
   -- стоит дороже, чем где-либо ещё в базе.
   CREATE INDEX IF NOT EXISTS idx_snapshots_created ON snapshots(created_at);
+  -- Metadata candidate selection only; full weekly proof remains in verifiedBaselineRows.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_weekly_evidence ON snapshots(created_at DESC, id DESC)
+    WHERE instr(data, '"weeklyTableContext"') > 0;
   -- Ready read models are addressed by scope; never parse all historical JSON per GET.
   CREATE INDEX IF NOT EXISTS idx_snapshots_read_scope ON snapshots(
     spreadsheet_id,
