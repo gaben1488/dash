@@ -98,6 +98,24 @@ class WeeklyOperatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.validate_context(*args,backup_reference='worker-38831492016/backup')
 
+    def test_readonly_plan_is_private_and_does_not_invoke_an_operation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)/'source';deploy=root/'deploy';deploy.mkdir(parents=True)
+            (deploy/'plan-weekly-publications.py').write_text(
+                'def plan(state):\n return '+repr({'catalog_revision':'f'*64,'publication_count':98,
+                'keep_count':8,'retire_count':90,'bytes_reclaimable':1000,
+                'retire_release_ids':['private-id'],'identity_ready':True})+'\n'
+                'def operate(*a,**kw):\n raise AssertionError("unexpected mutation")\n')
+            result=self.module.preview_plan(root,Path(sys.executable),[],root/'state')
+            self.assertEqual(result['catalog_revision'],'f'*64)
+            self.assertEqual(result['retire_count'],90)
+            self.assertNotIn('retire_release_ids',result)
+            saved=root.parent/'retention-plan.json'
+            # The staging root is tree.parent in production; isolate it here.
+            self.assertEqual(json.loads(saved.read_text())['retire_release_ids'],['private-id'])
+            self.assertEqual(saved.stat().st_mode&0o777,0o600)
+            saved.unlink()
+
     def test_native_reader_behavior_runs_before_a_source_match_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);deploy=root/'deploy';deploy.mkdir()
@@ -127,6 +145,15 @@ class WeeklyOperatorTests(unittest.TestCase):
             self.assertIn(required,commands)
         self.assertNotIn('pulls/79 --jq .head.sha',commands,
                          'Public-tool staging targets installed43 independently of an advancing PR')
+
+    def test_preview_job_is_owner_scoped_and_never_invokes_compaction(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        section=re.search(r'^  weekly-preview:\n.*?(?=^  [a-z][-a-z]*:|\Z)',workflow,re.MULTILINE|re.DOTALL).group()
+        for required in ('github.actor == github.repository_owner',"'--check'", "'--expected-revision','live'",
+                         'MemoryMax=1G','CPUQuota=40%',"'KillMode=process'","'ExitType=cgroup'"):
+            self.assertIn(required,section)
+        for forbidden in ('--operation finalize','--operation recover','docker stop','docker restart','docker compose'):
+            self.assertNotIn(forbidden,section)
 
     def test_staging_push_is_explicit_and_owner_scoped(self):
         workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()

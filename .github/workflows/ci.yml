@@ -27,6 +27,84 @@ permissions:
   contents: read
   actions: read
 jobs:
+  weekly-preview:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bind reviewed read-only operator
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/weekly_publication_operator.py').read_bytes()
+          assert len(body)<=32768
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('WEEKLY_CODE='+base64.b64encode(body).decode()+'\n')
+              target.write('WEEKLY_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PY
+      - name: Verify exact live readers and backup coverage without compaction
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          WEEKLY_CODE: ${{ env.WEEKLY_CODE }}
+          WEEKLY_SHA: ${{ env.WEEKLY_SHA }}
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: WEEKLY_CODE,WEEKLY_SHA
+          command_timeout: 16m
+          script: |
+            set -euo pipefail
+            sudo -n --preserve-env=WEEKLY_CODE,WEEKLY_SHA python3 -IB - <<'PY'
+            import base64,hashlib,json,os,re,stat,subprocess
+            from pathlib import Path
+            run='${{ github.run_id }}';assert run.isdigit()
+            root=Path('/root/codex-fixes')/('weekly-check-'+run)
+            root.mkdir(mode=0o700);os.umask(0o077)
+            body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
+            assert len(body)<=32768 and hashlib.sha256(body).hexdigest()==os.environ['WEEKLY_SHA']
+            path=root/'operator.py';path.write_bytes(body);path.chmod(0o600)
+            stage=Path('/root/codex-fixes/weekly-38881380220')
+            python=stage/'venv/bin/python'
+            probe='import sysconfig;print(sysconfig.get_path("purelib"))'
+            site=subprocess.check_output([str(python),'-IB','-c',probe],timeout=15,text=True).strip()
+            assert re.fullmatch(re.escape(str(stage))+r'/venv/lib/python[0-9.]+/site-packages',site)
+            unit='aemr-weekly-compaction-'+run+'.service'
+            command=['systemd-run','--quiet','--wait','--unit',unit,'--property','Type=exec',
+                '--property','KillMode=process','--property','ExitType=cgroup','--property','UMask=0077',
+                '--property','RuntimeMaxSec=900','--property','TimeoutStopSec=10',
+                '--property','MemoryMax=1G','--property','MemorySwapMax=256M','--property','CPUQuota=40%',
+                '--property','Nice=19','--property','StandardOutput=append:'+str(root/'operator.log'),
+                '--property','StandardError=append:'+str(root/'operator.log'),
+                str(python),'-IB',str(path),'--operator-run',run,'--tree',str(stage/'source'),
+                '--python',str(python),'--reader-package',site+'/procurement_engine',
+                '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
+                '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
+                '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
+            result=subprocess.run(command,capture_output=True,timeout=920,check=False)
+            for line in (root/'operator.log').read_text().splitlines():
+                if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED'}:
+                    print(line)
+                elif line.startswith('{'):
+                    try:value=json.loads(line)
+                    except ValueError:continue
+                    keys={'catalog_revision','publication_count','keep_count','retire_count','bytes_reclaimable'}
+                    if set(value)==keys and re.fullmatch('[a-f0-9]{64}',value['catalog_revision']):print(json.dumps(value,sort_keys=True))
+            for role in ('MemoryPeak','Result','ExecMainStatus'):
+                value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
+                if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
+            print('READ_ONLY_WEEKLY_PREFLIGHT_PASS' if result.returncode==0 else 'READ_ONLY_WEEKLY_PREFLIGHT_FAILED')
+            raise SystemExit(0 if result.returncode==0 else 2)
+            PY
   unused-images:
     if: >-
       github.actor == github.repository_owner &&

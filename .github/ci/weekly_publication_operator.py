@@ -132,6 +132,20 @@ def native_probe(tree):
     return ast.get_source_segment(source,definitions[0])+'\n'+NATIVE
 
 
+def preview_plan(tree,python,privilege,state,*,output=None):
+    """Existing read-only planner, with private IDs and bounded public metadata."""
+    probe='import json,runpy,sys;tool=runpy.run_path(sys.argv[1]);print(json.dumps(tool["plan"](sys.argv[2])))'
+    body=call([*privilege,str(python),'-IB','-c',probe,str(tree/'deploy/plan-weekly-publications.py'),str(state)],
+              timeout=600,pass_fds=(9,) if os.path.exists('/proc/self/fd/9') else ())
+    result=json.loads(body)
+    require(re.fullmatch('[a-f0-9]{64}',result.get('catalog_revision','')),'PLAN_REVISION_INVALID')
+    names=('publication_count','keep_count','retire_count','bytes_reclaimable')
+    require(all(type(result.get(name)) is int and result[name]>=0 for name in names),'PLAN_COUNTS_INVALID')
+    with os.fdopen(os.open(output or tree.parent/'retention-plan.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600),'wb') as stream:
+        stream.write(body);stream.flush();os.fsync(stream.fileno())
+    return {name:result[name] for name in ('catalog_revision',*names)}
+
+
 def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
     require(plan['release_sha']==SHA and plan['backup_reference']==backup_reference,'ACCEPTED_BACKUP_CHANGED')
     require(ci.get('head_sha')==TOOL_SHA and ci.get('status')=='completed' and ci.get('conclusion')=='success'
@@ -164,6 +178,12 @@ def cli_commands(tree,python,reader,ci,receipt,state,backup,*,operation,revision
 
 def call(arguments,*,timeout=180,pass_fds=()):
     result=subprocess.run(arguments,capture_output=True,env=ENV,timeout=timeout,check=False,pass_fds=pass_fds)
+    if result.returncode:
+        # Child diagnostics may contain private paths/payloads. Preserve them
+        # only when stderr is an actual root600 private file, never a console.
+        log=os.fstat(2)
+        if stat.S_ISREG(log.st_mode) and log.st_uid==0 and log.st_nlink==1 and stat.S_IMODE(log.st_mode)==0o600:
+            os.write(2,result.stderr[:1024*1024])
     require(result.returncode==0 and len(result.stdout)<=8*1024*1024,'OPERATOR_COMMAND_FAILED')
     return result.stdout
 
@@ -283,16 +303,23 @@ def main():
         if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
         try:
             state,backup=admit(args)
-            command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
-                                 operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
             privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
                        '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
+            preview=None
+            if args.check and args.expected_revision=='live':
+                preview=preview_plan(args.tree,args.python,privilege,state,
+                                     output=args.tree.parent/('retention-plan-'+args.operator_run+'.json'))
+                args.expected_revision=preview['catalog_revision']
+            command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
+                                 operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
             # Exercise actual host ABI/dependency closure and existing proof gates
             # as the real native data owner before any maintenance lock bootstrap.
             probe='import importlib.util,json,sys;import procurement_engine.runtime,docx;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;spec=importlib.util.spec_from_file_location("weekly",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);m.operator_preflight(sys.argv[2],operation=sys.argv[3],candidate=sys.argv[4],ci=json.load(open(sys.argv[5])),reader_package=sys.argv[6],source_receipt=json.load(open(sys.argv[7])),expected_revision=sys.argv[8],backup=sys.argv[9],store=PublicationStore(Path(sys.argv[2])/"published",readonly=True));print("HOST_NATIVE_PREFLIGHT_PASS")'
             call([*privilege,str(args.python),'-IB','-c',probe,command[2],str(state),args.operation,TOOL_SHA,
                   str(args.ci_evidence),str(args.reader_package),str(args.source_receipt),args.expected_revision,str(backup)],timeout=1800,pass_fds=(9,))
-            if args.check:print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
+            if args.check:
+                if preview:print(json.dumps(preview,sort_keys=True))
+                print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
             # The barrier execs setpriv in-place, preserving PID birth identity.
             owner_command=command
             supervise(owner_command,[*privilege,str(args.python)],owner_prefix=privilege)
