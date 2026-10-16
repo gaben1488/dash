@@ -27,6 +27,8 @@ class BrowserAdmissionTests(unittest.TestCase):
         scope['record_response'](SimpleNamespace(url='https://external.invalid/api/dashboard',status=418),proof)
         scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/unknown',status=500),proof)
         self.assertEqual(proof,{'dashboard_http_statuses':[401,200]})
+        scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/report-releases/REL-synthetic/main.docx',status=200),proof)
+        self.assertEqual(proof['word_http_statuses'], [200])
         for _ in range(100):
             scope['record_response'](SimpleNamespace(url='https://dash-elizovo-uer.ru/api/dashboard',status=500),proof)
         self.assertEqual(len(proof['dashboard_http_statuses']),8)

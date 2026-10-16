@@ -50,6 +50,8 @@ def record_response(response, proof):
         return
     names = {'/api/dashboard': 'dashboard_http_statuses', '/api/change-story': 'journal_http_statuses'}
     name = names.get(parsed.path)
+    if parsed.path.startswith('/api/report-releases/') and parsed.path.endswith('.docx'):
+        name = 'word_http_statuses'
     if name:
         statuses = proof.setdefault(name, [])
         if len(statuses) < 8:
@@ -113,6 +115,7 @@ async def run():
                 match = re.fullmatch(re.escape(BASE) + r'/api/report-releases/(REL-[a-f0-9]{64})/(main|supplement|operational)\.docx', request.url)
                 if match:
                     word_requests.append(match.groups())
+                    proof['word_requests'] = len(word_requests)
             page.on('request', word_request)
             proof['stage'] = 'document_navigation'
             async with page.expect_response(lambda r: urlsplit(r.url).path == '/api/dashboard' and r.status == 200, timeout=40000) as dashboard:
@@ -168,12 +171,16 @@ async def run():
             release_ids = set()
             for label, view in [('Отчёт в Word', 'main'), ('Доп. отчёт в Word', 'supplement'), ('Оперативный в Word', 'operational')]:
                 proof['stage'] = 'word_' + str(len(downloads) + 1)
+                proof['word_phase'] = 'wait_enabled'
                 button = page.get_by_role('button', name=label, exact=True)
                 await page.wait_for_function('label => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === label && !b.disabled)', arg=label, timeout=30000)
                 before = len(word_requests)
                 async with page.expect_download(timeout=30000) as event:
+                    proof['word_phase'] = 'click'
                     await button.click()
+                    proof['word_phase'] = 'wait_download'
                 download = await event.value
+                proof['word_phase'] = 'save_download'
                 with tempfile.TemporaryDirectory() as temporary:
                     saved = Path(temporary) / 'document.docx'
                     await download.save_as(saved)
