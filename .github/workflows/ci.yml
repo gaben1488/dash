@@ -1508,12 +1508,12 @@ jobs:
             set -euo pipefail
             sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA python3 -IB - <<'PYAPITIMING'
             import base64,hashlib,json,os,re,subprocess
-            from datetime import datetime,timezone
+            from datetime import datetime,timedelta,timezone
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d' and record['State']['Running']
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=16384 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
-            window_start=datetime.now(timezone.utc).isoformat()
+            window_start=(datetime.now(timezone.utc)-timedelta(minutes=10)).isoformat()
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 43f10742' && 'journal' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-',resource],input=code,capture_output=True,text=True,timeout=100,check=False)
