@@ -1155,6 +1155,7 @@ jobs:
         run: |
           python .github/ci/test_browser_auth_isolation.py
           python .github/ci/test_browser_catalog_metadata.py
+          python .github/ci/test_browser_header_controls.py
       - name: Bind browser credentials to the actual accepted runtime
         env:
           VPS_USER: ${{ secrets.DEPLOY_USER }}

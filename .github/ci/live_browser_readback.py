@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 BASE = 'https://dash-elizovo-uer.ru'
 PAGES = ['Пульс', 'Отчёт', 'Свод', 'Реестр', 'Не обеспеченные', 'В течение года',
@@ -64,6 +64,50 @@ async def activate(locator, profile, *, timeout=5000):
         await locator.tap(timeout=timeout)
     else:
         await locator.click(timeout=timeout)
+
+
+async def verify_header_controls(page, profile, proof):
+    """Exercise the real header without source writes; restore every selection."""
+    header = page.locator('header[data-page-skin]')
+    pressed = header.locator('button[aria-pressed]')
+    initial = await pressed.evaluate_all("items=>items.map(b=>[b.getAttribute('aria-label'),b.getAttribute('aria-pressed')])")
+    units = ['Показывать суммы в тысячах рублей', 'Показывать суммы в миллионах рублей']
+    methods = ['Конкурентные способы, статья 24 44-ФЗ',
+               'Единственный поставщик, статья 93 44-ФЗ', 'Все способы закупки']
+    for names in (units, methods):
+        original = next(label for label in names if [label, 'true'] in initial)
+        for label in names:
+            button = header.get_by_role('button', name=label, exact=True)
+            await activate(button, profile)
+            await expect(button).to_have_attribute('aria-pressed', 'true', timeout=5000)
+        await activate(header.get_by_role('button', name=original, exact=True), profile)
+    for label in ['Программные мероприятия', 'Текущая деятельность',
+                  'Федеральный бюджет', 'Краевой бюджет', 'Муниципальный бюджет']:
+        button = header.get_by_role('button', name=label, exact=True)
+        before = await button.get_attribute('aria-pressed')
+        await activate(button, profile)
+        await expect(button).to_have_attribute('aria-pressed', 'false' if before == 'true' else 'true', timeout=5000)
+        await activate(button, profile)
+        await expect(button).to_have_attribute('aria-pressed', before, timeout=5000)
+    theme = header.get_by_role('button', name=re.compile('^Включить (светлую|тёмную) тему$'))
+    before = await theme.get_attribute('aria-label')
+    await activate(theme, profile)
+    await expect(theme).not_to_have_attribute('aria-label', before, timeout=5000)
+    await activate(theme, profile)
+    await expect(theme).to_have_attribute('aria-label', before, timeout=5000)
+    search = header.get_by_role('textbox', name='Поиск по реестру закупок', exact=True)
+    assert await search.input_value() == ''
+    await search.fill('DASH_ACCEPTANCE_NO_MATCH_83')
+    await activate(header.get_by_role('button', name='Очистить строку поиска', exact=True), profile)
+    await expect(search).to_have_value('')
+    corner = header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$'))
+    await activate(corner, profile)
+    dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+    await expect(dialog).to_be_visible()
+    await activate(corner, profile)
+    await expect(dialog).to_be_hidden()
+    assert await pressed.evaluate_all("items=>items.map(b=>[b.getAttribute('aria-label'),b.getAttribute('aria-pressed')])") == initial
+    proof['header_controls'] = 'PASS'
 
 
 async def select_page(page, nav, label, proof=None):
@@ -209,6 +253,10 @@ async def run():
                 visited.append(label)
                 proof['pages_visited'] = len(visited)
             proof['pages_visited'] = len(visited)
+            if scenario == 'full':
+                proof['stage'] = 'header_controls'
+                await select_page(page, nav, 'Реестр', proof)
+                await verify_header_controls(page, profile, proof)
             proof['stage'] = 'report_navigation'
             await select_page(page, nav, 'Отчёт', proof)
             await page.get_by_role('button', name='Отчёт в Word', exact=True).wait_for(timeout=30000)

@@ -23,8 +23,13 @@ archive3,222,981,097B; independent full restore нового и предыдущ
 runtime PASS13:40:09; exact-SHA candidate/API/Word acceptance PASS13:43:07,
 public health PASS13:43:08. Guardian resumed штатно; старый43 уже не runtime.
 Observer38906488066 теперь RUNNING; два будущих автономных цикла83 пока
-не приняты. Desktop browser readback запущен отдельно; полный iPhone/WebKit readback
-запускается с touch controls, без keyboard fallback и без deploy/restart.
+не приняты. Desktop browser38910751084 PASS:13 разделов,3 вкладки журнала,3 Word
+с native hashes,0page errors. Полный iPhone/WebKit readback с touch controls
+дополнен реальными переключениями единиц/способа/деятельности/бюджета/темы,
+поиском и popover; все состояния восстанавливаются перед Word. Verifier
+проверен actual Chromium touch fixture, включая inert-unit negative; WebKit
+исполняется на runner с системными библиотеками, локально их нет.
+Это не приёмка сохранения решений/прав/всей мобильной эквивалентности.
 Старые43 maintenance pins ниже — исторические доказательства, не допуск
 для новых мутаций83. Regular weekly retention ещё не включена.
 
