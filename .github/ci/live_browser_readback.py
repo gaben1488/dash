@@ -110,6 +110,43 @@ async def verify_header_controls(page, profile, proof):
     proof['header_controls'] = 'PASS'
 
 
+async def verify_header_periods(page, profile, proof):
+    """Calendar and reset/undo use the production controls, without source writes."""
+    header = page.locator('header[data-page-skin]')
+    week = header.locator('.wr-row-active')
+    await expect(week).to_have_attribute('aria-pressed', 'true')
+    row = header.locator('.tg-row-active')
+    for button in (row.locator('.tg-year'), row.locator('.tg-quarter-tab').last,
+                   row.locator('.tg-month').first):
+        await expect(button).to_have_attribute('aria-pressed', 'false')
+        await activate(button, profile)
+        await expect(button).to_have_attribute('aria-pressed', 'true')
+        await expect(week).to_have_attribute('aria-pressed', 'false')
+        await activate(button, profile)
+        await expect(button).to_have_attribute('aria-pressed', 'false')
+        await expect(week).to_have_attribute('aria-pressed', 'true')
+    quarter = row.locator('.tg-quarter-tab').last
+    await activate(quarter, profile)
+    await activate(week, profile)
+    await expect(quarter).to_have_attribute('aria-pressed', 'false')
+    await expect(week).to_have_attribute('aria-pressed', 'true')
+    thousands = header.get_by_role('button', name='Показывать суммы в тысячах рублей', exact=True)
+    millions = header.get_by_role('button', name='Показывать суммы в миллионах рублей', exact=True)
+    await expect(thousands).to_have_attribute('aria-pressed', 'true')
+    await activate(millions, profile)
+    corner = header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$'))
+    await activate(corner, profile)
+    dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+    await activate(dialog.get_by_role('button', name='Снять фильтры линейки', exact=True), profile)
+    await expect(thousands).to_have_attribute('aria-pressed', 'true')
+    await activate(corner, profile)
+    await expect(dialog).to_be_hidden()
+    await activate(page.get_by_role('button', name=re.compile('^Вернуть фильтры: ')), profile)
+    await expect(millions).to_have_attribute('aria-pressed', 'true')
+    await activate(thousands, profile)
+    proof['header_periods_and_undo'] = 'PASS'
+
+
 async def select_page(page, nav, label, proof=None):
     def phase(value):
         if proof is not None:
@@ -257,6 +294,7 @@ async def run():
                 proof['stage'] = 'header_controls'
                 await select_page(page, nav, 'Реестр', proof)
                 await verify_header_controls(page, profile, proof)
+                await verify_header_periods(page, profile, proof)
             proof['stage'] = 'report_navigation'
             await select_page(page, nav, 'Отчёт', proof)
             await page.get_by_role('button', name='Отчёт в Word', exact=True).wait_for(timeout=30000)
