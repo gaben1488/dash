@@ -1,8 +1,11 @@
 """Native namespace owner retains custody and does not inherit loader injection."""
+import fcntl
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -32,6 +35,21 @@ class RegistryOperatorTests(unittest.TestCase):
             return [sys.executable,'-IB','-c',code,str(ready),str(release)]
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(module,'namespace_command',local_child):
             module.prove_owner_loss({},os.environ.copy(),temporary)
+
+    def test_short_competing_lock_is_waited_for_and_inherited_ex_remains(self):
+        code="import fcntl,os,sys,time;f=open(sys.argv[1],'r+');fcntl.flock(f,fcntl.LOCK_EX);print('READY',flush=True);time.sleep(.15)"
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'lock';path.touch()
+            holder=subprocess.Popen([sys.executable,'-IB','-c',code,str(path)],stdout=subprocess.PIPE,text=True)
+            self.assertEqual(holder.stdout.readline().strip(),'READY')
+            fd=os.open(path,os.O_RDWR)
+            if fd!=9:os.dup2(fd,9,inheritable=True);os.close(fd)
+            try:
+                before=time.monotonic();module.wait_global_lock(wait_seconds=1)
+                self.assertGreater(time.monotonic()-before,.05)
+                with path.open('r+') as competitor, self.assertRaises(BlockingIOError):
+                    fcntl.flock(competitor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            finally:os.close(9);holder.wait(timeout=2);holder.stdout.close()
 
 
 

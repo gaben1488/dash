@@ -113,6 +113,12 @@ def prove_owner_loss(record,env,directory):
     print('NATIVE_NAMESPACE_UID_CAPS_AND_OWNER_LOSS_PASS',flush=True)
 
 
+def wait_global_lock(*,wait_seconds=45):
+    assert type(wait_seconds) is int and 0<=wait_seconds<=45
+    subprocess.run(['/usr/bin/flock','--wait',str(wait_seconds),'9'],pass_fds=(9,),
+                   capture_output=True,check=True,timeout=wait_seconds+2)
+
+
 def accepted():
     raw=json.loads(owned(Path('/var/lib/aemr/release-runtime/trial-plan.json')))
     assert raw['release_sha']==SHA
@@ -157,7 +163,7 @@ def main():
     info=os.fstat(descriptor);assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1
     if descriptor!=9:os.dup2(descriptor,9,inheritable=True);os.close(descriptor)
     with os.fdopen(9,'r+'):
-        fcntl.flock(9,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        wait_global_lock()
         PHASE='ACCEPTED_CONTEXT'
         current=accepted();assert current['Id']==record['Id'] and current['State']['Pid']==record['State']['Pid']
         PHASE='NATIVE_MIGRATION'
