@@ -11,14 +11,21 @@ jobs:
   native-compat:
     if: >-
       github.actor == github.repository_owner &&
-      github.event.head_commit.message == 'Verify Bae reader compatibility for candidate b96e169d'
+      (github.event.head_commit.message == 'Verify Bae reader compatibility for candidate b96e169d' ||
+       github.event.head_commit.message == 'Verify native proof runner identity before acceptance')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - name: Run bounded harness self-checks without production access
         run: python3 .github/ci/attempt_reference_native_compat.py selftest
+      - name: Verify native proof runner identity without SSH or production access
+        if: github.event.head_commit.message == 'Verify native proof runner identity before acceptance'
+        run: |
+          python3 -c 'import json,os; print(json.dumps({"unit_host_uid":os.geteuid()}))'
+          python3 .github/ci/test_attempt_proof_readback.py
       - name: Compare actual previous native readers on isolated synthetic state
+        if: github.event.head_commit.message == 'Verify Bae reader compatibility for candidate b96e169d'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
