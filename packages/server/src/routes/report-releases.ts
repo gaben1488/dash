@@ -38,12 +38,12 @@ export async function initializePublicationReaders(
   }
 }
 
-async function readStoredRelease(view: View, releaseId?: string, context?: Context): Promise<Buffer> {
+async function readStoredRelease(view: View, releaseId?: string, context?: Context, signal?: AbortSignal): Promise<Buffer> {
   const args = ['read-publication', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'), '--view', view];
   if (releaseId) args.push('--release-id', releaseId);
   if (context) args.push('--report-date', context.date, '--report-year', String(context.year), '--quarter', String(context.quarter));
   const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', args,
-    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false });
+    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false, signal });
   return result.stdout;
 }
 
@@ -67,7 +67,7 @@ async function refreshStoredReport(): Promise<void> {
 }
 
 export async function reportReleaseRoutes(app: FastifyInstance,
-  options: { read?: (view: View, releaseId?: string, context?: Context) => Promise<Buffer>;
+  options: { read?: (view: View, releaseId?: string, context?: Context, signal?: AbortSignal) => Promise<Buffer>;
     prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<void> } = {}): Promise<void> {
   const read = options.read ?? readStoredRelease;
   const prepare = options.prepare ?? prepareStoredArchive;
@@ -141,8 +141,16 @@ export async function reportReleaseRoutes(app: FastifyInstance,
           }
           context = parsed.data;
         }
+        const controller = new AbortController();
+        const abortRead = () => controller.abort();
+        const responseClosed = () => {
+          if (!reply.raw.writableEnded) abortRead();
+        };
+        request.raw.once('aborted', abortRead);
+        reply.raw.once('close', responseClosed);
+        if (request.raw.aborted || reply.raw.destroyed) abortRead();
         try {
-          const data = context ? await read(view, id, context) : await read(view, id);
+          const data = await read(view, id, context, controller.signal);
           if (view === 'main' || view === 'supplement' || view === 'operational') {
             reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);
@@ -150,11 +158,15 @@ export async function reportReleaseRoutes(app: FastifyInstance,
           }
           return reply.type('application/json; charset=utf-8').send(data);
         } catch (error) {
+          if (controller.signal.aborted) return reply;
           const missing = error instanceof Error && 'code' in error && error.code === 4;
           return reply.code(missing ? 404 : 503).send({
             code: missing ? 'PUBLICATION_NOT_FOUND' : 'PUBLICATION_UNAVAILABLE',
             message: missing ? 'Такой проверенный выпуск не опубликован.' : 'Проверенный комплект сейчас недоступен.',
           });
+        } finally {
+          request.raw.removeListener('aborted', abortRead);
+          reply.raw.removeListener('close', responseClosed);
         }
       });
   }

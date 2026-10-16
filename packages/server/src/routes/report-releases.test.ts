@@ -9,7 +9,7 @@ it('returns the stored projection and pinned documents without recalculating liv
   const id = `REL-${'a'.repeat(64)}`;
   const response = await app.inject(`/api/report-releases/${id}/dashboard`);
   expect(response.json()).toEqual({ snapshot_id: 'frozen' });
-  expect(read).toHaveBeenLastCalledWith('dashboard', id);
+  expect(read).toHaveBeenLastCalledWith('dashboard', id, undefined, expect.any(AbortSignal));
   const doc = await app.inject(`/api/report-releases/${id}/main.docx`);
   expect(doc.body).toBe('DOCX');
   expect(doc.headers['content-disposition']).toContain(`${id}-main.docx`);
@@ -43,7 +43,7 @@ it('passes the selected report date, year and quarter to the frozen reader', asy
   await app.register(reportReleaseRoutes, { read });
   const response = await app.inject('/api/report-releases?date=2026-09-24&year=2026&quarter=3');
   expect(response.statusCode).toBe(200);
-  expect(read).toHaveBeenCalledWith('status', undefined, { date: '2026-09-24', year: 2026, quarter: 3 });
+  expect(read).toHaveBeenCalledWith('status', undefined, { date: '2026-09-24', year: 2026, quarter: 3 }, expect.any(AbortSignal));
   for (const query of ['date=2026-09-24', 'date=2026-02-30&year=2026&quarter=1',
     'date=2026-09-24&year=2026&quarter=5', 'date=2026-09-24&year=x&quarter=3']) {
     expect((await app.inject(`/api/report-releases?${query}`)).statusCode).toBe(400);
