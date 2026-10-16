@@ -1535,7 +1535,14 @@ jobs:
                             if not re.fullmatch('[A-Za-z0-9_-]{1,128}',status['attempt_id']):raise m.RecoveryError('WORKER_CYCLE_PROOF_INVALID')
                             attributed.add(status['attempt_id'])
                             save('attribution-'+status['attempt_id']+'.json',{'started_at':status['started_at'],'double_host_flock':True,'samples':list(samples)})
-                    if m.accept_cycle(status,observation_since,seen,attributed,interval):
+                    accepted=m.accept_cycle(status,observation_since,seen,attributed,interval)
+                    if (status.get('status')=='NOT_ISSUED' and status.get('error_code')=='SOURCE_CHANGED_BEFORE_PUBLICATION'
+                        and status.get('failure_stage')=='publication'
+                        and m.datetime.fromisoformat(status['started_at'])>=m.datetime.fromisoformat(observation_since)):
+                        save('rejected-cycle.json',{key:status[key] for key in
+                            ('status','attempt_id','started_at','finished_at','failure_stage','error_code')})
+                        raise m.RecoveryError('WORKER_NEW_CYCLE_SOURCE_CHANGED')
+                    if accepted:
                         native_smoke()
                         save('cycle-'+str(len(seen))+'.json',{k:status[k] for k in
                             ('status','attempt_id','started_at','finished_at','snapshot_id','publication')})
