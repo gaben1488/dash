@@ -41,6 +41,13 @@ function checkAssurance(schema, value) {
   return { accepted: parsed.success, version: parsed.success ? parsed.data.contract : 'invalid', invalid_fields: invalidFields(parsed) };
 }
 
+/** Only called with a schema-validated envelope; receipts and IDs stay private. */
+function selectionShape(value) {
+  const selected = value.selected ?? null, matching = value.latest_matching ?? null;
+  return { selected_present: selected !== null, latest_matching_present: matching !== null,
+    same_release: selected && matching ? selected.release_id === matching.release_id : null };
+}
+
 function* models(root) {
   if (fs.lstatSync(root).isSymbolicLink()) throw new Error('UNSAFE_PROBE_SOURCE');
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -75,9 +82,10 @@ async function main() {
   const accepted = totals.invalid === 0 && totals['actionable-assurance-v2'] > 0 && parsed?.success === true && parsed.data.selected !== null;
   console.log(JSON.stringify({ candidate_schema_history: accepted ? 'PASS' : 'FAIL', historical_model_presentations: totals,
     historical_invalid_fields: [...failures].slice(0, 16), current_invalid_fields: parsed ? invalidFields(parsed) : [],
-    current_selected_response: parsed?.success ? 'PASS' : 'FAIL', http_status: response.status }));
+    current_selected_response: parsed?.success ? 'PASS' : 'FAIL', http_status: response.status,
+    current_selection: parsed?.success ? selectionShape(parsed.data) : null }));
   process.exitCode = accepted ? 0 : 2;
 }
 
-module.exports = { loadCandidate, checkAssurance, main };
+module.exports = { loadCandidate, checkAssurance, selectionShape, main };
 if (require.main === module) main().catch(() => { console.log('CANDIDATE_SCHEMA_PROBE_FAILED'); process.exitCode = 2; });
