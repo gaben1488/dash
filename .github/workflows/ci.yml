@@ -1132,10 +1132,10 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
-        inputs.release_sha == '83b813ab250b4533d1b80ba9e306afaa8bc5f383') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 83b813ab') ||
-       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 83b813ab')) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 83b813ab'))
+        inputs.release_sha == '19289667b0aca6f88ff6225c9a3a8c849a592c9d') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 19289667') ||
+       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 19289667')) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 19289667'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -1173,7 +1173,7 @@ jobs:
             "$VPS_USER@193.233.91.162" sudo -n python3 -IB - > "$private/auth.json" <<'PY'
           import hashlib,json,os,re,stat,subprocess,sys
           from pathlib import Path
-          sha='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
+          sha='19289667b0aca6f88ff6225c9a3a8c849a592c9d'
           def owned(path,private=True):
               assert not any(p.is_symlink() for p in (path,*path.parents))
               with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:
@@ -1182,7 +1182,7 @@ jobs:
                   assert stat.S_IMODE(info.st_mode)==0o600 if private else not info.st_mode&0o022
                   return source.read(1024*1024+1)
           tools=Path('/usr/local/libexec/aemr')
-          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-38905551150/release-window.json')))
+          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-38927016449/release-window.json')))
           assert window['candidate']==sha
           assert set(window['module_sha256'])=={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
           for name,pin in window['module_sha256'].items():
@@ -1193,7 +1193,7 @@ jobs:
           assert plan['release_sha']==sha
           accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
           assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
-          assert plan['backup_reference']=='worker-38905551150/backup'
+          assert plan['backup_reference']=='worker-38927016449/backup'
           assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
           executor=r.ReleaseRecovery(lock_fd=None);records=executor._records(plan,candidate=True)
           assert all(records[name]['State']['Status']=='running' for name in ('server','web','caddy'))
@@ -1226,7 +1226,7 @@ jobs:
       - name: Real browser navigation, journal and three native Word downloads
         env:
           DASH_BROWSER_BASIC_PASSWORD: ${{ secrets.DASH_BROWSER_BASIC_PASSWORD }}
-          EXPECTED_SOURCE_SHA: 83b813ab250b4533d1b80ba9e306afaa8bc5f383
+          EXPECTED_SOURCE_SHA: 19289667b0aca6f88ff6225c9a3a8c849a592c9d
           BROWSER_AUTH_METADATA: ${{ runner.temp }}/browser-readback/auth.json
           BROWSER_PRIVATE_PROOF: ${{ runner.temp }}/browser-readback/proof.json
         run: python .github/ci/live_browser_readback.py
