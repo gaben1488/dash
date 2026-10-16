@@ -49,6 +49,11 @@ Apply/recover/readback/finalize и независимая проверка со�
 download/dashboard/identity/ledger hashes, receipt whitelist и period по frozen
 report_model. Пять consistent tamper кейсов RED→GREEN;3tests/11negatives и
 independent exact43-reader replay PASS. При apply quarantine сохраняется.
+Readback daemon child имеет внутренний590s timeout; CLI600s не считается
+ограничением daemon lifetime. Native stable DB+WAL copy использует отдельный
+RW disk scratch, primary volume RO; private receipt хранит hashes entries/marker.
+Apply38897987071 ещё идёт. Новый выявленный CLI blocker partial-finalize resume
+исправляется отдельно в main; до exact source qualification finalize запрещён.
 Finalize transport пока отсутствует. После принятия полного
 приложения временные pins заменяются одной совместимой точкой.
 

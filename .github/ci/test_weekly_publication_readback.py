@@ -88,6 +88,8 @@ class ReadbackTests(unittest.TestCase):
             root=Path(temporary);plan,_,_=self.fixture(root)
             before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
             result=tool.verify(root,plan)
+            self.assertRegex(result.pop('journal_sha256'),'^[a-f0-9]{64}$')
+            self.assertRegex(result.pop('marker_sha256'),'^[a-f0-9]{64}$')
             self.assertEqual(result,{'status':'RETAINED_STATE_VERIFIED','verified_roots':2,'compacted_roots':1,
                                      'protected_roots':1,'word_artifacts':4,'dashboard_artifacts':2,'original_catalog_equivalent':True})
             after={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}

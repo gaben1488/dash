@@ -96,13 +96,17 @@ class WeeklyOperatorTests(unittest.TestCase):
                     if failed:raise ValueError('OPERATOR_COMMAND_FAILED')
                     return b'{"proof":true}'
                 return b''
-            with self.subTest(failed=failed),patch.object(self.module,'call',side_effect=run):
+            with self.subTest(failed=failed),patch.object(self.module,'call',side_effect=run),patch.dict(self.module.ENV,TMPDIR='/private/scratch'):
                 if failed:
                     with self.assertRaises(ValueError):self.module.native_readback('sha256:'+'b'*64,'aemr_server_data',b'code',{'plan':1})
                 else:self.assertEqual(self.module.native_readback('sha256:'+'b'*64,'aemr_server_data',b'code',{'plan':1}),b'{"proof":true}')
             create=calls[0][0]
             for flag in ('--read-only','--network','--memory','--memory-swap','--cpus'):self.assertIn(flag,create)
             self.assertIn('none',create);self.assertIn('768m',create)
+            self.assertIn('type=bind,src=/private/scratch,dst=/scratch',create)
+            self.assertIn('TMPDIR=/scratch',create)
+            self.assertEqual(create[create.index('--entrypoint')+1],'timeout')
+            self.assertIn('590s',create)
             self.assertIn('type=volume,src=aemr_server_data,dst=/app/packages/server/data,readonly',create)
             self.assertEqual(calls[-1][0],['docker','rm','--force',container])
             self.assertEqual(json.loads(calls[1][1]['input_bytes']),{'plan':1})

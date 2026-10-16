@@ -99,7 +99,8 @@ def native_readback(image,volume,source,planned):
         '--tmpfs','/tmp:rw,nosuid,nodev,size=128m',
         '--label','aemr.operation=retained-readback',
         '--mount','type=volume,src='+volume+',dst=/app/packages/server/data,readonly',
-        '--entrypoint','/opt/report-env/bin/python',image,'-IB','-c',source.decode(),'/app/packages/server/data/reports'],timeout=35).decode().strip()
+        '--env','TMPDIR=/scratch','--mount','type=bind,src='+ENV['TMPDIR']+',dst=/scratch',
+        '--entrypoint','timeout',image,'-k','5s','590s','/opt/report-env/bin/python','-IB','-c',source.decode(),'/app/packages/server/data/reports'],timeout=35).decode().strip()
     require(re.fullmatch('[a-f0-9]{64}',identity),'READBACK_CONTAINER_INVALID')
     try:
         return call(['docker','start','--attach','--interactive',identity],
@@ -500,7 +501,7 @@ def main():
         if lock.fileno()!=9:os.dup2(lock.fileno(),9,inheritable=True)
         try:
             state,backup=admit(args)
-            with owner_scratch(args.operator_run,preserve_on_error=not args.check):
+            with owner_scratch(args.operator_run,preserve_on_error=not args.check or bool(args.retained_readback)):
                 privilege=['/usr/bin/setpriv','--reuid=1000','--regid=1000','--clear-groups',
                            '--inh-caps=+dac_read_search','--ambient-caps=+dac_read_search']
                 if args.identity_apply:
@@ -548,9 +549,10 @@ def main():
                     release=json.loads(owned(Path('/var/lib/aemr/release-runtime/trial-plan.json')))
                     result=json.loads(native_readback(release['candidate_images']['server'],release['volume'],source,planned))
                     require(set(result)=={'status','verified_roots','compacted_roots','protected_roots','word_artifacts',
-                                          'dashboard_artifacts','original_catalog_equivalent'}
+                                          'dashboard_artifacts','original_catalog_equivalent','journal_sha256','marker_sha256'}
                             and result['status']=='RETAINED_STATE_VERIFIED'
                             and result['original_catalog_equivalent'] is True
+                            and all(re.fullmatch('[a-f0-9]{64}',result.get(name,'')) for name in ('journal_sha256','marker_sha256'))
                             and all(type(result[name]) is int and result[name]>=0 for name in (
                                 'verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts'))
                             and result['verified_roots']==planned['publication_count']
@@ -561,7 +563,7 @@ def main():
                     output=args.tree.parent/('retained-readback-'+args.operator_run+'.json')
                     with os.fdopen(os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600),'w') as file:
                         json.dump(proof,file,separators=(',',':'));file.flush();os.fsync(file.fileno())
-                    print(json.dumps(result,sort_keys=True));print('RETAINED_STATE_READBACK_PASS');return
+                    print(json.dumps({key:value for key,value in result.items() if not key.endswith('_sha256')},sort_keys=True));print('RETAINED_STATE_READBACK_PASS');return
                 if args.check and args.expected_revision=='live':
                     preview=preview_plan(args.tree,args.python,privilege,state,
                                          backup=backup,ci_evidence=args.ci_evidence,source_receipt=args.source_receipt,

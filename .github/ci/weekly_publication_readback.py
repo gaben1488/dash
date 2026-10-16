@@ -5,7 +5,7 @@ import re
 import sqlite3
 import stat
 import sys
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 
@@ -49,6 +49,7 @@ def compact_contract(original_root,original):
 
 def verify(state,plan):
     from procurement_engine.publication_store import PublicationStore
+    from procurement_engine.readonly_catalog import copied_catalog
 
     keep=set(plan['keep_release_ids']);targets=set(plan['retire_release_ids']);expected=keep|targets
     require(not keep&targets and len(expected)==plan['publication_count']
@@ -69,8 +70,13 @@ def verify(state,plan):
     counts={'status':'RETAINED_STATE_VERIFIED','verified_roots':0,'compacted_roots':len(targets),
             'protected_roots':len(keep),'word_artifacts':0,'dashboard_artifacts':0,'original_catalog_equivalent':True}
     require(not store.database_path.is_symlink())
-    with store.reader_lease(),closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)) as catalog, \
-         closing(sqlite3.connect((work/'entries.sqlite').absolute().as_uri()+'?mode=ro',uri=True)) as journal:
+    with ExitStack() as stack:
+        stack.enter_context(store.reader_lease())
+        # Same native byte-stable DB+WAL barrier; only private disk scratch is
+        # writable. A read-only WAL mount may lack writable SQLite shared memory.
+        store.database_path=stack.enter_context(copied_catalog(store.database_path))
+        catalog=stack.enter_context(closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)))
+        journal=stack.enter_context(closing(sqlite3.connect((work/'entries.sqlite').absolute().as_uri()+'?mode=ro',uri=True)))
         catalog.execute('PRAGMA query_only=ON');journal.execute('PRAGMA query_only=ON')
         require(journal.execute('PRAGMA quick_check').fetchone()==('ok',))
         require({row[0] for row in journal.execute('SELECT release_id FROM entries')}==targets)
@@ -97,6 +103,9 @@ def verify(state,plan):
             encode(row);counts['verified_roots']+=1
         revision.update(b'],');encode(sorted(keep));revision.update(b',');encode(sorted(targets));revision.update(b']')
         require(revision.hexdigest()==plan['catalog_revision'] and marker_path.read_bytes()==marker_body)
+    counts['journal_sha256']=digest(work/'entries.sqlite')
+    require(counts['journal_sha256']==marker['entries_sha256'])
+    counts['marker_sha256']=hashlib.sha256(marker_body).hexdigest()
     return counts
 
 
