@@ -1473,7 +1473,7 @@ jobs:
               'possible_physical_bytes':possible,'hashes_reverified':False}),flush=True)
 
             def checkpoint_metadata():
-             base=Path('/home/aemr/.dash-private-backups/worker-38831492016')
+             base=Path('/home/aemr/.dash-private-backups/worker-38905551150')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
               result={'checkpoint_metadata':name,'present':os.path.lexists(path)}
               if result['present']:
@@ -1484,7 +1484,7 @@ jobs:
                result['sha256']=hashlib.sha256(body).hexdigest()
                if name=='fresh_backup':result.update({key:value[key] for key in ('bytes','archive_bytes') if type(value.get(key)) is int});result['files']=len(value.get('files',{}))
                else:
-                result['expected_source']=value.get('release_sha')=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+                result['expected_source']=value.get('release_sha')=='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
                 for kind in ('full_restore','in_place_restore'):
                  detail=value.get(kind,{})
                  result[kind]={key:detail[key] for key in ('files','bytes','sqlite_checked','docx_checked') if type(detail.get(key)) is int}
@@ -1717,6 +1717,7 @@ jobs:
              if weekly_only=='yes':
               import shutil
               weekly_operator_metadata()
+              checkpoint_metadata()
               for category,path in [('host_default','/tmp'),('disk_scratch','/var/lib/aemr/weekly-scratch')]:
                usage=shutil.disk_usage(path)
                print(json.dumps({'temporary_filesystem':category,'total':usage.total,'free':usage.free}),flush=True)

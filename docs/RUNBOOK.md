@@ -44,7 +44,7 @@ Metadata38903934509 подтвердил завершение/exit0/readers_read
 Free12:55:19=4369240064B, не освобождённое compaction место.
 
 Явный finalize38904202760 SUCCESS после independent review и успешного proof;
-отдельный post-readback ещё не принят. Finalize83 связывает candidate/plan/entries/marker под native locks и
+отдельный post-readback38905123990 SUCCESS13:06:42UTC:99roots/249Word/99dashboard. Finalize83 связывает candidate/plan/entries/marker под native locks и
 использует только этот успешный proof. Resume разрешает лишь штатную durable
 finalizing phase; changed compact/original остатки отвергаются. Watcher может
 только recover, не dispose. После finalize обязателен отдельный native43
@@ -53,6 +53,15 @@ readback всех99roots/7replay/249Word/99dashboard; counts сверяются 
 Глобальный EX9 сохраняет inode; native locks run→readerEX→publication.
 Node/API не останавливаются, данные не откатываются. Новый application release
 допускается только после фактического освобождения места и post-readback.
+
+Физический итог finalize:12001247232B exclusive file blocks освобождены;
+28581079465B — logical retired, не physical. Free4512882688→17356713984B
+включает также штатное удаление disposable scratch. Все99roots/92compact/
+7protected,249Word/99dashboard подтверждены независимым чтением после удаления.
+Regular retention policy этим не включена. Controlled app83 release38905551150
+запущен после этих проверок;47verifier tests/82subtests,Ruff/actionlint PASS.
+Новый observer38906488066 ожидает его завершения и требует два новых future
+цикла83 с RUNNING/doubleFLOCK; результаты43 повторно не используются.
 
 Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске
 `/var/lib/aemr/weekly-scratch`, с UID/GID1000 для временных SQLite clones.
