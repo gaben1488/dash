@@ -60,7 +60,7 @@ jobs:
           script: |
             set -euo pipefail
             sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA python3 -IB - <<'PY'
-            import base64,hashlib,json,os,subprocess
+            import base64,hashlib,json,os,re,subprocess
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=15))[0]
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d'
             assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
@@ -70,7 +70,12 @@ jobs:
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
             for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)
-            if result.returncode:print('SOURCE_DRIFT_PROBE_FAILED',flush=True);raise SystemExit(2)
+            if result.returncode:
+                names={'AssertionError','PermissionError','FileNotFoundError','KeyError','TypeError','ImportError','ModuleNotFoundError','ValueError'}
+                errors=sorted(set(re.findall(rb'^([A-Za-z]+Error):',result.stderr,re.M)))
+                print(json.dumps({'source_drift_probe_failed':True,'native_exit':result.returncode,
+                    'exception_types':[item.decode() for item in errors if item.decode() in names]}),flush=True)
+                raise SystemExit(2)
             PY
   weekly-stage:
     if: >-

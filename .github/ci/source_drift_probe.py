@@ -61,13 +61,17 @@ def main(attempt):
     from procurement_engine.snapshot import canonical_semantic_hash
     assert re.fullmatch('[a-f0-9]{32}', attempt)
     root = Path('/app/packages/server/data/reports')
-    capture = read_private(root / 'attempts' / attempt / 'capture.json', 40 * 1024 * 1024)
     error = read_private(root / 'attempts' / attempt / 'error.json', 1024 * 1024)
-    registry = read_private(root / 'inputs/registry.json', 1024 * 1024)
     assert error['error_code'] == 'SOURCE_CHANGED_BEFORE_PUBLICATION' and error['stage'] == 'publication'
     print(json.dumps({'source_drift_probe': True, 'expected_attempt': True,
                       'exception_type': error['error_type'] if error['error_type'] in {'GoogleReadError', 'PublicationError'} else 'OTHER',
                       'stored_evidence_present': isinstance(error.get('evidence'), dict)}), flush=True)
+    path = root / 'attempts' / attempt / 'capture.json'
+    info = path.lstat()
+    print(json.dumps({'capture_metadata': True, 'bytes': info.st_size, 'links': info.st_nlink,
+                      'mode': stat.S_IMODE(info.st_mode), 'owner_allowed': info.st_uid in {0, 1000}}), flush=True)
+    capture = read_private(path, 40 * 1024 * 1024)
+    registry = read_private(root / 'inputs/registry.json', 1024 * 1024)
     contracts = {source['source_id']: source for source in registry['sources']}
     sources = {source['source_id']: source for source in capture['sources']}
     assert set(contracts) == set(sources)
