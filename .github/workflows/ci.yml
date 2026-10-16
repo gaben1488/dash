@@ -852,7 +852,7 @@ jobs:
           assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
           assert plan['backup_reference']=='worker-38831492016/backup'
           assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
-          executor=r.ReleaseRecovery();records=executor._records(plan,candidate=True)
+          executor=r.ReleaseRecovery(lock_fd=None);records=executor._records(plan,candidate=True)
           assert all(records[name]['State']['Status']=='running' for name in ('server','web','caddy'))
           assert records['server']['State']['Health']['Status']=='healthy'
           environment=dict(item.split('=',1) for item in records['caddy']['Config']['Env'] if '=' in item)
