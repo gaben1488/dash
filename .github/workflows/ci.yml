@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser]
+        options: [metadata, browser, proof-recovery]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -24,6 +24,34 @@ on:
 permissions:
   contents: read
 jobs:
+  proof-recovery:
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'proof-recovery' &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover the original successful receipt without deploying or stopping services
+        env:
+          VPS_USER: ${{ secrets.DEPLOY_USER }}
+          VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private="$RUNNER_TEMP/proof-recovery"
+          mkdir -m 700 "$private"
+          trap 'rm -rf -- "$private"' EXIT
+          printf '%s\n' "$VPS_KEY" > "$private/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$private/known_hosts" 2>/dev/null
+          test -s "$private/known_hosts"
+          ssh -i "$private/key" -o BatchMode=yes -o ConnectTimeout=15 \
+            -o UserKnownHostsFile="$private/known_hosts" -o StrictHostKeyChecking=yes \
+            "$VPS_USER@193.233.91.162" sudo -n python3 -IB - < .github/ci/recover_trial_proof.py
   browser-readback:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
@@ -117,7 +145,7 @@ jobs:
   observe:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      inputs.mode != 'browser' &&
+      inputs.mode == 'metadata' &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
     runs-on: ubuntu-latest
