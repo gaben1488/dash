@@ -76,7 +76,7 @@ jobs:
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
             assert len(body)<=40960 and hashlib.sha256(body).hexdigest()==os.environ['WEEKLY_SHA']
             path=root/'operator.py';path.write_bytes(body);path.chmod(0o600)
-            stage=Path('/root/codex-fixes/weekly-38881380220')
+            stage=Path('/root/codex-fixes/weekly-38895891036')
             python=stage/'venv/bin/python'
             probe='import sysconfig;print(sysconfig.get_path("purelib"))'
             site=subprocess.check_output([str(python),'-IB','-c',probe],timeout=15,text=True).strip()
