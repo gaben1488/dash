@@ -431,10 +431,13 @@ class PublicationStore:
     @_leased_read
     def select(self, report_date, report_year, quarter):
         """Exact context only; a nearby date is not an historical release."""
+        return self._select(report_date, report_year, quarter, self._checked)
+
+    def _select(self, report_date, report_year, quarter, checked):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             rows = _ordered_publication_rows(db,'WHERE report_date = ?', (report_date,),cutoff_only=True)
             for row in rows:
-                receipt = self._checked(row[-2:])
+                receipt = checked(row[-2:])
                 if receipt.get('replay_available') is False:
                     year, selected_quarter = receipt.get('report_year'), receipt.get('quarter')
                 else:
@@ -454,6 +457,9 @@ class PublicationStore:
         from an archive is never silently substituted. Match the sealed
         report model, not the receipt date's calendar quarter.
         """
+        return self._latest_for_period(report_date, report_year, quarter, self._checked)
+
+    def _latest_for_period(self, report_date, report_year, quarter, checked):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             rows = _ordered_publication_rows(db,'WHERE report_date <= ?', (report_date,))
             for row in rows:
@@ -468,9 +474,24 @@ class PublicationStore:
                     selected_quarter = (model.get('headline') or {}).get('current_quarter')
                 if year != report_year or selected_quarter != quarter:
                     continue
-                verified = self._checked(row[-2:])
+                verified = checked(row[-2:])
                 return {**verified, 'report_year': year, 'quarter': selected_quarter}
         return None
+
+    @_leased_read
+    def select_status(self, report_date, report_year, quarter):
+        """Keep both selectors, reusing one unchanged bundle proof in this read only."""
+        last_payload = last_receipt = None
+
+        def checked(payload):
+            nonlocal last_payload, last_receipt
+            if payload != last_payload:
+                receipt = self._checked(payload)
+                last_payload, last_receipt = payload, receipt
+            return last_receipt
+
+        return {'selected': self._select(report_date, report_year, quarter, checked),
+                'latest_matching': self._latest_for_period(report_date, report_year, quarter, checked)}
 
     @_leased_read
     def previous_model(self, report_date):

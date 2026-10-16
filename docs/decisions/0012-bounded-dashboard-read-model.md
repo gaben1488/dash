@@ -124,3 +124,15 @@ says ready=true/historical_replay_verified=false and omits exact frozen hashes;
 never cite that summary as a digest it does not contain. Identical engine/deploy
 trees permit scoped component comparisons, not transfer of full candidate
 installation/restore/two-cycle acceptance. Those remain bound to the exact release.
+
+### One selected-status read verifies an unchanged bundle once
+
+The selected and live-fallback selectors both retain their existing ordering,
+archive exclusions and period checks. Within one native status call under its
+shared reader lease, an exact unchanged catalog receipt/files pair may reuse its
+already successful full artifact verification. The memo contains only the last
+checked pair, remains local to this call and is never reused by another request.
+Different fallback releases or changed catalog payloads are verified normally;
+ordinary standalone store reads retain their original checks. This removes a
+reproduced duplicate full hash traversal, not the remaining model JSON reads or
+a proved cause of the production browser's intermittent timeout.
