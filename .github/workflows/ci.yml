@@ -1052,6 +1052,18 @@ jobs:
              versions={name:subprocess.run([name,'-I','-B','-c','import sys;print(".".join(map(str,sys.version_info[:3])))'],capture_output=True,text=True,timeout=10).stdout.strip() for name in ('python3','python3.11','python3.12') if shutil.which(name)}
              print(json.dumps({'host_operator_capabilities':{'python_versions':{k:v for k,v in versions.items() if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',v)},'setpriv_present':shutil.which('setpriv') is not None,'dac_read_search_bounded':bool(bound&(1<<2)),'sys_ptrace_bounded':bool(bound&(1<<19)),'docx_installed':importlib.util.find_spec('docx') is not None,'venv_installed':importlib.util.find_spec('venv') is not None,'pip_module':importlib.util.find_spec('pip') is not None,'ensurepip_module':importlib.util.find_spec('ensurepip') is not None,'pip3_present':shutil.which('pip3') is not None,'uv_present':shutil.which('uv') is not None}}),flush=True)
 
+            def image_storage_metadata():
+             identifiers=sorted(set(subprocess.check_output(['docker','image','ls','--all','--no-trunc','--quiet'],text=True,timeout=10).split()))
+             assert len(identifiers)<=64 and all(re.fullmatch('sha256:[a-f0-9]{64}',value) for value in identifiers)
+             if not identifiers:return
+             records=json.loads(subprocess.check_output(['docker','image','inspect',*identifiers],text=True,timeout=15))
+             for record in records:
+              if not any(tag.startswith(('aemr-server:','aemr-web:')) for tag in record.get('RepoTags') or []):continue
+              assert record['Id'] in identifiers and type(record['Size']) is int and 0<=record['Size']<2**53
+              revision=(record.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')
+              print(json.dumps({'image':record['Id'],'image_bytes':record['Size'],
+               'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None}),flush=True)
+
             def host_storage_metadata():
              for category,path in [('operational_scratch','/root/codex-fixes'),('temporary','/tmp'),
                ('inactive_host_dependencies','/opt/aemr/node_modules'),('host_dependencies','/home/aemr/dash/node_modules'),
@@ -1309,6 +1321,7 @@ jobs:
              transfer_host_metadata()
              release_failure_metadata()
              checkpoint_metadata()
+             image_storage_metadata()
              host_storage_metadata()
              host_operator_capabilities()
              recovery_preflight()

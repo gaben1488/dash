@@ -15,6 +15,31 @@ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 
 
 class BrowserAdmissionTests(unittest.TestCase):
+    def test_image_inventory_does_not_expose_config_or_arbitrary_tags(self):
+        import contextlib
+        import io
+        import json
+        import re
+        import textwrap
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        self.assertIn('            def image_storage_metadata():',workflow)
+        body=workflow.split('            def image_storage_metadata():',1)[1].split('\n            def ',1)[0]
+        ident='sha256:'+'a'*64
+        record={'Id':ident,'Size':123456,'RepoTags':['aemr-server:PRIVATE_TAG'],
+            'Config':{'Env':['PRIVATE_KEY=PRIVATE_SECRET'],'Labels':{'org.opencontainers.image.revision':'PRIVATE_SOURCE'}}}
+        calls=[]
+        def command(arguments,**kwargs):
+            calls.append(arguments)
+            return ident+'\n' if len(calls)==1 else json.dumps([record])
+        scope={'subprocess':SimpleNamespace(check_output=command),'json':json,'re':re}
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            program='def probe():\n'+textwrap.indent(textwrap.dedent(body),'    ')+'\nprobe()'
+            exec(compile(program,'<image-inventory>','exec'),scope)  # noqa: S102 - trusted read-only workflow
+        self.assertEqual(json.loads(output.getvalue()),{'image':ident,'image_bytes':123456,'source_sha':None})
+        self.assertNotIn('PRIVATE',output.getvalue())
+        self.assertEqual(calls,[['docker','image','ls','--all','--no-trunc','--quiet'],['docker','image','inspect',ident]])
+
     def test_host_capacity_inventory_projects_counts_without_private_paths(self):
         import contextlib
         import io
