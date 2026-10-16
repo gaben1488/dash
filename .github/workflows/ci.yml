@@ -1999,6 +1999,7 @@ jobs:
             sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA,HEADER_PROBE,HEADER_PROBE_SHA python3 -IB - <<'PYAPITIMING'
             import base64,hashlib,json,os,re,subprocess
             from datetime import datetime,timedelta,timezone
+            from pathlib import Path
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['State']['Running'] and record['Name']=='/aemr-server-1'
             installed=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
@@ -2019,6 +2020,19 @@ jobs:
                  'nano_cpus':host.get('NanoCpus',0),'pids_limit':host.get('PidsLimit'),
                  'network_none':host.get('NetworkMode')=='none','root_readonly':host.get('ReadonlyRootfs') is True,
                  'has_writable_named_data':any(m.get('Type')=='volume' and m.get('Destination')=='/app/packages/server/data' and m.get('RW') for m in item.get('Mounts',[]))})
+            for item,row in zip(containers,census,strict=True):
+             pid=item['State']['Pid']
+             if type(pid) is not int or pid<=0:continue
+             try:
+              lines=Path('/proc/'+str(pid)+'/cgroup').read_text().splitlines()
+              unified=next(line.removeprefix('0::') for line in lines if line.startswith('0::'))
+              assert unified=='/system.slice/docker-'+item['Id']+'.scope'
+              base=Path('/sys/fs/cgroup')/unified.lstrip('/')
+              for field,key in [('memory.current','memory_current_bytes'),('memory.peak','memory_peak_bytes')]:
+               value=(base/field).read_text().strip()
+               assert value.isdigit() and 0<=int(value)<=2**63-1
+               row[key]=int(value)
+             except (OSError,StopIteration,AssertionError):pass
             print(json.dumps({'running_container_resources':census}),flush=True)
             latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted 19289667' && 'True' || 'False' }}
             window_start=record['State']['StartedAt']
