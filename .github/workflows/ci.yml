@@ -1967,12 +1967,14 @@ jobs:
             set -euo pipefail
             sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA python3 -IB - <<'PYAPITIMING'
             import base64,hashlib,json,os,re,subprocess
+            from datetime import datetime,timedelta
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['Image']=='sha256:9aa3c5eb90f36f54682701fde48cb4d22e4fbd1837f274cab6589aa975184515' and record['State']['Running']
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
             window_start=record['State']['StartedAt']
             assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',window_start)
+            window_end=(datetime.fromisoformat(window_start)+timedelta(minutes=3)).isoformat()
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 83b813ab' && 'journal' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-',resource],input=code,capture_output=True,text=True,timeout=100,check=False)
@@ -1993,8 +1995,7 @@ jobs:
                     'process.exit(new Date().getTimezoneOffset()===0?0:2)'],capture_output=True,timeout=10)
                 assert logger_clock.returncode==0
                 with subprocess.Popen(['timeout','-k','5s','15s','docker','logs','--timestamps',
-                    '--since',window_start,
-                    '--tail','1000',record['Id']],stdin=subprocess.DEVNULL,
+                    '--since',window_start,'--until',window_end,record['Id']],stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True) as logs:
                     raw=logs.stdout.read(2*1024*1024+1)
                     if len(raw)>2*1024*1024:os.killpg(logs.pid,signal.SIGTERM)
