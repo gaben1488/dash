@@ -27,6 +27,51 @@ permissions:
   contents: read
   actions: read
 jobs:
+  source-drift:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' && github.event.head_commit.message == 'Inspect exact source drift for accepted 43f10742'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bind public diagnostic source
+        run: |
+          python - <<'PY'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/source_drift_probe.py').read_bytes()
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('DRIFT_PROBE='+base64.b64encode(body).decode()+'\n')
+              target.write('DRIFT_PROBE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PY
+      - name: Read frozen and live input comparisons without changing runtime
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DRIFT_PROBE: ${{ env.DRIFT_PROBE }}
+          DRIFT_PROBE_SHA: ${{ env.DRIFT_PROBE_SHA }}
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DRIFT_PROBE,DRIFT_PROBE_SHA
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA python3 -IB - <<'PY'
+            import base64,hashlib,json,os,subprocess
+            record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],timeout=15))[0]
+            assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d'
+            assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
+            body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
+            assert len(body)<=16384 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout','-k','5s','175s','/opt/report-env/bin/python','-IB','-','cd8fbf727f5a4075818fd14099264fc7'],input=body,capture_output=True,timeout=190,check=False)
+            assert len(result.stdout)<=32768
+            # The trusted script emits only fixed keys, booleans, counts and coordinates.
+            for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)
+            if result.returncode:print('SOURCE_DRIFT_PROBE_FAILED',flush=True);raise SystemExit(2)
+            PY
   weekly-stage:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
