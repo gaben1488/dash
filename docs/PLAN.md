@@ -5,59 +5,72 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 11:30 UTC
+### Текущий выпуск — 16.10.2026, 12:30 UTC
 
-Установлен43f10742. R08/два автономных цикла/3Word/history98 из38860353565 и
-backup/2restore38831492016 остаются принятыми для43. APIhealth HTTP200/ok
-в11:07,2.003s. Прикладной кандидат1666 не установлен: source3CI38886509339
-PASS, общий CI отказал на live43 READ_UNAVAILABLE/METRIC_READ. Native99-row
-v1 hash replay38887010993 PASS:356950016B process/19884349B serialization
-peak. Это не доказательство памяти всего plan/apply.
+Установлен `43f10742`; прикладной кандидат `268f9e5a` ещё не установлен.
+R08/два автономных цикла/context/snapshot/3Word/history98 из38860353565 и
+backup/два независимых restore38831492016 остаются принятыми только для43.
+Новая история/инструмент не превращают их в приёмку другого приложения.
 
-Следующий sourceb6dc7944 проверен1105 engine и12CLI; отдельный последующий
-qualification patch имеет13CLI/3canonical-gate/
-86store tests PASS. Все три source/native заданияb6 CI38894166136 SUCCESS;
-общий CI FAIL на GET установленного43 (4 READ_UNAVAILABLE/METRIC_READ).
-Повтор old-live check радиgreen не запускается. ADR010 уточняет отдельную
-source qualification по каноническому gate, без подмены conclusion; same-run
-jobs и helper bytes входят в authenticated receipt. Native actual43/backup/
-recovery/independent readback остаются обязательны. Новый tool не установлен.
+CI38895292149: три exact-SHA source/native jobs SUCCESS, общий FAILURE из-за
+GET установленного43. Source qualification использует прежний canonical helper,
+сохраняет общий conclusion и привязывает jobs к run/SHA/repository. Она разрешает
+только источник инструмента; не приложение/UI и не удаление данных.
+Все1105engine наb6, затем86store/13CLI/3canonical на268 PASS; следующий exact
+CI также прошёл engine/TS/lint/tests/build/audit/image. Новый tool staged
+38895891036 SUCCESS11:46:30, source268, isolated venv, immutable source hashes.
+Ровно74 native43 modules,7reviewed differences и неизменный root-pinned CI
+helper проверены; reader behavior проверен на настоящем установленном43.
 
-Законченный участок identity: copy-only38889251691 PASS2snapshots/8126rows/
-16252 nullable signatures, protected digest unchanged. Первая попытка live
-38890817567 остановилась на занятом worker run.lock до connect/write.
-Исправленный25-test/independent25 оператор ждёт с отпущенным maintenance EX,
-затем повторяет admission. Live CAS38891326813 PASS11:04:29UTC:8126rows/
-16252fields, UID/raw/history/frozen results не переписывались. Независимый
-native readback38891473586:95target snapshots,0 missing plan/entity/snapshots.
-Контейнеры и образы не пересоздавались; новых Google writes не было.
+Законченный identity-участок: copy-only38889251691, live CAS38891326813
+SUCCESS11:04:29UTC, independent native38891473586 SUCCESS11:05:42UTC:
+95snapshots/0missing. Восстановлены8126derived observations/16252NULL fields;
+UID/raw/history/frozen results не менялись. Первый38890817567 отказал на
+занятом run.lock ДО DB write; bounded idle wait исправлен. Не повторять repair.
 
-Backup index coverage38891425973:92 из95 candidate roots совпали по всему
-составу file hashes;3 отсутствуют,0 mismatch. Это индексная сверка, не новый
-restore или полная проверка нынешних файлов. Код следующего инструмента
-защищает неподкреплённые roots в keep/revision и повторяет полный backup/root
-gate под locks. Удалений публикаций не было. Свободно6427480064B11:01UTC;
-прежняя полная новая backup всё ещё не допущена по месту.
+Readonly preflight38896058189 SUCCESS11:54:40:99publications/keep7/retire92,
+28581079465B logical upper bound. Revision:
+`a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03`.
+3unbacked roots защищены; все92target inventories совпали с trusted backup.
+Ранее index-only38891425973 установил92covered/3missing; preflight добавил
+свежую проверку настоящих bytes. NoOOM/errors; sampled child HWM395165696B,
+не заявлять этот sample полным MemoryPeak. После обычного выхода scratch удалён.
 
-Исправление следующего blocker в ветке: небольшой reader marker + временный
-SQLite recovery payload, чтение по одной записи; legacy-v1 recovery сохранён.
-Три исходных RED: общий journal16.8MB/4records, копирование неизменяемых
-артефактов, отсутствие отдельной защиты unbacked roots. Новые staging hardlinks
-касаются только immutable published files; primaryDB/attempts не участвуют.
-Место учитывается по эксклюзивным blocks отдельно от logical bytes. Полный
-engine1105 и CLI12/Ruff PASS; independent91store-retention+12CLI PASS в
-границах предшествовавших трём дополнительным negative cases. Native
-source/admission/apply/independent readback/finalize ещё не выполнены.
-Реальный atomic write прерывается внутри json.dump: только native UUID tmp
-и известные staging файлы могут очищаться до journal; чужие/aliased файлы
-отклоняются. Внутренняя backup-проверка получает тот же единственный locked
-plan; CLI не принимает сериализованный caller plan.
+Reversible apply38897987071: root900s timeout12:19:43UTC, не PASS. Native
+COMPACTED92/quarantine retained подтверждено independent38899973071 в12:21:57.
+Тогда оставался native recovery подEX, безOOM, marker readers_ready=true.
+Не повторять apply; дождаться завершения recovery и независимого readback.
+Небольшой marker/temporary SQLite journal вместо большого повторного JSON;
+immutable artifact hardlinks сохраняют физические blocks в quarantine до finalize.
+Current/previous/weekly/unbacked защищены. Исходные publications не удалялись;
+старый backup/rollback keeper сохраняется.23exact unused images уже освободили
+564068352B; последний до операции free11:01UTC6427480064B — не текущий остаток.
 
-Следующий конечный шаг: проверить новый инструмент на настоящем объёме и
-старом43 reader, затем только подкреплённые92 candidates, сохраняя3 unbacked
-и все weekly/current/previous roots. До приёмки не объявлять compaction или
-новое приложение установленными. Все56 и мобильный/case/KPI/product-journal
-обязательства сохранены ниже; этот служебный участок их не закрывает.
+Independent retained-state checker связывает все download/dashboard/identity/
+ledger hashes и receipt/period с frozen originals, восстанавливает первоначальный
+catalog hash. Five consistent-tamper cases RED→GREEN;31operator/readback tests
+и31subtests PASS на byte-identical43 engine, independent review PASS. Тяжёлое
+чтение выполняется в отдельном bounded/network-none/RO-source container;
+DB+WAL копируются native stable barrier только на private disk scratch.
+Внутренний timeout ограничивает daemon child при потере SSH. Private proof
+сохраняет journal/marker hashes; перед finalize их надо повторно связать под
+root EX/native gates. Finalize ещё не допущен и transport отсутствует. Выявлен и воспроизведён
+CLI blocker resume после частичного удаления quarantine: finalizing recovery
+требовал полный original inventory. Новый узкий gate проверяет каждый
+оставшийся объект против trusted backup, отсутствие допускает только после
+начала finalize; rollback/precommit сохраняют equality. Отдельный finalize
+review теперь связывает source/plan/entries/marker и сверяется под native locks;
+повтор допускает только штатный переход readers_ready→finalizing. Legacy-v1
+embedded entry hash поддержан без SQL sidecar.109targeted tests/26subtests PASS;
+пять stale/interrupted/tamper сценариев и legacy/perf replay прошли.
+Полная модель больше не загружается ради периода: sealed manifest/dashboard
+дают те же поля, publisher ранее доказал parity. Новые изменения ещё не staged.
+
+Следующий конечный шаг: apply → independent native readback → reviewed finalize
+→ измерение реального freed space → controlled полный app release. Не объявлять
+верхнюю оценку физически освобождённым местом, а tool — приложением. Все56 и
+мобильная эквивалентность/жалобы/единое дело/KPI/продуктовый журнал остаются
+отдельными обязательствами ниже; завершение storage их не закрывает.
 
 ### Предыдущая точка — 16.10.2026, 10:19 UTC
 

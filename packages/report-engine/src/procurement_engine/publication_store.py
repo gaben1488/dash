@@ -684,7 +684,7 @@ class PublicationStore:
                     if rid not in selected:
                         continue
                     root = self.releases / rid
-                    model = _json(root / 'report_model.json')
+                    dashboard = _json(root / 'dashboard.json')
                     compact = work / 'staged' / rid
                     compact.mkdir(parents=True, mode=0o700)
                     for name in ('dashboard.json', 'main_report.docx', 'management_report.docx', 'operational_report.docx'):
@@ -721,8 +721,8 @@ class PublicationStore:
                         raise PublicationError('PUBLICATION_RETENTION_ARTIFACT_CHANGED')
                     record = json.loads(receipt)
                     record.update(replay_available=False,
-                                  report_year=model['snapshot']['report_year'],
-                                  quarter=model['headline']['current_quarter'])
+                                  report_year=manifest['report_year'],
+                                  quarter=dashboard['headline']['current_quarter'])
                     entry = {'release_id': rid, 'original': [receipt, files],
                              'compact': [json.dumps(record, ensure_ascii=False), json.dumps(reduced)]}
                     records.execute('INSERT INTO entries VALUES (?,?,?)', (count, rid, json.dumps(entry)))

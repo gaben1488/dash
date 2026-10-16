@@ -9,7 +9,9 @@ retaining exact downloads and historical decision proofs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -210,6 +212,7 @@ def operator_preflight(state, *, operation, candidate, ci, reader_package,
     validate_operator_state_owner(state)
     module, trusted = _trusted_backup(backup, repo)
     journal_exists = store is not None and (store.root / '.retirement/journal.json').is_file()
+    partial_finalization = False
     if operation == 'apply' or (operation == 'recover' and not journal_exists):
         # Only compact_publications supplies this in-process plan, while holding
         # all native locks. CLI never accepts a caller-serialized plan.
@@ -224,19 +227,26 @@ def operator_preflight(state, *, operation, candidate, ci, reader_package,
         if store is None:
             raise ValueError('MAINTENANCE_LEASE_REQUIRED')
         work, entries = store._retirement_entries()
-        if operation == 'finalize' and json.loads((work / 'journal.json').read_text()).get('plan_revision') != expected_revision:
+        journal = json.loads((work / 'journal.json').read_text())
+        if operation == 'finalize' and journal.get('plan_revision') != expected_revision:
             raise ValueError('INDEPENDENT_FINALIZE_REVIEW_REQUIRED')
+        partial_finalization = operation in {'recover', 'finalize'} and journal.get('finalizing') is True
         originals = {entry['release_id']: (work / 'original' / entry['release_id']
-                     if (work / 'original' / entry['release_id']).is_dir()
+                     if partial_finalization or (work / 'original' / entry['release_id']).is_dir()
                      else store.releases / entry['release_id']) for entry in entries}
     # Only sealed original publication roots must match the trusted old backup.
     # New mutable SQLite/WAL/status/ledger are NOT a rollback target.
     for rid, original_root in originals.items():
         prefix = 'reports/published/releases/' + rid + '/'
-        original = module.inventory(original_root, require_complete=False)
+        original = ({} if partial_finalization and not original_root.exists() and not original_root.is_symlink()
+                    else module.inventory(original_root, require_complete=False))
         expected_root = {k[len(prefix):]: v for k, v in trusted.items()
                          if k.startswith(prefix) and k != prefix}
-        if not expected_root or original != expected_root:
+        # Only a durably started finalization may have already removed originals.
+        # Native finalize still checks every retained catalog pair/artifact under locks.
+        matches = (all(expected_root.get(name) == value for name, value in original.items())
+                   if partial_finalization else original == expected_root)
+        if not expected_root or not matches:
             raise ValueError('IMMUTABLE_PUBLICATION_BACKUP_MISMATCH')
     result = {'status': 'PREREQUISITES_VERIFIED', 'original_roots': len(originals)}
     if operation == 'apply' and expected_revision == 'live':
@@ -296,9 +306,31 @@ def operate(state, *, operation, candidate, ci, reader_package, expected_revisio
     if operation == 'rollback':
         return store.rollback_compaction(preflight=gate)
     if operation == 'finalize':
-        if finalize_review != candidate + ':' + expected_revision:
+        prefix = candidate + ':' + expected_revision
+        if not re.fullmatch(re.escape(prefix) + r':[a-f0-9]{64}:[a-f0-9]{64}', finalize_review or ''):
             raise ValueError('INDEPENDENT_FINALIZE_REVIEW_REQUIRED')
-        return store.finalize_compaction(preflight=gate)
+        reviewed_entries, reviewed_marker = finalize_review.rsplit(':', 2)[-2:]
+        def finalize_gate(locked):
+            from procurement_engine.publication_store import _hash
+            gate(locked)
+            work = locked.root / '.retirement'
+            marker = work / 'journal.json'
+            phase = json.loads(marker.read_text())
+            if phase.get('contract') == 'publication-compaction-v2':
+                observed_entries = _hash(work / 'entries.sqlite')
+            else:  # Legacy embedded entries stay at this one compatibility boundary.
+                digest = hashlib.sha256()
+                for chunk in json.JSONEncoder(ensure_ascii=False, separators=(',', ':'), allow_nan=False).iterencode(phase['entries']):
+                    digest.update(chunk.encode())
+                observed_entries = digest.hexdigest()
+            observed_marker = _hash(marker)
+            if (observed_marker != reviewed_marker and phase.pop('finalizing', None) is True
+                    and phase.get('readers_ready') is False):
+                phase['readers_ready'] = True
+                observed_marker = hashlib.sha256(json.dumps(phase, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+            if observed_entries != reviewed_entries or observed_marker != reviewed_marker:
+                raise ValueError('INDEPENDENT_FINALIZE_READBACK_CHANGED')
+        return store.finalize_compaction(preflight=finalize_gate)
     raise ValueError('OPERATION_INVALID')
 
 

@@ -9,6 +9,8 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy' / 'plan-weekly-publications.py'
 
@@ -41,6 +43,36 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
         with sqlite3.connect(published / 'publications.sqlite') as db:
             db.execute('INSERT INTO publications VALUES (?,?,?,?,?)', (rid, day, receipt['cutoff_at'], json.dumps(receipt), json.dumps({'data.json': hashlib.sha256(b'x' * 100).hexdigest()})))
         return rid
+
+    def test_only_started_finalization_accepts_exact_surviving_quarantine_subset(self):
+        tool=self.load_tool()
+        spec=importlib.util.spec_from_file_location('backup_inventory',SCRIPT.with_name('stateful_backup.py'))
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        for condition in ('partial','absent','changed','extra','not_finalizing','rollback'):
+            with self.subTest(condition=condition),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);published=self.fixture(root);rid='REL-'+'a'*64
+                work=published/'.retirement';original=work/'original'/rid;original.mkdir(parents=True)
+                (original/'first').write_bytes(b'first');(original/'second').write_bytes(b'second')
+                trusted={'reports/published/releases/'+rid+'/'+name:value
+                         for name,value in module.inventory(original,require_complete=False).items()}
+                (original/'first').unlink()
+                if condition=='absent':(original/'second').unlink();original.rmdir()
+                if condition=='changed':(original/'second').write_bytes(b'changed')
+                if condition=='extra':(original/'unexpected').write_bytes(b'extra')
+                compact=published/'releases'/rid;compact.mkdir();(compact/'retained').write_bytes(b'compact')
+                (work/'journal.json').write_text(json.dumps({'finalizing':condition!='not_finalizing','plan_revision':'f'*64}))
+                store=SimpleNamespace(root=published,releases=published/'releases',
+                                      _retirement_entries=lambda work=work,rid=rid:(work,[{'release_id':rid}]))
+                operation='rollback' if condition=='rollback' else 'recover'
+                with patch.object(tool,'validate_operator_runtime',return_value=SCRIPT.parents[1]), \
+                     patch.object(tool,'_trusted_backup',return_value=(module,trusted)):
+                    arguments={'operation':operation,'candidate':'b'*40,'ci':{},'reader_package':root,
+                               'expected_revision':'f'*64,'backup':root/'backup','store':store}
+                    if condition in {'partial','absent'}:
+                        self.assertEqual(tool.operator_preflight(root,**arguments)['status'],'PREREQUISITES_VERIFIED')
+                    else:
+                        with self.assertRaisesRegex(ValueError,'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH'):
+                            tool.operator_preflight(root,**arguments)
 
     def test_weekly_control_and_two_latest_are_retained_without_catalog_writes(self):
         tool = self.load_tool()

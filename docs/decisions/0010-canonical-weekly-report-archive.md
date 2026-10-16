@@ -143,3 +143,33 @@ source helper включён в полный transport hash; root executor св�
 coverage/restore, locked plan, recovery и независимый finalize остаются
 отдельными обязательными gates. Source qualification не является приёмкой UI,
 установленного приложения, новой публикации или разрешением на очистку.
+
+### Продолжение прерванной финализации
+
+Финализация необратимо убирает только уже независимо проверенный quarantine.
+После durable `finalizing=true` отсутствие части original files — ожидаемая
+стадия удаления, а не требование вернуть полный исходный каталог. Только
+`recover`/`finalize` этой стадии допускают отсутствующий original root или
+точное подмножество исходной inventory. Каждый оставшийся файл/каталог обязан
+совпасть с trusted backup; лишний или изменённый объект блокирует продолжение.
+До этой стадии и для rollback остаётся полный equality gate. Native finalizer
+в любом случае проверяет все compact catalog pairs/artifacts под прежними
+run/reader/publication locks. Независимый root proof должен связывать точные
+journal/marker hashes до входа в необратимую фазу; прежний PASS не разрешает
+другой journal. Это завершение прежней операции, не пропуск backup-контроля
+и не восстановление mutable post-backup состояния.
+
+Аргумент отдельного finalize review связывает candidate, plan revision, хеш
+entries и хеш marker независимого readback. Сверка выполняется внутри прежних
+native locks, после backup gate. Продолжение допускает только штатный переход
+этого же marker из readers_ready в finalizing; entries остаётся побайтно тем
+же. Одной пары candidate:revision недостаточно для повторного использования
+устаревшего readback. Watchdog recover не получает права начать финализацию.
+
+Для legacy-v1 entry hash вычисляется потоково из embedded entries, без
+требования несуществующего SQLite sidecar. Проверка нового SQL-журнала
+остаётся основной. При извлечении периода не нужно повторно разбирать
+полную report_model: publish уже проверил равенство snapshot manifest и
+модели, а также dashboard projection. Проверенные manifest.report_year и
+dashboard.headline.current_quarter дают те же поля с существенно меньшим
+чтением JSON. Полные исходные файлы остаются checksum-protected.

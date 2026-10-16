@@ -274,6 +274,21 @@ def test_publication_compaction_keeps_weekly_current_previous_and_old_downloads(
     assert all((store.releases / r['release_id'] / 'snapshot_bundle').exists() for r in receipts)
 
 
+def test_compaction_period_uses_sealed_metadata_without_loading_the_full_model(tmp_path,monkeypatch):
+    import procurement_engine.publication_store as module
+    store,receipts=_compaction_fixture(tmp_path)
+    plan=store.plan_compaction();read_json=module._json
+    def bounded(path):
+        assert path.name!='report_model.json','Do not load a complete model merely to obtain year/quarter'
+        return read_json(path)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(module,'_json',bounded)
+        assert store.compact_publications(expected_revision=plan['catalog_revision'])['status']=='COMPACTED'
+    for receipt in receipts:
+        selected=store.select('-'.join(reversed(receipt['report_date'].split('.'))),2026,3)
+        assert selected is not None
+
+
 def test_compaction_reader_marker_stays_small_with_large_catalog_receipts(tmp_path):
     store, _ = _compaction_fixture(tmp_path)
     with sqlite3.connect(store.database_path) as db:
@@ -1015,10 +1030,83 @@ def test_finalize_review_is_bound_to_the_actual_journal_plan(tmp_path):
     # synthetic explicit acceptance; this never stands in for live acceptance.
     for receipt in receipts:
         assert store.read_artifact(receipt['release_id'], 'main_report.docx').startswith(b'PK')
-    result = tool.operate(store.root.parent, operation='finalize',
-                         finalize_review=options['candidate']+':'+options['expected_revision'], **options)
+    work=store.root/'.retirement'
+    reviewed=':'.join([options['candidate'],options['expected_revision'],
+                      hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest(),
+                      hashlib.sha256((work/'journal.json').read_bytes()).hexdigest()])
+    with pytest.raises(ValueError,match='INDEPENDENT_FINALIZE_REVIEW_REQUIRED'):
+        tool.operate(store.root.parent,operation='finalize',
+                     finalize_review=options['candidate']+':'+options['expected_revision'],**options)
+    result = tool.operate(store.root.parent, operation='finalize',finalize_review=reviewed, **options)
     assert result['status'] == 'FINALIZED'
     assert not (store.root / '.retirement').exists()
+
+
+@pytest.mark.parametrize('changed',['marker','journal'])
+def test_finalize_does_not_reuse_readback_after_journal_change(tmp_path,changed):
+    tool,store,_,options=_operator_fixture(tmp_path)
+    tool.operate(store.root.parent,operation='apply',**options)
+    work=store.root/'.retirement'
+    reviewed=':'.join([options['candidate'],options['expected_revision'],
+                      hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest(),
+                      hashlib.sha256((work/'journal.json').read_bytes()).hexdigest()])
+    marker=work/'journal.json'
+    if changed=='marker':marker.write_text(marker.read_text()+'\n')
+    else:
+        with sqlite3.connect(work/'entries.sqlite') as db:db.execute('CREATE TABLE unrelated(data TEXT)')
+        value=json.loads(marker.read_text());value['entries_sha256']=hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest()
+        write_json(marker,value)
+    with pytest.raises(ValueError,match='INDEPENDENT_FINALIZE_READBACK_CHANGED'):
+        tool.operate(store.root.parent,operation='finalize',finalize_review=reviewed,**options)
+    assert (work/'original').is_dir()
+
+
+@pytest.mark.parametrize('tamper',[False,True])
+def test_finalize_resume_keeps_original_readback_only_for_the_authorized_phase(tmp_path,monkeypatch,tamper):
+    import shutil
+    tool,store,receipts,options=_operator_fixture(tmp_path)
+    tool.operate(store.root.parent,operation='apply',**options)
+    work=store.root/'.retirement'
+    reviewed=':'.join([options['candidate'],options['expected_revision'],
+                      hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest(),
+                      hashlib.sha256((work/'journal.json').read_bytes()).hexdigest()])
+    original_rmtree=shutil.rmtree
+    def interrupted(path,*args,**kwargs):
+        if path==work/'original':
+            original_rmtree(next(path.iterdir()))
+            raise OSError('injected finalization interruption')
+        return original_rmtree(path,*args,**kwargs)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(shutil,'rmtree',interrupted)
+        with pytest.raises(OSError,match='injected'):
+            tool.operate(store.root.parent,operation='finalize',finalize_review=reviewed,**options)
+    assert json.loads((work/'journal.json').read_text())['finalizing'] is True
+    if tamper:
+        marker=json.loads((work/'journal.json').read_text());marker['unreviewed']=True
+        write_json(work/'journal.json',marker)
+        with pytest.raises(ValueError,match='INDEPENDENT_FINALIZE_READBACK_CHANGED'):
+            tool.operate(store.root.parent,operation='finalize',finalize_review=reviewed,**options)
+        assert (work/'original').is_dir()
+    else:
+        assert tool.operate(store.root.parent,operation='finalize',finalize_review=reviewed,**options)['status']=='FINALIZED'
+        for receipt in receipts:
+            assert store.read_artifact(receipt['release_id'],'main_report.docx').startswith(b'PK')
+
+
+def test_cli_finalizes_existing_legacy_journal_without_requiring_a_sqlite_sidecar(tmp_path):
+    from procurement_engine.runtime import _write
+    tool,store,_,options=_operator_fixture(tmp_path)
+    tool.operate(store.root.parent,operation='apply',**options)
+    work=store.root/'.retirement';marker=work/'journal.json'
+    with sqlite3.connect(work/'entries.sqlite') as db:
+        entries=[json.loads(row[0]) for row in db.execute('SELECT payload FROM entries ORDER BY ordinal')]
+    legacy={'contract':'publication-compaction-v1','plan_revision':options['expected_revision'],
+            'entries':entries,'readers_ready':True}
+    _write(marker,legacy);(work/'entries.sqlite').unlink()
+    entry_hash=hashlib.sha256(json.dumps(entries,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+    reviewed=':'.join([options['candidate'],options['expected_revision'],entry_hash,hashlib.sha256(marker.read_bytes()).hexdigest()])
+    assert tool.operate(store.root.parent,operation='finalize',finalize_review=reviewed,**options)['status']=='FINALIZED'
+    assert not work.exists()
 
 
 def test_cli_does_not_start_watchdog_or_create_log_without_ci(tmp_path, monkeypatch, capsys):
