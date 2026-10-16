@@ -48,6 +48,16 @@ class BrowserAdmissionTests(unittest.TestCase):
                 self.assertEqual(context['executor'].command(['inspect','synthetic']), '{}\n')
         finally:
             if saved is not None:os.dup2(saved,9);os.close(saved)
+    def test_saved_worker_probe_is_readonly_and_owner_scoped(self):
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        section=workflow.split('  observe:\n',1)[1].split('  proof-recovery:\n',1)[0]
+        expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
+        marker='Inspect saved worker refusal for accepted 43f10742'
+        for event,actor,message,expected in [('push','owner',marker,True),('push','someone',marker,False),('push','owner','other',False),('workflow_dispatch','owner','',True)]:
+            with self.subTest(event=event,actor=actor,message=message):
+                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/codex/release-observe-20261015',event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode='metadata',release_sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')}
+                self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
+
     def test_only_explicit_owner_browser_request_can_run_on_push(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  browser-readback:\n',1)[1].split('  observe:\n',1)[0]
