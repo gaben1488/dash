@@ -2322,7 +2322,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Prove normal-release observation needs no repair receipt
-        run: python .github/ci/test_worker_observation_release.py
+        run: |
+          python .github/ci/test_worker_observation_release.py
+          python .github/ci/test_attempt_proof_readback.py
       - name: Observe current accepted worker cycles without restarting or restoring any service
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -2335,12 +2337,14 @@ jobs:
             set -euo pipefail
             observer='b96e169d024bd0da218288506b678a3adc27bd58'
             git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$observer"
+            git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin '${{ github.sha }}'
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
             import hashlib,json,os,re,stat,subprocess,sys,time,types
             from datetime import datetime,timezone
             from pathlib import Path
             def observe():
                 seen,attributed={},set()
+                attempt_proofs=[]
                 deadline=time.monotonic()+max(2700,2*interval+900)
                 while time.monotonic()<deadline:
                     check()
@@ -2360,12 +2364,17 @@ jobs:
                         raise m.RecoveryError('WORKER_NEW_CYCLE_SOURCE_CHANGED')
                     if accepted:
                         native_smoke()
+                        proof=native_attempt_proof(status)
+                        attempt_proofs.append(proof)
+                        save('attempt-proof-'+status['attempt_id']+'.json',proof)
                         save('cycle-'+str(len(seen))+'.json',{k:status[k] for k in
                             ('status','attempt_id','started_at','finished_at','snapshot_id','publication')})
                         print('WORKER_AUTONOMOUS_CYCLE_'+str(len(seen))+'_AND_THREE_WORDS_PASS',flush=True)
                     if len(seen)==2:
                         return {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','worker':worker_id,'worker_image':image,
-                            'worker_started_at':since,'observation_since':observation_since,'attempt_ids':sorted(seen),'native_word':'PASS'}
+                            'worker_started_at':since,'observation_since':observation_since,'attempt_ids':sorted(seen),'native_word':'PASS',
+                            'attempt_proofs_verified':len(attempt_proofs),
+                            'reference_attempts_verified':sum(p['coverage']=='OBSERVED' for p in attempt_proofs)}
                     time.sleep(5)
                 raise m.RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
             try:
@@ -2385,9 +2394,13 @@ jobs:
                 for name,pin in window['module_sha256'].items():assert r.digest(r.read_owned(tools/name,private=False))==pin
                 m=types.ModuleType('accepted_worker_observation');m.__file__=str(tools/'accepted-worker-source.py')
                 exec(compile(git('show',sha+':deploy/worker_recovery.py'),m.__file__,'exec'),m.__dict__)
+                proof_reader=types.ModuleType('attempt_proof_readback');proof_reader.__file__=str(tools/'attempt-proof-readback-source.py')
+                exec(compile(git('show','${{ github.sha }}:.github/ci/attempt_proof_readback.py'),proof_reader.__file__,'exec'),proof_reader.__dict__)
+                permitted_proofs=set()
                 def readonly(args,*,timeout=45,**kwargs):
                     allowed=args[0] in {'inspect','ps','top'} or args[:2]==['volume','inspect']
                     allowed=allowed or args==['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke']
+                    allowed=allowed or tuple(args) in permitted_proofs
                     assert allowed,'READ_ONLY_COMMAND_REQUIRED'
                     result=subprocess.run(['docker',*args],capture_output=True,text=True,timeout=timeout,check=False)
                     if result.returncode:raise m.RecoveryError('WORKER_OBSERVATION_IO_FAILED')
@@ -2439,6 +2452,16 @@ jobs:
                 def native_smoke():
                     result=json.loads(readonly(['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke'],timeout=180))
                     if any(result.get(k)!='PASS' for k in ('context','snapshot','main','supplement','operational')):raise m.RecoveryError('WORKER_WORD_SMOKE_FAILED')
+                def native_attempt_proof(status):
+                    command=proof_reader.native_command(status)
+                    permitted_proofs.add(tuple(command))
+                    try:
+                        result=json.loads(readonly(command,timeout=180))
+                        return proof_reader.validate_result(result,status)
+                    except Exception:
+                        raise m.RecoveryError('WORKER_ATTEMPT_PROOF_CHECK_FAILED') from None
+                    finally:
+                        permitted_proofs.discard(tuple(command))
                 observation_since=datetime.now(timezone.utc).isoformat()
                 save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha,
                     'start_provenance':'CONTROLLED_RELEASE_ACCEPTANCE'})
