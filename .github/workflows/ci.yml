@@ -10,6 +10,11 @@ on:
         options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
+      browser_profile:
+        type: choice
+        options: [desktop, iphone]
+        default: desktop
+        description: "Browser interaction profile; iphone uses emulated WebKit, not a physical Safari claim"
       release_sha:
         description: "Exact 40-character main SHA to release"
         type: string
@@ -1193,8 +1198,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
-      BROWSER_PROFILE: ${{ contains(github.event.head_commit.message, 'iPhone') && 'iphone' || 'desktop' }}
-      BROWSER_ENGINE: ${{ contains(github.event.head_commit.message, 'iPhone') && 'webkit' || 'chromium' }}
+      BROWSER_PROFILE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'iphone' || 'desktop' }}
+      BROWSER_ENGINE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'webkit' || 'chromium' }}
       BROWSER_SCENARIO: ${{ startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
     steps:
       - uses: actions/checkout@v4
