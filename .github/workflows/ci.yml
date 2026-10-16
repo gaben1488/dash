@@ -1247,6 +1247,10 @@ jobs:
               body=log.read_text()
               tokens=('SIGKILL','SIGABRT','SIGSEGV','MemoryError','Killed','Permission denied','Operation not permitted','No such file','Fatal Python error','bad allocation','returncode=-9','returncode=-11')
               print(json.dumps({'weekly_operator_diagnostic_tokens':[k for k in tokens if k in body]}),flush=True)
+              frames=[{'file':Path(name).name,'line':int(number),'function':function} for name,number,function in re.findall(r'File "([^"\n]+)", line ([0-9]+), in ([A-Za-z_][A-Za-z_0-9<>]*)',body)]
+              exceptions=sorted(set(re.findall(r'(?m)^([a-zA-Z_.]*(?:Error|Exception)):',body)))
+              sql=[text for text in ('database or disk is full','unable to open database file','disk I/O error','No space left on device') if text in body]
+              print(json.dumps({'weekly_operator_trace_frames':frames,'exception_types':exceptions,'sql_diagnostics':sql}),flush=True)
               allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
               print(json.dumps({'weekly_operator_log_bytes':log.stat().st_size,'codes':sorted(k for k in allowed if k in body),
                'exceptions':sorted(k for k in ('MemoryError','PermissionError','FileNotFoundError','ModuleNotFoundError','TimeoutExpired','CalledProcessError') if k in body)}),flush=True)
@@ -1262,6 +1266,38 @@ jobs:
               values=db.execute('SELECT count(*),sum(length(cast(receipt as blob))),max(length(cast(receipt as blob))),sum(length(cast(files as blob))) FROM publications').fetchone()
              print(json.dumps({'publication_catalog_bytes':path.stat().st_size,'publication_count':values[0],
               'receipt_total_bytes':values[1],'receipt_max_bytes':values[2],'file_index_bytes':values[3]}),flush=True)
+
+            def attempt_json_dedup_preview():
+             base=Path('/var/lib/docker/volumes/aemr_server_data/_data')
+             body=Path('/home/aemr/.dash-private-backups/worker-38831492016/backup/manifest.json').read_bytes()
+             assert hashlib.sha256(body).hexdigest()=='4e6cdf147150e362425973f9c831763d429c64f5b677cfe0b2c5dc6ce2767588'
+             files=json.loads(body)['files'];terminal=set();groups={}
+             for name,expected in files.items():
+              match=re.fullmatch('reports/attempts/([a-f0-9]{32})/status.json',name)
+              if not match:continue
+              path=base/name
+              if not path.is_file() or path.is_symlink() or path.stat().st_size!=expected['bytes']:continue
+              raw=path.read_bytes()
+              if hashlib.sha256(raw).hexdigest()!=expected['sha256']:continue
+              value=json.loads(raw)
+              if value.get('attempt_id')==match[1] and value.get('status') in {'NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS'} and value.get('finished_at'):terminal.add(match[1])
+             for name,expected in files.items():
+              match=re.fullmatch(r'reports/attempts/([a-f0-9]{32})/bundle/snapshot_bundle/payloads/[^/]+\.json',name)
+              published=re.fullmatch(r'reports/published/releases/REL-[a-f0-9]{64}/snapshot_bundle/payloads/[^/]+\.json',name)
+              if not (published or (match and match[1] in terminal)) or expected.get('bytes',0)<1024**2:continue
+              path=base/name
+              if not path.is_file() or path.is_symlink():continue
+              info=path.stat()
+              if (info.st_size,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode))!=tuple(expected[k] for k in ('bytes','uid','gid','mode')):continue
+              key=tuple(expected[k] for k in ('sha256','bytes','uid','gid','mode'))
+              groups.setdefault(key,[]).append((info,bool(match)))
+             eligible=[values for values in groups.values() if len(values)>1 and any(attempt for _,attempt in values)]
+             possible=0
+             for values in eligible:
+              inodes={(v.st_dev,v.st_ino):v for v,_ in values}
+              possible+=max(0,sum(v.st_blocks*512 for v in inodes.values())-min(v.st_blocks*512 for v in inodes.values()))
+             print(json.dumps({'attempt_json_readonly_estimate':True,'terminal_attempts':len(terminal),'groups':len(eligible),
+              'possible_physical_bytes':possible,'hashes_reverified':False}),flush=True)
 
             def checkpoint_metadata():
              base=Path('/home/aemr/.dash-private-backups/worker-38831492016')
@@ -1513,6 +1549,7 @@ jobs:
              checkpoint_metadata()
              weekly_operator_metadata()
              publication_payload_sizes()
+             attempt_json_dedup_preview()
              image_storage_metadata()
              host_storage_metadata()
              host_operator_capabilities()
