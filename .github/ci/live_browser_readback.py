@@ -32,6 +32,18 @@ def readonly_request(url, method):
             and method in {'GET', 'HEAD', 'OPTIONS'})
 
 
+def browser_credentials(profile, username, password):
+    if profile not in {'desktop', 'iphone'}:
+        raise ValueError('BROWSER_PROFILE_INVALID')
+    credentials = {'username': username, 'password': password}
+    if profile == 'desktop':
+        credentials['origin'] = BASE
+    # Playwright 1.62 WebKit compares absent default URL port as 0 to TLS port 443
+    # (bootstrap.diff: shouldSendAutomationCredentialsForProtectionSpace).
+    # The mandatory route below enforces exact HTTPS origin before any page exists.
+    return credentials
+
+
 def record_response(response, proof):
     parsed = urlsplit(response.url)
     if parsed.netloc != urlsplit(BASE).netloc:
@@ -77,8 +89,7 @@ async def run():
             await unauthenticated.dispose()
             browser = await getattr(driver, engine).launch(headless=True)
             context = await browser.new_context(**options,
-                accept_downloads=True, http_credentials={'username': metadata['username'],
-                    'password': password, 'origin': BASE})
+                accept_downloads=True, http_credentials=browser_credentials(profile, metadata['username'], password))
             blocked = []
 
             async def readonly(route):

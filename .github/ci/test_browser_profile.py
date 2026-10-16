@@ -33,6 +33,22 @@ class BrowserProfileTests(unittest.TestCase):
 
 
 class ReadonlyOriginTests(unittest.TestCase):
+    def test_only_guarded_webkit_uses_credentials_without_broken_origin_filter(self):
+        source = Path(__file__).with_name('live_browser_readback.py').read_text()
+        node = next((item for item in ast.parse(source).body
+                     if isinstance(item, ast.FunctionDef) and item.name == 'browser_credentials'), None)
+        self.assertIsNotNone(node, 'WebKit origin-filter auth failed at the real HTTPS edge')
+        context = {'BASE': 'https://dash-elizovo-uer.ru'}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), '<browser-credentials>', 'exec'), context)  # noqa: S102 - trusted local constructor only
+        credentials = context['browser_credentials']
+        self.assertEqual(credentials('iphone', 'synthetic-user', 'synthetic-password'),
+                         {'username': 'synthetic-user', 'password': 'synthetic-password'})
+        self.assertEqual(credentials('desktop', 'synthetic-user', 'synthetic-password'),
+                         {'username': 'synthetic-user', 'password': 'synthetic-password',
+                          'origin': 'https://dash-elizovo-uer.ru'})
+        with self.assertRaises(ValueError):
+            credentials('unknown', 'synthetic-user', 'synthetic-password')
+
     def test_credentials_never_follow_http_downgrade_or_foreign_origin(self):
         from urllib.parse import urlsplit
         source = Path(__file__).with_name('live_browser_readback.py').read_text()
