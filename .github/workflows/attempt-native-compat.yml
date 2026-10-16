@@ -1,0 +1,97 @@
+name: Native attempt reference compatibility
+
+on:
+  push:
+    branches: [codex/release-observe-20261015]
+
+permissions:
+  contents: read
+
+jobs:
+  native-compat:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.event.head_commit.message == 'Verify Bae reader compatibility for candidate b96e169d'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bounded harness self-checks without production access
+        run: python3 .github/ci/attempt_reference_native_compat.py selftest
+      - name: Compare actual previous native readers on isolated synthetic state
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script: |
+            set -euo pipefail
+            candidate=b96e169d024bd0da218288506b678a3adc27bd58
+            tooling='${{ github.sha }}'
+            git -C /home/aemr/dash fetch --quiet origin "$candidate"
+            git -C /home/aemr/dash fetch --quiet origin "$tooling"
+            sudo -n python3 -IB - "$candidate" "$tooling" '${{ github.run_id }}' <<'PYCOMPAT'
+            import hashlib,json,os,re,stat,subprocess,sys
+            from pathlib import Path
+            def run(args,**kwargs):
+                result=subprocess.run(args,capture_output=True,timeout=130,check=False,**kwargs)
+                if result.returncode:raise ValueError('NATIVE_COMPAT_OPERATION_FAILED')
+                return result.stdout
+            def git(*args):
+                return run(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args])
+            def runtimes():
+                records=json.loads(run(['docker','inspect',*[f'aemr-{name}-1' for name in ('server','report-worker','web','caddy')]]))
+                return [(r['Id'],r['Image'],r['State']['Status'],r['State']['StartedAt'],r['RestartCount']) for r in records]
+            def files(root):
+                result={}
+                for item in sorted(root.rglob('*')):
+                    info=item.lstat()
+                    assert not item.is_symlink() and (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))
+                    if item.is_file():
+                        with item.open('rb') as stream:result[str(item.relative_to(root))]=[info.st_size,hashlib.file_digest(stream,'sha256').hexdigest()]
+                    else:result[str(item.relative_to(root))]=['directory',stat.S_IMODE(info.st_mode)]
+                return result
+            def main():
+                assert os.geteuid()==0 and all(re.fullmatch('[a-f0-9]{40}',v) for v in sys.argv[1:3])
+                assert re.fullmatch('[0-9]+',sys.argv[3])
+                candidate,tooling=sys.argv[1:3]
+                image='sha256:694f6553c4d8135a9b5344eb98982f2844173b9e75b04f4a5d8a701c47bcc580'
+                native=json.loads(run(['docker','image','inspect',image]))[0]
+                assert native['Id']==image and native['Config']['Labels']['org.opencontainers.image.revision']=='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
+                before_runtime=runtimes()
+                base=Path('/root/codex-fixes')/('attempt-compat-'+candidate[:8]+'-'+sys.argv[3])
+                assert not base.exists() and not any(p.is_symlink() for p in (base.parent,*base.parent.parents))
+                os.umask(0o077);base.mkdir(mode=0o700)
+                source=base/'source';source.mkdir(mode=0o700)
+                archive=git('archive',candidate,'packages/report-engine/src')
+                run(['tar','--no-same-owner','-xf','-','-C',str(source)],input=archive)
+                harness=base/'compat.py'
+                harness.write_bytes(git('show',tooling+':.github/ci/attempt_reference_native_compat.py'));harness.chmod(0o644)
+                fixture=base/'fixture';fixture.mkdir(mode=0o700);os.chown(fixture,1000,1000)
+                common=['docker','run','--rm','--user','1000:1000','--network','none','--read-only',
+                    '--cap-drop','ALL','--security-opt','no-new-privileges','--memory','512m','--cpus','0.5','--pids-limit','64',
+                    '--tmpfs','/tmp:rw,nosuid,nodev,size=64m','--mount',f'type=bind,src={harness},dst=/compat.py,readonly',
+                    '--entrypoint','/opt/report-env/bin/python']
+                generated=run([*common,'--mount',f'type=bind,src={source}/packages/report-engine/src,dst=/candidate-src,readonly',
+                    '--mount',f'type=bind,src={fixture},dst=/fixture',image,'-IB','/compat.py',
+                    'generate','--root','/fixture','--candidate-source','/candidate-src'])
+                (base/'generation.json').write_bytes(generated)
+                before=files(fixture)
+                checked=run([*common,'--mount',f'type=bind,src={fixture},dst=/fixture,readonly',image,'-IB','/compat.py',
+                    'check','--root','/fixture'])
+                result=json.loads(checked)
+                assert files(fixture)==before and runtimes()==before_runtime
+                (base/'result.json').write_bytes(checked)
+                proof={'candidate_source':candidate,'tooling_source':tooling,'previous_image':image,
+                    'harness_sha256':hashlib.sha256(harness.read_bytes()).hexdigest(),
+                    'fixture_unchanged':True,'production_runtime_unchanged':True,
+                    'synthetic_only':True,'native_result':result}
+                (base/'provenance.json').write_text(json.dumps(proof,sort_keys=True))
+                print(json.dumps(proof,sort_keys=True))
+            try:main()
+            except Exception:
+                print('ISOLATED_ATTEMPT_NATIVE_COMPAT_FAILED')
+                raise SystemExit(2) from None
+            PYCOMPAT
