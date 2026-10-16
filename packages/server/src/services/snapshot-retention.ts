@@ -12,7 +12,7 @@
  * snapshots), чтобы FK при foreign_keys=ON не бросал и не оставлял
  * частично удалённое состояние (блокер R2a №2б).
  */
-import { inArray, sql } from 'drizzle-orm';
+import { and, inArray, sql } from 'drizzle-orm';
 import { DAYS_PER_WEEK } from '@aemr/shared';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
@@ -117,7 +117,8 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
     const keep = retentionKeepIds(rows, productCalendarDay(now, offset), offset);
     // Weekly heads/unknown scopes may already protect every row. No deletion
     // is possible, so case-history payload scans cannot change this result.
-    if (rows.every(row => keep.has(row.id))) return 0;
+    const candidates = rows.filter(row => !keep.has(row.id)).map(row => row.id);
+    if (candidates.length === 0) return 0;
     // A discarded daily version may be the only exact identity proof behind a
     // saved decision. Preserve its immutable raw rows and user history. This
     // intentionally retains extra snapshots; reviewed cases need an explicit
@@ -132,9 +133,16 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
       if (issue.snapshotId) keep.add(issue.snapshotId);
       // Keep earlier proofs as well: the old hash omitted organization C, and
       // deleting a conflicting version would manufacture a unique match later.
-      const versions = db.select({ id: schema.snapshots.id }).from(schema.snapshots)
-        .where(sql`instr(${schema.snapshots.data}, ${JSON.stringify(issue.id)}) > 0`).all();
-      for (const version of versions) keep.add(version.id);
+      // Already protected versions cannot affect deletion. Use their scalar
+      // IDs to restrict blob reads, keeping <999 parameters on older SQLite.
+      for (let start = 0; start < candidates.length; start += 900) {
+        const batch = candidates.slice(start, start + 900).filter(id => !keep.has(id));
+        if (batch.length === 0) continue;
+        const versions = db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+          .where(and(inArray(schema.snapshots.id, batch),
+            sql`instr(${schema.snapshots.data}, ${JSON.stringify(issue.id)}) > 0`)).all();
+        for (const version of versions) keep.add(version.id);
+      }
     }
     const drop = rows.filter((r) => !keep.has(r.id)).map((r) => r.id);
     if (drop.length === 0) return 0;

@@ -228,6 +228,56 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     expect(db.select().from(schema.issues).all().every(row => row.status === 'false_positive')).toBe(true);
   });
 
+  it('reads case evidence only in deletion candidates, preserving all protected snapshots', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const cases = Array.from({ length: 17 }, (_, i) => ({ id: `reviewed-${i}` }));
+    const payload = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {}, issues: cases });
+    const candidate = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {}, issues: [] });
+    for (let week = 0; week < 15; week++) db.insert(schema.snapshots).values({
+      id: `week-${week}`, spreadsheetId: 'book',
+      createdAt: new Date((THU - week * 7) * 86400000).toISOString(), data: payload,
+    }).run();
+    db.insert(schema.snapshots).values({ id: 'loser', spreadsheetId: 'book',
+      createdAt: new Date((THU - 1) * 86400000).toISOString(), data: candidate }).run();
+    for (const entry of cases) db.insert(schema.issues).values({ ...entry,
+      snapshotId: 'week-0', severity: 'info', origin: 'calc', category: 'fixture',
+      title: 'Reviewed', status: 'false_positive', detectedAt: new Date(THU * 86400000).toISOString(),
+    }).run();
+    let payloadReads = 0;
+    db.$client.function('instr', { deterministic: true }, (raw: string, needle: string) => {
+      if (needle.startsWith('"reviewed-')) payloadReads++;
+      const position = raw.indexOf(needle);
+      return position < 0 ? 0 : [...raw.slice(0, position)].length + 1;
+    });
+    expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(1);
+    expect(payloadReads).toBe(17);
+    expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(Array(15).fill(payload));
+    expect(db.select().from(schema.issues).all().every(row => row.status === 'false_positive')).toBe(true);
+  });
+
+  it('preserves case evidence beyond a SQLite parameter batch', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const payload = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {}, issues: [{ id: 'case' }] });
+    const headAt = new Date(THU * 86400000).toISOString();
+    db.insert(schema.snapshots).values({ id: 'head', spreadsheetId: 'book', createdAt: headAt, data: payload }).run();
+    for (let index = 0; index < 1005; index++) db.insert(schema.snapshots).values({
+      id: `daily-${index}`, spreadsheetId: 'book', data: payload,
+      createdAt: new Date((THU - 1) * 86400000 + index).toISOString(),
+    }).run();
+    db.insert(schema.issues).values({ id: 'case', snapshotId: 'head', severity: 'info',
+      origin: 'calc', category: 'fixture', title: 'Reviewed', status: 'false_positive', detectedAt: headAt }).run();
+    const prepare = vi.spyOn(db.$client, 'prepare');
+    try {
+      expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(0);
+      expect(Math.max(...prepare.mock.calls.map(([query]) => (query.match(/\?/g) ?? []).length))).toBeLessThanOrEqual(999);
+    } finally {
+      prepare.mockRestore();
+    }
+    expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(Array(1006).fill(payload));
+  });
+
   it('SQLite сохраняет доказанные all-year/year/book области и голову, удаляя только проигравший daily', async () => {
     const { db, schema } = await import('../db/index.js');
     const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
