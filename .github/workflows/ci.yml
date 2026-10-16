@@ -2025,6 +2025,65 @@ jobs:
             raise SystemExit(0 if result.returncode==0 else 2)
             PYREGISTRY
 
+  provenance-readback:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Verify provenance wiring for accepted bae73c20'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the bounded privacy-preserving sample probe
+        run: python3 .github/ci/test_provenance_api_probe.py
+      - name: Bind reviewed probe source
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/provenance_api_probe.py').read_bytes()
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('PROVENANCE_PROBE='+base64.b64encode(body).decode()+'\n')
+              target.write('PROVENANCE_PROBE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PY
+      - name: Read the sample from the exact installed candidate without source writes
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          PROVENANCE_PROBE: ${{ env.PROVENANCE_PROBE }}
+          PROVENANCE_PROBE_SHA: ${{ env.PROVENANCE_PROBE_SHA }}
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: PROVENANCE_PROBE,PROVENANCE_PROBE_SHA
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n --preserve-env=PROVENANCE_PROBE,PROVENANCE_PROBE_SHA python3 -IB - <<'PY'
+            import base64,hashlib,json,os,subprocess
+            record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
+            assert record['State']['Running'] and record['Name']=='/aemr-server-1'
+            assert record['State']['Health']['Status']=='healthy'
+            labels=record['Config']['Labels']
+            assert labels['com.docker.compose.project']=='aemr' and labels['com.docker.compose.service']=='server'
+            image=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
+            assert image['Config']['Labels']['org.opencontainers.image.revision']=='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
+            body=base64.b64decode(os.environ['PROVENANCE_PROBE'],validate=True)
+            assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['PROVENANCE_PROBE_SHA']
+            # The probe owns the output privacy boundary and has a 180-second total budget.
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],
+                'timeout','-k','5s','190s','/opt/report-env/bin/python','-IB','-'],
+                input=body,capture_output=True,timeout=200,check=False)
+            assert result.returncode in (0,2) and not result.stderr and len(result.stdout)<=4096
+            value=json.loads(result.stdout)
+            assert value.get('status') in {'SAMPLE_VALID','SAMPLE_INVALID','SAMPLE_UNAVAILABLE'}
+            assert value.get('full_journal_accepted') is False
+            print(json.dumps(value,sort_keys=True),flush=True)
+            raise SystemExit(result.returncode)
+            PY
+
   api-timing:
     if: >-
       github.actor == github.repository_owner &&
