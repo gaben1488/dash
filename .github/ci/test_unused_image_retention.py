@@ -54,6 +54,19 @@ class ImageRetentionTests(unittest.TestCase):
             with patch.object(self.module.subprocess,'run',side_effect=child):
                 self.assertEqual(json.loads(self.module.command(['image','rm','--no-prune',self.ids[0]])),os.fstat(lock.fileno()).st_ino)
 
+    def test_legacy_operator_metadata_can_only_add_protection_not_authorize(self):
+        import contextlib
+        import io
+        original=os.fstat
+        def legacy_owner(fd):
+            fields=list(original(fd));fields[4]=1000
+            return os.stat_result(fields)
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'legacy.json';path.write_text(json.dumps({'image':self.ids[0]}));path.chmod(0o600)
+            with patch.object(self.module.os,'fstat',side_effect=legacy_owner),contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):self.module.owned(path)
+                self.assertEqual(self.module.references(json.loads(self.module.owned(path,reference_only=True))),{self.ids[0]})
+
     def test_invalid_or_duplicate_identifiers_fail_closed(self):
         for selected in ([self.ids[0],self.ids[0]],['PRIVATE_ID']):
             with self.assertRaises(ValueError):self.module.select_images(self.images,[],set(),selected)
