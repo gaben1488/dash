@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage]
+        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -1210,3 +1210,47 @@ jobs:
              print(json.dumps({"same_filter_counts":counts}),flush=True)
             if __name__=="__main__":main()
             PY
+
+  monitoring-preview:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      inputs.mode == 'monitoring-preview' &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read live geometry and preview existing reviewed registry migration without writes
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -IB - <<'PYPREVIEW'
+            import hashlib,json,os,re,shutil,subprocess
+            from pathlib import Path
+            record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
+            assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d'
+            assert record['State']['Running'] and record['State'].get('Health',{}).get('Status')=='healthy'
+            assert record['Config']['Labels']['com.docker.compose.project']=='aemr'
+            code = "import hashlib,json,re,time\nfrom pathlib import Path\nfrom procurement_engine.google_adapter import GoogleReadClient\nfrom procurement_engine.monitoring_schema import review_registry,_sealed_headers\nfrom procurement_engine.runtime_inputs import validate_inputs\nstart=time.monotonic()\nstate=Path('/app/packages/server/data/reports');path=state/'inputs/registry.json'\nraw=path.read_bytes();original=json.loads(raw)\nresult={'monitoring_preview':'STARTED'}\ntry:\n matches=[s for s in original['sources'] if s['sheet_id']==837564274 and s['provider_id']=='1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E']\n assert len(matches)==1\n source=matches[0];client=GoogleReadClient();grid=client.grid(source['provider_id'],source['sheet_id'])\n result.update(registry_columns=source['columns'],live_columns=grid['gridProperties']['columnCount'],live_rows=grid['gridProperties']['rowCount'],title_matches=source['sheet']==grid['title'])\n candidate,changes=review_registry(original,_sealed_headers(state),client)\n validate_inputs(candidate,json.loads((state/'inputs/ledger.json').read_text()))\n result.update(monitoring_preview='PASS',review_changes=changes,candidate_valid=True)\nexcept Exception as error:\n message=str(error)\n allowed={'MONITORING_SCHEMA_BASE_MISMATCH','MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH','MONITORING_SCHEMA_LIVE_HEADER_MISMATCH','MONITORING_SCHEMA_SOURCE_CHANGED','MONITORING_SCHEMA_SEALED_BASE_MISMATCH','MONITORING_SCHEMA_UD_SEALED_MISMATCH','MONITORING_SCHEMA_UD_HEADER_MISMATCH','MONITORING_SCHEMA_PRIMARY_MISSING','MONITORING_SCHEMA_SOURCE_NOT_UNIQUE','MONITORING_SCHEMA_IDENTITY_MISMATCH','MONITORING_SCHEMA_RETIRED_BASE_MISMATCH','MONITORING_SCHEMA_RETIRED_STILL_PRESENT','MONITORING_SCHEMA_SUPPLIER_HEADER_MISMATCH','MONITORING_SCHEMA_CHECKS_HEADER_MISMATCH'}\n result.update(monitoring_preview='REJECTED',error_code=message if message in allowed else 'OTHER')\nresult.update(registry_unchanged=path.read_bytes()==raw,elapsed_seconds=round(time.monotonic()-start,3))\nprint(json.dumps(result))\n"
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','140s','/opt/report-env/bin/python','-IB','-'],input=code,capture_output=True,text=True,timeout=150)
+            if result.returncode:
+             print(json.dumps({'monitoring_preview':'EXECUTOR_FAILED','returncode':result.returncode}),flush=True)
+            else:
+             value=json.loads(result.stdout)
+             assert set(value)<={'monitoring_preview','registry_columns','live_columns','live_rows','title_matches','review_changes','registry_unchanged','candidate_valid','error_code','elapsed_seconds'}
+             assert value.get('monitoring_preview') in {'PASS','REJECTED','STARTED'}
+             for key in ('registry_columns','live_columns','live_rows','review_changes'):
+              if key in value:assert type(value[key]) is int and 0<=value[key]<=1000000
+             for key in ('title_matches','registry_unchanged','candidate_valid'):
+              if key in value:assert type(value[key]) is bool
+             assert type(value.get('elapsed_seconds')) in {int,float} and 0<=value['elapsed_seconds']<180
+             if 'error_code' in value:assert re.fullmatch('[A-Z_]{1,80}',value['error_code'])
+             print(json.dumps(value),flush=True)
+            print(json.dumps({'native_migration_capabilities':{'nsenter':shutil.which('nsenter') is not None,'setpriv':shutil.which('setpriv') is not None,'effective_sys_admin':bool(int(next(x.split()[1] for x in Path('/proc/self/status').read_text().splitlines() if x.startswith('CapEff:')),16)&(1<<21))}}),flush=True)
+            PYPREVIEW
