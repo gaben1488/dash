@@ -7,6 +7,30 @@ import time
 from pathlib import Path
 
 
+def weekly_formula_summary(state):
+    """Inspect validated frozen dependencies, without generation or live reads."""
+    from collections import Counter
+    from datetime import date
+
+    from procurement_engine.archive_runtime import load_frozen_input
+    from procurement_engine.deployment_diagnostics import PUBLIC_CODES
+    from procurement_engine.formula_dependencies import audit_formula_dependencies
+
+    weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
+    assert weeks
+    source = weeks[-1]
+    day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+    capture, *_ = load_frozen_input(source, day=day.isoformat(), year=day.year, quarter=(day.month - 1) // 3 + 1)
+    assert capture.get('sources')
+    audit = audit_formula_dependencies(capture)
+    counts = Counter(item['code'] if item.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
+                     for item in audit.get('issues', []))
+    refs = sum(isinstance(cell.get('formula'), str) and '#REF!' in cell['formula'].upper()
+               for item in capture['sources'] for cell in (item.get('formula_evidence') or {}).get('formulas', []))
+    return {'input_hashes_verified': True, 'closed': audit.get('closed') is True,
+            'issue_counts': dict(counts), 'literal_ref_formulas': refs}
+
+
 def value_differences(before, after):
     missing = object()
     count, coordinates = 0, []
@@ -128,4 +152,7 @@ def main(attempt):
 
 if __name__ == '__main__':
     import sys
-    main(sys.argv[1])
+    if sys.argv[1] == 'weekly':
+        print(json.dumps({'weekly_formula_dependencies': weekly_formula_summary('/app/packages/server/data/reports')}))
+    else:
+        main(sys.argv[1])

@@ -31,7 +31,9 @@ jobs:
     if: >-
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
-      github.event_name == 'push' && github.event.head_commit.message == 'Inspect exact source drift for accepted 43f10742'
+      github.event_name == 'push' &&
+      (github.event.head_commit.message == 'Inspect exact source drift for accepted 43f10742' ||
+       github.event.head_commit.message == 'Inspect weekly formula closure for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -66,7 +68,19 @@ jobs:
             assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=16384 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
-            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout','-k','5s','175s','/opt/report-env/bin/python','-IB','-','f20d108be83441189c665b5eca3fe7e1'],input=body,capture_output=True,timeout=190,check=False)
+            mode='${{ github.event.head_commit.message == 'Inspect weekly formula closure for accepted 43f10742' && 'weekly' || 'f20d108be83441189c665b5eca3fe7e1' }}'
+            assert mode in {'weekly','f20d108be83441189c665b5eca3fe7e1'}
+            command=['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout']
+            if mode=='weekly':
+                mounts=[m for m in record['Mounts'] if m['Type']=='volume' and m['Destination']=='/app/packages/server/data']
+                assert len(mounts)==1 and re.fullmatch('[A-Za-z0-9_.-]+',mounts[0]['Name'])
+                # Full frozen dependency validation is isolated from the live
+                # API cgroup. It cannot write state or consume unbounded RAM.
+                command=['docker','run','--rm','-i','--network','none','--read-only','--memory','768m',
+                    '--memory-swap','768m','--cpus','0.5','--pids-limit','64','--user','1000:1000',
+                    '--mount','type=volume,src='+mounts[0]['Name']+',dst=/app/packages/server/data,readonly',
+                    '--entrypoint','/usr/bin/timeout',record['Image']]
+            result=subprocess.run([*command,'-k','5s','175s','/opt/report-env/bin/python','-IB','-',mode],input=body,capture_output=True,timeout=190,check=False)
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
             for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)
@@ -1460,7 +1474,9 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'api-timing' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 43f10742'))
+       (github.event_name == 'push' &&
+        (github.event.head_commit.message == 'Profile journal read for accepted 43f10742' ||
+         github.event.head_commit.message == 'Profile dashboard read for accepted 43f10742')))
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -1478,7 +1494,7 @@ jobs:
             import json,re,subprocess
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d' and record['State']['Running']
-            resource="journal" if "${{ github.event_name }}"=="push" else "dashboard"
+            resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 43f10742' && 'journal' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-',resource],input=code,capture_output=True,text=True,timeout=100,check=False)
             assert result.returncode==0

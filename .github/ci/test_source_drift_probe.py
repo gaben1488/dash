@@ -3,6 +3,7 @@ import importlib.util
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
@@ -10,6 +11,25 @@ class DriftProbeTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('source_drift_probe', Path(__file__).with_name('source_drift_probe.py'))
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+
+    def test_weekly_formula_diagnostic_reports_codes_and_literal_ref_count_only(self):
+        import json
+        import tempfile
+
+        capture = {'sources': [{'source_id': 'PRIVATE_SOURCE', 'provider_id': 'PRIVATE_BOOK',
+            'sheet_id': 1, 'sheet': 'PRIVATE_SHEET', 'rows': 1, 'columns': 1,
+            'values': [['PRIVATE_VALUE']], 'formula_evidence': {'rows': 1, 'columns': 1,
+                'formulas': [{'row': 1, 'column': 1, 'formula': '=#REF!A1'}],
+                'sheets': [{'sheetId': 1, 'title': 'PRIVATE_SHEET'}], 'named_ranges': []}}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'archives/WEEKLY-2026-10-15').mkdir(parents=True)
+            with patch('procurement_engine.archive_runtime.load_frozen_input', return_value=(capture, {}, [], {})):
+                result = self.module.weekly_formula_summary(root)
+        self.assertFalse(result['closed'])
+        self.assertEqual(result['literal_ref_formulas'], 1)
+        self.assertGreater(result['issue_counts']['FORMULA_DEPENDENCY_NOT_CAPTURED'], 0)
+        self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_exact_coordinates_preserve_missing_empty_zero_and_type(self):
         result = self.module.value_differences([[0, '', None, 3]], [['0', '', None], ['PRIVATE_SENTINEL']])
