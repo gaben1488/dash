@@ -2005,6 +2005,21 @@ jobs:
             assert installed['Config']['Labels']['org.opencontainers.image.revision']=='19289667b0aca6f88ff6225c9a3a8c849a592c9d'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
+            running=subprocess.check_output(['docker','ps','--quiet'],text=True,timeout=10).splitlines()
+            assert 0<len(running)<=32
+            containers=json.loads(subprocess.check_output(['docker','inspect',*running],text=True,timeout=20))
+            census=[]
+            for item in containers:
+             host=item['HostConfig'];cmd=item['Config'].get('Cmd') or [];labels=item['Config'].get('Labels') or {}
+             role=labels.get('com.docker.compose.service')
+             if role not in {'server','web','caddy','report-worker'}:
+              role='rehearsal' if any('procurement_engine.rehearsal'==arg for arg in cmd) else 'other'
+             census.append({'role':role,'started_at':item['State']['StartedAt'],
+                 'same_api_image':item['Image']==record['Image'],'memory_limit':host.get('Memory',0),
+                 'nano_cpus':host.get('NanoCpus',0),'pids_limit':host.get('PidsLimit'),
+                 'network_none':host.get('NetworkMode')=='none','root_readonly':host.get('ReadonlyRootfs') is True,
+                 'has_writable_named_data':any(m.get('Type')=='volume' and m.get('Destination')=='/app/packages/server/data' and m.get('RW') for m in item.get('Mounts',[]))})
+            print(json.dumps({'running_container_resources':census}),flush=True)
             latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted 19289667' && 'True' || 'False' }}
             window_start=record['State']['StartedAt']
             assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',window_start)
