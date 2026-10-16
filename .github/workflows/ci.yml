@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [codex/release-observe-20261015]
   workflow_dispatch:
     inputs:
       mode:
@@ -799,9 +801,11 @@ jobs:
             "$VPS_USER@193.233.91.162" sudo -n python3 -IB - < .github/ci/recover_trial_proof.py
   browser-readback:
     if: >-
-      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'browser' &&
-      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
+        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 43f10742'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

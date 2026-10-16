@@ -6,6 +6,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -31,6 +32,23 @@ class BrowserAdmissionTests(unittest.TestCase):
                 self.assertEqual(context['executor'].command(['inspect','synthetic']), '{}\n')
         finally:
             if saved is not None:os.dup2(saved,9);os.close(saved)
+    def test_only_explicit_owner_browser_request_can_run_on_push(self):
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        section=workflow.split('  browser-readback:\n',1)[1].split('  observe:\n',1)[0]
+        expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
+        marker='Verify real browser for accepted 43f10742'
+        for name,event,actor,branch,message,mode,sha,expected in (
+            ('explicit-push','push','owner','codex/release-observe-20261015',marker,'','',True),
+            ('ordinary-push','push','owner','codex/release-observe-20261015','other','','',False),
+            ('foreign-push','push','someone','codex/release-observe-20261015',marker,'','',False),
+            ('main-push','push','owner','main',marker,'','',False),
+            ('browser-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'browser','43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa',True),
+            ('metadata-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'metadata','43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa',False)):
+            with self.subTest(name=name):
+                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))), 'inputs':SimpleNamespace(mode=mode,release_sha=sha)}
+                result=eval(expression,{'__builtins__':{}},context)  # Evaluate only the checked-in fixed Actions condition.
+                self.assertEqual(bool(result),expected)
+
 
 
 if __name__=='__main__':unittest.main()
