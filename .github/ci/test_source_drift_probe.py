@@ -12,6 +12,49 @@ class DriftProbeTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def test_snapshot_stage_probe_reads_scalar_metadata_without_payload_or_writes(self):
+        import json
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / 'state.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript('''
+                    CREATE TABLE snapshots (created_at TEXT, read_duration_ms INTEGER,
+                        pipeline_duration_ms INTEGER, row_count INTEGER, issue_count INTEGER, data TEXT);
+                    CREATE TABLE issues (id TEXT, status TEXT, comment TEXT);
+                    CREATE TABLE issue_history (issue_id TEXT);
+                    CREATE TABLE audit_log (entity_id TEXT, action TEXT);
+                    INSERT INTO snapshots VALUES ('2026-10-16T07:22:00Z', 123, 25000, 5000, 700, 'PRIVATE_PAYLOAD');
+                    INSERT INTO issues VALUES ('PRIVATE_ID', 'false_positive', NULL);
+                ''')
+            real_connect = sqlite3.connect
+            statements = []
+            def connect(*args, **kwargs):
+                connection = real_connect(*args, **kwargs)
+                connection.set_trace_callback(statements.append)
+                connection.set_authorizer(lambda action, name, column, *_:
+                    sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and column == 'data'
+                    else sqlite3.SQLITE_OK)
+                return connection
+            with patch.object(sqlite3, 'connect', side_effect=connect):
+                result = self.module.snapshot_stage_summary(database)
+            self.assertEqual(result['recent_snapshots'], [{'read_ms': 123, 'pipeline_ms': 25000,
+                'row_count': 5000, 'issue_count': 700}])
+            self.assertEqual(result['reviewed_case_count'], 1)
+            self.assertEqual(result['snapshot_count'], 1)
+            self.assertNotIn('PRIVATE', json.dumps(result))
+            self.assertFalse(any(statement.lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE', 'CREATE'))
+                                 for statement in statements))
+            # SQLite INTEGER affinity still admits text/REAL values. Corrupt
+            # metadata must never turn a numeric-only public probe into a leak.
+            for malformed in ('PRIVATE_TIMING', -1, 1e300):
+                with self.subTest(malformed=type(malformed).__name__), real_connect(database) as connection:
+                    connection.execute('UPDATE snapshots SET pipeline_duration_ms = ?', (malformed,))
+                with self.assertRaisesRegex(ValueError, '^SNAPSHOT_STAGE_METADATA_INVALID$'):
+                    self.module.snapshot_stage_summary(database)
+
     def test_weekly_formula_diagnostic_reports_codes_and_literal_ref_count_only(self):
         import json
         import tempfile

@@ -7,6 +7,30 @@ import time
 from pathlib import Path
 
 
+def snapshot_stage_summary(database):
+    """Read existing scalar timings; never scan/copy historical JSON payloads."""
+    import sqlite3
+    from contextlib import closing
+
+    started = time.monotonic()
+    with closing(sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as connection:
+        connection.execute('PRAGMA query_only=ON')
+        connection.set_progress_handler(lambda: int(time.monotonic() - started > 10), 1000)
+        recent = connection.execute('''SELECT read_duration_ms, pipeline_duration_ms, row_count, issue_count
+            FROM snapshots ORDER BY created_at DESC LIMIT 5''').fetchall()
+        reviewed = connection.execute('''SELECT COUNT(*) FROM issues WHERE status <> 'open'
+            OR length(trim(coalesce(comment, ''))) > 0
+            OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id = issues.id)
+            OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id = issues.id
+                AND audit_log.action = 'issue_comment')''').fetchone()[0]
+        count = connection.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0]
+    if any(value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1)
+           for value in [count, reviewed, *(value for row in recent for value in row)]):
+        raise ValueError('SNAPSHOT_STAGE_METADATA_INVALID')
+    return {'recent_snapshots': [dict(zip(('read_ms', 'pipeline_ms', 'row_count', 'issue_count'), row, strict=True))
+                                 for row in recent], 'snapshot_count': count, 'reviewed_case_count': reviewed}
+
+
 def weekly_formula_summary(state):
     """Inspect validated frozen dependencies, without generation or live reads."""
     from collections import Counter
@@ -154,5 +178,7 @@ if __name__ == '__main__':
     import sys
     if sys.argv[1] == 'weekly':
         print(json.dumps({'weekly_formula_dependencies': weekly_formula_summary('/app/packages/server/data/reports')}))
+    elif sys.argv[1] == 'snapshot':
+        print(json.dumps({'snapshot_stages': snapshot_stage_summary('/app/packages/server/data/aemr.db')}))
     else:
         main(sys.argv[1])
