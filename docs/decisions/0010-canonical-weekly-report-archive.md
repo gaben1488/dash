@@ -173,3 +173,25 @@ native locks, после backup gate. Продолжение допускает 
 модели, а также dashboard projection. Проверенные manifest.report_year и
 dashboard.headline.current_quarter дают те же поля с существенно меньшим
 чтением JSON. Полные исходные файлы остаются checksum-protected.
+
+### 16.10.2026 — корректный отказ на сохранённой ошибке источника
+
+Read-only38919215019/38919864786 выявил в старой неделе три literal `#REF!`;
+зарегистрированные payload не потеряны. По решению выше архив может содержать
+`NOT_ISSUED` input: сохранение его для истории не обещает успешного переиздания.
+Поэтому проверка миграции различает положительный replay и доказанный одинаковый
+отказ на неизменном историческом источнике. Последний не становится успешным
+историческим отчётом и не отменяет publication gate.
+
+Для такой классификации недостаточно одинакового общего error code. Нужны
+проверенные исходные bytes до/после, одинаковые hashes полного bundle/identity/
+import и snapshot, полный formula audit только с literal invalid references,
+точный digest source/row/column/code/target, одинаковый отказ без других blockers,
+section/source errors. Native baseline и candidate выполняются одним проверяемым
+qualification probe, но каждый использует собственные установленные engine modules.
+Если исправный кандидат разрешает публикацию этих же literal `#REF!`, gate отказывает.
+Результат называется `UNCHANGED_FROZEN_SOURCE_REFUSAL`, сохраняет
+`historical_replay_verified=false` и не заменяет положительный current frozen replay,
+проверку читателей, Word и восстановления. Неполнота/потеря payload, изменившийся
+архив, неизвестные targets, другие ошибки и отсутствие доказательства блокируют
+миграцию. Оригинал недели и сегодняшние источники не изменяются.

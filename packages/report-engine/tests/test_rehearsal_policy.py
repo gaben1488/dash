@@ -66,3 +66,50 @@ def test_malformed_failure_fields_do_not_bypass_the_gate_or_leak_text(malformed)
     assert result['ready'] is False
     assert result['candidate']['error_code'] == 'GENERATION_FAILED'
     assert 'PRIVATE_SENTINEL' not in json.dumps(result)
+
+
+def frozen_refusal():
+    return {'replay_status': 'FAIL', 'error_code': 'ARCHIVE_BUILD_FAILED',
+            'blocker_codes': ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN'],
+            'section_errors': {}, 'source_error_counts': {},
+            'frozen_refusal': {'contract': 'frozen-invalid-reference-proof-v1',
+                'archive_sha256': 'a' * 64, 'snapshot_sha256': 'b' * 64,
+                'dependency_issue_sha256': 'c' * 64, 'invalid_reference_count': 3}}
+
+
+def test_same_proven_immutable_invalid_reference_is_an_expected_refusal_not_a_successful_report():
+    value = frozen_refusal()
+    result = compare_weekly_replay(value, value)
+    assert result['ready'] is True
+    assert result['status'] == 'UNCHANGED_FROZEN_SOURCE_REFUSAL'
+    assert result['historical_replay_verified'] is False
+
+
+@pytest.mark.parametrize('field,value', [('archive_sha256', 'd' * 64),
+    ('snapshot_sha256', 'd' * 64), ('dependency_issue_sha256', 'd' * 64),
+    ('invalid_reference_count', 4), ('invalid_reference_count', True),
+    ('archive_sha256', 'PRIVATE_SENTINEL'), ('contract', 'other')])
+def test_refusal_needs_exact_same_frozen_content_and_issues(field, value):
+    original = frozen_refusal()
+    changed = {**original, 'frozen_refusal': {**original['frozen_refusal'], field: value}}
+    result = compare_weekly_replay(original, changed)
+    assert not result['ready']
+    assert 'PRIVATE_SENTINEL' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('changes', [{'blocker_codes': ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN', 'INDEPENDENT_AUDIT_FAILED']},
+    {'section_errors': {'procedures': 1}}, {'source_error_counts': {'SOURCE_RANGE_INCOMPLETE': 1}},
+    {'frozen_refusal': None}, {'error_code': 'ARCHIVE_CORRUPT'}])
+def test_frozen_refusal_does_not_waive_other_failures(changes):
+    original = frozen_refusal()
+    assert not compare_weekly_replay(original, {**original, **changes})['ready']
+
+
+def test_publishing_known_invalid_frozen_references_is_a_regression():
+    assert not compare_weekly_replay(frozen_refusal(), {'replay_status': 'PASS'})['ready']
+
+
+def test_other_baseline_errors_do_not_allow_publication_of_proven_literal_invalid_references():
+    baseline = {**frozen_refusal(), 'blocker_codes': ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN', 'SOURCE_QA_ERRORS'],
+                'source_error_counts': {'DUPLICATE_PROCEDURE_CODE': 1}}
+    assert not compare_weekly_replay(baseline, {'replay_status': 'PASS'})['ready']

@@ -535,13 +535,17 @@ jobs:
             # DEPLOYED report-engine and the CANDIDATE, with the same read-only
             # volume and no network. An immutable historical defect may already
             # be present; never mislabel it as candidate regression or as PASS.
-            # Any new/changed failure still blocks CI; only the exact known
-            # inherited duplicate-procedure defect is explicitly classified.
+            # Use the same reviewed qualification probe for both engines. Baseline
+            # retains its installed imports (no PYTHONPATH override); the probe only
+            # measures evidence and refusal. Literal bad historical #REF! requires
+            # complete frozen hashes + exact issue digest, never a generic waiver.
+            # Every other/new/changed failure blocks; historical refusal is not PASS.
             baseline_weekly=$(docker run --rm --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work/packages/report-engine:/qualification:ro" \
               --entrypoint /opt/report-env/bin/python "$image" \
-              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only || true)
+              -c 'import runpy,sys; probe=runpy.run_path("/qualification/src/procurement_engine/rehearsal.py",run_name="procurement_engine.rehearsal_probe"); sys.exit(probe["main"](["--state","/app/packages/server/data/reports","--weekly-only"]))' || true)
             candidate_weekly=$(docker run --rm --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \

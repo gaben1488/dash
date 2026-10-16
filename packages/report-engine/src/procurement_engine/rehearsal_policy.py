@@ -6,6 +6,8 @@ bytes; the upgrade may proceed only when its precise known blocking condition
 is identical under the deployed engine and under the candidate engine.
 This does not certify the historical report or downgrade publication checks.
 """
+import re
+
 from .deployment_diagnostics import (
     PUBLIC_CODES,
     PUBLIC_TYPES,
@@ -38,8 +40,31 @@ def _failure_summary(value):
     return summary
 
 
+def _valid_refusal_proof(proof):
+    hashes = ('archive_sha256', 'snapshot_sha256', 'dependency_issue_sha256')
+    return (isinstance(proof, dict)
+        and set(proof) == {'contract', 'invalid_reference_count', *hashes}
+        and proof['contract'] == 'frozen-invalid-reference-proof-v1'
+        and type(proof['invalid_reference_count']) is int and 0 < proof['invalid_reference_count'] <= 1_000_000
+        and all(isinstance(proof[key], str) and re.fullmatch('[a-f0-9]{64}', proof[key]) for key in hashes))
+
+
+def _proven_invalid_references(value):
+    return (value.get('replay_status') == 'FAIL' and value.get('error_code') == 'ARCHIVE_BUILD_FAILED'
+        and value.get('blocker_codes') == ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN']
+        and value.get('section_errors') == {} and value.get('source_error_counts') == {}
+        and _valid_refusal_proof(value.get('frozen_refusal')))
+
+
 def compare_weekly_replay(baseline: dict, candidate: dict) -> dict:
-    if candidate.get("replay_status") == "PASS":
+    proven = _proven_invalid_references(baseline)
+    if (proven and _proven_invalid_references(candidate)
+            and baseline['frozen_refusal'] == candidate['frozen_refusal']):
+        return {'status': 'UNCHANGED_FROZEN_SOURCE_REFUSAL', 'ready': True,
+                'historical_replay_verified': False,
+                'explanation': 'Неизменный исторический срез содержит доказанные #REF!. '
+                               'Оба генератора отказали в публикации; исторический отчёт не принят.'}
+    if candidate.get("replay_status") == "PASS" and not _valid_refusal_proof(baseline.get('frozen_refusal')):
         return {"status": "PASS", "ready": True, "historical_replay_verified": True}
     keys = ("replay_status", "error_code", "blocker_codes", "section_errors", "source_error_counts")
     if (baseline.get("replay_status") == "FAIL"
