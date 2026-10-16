@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release]
+        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -25,6 +25,457 @@ permissions:
   contents: read
   actions: read
 jobs:
+  fresh-release:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'fresh-release' &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    env:
+      RECOVERY_SHA: 43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+      RECOVERY_RUN: ${{ github.run_id }}
+      VPS_USER: ${{ secrets.DEPLOY_USER }}
+      VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+      - name: Admit exact current candidate before any maintenance
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          mkdir -m 700 "$RUNNER_TEMP/release"
+          printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/release/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/release/known_hosts" 2>/dev/null
+          test -s "$RUNNER_TEMP/release/known_hosts"
+          cat > "$RUNNER_TEMP/release/ssh.sh" <<'SH'
+          remote() {
+            ssh -i "$RUNNER_TEMP/release/key" -o BatchMode=yes -o ConnectTimeout=15 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -o UserKnownHostsFile="$RUNNER_TEMP/release/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" "$@"
+          }
+          window() {
+            if test "$1" = prepare; then
+              remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec bash -s -- \"\$@\"' release-window prepare $RECOVERY_SHA $RECOVERY_RUN /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller" \
+                < deploy/report-backup-window.sh
+            else
+              remote sudo -n bash -s -- "$1" "$RECOVERY_SHA" "$RECOVERY_RUN" \
+                /home/aemr/dash /home/aemr/.dash-private-backups --quiesce-worker --release-controller \
+                < deploy/report-backup-window.sh
+            fi
+          }
+          SH
+          ready=false
+          for attempt in $(seq 1 30); do
+            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
+              --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
+            if test -n "$ci_run"; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$RUNNER_TEMP/release/run.json"
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$RUNNER_TEMP/release/jobs.json"
+              python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release'
+          r=json.loads((p/'run.json').read_text());j=json.loads((p/'jobs.json').read_text())['jobs']
+          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository')},
+                 'jobs':[{k:x[k] for k in ('name','status','conclusion')} for x in j]}
+          (p/'source-ci.json').write_text(json.dumps(value))
+          PY
+              if python3 .github/ci/source_ci_gate.py "$RECOVERY_SHA" < "$RUNNER_TEMP/release/source-ci.json"; then ready=true; break; fi
+            fi
+            sleep 20
+          done
+          test "$ready" = true
+      - name: Match the production Docker engine and image store
+        id: release-docker
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
+        with:
+          version: v29.1.3
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Bind privileged trial commands to the same pinned runner daemon
+        env:
+          RELEASE_DOCKER_SOCKET: ${{ steps.release-docker.outputs.sock }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          selected_cli=$(command -v docker)
+          selected_socket=${RELEASE_DOCKER_SOCKET#unix://}
+          test -S "$selected_socket"
+          # Ephemeral hosted runner only. Recovery deliberately uses the fixed
+          # /usr/bin/docker + default socket, without inherited endpoint variables.
+          sudo systemctl stop docker.service docker.socket
+          if test "$(readlink -f "$selected_cli")" != /usr/bin/docker; then sudo install -m 755 "$selected_cli" /usr/bin/docker; fi
+          sudo ln -sfn "$selected_socket" /var/run/docker.sock
+          sudo install -d -m 700 /etc/aemr/docker
+          expected=$(docker info --format '{{.ID}}')
+          actual=$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker info --format '{{.ID}}')
+          test "$expected" = "$actual"
+          test "$(docker version --format '{{.Server.Version}}')" = 29.1.3
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys; assert ["driver-type","io.containerd.snapshotter.v1"] in json.load(sys.stdin)'
+          # The stopped, preinstalled daemon's cache is disposable on this hosted
+          # runner. The active pinned daemon stores everything in a different tree.
+          sdk_root=$(docker info --format '{{.DockerRootDir}}')
+          case "$sdk_root" in /home/runner/setup-docker-action/*/data) ;; *) exit 2 ;; esac
+          test "$(systemctl is-active docker.service || true)" = inactive
+          test "$(systemctl is-active docker.socket || true)" = inactive
+          test ! -L /var/lib/docker
+          sudo rm -rf -- /var/lib/docker
+          test "$(docker info --format '{{.ID}}')" = "$expected"
+          echo RUNNER_ENGINE_AND_PRIVILEGED_ENDPOINT_MATCH
+      - name: Export existing exact-source immutable candidates and previous images before downtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          remote sudo -n python3 -EsB - <<'PYIMAGESET' > "$RUNNER_TEMP/release/existing-images.json"
+          import hashlib,json,os,re,stat,sys
+          from pathlib import Path
+          tools=Path('/usr/local/libexec/aemr')
+          window_path=Path('/home/aemr/.dash-private-backups/worker-38821521319/release-window.json')
+          assert not any(p.is_symlink() for p in (window_path,*window_path.parents,tools,*tools.parents))
+          with os.fdopen(os.open(window_path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+           info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=1048576
+           window=json.load(file)
+          assert window['candidate']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+          for name,pin in window['module_sha256'].items():
+           assert name in {'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
+           path=tools/name
+           with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
+            info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and not info.st_mode&0o022
+            assert hashlib.sha256(file.read(1048577)).hexdigest()==pin
+          assert len(window['module_sha256'])==5
+          sys.path.insert(0,str(tools));import release_recovery as r
+          stage=json.loads(r.read_owned(r.RUNTIME_DIR/'stage.json'))
+          assert stage['release_sha']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+          result={key:stage[key] for key in ('images','candidate_images')}
+          assert all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for item in result.values() for identity in item.values())
+          print(json.dumps(result))
+          PYIMAGESET
+          python3 - <<'PYIMAGEIDS' > "$RUNNER_TEMP/release/images.txt"
+          import json,os
+          from pathlib import Path
+          value=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/existing-images.json').read_text())
+          print('\n'.join(sorted(set(value['images'].values())|set(value['candidate_images'].values()))))
+          PYIMAGEIDS
+          while IFS= read -r identity; do
+            remote sudo -n docker save "$identity" < /dev/null | docker load > "$RUNNER_TEMP/release/export-image-load.log" 2>&1
+            test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$identity" --format '{{.Id}}')" = "$identity"
+          done < "$RUNNER_TEMP/release/images.txt"
+          python3 - <<'PYTAG'
+          import json,os,subprocess
+          from pathlib import Path
+          value=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/existing-images.json').read_text())['candidate_images']
+          for service in ('server','web'):
+           subprocess.run(['docker','tag',value[service],'aemr-'+service+':release-'+os.environ['RECOVERY_SHA']],check=True)
+          PYTAG
+          docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" > "$RUNNER_TEMP/release/candidate-images.json"
+          echo EXISTING_EXACT_SOURCE_IMAGES_EXPORTED_AND_PRIVILEGED_IDS_MATCH
+      - name: Check real latest Word envelope with candidate schemas before downtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # Raw response travels only over the private pipe; neither side logs it.
+          program=$(cat <<'JSREPORT'
+          (async()=>{
+            const fail=code=>{console.log(code);process.exitCode=2;};
+            let size=0;const parts=[];
+            for await(const part of process.stdin){size+=part.length;if(size>33554432)return fail('LIVE_REPORT_BODY_TOO_LARGE');parts.push(part);}
+            if(!size)return fail('LIVE_REPORT_BODY_EMPTY');
+            let value;try{value=JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{return fail('LIVE_REPORT_JSON_INVALID');}
+            let shared;try{shared=await import('@aemr/shared');}catch{return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');}
+            if(typeof shared.ReportReleaseStatusSchema?.safeParse!=='function')return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');
+            if(value&&typeof value==='object'&&!Object.hasOwn(value,'latest'))return fail('LIVE_REPORT_LATEST_MISSING');
+            if(value?.latest===null)return fail('LIVE_REPORT_LATEST_NULL');
+            if(!shared.ReportReleaseStatusSchema.safeParse(value).success)return fail('LIVE_REPORT_SCHEMA_INVALID');
+            console.log('LIVE_LATEST_REPORT_SCHEMA_PASS');
+          })().catch(()=>{console.log('LIVE_REPORT_CHECK_FAILED');process.exitCode=2;});
+          JSREPORT
+          )
+          set +e
+          remote sudo -n docker exec -i aemr-server-1 python3 -I - 2> "$RUNNER_TEMP/release/live-envelope-read.log" <<'PY' | \
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m -i \
+              --entrypoint node "aemr-server:release-$RECOVERY_SHA" --import tsx --eval "$program" \
+              > "$RUNNER_TEMP/release/live-envelope-check.log" 2> "$RUNNER_TEMP/release/live-schema-runtime.log"
+          import os,sys,urllib.request
+          try:
+           key=os.environ.get('AEMR_API_KEY','')
+           if not key:raise ValueError('auth')
+           request=urllib.request.Request('http://127.0.0.1:3000/api/report-releases',headers={'Authorization':'Bearer '+key})
+           with urllib.request.urlopen(request,timeout=25) as response:
+            if response.status!=200:raise ValueError('status')
+            body=response.read(32*1024*1024+1)
+           if len(body)>32*1024*1024:raise ValueError('size')
+           sys.stdout.buffer.write(body)
+          except Exception:
+           print('LIVE_REPORT_READ_FAILED',file=sys.stderr);raise SystemExit(2) from None
+          PY
+          outcome=("${PIPESTATUS[@]}")
+          set -e
+          if test "${outcome[0]}" != 0; then echo LIVE_REPORT_READ_FAILED; fi
+          if test "${outcome[1]}" != 0; then
+            grep -E '^LIVE_REPORT_(BODY_TOO_LARGE|BODY_EMPTY|JSON_INVALID|SCHEMA_IMPORT_FAILED|LATEST_MISSING|LATEST_NULL|SCHEMA_INVALID|CHECK_FAILED)$' \
+              "$RUNNER_TEMP/release/live-envelope-check.log" || echo LIVE_REPORT_NODE_BOOTSTRAP_FAILED
+          fi
+          test "${outcome[0]}:${outcome[1]}" = 0:0
+          grep -Fx LIVE_LATEST_REPORT_SCHEMA_PASS "$RUNNER_TEMP/release/live-envelope-check.log"
+      - name: Stage the existing exact-source images and actual unchanged runtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # No checkout reset, runtime recreation, or business-state write here.
+          remote git -C /home/aemr/dash fetch --quiet origin "$RECOVERY_SHA"
+          git archive "$RECOVERY_SHA" deploy .github/ci/source_ci_gate.py | \
+            remote "sudo -n install -d -m 700 /root/codex-fixes/release-$RECOVERY_RUN && sudo -n tar --no-same-owner -xf - -C /root/codex-fixes/release-$RECOVERY_RUN"
+          remote sudo -n bash "/root/codex-fixes/release-$RECOVERY_RUN/deploy/install-runtime-guard.sh" \
+            /home/aemr/dash/deploy > "$RUNNER_TEMP/release/install.log" 2>&1 || { echo RELEASE_TOOL_INSTALL_FAILED; exit 2; }
+          python3 - <<'PY' > "$RUNNER_TEMP/release/stage-request.json"
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release';images=json.loads((p/'candidate-images.json').read_text())
+          print(json.dumps({'release_sha':os.environ['RECOVERY_SHA'],
+            'candidate_images':dict(zip(('server','web'),(x['Id'] for x in images),strict=True)),
+            'source_ci':json.loads((p/'source-ci.json').read_text())}))
+          PY
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
+            < "$RUNNER_TEMP/release/stage-request.json" > "$RUNNER_TEMP/release/stage.log" 2>&1 || { echo RELEASE_RUNTIME_STAGE_FAILED; exit 2; }
+          remote sudo -n cat /var/lib/aemr/release-runtime/stage.json > "$RUNNER_TEMP/release/stage.json"
+          # Private exact previous images are loaded on runner before downtime.
+          previous=$(python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          x=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/stage.json').read_text())
+          print(' '.join(sorted(set(x['images'].values()))))
+          PY
+          )
+          remote sudo -n docker save $previous | docker load > "$RUNNER_TEMP/release/previous-image-load.log" 2>&1
+          # A restore trial cannot use a host-specific image identifier. Verify
+          # actual previous images before the guardian stops any production writer.
+          for identity in $previous; do
+            test "$(sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/etc/aemr/docker /usr/bin/docker image inspect "$identity" --format '{{.Id}}')" = "$identity"
+          done
+          # Read only the staged, hash-bound environment before any API freeze.
+          remote sudo -n python3 -EsB - <<'PYENVBEFOREFREEZE'
+          import json,sys
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as r
+          import release_trial as t
+          stage=json.loads(r.read_owned(r.RUNTIME_DIR/'stage.json'))
+          for kind in ('candidate','previous'):t.native_environment(stage,kind)
+          print('RELEASE_NATIVE_ENVIRONMENT_ADMISSION_PASS')
+          PYENVBEFOREFREEZE
+          echo RELEASE_IMAGES_AND_CONFIGURATION_READY
+      - name: Admit independent full-restore capacity before production downtime
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          # Drop only regenerable runner build cache. All immutable candidate and
+          # previous images remain available for both directions of the trial.
+          docker builder prune --all --force > "$RUNNER_TEMP/release/runner-cache.log" 2>&1
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          stage=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/stage.json').read_text())
+          for identity in set(stage['images'].values())|set(stage['candidate_images'].values()):
+           actual=subprocess.check_output(['docker','image','inspect',identity,'--format','{{.Id}}'],text=True).strip()
+           assert actual==identity
+          PY
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es -'" <<'PYVPSCAPACITY' > "$RUNNER_TEMP/release/capacity-input.json"
+          import hashlib,json,os,shutil,subprocess,sys
+          from pathlib import Path
+          sys.path.insert(0,'/usr/local/libexec/aemr')
+          import release_recovery as recovery
+          def archive_budget(body,expected,current_bytes):
+           if hashlib.sha256(body).hexdigest()!=expected:raise ValueError('RELEASE_CHECKPOINT_CHANGED')
+           previous=json.loads(body)
+           if previous.get('format')!=2 or any(type(previous.get(k)) is not int or previous[k]<=0 for k in ('archive_bytes','bytes')):
+            raise ValueError('RELEASE_CAPACITY_INPUT_INVALID')
+           # Forecast only: append growth is budgeted uncompressed. Rewrites can
+           # compress differently; the frozen bounded writer remains authoritative.
+           estimate=previous['archive_bytes']+max(0,current_bytes-previous['bytes'])
+           return estimate+max(256*1024**2,(estimate+9)//10)+1024**3
+          fd=9;recovery.require_lock(fd)
+          with os.fdopen(os.dup(fd),'r+') as lock:
+           stage=json.loads(recovery.read_owned(Path('/var/lib/aemr/release-runtime/stage.json')))
+           source=recovery.ReleaseRecovery(lock_fd=fd)._volume(stage)
+           size=int(subprocess.check_output(['du','--summarize','--bytes','--count-links','--',str(source)],text=True,timeout=90).split()[0])
+           previous=recovery.validate_plan(json.loads(recovery.read_owned(recovery.RUNTIME_DIR/'trial-plan.json')))
+           manifest=recovery.BACKUP_BASE/previous['backup_reference']/'manifest.json'
+           if any(p.is_symlink() for p in (manifest,*manifest.parents)):raise ValueError('RELEASE_BACKUP_UNSAFE')
+           required=archive_budget(recovery.read_owned(manifest,limit=16*1024**2),previous['manifest_sha256'],size)
+           recovery.atomic_json(recovery.RUNTIME_DIR/'previous-checkpoint.json',
+             {key:previous[key] for key in ('backup_reference','manifest_sha256')})
+           print(json.dumps({'source_bytes':size,'vps_backup_free_bytes':shutil.disk_usage('/home/aemr/.dash-private-backups').free,
+            'vps_backup_required_bytes':required}))
+          PYVPSCAPACITY
+          python3 - <<'PYRUNNERCAPACITY'
+          import json,os,shutil
+          from pathlib import Path
+          budget=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/capacity-input.json').read_text())
+          if any(type(budget.get(k)) is not int or budget[k]<0 for k in ('source_bytes','vps_backup_free_bytes','vps_backup_required_bytes')):
+           raise SystemExit('RELEASE_CAPACITY_INPUT_INVALID')
+          if budget['vps_backup_free_bytes']<max(4*1024**3,budget['vps_backup_required_bytes']):raise SystemExit('BACKUP_SPACE_BUDGET_INSUFFICIENT')
+          # The writer always retains 1 GiB on VPS, which bounds archive growth.
+          # Include the entire uncompressed clone + archive + 2 GiB runner reserve.
+          required=budget['source_bytes']+budget['vps_backup_free_bytes']-1024**3+2*1024**3
+          free=shutil.disk_usage('/var/lib').free
+          if free<required:raise SystemExit('RELEASE_INDEPENDENT_SCRATCH_INSUFFICIENT')
+          print(json.dumps({'status':'RELEASE_INDEPENDENT_CAPACITY_ADMITTED','free_bytes':free,'required_bytes':required}))
+          PYRUNNERCAPACITY
+      - name: Freeze writers once and create fresh full private backup
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
+          remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
+            > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
+          window request-plan > "$RUNNER_TEMP/release/request-plan.log" 2>&1 || { echo RELEASE_PLAN_REQUEST_FAILED; exit 2; }
+          ready=false
+          for attempt in $(seq 1 180); do
+            if remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/plan-prepared.json"; then ready=true; break; fi
+            remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/quiescent" || break
+            sleep 2
+          done
+          test "$ready" = true || { echo RELEASE_PLAN_NOT_PREPARED; exit 2; }
+      - name: Independent one-clone candidate and previous runtime with actual complete restore
+        run: |
+          set -euo pipefail
+          umask 077
+          . "$RUNNER_TEMP/release/ssh.sh"
+          backup="/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup"
+          sudo install -d -m 700 /var/lib/aemr /var/lib/aemr/release-runtime \
+            /var/lib/aemr/release-trial-clone /home/aemr/.dash-private-backups \
+            "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN" "$backup" /usr/local/libexec/aemr
+          for file in manifest.json state.tar.gz; do
+            remote sudo -n cat -- "$backup/$file" | sudo tee "$backup/$file" >/dev/null
+            sudo chmod 600 "$backup/$file"
+          done
+          for file in compose.json candidate-compose.json .env.production Caddyfile candidate-Caddyfile source-ci.json trial-plan.json; do
+            remote sudo -n cat -- "/var/lib/aemr/release-runtime/$file" | sudo tee "/var/lib/aemr/release-runtime/$file" >/dev/null
+            sudo chmod 600 "/var/lib/aemr/release-runtime/$file"
+          done
+          sudo install -m 755 deploy/stateful_backup.py deploy/release_recovery.py deploy/release_trial.py \
+            .github/ci/source_ci_gate.py /usr/local/libexec/aemr/
+          sudo python3 - "$backup" <<'PY'
+          import json,shutil,sys
+          from pathlib import Path
+          m=json.loads((Path(sys.argv[1])/'manifest.json').read_text())
+          if type(m.get('bytes')) is not int or m['bytes']<0 or shutil.disk_usage('/var/lib/aemr').free<m['bytes']+2*1024**3:
+           raise SystemExit('RELEASE_INDEPENDENT_SCRATCH_INSUFFICIENT')
+          PY
+          trial_status=0
+          sudo env GITHUB_ACTIONS=true RUNNER_OS=Linux python3 -EsB .github/ci/frozen_trial_replay.py \
+            "$RUNNER_TEMP/release/trial-private.json" --release-proof \
+            > "$RUNNER_TEMP/release/trial-proof.json" 2> "$RUNNER_TEMP/release/trial.log" || trial_status=$?
+          # Retain the existing proof unchanged on success; keep attribution only
+          # in private failure evidence, before the runner removes its clone.
+          if sudo test -f "$RUNNER_TEMP/release/trial-private.json"; then
+            sudo cat "$RUNNER_TEMP/release/trial-private.json" > "$RUNNER_TEMP/release/trial-diagnostic.log"
+          fi
+          if test "$trial_status" != 0; then
+            cp "$RUNNER_TEMP/release/trial-proof.json" "$RUNNER_TEMP/release/trial-phase.log"
+            echo RELEASE_INDEPENDENT_TRIAL_FAILED; exit 2
+          fi
+          # Never upload primary data, the archive, env, logs, or private receipts as artifacts.
+          remote "sudo -n python3 -IB -c 'import json,sys;sys.path.insert(0,\"/usr/local/libexec/aemr\");import release_recovery as r;body=sys.stdin.buffer.read(8388609);assert len(body)<=8388608;r.atomic_json(r.RUNTIME_DIR/\"trial-proof.json\",json.loads(body))'" \
+            < "$RUNNER_TEMP/release/trial-proof.json"
+          echo RELEASE_FULL_RESTORE_CANDIDATE_AND_PREVIOUS_RUNTIME_PASS
+      - name: Same guardian exact-SHA release with closed-ingress API and Word acceptance
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
+          done=false
+          for attempt in $(seq 1 300); do
+            if remote sudo -n test -f "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/release-result"; then done=true; break; fi
+            sleep 2
+          done
+          test "$done" = true || { echo RELEASE_RESULT_TIMEOUT; exit 2; }
+          result=$(remote sudo -n cat "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/release-result")
+          test "$result" = 0 || { echo RELEASE_CANDIDATE_REJECTED; exit 2; }
+          remote sudo -n cat /var/lib/aemr/release-accepted.json > "$RUNNER_TEMP/release/accepted.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release';plan=json.loads((p/'stage.json').read_text());a=json.loads((p/'accepted.json').read_text())['acceptance']
+          assert a['state']=='RELEASE_CANDIDATE_ACCEPTED' and a['release_sha']==os.environ['RECOVERY_SHA']
+          assert a['candidate_images']==plan['candidate_images'] and a['config_sha256']==plan['config_sha256']
+          print('EXACT_SHA_CANDIDATE_ACCEPTED')
+          PY
+          curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          assert json.loads((Path(os.environ['RUNNER_TEMP'])/'release/public-health.json').read_text())['status']=='ok'
+          print('PUBLIC_HEALTH_PASS')
+          PY
+      - name: Always request same-owner resume without reverting an accepted release
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/release/ssh.sh"; then
+            . "$RUNNER_TEMP/release/ssh.sh"
+            window request-resume > "$RUNNER_TEMP/release/resume.log" 2>&1 || { echo RELEASE_RESUME_REQUEST_FAILED; exit 2; }
+            closed=false
+            for attempt in $(seq 1 150); do
+              if remote sudo -n test ! -e "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/quiescent"; then closed=true; break; fi
+              sleep 2
+            done
+            test "$closed" = true || { echo RELEASE_RESUME_STILL_PENDING; exit 2; }
+          fi
+      - name: Preserve bounded private release failure evidence
+        if: failure()
+        run: |
+          # Keep bounded failure evidence privately before removing the runner.
+          # SSH keys and private configuration files are never copied or logged.
+          if test -f "$RUNNER_TEMP/release/ssh.sh"; then
+            . "$RUNNER_TEMP/release/ssh.sh"
+            python3 - <<'PY'
+          import ast,os,re
+          from pathlib import Path
+          allowed={'AEMR_MAINTENANCE_BUSY','AEMR_MAINTENANCE_LOCK_INVALID','SOURCE_CHANGED_DURING_BACKUP'}
+          for name in ('deploy/release-controller.py','deploy/release_recovery.py','deploy/release_trial.py','deploy/stateful_backup.py'):
+              for node in ast.walk(ast.parse(Path(name).read_text())):
+                  if isinstance(node,ast.Constant):
+                      value=node.value
+                      if isinstance(value,str) and value.startswith(('RELEASE_','BACKUP_')) and value.replace('_','').isalnum():
+                          allowed.add(value)
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          found=set()
+          for path in root.glob('*.log'):
+              if path.is_file() and not path.is_symlink():
+                  found.update(set(re.findall(r'(?<![A-Za-z0-9_])(?:RELEASE|BACKUP|AEMR|SOURCE)_[A-Z0-9_]+(?![A-Za-z0-9_])',
+                      path.read_bytes()[-131072:].decode('utf-8',errors='replace')))&allowed)
+          for code in sorted(found):print('PRIVATE_RELEASE_FAILURE_CODE='+code)
+          PY
+            remote sudo -n install -d -m 700 "/root/codex-fixes/release-$RECOVERY_RUN"
+            python3 - <<'PY' | remote sudo -n tee "/root/codex-fixes/release-$RECOVERY_RUN/runner-diagnostics.json" >/dev/null
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          files=sorted(root.glob('*.log'),key=lambda p:(p.name!='trial-phase.log',p.name))[:32]
+          print(json.dumps({p.name:p.read_bytes()[-131072:].decode('utf-8',errors='replace')
+              for p in files if p.is_file() and not p.is_symlink()}))
+          PY
+          fi
+      - name: Remove private runner state and credentials
+        if: always()
+        run: |
+          sudo rm -rf "$RUNNER_TEMP/release" /var/lib/aemr/release-trial-clone \
+            /var/lib/aemr/release-runtime "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN"
   continue-release:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
