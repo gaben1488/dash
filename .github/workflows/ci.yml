@@ -63,6 +63,17 @@ jobs:
       - name: Verify exact source-job maintenance admission (synthetic; no VPS)
         run: python3 .github/ci/test_source_ci_gate.py
 
+      - name: Synthetic browser acceptance boundaries (no VPS or source data)
+        run: |
+          python3 -m pip install playwright==1.62.0
+          python3 -m playwright install --with-deps chromium webkit
+          node scripts/build-navigation-qa.mjs --out "$RUNNER_TEMP/navigation-qa.html"
+          export DASH_HEADER_QA_HTML="$RUNNER_TEMP/navigation-qa.html"
+          for engine in chromium webkit; do
+            BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_auth_isolation.py
+            BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py
+          done
+
       - name: ESLint
         run: pnpm lint
 
