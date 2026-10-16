@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery]
+        options: [metadata, browser, proof-recovery, transport-probe]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       release_sha:
@@ -24,6 +24,52 @@ on:
 permissions:
   contents: read
 jobs:
+  transport-probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'transport-probe' &&
+      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reproduce the original SSH stdin transfer using only private synthetic files
+        env:
+          VPS_USER: ${{ secrets.DEPLOY_USER }}
+          VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          private="$RUNNER_TEMP/transport-probe"
+          root="/root/codex-fixes/transport-probe-$GITHUB_RUN_ID"
+          mkdir -m 700 "$private"
+          printf '%s\n' "$VPS_KEY" > "$private/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$private/known_hosts" 2>/dev/null
+          test -s "$private/known_hosts"
+          remote() {
+            ssh -i "$private/key" -o BatchMode=yes -o ConnectTimeout=15 \
+              -o UserKnownHostsFile="$private/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" "$@"
+          }
+          cleanup() { remote sudo -n rm -rf -- "$root" >/dev/null 2>&1 || true; rm -rf -- "$private"; }
+          trap cleanup EXIT
+          remote sudo -n mkdir -m 700 -- "$root"
+          printf '%s' '{"synthetic_transport_probe":true}' > "$private/input.json"
+          first=0;second=0;direct=0
+          remote "sudo -n install -m 600 /dev/stdin $root/install.json" < "$private/input.json" > "$private/first.log" 2>&1 || first=$?
+          remote sudo -n install -m 600 /dev/null "$root/install.json"
+          remote "sudo -n install -m 600 /dev/stdin $root/install.json" < "$private/input.json" > "$private/second.log" 2>&1 || second=$?
+          remote "sudo -n python3 -IB -c 'import json,os,sys;from pathlib import Path;body=sys.stdin.buffer.read(257);assert len(body)<=256;assert json.loads(body)=={\"synthetic_transport_probe\":True};p=Path(sys.argv[1]);fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600);os.write(fd,body);os.fsync(fd);os.close(fd)' $root/direct.json" < "$private/input.json" > "$private/direct.log" 2>&1 || direct=$?
+          remote sudo -n python3 -IB - "$root" "$first" "$second" "$direct" <<'PY'
+          import json,stat,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]);result={'ssh_transport_probe':True,'install_first':int(sys.argv[2]),'install_existing':int(sys.argv[3]),'direct_fd0':int(sys.argv[4])}
+          expected=b'{"synthetic_transport_probe":true}'
+          for name in ('install','direct'):
+              path=root/(name+'.json');result[name+'_equal_mode600']=path.is_file() and path.read_bytes()==expected and stat.S_IMODE(path.stat().st_mode)==0o600
+          print(json.dumps(result))
+          assert result['direct_equal_mode600']
+          PY
   proof-recovery:
     concurrency:
       group: deploy-vps
