@@ -364,7 +364,7 @@ def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
 
 def cli_commands(tree,python,reader,ci,receipt,state,backup,*,operation,revision,finalize_review):
     require(operation in {'apply','recover','rollback','finalize'} and re.fullmatch('[a-f0-9]{64}',revision),'OPERATION_INVALID')
-    require(operation!='finalize' or finalize_review==TOOL_SHA+':'+revision,'INDEPENDENT_FINALIZE_REVIEW_REQUIRED')
+    require(operation!='finalize' or re.fullmatch(re.escape(TOOL_SHA+':'+revision)+r':[a-f0-9]{64}:[a-f0-9]{64}',finalize_review or ''),'INDEPENDENT_FINALIZE_REVIEW_REQUIRED')
     result=[str(python),'-IB',str(tree/'deploy/plan-weekly-publications.py'),'--state',str(state),
             '--operation',operation,'--candidate',TOOL_SHA,'--ci-evidence',str(ci),'--source-receipt',str(receipt),
             '--reader-package',str(reader),'--expected-revision',revision,'--backup',str(backup)]

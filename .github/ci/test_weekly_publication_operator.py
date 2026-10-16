@@ -73,6 +73,8 @@ class WeeklyOperatorTests(unittest.TestCase):
         self.assertIn('--property',command)
         self.assertIn('KillMode=process',command)
         self.assertIn('ExitType=cgroup',command)
+        self.assertIn('CPUQuota=100%',command)
+        self.assertIn('CPUWeight=10',command)
         scope['mode']='plan'
         exec(script,scope)  # noqa: S102 - trusted local workflow argv, no process calls
         self.assertIn('--check',scope['command'])

@@ -103,6 +103,11 @@ jobs:
                 '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
+            if mode=='compaction-apply':
+                # Measured361 CPU seconds exhausted900s at the old0.4 quota.
+                # Low weight/nice preserve API priority; do not extend runtime.
+                command[command.index('CPUQuota=40%')]='CPUQuota=100%'
+                command[command.index(str(python)):command.index(str(python))]=['--property','CPUWeight=10']
             if mode in {'compaction-apply','readback'}:
                 # Bind only after successful private plan and independent review.
                 revision='a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03'

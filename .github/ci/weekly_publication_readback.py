@@ -30,13 +30,14 @@ def compact_contract(original_root,original):
         path=original_root/name;require(stat.S_ISREG(path.lstat().st_mode))
         body=path.read_bytes();require(hashlib.sha256(body).hexdigest()==files.get(name))
         return json.loads(body)
-    model=witness('report_model.json')
-    expected_receipt={**receipt,'replay_available':False,'report_year':model['snapshot']['report_year'],
-                      'quarter':model['headline']['current_quarter']}
-    del model
+    manifest=witness('snapshot_bundle/manifest.json')
+    dashboard=witness('dashboard.json')
+    # Publication already verified these exact projection/snapshot fields
+    # against the model. Preserve context without parsing the large model again.
+    expected_receipt={**receipt,'replay_available':False,'report_year':manifest['report_year'],
+                      'quarter':dashboard['headline']['current_quarter']}
     names={'dashboard.json','main_report.docx','management_report.docx','operational_report.docx','identity.sqlite'}
     expected_files={name:value for name,value in files.items() if name in names}
-    manifest=witness('snapshot_bundle/manifest.json')
     roles={source['source_id']:source.get('role') for source in manifest.get('sources',[])}
     for item in manifest.get('payload_index',[]):
         if roles.get(item['source_id']) in {'historical_ledger','historical_report_evidence','identity_reviews','rule_contract'}:

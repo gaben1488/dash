@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class ReadbackTests(unittest.TestCase):
@@ -23,9 +24,9 @@ class ReadbackTests(unittest.TestCase):
         for n,day in ((2,'2026-10-16'),(1,'2026-10-15')):
             rid='REL-'+f'{n:064x}';folder=releases/rid;folder.mkdir()
             receipt=json.dumps({'release_id':rid,'report_date':day,'snapshot_id':'SNAP-'+str(n)})
-            blobs={name:(b'{}' if name.endswith('json') else b'PK\x03\x04synthetic')
+            blobs={name:(b'{"headline":{"current_quarter":4}}' if name.endswith('json') else b'PK\x03\x04synthetic')
                    for name in ('dashboard.json','main_report.docx','management_report.docx')}
-            manifest=json.dumps({'sources':[{'source_id':'ledger','role':'historical_ledger'}],
+            manifest=json.dumps({'report_year':2026,'sources':[{'source_id':'ledger','role':'historical_ledger'}],
                                   'payload_index':[{'source_id':'ledger','path':'payloads/ledger.json'}]}).encode()
             source={'snapshot_bundle/manifest.json':manifest,'snapshot_bundle/payloads/ledger.json':b'{"proof":true}',
                     'report_model.json':b'{"snapshot":{"report_year":2026},"headline":{"current_quarter":4}}'}
@@ -40,7 +41,7 @@ class ReadbackTests(unittest.TestCase):
                          'retained_evidence/payloads/ledger.json':source['snapshot_bundle/payloads/ledger.json']}
                 compact_files=json.dumps({name:hashlib.sha256(body).hexdigest() for name,body in current.items()})
                 entries.append({'release_id':rid,'original':[receipt,raw_files],'compact':[compact,compact_files]})
-                for name,body in source.items():
+                for name,body in {**blobs,**source}.items():
                     path=work/'original'/rid/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body)
             for name,body in current.items():
                 path=folder/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body)
@@ -58,6 +59,16 @@ class ReadbackTests(unittest.TestCase):
                 'plan_revision':plan['catalog_revision'],'entries_sha256':hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest()}
         (work/'journal.json').write_text(json.dumps(marker))
         return plan,work,releases
+
+    def test_period_proof_never_loads_the_full_frozen_model(self):
+        tool=self.tool()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);plan,_,_=self.fixture(root);read=Path.read_bytes
+            def bounded(path):
+                if path.name=='report_model.json':raise AssertionError('Full model read for two period fields')
+                return read(path)
+            with patch.object(Path,'read_bytes',bounded):
+                self.assertEqual(tool.verify(root,plan)['status'],'RETAINED_STATE_VERIFIED')
 
     def test_consistently_changed_compact_files_and_receipt_do_not_hide_loss(self):
         tool=self.tool()
