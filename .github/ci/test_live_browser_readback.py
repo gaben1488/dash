@@ -177,18 +177,18 @@ class BrowserAdmissionTests(unittest.TestCase):
 
     def test_readonly_worker_and_profile_pushes_are_explicit_and_owner_scoped(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
-        for job,marker,sha in [('worker-observe','Observe controlled release worker for accepted 83b813ab','83b813ab250b4533d1b80ba9e306afaa8bc5f383'),('api-timing','Profile journal read for accepted 43f10742','43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')]:
+        for job,marker,sha in [('worker-observe','Observe controlled release worker for accepted 83b813ab','83b813ab250b4533d1b80ba9e306afaa8bc5f383'),('api-timing','Profile journal read for accepted 83b813ab','83b813ab250b4533d1b80ba9e306afaa8bc5f383')]:
             section=workflow.split('  '+job+':\n',1)[1]
             expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
             for event,actor,branch,message,mode,expected in [('push','owner','codex/release-observe-20261015',marker,'',True),('push','other','codex/release-observe-20261015',marker,'',False),('push','owner','main',marker,'',False),('push','owner','codex/release-observe-20261015','other','',False),('workflow_dispatch','owner','codex/release-observe-20261015','',job,True)]:
                 with self.subTest(job=job,event=event,actor=actor,branch=branch,message=message):
                     context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode=mode,release_sha=sha)}
                     self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
-            if job=='worker-observe':
+            if job in {'worker-observe','api-timing'}:
                 context['inputs'].release_sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
                 self.assertFalse(bool(eval(expression,{'__builtins__':{}},context)))
                 context['github'].event_name='push'
-                context['github'].event.head_commit.message='Observe repaired source worker for accepted 43f10742'
+                context['github'].event.head_commit.message=('Observe repaired source worker for accepted 43f10742' if job=='worker-observe' else 'Profile dashboard read for accepted 43f10742')
                 self.assertFalse(bool(eval(expression,{'__builtins__':{}},context)))
 
     def test_saved_worker_probe_is_readonly_and_owner_scoped(self):
