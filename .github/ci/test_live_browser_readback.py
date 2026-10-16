@@ -15,6 +15,29 @@ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 
 
 class BrowserAdmissionTests(unittest.TestCase):
+    def test_host_capacity_inventory_projects_counts_without_private_paths(self):
+        import contextlib
+        import io
+        import json
+        import textwrap
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        self.assertIn('            def host_storage_metadata():',workflow)
+        body=workflow.split('            def host_storage_metadata():',1)[1].split('\n            def ',1)[0]
+        calls=[]
+        def command(arguments,**kwargs):
+            calls.append(arguments)
+            return SimpleNamespace(returncode=0,stdout=b'123456\tPRIVATE_PATH\n')
+        scope={'subprocess':SimpleNamespace(run=command),'json':json}
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(textwrap.dedent(body),'<storage-inventory>','exec'),scope)  # noqa: S102 - trusted checked-in read-only function
+        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertGreater(len(rows),3)
+        self.assertTrue(all(row['allocated_bytes']==123456 for row in rows))
+        self.assertNotIn('PRIVATE',output.getvalue())
+        self.assertTrue(all(args[:3]==['du','-s','--block-size=1'] for args in calls))
+        self.assertTrue(all(row['category'].replace('_','').isalpha() for row in rows))
+
     def test_response_evidence_never_copies_url_body_or_credentials(self):
         source=ast.parse((ROOT/'.github/ci/live_browser_readback.py').read_text())
         function=next(node for node in source.body if isinstance(node,ast.FunctionDef) and node.name=='record_response')
