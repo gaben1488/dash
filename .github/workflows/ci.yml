@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe]
+        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       browser_profile:
@@ -1298,8 +1298,10 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release bae73c20 metadata' ||
-        github.event.head_commit.message == 'Inspect installed release progress for bae73c20' ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'release-progress' &&
+        inputs.release_sha == 'b96e169d024bd0da218288506b678a3adc27bd58') ||
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release b96e169d metadata' ||
+        github.event.head_commit.message == 'Inspect installed release progress for b96e169d' ||
         github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
@@ -1308,8 +1310,8 @@ jobs:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
-          RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release bae73c20 metadata' && 'yes' || 'no' }}
-          RELEASE_PROGRESS_ONLY: ${{ github.event.head_commit.message == 'Inspect installed release progress for bae73c20' && 'yes' || 'no' }}
+          RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release b96e169d metadata' && 'yes' || 'no' }}
+          RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for b96e169d') && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
           envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY
@@ -1551,7 +1553,7 @@ jobs:
                info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=8*1024*1024
                return json.loads(stream.read(8*1024*1024+1))
              result=read('result.json')
-             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
+             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='b96e169d024bd0da218288506b678a3adc27bd58'
              assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
              print(json.dumps({'accepted_worker':True,'sealed_entries_verified':result['sealed_entries_verified']}),flush=True)
              # Cycle files retain complete publication evidence. Project the
@@ -1567,7 +1569,7 @@ jobs:
               print(json.dumps({'accepted_attempt_id':attempt,'started_at':proof['started_at'],'double_host_flock':True}),flush=True)
 
             def checkpoint_metadata():
-             base=Path('/home/aemr/.dash-private-backups/worker-38961726925')
+             base=Path('/home/aemr/.dash-private-backups/worker-38975748581')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
               result={'checkpoint_metadata':name,'present':os.path.lexists(path)}
               if result['present']:
@@ -1596,7 +1598,7 @@ jobs:
                  'checkpoint_files_singleton_blocks_bytes':reclaimable,'free_bytes':free,
                  'margin_before_new_images_and_backup_bytes':free+reclaimable-logical-128*1024**2}),flush=True)
                else:
-                result['expected_source']=value.get('release_sha')=='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
+                result['expected_source']=value.get('release_sha')=='b96e169d024bd0da218288506b678a3adc27bd58'
                 for kind in ('full_restore','in_place_restore'):
                  detail=value.get(kind,{})
                  result[kind]={key:detail[key] for key in ('files','bytes','sqlite_checked','docx_checked') if type(detail.get(key)) is int}
@@ -1838,13 +1840,6 @@ jobs:
             def main():
              if os.environ.get('RELEASE_PROGRESS_ONLY')=='yes':
               worker_operational_metadata(include_saved=False)
-              base=Path('/var/lib/aemr/worker-quarantine/acceptance-38961801554-1')
-              assert not any(parent.is_symlink() for parent in (base,*base.parents))
-              for index in (1,2):
-               path=base/('cycle-'+str(index)+'.json');present=os.path.lexists(path)
-               info=path.lstat() if present else None
-               print(json.dumps({'observed_cycle_receipt':index,'present':present,
-                   'private_regular':info is not None and stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600}),flush=True)
               checkpoint_metadata()
               print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
               return
