@@ -110,7 +110,52 @@ def verify(state,plan):
     return counts
 
 
+def verify_finalized(state,plan):
+    """Read every frozen target through the installed reader after disposal."""
+    from procurement_engine.publication_store import PublicationStore
+    from procurement_engine.readonly_catalog import copied_catalog
+
+    keep=set(plan['keep_release_ids']);targets=set(plan['retire_release_ids']);expected=keep|targets
+    require(not keep&targets and len(expected)==plan['publication_count']
+            and all(re.fullmatch('REL-[a-f0-9]{64}',rid) for rid in expected))
+    store=PublicationStore(Path(state)/'published',readonly=True)
+    work=store.root/'.retirement';require(not work.exists() and not work.is_symlink())
+    require(not store.database_path.is_symlink())
+    result={'status':'FINALIZED_RETAINED_STATE_VERIFIED','verified_roots':0,'compacted_roots':len(targets),
+            'protected_roots':len(keep),'word_artifacts':0,'dashboard_artifacts':0,'retained_files_verified':True}
+    with ExitStack() as stack:
+        stack.enter_context(store.reader_lease())
+        store.database_path=stack.enter_context(copied_catalog(store.database_path))
+        db=stack.enter_context(closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)))
+        db.execute('PRAGMA query_only=ON')
+        require(expected<={r[0] for r in db.execute('SELECT release_id FROM publications')})
+        for rid in sorted(expected):
+            pair=db.execute('SELECT receipt,files FROM publications WHERE release_id=?',(rid,)).fetchone()
+            receipt=store._checked(pair);files=json.loads(pair[1])
+            require(receipt['release_id']==rid)
+            if rid in targets:
+                require(receipt.get('replay_available') is False and 'report_model.json' not in files
+                        and not any(name.startswith('snapshot_bundle/') for name in files))
+            else:
+                require(receipt.get('replay_available',True) is True and 'report_model.json' in files
+                        and 'snapshot_bundle/manifest.json' in files)
+            for name in files:
+                if name in {'main_report.docx','management_report.docx','operational_report.docx'}:
+                    require(store.read_artifact(rid,name).startswith(b'PK\x03\x04'));result['word_artifacts']+=1
+                elif name=='dashboard.json':
+                    require(isinstance(json.loads(store.read_artifact(rid,name)),dict));result['dashboard_artifacts']+=1
+            result['verified_roots']+=1
+        require(not work.exists() and not work.is_symlink())
+    counts=plan['_expected_artifacts']
+    require(set(counts)=={'word_artifacts','dashboard_artifacts'}
+            and all(type(counts[k]) is int and result[k]==counts[k] for k in counts))
+    return result
+
+
 if __name__=='__main__':
-    try:print(json.dumps(verify(Path(sys.argv[1]),json.load(sys.stdin)),sort_keys=True))
+    try:
+        planned=json.load(sys.stdin)
+        method=verify_finalized if planned.pop('_finalized_readback',False) is True else verify
+        print(json.dumps(method(Path(sys.argv[1]),planned),sort_keys=True))
     except Exception:  # noqa: BLE001 - fixed public code; private paths and payload never escape
         raise SystemExit('RETAINED_STATE_READBACK_FAILED') from None

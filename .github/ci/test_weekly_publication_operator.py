@@ -55,7 +55,7 @@ class WeeklyOperatorTests(unittest.TestCase):
         workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
         self.assertTrue("'compaction-apply'" in workflow,"Missing guarded apply transport")
         script=workflow[workflow.index("            command=['systemd-run'"):]
-        script=textwrap.dedent(script[:script.index('            result=subprocess.run(command')])
+        script=textwrap.dedent(script[:script.index('            free_before=')])
         scope={'unit':'aemr-weekly-compaction-42.service','root':Path('/private/run'),
                'run':'42','python':Path('/private/tool/venv/bin/python'),'path':Path('/private/run/operator.py'),
                'stage':Path('/private/tool'),'site':'/private/tool/site','mode':'compaction-apply','re':re}
@@ -79,6 +79,36 @@ class WeeklyOperatorTests(unittest.TestCase):
         exec(script,scope)  # noqa: S102 - trusted local workflow argv, no process calls
         self.assertIn('--check',scope['command'])
         self.assertEqual(scope['command'][scope['command'].index('--expected-revision')+1],'live')
+        scope.update(mode='finalized-readback',readback=Path('/private/run/readback.py'),load_reviewed_finalize_token=lambda:'verified')
+        exec(script,scope)  # noqa: S102 - only argv, no process calls
+        self.assertIn('--check',scope['command'])
+        self.assertIn('--finalized-readback',scope['command'])
+        self.assertIn('--retained-readback',scope['command'])
+        self.assertEqual(scope['command'][scope['command'].index('--operation')+1],'apply')
+
+    def test_finalize_transport_binds_the_independent_old_stage_proof(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        self.assertTrue('def reviewed_finalize_token(' in workflow,'Missing independent finalized-state admission')
+        code=textwrap.dedent(workflow.split('            def reviewed_finalize_token(',1)[1].split('            def load_reviewed_finalize_token',1)[0])
+        scope={'re':re}
+        exec('def reviewed_finalize_token('+code,scope)  # noqa: S102 - local pure workflow admission
+        proof={'runtime_source':self.module.SHA,'tool_source':'268f9e5a15fe5345c04b69c8163ae7ac3fe55801',
+               'plan_revision':'a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03',
+               'readback_source_sha256':'10bb2caaaeef07757de7804fbb82ff3f8a8af7a5c5153c35174fe56cdf1cbb1d',
+               'operator_run':'38901759065','result':{
+                   'status':'RETAINED_STATE_VERIFIED','verified_roots':99,'compacted_roots':92,'protected_roots':7,
+                   'word_artifacts':297,'dashboard_artifacts':99,'original_catalog_equivalent':True,
+                   'journal_sha256':'a'*64,'marker_sha256':'b'*64}}
+        expected=self.module.TOOL_SHA+':'+proof['plan_revision']+':'+'a'*64+':'+'b'*64
+        self.assertEqual(scope['reviewed_finalize_token'](proof),expected)
+        for failure in ('runtime_source','tool_source','readback_source_sha256','plan_revision','operator_run',
+                        'status','verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts','original_catalog_equivalent',
+                        'journal_sha256','marker_sha256'):
+            changed=copy.deepcopy(proof)
+            target=changed if failure in changed else changed['result']
+            target[failure]=False
+            with self.subTest(failure=failure),self.assertRaises(AssertionError):scope['reviewed_finalize_token'](changed)
+        self.assertIn('/root/codex-fixes/weekly-38895891036/retained-readback-38901759065.json',workflow)
 
     def setUp(self):
         path = Path(__file__).with_name('weekly_publication_operator.py')

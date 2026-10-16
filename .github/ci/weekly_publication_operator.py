@@ -488,7 +488,7 @@ def main():
     parser.add_argument('--operator-run',required=True);parser.add_argument('--backup-reference',required=True)
     parser.add_argument('--expected-revision',required=True);parser.add_argument('--finalize-review')
     parser.add_argument('--operation',choices=('apply','recover','rollback','finalize'),required=True)
-    parser.add_argument('--retained-readback',type=Path)
+    parser.add_argument('--retained-readback',type=Path);parser.add_argument('--finalized-readback',action='store_true')
     parser.add_argument('--check',action='store_true');parser.add_argument('--identity-copy',action='store_true')
     parser.add_argument('--identity-apply',action='store_true')
     args=parser.parse_args()
@@ -543,16 +543,22 @@ def main():
                 if args.retained_readback:
                     require(args.check and args.operation=='apply' and re.fullmatch('[a-f0-9]{64}',args.expected_revision),
                             'RETAINED_READBACK_MODE_INVALID')
-                    planned=json.loads(owned(args.tree.parent/'retention-plan-38896058189.json'))
+                    planned=json.loads(owned(Path('/root/codex-fixes/weekly-38895891036/retention-plan-38896058189.json')))
                     require(planned['catalog_revision']==args.expected_revision,'RETAINED_READBACK_PLAN_CHANGED')
+                    if args.finalized_readback:
+                        planned['_finalized_readback']=True
+                        prior=json.loads(owned(Path('/root/codex-fixes/weekly-38895891036/retained-readback-38901759065.json')))
+                        planned['_expected_artifacts']={k:prior['result'][k] for k in ('word_artifacts','dashboard_artifacts')}
                     source=owned(args.retained_readback,limit=16*1024)
                     release=json.loads(owned(Path('/var/lib/aemr/release-runtime/trial-plan.json')))
                     result=json.loads(native_readback(release['candidate_images']['server'],release['volume'],source,planned))
+                    key='retained_files_verified' if args.finalized_readback else 'original_catalog_equivalent'
+                    pins=set() if args.finalized_readback else {'journal_sha256','marker_sha256'}
                     require(set(result)=={'status','verified_roots','compacted_roots','protected_roots','word_artifacts',
-                                          'dashboard_artifacts','original_catalog_equivalent','journal_sha256','marker_sha256'}
-                            and result['status']=='RETAINED_STATE_VERIFIED'
-                            and result['original_catalog_equivalent'] is True
-                            and all(re.fullmatch('[a-f0-9]{64}',result.get(name,'')) for name in ('journal_sha256','marker_sha256'))
+                                          'dashboard_artifacts',key}|pins
+                            and result['status']==('FINALIZED_RETAINED_STATE_VERIFIED' if args.finalized_readback else 'RETAINED_STATE_VERIFIED')
+                            and result[key] is True
+                            and all(re.fullmatch('[a-f0-9]{64}',result.get(name,'')) for name in pins)
                             and all(type(result[name]) is int and result[name]>=0 for name in (
                                 'verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts'))
                             and result['verified_roots']==planned['publication_count']

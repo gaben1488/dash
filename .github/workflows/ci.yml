@@ -36,7 +36,9 @@ jobs:
        github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' ||
        github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' ||
        github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' ||
-       github.event.head_commit.message == 'Verify retained publications for accepted 43f10742')
+       github.event.head_commit.message == 'Verify retained publications for accepted 43f10742' ||
+       github.event.head_commit.message == 'Finalize reviewed publications for accepted 43f10742' ||
+       github.event.head_commit.message == 'Verify finalized publications for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -74,10 +76,33 @@ jobs:
           script: |
             set -euo pipefail
             sudo -n --preserve-env=WEEKLY_CODE,WEEKLY_SHA,WEEKLY_READBACK_CODE,WEEKLY_READBACK_SHA python3 -IB - <<'PY'
-            import base64,hashlib,json,os,re,stat,subprocess
+            import base64,hashlib,json,os,re,shutil,stat,subprocess
             from pathlib import Path
+            def reviewed_finalize_token(proof):
+                assert set(proof)=={'runtime_source','tool_source','plan_revision','readback_source_sha256','operator_run','result'}
+                assert proof['runtime_source']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+                assert proof['tool_source']=='268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
+                assert proof['operator_run']=='38901759065'
+                assert proof['readback_source_sha256']=='10bb2caaaeef07757de7804fbb82ff3f8a8af7a5c5153c35174fe56cdf1cbb1d'
+                revision='a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03'
+                assert proof['plan_revision']==revision
+                result=proof['result']
+                assert set(result)=={'status','verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts','original_catalog_equivalent','journal_sha256','marker_sha256'}
+                assert result['status']=='RETAINED_STATE_VERIFIED' and result['original_catalog_equivalent'] is True
+                expected={'verified_roots':99,'compacted_roots':92,'protected_roots':7,'word_artifacts':297,'dashboard_artifacts':99}
+                assert all(type(result[k]) is int and result[k]==v for k,v in expected.items())
+                assert all(isinstance(result[k],str) and re.fullmatch('[a-f0-9]{64}',result[k]) for k in ('journal_sha256','marker_sha256'))
+                return '83b813ab250b4533d1b80ba9e306afaa8bc5f383:'+revision+':'+result['journal_sha256']+':'+result['marker_sha256']
+            def load_reviewed_finalize_token():
+                proof_path=Path('/root/codex-fixes/weekly-38895891036/retained-readback-38901759065.json')
+                for parent in proof_path.parents:
+                    info=parent.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
+                with os.fdopen(os.open(proof_path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+                    info=os.fstat(stream.fileno())
+                    assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=8192
+                    return reviewed_finalize_token(json.load(stream))
             run='${{ github.run_id }}';assert run.isdigit()
-            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' && 'compaction-apply' || github.event.head_commit.message == 'Verify retained publications for accepted 43f10742' && 'readback' || 'plan' }}'
+            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' && 'compaction-apply' || github.event.head_commit.message == 'Verify retained publications for accepted 43f10742' && 'readback' || github.event.head_commit.message == 'Finalize reviewed publications for accepted 43f10742' && 'finalize' || github.event.head_commit.message == 'Verify finalized publications for accepted 43f10742' && 'finalized-readback' || 'plan' }}'
             root=Path('/root/codex-fixes')/('weekly-check-'+run)
             root.mkdir(mode=0o700);os.umask(0o077)
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
@@ -86,7 +111,7 @@ jobs:
             check=base64.b64decode(os.environ['WEEKLY_READBACK_CODE'],validate=True)
             assert len(check)<=16384 and hashlib.sha256(check).hexdigest()==os.environ['WEEKLY_READBACK_SHA']
             readback=root/'readback.py';readback.write_bytes(check);readback.chmod(0o600)
-            stage=Path('/root/codex-fixes/weekly-38895891036')
+            stage=Path('/root/codex-fixes/weekly-38902081199') if mode in {'finalize','finalized-readback'} else Path('/root/codex-fixes/weekly-38895891036')
             python=stage/'venv/bin/python'
             probe='import sysconfig;print(sysconfig.get_path("purelib"))'
             site=subprocess.check_output([str(python),'-IB','-c',probe],timeout=15,text=True).strip()
@@ -103,21 +128,33 @@ jobs:
                 '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
-            if mode=='compaction-apply':
+            if mode in {'compaction-apply','finalize'}:
                 # Measured361 CPU seconds exhausted900s at the old0.4 quota.
                 # Low weight/nice preserve API priority; do not extend runtime.
                 command[command.index('CPUQuota=40%')]='CPUQuota=100%'
                 command[command.index(str(python)):command.index(str(python))]=['--property','CPUWeight=10']
-            if mode in {'compaction-apply','readback'}:
+            if mode in {'compaction-apply','readback','finalized-readback'}:
                 # Bind only after successful private plan and independent review.
                 revision='a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03'
                 assert re.fullmatch('[a-f0-9]{64}',revision)
                 if mode=='compaction-apply':command.remove('--check')
                 else:command+=['--retained-readback',str(readback)]
                 command[command.index('--expected-revision')+1]=revision
+                if mode=='finalized-readback':command.append('--finalized-readback')
+            if mode=='finalize':
+                # Independent proof remains at its original268 stage; its source
+                # is never relabelled as the new83 finalizer.
+                token=load_reviewed_finalize_token()
+                command.remove('--check')
+                command[command.index('--operation')+1]='finalize'
+                command[command.index('--expected-revision')+1]=token.split(':')[1]
+                command+=['--finalize-review',token]
             if mode=='identity':command.append('--identity-copy')
             if mode=='identity-apply':command.remove('--check');command.append('--identity-apply')
+            if mode=='finalized-readback':load_reviewed_finalize_token()
+            free_before=shutil.disk_usage(root).free
             result=subprocess.run(command,capture_output=True,timeout=920,check=False)
+            if mode=='finalize':print(json.dumps({'storage_free_before':free_before,'storage_free_after':shutil.disk_usage(root).free}))
             for line in (root/'operator.log').read_text().splitlines():
                 if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED',
                             'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES','EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE','RETAINED_STATE_READBACK_PASS'}:
@@ -129,6 +166,10 @@ jobs:
                     if set(value)==keys and re.fullmatch('[a-f0-9]{64}',value['catalog_revision']):print(json.dumps(value,sort_keys=True))
                     readback_keys={'status','verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts','original_catalog_equivalent'}
                     if set(value)==readback_keys and value['status']=='RETAINED_STATE_VERIFIED':print(json.dumps(value,sort_keys=True))
+                    post_keys=(readback_keys-{'original_catalog_equivalent'})|{'retained_files_verified'}
+                    if set(value)==post_keys and value['status']=='FINALIZED_RETAINED_STATE_VERIFIED':print(json.dumps(value,sort_keys=True))
+                    final_keys={'status','quarantine_bytes_reclaimed','quarantine_logical_bytes_retired','quarantine_reclaim_basis'}
+                    if set(value)==final_keys and value['status']=='FINALIZED':print(json.dumps(value,sort_keys=True))
                     identity_keys={'identity_copy_preparation','snapshots','updated_observations','updated_fields',
                                    'protected_data_unchanged','protected_digest'}
                     if set(value)==identity_keys and value['identity_copy_preparation']=='PASS':print(json.dumps(value,sort_keys=True))
@@ -136,7 +177,7 @@ jobs:
             for role in ('MemoryPeak','Result','ExecMainStatus'):
                 value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
                 if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
-            prefix={'identity-apply':'IDENTITY_METADATA_APPLY','compaction-apply':'REVERSIBLE_WEEKLY_COMPACTION','readback':'INDEPENDENT_RETAINED_READBACK'}.get(mode,'READ_ONLY_WEEKLY_PREFLIGHT')
+            prefix={'identity-apply':'IDENTITY_METADATA_APPLY','compaction-apply':'REVERSIBLE_WEEKLY_COMPACTION','readback':'INDEPENDENT_RETAINED_READBACK','finalize':'REVIEWED_PUBLICATION_FINALIZE','finalized-readback':'FINALIZED_RETAINED_READBACK'}.get(mode,'READ_ONLY_WEEKLY_PREFLIGHT')
             print(prefix+'_PASS' if result.returncode==0 else prefix+'_FAILED')
             raise SystemExit(0 if result.returncode==0 else 2)
             PY

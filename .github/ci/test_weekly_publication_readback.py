@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -59,6 +60,40 @@ class ReadbackTests(unittest.TestCase):
                 'plan_revision':plan['catalog_revision'],'entries_sha256':hashlib.sha256((work/'entries.sqlite').read_bytes()).hexdigest()}
         (work/'journal.json').write_text(json.dumps(marker))
         return plan,work,releases
+
+    def test_finalized_readback_preserves_all_targets_and_replay_roots_without_writes(self):
+        tool=self.tool()
+        self.assertTrue(hasattr(tool,'verify_finalized'),'Missing independent post-finalization reader')
+        for defect in ('none','pending','missing_target','broken_word','lost_replay','wrong_phase','consistent_word_drop','consistent_dashboard_drop'):
+            with self.subTest(defect=defect),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);plan,work,releases=self.fixture(root)
+                plan['_expected_artifacts']={'word_artifacts':4,'dashboard_artifacts':2}
+                if defect!='pending':shutil.rmtree(work)
+                if defect=='missing_target':
+                    with sqlite3.connect(root/'published/publications.sqlite') as db:
+                        db.execute('DELETE FROM publications WHERE release_id=?',(plan['retire_release_ids'][0],))
+                if defect=='broken_word':(releases/plan['retire_release_ids'][0]/'main_report.docx').write_bytes(b'bad')
+                if defect=='lost_replay':(releases/plan['keep_release_ids'][0]/'report_model.json').unlink()
+                if defect=='wrong_phase':
+                    with sqlite3.connect(root/'published/publications.sqlite') as db:
+                        receipt=json.loads(db.execute('SELECT receipt FROM publications WHERE release_id=?',(plan['retire_release_ids'][0],)).fetchone()[0])
+                        receipt['replay_available']=True
+                        db.execute('UPDATE publications SET receipt=? WHERE release_id=?',(json.dumps(receipt),plan['retire_release_ids'][0]))
+                if defect.startswith('consistent_'):
+                    rid=plan['retire_release_ids'][0]
+                    name='main_report.docx' if defect=='consistent_word_drop' else 'dashboard.json'
+                    (releases/rid/name).unlink()
+                    with sqlite3.connect(root/'published/publications.sqlite') as db:
+                        files=json.loads(db.execute('SELECT files FROM publications WHERE release_id=?',(rid,)).fetchone()[0])
+                        files.pop(name);db.execute('UPDATE publications SET files=? WHERE release_id=?',(json.dumps(files),rid))
+                before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+                if defect=='none':
+                    result=tool.verify_finalized(root,plan)
+                    self.assertEqual(result,{'status':'FINALIZED_RETAINED_STATE_VERIFIED','verified_roots':2,'compacted_roots':1,
+                                            'protected_roots':1,'word_artifacts':4,'dashboard_artifacts':2,'retained_files_verified':True})
+                else:
+                    with self.assertRaises((ValueError,RuntimeError)):tool.verify_finalized(root,plan)
+                self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()})
 
     def test_period_proof_never_loads_the_full_frozen_model(self):
         tool=self.tool()
