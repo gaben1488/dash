@@ -101,10 +101,71 @@ def failure_location(error):
     while frame is not None:
         code = frame.tb_frame.f_code
         if (Path(code.co_filename).name == Path(__file__).name
-                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods'}):
+                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods', 'verify_operations_status'}):
             location = {'function': code.co_name, 'line': frame.tb_lineno}
         frame = frame.tb_next
     return location
+
+
+async def observe_operations_response(response, observed):
+    """Reuse the browser's own GET; retain only four small diagnostic observations."""
+    if (response.request.method != 'GET' or not readonly_request(response.url, response.request.method)
+            or urlsplit(response.url).path != '/api/report-releases'
+            or response.status != 200):
+        return
+    try:
+        body = await response.json()
+    except Exception:  # noqa: BLE001 - a canceled response has no usable observation.
+        return
+    value = body.get('operations') if isinstance(body, dict) else None
+    if isinstance(value, dict) and isinstance(value.get('checked_at'), str):
+        observed[value['checked_at']] = {key: value.get(key) for key in (
+            'checked_at', 'last_success_age_seconds', 'last_cycle_duration_seconds',
+            'last_failure_at', 'last_failure_code', 'check_stale')}
+        while len(observed) > 4:
+            observed.pop(next(iter(observed)))
+
+
+async def verify_operations_status(page, profile, proof, observed):
+    """Compare visible values with the exact GET identified by its checked_at."""
+    box = page.locator('details').filter(has=page.locator('summary', has_text='Генератор отчётов:'))
+    summary = box.locator('summary')
+    await summary.wait_for(timeout=5000)
+    if await box.get_attribute('open') is None:
+        await activate(summary, profile)
+    checked_at = await box.locator('time').get_attribute('datetime')
+    assert checked_at in observed
+    value = observed[checked_at]
+    rows = box.locator('dl > div')
+    assert await rows.count() == 4
+    assert await rows.locator('dt').all_text_contents() == [
+        'Доступность API при последнем чтении', 'Возраст последней успешной проверки',
+        'Длительность последнего завершённого цикла', 'Последний зафиксированный отказ']
+    assert await rows.nth(0).locator('dd').inner_text() == 'Ответ получен'
+    for index, key, missing in ((1, 'last_success_age_seconds', 'Успешная попытка не записана'),
+                                (2, 'last_cycle_duration_seconds', 'Завершённый цикл не записан')):
+        text = await rows.nth(index).locator('dd').inner_text()
+        actual = value[key]
+        if actual is None:
+            assert text == missing
+            continue
+        assert type(actual) is int and actual >= 0
+        # Invert the visible units independently. Hour display has minute precision.
+        parts = re.findall(r'([0-9]+) (ч|мин|с)', text)
+        assert parts and ' '.join(n + ' ' + unit for n, unit in parts) == text
+        rendered = sum(int(n) * {'ч': 3600, 'мин': 60, 'с': 1}[unit] for n, unit in parts)
+        precision = 1 if any(unit == 'с' for _, unit in parts) else 60
+        assert rendered <= actual < rendered + precision
+    failure = await rows.nth(3).locator('dd').inner_text()
+    if value['last_failure_at'] is None:
+        assert failure == 'В доступной диагностике отказ не записан'
+    else:
+        assert failure != 'В доступной диагностике отказ не записан'
+        if value['last_failure_code']:
+            assert await box.locator('code').inner_text() == value['last_failure_code']
+    assert await box.get_by_text('Свежая успешная проверка не подтверждена.', exact=True).count() == int(value['check_stale'])
+    proof['operations_ui'] = {'result': 'PASS', 'same_get': True, 'metrics_verified': 4}
+    await activate(summary, profile)
 
 
 async def verify_header_controls(page, profile, proof):
@@ -272,6 +333,7 @@ async def run():
             errors = []
             word_requests = []
             release_pending = {}
+            operations_observed = {}
 
             def release_transport(request, phase):
                 if record_release_transport(request, phase, proof):
@@ -282,6 +344,8 @@ async def run():
 
             page.on('pageerror', lambda _: errors.append(True))
             page.on('response', lambda response: record_response(response, proof))
+            if os.environ.get('EXPECT_OPERATIONS_UI') == 'yes':
+                page.on('response', lambda response: observe_operations_response(response, operations_observed))
             page.on('request', lambda request: release_transport(request, 'started'))
             page.on('requestfinished', lambda request: release_transport(request, 'finished'))
             page.on('requestfailed', lambda request: release_transport(request, 'failed'))
@@ -403,6 +467,9 @@ async def run():
                     digest = hashlib.sha256(content).hexdigest()
                     assert digest == expected[view]
                     downloads.append({'view': view, 'bytes': len(content), 'sha256': digest})
+            if os.environ.get('EXPECT_OPERATIONS_UI') == 'yes':
+                proof['stage'] = 'operations'
+                await verify_operations_status(page, profile, proof, operations_observed)
             proof['stage'] = 'journal'
             journal_toggle = page.get_by_role('button', name=re.compile(r'^Журнал обновлений\.'))
             await activate(journal_toggle, profile)
