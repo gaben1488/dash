@@ -9,11 +9,35 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import live_browser_readback as verifier
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
+
+
+class ReleaseTransportProjectionTests(unittest.TestCase):
+    def test_projects_request_lifetime_without_url_query_failure_or_headers(self):
+        request = SimpleNamespace(url=verifier.BASE + '/api/report-releases?date=PRIVATE&token=SECRET',
+                                  method='GET', timing={'startTime': 1000, 'responseEnd': -1},
+                                  failure='PRIVATE_FAILURE')
+        proof = {}
+        with patch('time.time', return_value=2):
+            self.assertTrue(verifier.record_release_transport(request, 'pending', proof))
+        self.assertEqual(proof, {'release_transport': [
+            {'phase': 'pending', 'selected_context': True, 'method': 'GET', 'elapsed_ms': 1000}]})
+        self.assertNotIn('PRIVATE', str(proof))
+        self.assertNotIn('SECRET', str(proof))
+        request.url = 'https://foreign.invalid/api/report-releases'
+        self.assertFalse(verifier.record_release_transport(request, 'failed', proof))
+        self.assertEqual(len(proof['release_transport']), 1)
+        request.url = verifier.BASE + '/api/report-releases'
+        request.timing['responseEnd'] = 123.5
+        for _ in range(30):
+            verifier.record_release_transport(request, 'finished', proof)
+        self.assertEqual(len(proof['release_transport']), 16)
+        self.assertEqual(proof['release_transport'][1]['elapsed_ms'], 123.5)
 
 
 class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):

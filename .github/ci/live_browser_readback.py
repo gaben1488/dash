@@ -3,9 +3,11 @@ import asyncio
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -57,6 +59,33 @@ def record_response(response, proof):
         statuses = proof.setdefault(name, [])
         if len(statuses) < 8:
             statuses.append(response.status)
+
+
+def record_release_transport(request, phase, proof):
+    """Fixed lifetime fields only; never copy URL values, headers or failure text."""
+    parsed, base = urlsplit(request.url), urlsplit(BASE)
+    if ((parsed.scheme, parsed.netloc) != (base.scheme, base.netloc)
+            or parsed.path != '/api/report-releases'):
+        return False
+    if phase not in {'started', 'finished', 'failed', 'pending'}:
+        raise ValueError('RELEASE_TRANSPORT_PHASE_INVALID')
+    rows = proof.setdefault('release_transport', [])
+    if len(rows) >= 16:
+        proof['release_transport_omitted'] = proof.get('release_transport_omitted', 0) + 1
+        return True
+    row = {'phase': phase, 'selected_context': bool(parsed.query),
+           'method': request.method if request.method in {'GET', 'POST'} else 'OTHER'}
+    try:
+        timing = request.timing
+        elapsed = timing.get('responseEnd', -1)
+        if type(elapsed) not in {int, float} or elapsed < 0:
+            elapsed = time.time() * 1000 - timing['startTime']
+        if type(elapsed) in {int, float} and math.isfinite(elapsed) and 0 <= elapsed <= 600_000:
+            row['elapsed_ms'] = round(elapsed, 1)
+    except Exception:  # noqa: BLE001 - teardown can make native timing unavailable.
+        row['timing_available'] = False
+    rows.append(row)
+    return True
 
 
 async def activate(locator, profile, *, timeout=5000):
@@ -242,8 +271,20 @@ async def run():
             page = await context.new_page()
             errors = []
             word_requests = []
+            release_pending = {}
+
+            def release_transport(request, phase):
+                if record_release_transport(request, phase, proof):
+                    if phase == 'started' and len(release_pending) < 16:
+                        release_pending[id(request)] = request
+                    elif phase != 'started':
+                        release_pending.pop(id(request), None)
+
             page.on('pageerror', lambda _: errors.append(True))
             page.on('response', lambda response: record_response(response, proof))
+            page.on('request', lambda request: release_transport(request, 'started'))
+            page.on('requestfinished', lambda request: release_transport(request, 'finished'))
+            page.on('requestfailed', lambda request: release_transport(request, 'failed'))
             def word_request(request):
                 match = re.fullmatch(re.escape(BASE) + r'/api/report-releases/(REL-[a-f0-9]{64})/(main|supplement|operational)\.docx', request.url)
                 if match:
@@ -325,6 +366,8 @@ async def run():
                     await page.wait_for_function('label => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === label && !b.disabled)', arg=label, timeout=30000)
                 except Exception:
                     # Fixed product states only: never copy report text or source payload.
+                    for request in release_pending.values():
+                        record_release_transport(request, 'pending', proof)
                     proof['word_disabled'] = await button.is_disabled()
                     proof['word_exact_text'] = await button.evaluate('(b,label)=>b.textContent.trim()===label', label)
                     proof['word_readiness'] = await page.locator('#report-word-status').evaluate('''e=>{
