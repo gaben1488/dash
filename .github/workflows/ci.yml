@@ -27,6 +27,51 @@ permissions:
   contents: read
   actions: read
 jobs:
+  unused-images:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      (github.event.head_commit.message == 'Plan unused image retirement for accepted 43f10742' ||
+       github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bind reviewed image retention code
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/unused_image_retention.py').read_bytes()
+          assert len(body)<=24576
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('IMAGE_RETENTION_CODE='+base64.b64encode(body).decode()+'\n')
+              target.write('IMAGE_RETENTION_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PY
+      - name: Check exact sampled image IDs and all retained runtime references
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_RETENTION_CODE: ${{ env.IMAGE_RETENTION_CODE }}
+          IMAGE_RETENTION_SHA: ${{ env.IMAGE_RETENTION_SHA }}
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: IMAGE_RETENTION_CODE,IMAGE_RETENTION_SHA
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n --preserve-env=IMAGE_RETENTION_CODE,IMAGE_RETENTION_SHA python3 -IB - <<'PY'
+            import base64,hashlib,os,sys
+            body=base64.b64decode(os.environ['IMAGE_RETENTION_CODE'],validate=True)
+            assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['IMAGE_RETENTION_SHA']
+            sys.argv=['-', '${{ github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' && 'apply' || 'plan' }}']
+            exec(compile(body,'<reviewed-image-retention>','exec'),{'__name__':'__main__'})
+            PY
   source-drift:
     if: >-
       github.actor == github.repository_owner &&
