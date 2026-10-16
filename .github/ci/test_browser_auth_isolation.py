@@ -24,6 +24,8 @@ class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
                 await page.set_content('''
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>button{min-width:44px;min-height:44px}</style>
                 <nav aria-label="Навигация" tabindex="0">
                   <div data-nav-group="0" class="np-group-center"><button class="np-btn" aria-current="page"><span class="np-label">Пульс</span></button></div>
                   <div data-nav-group="1"><button class="np-btn"><span class="np-label">Реестр</span></button></div>
