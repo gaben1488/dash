@@ -57,6 +57,10 @@ Run before handoff or deployment:
 DB/sidecars/lock без symlink, regular/native-owner/single-link, inode stable.
 Публикации/доноры не удаляются и frozen rows не переписываются. Применение
 и независимый readback ещё не приняты. Это не допуск publication compaction.
+Попытка38890817567 отказала на занятом native `run.lock` до connect/write.
+Это текущий штатный цикл, не повод остановить worker. Перед следующим CAS
+оператор до480s ждёт свободное окно с отпущенным EX9, затем заново берёт
+тот же EX и полностью повторяет admission; сам CAS снова берёт native lock.
 Ограничение публичного Python source transport40KiB отделено от приватного
 prepared evidence8MiB; общий лимит произвольных trust files остаётся1MiB.
 

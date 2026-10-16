@@ -260,6 +260,13 @@ def load_identity_prepared(path):
     return json.loads(owned(path,limit=8*1024*1024))
 
 
+def wait_for_worker_idle(path,*,timeout=480):
+    with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'r') as file:
+        info=os.fstat(file.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==1000 and info.st_nlink==1,'IDENTITY_PATH_UNTRUSTED')
+        acquire_lock(file.fileno(),timeout=timeout)
+
+
 def apply_identity_patch(state,patch):
     """CAS only previously empty derived slots; one SQLite transaction for all targets."""
     import sqlite3
@@ -478,6 +485,9 @@ def main():
                             and proof['result']['updated_observations']==len(proof['patch'])==8126
                             and proof['gap_proof_sha256']==hashlib.sha256(owned(Path('/root/codex-fixes/revision-probe-38887646833/private-result.json'))).hexdigest(),
                             'IDENTITY_COPY_PROOF_REQUIRED')
+                    fcntl.flock(9,fcntl.LOCK_UN)
+                    wait_for_worker_idle(state/'run.lock')
+                    acquire_lock(9);admit(args)
                     program='import json,runpy,sys;tool=runpy.run_path(sys.argv[1]);print(json.dumps(tool["apply_identity_patch"](sys.argv[2],json.load(sys.stdin))))'
                     result=json.loads(call([*privilege,str(args.python),'-IB','-c',program,str(Path(__file__).resolve()),str(state)],
                                            input_bytes=json.dumps(proof['patch']).encode(),timeout=120,pass_fds=(9,)))

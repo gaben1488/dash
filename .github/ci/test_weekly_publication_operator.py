@@ -188,6 +188,21 @@ class WeeklyOperatorTests(unittest.TestCase):
                     self.module.prepare_identity_copy(state,gaps)
                 self.assertEqual((state/'identity.sqlite').read_bytes(),before)
 
+    def test_wait_for_worker_idle_does_not_stop_worker_or_create_a_lock(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'run.lock';path.touch();before=path.stat().st_ino
+            with path.open('r+') as held:
+                fcntl.flock(held,fcntl.LOCK_EX)
+                with self.assertRaises(BlockingIOError):self.module.wait_for_worker_idle(path,timeout=0)
+                release=threading.Timer(0.05,lambda:fcntl.flock(held,fcntl.LOCK_UN));release.start()
+                try:self.module.wait_for_worker_idle(path,timeout=1)
+                finally:release.join()
+            self.assertEqual(path.stat().st_ino,before)
+            path.unlink()
+            with self.assertRaises(FileNotFoundError):self.module.wait_for_worker_idle(path,timeout=0)
+            self.assertFalse(path.exists())
+
     def test_prepared_proof_reads_real_scale_without_expanding_other_trust_file_limits(self):
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary)/'prepared.json'
