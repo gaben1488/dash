@@ -95,9 +95,11 @@ jobs:
             PY
   weekly-stage:
     if: >-
-      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'weekly-stage' &&
-      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.mode == 'weekly-stage' &&
+        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Stage weekly tools for accepted 43f10742'))
     runs-on: ubuntu-latest
     timeout-minutes: 8
     concurrency:
@@ -123,7 +125,8 @@ jobs:
             [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
             [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
             root="/root/codex-fixes/weekly-$GITHUB_RUN_ID"
-            test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$candidate"
+            # Maintenance targets the pinned installed runtime. PR79 may advance;
+            # the operator independently checks live source/backup/cycles at apply.
             git fetch --quiet origin "$candidate"
             ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$candidate&event=pull_request" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
@@ -138,6 +141,9 @@ jobs:
           print(json.dumps({'run':json.loads((root/'ci.json').read_text()),'jobs':json.loads((root/'jobs.json').read_text())['jobs']}))
           PYSOURCECI
             printf '%s\n' PACKAGE > "$private/phase"
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              --connect-timeout 10 --max-time 30 --max-filesize 4194304 \
+              https://bootstrap.pypa.io/get-pip.py -o "$private/get-pip.py"
             git -c tar.umask=0077 archive "$candidate" packages/report-engine \
               deploy/plan-weekly-publications.py deploy/stateful_backup.py > "$private/source.tar"
             python3 - "$candidate" <<'PYHASHES' > "$private/source-hashes.json"
@@ -169,7 +175,10 @@ jobs:
                   item.mode&=0o700 if item.isdir() else 0o600
               archive.extractall(root/'source',filter='data')
           PYEXTRACT
-          python3 -m venv --copies "$root/venv"
+          python3 -m venv --without-pip --copies "$root/venv"
+          "$root/venv/bin/python" -IB "$root/get-pip.py" \
+            --isolated --no-cache-dir --no-compile --only-binary=:all: --retries 1 --timeout 15 \
+            --disable-pip-version-check
           "$root/venv/bin/python" -IB -m pip --isolated --disable-pip-version-check install \
             --no-cache-dir --no-compile --only-binary=:all: --retries 1 --timeout 15 \
             "$root/source/packages/report-engine"
@@ -208,7 +217,7 @@ jobs:
           print('STAGED_CODE_ONLY_NOT_ADMITTED')
           PYVERIFY
             tar -cf "$private/transport.tar" -C "$private" source.tar source-hashes.json \
-              weekly_publication_operator.py setup.sh verify.py
+              weekly_publication_operator.py setup.sh verify.py get-pip.py
             digest=$(sha256sum "$private/transport.tar" | cut -d' ' -f1)
             python3 - "$root" "$digest" <<'PYTRANSFER' > "$private/transfer-command"
           import shlex,sys
@@ -219,7 +228,7 @@ jobs:
            info=path.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
           body=sys.stdin.buffer.read(33554433);assert len(body)<=33554432 and hashlib.sha256(body).hexdigest()==sys.argv[2]
           os.umask(0o077);root.mkdir(mode=0o700)
-          expected={'source.tar','source-hashes.json','weekly_publication_operator.py','setup.sh','verify.py'}
+          expected={'source.tar','source-hashes.json','weekly_publication_operator.py','setup.sh','verify.py','get-pip.py'}
           with tarfile.open(fileobj=io.BytesIO(body)) as archive:
            items=archive.getmembers();assert len(items)==len(expected) and {m.name for m in items}==expected
            for item in items:
@@ -240,7 +249,6 @@ jobs:
                 -o UserKnownHostsFile="$private/known_hosts" -o StrictHostKeyChecking=yes \
                 "$VPS_USER@193.233.91.162" "$@"
             }
-            test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$candidate"
             remote "$(cat "$private/transfer-command")" < "$private/transport.tar"
             printf '%s\n' HOST_SETUP > "$private/phase"
             if ! remote sudo -n systemd-run --quiet --wait --collect --unit "aemr-weekly-stage-$GITHUB_RUN_ID" \

@@ -19,6 +19,35 @@ from unittest.mock import patch
 
 
 class WeeklyOperatorTests(unittest.TestCase):
+    def test_host_setup_does_not_require_ensurepip_or_install_into_system_python(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        setup=textwrap.dedent(workflow.split("<<'SHSETUP'\n",1)[1].split('\n          SHSETUP',1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);binaries=root/'bin';binaries.mkdir()
+            interpreter=binaries/'python3'
+            interpreter.write_text('#!/bin/sh\n'
+                'if [ "$1" = -IB ]; then cat >/dev/null; exit 0; fi\n'
+                '[ "$1 $2 $3 $4" = "-m venv --without-pip --copies" ] || exit 8\n'
+                'mkdir -p "$5/bin"\n'
+                'cp "$FAKE_VENV_PYTHON" "$5/bin/python"\n')
+            interpreter.chmod(0o700)
+            child=root/'child'
+            child.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$BOOTSTRAP_TRACE"\n')
+            child.chmod(0o700)
+            trace=root/'trace'
+            # Existing setup deliberately fixes PATH. The fixture substitutes
+            # only that line so the host has venv, but no implicit ensurepip.
+            setup=setup.replace('PATH=/usr/sbin:/usr/bin:/sbin:/bin',f'PATH={binaries}:/usr/bin:/bin')
+            env={**os.environ,'FAKE_VENV_PYTHON':str(child),'BOOTSTRAP_TRACE':str(trace)}
+            result=subprocess.run(['/bin/bash','-s','--',str(root)],input=setup,text=True,
+                                  env=env,capture_output=True,timeout=10,check=False)
+            self.assertEqual(result.returncode,0,'Host venv creation must work without ensurepip')
+            commands=trace.read_text().splitlines()
+            self.assertIn(str(root/'get-pip.py'),commands[0])
+            self.assertIn('--only-binary=:all:',commands[0])
+            self.assertIn('-m pip --isolated',commands[1])
+            self.assertEqual((root/'setup.phase').read_text().strip(),'VERIFY')
+
     def setUp(self):
         path = Path(__file__).with_name('weekly_publication_operator.py')
         self.assertTrue(path.is_file(), 'Missing minimal existing-CLI host adapter')
@@ -57,6 +86,20 @@ class WeeklyOperatorTests(unittest.TestCase):
         for required in ('--only-binary=:all:','--no-cache-dir','--no-compile',
                          'MemoryMax=256M','CPUQuota=40%','Nice=19','STAGED_CODE_ONLY_NOT_ADMITTED'):
             self.assertIn(required,commands)
+        self.assertNotIn('pulls/79 --jq .head.sha',commands,
+                         'Public-tool staging targets installed43 independently of an advancing PR')
+
+    def test_staging_push_is_explicit_and_owner_scoped(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        section=workflow.split('  weekly-stage:\n',1)[1].split('  fresh-release:\n',1)[0]
+        expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
+        for actor,branch,message,expected in [('owner','codex/release-observe-20261015','Stage weekly tools for accepted 43f10742',True),
+            ('other','codex/release-observe-20261015','Stage weekly tools for accepted 43f10742',False),
+            ('owner','main','Stage weekly tools for accepted 43f10742',False),
+            ('owner','codex/release-observe-20261015','other',False)]:
+            context={'github':SimpleNamespace(event_name='push',actor=actor,repository_owner='owner',ref='refs/heads/'+branch,
+                event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode='',release_sha='')}
+            self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
 
     def test_staging_failed_ci_never_reaches_ssh_delivery(self):
         workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
