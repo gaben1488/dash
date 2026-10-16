@@ -27,6 +27,60 @@ permissions:
   contents: read
   actions: read
 jobs:
+  renderer-diagnostic:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Compare WebKit renderer backends for candidate b13cd9e5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b13cd9e596d6f0075b77a5ab42d1ed67e18b8e05
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Build the same synthetic fixture without production access
+        run: |
+          pnpm install --frozen-lockfile
+          python3 -m pip install playwright==1.62.0
+          python3 -m playwright install --with-deps webkit
+          node scripts/build-navigation-qa.mjs --out "$RUNNER_TEMP/navigation-qa.html"
+      - name: Compare WPE and GTK with unchanged real input and assertions
+        run: |
+          export DASH_HEADER_QA_HTML="$RUNNER_TEMP/navigation-qa.html"
+          export BROWSER_ENGINE=webkit
+          cp .github/ci/test_browser_header_controls.py "$RUNNER_TEMP/original-controls.py"
+          failed=0
+          sequence=0
+          for backend in gtk wpe wpe gtk; do
+            sequence=$((sequence+1))
+            cp "$RUNNER_TEMP/original-controls.py" .github/ci/test_browser_header_controls.py
+            if [ "$backend" = gtk ]; then
+              python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/ci/test_browser_header_controls.py')
+          text = path.read_text()
+          assert text.count('.launch()') == 3
+          path.write_text(text.replace('.launch()', '.launch(headless=False)'))
+          PY
+              result=0
+              xvfb-run --auto-servernum python3 .github/ci/test_browser_header_controls.py > "$RUNNER_TEMP/backend.log" 2>&1 || result=$?
+            else
+              result=0
+              python3 .github/ci/test_browser_header_controls.py > "$RUNNER_TEMP/backend.log" 2>&1 || result=$?
+            fi
+            cat "$RUNNER_TEMP/backend.log"
+            printf 'RENDERER_COMPARISON sequence=%s backend=%s exit=%s\n' "$sequence" "$backend" "$result"
+            if [ "$result" != 0 ]; then failed=1; fi
+          done
+          exit "$failed"
   weekly-preview:
     if: >-
       github.actor == github.repository_owner &&
