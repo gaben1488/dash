@@ -5,11 +5,55 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 21:30 UTC
+### Текущий выпуск — 16.10.2026, 23:40 UTC
 
-Установлен `bae73c20c94b866540e61e63e9d764e41b3ff8a6`, интеграционная линия —
+Установлен `b96e169d024bd0da218288506b678a3adc27bd58`;
+[release38975748581](https://github.com/gaben1488/dash/actions/runs/38975748581)
+SUCCESS. Checkpoint21 019 256 685B/3537entries, архив3 181 420 526B,
+manifest `09d9c5b717439f06ff971d742e7a7563fb8a5764869c1edc6d72f4f2bedd1ba5`.
+Два полных restore нового/предыдущего runtime: каждый110SQLite/263DOCX;
+trial `a1e7434292ef3acec36c77c92a6359a7fdebfb9255bb2bea5da9204e593f5267`.
+Restore22:37:52–22:57:21 UTC, API/три Word22:59:12, health22:59:13,
+resume/cleanup PASS. Это интервалы этапов, не точный измеренный downtime.
+[Readback38979046855](https://github.com/gaben1488/dash/actions/runs/38979046855):
+API/worker image9e833a1cd435c21defc4bfda1ab91913b364585357711db215faaae89fbd1667,
+web69f5e128aef4fb48f9a466054df2b9196db5c36c11ef3dc9d0133e2158d0e8d8;
+all4running/APIhealthy/noOOM/restarts0 в23:00:51. Free12 349 595 648B,
+MemAvailable2 562 113 536B — замер, не гарантия.
+[Observer38978975046](https://github.com/gaben1488/dash/actions/runs/38978975046),
+[desktop38978982855](https://github.com/gaben1488/dash/actions/runs/38978982855),
+[WebKit38978992935](https://github.com/gaben1488/dash/actions/runs/38978992935):
+оба браузерных сценария PASS —13разделов/Header/периоды/Undo/3journal/3Word,
+0page errors/blocked. Хеши всех трёх скачиваний совпали между профилями и native
+выпуском. WebKit — эмуляция, не физический iPhone. Selected GET15,959/4,408с
+после раннего failed fetch, причина стоимости не установлена.
+
+Observer SUCCESS: в зачёт приняты `ebb2f94f55f94097bb986790e5b2cf92`
+(23:18:30.898596–23:20:42.644224 UTC) и `e6bb0c4b4dfb47f8affcb0d72f259b41`
+(23:36:06.904843–23:37:53.917835 UTC), оба VERIFIED_WITH_WARNINGS.
+RUNNING и двойная host FLOCK подтверждены; интервал после завершения первого —
+924,260619 с. Context/snapshot/три Word после каждого PASS в 23:20:53 / 23:38:02.
+Обе retained-attempt ссылки восстановили точное assurance, совместимое с
+соответствующим полным global status; `attempt_proofs_verified=2`,
+`reference_attempts_verified=2`. Все 1638 защищённых записей неизменны.
+History readback: восемь v2, одна absent, ноль invalid; selected HTTP200/PASS,
+selected/latest_matching указывают на один выпуск.
+Ранняя попытка `26376dc9` началась до `observation_since` и не засчитана;
+критерий не менялся. Два принятых наблюдения не означают два новых выпуска.
+
+[Metadata38982529550](https://github.com/gaben1488/dash/actions/runs/38982529550)
+независимо связала source, checkpoint и две атрибуции. Каждый новый retained
+status — 4083 B logical / 4096 B allocated, вместе 8166 / 8192 B. В момент
+проверки каждой ссылки полный global был 4 459 296 B, proof_matches=true.
+Итоговый metadata readback проверяет размеры и ссылки на сохранённые proof,
+не перечитывает содержимое status. Старые пять Bae status по-прежнему занимают
+22 302 720 allocated B: старые данные не удалялись, освобождено **0 B**.
+Все четыре контейнера running, API healthy, OOM=false/restarts=0 в23:39:04.
+Free12 323 414 016 B, MemAvailable2 493 734 912 B — точечные замеры.
+
+Предыдущий полностью принятый `bae73c20c94b866540e61e63e9d764e41b3ff8a6`, интеграционная линия —
 PR #79. `main` на момент сверки — `0f3b92d661b6db43c6ca9241ec56ec4371354c74`;
-он не подменяет установленный исходный код. API и worker используют образ
+он не подменяет установленный исходный код. У предыдущего Bae API и worker использовали образ
 `694f6553c4d8135a9b5344eb98982f2844173b9e75b04f4a5d8a701c47bcc580`,
 web — `33bfe861d66a821b145de985a0af44ff01b37bc978db9d2caddfe2cf560b9c98`.
 
@@ -75,9 +119,9 @@ invalid; current selected/latest_matching/same_release=true, HTTP200/PASS.
 вертикальный переход и критерии находятся в ARCHITECTURE / ADR-001; новая
 параллельная система или новый план не создаются.
 
-### Следующий ограниченный участок — 16.10.2026, 22:06 UTC
+### Состав установленного и принятого ограниченного участка — 16.10.2026, 23:40 UTC
 
-В интеграционном кандидате, отдельно от установленного Bae:
+В установленном b96, после принятого Bae:
 
 - `4f630e74` меняет только новую успешную reused-attempt запись: вместо
   копии assurance — ссылка на существующий release и строгий canonical hash.
@@ -103,8 +147,8 @@ Matched local measurement использовал исходный `_finish_attem
 4 202 496 → 8192 B. Глобальный полный status — прежние 1 049 511 / 2 098 087 B;
 proof roundtrip точный. Это измерение локальных файлов, **0 B освобождено на VPS**.
 
-До последнего fresh-state уточнения Python **1177 PASS**; после него 43 целевых
-проверки и Ruff PASS, полный повтор идёт. shared740/core1887+1skip/
+Итоговый полный Python **1181 PASS**, Ruff PASS. [Exact Linux CI38973810592](https://github.com/gaben1488/dash/actions/runs/38973810592)
+подтвердил1176 обычных и5 privileged проверок, shared740/core1887+1skip/
 server1028/web2310, четыре tsc, lint и build PASS. Первый полный server-прогон
 с четырьмя workers отказал на прежней 1000-row monitoring проверке:
 21,827 с при15с. Отказ сохранён. Полный набор с двумя workers прошёл;
@@ -112,13 +156,67 @@ server-конфигурация закрепляет этот бюджет, об
 все1028 тестов. Assertions и timeout не менялись. Два новых native HTTP теста
 исполняются на POSIX, как production CLI; это не обещание Windows-native запуска.
 
-Новый source CI, native readback, контролируемая установка и собственная
-эксплуатационная приёмка кандидата ещё впереди. Bae остаётся принятым выпуском;
+Native [38973810563](https://github.com/gaben1488/dash/actions/runs/38973810563)
+SUCCESS: current replay/independent audit/twoDOCX/projection; неизменный
+исторический#REF! остаётся отказом, historical_replay_verified=false. Старый
+настоящий Bae image отдельно проверил synthetic thin/full state:
+[38974368523](https://github.com/gaben1488/dash/actions/runs/38974368523), четыре
+status чтения, health и retention совпали; fixture и все4 production runtime
+не менялись. Weekly в этом synthetic прогоне NOT_RUN. Это проверка прежних
+managed readers, не обещание hydration ссылки старым отсутствующим методом.
+
+Read-only [38977332666](https://github.com/gaben1488/dash/actions/runs/38977332666)
+сверил два manifest: весь чистый логический прирост22 296 480B — пять новых
+attempt status прежнего Bae; остальные файлы в сумме дали0B чистого прироста.
+Текущие stat пяти status совпали по размеру; allocated blocks22 302 720B.
+Payload hashes этим metadata readback не перечитывались; это не очистка и не
+измерение будущей экономии нового runtime. Старый keeper/manifested9379b4
+и новый09d9c5b7 привязаны явно.
+
+Проверочный runner отдельно исправлен без изменения runtime или assertions:
+[RED38978097013](https://github.com/gaben1488/dash/actions/runs/38978097013)
+воспроизвёл три положительных отказа из-за GitHub UID1001;
+[GREEN38978462005](https://github.com/gaben1488/dash/actions/runs/38978462005)
+запустил те же2+6 тестов под настоящим UID/GID1000, без дополнительных групп,
+на Python3.12 в изолированном scratch. SSH был SKIPPED; это проверка оснастки,
+не production-приёмка. Ops commit60a8558b не меняет frozen applicationb96.
+
+Контролируемая установка и собственная эксплуатационная приёмка b96 прошли
+в перечисленных сценариях. Bae остаётся предыдущим принятым выпуском;
 его циклы не засчитываются следующему runtime. Этот участок локализовал смену
 представления historical attempt в двух Python-файлах, без правок расчётов,
 BI/Word или их DTO. Он не заменяет общий acquisition и следующую предметную
 вертикаль официальной экономии, решения/KPI/полный provenance и остальные
 обязательства #69. Границы и критерии находятся в ADR-001 и ADR-0012.
+
+### Следующий локальный кандидат — эксплуатационные показатели
+
+Коммит `c0e96be45ae68dc23c5460043e6cff56eaf690a6`, пока не установлен.
+Python уже передаёт `operations`; shared-схемы его не описывали,
+hook не отдавал потребителю, представления не было. `.parse` обеих схем
+отбрасывал поле (3RED→GREEN), но настоящий `fetchParsed` сохраняет исходный
+JSON: потери в HTTP-транспорте не заявляются. Actual Python producer
+на synthetic fixture прошёл обе TS-границы без потерь, age/duration60сек
+независимо проверены по заданным временам. Hook и общий React-компонент
+сохраняют последние наблюдения при ошибке чтения, различают текущую проверку
+и срез Word, сохраняют исторический отказ после успеха. Новых GET/генерации/
+хранилищ нет; четыре определения в существующем METRIC_KB. Source-адаптеры,
+финансовые формулы и согласованный Header не менялись.
+
+Независимый review нашёл archive POST без operations:2RED READY/NOT_ISSUED,
+исправлено same-context сохранение исходного GET/checked_at, смена контекста
+очищает сведения. Исправлена ложная формулировка «автономная»: индекс включает
+ручные попытки. Review повторно PASS. Дополнительный HTTP403 case обнаружил
+ложный «собираем» после отказа prepare; ошибка теперь видима, а успешный GET
+не превращается в отказ API из-за отдельной POST-операции. Проверка этой
+границы RED→GREEN, hook+component36PASS. Локально4tsc, lint0errors/303existing
+warnings, shared743/core1887+1skip/server1028 и полный web2317, webbuild PASS
+после последнего уточнения. Предыдущий web2316 PASS сохранён отдельно. Browser одного
+actual компонента:30учебных состояний (320/768/1440×2темы×5состояний),
+0page errors/overflow, keyboard expansion PASS; четыре KB-подсказки доступны
+с клавиатуры и касанием в пределах viewport. Это не live-приёмка нового UI.
+Перед его установкой нужны source-SHA CI и фактический backend/frontend proof;
+проверка b96 не подменяет приёмку этого следующего исходного кода.
 
 ### История предыдущего выпуска — 16.10.2026, 19:59 UTC
 

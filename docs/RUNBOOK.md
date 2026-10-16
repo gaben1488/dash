@@ -17,7 +17,26 @@ Expected endpoints:
 
 ## Verification
 
-Текущая установленная версия на 16.10.2026, 21:30 UTC — `bae73c20`.
+Текущая установленная версия16.10.2026,23:40UTC — `b96e169d`.
+Release38975748581 SUCCESS: checkpoint21 019 256 685B/3537entries,
+archive3 181 420 526B; manifest09d9c5b717439f06ff971d742e7a7563fb8a5764869c1edc6d72f4f2bedd1ba5,
+trial a1e7434292ef3acec36c77c92a6359a7fdebfb9255bb2bea5da9204e593f5267.
+Keeper `/home/aemr/.dash-private-backups/worker-38975748581/backup`.
+Два restore: каждый110SQLite/263DOCX; API/3Word22:59:12, health22:59:13,
+resume/cleanup PASS. Browser38978982855/38978992935 PASS:13разделов/Header/3journal/3Word,
+0page errors/blocked, одинаковые native DOCX hashes. Эмуляция не physicalSafari.
+Worker observer38978975046 SUCCESS: `ebb2f94f` и `e6bb0c4b`, двойная host FLOCK,
+интервал924,260619с, native context/snapshot/3Word после каждого PASS;
+оба retained-proof roundtrip PASS,1638 sealed неизменны. История8v2/1absent/0invalid.
+Ранний `26376dc9` начался до observation_since и не засчитан.
+Metadata38982529550 подтвердил source/checkpoint/атрибуции, все4running,
+APIhealthy/OOM=false/restarts0. Новые retained status по4083B/4096allocatedB;
+старые payload не удалялись, full global status сохранён. Полный cold benchmark,
+историческое переиздание#REF!, весь journal/KPI/mobile UX этим не принимаются.
+API/worker image9e833a1cd435c21defc4bfda1ab91913b364585357711db215faaae89fbd1667;
+web69f5e128aef4fb48f9a466054df2b9196db5c36c11ef3dc9d0133e2158d0e8d8.
+
+История предыдущего полностью принятого Bae на21:30UTC:
 [Release38961726925](https://github.com/gaben1488/dash/actions/runs/38961726925)
 завершён: checkpoint 20 996 960 205 B / 3527 файлов, архив 3 179 828 006 B;
 два независимых полных restore по 110 SQLite / 263 DOCX. Exact-SHA API и три
@@ -49,7 +68,11 @@ capture→health не равны измеренному API downtime: точны
 не измерялся. Новые phase timers оснастки относятся только к будущим прогонам,
 не измеряют transfer и не ослабляют restore/source/rollback gate.
 
-Следующий кандидат4f630e74/32e9ad6e пока не установлен. Он сохраняет новые
+Текущий b96e169d (4f630e74/0d155e1d/32e9ad6e) установлен;
+release38975748581 подтвердил два restore нового21 019 256 685B checkpoint,
+manifest09d9c5b717439f06ff971d742e7a7563fb8a5764869c1edc6d72f4f2bedd1ba5.
+Старый accepted Bae trial3759 не относится к этому checkpoint.
+Установленный код сохраняет новые
 historical reused-attempt status с hash-ссылкой на опубликованное assurance;
 global status остаётся полным для старого API/оператора. Для полного исторического
 доказательства используется `PublicationStore.read_attempt` под обычной reader
