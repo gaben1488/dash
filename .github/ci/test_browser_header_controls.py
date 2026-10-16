@@ -1,4 +1,5 @@
 """Browser acceptance must detect inert controls using real pointer/touch input."""
+import asyncio
 import os
 import unittest
 from pathlib import Path
@@ -11,6 +12,16 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
           'Конкурентные способы, статья 24 44-ФЗ', 'Единственный поставщик, статья 93 44-ФЗ',
           'Все способы закупки', 'Программные мероприятия', 'Текущая деятельность',
           'Федеральный бюджет', 'Краевой бюджет', 'Муниципальный бюджет']
+
+
+async def open_current_header(page, artifact):
+    await page.goto(artifact.as_uri())
+    # WebKit's pointer stability check needs rendered frames. Treat initial
+    # font/layout startup separately; keep the real action's 5s bound intact.
+    await asyncio.wait_for(page.evaluate('''async () => {
+        await document.fonts.ready;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }'''), timeout=5)
 
 
 class FailureEvidenceTests(unittest.TestCase):
@@ -81,7 +92,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
             try:
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
-                await page.goto(artifact.as_uri())
+                await open_current_header(page, artifact)
                 await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
                 proof = {}
                 await verifier.verify_header_periods(page, 'iphone', proof)
@@ -99,7 +110,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
                         _, options = verifier.browser_settings(profile, driver.devices)
                         page = await browser.new_page(**options)
                         try:
-                            await page.goto(artifact.as_uri())
+                            await open_current_header(page, artifact)
                             await verifier.activate(page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True), profile)
                             proof = {}
                             await verifier.verify_header_controls(page, profile, proof)

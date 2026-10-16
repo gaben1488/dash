@@ -5,13 +5,41 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 16:34 UTC
+### Текущий выпуск — 16.10.2026, 17:10 UTC
 
 **Установлен `19289667`: release38927016449 SUCCESS, независимые restore
 с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
-public health16:25:58UTC PASS.** Observer38930502207 уже наблюдает два новых
-автономных цикла; результат ещё не получен. Принятые циклы83 не выдаются за192.
-Полная продуктовая приёмка и весь реестр56 остаются открыты.
+public health16:25:58UTC PASS.** Observer38930502207 SUCCESS16:49:26UTC:
+новые36d28700(start16:26:45Z) иd396cb45(start16:45:22Z), double host FLOCK,
+не менее900с после finish первого, context/snapshot/три Word после каждого
+PASS16:30:09/16:48:33UTC. Последний finish16:48:18Z VERIFIED_WITH_WARNINGS.
+Все1638 sealed entries неизменны. Проверенные historical presentations8v2/
+1absent/0invalid, current selected HTTP200/PASS. Metadata38935012162 независимо
+связала попытки. Принятые циклы83 не засчитывались за192.
+Это закрывает перечисленные install/worker/browser сценарии192, не cold latency
+и не весь продукт. Реестр56 целиком не закрыт; решения/KPI/общий provenance
+и остальные незавершённые обязательства сохранены ниже.
+
+Точная installed image API/worker:a848c1146ea5c746c17595fb801abaa48d7e1ebfbd7428e6245c181dd3e7c0d1;
+web:9feff3f78da974e878fc8b87f874fe4179546021fb3eb5ada373ae7a2b79f846.
+Metadata16:50UTC: все4 running, noOOM/noRestart; API healthy.
+Checkpoint38927016449:20943366733B/3503entries, архив3176285073B,
+manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
+Оба restore110SQLite/263DOCX. Keeper:/home/aemr/.dash-private-backups/worker-38927016449/backup.
+Free16714596352B/MemAvailable2588721152B — отдельный замер16:50, не гарантия будущего места.
+
+Remote кандидат84181464 уже включаетd158/c4f19 и проверочную оснастку.
+CI38935153858: report-engine/runtime и production image PASS; source job FAIL
+на первом выборе палитры QA в WebKit, live job FAIL на journal READ_UNAVAILABLE.
+Остальные три Header endpoints,425metricnodes и полный report schema PASS.
+Runtime capture38935153702 PASS, frozen38935153610 ещё идёт.
+**Этот новый кандидат не установлен и не принят доказательствами192.**
+Локальный WebKit воспроизведён: стабильный rect/loaded fonts не доказывают
+первые RAF. Оснастка отдельно ждёт fonts + два rendered frames не более5с,
+не меняя click/tap5с и assertions. Полные Chromium8/WebKit8 PASS. Это startup
+оснастки, не исправление production. Нативная read-only диагностика журнала
+различает timeout/transport/JSON и длительность без текста ошибки/payload;
+сохранён прежний15с предел. Быстрый повтор не закрывает холодный отказ.
 
 Расширенный iPhone/WebKit38932318516 PASS16:32:30UTC:13разделов touch,
 методы/деятельность/бюджеты/единицы/тема/поиск/popover, year/quarter/month/week,
@@ -54,7 +82,7 @@ independent audit/two rebuilt DOCX PASS; weekly — доказанный оди�
 одинаковый hash13937B. Это НЕ доказательство, что dashboard fix исправляет
 холодное чтение журнала; отдельная граница остаётся на проверке.
 
-Следующий локальный участок: полный строковый адрес `173`/`173/1`/`173/18`
+Следующий интегрированный, пока не установленный участок: полный строковый адрес `173`/`173/1`/`173/18`
 через shared→core journal→API→row panel; исправлен сброс IssueSchema.rowSeq,
 URL encoding, единый reader, прежние numeric caller/response adapters на границе.
 Leading zeroes не теряются, unsafe numeric не выдаётся за точную метку,
@@ -70,7 +98,11 @@ lint0errors/303existingwarnings, tsc PASS. **Не в192 и не установл
 не меняется. RED→GREEN с actual SQLite function-call counter и no-index
 negative control; focused57 и полный shared740/core1872(+1skip)/server1020/
 web2303 PASS, общий lint0errors/303existingwarnings и tsc PASS.
-**Не входит в192, не установлен; native migration-cost ещё не измерен.**
+Native38935736313 SUCCESS на согласованной копии434122752B, SQLite3.51.3:
+15снимков/2кандидата, одинаковые ID/порядок,1096.623→0.312ms,
+build1127.75ms. Файл не вырос за счёт freelist; это не отсутствие места индекса.
+API ID/StartedAt неизменны, production index не создавался, scratch удалён.
+**Не входит в192 и не установлен; SQL proof не является HTTP cold proof.**
 Это не доказывает устранение cold Google latency и полной задержки журнала.
 
 - [Выпуск38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150):

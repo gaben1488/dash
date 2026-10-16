@@ -17,9 +17,26 @@ Expected endpoints:
 
 ## Verification
 
-На16.10.2026,16:34UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+На16.10.2026,17:10UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
-health16:25:58UTC PASS. Observer38930502207 идёт; два цикла192 ещё не приняты.
+health16:25:58UTC PASS. Observer38930502207 SUCCESS16:49:26UTC: два новых
+36d28700/d396cb45, RUNNING/double host FLOCK, interval≥900s, context/snapshot/
+три Word после каждого. Sealed1638 entries unchanged; checked history8v2/
+1absent/0invalid, current selected200/PASS. Metadata38935012162 подтверждает
+source192, попытки и образыa848c114 API/worker/9feff3f7web, все4running/noOOM/noRestart.
+Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/263DOCX.
+Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
+manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
+Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
+Следующий remote84181464 не установлен: CI38935153858 имеет source WebKit
+startup FAIL и live journal READ_UNAVAILABLE; report-engine/image PASS.
+Runtime capture38935153702 PASS, frozen38935153610 ещё идёт.
+Нельзя выпускать этот кандидат или засчитывать ему доказательства192.
+Native weekly index38935736313 PASS на согласованной копии:1096.623→0.312ms,
+те же15снимков/2кандидата, build1127.75ms; production index не создавался.
+Read-only диагностика журнала сохраняет15с gate и выводит лишь fixed stage/
+reason/elapsed, без сообщений исключений или source payload.
+Cold latency и вся продуктовая программа не закрыты этими результатами.
 iPhone/WebKit38932318516 PASS13touch-разделов/все периоды/reset/Undo/журнал/3Word;
 это эмуляция. Desktop38933155485 PASS16:37:55UTC на тех же сценариях.
 Первый desktop38932107962 FAIL сохранён. Compiled Header RED в desktop/touch:
