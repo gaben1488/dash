@@ -1123,7 +1123,10 @@ jobs:
     steps:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
+          envs: WEEKLY_ONLY
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1131,7 +1134,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -1139,7 +1142,7 @@ jobs:
             import stat
             import subprocess
             from pathlib import Path
-            weekly_only='${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}'
+            weekly_only=os.environ['WEEKLY_ONLY'];assert weekly_only in {'yes','no'}
             SERVICES={"/aemr-"+name+"-1":name for name in ("server","web","caddy","report-worker")}
             OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
             def safe_record(value):

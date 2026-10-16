@@ -1,4 +1,5 @@
 """Host adapter boundaries; all process tests use their own temporary lock."""
+import ast
 import contextlib
 import copy
 import importlib.util
@@ -193,6 +194,15 @@ class WeeklyOperatorTests(unittest.TestCase):
             self.assertIn(required,section)
         for forbidden in ('--operation finalize','--operation recover','docker stop','docker restart','docker compose'):
             self.assertNotIn(forbidden,section)
+
+    def test_large_observer_script_does_not_expand_into_an_oversized_github_expression(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        section=re.search(r'^  observe:\n.*?(?=^  [a-z][-a-z]*:|\Z)',workflow,re.MULTILINE|re.DOTALL).group()
+        script=textwrap.dedent(section.split('          script: |\n',1)[1])
+        self.assertGreater(len(script),21000)
+        self.assertNotIn('${{',script,'GitHub implicitly formats this entire scalar; expression limit is21000')
+        self.assertIn('envs: WEEKLY_ONLY',section)
+        ast.parse(script.split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0])
 
     def test_staging_push_is_explicit_and_owner_scoped(self):
         workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
