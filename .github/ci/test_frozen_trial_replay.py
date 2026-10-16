@@ -92,6 +92,33 @@ class FrozenTrialReplayTests(unittest.TestCase):
                 if accepted:self.assertEqual(private['proof'],proof)
                 else:self.assertIn('PRIVATE_FAILURE',private['private_trace'])
 
+    def test_private_json_transfers_read_fd0_and_reject_invalid_or_oversized_input(self):
+        import io
+        import re
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        workflow = Path(__file__).parents[1] / 'workflows/vps-cache-cleanup.yml'
+        source = workflow.read_text()
+        self.assertFalse('install -m 600 /dev/stdin' in source,
+                         'Live SSH repro: install accepts a new target but fails to replace an existing proof')
+        commands = re.findall(r"remote \"sudo -n python3 -IB -c '([^']+)'\"", source)
+        programs = [body.replace('\\"', '"') for body in commands if 'r.atomic_json(' in body and 'sys.stdin.buffer.read(' in body]
+        self.assertEqual(len(programs), 2, 'Both trial proof and private replay evidence must use the same fd0 atomic writer')
+        for program in programs:
+            for body in (b'{"state":"synthetic"}', b'not-json', b'x' * 8388609):
+                writes = []
+                module = SimpleNamespace(Path=Path, RUNTIME_DIR=Path('/var/lib/aemr/release-runtime'),
+                                         atomic_json=lambda path, value, seen=writes: seen.append((path, value)))
+                with self.subTest(program=program[-80:], valid=body.startswith(b'{')), patch.dict(sys.modules, {'release_recovery':module}), patch.object(sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(body))), patch.object(sys, 'path', sys.path.copy()):
+                    if body.startswith(b'{'):
+                        exec(compile(program, '<actual-private-json-transfer>', 'exec'), {})  # noqa: S102 - actual reviewed workflow
+                        self.assertEqual(len(writes), 1)
+                        self.assertEqual(writes[0][1], {'state':'synthetic'})
+                    else:
+                        with self.assertRaises((ValueError, AssertionError)):
+                            exec(compile(program, '<actual-private-json-transfer>', 'exec'), {})  # noqa: S102 - actual reviewed workflow
+                        self.assertEqual(writes, [], 'Malformed or oversized data must not replace the prior proof')
+
     def test_successful_trial_result_is_returned_without_fabricating_acceptance(self):
         proof = {'state': 'TRUSTED_RELEASE_TRIAL_PASS', 'private_release_id': 'PRIVATE_ID',
                  'full_restore': {'sqlite_checked': 2, 'docx_checked': 3}}

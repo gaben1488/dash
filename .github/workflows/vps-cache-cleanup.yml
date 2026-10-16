@@ -1194,7 +1194,7 @@ jobs:
             from pathlib import Path
             def observe():
                 seen,attributed={},set()
-                deadline=time.monotonic()+max(2400,2*interval+600)
+                deadline=time.monotonic()+max(2700,2*interval+900)
                 while time.monotonic()<deadline:
                     check()
                     status=read_status()
@@ -1204,14 +1204,22 @@ jobs:
                             if not re.fullmatch('[A-Za-z0-9_-]{1,128}',status['attempt_id']):raise m.RecoveryError('WORKER_CYCLE_PROOF_INVALID')
                             attributed.add(status['attempt_id'])
                             save('attribution-'+status['attempt_id']+'.json',{'started_at':status['started_at'],'double_host_flock':True,'samples':list(samples)})
-                    if m.accept_cycle(status,since,seen,attributed,interval):
+                    accepted=m.accept_cycle(status,observation_since,seen,attributed,interval)
+                    if (status.get('status')=='NOT_ISSUED' and status.get('error_code')=='SOURCE_CHANGED_BEFORE_PUBLICATION'
+                        and status.get('failure_stage')=='publication'
+                        and m.datetime.fromisoformat(status['started_at'])>=m.datetime.fromisoformat(observation_since)):
+                        save('rejected-cycle.json',{key:status[key] for key in
+                            ('status','attempt_id','started_at','finished_at','failure_stage','error_code')})
+                        # Stop this finite acceptance, not the healthy API or worker timer.
+                        raise m.RecoveryError('WORKER_NEW_CYCLE_SOURCE_CHANGED')
+                    if accepted:
                         native_smoke()
                         save('cycle-'+str(len(seen))+'.json',{k:status[k] for k in
                             ('status','attempt_id','started_at','finished_at','snapshot_id','publication')})
                         print('WORKER_AUTONOMOUS_CYCLE_'+str(len(seen))+'_AND_THREE_WORDS_PASS',flush=True)
                     if len(seen)==2:
                         return {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','worker':worker_id,'worker_image':image,
-                            'worker_started_at':since,'attempt_ids':sorted(seen),'native_word':'PASS'}
+                            'worker_started_at':since,'observation_since':observation_since,'attempt_ids':sorted(seen),'native_word':'PASS'}
                     time.sleep(5)
                 raise m.RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
             try:
@@ -1276,6 +1284,8 @@ jobs:
                 def native_smoke():
                     result=json.loads(readonly(['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke'],timeout=180))
                     if any(result.get(k)!='PASS' for k in ('context','snapshot','main','supplement','operational')):raise m.RecoveryError('WORKER_WORD_SMOKE_FAILED')
+                observation_since=datetime.now(timezone.utc).isoformat()
+                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha})
                 result=observe();check()
                 manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
                 assert r.digest(manifest_body)==plan['manifest_sha256']
@@ -2086,7 +2096,7 @@ jobs:
           if test -f "$RUNNER_TEMP/release/ssh.sh"; then
             . "$RUNNER_TEMP/release/ssh.sh"
             if sudo test -f "$RUNNER_TEMP/release/replay-private.json"; then
-              sudo cat "$RUNNER_TEMP/release/replay-private.json" | remote "sudo -n install -m 600 /dev/stdin /root/codex-fixes/release-$RECOVERY_RUN/replay-$GITHUB_RUN_ID.json"
+              sudo cat "$RUNNER_TEMP/release/replay-private.json" | remote "sudo -n python3 -IB -c 'import json,sys;sys.path.insert(0,\"/usr/local/libexec/aemr\");import release_recovery as r;body=sys.stdin.buffer.read(8388609);assert len(body)<=8388608;r.atomic_json(r.Path(\"/root/codex-fixes/release-$RECOVERY_RUN/replay-$GITHUB_RUN_ID.json\"),json.loads(body))'"
             fi
             snapshot > "$RUNNER_TEMP/release/runtime-after.txt"
             cmp "$RUNNER_TEMP/release/runtime-before.txt" "$RUNNER_TEMP/release/runtime-after.txt"
@@ -2988,7 +2998,7 @@ jobs:
             echo RELEASE_INDEPENDENT_TRIAL_FAILED; exit 2
           fi
           # Never upload primary data, the archive, env, logs, or private receipts as artifacts.
-          remote "sudo -n install -m 600 /dev/stdin /var/lib/aemr/release-runtime/trial-proof.json" \
+          remote "sudo -n python3 -IB -c 'import json,sys;sys.path.insert(0,\"/usr/local/libexec/aemr\");import release_recovery as r;body=sys.stdin.buffer.read(8388609);assert len(body)<=8388608;r.atomic_json(r.RUNTIME_DIR/\"trial-proof.json\",json.loads(body))'" \
             < "$RUNNER_TEMP/release/trial-proof.json"
           echo RELEASE_FULL_RESTORE_CANDIDATE_AND_PREVIOUS_RUNTIME_PASS
       - name: Same guardian exact-SHA release with closed-ingress API and Word acceptance

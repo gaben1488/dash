@@ -184,34 +184,40 @@ class WorkerRecoveryTests(unittest.TestCase):
         code = compile(ast.Module(body=[observe], type_ignores=[]), '<current-observer>', 'exec')
         first = self.status()
         second = self.status('second');second.update(started_at='2026-10-11T21:17:04+00:00',finished_at='2026-10-11T21:18:00+00:00')
-        for scenario in ('valid', 'unattributed', 'failed', 'source-change', 'word-failure'):
+        for scenario in ('valid', 'old-refusal', 'unattributed', 'failed', 'source-change', 'word-failure'):
             with self.subTest(scenario=scenario):
                 statuses = [{**first, 'status':'RUNNING'}, {**first, 'status':'RUNNING'}, first,
                             {**second, 'status':'RUNNING'}, {**second, 'status':'RUNNING'}, second]
                 if scenario == 'failed':statuses[2] = {**first, 'status':'FAILED'}
                 if scenario == 'source-change':statuses[2] = {**first, 'status':'NOT_ISSUED', 'error_code':'SOURCE_CHANGED_BEFORE_PUBLICATION', 'failure_stage':'publication'}
+                if scenario == 'old-refusal':statuses.insert(0,{**first,'status':'NOT_ISSUED','started_at':'2026-10-11T20:30:00+00:00','finished_at':'2026-10-11T20:31:00+00:00'})
                 iterator = iter(statuses);saved = {};last = [second]
                 def read_status(iterator=iterator, last=last):
                     last[0] = next(iterator, last[0]);return last[0]
                 smoke = Mock(side_effect=[None, self.module.RecoveryError('WORKER_WORD_SMOKE_FAILED')] if scenario == 'word-failure' else None)
-                clock = SimpleNamespace(monotonic=Mock(side_effect=[0, 1, 2, 3, 4, 9999]), sleep=lambda _:None)
-                context = {'m':self.module, 'time':clock, 'since':'2026-10-11T20:59:00+00:00', 'interval':900,
+                clock = SimpleNamespace(monotonic=Mock(side_effect=[0, 1, 2, 3, 4, 5, 9999]), sleep=lambda _:None)
+                context = {'m':self.module, 'time':clock, 'since':'2026-10-11T20:00:00+00:00' if scenario=='old-refusal' else '2026-10-11T20:59:00+00:00',
+                           'observation_since':'2026-10-11T20:59:00+00:00', 'interval':900,
                            'check':lambda:None, 'read_status':read_status, 'holds_lock':lambda scenario=scenario:scenario!='unattributed',
                            'save':lambda name, value, saved=saved:saved.update({name:value}), 'native_smoke':smoke,
                            'image':'sha256:accepted', 'worker_id':'accepted-worker', 're':__import__('re'),
                            'samples':[{'held':True},{'held':True}]}
                 exec(code, context)  # noqa: S102 - trusted workflow function, real acceptance rules
                 with contextlib.redirect_stdout(io.StringIO()):
-                    if scenario == 'valid':
+                    if scenario in {'valid','old-refusal'}:
                         result = context['observe']()
                         self.assertEqual(result['state'], 'TWO_AUTONOMOUS_CYCLES_VERIFIED')
                         self.assertEqual(set(result['attempt_ids']), {'first','second'})
                         self.assertEqual(smoke.call_count, 2)
                         self.assertIn('cycle-2.json', saved)
                     else:
-                        reason = {'failed':'WORKER_NEW_CYCLE_FAILED','word-failure':'WORKER_WORD_SMOKE_FAILED'}.get(scenario, 'WORKER_TWO_CYCLES_TIMED_OUT')
+                        reason = {'failed':'WORKER_NEW_CYCLE_FAILED','source-change':'WORKER_NEW_CYCLE_SOURCE_CHANGED',
+                                  'word-failure':'WORKER_WORD_SMOKE_FAILED'}.get(scenario, 'WORKER_TWO_CYCLES_TIMED_OUT')
                         with self.assertRaisesRegex(self.module.RecoveryError, reason):context['observe']()
                         self.assertNotIn('cycle-2.json', saved)
+                        if scenario == 'source-change':
+                            self.assertIn('rejected-cycle.json', saved)
+                            self.assertEqual(smoke.call_count, 0)
 
     def test_current_observer_cannot_invoke_runtime_or_data_mutations(self):
         import ast
