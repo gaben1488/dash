@@ -1326,7 +1326,13 @@ jobs:
             OPERATIONS={"match-source","restore-state","restore-reports","initialize-publication-readers"}
             def safe_record(value):
              state=value.get("State",{});config=value.get("Config",{});image=value.get("Image","");labels=config.get("Labels") or {}
+             cmd=config.get('Cmd') or [];rehearsal=labels.get('aemr.rehearsal-run','')
              return {"service":SERVICES.get(value.get("Name"),"OTHER"),
+              "rehearsal_run":int(rehearsal) if isinstance(rehearsal,str) and re.fullmatch('[0-9]{1,16}',rehearsal) else None,
+              "rehearsal_stages":[flag for flag in ('--failed-attempt','--published-summary','--coverage-summary','--weekly-only') if flag in cmd],
+              "started_at":state.get('StartedAt') if isinstance(state.get('StartedAt'),str) and re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',state['StartedAt']) else None,
+              "memory_limit":value.get('HostConfig',{}).get('Memory'),
+              "nano_cpus":value.get('HostConfig',{}).get('NanoCpus'),
               "project_owned":labels.get("com.docker.compose.project")=="aemr",
               "compose_service":labels.get("com.docker.compose.service") if labels.get("com.docker.compose.service") in {"server","web","caddy","report-worker"} else None,
               "oneoff":labels.get("com.docker.compose.oneoff") if labels.get("com.docker.compose.oneoff") in {"False","false","True","true"} else None,
