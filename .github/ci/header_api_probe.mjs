@@ -95,20 +95,31 @@ export function headerShapeIssues(name,data) {
 
 export async function probeHeaderApi(fetcher = fetch, token = process.env.AEMR_API_KEY ?? '', onPayload) {
   const checks = await Promise.all(Object.entries(HEADER_ENDPOINTS).map(async ([name, endpoint]) => {
+    const started = performance.now();
+    let stage = 'FETCH';
     try {
       const response = await fetcher('http://127.0.0.1:3000' + endpoint, {
         method: 'GET', headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(15000),
       });
       if (response.status !== 200) return { endpoint: name, result: 'HTTP_UNAVAILABLE', status: response.status };
+      stage = 'BODY';
       const text = await response.text();
       if (Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) return { endpoint: name, result: 'PAYLOAD_TOO_LARGE' };
+      stage = 'PARSE';
       const data = JSON.parse(text);
       const valid = validHeaderPayload(name, data);
+      stage = 'CONSUMER';
       onPayload?.(name,data);
       return { endpoint: name, result: valid ? 'CONTRACT_PASS' : 'CONTRACT_FAIL',
         ...(valid?{}:{invalid_fields:headerShapeIssues(name,data)}),
         response_sha256: createHash('sha256').update(text).digest('hex') };
-    } catch { return { endpoint: name, result: 'READ_UNAVAILABLE' }; }
+    } catch (error) {
+      const reason = ['TimeoutError', 'AbortError'].includes(error?.name) ? 'TIMEOUT'
+        : stage === 'PARSE' && error instanceof SyntaxError ? 'INVALID_JSON'
+        : stage === 'CONSUMER' ? 'CONSUMER_FAILED' : 'TRANSPORT_FAILED';
+      return { endpoint: name, result: 'READ_UNAVAILABLE', stage, reason,
+        elapsed_ms: Math.round(performance.now() - started) };
+    }
   }));
   return { kind: 'header_api_contract', mode: 'GET_ONLY', atomic: false, checks };
 }

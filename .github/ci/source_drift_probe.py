@@ -97,7 +97,7 @@ def runtime_stage_summary(records):
     """Project only fixed stage names/times from the existing private Pino log."""
     import math
 
-    result, dashboard_requests = [], set()
+    result, requests = [], {}
     for record in records:
         if not isinstance(record, dict) or type(record.get('time')) is not int or not 0 <= record['time'] <= 2**53 - 1:
             continue
@@ -105,11 +105,13 @@ def runtime_stage_summary(records):
         stage, duration = None, None
         if message == 'incoming request' and isinstance(request_id, str):
             request = record.get('req')
-            if isinstance(request, dict) and isinstance(request.get('url'), str) and request['url'].split('?', 1)[0] == '/api/dashboard':
-                dashboard_requests.add(request_id)
-                stage = 'dashboard_begin'
-        elif message == 'request completed' and isinstance(request_id, str) and request_id in dashboard_requests:
-            stage, duration = 'dashboard_complete', record.get('responseTime')
+            if isinstance(request, dict) and isinstance(request.get('url'), str):
+                category = {'/api/dashboard': 'dashboard', '/api/change-story': 'journal'}.get(request['url'].split('?', 1)[0])
+                if category:
+                    requests[request_id] = category
+                    stage = category + '_begin'
+        elif message == 'request completed' and isinstance(request_id, str) and request_id in requests:
+            stage, duration = requests.pop(request_id) + '_complete', record.get('responseTime')
         elif isinstance(message, str):
             for prefix, category in (
                 ('Источник прочитан', 'source_read'),

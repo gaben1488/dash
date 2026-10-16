@@ -112,6 +112,20 @@ class DriftProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '^RUNTIME_STAGE_LOG_WINDOW_EMPTY$'):
             self.module.runtime_log_stages('')
 
+    def test_journal_request_timing_is_distinct_from_dashboard_and_ignores_other_paths(self):
+        records = [
+            {'time': 1, 'msg': 'incoming request', 'reqId': 'PRIVATE_JOURNAL',
+             'req': {'url': '/api/change-story?PRIVATE_FILTER'}},
+            {'time': 2, 'msg': 'incoming request', 'reqId': 'PRIVATE_OTHER',
+             'req': {'url': '/api/PRIVATE_PATH'}},
+            {'time': 3, 'msg': 'request completed', 'reqId': 'PRIVATE_OTHER', 'responseTime': 1},
+            {'time': 4, 'msg': 'request completed', 'reqId': 'PRIVATE_JOURNAL', 'responseTime': 15001},
+        ]
+        result = self.module.runtime_stage_summary(records)
+        self.assertEqual(result, [{'at_ms': 1, 'stage': 'journal_begin'},
+                                  {'at_ms': 4, 'stage': 'journal_complete', 'duration_ms': 15001}])
+        self.assertNotIn('PRIVATE', str(result))
+
     def test_pretty_event_time_handles_midnight_and_rejects_unproven_dates(self):
         from datetime import datetime
 

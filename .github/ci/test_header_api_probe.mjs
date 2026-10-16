@@ -29,6 +29,19 @@ test('HTTP errors and unreadable bodies remain unavailable without publishing co
   assert.ok(malformed.checks.every(x => x.result === 'READ_UNAVAILABLE'));
 });
 
+test('failed reads identify timeout, transport and invalid JSON without exposing error contents', async () => {
+  for (const [error, reason] of [[new DOMException('private URL and credential', 'TimeoutError'), 'TIMEOUT'],
+    [new TypeError('private URL and credential'), 'TRANSPORT_FAILED']]) {
+    const result = await probeHeaderApi(async () => { throw error; });
+    assert.ok(result.checks.every(x => x.result === 'READ_UNAVAILABLE' && x.stage === 'FETCH' && x.reason === reason));
+    assert.ok(result.checks.every(x => Number.isSafeInteger(x.elapsed_ms) && x.elapsed_ms >= 0));
+    assert.equal(JSON.stringify(result).includes('private'), false);
+  }
+  const malformed = await probeHeaderApi(async () => new Response('private payload'));
+  assert.ok(malformed.checks.every(x => x.stage === 'PARSE' && x.reason === 'INVALID_JSON'));
+  assert.equal(JSON.stringify(malformed).includes('private'), false);
+});
+
 test('missing kind counts and invalid consumed labels are not accepted as zero/empty',()=>{
  assert.equal(validHeaderPayload('journal',{...fixtures.journal,digest:{...fixtures.journal.digest,byKind:{}}}),false);
  assert.equal(validHeaderPayload('journal',{...fixtures.journal,digest:{...fixtures.journal.digest,authors:[42]}}),false);
