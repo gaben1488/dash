@@ -1475,6 +1475,30 @@ jobs:
              print(json.dumps({'attempt_json_readonly_estimate':True,'terminal_attempts':len(terminal),'groups':len(eligible),
               'possible_physical_bytes':possible,'hashes_reverified':False}),flush=True)
 
+            def accepted_cycle_metadata():
+             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38906488066-1')
+             def read(name):
+              path=base/name
+              assert not any(parent.is_symlink() for parent in (path,*path.parents))
+              with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+               info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=8*1024*1024
+               return json.loads(stream.read(8*1024*1024+1))
+             result=read('result.json')
+             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
+             assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
+             print(json.dumps({'accepted_worker':True,'sealed_entries_verified':result['sealed_entries_verified']}),flush=True)
+             for index in (1,2):
+              cycle=read('cycle-'+str(index)+'.json');attempt=cycle['attempt_id']
+              assert re.fullmatch('[a-f0-9]{32}',attempt) and attempt in result['attempt_ids']
+              row={'accepted_cycle':index,'attempt_id':attempt,'status':cycle['status']}
+              assert row['status'] in {'VERIFIED','VERIFIED_WITH_WARNINGS'}
+              for key in ('started_at','finished_at'):
+               assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|\+00:00)',cycle[key]);row[key]=cycle[key]
+              proof=read('attribution-'+attempt+'.json')
+              assert proof['double_host_flock'] is True and len(proof['samples'])==2 and all(item['held'] is True for item in proof['samples'])
+              row['double_host_flock']=True
+              print(json.dumps(row),flush=True)
+
             def checkpoint_metadata():
              base=Path('/home/aemr/.dash-private-backups/worker-38905551150')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
@@ -1726,6 +1750,7 @@ jobs:
              print(json.dumps(result),flush=True)
             def main():
              if os.environ.get('RELEASE_ONLY')=='yes':
+              accepted_cycle_metadata()
               worker_operational_metadata()
               checkpoint_metadata()
               recovery_preflight()
