@@ -1004,6 +1004,16 @@ jobs:
               if isinstance(dependencies,dict):
                if type(dependencies.get('closed')) is bool:result['formula_closed']=dependencies['closed']
                if isinstance(dependencies.get('issues'),list):result['formula_issue_counts']=counts(dependencies['issues'])
+               locations=[]
+               known={'PROCEDURES_2526300','PROCEDURES_2526400','PROCEDURES_2526401','PROCEDURES_2526402','PROCEDURES_2526403','SUPPORT_110002','SUPPORT_837564274','SUPPORT_2526800','canonical-monitoring-checks-v1'}
+               for issue in dependencies.get('issues',[]):
+                if not isinstance(issue,dict) or issue.get('code')!='FORMULA_DEPENDENCY_NOT_CAPTURED':continue
+                if not all(type(issue.get(key)) is int and 1<=issue[key]<=1000000 for key in ('row','column')):continue
+                target=issue.get('target_sheet_id')
+                kind='INVALID_REFERENCE' if target=='unknown:REF' else 'SYSTEM' if target==1794464596 else 'OTHER'
+                sid=issue.get('source_id');sid=sid if isinstance(sid,str) and sid in known else 'OTHER'
+                locations.append({'source':sid,'row':issue['row'],'column':issue['column'],'target_kind':kind})
+               if locations:result['formula_issue_locations']=locations[:16]
               if isinstance(value.get('issues'),list):result['source_error_counts']=counts([item for item in value['issues'] if isinstance(item,dict) and item.get('severity')=='ERROR'])
               coverage=[]
               for issue in value.get('issues',[]):

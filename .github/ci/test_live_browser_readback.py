@@ -61,6 +61,8 @@ class BrowserAdmissionTests(unittest.TestCase):
         self.assertEqual(result,{'formula_closed':False,'formula_issue_counts':{'FORMULA_DEPENDENCY_NOT_CAPTURED':1},'source_error_counts':{'DUPLICATE_PROCEDURE_CODE':1,'OTHER':1}})
         queue=scope['failure_details']({'issues':[{'severity':'ERROR','code':'PROCEDURE_QUEUE_COVERAGE_MISMATCH','context':{'block':'active','missing':['private-code-1','private-code-2'],'unexpected':['private-code-3']}}]})
         self.assertEqual(queue,{'source_error_counts':{'OTHER':1},'queue_coverage':[{'block':'active','missing_count':2,'unexpected_count':1}]})
+        location=scope['failure_details']({'formula_dependencies':{'issues':[{'code':'FORMULA_DEPENDENCY_NOT_CAPTURED','source_id':'PROCEDURES_2526300','row':460,'column':25,'target_sheet_id':'unknown:REF','formula':'private'}]}})
+        self.assertEqual(location,{'formula_issue_counts':{'FORMULA_DEPENDENCY_NOT_CAPTURED':1},'formula_issue_locations':[{'source':'PROCEDURES_2526300','row':460,'column':25,'target_kind':'INVALID_REFERENCE'}]})
 
     def test_absent_saved_files_cannot_inherit_previous_projection(self):
         import json
