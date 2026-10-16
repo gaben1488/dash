@@ -17,6 +17,45 @@ from playwright.async_api import async_playwright
 
 
 class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_iphone_navigation_uses_touch_controls_and_no_keyboard_shortcut(self):
+        async with async_playwright() as driver:
+            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'webkit')).launch(headless=True)
+            try:
+                _, options = verifier.browser_settings('iphone', driver.devices)
+                page = await browser.new_page(**options)
+                await page.set_content('''
+                <nav aria-label="Навигация" tabindex="0">
+                  <div data-nav-group="0" class="np-group-center"><button class="np-btn" aria-current="page"><span class="np-label">Пульс</span></button></div>
+                  <div data-nav-group="1"><button class="np-btn"><span class="np-label">Реестр</span></button></div>
+                  <div data-nav-group="2"><button class="np-btn"><span class="np-label">Экономия</span></button></div>
+                  <div data-nav-group="3"><button class="np-btn"><span class="np-label">Система</span></button></div>
+                  <button aria-label="Предыдущая группа разделов" id="previous">↑</button>
+                  <button aria-label="Следующая группа разделов" id="next">↓</button>
+                </nav>
+                <script>
+                window.keyEvents=0;window.touchEvents=0;window.touchSelections=0;let center=0;
+                const nav=document.querySelector('nav'),groups=[...document.querySelectorAll('[data-nav-group]')];
+                function move(index){center=Math.max(0,Math.min(3,index));groups.forEach((g,i)=>g.classList.toggle('np-group-center',i===center));}
+                nav.addEventListener('keydown',e=>{window.keyEvents++;if(e.key==='Home')move(0);if(e.key==='ArrowDown')move(center+1);});
+                nav.addEventListener('touchstart',e=>{window.touchEvents++;if(e.target.closest('.np-btn'))window.touchSelections++;});
+                document.querySelector('#next').onclick=()=>move(center+1);
+                document.querySelector('#previous').onclick=()=>move(center-1);
+                document.querySelectorAll('.np-btn').forEach(b=>b.onclick=()=>{
+                  document.querySelector('[aria-current]')?.removeAttribute('aria-current');b.setAttribute('aria-current','page');
+                });
+                </script>
+                ''')
+                nav = page.get_by_role('navigation', name='Навигация', exact=True)
+                proof = {'browser_profile': 'iphone'}
+                for label in ('Система', 'Пульс', 'Экономия', 'Реестр'):
+                    await verifier.select_page(page, nav, label, proof)
+                self.assertEqual(await page.evaluate('window.keyEvents'), 0)
+                self.assertGreaterEqual(await page.evaluate('window.touchEvents'), 4)
+                self.assertEqual(await page.evaluate('window.touchSelections'), 4)
+                self.assertEqual(proof['navigation_input'], 'touch')
+            finally:
+                await browser.close()
+
     async def test_real_transport_blocks_foreign_origin_and_post_before_delivery(self):
         calls = {'allowed': [], 'foreign': []}
         expected = 'Basic ' + base64.b64encode(b'synthetic-user:synthetic-password').decode()

@@ -59,22 +59,40 @@ def record_response(response, proof):
             statuses.append(response.status)
 
 
+async def activate(locator, profile, *, timeout=5000):
+    if profile == 'iphone':
+        await locator.tap(timeout=timeout)
+    else:
+        await locator.click(timeout=timeout)
+
+
 async def select_page(page, nav, label, proof=None):
     def phase(value):
         if proof is not None:
             proof['navigation_phase'] = value
     phase('locate_button')
     button = nav.locator('.np-btn').filter(has=page.locator('.np-label', has_text=re.compile('^' + re.escape(label) + '$')))
-    # Native keyboard navigation, never forced clicks through an overlay.
+    profile = (proof or {}).get('browser_profile', 'desktop')
     group = int(await button.evaluate("e => e.closest('[data-nav-group]').dataset.navGroup"))
-    phase('focus_navigation')
-    await nav.focus()
-    phase('home_group')
-    await nav.press('Home')
-    for _ in range(group):
-        phase('move_group')
-        await nav.press('ArrowDown')
+    if profile == 'iphone':
+        # Test the controls a phone user has, never keyboard-only shortcuts.
+        phase('touch_group')
+        current = int(await nav.locator('.np-group-center').get_attribute('data-nav-group'))
+        name = 'Следующая группа разделов' if group > current else 'Предыдущая группа разделов'
+        for _ in range(abs(group - current)):
+            await activate(nav.get_by_role('button', name=name, exact=True), profile)
+        assert int(await nav.locator('.np-group-center').get_attribute('data-nav-group')) == group
+        await button.scroll_into_view_if_needed(timeout=5000)
+    else:
+        phase('focus_navigation')
+        await nav.focus()
+        phase('home_group')
+        await nav.press('Home')
+        for _ in range(group):
+            phase('move_group')
+            await nav.press('ArrowDown')
     if proof is not None:
+        proof['navigation_input'] = 'touch' if profile == 'iphone' else 'keyboard'
         proof['navigation_hit'] = await button.evaluate('''e => {
             const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
             return {positive_size:r.width>0&&r.height>0,inside_viewport:r.left>=0&&r.right<=innerWidth,
@@ -82,7 +100,7 @@ async def select_page(page, nav, label, proof=None):
                 covered_by_dialog:!!hit?.closest('[role="dialog"]')};
         }''')
     phase('click_button')
-    await button.click(timeout=5000)
+    await activate(button, profile)
     phase('confirm_selection')
     assert await button.get_attribute('aria-current') == 'page'
 
@@ -220,7 +238,7 @@ async def run():
                 before = len(word_requests)
                 async with page.expect_download(timeout=30000) as event:
                     proof['word_phase'] = 'click'
-                    await button.click()
+                    await activate(button, profile)
                     proof['word_phase'] = 'wait_download'
                 download = await event.value
                 proof['word_phase'] = 'save_download'
@@ -240,14 +258,18 @@ async def run():
                     assert digest == expected[view]
                     downloads.append({'view': view, 'bytes': len(content), 'sha256': digest})
             proof['stage'] = 'journal'
-            await page.get_by_role('button', name=re.compile(r'^Журнал обновлений\.')).click()
+            journal_toggle = page.get_by_role('button', name=re.compile(r'^Журнал обновлений\.'))
+            await activate(journal_toggle, profile)
             dialog = page.get_by_role('dialog', name='Провенанс: откуда числа и что изменилось', exact=True)
             await dialog.wait_for()
             for label in ['Изменения', 'Комментарии', 'Источники']:
                 tab = dialog.get_by_role('tab', name=label, exact=True)
-                await tab.click()
+                await activate(tab, profile)
                 assert await tab.get_attribute('aria-selected') == 'true'
-            await page.keyboard.press('Escape')
+            if profile == 'iphone':
+                await activate(journal_toggle, profile)
+            else:
+                await page.keyboard.press('Escape')
             await dialog.wait_for(state='hidden')
             proof.update(result='PASS', stage='complete', basic_edge='PASS',
                          three_word_downloads=downloads, journal_tabs='PASS', page_errors=len(errors), blocked_requests=len(blocked))
