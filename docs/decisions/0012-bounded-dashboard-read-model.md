@@ -64,3 +64,26 @@ concurrent reads запускают один пересчёт; invalidation со
 lint/tsc/build PASS. Независимый review подтвердил memoization/ALS и выявил
 SSE race; delayed-response regression RED→GREEN. Затем API/WebKit на точном
 установленном кандидате; локальные доказательства не означают установку.
+
+## 16.10.2026 — isolate rehearsal work from the online service
+
+Native census38939051025 found three concurrent same-image read-only diagnostic
+containers without memory/CPU/PID limits. One rehearsal started17:17:31UTC and
+was still running17:21UTC after its workflow38937993041 had been cancelled.
+This proves missing operation bounds, not that it alone caused every API timeout.
+
+The existing source-schema and frozen-replay workflow gains per-container
+1536MiB RAM/1792MiB total memory+swap,1CPU/128PIDs; its existing smaller512MiB
+probe retains that limit. Source-schema and frozen replay run sequentially in
+one workflow. This leaves the service's own limits unchanged. Full execution
+must demonstrate whether the chosen rehearsal budget is sufficient; OOM or a
+budget refusal remains FAIL, never a reason to weaken the data check.
+
+Each run labels only its disposable containers with numeric workflow-run and
+fixed job role. Its EXIT/HUP/INT/TERM cleanup removes only those exact labelled
+containers. Python entrypoints also run under timeout1200s with5s termination,
+inside the container, so losing SSH cannot leave unbounded replay work. The
+existing26minute SSH/28minute job deadlines are not raised. Production data stays
+read-only; anonymous scratch is discarded with its container. This closes a
+resource-ownership defect in the existing operator, not a second orchestration
+system or a change to publication/source validity.
