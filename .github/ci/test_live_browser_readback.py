@@ -89,15 +89,46 @@ class BrowserAdmissionTests(unittest.TestCase):
                 self.assertNotIn('section_error_counts',output[1])
                 if existing:self.assertEqual(output[0]['section_error_counts'],{'procedure_source_contract':1})
 
-    def test_repaired_worker_observation_push_is_explicit_and_owner_scoped(self):
+    def test_native_timing_streams_payload_without_logging_body_or_token(self):
+        import contextlib
+        import hashlib
+        import io
+        import json
+        import urllib.request
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
-        section=workflow.split('  worker-observe:\n',1)[1]
-        expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
-        marker='Observe repaired source worker for accepted 43f10742'
-        for event,actor,branch,message,mode,expected in [('push','owner','codex/release-observe-20261015',marker,'',True),('push','other','codex/release-observe-20261015',marker,'',False),('push','owner','main',marker,'',False),('push','owner','codex/release-observe-20261015','other','',False),('workflow_dispatch','owner','codex/release-observe-20261015','','worker-observe',True)]:
-            with self.subTest(event=event,actor=actor,branch=branch,message=message):
-                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode=mode,release_sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')}
-                self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
+        section=workflow.split('  api-timing:\n',1)[1].split('  worker-observe:\n',1)[0]
+        line=next(line.strip() for line in section.splitlines() if line.strip().startswith('code='))
+        program=ast.literal_eval(ast.parse(line).body[0].value)
+        body=b'{"private":"synthetic-body-must-not-appear"}'+b' '*200000
+        class Response:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def read(self,size):
+                self_test.assertLessEqual(size,65536)
+                part=self.remaining[:size];self.remaining=self.remaining[size:];return part
+        self_test=self
+        def open_response(*args,**kwargs):
+            response=Response();response.remaining=body;return response
+        output=io.StringIO()
+        with mock.patch.object(urllib.request,'urlopen',side_effect=open_response),mock.patch.dict(os.environ,{'AEMR_API_KEY':'synthetic-secret-never-print'}),mock.patch.object(sys,'argv',['native-probe','journal']),contextlib.redirect_stdout(output):
+            exec(compile(program,'<actual-native-timing>','exec'),{})  # noqa: S102 - trusted checked-in streaming diagnostic
+        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(rows),2)
+        for row in rows:
+            self.assertEqual(row['bytes'],len(body));self.assertEqual(row['response_sha256'],hashlib.sha256(body).hexdigest())
+            self.assertEqual(row['endpoint'],'journal')
+        self.assertNotIn('synthetic-body',output.getvalue());self.assertNotIn('synthetic-secret',output.getvalue())
+
+    def test_readonly_worker_and_profile_pushes_are_explicit_and_owner_scoped(self):
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        for job,marker in [('worker-observe','Observe repaired source worker for accepted 43f10742'),('api-timing','Profile journal read for accepted 43f10742')]:
+            section=workflow.split('  '+job+':\n',1)[1]
+            expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
+            for event,actor,branch,message,mode,expected in [('push','owner','codex/release-observe-20261015',marker,'',True),('push','other','codex/release-observe-20261015',marker,'',False),('push','owner','main',marker,'',False),('push','owner','codex/release-observe-20261015','other','',False),('workflow_dispatch','owner','codex/release-observe-20261015','',job,True)]:
+                with self.subTest(job=job,event=event,actor=actor,branch=branch,message=message):
+                    context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode=mode,release_sha='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')}
+                    self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
 
     def test_saved_worker_probe_is_readonly_and_owner_scoped(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()

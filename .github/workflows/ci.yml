@@ -1398,14 +1398,15 @@ jobs:
 
   api-timing:
     if: >-
-      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
-      inputs.mode == 'api-timing' &&
+      github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
-      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+      ((github.event_name == 'workflow_dispatch' && inputs.mode == 'api-timing' &&
+        inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 43f10742'))
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Measure two ordinary current-year dashboard reads without refresh or source writes
+      - name: Measure two ordinary reads with bounded streaming and cumulative API container CPU
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 193.233.91.162
@@ -1419,15 +1420,17 @@ jobs:
             import json,re,subprocess
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d' and record['State']['Running']
-            code="import hashlib,json,os,socket,time,urllib.request\nfrom datetime import datetime,timezone\nfor sequence in (1,2):\n start=time.monotonic();result={'api_timing':sequence,'year':2026}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000/api/dashboard?year=2026',headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   body=response.read(20*1024*1024+1);assert len(body)<=20*1024*1024\n  value=json.loads(body);metadata=value.get('snapshot',{}).get('metadata',{})\n  result.update(bytes=len(body),response_sha256=hashlib.sha256(body).hexdigest())\n  for key in ('readDurationMs','pipelineDurationMs'):\n   number=metadata.get(key)\n   if type(number) in {int,float} and 0<=number<=3600000:result[key]=number\n  stamp=value.get('snapshot',{}).get('createdAt')\n  if type(stamp) is str:\n   age=(datetime.now(timezone.utc)-datetime.fromisoformat(stamp.replace('Z','+00:00'))).total_seconds()\n   if 0<=age<=86400:result['snapshot_age_seconds']=round(age,3)\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
-            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-'],input=code,capture_output=True,text=True,timeout=100,check=False)
+            resource="journal" if "${{ github.event_name }}"=="push" else "dashboard"
+            code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-',resource],input=code,capture_output=True,text=True,timeout=100,check=False)
             assert result.returncode==0
             rows=[json.loads(line) for line in result.stdout.splitlines()];assert len(rows)==2
             for value in rows:
-             assert set(value)<={'api_timing','year','ttfb_seconds','http_status','bytes','response_sha256','readDurationMs','pipelineDurationMs','snapshot_age_seconds','error_code','elapsed_seconds'}
+             assert set(value)<={'api_timing','endpoint','ttfb_seconds','http_status','bytes','response_sha256','error_code','elapsed_seconds','cpu_available','container_cpu_seconds'}
              for key,number in value.items():
-              if key in {'response_sha256','error_code'}:continue
+              if key in {'response_sha256','error_code','endpoint','cpu_available'}:continue
               assert type(number) in {int,float} and 0<=number<=30*1024*1024
+             assert value['endpoint']==resource and type(value['cpu_available']) is bool
              if 'response_sha256' in value:assert re.fullmatch('[a-f0-9]{64}',value['response_sha256'])
              if 'error_code' in value:assert value['error_code'] in {'TIMEOUT_40S','READ_OR_PARSE_FAILED'}
              print(json.dumps(value),flush=True)
