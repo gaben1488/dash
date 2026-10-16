@@ -1245,9 +1245,23 @@ jobs:
              log=Path('/root/codex-fixes/weekly-check-38881943514/operator.log')
              if log.is_file() and not log.is_symlink() and log.stat().st_size<=1024*1024:
               body=log.read_text()
+              tokens=('SIGKILL','SIGABRT','SIGSEGV','MemoryError','Killed','Permission denied','Operation not permitted','No such file','Fatal Python error','bad allocation','returncode=-9','returncode=-11')
+              print(json.dumps({'weekly_operator_diagnostic_tokens':[k for k in tokens if k in body]}),flush=True)
               allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
               print(json.dumps({'weekly_operator_log_bytes':log.stat().st_size,'codes':sorted(k for k in allowed if k in body),
                'exceptions':sorted(k for k in ('MemoryError','PermissionError','FileNotFoundError','ModuleNotFoundError','TimeoutExpired','CalledProcessError') if k in body)}),flush=True)
+
+            def publication_payload_sizes():
+             import sqlite3,time
+             from contextlib import closing
+             path=Path('/var/lib/docker/volumes/aemr_server_data/_data/reports/published/publications.sqlite')
+             assert not path.is_symlink() and path.is_file()
+             deadline=time.monotonic()+15
+             with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+              db.execute('PRAGMA query_only=ON');db.set_progress_handler(lambda:int(time.monotonic()>deadline),1000)
+              values=db.execute('SELECT count(*),sum(length(cast(receipt as blob))),max(length(cast(receipt as blob))),sum(length(cast(files as blob))) FROM publications').fetchone()
+             print(json.dumps({'publication_catalog_bytes':path.stat().st_size,'publication_count':values[0],
+              'receipt_total_bytes':values[1],'receipt_max_bytes':values[2],'file_index_bytes':values[3]}),flush=True)
 
             def checkpoint_metadata():
              base=Path('/home/aemr/.dash-private-backups/worker-38831492016')
@@ -1498,6 +1512,7 @@ jobs:
              release_failure_metadata()
              checkpoint_metadata()
              weekly_operator_metadata()
+             publication_payload_sizes()
              image_storage_metadata()
              host_storage_metadata()
              host_operator_capabilities()
