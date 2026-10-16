@@ -48,6 +48,43 @@ class BrowserAdmissionTests(unittest.TestCase):
                 self.assertEqual(context['executor'].command(['inspect','synthetic']), '{}\n')
         finally:
             if saved is not None:os.dup2(saved,9);os.close(saved)
+    def test_failed_worker_details_expose_only_fixed_codes_and_sections(self):
+        import textwrap
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        source=workflow.split('            def worker_operational_metadata():',1)[1].split('            def weekly_stage_failure_metadata():',1)[0]
+        tree=ast.parse(textwrap.dedent('            def worker_operational_metadata():'+source))
+        function=next(node for node in tree.body[0].body if isinstance(node,ast.FunctionDef) and node.name=='failure_details')
+        scope={'codes':{'FORMULA_DEPENDENCY_NOT_CAPTURED','DUPLICATE_PROCEDURE_CODE'}}
+        exec(compile(ast.Module(body=[function],type_ignores=[]),'<failure-details>','exec'),scope)  # noqa: S102 - trusted checked-in projector only
+        value={'formula_dependencies':{'closed':False,'issues':[{'code':'FORMULA_DEPENDENCY_NOT_CAPTURED','formula':'private'}]},'issues':[{'severity':'ERROR','code':'DUPLICATE_PROCEDURE_CODE','message':'private'},{'severity':'ERROR','code':'secret'},{'severity':'WARNING','code':'DUPLICATE_PROCEDURE_CODE'}]}
+        result=scope['failure_details'](value)
+        self.assertEqual(result,{'formula_closed':False,'formula_issue_counts':{'FORMULA_DEPENDENCY_NOT_CAPTURED':1},'source_error_counts':{'DUPLICATE_PROCEDURE_CODE':1,'OTHER':1}})
+
+    def test_absent_saved_files_cannot_inherit_previous_projection(self):
+        import json
+        import re
+        import stat
+        import tempfile
+        import textwrap
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        source=workflow.split('            def worker_operational_metadata():',1)[1].split('            def weekly_stage_failure_metadata():',1)[0]
+        for existing in (True,False):
+            with self.subTest(existing=existing),tempfile.TemporaryDirectory() as temporary:
+                first=Path(temporary)/'status.json';missing=Path(temporary)/'missing.json'
+                if existing:
+                    first.write_text(json.dumps({'blockers':[{'code':'SECTION_SOURCE_MISMATCH','context':{'sections':['procedure_source_contract']}}]}));first.chmod(0o600)
+                function=ast.parse(textwrap.dedent('            def worker_operational_metadata():'+source)).body[0]
+                function.body=[node for node in function.body if isinstance(node,ast.FunctionDef) or (isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='codes' for target in node.targets)) or (isinstance(node,ast.For) and isinstance(node.target,ast.Name) and node.target.id=='path')]
+                loop=next(node for node in function.body if isinstance(node,ast.For))
+                loop.iter=ast.parse('[Path('+repr(str(first))+'),Path('+repr(str(missing))+')]',mode='eval').body
+                output=[];scope={'Path':Path,'os':os,'json':json,'re':re,'stat':stat,'print':lambda line,output=output,**kwargs:output.append(json.loads(line))}
+                exec(compile(ast.fix_missing_locations(ast.Module(body=[function],type_ignores=[])),'<actual-worker-reader>','exec'),scope)  # noqa: S102 - trusted checked-in bounded read loop
+                scope['worker_operational_metadata']()
+                self.assertEqual(len(output),2)
+                self.assertFalse(output[1]['present'])
+                self.assertNotIn('section_error_counts',output[1])
+                if existing:self.assertEqual(output[0]['section_error_counts'],{'procedure_source_contract':1})
+
     def test_saved_worker_probe_is_readonly_and_owner_scoped(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  observe:\n',1)[1].split('  proof-recovery:\n',1)[0]
