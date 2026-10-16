@@ -293,12 +293,12 @@ jobs:
           cat > "$private/stage.sh" <<'SHSTAGE'
           set -euo pipefail
           private=$1
-            candidate=4a56bdd576424c80693f82ed36c5bcb019bae7ef
+            candidate=268f9e5a15fe5345c04b69c8163ae7ac3fe55801
             [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
             [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
             root="/root/codex-fixes/weekly-$GITHUB_RUN_ID"
             # Green maintenance source is separate from installed43. The host
-            # adapter verifies both exact trees and the four reviewed differences.
+            # adapter verifies both exact trees and seven reviewed maintenance differences.
             git fetch --quiet origin "$candidate"
             ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$candidate&event=pull_request" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
@@ -309,19 +309,22 @@ jobs:
             python3 - "$private" <<'PYSOURCECI' | python3 "$private/source_ci_gate.py" "$candidate"
           import json,sys
           from pathlib import Path
-          root=Path(sys.argv[1])
-          print(json.dumps({'run':json.loads((root/'ci.json').read_text()),'jobs':json.loads((root/'jobs.json').read_text())['jobs']}))
+          root=Path(sys.argv[1]);run=json.loads((root/'ci.json').read_text());jobs=json.loads((root/'jobs.json').read_text())['jobs']
+          assert all(job.get('run_id')==run['id'] for job in jobs)
+          print(json.dumps({'run':run,'jobs':jobs}))
+          run['source_jobs']=jobs
+          (root/'ci.json').write_text(json.dumps(run))
           PYSOURCECI
             printf '%s\n' PACKAGE > "$private/phase"
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
               --connect-timeout 10 --max-time 30 --max-filesize 4194304 \
               https://bootstrap.pypa.io/get-pip.py -o "$private/get-pip.py"
             git -c tar.umask=0077 archive "$candidate" packages/report-engine \
-              deploy/plan-weekly-publications.py deploy/stateful_backup.py > "$private/source.tar"
+              deploy/plan-weekly-publications.py deploy/stateful_backup.py .github/ci/source_ci_gate.py > "$private/source.tar"
             python3 - "$candidate" <<'PYHASHES' > "$private/source-hashes.json"
           import hashlib,json,subprocess,sys
           sha=sys.argv[1]
-          paths=['packages/report-engine/src/procurement_engine','deploy/plan-weekly-publications.py','deploy/stateful_backup.py']
+          paths=['packages/report-engine/src/procurement_engine','deploy/plan-weekly-publications.py','deploy/stateful_backup.py','.github/ci/source_ci_gate.py']
           names=subprocess.check_output(['git','ls-tree','-r','--name-only',sha,'--',*paths],text=True).splitlines()
           print(json.dumps({'candidate':sha,'hashes':{name:hashlib.sha256(subprocess.check_output(['git','show',sha+':'+name])).hexdigest() for name in names if name.endswith('.py')}}))
           PYHASHES
@@ -355,7 +358,7 @@ jobs:
               for item in archive.getmembers():
                   name=item.name.rstrip('/')
                   assert not Path(name).is_absolute() and '..' not in Path(name).parts
-                  assert name in {'packages','packages/report-engine','deploy','deploy/plan-weekly-publications.py','deploy/stateful_backup.py'} or name.startswith('packages/report-engine/')
+                  assert name in {'packages','packages/report-engine','deploy','deploy/plan-weekly-publications.py','deploy/stateful_backup.py','.github','.github/ci','.github/ci/source_ci_gate.py'} or name.startswith('packages/report-engine/')
                   assert item.isdir() or item.isfile()
                   item.mode&=0o700 if item.isdir() else 0o600
               archive.extractall(root/'source',filter='data')
@@ -375,7 +378,7 @@ jobs:
           from pathlib import Path
           root=Path(sys.argv[1]);source=root/'source'
           expected=json.loads((root/'source-hashes.json').read_text())
-          assert expected['candidate']=='4a56bdd576424c80693f82ed36c5bcb019bae7ef'
+          assert expected['candidate']=='268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
           def hashes(package):
               assert package.is_dir() and not package.is_symlink()
               assert not any(p.is_symlink() for p in package.rglob('*'))
@@ -387,7 +390,7 @@ jobs:
               return result
           prefix='packages/report-engine/src/procurement_engine/'
           original={prefix+name:value for name,value in hashes(source/prefix).items()}
-          for name in ('deploy/plan-weekly-publications.py','deploy/stateful_backup.py'):
+          for name in ('deploy/plan-weekly-publications.py','deploy/stateful_backup.py','.github/ci/source_ci_gate.py'):
               original[name]=hashlib.sha256((source/name).read_bytes()).hexdigest()
           assert original==expected['hashes']
           installed=Path(sysconfig.get_path('purelib'))/'procurement_engine'

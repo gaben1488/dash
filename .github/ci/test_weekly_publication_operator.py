@@ -78,22 +78,34 @@ class WeeklyOperatorTests(unittest.TestCase):
 
     def test_maintenance_source_and_installed_runtime_are_separately_pinned(self):
         prefix='packages/report-engine/src/procurement_engine/'
-        runtime={prefix+'publication_store.py':'a'*64,'deploy/plan-weekly-publications.py':'b'*64}
-        runtime.update({prefix+name:'c'*64 for name in self.module.READER_DIFFERENCES})
+        runtime={prefix+'identity_store.py':'a'*64,'deploy/stateful_backup.py':'b'*64}
+        runtime.update({name:'c'*64 for name in self.module.TOOL_DIFFERENCES})
         tool=dict(runtime)
-        tool.update({prefix+name:'d'*64 for name in self.module.READER_DIFFERENCES})
+        tool.update({name:'d'*64 for name in self.module.TOOL_DIFFERENCES})
+        tool[self.module.SOURCE_CI_HELPER]='f'*64
         manifest={'candidate':self.module.SHA,'hashes':runtime}
         expected={name[len(prefix):]:value for name,value in runtime.items() if name.startswith(prefix)}
         self.assertEqual(self.module.runtime_hashes(manifest,tool),expected)
-        for failure in ('candidate','store','deploy','missing','extra'):
+        for failure in ('candidate','identity','backup','missing','extra','omitted_difference'):
             with self.subTest(failure=failure):
                 changed=copy.deepcopy(manifest)
                 if failure=='candidate':changed['candidate']=self.module.TOOL_SHA
-                if failure=='store':changed['hashes'][prefix+'publication_store.py']='e'*64
-                if failure=='deploy':changed['hashes']['deploy/plan-weekly-publications.py']='e'*64
-                if failure=='missing':changed['hashes'].pop(prefix+'publication_store.py')
+                if failure=='identity':changed['hashes'][prefix+'identity_store.py']='e'*64
+                if failure=='backup':changed['hashes']['deploy/stateful_backup.py']='e'*64
+                if failure=='missing':changed['hashes'].pop(prefix+'identity_store.py')
                 if failure=='extra':changed['hashes'][prefix+'unexpected.py']='e'*64
+                if failure=='omitted_difference':changed['hashes'][prefix+'publication_store.py']=tool[prefix+'publication_store.py']
                 with self.assertRaises(ValueError):self.module.runtime_hashes(changed,tool)
+
+    def test_source_job_qualification_preserves_failed_live_result_and_rejects_bad_sources(self):
+        args=list(self.context());ci=args[-1]
+        ci.update(conclusion='failure',event='pull_request',path='.github/workflows/ci.yml')
+        ci['source_jobs']=[{'run_id':ci['id'],'name':name,'status':'completed','conclusion':'success'} for name in (
+            'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime','Production image with report runtime')]
+        self.module.validate_context(*args,backup_reference='worker-38831492016/backup')
+        self.assertEqual(ci['conclusion'],'failure')
+        ci['source_jobs'][0]['run_id']+=1
+        with self.assertRaises(ValueError):self.module.validate_context(*args,backup_reference='worker-38831492016/backup')
 
     def test_old_runtime_failed_ci_cannot_be_presented_as_tool_ci(self):
         args=list(self.context())
@@ -105,11 +117,14 @@ class WeeklyOperatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)/'source';deploy=root/'deploy';deploy.mkdir(parents=True)
             (deploy/'plan-weekly-publications.py').write_text(
-                'def plan(state):\n return '+repr({'catalog_revision':'f'*64,'publication_count':98,
-                'keep_count':8,'retire_count':90,'bytes_reclaimable':1000,
-                'retire_release_ids':['private-id'],'identity_ready':True})+'\n'
+                'def plan(state):\n raise AssertionError("duplicate standalone plan")\n'
+                'def operator_preflight(state,**kw):\n assert kw["expected_revision"]=="live" and kw["operation"]=="apply"\n return {"plan":'+repr({'catalog_revision':'f'*64,'publication_count':98,
+                'keep_count':8,'retire_count':90,'bytes_reclaimable_upper_bound':1000,
+                'retire_release_ids':['private-id'],'identity_ready':True})+'}\n'
                 'def operate(*a,**kw):\n raise AssertionError("unexpected mutation")\n')
-            result=self.module.preview_plan(root,Path(sys.executable),[],root/'state')
+            ci=root/'ci.json';ci.write_text('{}');receipt=root/'receipt.json';receipt.write_text('{}')
+            result=self.module.preview_plan(root,Path(sys.executable),[],root/'state',backup=root/'backup',
+                ci_evidence=ci,source_receipt=receipt,reader_package=root/'reader')
             self.assertEqual(result['catalog_revision'],'f'*64)
             self.assertEqual(result['retire_count'],90)
             self.assertNotIn('retire_release_ids',result)

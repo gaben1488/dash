@@ -19,11 +19,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SHA = '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
-TOOL_SHA = '4a56bdd576424c80693f82ed36c5bcb019bae7ef'
-# Temporary, explicit tooling/runtime boundary. Publication and retention code
-# is identical; only disposable reader/diagnostic helpers changed after43.
-READER_DIFFERENCES = {'deployment_diagnostics.py','publication_reader.py',
-                      'readonly_catalog.py','rehearsal_policy.py'}
+TOOL_SHA = '268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
+# Exact reviewed maintenance changes; actual43 hashes remain independently pinned.
+TOOL_DIFFERENCES = {'packages/report-engine/src/procurement_engine/'+name for name in (
+    'deployment_diagnostics.py','publication_reader.py','readonly_catalog.py',
+    'rehearsal_policy.py','publication_store.py','retention.py')} | {'deploy/plan-weekly-publications.py'}
+SOURCE_CI_HELPER = '.github/ci/source_ci_gate.py'
 TOOLS = Path('/usr/local/libexec/aemr')
 BACKUPS = Path('/home/aemr/.dash-private-backups')
 SCRATCH = Path('/var/lib/aemr/weekly-scratch')
@@ -156,11 +157,11 @@ def runtime_hashes(manifest, tool):
     """Do not relabel the old runtime or its unsuccessful full CI as the tool."""
     prefix='packages/report-engine/src/procurement_engine/'
     actual=manifest.get('hashes',{})
-    require(manifest.get('candidate')==SHA and set(actual)==set(tool)
+    require(manifest.get('candidate')==SHA and set(actual)|{SOURCE_CI_HELPER}==set(tool)
             and all(isinstance(value,str) and re.fullmatch('[a-f0-9]{64}',value) for value in actual.values()),
             'RUNTIME_SOURCE_MANIFEST_INVALID')
     changed={name for name in actual if actual[name]!=tool[name]}
-    require(changed=={prefix+name for name in READER_DIFFERENCES},'UNREVIEWED_TOOL_RUNTIME_DIFFERENCE')
+    require(changed==TOOL_DIFFERENCES,'UNREVIEWED_TOOL_RUNTIME_DIFFERENCE')
     return {name[len(prefix):]:value for name,value in actual.items() if name.startswith(prefix)}
 
 
@@ -174,10 +175,11 @@ def native_probe(tree):
     return ast.get_source_segment(source,definitions[0])+'\n'+NATIVE
 
 
-def preview_plan(tree,python,privilege,state,*,output=None):
-    """Existing read-only planner, with private IDs and bounded public metadata."""
-    probe='import json,runpy,sys;tool=runpy.run_path(sys.argv[1]);print(json.dumps(tool["plan"](sys.argv[2])))'
-    body=call([*privilege,str(python),'-IB','-c',probe,str(tree/'deploy/plan-weekly-publications.py'),str(state)],
+def preview_plan(tree,python,privilege,state,*,backup,ci_evidence,source_receipt,reader_package,output=None):
+    """One native preflight produces the private plan and checks backup coverage."""
+    probe='import json,runpy,sys;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;tool=runpy.run_path(sys.argv[1]);p=tool["operator_preflight"](sys.argv[2],operation="apply",candidate=sys.argv[3],ci=json.load(open(sys.argv[4])),source_receipt=json.load(open(sys.argv[5])),reader_package=sys.argv[6],backup=sys.argv[7],expected_revision="live",store=PublicationStore(Path(sys.argv[2])/"published",readonly=True))["plan"];p["bytes_reclaimable"]=p.pop("bytes_reclaimable_upper_bound");print(json.dumps(p))'
+    body=call([*privilege,str(python),'-IB','-c',probe,str(tree/'deploy/plan-weekly-publications.py'),str(state),
+               TOOL_SHA,str(ci_evidence),str(source_receipt),str(reader_package),str(backup)],
               timeout=600,pass_fds=(9,) if os.path.exists('/proc/self/fd/9') else ())
     result=json.loads(body)
     require(re.fullmatch('[a-f0-9]{64}',result.get('catalog_revision','')),'PLAN_REVISION_INVALID')
@@ -319,7 +321,13 @@ def apply_identity_patch(state,patch):
 
 def validate_context(plan,records,cycle,native,hashes,ci,*,backup_reference):
     require(plan['release_sha']==SHA and plan['backup_reference']==backup_reference,'ACCEPTED_BACKUP_CHANGED')
-    require(ci.get('head_sha')==TOOL_SHA and ci.get('status')=='completed' and ci.get('conclusion')=='success'
+    qualified=ci.get('conclusion')=='success'
+    if 'source_jobs' in ci:
+        from source_ci_gate import source_ci_passed
+        jobs=ci['source_jobs']
+        qualified=(isinstance(jobs,list) and all(isinstance(job,dict) and job.get('run_id')==ci.get('id') for job in jobs)
+                   and source_ci_passed(ci,jobs,TOOL_SHA))
+    require(ci.get('head_sha')==TOOL_SHA and ci.get('status')=='completed' and qualified
             and ci.get('name')=='CI' and (ci.get('head_repository') or {}).get('full_name')=='gaben1488/dash'
             and type(ci.get('id')) is int and ci['id']>0,'EXACT_CANDIDATE_CI_REQUIRED')
     worker=records['report-worker']
@@ -415,7 +423,7 @@ def admit(args):
             and type(receipt.get('derivation_run_id')) is int and receipt['derivation_run_id']>0,'SOURCE_RECEIPT_INVALID')
     hashes=public_hashes(args.tree/'packages/report-engine/src/procurement_engine')
     observed={'packages/report-engine/src/procurement_engine/'+name:value for name,value in hashes.items()}
-    for name in ('deploy/plan-weekly-publications.py','deploy/stateful_backup.py'):
+    for name in ('deploy/plan-weekly-publications.py','deploy/stateful_backup.py',SOURCE_CI_HELPER):
         observed[name]=hashlib.sha256(owned(args.tree/name,private=False)).hexdigest()
     require(observed==receipt.get('file_hashes'),'EXACT_PUBLIC_CODE_REQUIRED')
     require(public_hashes(args.reader_package)==hashes,'HOST_READER_SOURCE_CHANGED')
@@ -431,6 +439,7 @@ def admit(args):
     require(re.fullmatch('worker-[0-9]+/backup',reference) and reference==args.backup_reference,'ACCEPTED_BACKUP_CHANGED')
     window=json.loads(owned(BACKUPS/Path(reference).parent/'release-window.json'))
     require(window.get('candidate')==SHA and set(window.get('module_sha256',{}))==MODULES,'ROOT_MODULE_PINS_REQUIRED')
+    require(observed[SOURCE_CI_HELPER]==window['module_sha256']['source_ci_gate.py'],'CANONICAL_SOURCE_QUALIFIER_CHANGED')
     for name,pin in window['module_sha256'].items():
         require(hashlib.sha256(owned(TOOLS/name,private=False)).hexdigest()==pin,'ROOT_MODULE_CHANGED')
     sys.path.insert(0,str(TOOLS))
@@ -513,20 +522,25 @@ def main():
                     print(json.dumps(result,sort_keys=True))
                     print('IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES')
                     return
-                preview=None
                 if args.check and args.expected_revision=='live':
                     preview=preview_plan(args.tree,args.python,privilege,state,
+                                         backup=backup,ci_evidence=args.ci_evidence,source_receipt=args.source_receipt,
+                                         reader_package=args.reader_package,
                                          output=args.tree.parent/('retention-plan-'+args.operator_run+'.json'))
-                    args.expected_revision=preview['catalog_revision']
+                    print(json.dumps(preview,sort_keys=True))
+                    print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
                 command=cli_commands(args.tree,args.python,args.reader_package,args.ci_evidence,args.source_receipt,state,backup,
                                      operation=args.operation,revision=args.expected_revision,finalize_review=args.finalize_review)
                 # Exercise actual host ABI/dependency closure and existing proof gates
                 # as the real native data owner before any maintenance lock bootstrap.
                 probe='import importlib.util,json,sys;import procurement_engine.runtime,docx;from pathlib import Path;from procurement_engine.publication_store import PublicationStore;spec=importlib.util.spec_from_file_location("weekly",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);m.operator_preflight(sys.argv[2],operation=sys.argv[3],candidate=sys.argv[4],ci=json.load(open(sys.argv[5])),reader_package=sys.argv[6],source_receipt=json.load(open(sys.argv[7])),expected_revision=sys.argv[8],backup=sys.argv[9],store=PublicationStore(Path(sys.argv[2])/"published",readonly=True));print("HOST_NATIVE_PREFLIGHT_PASS")'
+                if not args.check:
+                    # Actual admission/one fresh plan runs inside the native
+                    # locked operation. Only ABI/source checks belong here.
+                    probe='import json,runpy,sys;import procurement_engine.runtime,docx;tool=runpy.run_path(sys.argv[1]);tool["validate_operator_runtime"](sys.argv[4],json.load(open(sys.argv[5])),sys.argv[6],json.load(open(sys.argv[7])));print("HOST_NATIVE_ABI_SOURCE_PASS")'
                 call([*privilege,str(args.python),'-IB','-c',probe,command[2],str(state),args.operation,TOOL_SHA,
                       str(args.ci_evidence),str(args.reader_package),str(args.source_receipt),args.expected_revision,str(backup)],timeout=1800,pass_fds=(9,))
                 if args.check:
-                    if preview:print(json.dumps(preview,sort_keys=True))
                     print('HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION');return
                 # The barrier execs setpriv in-place, preserving PID birth identity.
                 owner_command=command

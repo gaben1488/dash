@@ -18,20 +18,29 @@ Expected endpoints:
 ## Verification
 
 Временная граница обслуживания установленного `43f10742` (16.10):
-`weekly_publication_operator.py` использует неизменённый native CLI и Python
-пакет из полностью проверенного `4a56bdd5` (CI `38863236982`). Это версия
-инструмента, а не новая версия рабочего приложения. Прикладные образы,
-принятые два цикла, backup и root release proof остаются привязаны к `43f10742`.
-Полный состав файлов сравнивается с отдельной неизменяемой квитанцией
-`weekly-38875479942/source-hashes.json`; допустимы ровно четыре уже проверенных
-изменения диагностических/временных reader helpers. Publication store,
-retention, identity, leases и оба deploy helpers должны совпадать побайтно.
-Реальные API/worker дополнительно выполняют проверку reader behavior на
-одноразовых синтетических данных. Полный CI старого приложения не объявляется
-успешным. Подготовка инструмента не разрешает очистку: сначала read-only plan,
-проверка покрытия каждого удаляемого корня доверенным backup, затем штатные
-apply/recover/readback/finalize под тем же maintenance inode. После принятия
-полного нового приложения временные pins заменяются одной совместимой точкой.
+следующий инструмент подготовлен из `268f9e5a`; установка и read-only preflight
+ещё не приняты. Это версия инструмента, не новая версия рабочего приложения.
+Прикладные образы, два принятых цикла38860353565, backup/restore38831492016
+и root release proof остаются привязаны к `43f10742`.
+Полный состав файлов сверяется с неизменяемой квитанцией
+`weekly-38875479942/source-hashes.json`: допустимы ровно семь изменений
+maintenance/reader/retention, плюс один вспомогательный canonical source-CI
+qualifier. Его hash сверяется с принятым root release window ДО import.
+Остальные identity/leases/backup modules должны совпадать побайтно.
+API/worker проверяют reader behavior на одноразовых синтетических данных.
+
+Три exact-SHA source jobs учитываются через существующий `source_ci_gate.py`;
+owner workflow получает run/jobs через authenticated GitHub API, привязывает
+каждый job к тому же run и сохраняет исходный общий conclusion. FAIL live browser
+старого API не объявляется зелёным CI. Эта квалификация допускает только код
+служебного инструмента, не приложение/UI и не удаление данных.
+Первый preflight строит один свежий план под штатными locks, защищает корни,
+которых нет в доверенном backup, и проверяет реальные файлы каждого target.
+Уменьшенный marker+SQLite journal сохраняет v1 recovery compatibility; только
+неизменяемые publication artifacts могут временно делиться inode.
+Apply/recover/readback/finalize и независимая проверка сохранённых выпусков
+остаются обязательны. Пока compaction не выполнялась. После принятия полного
+приложения временные pins заменяются одной совместимой точкой.
 
 Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске
 `/var/lib/aemr/weekly-scratch`, с UID/GID1000 для временных SQLite clones.
@@ -40,27 +49,27 @@ apply/recover/readback/finalize под тем же maintenance inode. После
 а не на доказанном OOM. `MemoryPeak == MemoryMax` само по себе не доказывает OOM.
 Тот же TMPDIR передаётся всем host children. При ошибке мутационной операции
 scratch сохраняется для независимого recovery; после обычного read-only выхода
-удаляются только созданные этим запуском временные копии. Full-CI, свободное
+удаляются только созданные этим запуском временные копии. Exact-SHA source CI, свободное
 место, backup coverage и отдельная приёмка apply/finalize остаются обязательны.
 
 Run before handoff or deployment:
 
-16.10 identity preparation: exact frozen donors восстановили на отдельной копии
-два старых снимка/8126 наблюдений/16252 nullable signatures
-(38889251691 SUCCESS). Полный protected digest до/после совпал; UID, raw поля,
-история и frozen results не менялись. Private prepared proof root600 хранится
-в `weekly-38881380220/identity-prepared-38889251691.json`, на рабочую БД этот
-запуск не писал. Следующее отдельное применение допускает только NULL slots
-из этого proof, сверяет прежние UID/signature/locator, держит EX maintenance
-и прежний native `run.lock`, пишет все targets в одной SQLite transaction.
-Конфликт откатывает всю транзакцию; уже совпадающее значение идемпотентно.
-DB/sidecars/lock без symlink, regular/native-owner/single-link, inode stable.
-Публикации/доноры не удаляются и frozen rows не переписываются. Применение
-и независимый readback ещё не приняты. Это не допуск publication compaction.
-Попытка38890817567 отказала на занятом native `run.lock` до connect/write.
-Это текущий штатный цикл, не повод остановить worker. Перед следующим CAS
-оператор до480s ждёт свободное окно с отпущенным EX9, затем заново берёт
-тот же EX и полностью повторяет admission; сам CAS снова берёт native lock.
+16.10 identity metadata: copy-only38889251691 восстановил два старых снимка,
+8126 наблюдений/16252 nullable signatures. Protected digest до/после совпал;
+UID/raw/history/frozen results не менялись. Private root600 prepared proof:
+`weekly-38881380220/identity-prepared-38889251691.json`.
+Первый live38890817567 отказал на занятом native run.lock ДО connect/write.
+Bounded480s idle wait отпускает EX9 и повторяет весь admission после захвата;
+сам CAS заново берёт прежний native lock. Live38891326813 SUCCESS11:04:29UTC:
+одна BEGIN IMMEDIATE/FULL transaction, NULL-only, snapshot/locator/signature/UID
+CAS; весь конфликт откатывает транзакцию, equal replay идемпотентен.
+DB/sidecars/lock regular/native-owner/single-link/stable-inode, без symlink.
+Независимый native readback38891473586 SUCCESS11:05:42UTC:95target snapshots,
+0affected/0missing_plan/0missing_entity/0missing_snapshots. Это принятый ремонт
+производных identity metadata; не публикационная очистка и не общая приёмка
+идентичности. Старый tool/proof pin сохранён; повторное применение не требуется.
+Backup index coverage38891425973:92из95корней совпали по file map,3защищаются.
+Это index check, не замена свежей проверки bytes/archive/restore.
 Ограничение публичного Python source transport40KiB отделено от приватного
 prepared evidence8MiB; общий лимит произвольных trust files остаётся1MiB.
 
