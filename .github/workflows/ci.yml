@@ -88,6 +88,9 @@ jobs:
             if mode=='snapshot' and result.returncode==0:
                 # Inspect the already measured 07:22 read, not another warm GET.
                 import signal
+                timezone=subprocess.run(['docker','exec','--user','1000:1000',record['Id'],'node','-e',
+                    'process.exit(new Date().getTimezoneOffset()===0?0:2)'],capture_output=True,timeout=10)
+                assert timezone.returncode==0
                 with subprocess.Popen(['timeout','-k','5s','15s','docker','logs','--timestamps',
                     '--since','2026-10-16T07:21:00Z','--until','2026-10-16T07:24:00Z',
                     '--tail','1000',record['Id']],stdin=subprocess.DEVNULL,
@@ -98,7 +101,7 @@ jobs:
                     assert logs.returncode==0 and len(raw)<=2*1024*1024
                 namespace={'__name__':'private_log_projector'}
                 exec(compile(body,'<reviewed-log-projector>','exec'),namespace)
-                print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'))}),flush=True)
+                print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'),logger_utc=True)}),flush=True)
             if result.returncode:
                 names={'AssertionError','PermissionError','FileNotFoundError','KeyError','TypeError','ImportError','ModuleNotFoundError','ValueError'}
                 errors=sorted(set(re.findall(rb'^([A-Za-z]+Error):',result.stderr,re.M)))

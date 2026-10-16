@@ -39,7 +39,7 @@ class DriftProbeTests(unittest.TestCase):
         self.assertEqual(len(self.module.runtime_stage_summary(records * 100)), 80)
 
     def test_runtime_stages_read_actual_ansi_multiline_pretty_format(self):
-        raw = '''2026-10-16T07:22:01.123456789Z [07:22:01.123] \x1b[32mINFO\x1b[39m (123): \x1b[36mincoming request\x1b[39m
+        raw = '''2026-10-16T07:22:39.123456789Z [07:22:01.123] \x1b[32mINFO\x1b[39m (123): \x1b[36mincoming request\x1b[39m
 2026-10-16T07:22:01.123456789Z     \x1b[35mreqId\x1b[39m: "PRIVATE_REQUEST"
 2026-10-16T07:22:01.123456789Z     req: {
 2026-10-16T07:22:01.123456789Z       "url": "/api/dashboard?PRIVATE_QUERY"
@@ -49,7 +49,9 @@ class DriftProbeTests(unittest.TestCase):
 2026-10-16T07:22:03.123456789Z     reqId: "PRIVATE_REQUEST"
 2026-10-16T07:22:03.123456789Z     responseTime: 2000.5
 '''
-        result = self.module.runtime_log_stages(raw)
+        with self.assertRaisesRegex(ValueError, '^LOGGER_TIMEZONE_NOT_VERIFIED$'):
+            self.module.runtime_log_stages(raw)
+        result = self.module.runtime_log_stages(raw, logger_utc=True)
         self.assertEqual([item['stage'] for item in result],
                          ['dashboard_begin', 'snapshot_save_begin', 'dashboard_complete'])
         self.assertEqual(result[-1]['duration_ms'], 2000.5)
@@ -57,6 +59,17 @@ class DriftProbeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', str(result))
         with self.assertRaisesRegex(ValueError, '^RUNTIME_STAGE_FORMAT_UNSUPPORTED$'):
             self.module.runtime_log_stages('PRIVATE_OTHER_FORMAT')
+
+    def test_pretty_event_time_handles_midnight_and_rejects_unproven_dates(self):
+        from datetime import datetime
+
+        raw = '2026-10-17T00:00:01Z [23:59:59.000] INFO (123): Снимок сохраняется: PRIVATE'
+        event = self.module.runtime_log_stages(raw, logger_utc=True)[0]
+        self.assertEqual(event['at_ms'], int(datetime.fromisoformat('2026-10-16T23:59:59Z').timestamp() * 1000))
+        with self.assertRaisesRegex(ValueError, '^LOGGER_EVENT_TIME_NOT_PROVEN$'):
+            self.module.runtime_log_stages(raw.replace('[23:59:59.000]', '[07:00:00.000]'), logger_utc=True)
+        with self.assertRaisesRegex(ValueError, '^LOGGER_TIMEZONE_NOT_VERIFIED$'):
+            self.module.runtime_log_stages(raw.replace('T00:00:01Z', 'T00:00:01+12:00'), logger_utc=True)
 
     def test_snapshot_stage_probe_reads_scalar_metadata_without_payload_or_writes(self):
         import json

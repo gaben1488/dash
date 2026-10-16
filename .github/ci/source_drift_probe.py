@@ -7,15 +7,15 @@ import time
 from pathlib import Path
 
 
-def runtime_log_stages(raw):
+def runtime_log_stages(raw, *, logger_utc=False):
     """Decode JSON or the installed multiline pino-pretty format privately."""
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     records, current = [], None
     for line in raw.splitlines():
         stamp, _, text = re.sub(r'\x1b\[[0-9;]*m', '', line).partition(' ')
         try:
-            at_ms = int(datetime.fromisoformat(stamp).timestamp() * 1000)
+            transported = datetime.fromisoformat(stamp)
         except ValueError:
             continue
         try:
@@ -26,9 +26,18 @@ def runtime_log_stages(raw):
             records.append(decoded)
             current = None
             continue
-        header = re.fullmatch(r'\[\d{2}:\d{2}:\d{2}\.\d+\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\([^)]+\):\s*(.*)', text)
+        header = re.fullmatch(r'\[(\d{2}:\d{2}:\d{2}\.\d+)\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\([^)]+\):\s*(.*)', text)
         if header:
-            current = {'time': at_ms, 'msg': header[1]}
+            if logger_utc is not True or transported.utcoffset() != timedelta(0):
+                raise ValueError('LOGGER_TIMEZONE_NOT_VERIFIED')
+            # Docker timestamps describe buffered log delivery. Event time is
+            # the logger's own UTC clock, with the date witnessed by transport.
+            logged = datetime.fromisoformat(transported.date().isoformat() + 'T' + header[1] + '+00:00')
+            if logged > transported + timedelta(seconds=1):
+                logged -= timedelta(days=1)
+            if not -1 <= (transported - logged).total_seconds() <= 3600:
+                raise ValueError('LOGGER_EVENT_TIME_NOT_PROVEN')
+            current = {'time': int(logged.timestamp() * 1000), 'msg': header[2]}
             records.append(current)
         elif current is not None:
             field = re.fullmatch(r'\s+(reqId|responseTime|ms):\s*(.+)', text)
