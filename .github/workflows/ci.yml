@@ -2447,3 +2447,98 @@ jobs:
              print('ISOLATED_SNAPSHOT_SCOPE_PROBE_FAILED')
              raise SystemExit(2) from None
             PYSCOPE
+
+  weekly-validation-timing:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Profile weekly baseline validation for accepted 19289667'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time installed weekly verification on one consistent private copy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 7m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -IB - <<'PYSCOPE'
+            import json,os,shutil,sqlite3,subprocess,tempfile,time
+            from pathlib import Path
+            from contextlib import closing
+            def probe():
+             os.umask(0o077);os.nice(15)
+             deadline=time.monotonic()+360
+             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
+             assert record['Image']=='sha256:a848c1146ea5c746c17595fb801abaa48d7e1ebfbd7428e6245c181dd3e7c0d1' and record['State']['Running']
+             mount=next(item for item in record['Mounts'] if item['Destination']=='/app/packages/server/data')
+             source=Path(mount['Source'])/'aemr.db';assert source.is_file() and not source.is_symlink()
+             parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
+             work=Path(tempfile.mkdtemp(prefix='snapshot-index-',dir=parent));database=work/'aemr.db'
+             probe_name='aemr-'+work.name
+             try:
+              with closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as src:
+               src.execute('PRAGMA query_only=ON')
+               size=src.execute('PRAGMA page_count').fetchone()[0]*src.execute('PRAGMA page_size').fetchone()[0]
+               free=shutil.disk_usage(work).free
+               print(json.dumps({'scope_probe_capacity':{'copy_bytes':size,'free_bytes':free,'floor_bytes':5*1024**3,'allowed':size>0 and free>size+5*1024**3}}),flush=True)
+               assert size>0 and free>size+5*1024**3
+               def progress(*args):
+                if time.monotonic()>deadline:raise TimeoutError()
+               start=time.monotonic()
+               with closing(sqlite3.connect(database)) as dst:src.backup(dst,pages=256,progress=progress,sleep=.01)
+               copied=round(time.monotonic()-start,3)
+              code=r'''
+            import {createRequire} from 'node:module';
+            const Database=createRequire('/app/packages/server/package.json')('better-sqlite3');
+            const db=new Database('/probe/aemr.db');db.pragma('cache_size=-32768');
+            const snapshot=await import('/app/packages/server/src/services/snapshot.ts');
+            const validation=await import('/app/packages/server/src/services/weekly-control-validation.ts');
+            const measure=fn=>{const cpu=process.cpuUsage(),start=performance.now(),result=fn();const used=process.cpuUsage(cpu);return{ms:Math.round((performance.now()-start)*1000)/1000,cpu_ms:Math.round((used.user+used.system)/1000),result}};
+            const selected=measure(()=>[...snapshot.iterateWeeklySnapshotHistory()]);
+            const checks=[];
+            for(const baseline of selected.result){
+              const bytes=db.prepare('SELECT length(CAST(data AS BLOB)) AS n FROM snapshots WHERE id=?').get(baseline.id).n;
+              const check=measure(()=>validation.verifiedBaselineRows(baseline));
+              checks.push({payload_bytes:bytes,ms:check.ms,cpu_ms:check.cpu_ms,valid:check.result.error===null,books:check.result.rows.size});
+            }
+            const integrity=await import('/app/packages/server/src/routes/integrity.ts');
+            const comparison=measure(()=>integrity.buildComparison());
+            db.close();
+            console.log(JSON.stringify({weekly_validation_timing:{candidate_count:selected.result.length,selection_ms:selected.ms,selection_cpu_ms:selected.cpu_ms,checks,empty_live_comparison_ms:comparison.ms,empty_live_comparison_cpu_ms:comparison.cpu_ms,comparison_available:comparison.result.comparison!==null}}));
+            '''
+              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','SQLITE_PATH=/probe/aemr.db','-e','NODE_ENV=test','-e','LOG_LEVEL=silent','-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
+              (work/'native.stderr').write_text(result.stderr[-65536:])
+              (work/'native.stdout').write_text(result.stdout[:16384])
+              assert result.returncode==0 and len(result.stdout)<=4096
+              value=json.loads(result.stdout)
+              assert set(value)=={'weekly_validation_timing'}
+              timing=value['weekly_validation_timing']
+              assert set(timing)=={'candidate_count','selection_ms','selection_cpu_ms','checks','empty_live_comparison_ms','empty_live_comparison_cpu_ms','comparison_available'}
+              assert timing['candidate_count']==len(timing['checks']) and 0<=len(timing['checks'])<=32
+              after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
+              assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
+              timing.update(installed_source='19289667b0aca6f88ff6225c9a3a8c849a592c9d',consistent_copy_bytes=size,copy_seconds=copied,production_changed=False)
+              (work/'result.json').write_text(json.dumps(value))
+              print(json.dumps(value))
+             finally:
+              running=subprocess.run(['docker','inspect',probe_name],capture_output=True,text=True,timeout=10,check=False)
+              if running.returncode==0:
+               owned=json.loads(running.stdout)[0]
+               assert owned['Config']['Labels'].get('aemr.scope-probe')==work.name
+               subprocess.run(['docker','rm','--force',probe_name],capture_output=True,timeout=20,check=True)
+              for name in ('aemr.db','aemr.db-wal','aemr.db-shm','aemr.db-journal'):
+               path=work/name
+               if path.is_file() and not path.is_symlink():path.unlink()
+              if not any(work.iterdir()):work.rmdir()
+            try:probe()
+            except Exception:
+             print('ISOLATED_SNAPSHOT_SCOPE_PROBE_FAILED')
+             raise SystemExit(2) from None
+            PYSCOPE
