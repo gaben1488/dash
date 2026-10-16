@@ -1303,7 +1303,7 @@ jobs:
               exceptions=sorted(set(re.findall(r'(?m)^([a-zA-Z_.]*(?:Error|Exception)):',body)))
               sql=[text for text in ('database or disk is full','unable to open database file','disk I/O error','No space left on device') if text in body]
               print(json.dumps({'weekly_operator_trace_frames':frames,'exception_types':exceptions,'sql_diagnostics':sql}),flush=True)
-              allowed={'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
+              allowed={'IDENTITY_PATCH_CONFLICT','IDENTITY_PATH_UNTRUSTED','IDENTITY_PATCH_INVALID','IDENTITY_COPY_PROOF_REQUIRED','IDENTITY_PATCH_MODE_INVALID','OPERATOR_FILE_UNTRUSTED','IMMUTABLE_PUBLICATION_BACKUP_MISMATCH','PUBLICATION_RETENTION_IDENTITY_MISSING','PUBLICATION_RETENTION_PLAN_CHANGED','PUBLICATION_CATALOG_CHANGED_DURING_COPY','PUBLICATION_CATALOG_CORRUPT','PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT','READER_RUNTIME_COMPATIBILITY_REQUIRED','EXACT_CANDIDATE_CI_REQUIRED','OPERATOR_COMMAND_FAILED','HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','WEEKLY_OPERATOR_BLOCKED'}
               print(json.dumps({'weekly_operator_log_bytes':log.stat().st_size,'codes':sorted(k for k in allowed if k in body),
                'exceptions':sorted(k for k in ('MemoryError','PermissionError','FileNotFoundError','ModuleNotFoundError','TimeoutExpired','CalledProcessError') if k in body)}),flush=True)
 
