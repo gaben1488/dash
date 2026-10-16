@@ -200,6 +200,34 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     vi.resetModules();
   });
 
+  it('does not rescan case history when every snapshot is already retained', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const cases = Array.from({ length: 17 }, (_, i) => ({ id: `reviewed-${i}` }));
+    const payload = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {}, issues: cases });
+    for (let week = 0; week < 15; week++) db.insert(schema.snapshots).values({
+      id: `week-${week}`, spreadsheetId: 'book',
+      createdAt: new Date((THU - week * 7) * 86400000).toISOString(), data: payload,
+    }).run();
+    for (const entry of cases) db.insert(schema.issues).values({ ...entry,
+      snapshotId: 'week-0', severity: 'info', origin: 'calc', category: 'fixture',
+      title: 'Reviewed', status: 'false_positive', detectedAt: new Date(THU * 86400000).toISOString(),
+    }).run();
+    const prepare = vi.spyOn(db.$client, 'prepare');
+    try {
+      expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(0);
+      const historyScans = prepare.mock.calls.filter(([query]) => query.includes('instr(')
+        && query.includes('"snapshots"."data"') && !query.includes('json_valid'));
+      expect(historyScans).toHaveLength(0);
+      const caseReads = prepare.mock.calls.filter(([query]) => /\bfrom\s+"issues"/i.test(query));
+      expect(caseReads).toHaveLength(0);
+    } finally {
+      prepare.mockRestore();
+    }
+    expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(Array(15).fill(payload));
+    expect(db.select().from(schema.issues).all().every(row => row.status === 'false_positive')).toBe(true);
+  });
+
   it('SQLite сохраняет доказанные all-year/year/book области и голову, удаляя только проигравший daily', async () => {
     const { db, schema } = await import('../db/index.js');
     const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');

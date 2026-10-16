@@ -115,6 +115,9 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
         hasWeeklyContext: r.hasWeeklyContext === 1 }));
     const offset = config.weeklySnapshot.utcOffsetHours;
     const keep = retentionKeepIds(rows, productCalendarDay(now, offset), offset);
+    // Weekly heads/unknown scopes may already protect every row. No deletion
+    // is possible, so case-history payload scans cannot change this result.
+    if (rows.every(row => keep.has(row.id))) return 0;
     // A discarded daily version may be the only exact identity proof behind a
     // saved decision. Preserve its immutable raw rows and user history. This
     // intentionally retains extra snapshots; reviewed cases need an explicit
