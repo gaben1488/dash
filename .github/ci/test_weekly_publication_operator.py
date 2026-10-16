@@ -85,6 +85,28 @@ class WeeklyOperatorTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def test_heavy_native_readback_is_isolated_and_cleans_only_its_created_container(self):
+        self.assertTrue(hasattr(self.module,'native_readback'),'Heavy checker must not run inside the API process budget')
+        for failed in (False,True):
+            calls=[];container='a'*64
+            def run(arguments,*,calls=calls,container=container,failed=failed,**options):
+                calls.append((arguments,options))
+                if arguments[1]=='create':return (container+'\n').encode()
+                if arguments[1]=='start':
+                    if failed:raise ValueError('OPERATOR_COMMAND_FAILED')
+                    return b'{"proof":true}'
+                return b''
+            with self.subTest(failed=failed),patch.object(self.module,'call',side_effect=run):
+                if failed:
+                    with self.assertRaises(ValueError):self.module.native_readback('sha256:'+'b'*64,'aemr_server_data',b'code',{'plan':1})
+                else:self.assertEqual(self.module.native_readback('sha256:'+'b'*64,'aemr_server_data',b'code',{'plan':1}),b'{"proof":true}')
+            create=calls[0][0]
+            for flag in ('--read-only','--network','--memory','--memory-swap','--cpus'):self.assertIn(flag,create)
+            self.assertIn('none',create);self.assertIn('768m',create)
+            self.assertIn('type=volume,src=aemr_server_data,dst=/app/packages/server/data,readonly',create)
+            self.assertEqual(calls[-1][0],['docker','rm','--force',container])
+            self.assertEqual(json.loads(calls[1][1]['input_bytes']),{'plan':1})
+
     def context(self):
         sha = self.module.SHA
         plan = {'release_sha':sha, 'backup_reference':'worker-38831492016/backup',

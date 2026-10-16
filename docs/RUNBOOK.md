@@ -20,7 +20,10 @@ Expected endpoints:
 Временная граница обслуживания установленного `43f10742` (16.10):
 инструмент из `268f9e5a` staged38895891036 SUCCESS11:46:30UTC; code/dependencies
 проверены в `/root/codex-fixes/weekly-38895891036`. Read-only preflight38896058189
-ещё идёт; допуск apply не получен. Это версия инструмента, не новая версия рабочего приложения.
+SUCCESS11:54:40UTC:99pubs/keep7/retire92;28581079465B upper bound. Exact revision
+`a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03`.
+Trusted immutable target inventory прошёл gate,3unbacked roots защищены.
+Independent review допустил только reversible apply, не finalize. Это версия инструмента, не новая версия рабочего приложения.
 Прикладные образы, два принятых цикла38860353565, backup/restore38831492016
 и root release proof остаются привязаны к `43f10742`.
 Полный состав файлов сверяется с неизменяемой квитанцией
@@ -41,8 +44,12 @@ owner workflow получает run/jobs через authenticated GitHub API, п
 неизменяемые publication artifacts могут временно делиться inode.
 Apply/recover/readback/finalize и независимая проверка сохранённых выпусков
 остаются обязательны. Пока compaction не выполнялась. Owner-only apply transport требует отдельного
-литерального plan revision (пока PREFLIGHT_REQUIRED); live marker не допускает
-мутацию. Finalize transport пока отсутствует. После принятия полного
+литерального reviewed plan revision; live marker не допускает
+мутацию. Отдельный native readback требует exact original catalog revision, все original
+download/dashboard/identity/ledger hashes, receipt whitelist и period по frozen
+report_model. Пять consistent tamper кейсов RED→GREEN;3tests/11negatives и
+independent exact43-reader replay PASS. При apply quarantine сохраняется.
+Finalize transport пока отсутствует. После принятия полного
 приложения временные pins заменяются одной совместимой точкой.
 
 Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске

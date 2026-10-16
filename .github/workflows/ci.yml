@@ -35,7 +35,8 @@ jobs:
       (github.event.head_commit.message == 'Preview weekly retention for accepted 43f10742' ||
        github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' ||
        github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' ||
-       github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742')
+       github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' ||
+       github.event.head_commit.message == 'Verify retained publications for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -53,30 +54,38 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('WEEKLY_CODE='+base64.b64encode(body).decode()+'\n')
               target.write('WEEKLY_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+              check=Path('.github/ci/weekly_publication_readback.py').read_bytes();assert len(check)<=16384
+              target.write('WEEKLY_READBACK_CODE='+base64.b64encode(check).decode()+'\n')
+              target.write('WEEKLY_READBACK_SHA='+hashlib.sha256(check).hexdigest()+'\n')
           PY
       - name: Verify exact runtime and perform the explicitly selected metadata operation
         uses: appleboy/ssh-action@v1.2.0
         env:
           WEEKLY_CODE: ${{ env.WEEKLY_CODE }}
           WEEKLY_SHA: ${{ env.WEEKLY_SHA }}
+          WEEKLY_READBACK_CODE: ${{ env.WEEKLY_READBACK_CODE }}
+          WEEKLY_READBACK_SHA: ${{ env.WEEKLY_READBACK_SHA }}
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: WEEKLY_CODE,WEEKLY_SHA
+          envs: WEEKLY_CODE,WEEKLY_SHA,WEEKLY_READBACK_CODE,WEEKLY_READBACK_SHA
           command_timeout: 16m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_CODE,WEEKLY_SHA python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_CODE,WEEKLY_SHA,WEEKLY_READBACK_CODE,WEEKLY_READBACK_SHA python3 -IB - <<'PY'
             import base64,hashlib,json,os,re,stat,subprocess
             from pathlib import Path
             run='${{ github.run_id }}';assert run.isdigit()
-            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' && 'compaction-apply' || 'plan' }}'
+            mode='${{ github.event.head_commit.message == 'Prepare identity copy for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Apply prepared identity metadata for accepted 43f10742' && 'identity-apply' || github.event.head_commit.message == 'Apply weekly retention for accepted 43f10742' && 'compaction-apply' || github.event.head_commit.message == 'Verify retained publications for accepted 43f10742' && 'readback' || 'plan' }}'
             root=Path('/root/codex-fixes')/('weekly-check-'+run)
             root.mkdir(mode=0o700);os.umask(0o077)
             body=base64.b64decode(os.environ['WEEKLY_CODE'],validate=True)
             assert len(body)<=40960 and hashlib.sha256(body).hexdigest()==os.environ['WEEKLY_SHA']
             path=root/'operator.py';path.write_bytes(body);path.chmod(0o600)
+            check=base64.b64decode(os.environ['WEEKLY_READBACK_CODE'],validate=True)
+            assert len(check)<=16384 and hashlib.sha256(check).hexdigest()==os.environ['WEEKLY_READBACK_SHA']
+            readback=root/'readback.py';readback.write_bytes(check);readback.chmod(0o600)
             stage=Path('/root/codex-fixes/weekly-38895891036')
             python=stage/'venv/bin/python'
             probe='import sysconfig;print(sysconfig.get_path("purelib"))'
@@ -94,24 +103,27 @@ jobs:
                 '--ci-evidence',str(stage/'ci.json'),'--source-receipt',str(stage/'source-receipt.json'),
                 '--worker-acceptance','/var/lib/aemr/worker-quarantine/acceptance-38860353565-1/result.json',
                 '--backup-reference','worker-38831492016/backup','--operation','apply','--expected-revision','live','--check']
-            if mode=='compaction-apply':
+            if mode in {'compaction-apply','readback'}:
                 # Bind only after successful private plan and independent review.
-                revision='PREFLIGHT_REQUIRED'
+                revision='a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03'
                 assert re.fullmatch('[a-f0-9]{64}',revision)
-                command.remove('--check')
+                if mode=='compaction-apply':command.remove('--check')
+                else:command+=['--retained-readback',str(readback)]
                 command[command.index('--expected-revision')+1]=revision
             if mode=='identity':command.append('--identity-copy')
             if mode=='identity-apply':command.remove('--check');command.append('--identity-apply')
             result=subprocess.run(command,capture_output=True,timeout=920,check=False)
             for line in (root/'operator.log').read_text().splitlines():
                 if line in {'HOST_NATIVE_PREFLIGHT_PASS_NO_COMPACTION','HOST_NATIVE_PREFLIGHT_PASS','WEEKLY_OPERATOR_BLOCKED',
-                            'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES','EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE'}:
+                            'IDENTITY_COPY_PREPARATION_PASS_NO_PRIMARY_WRITES','EXISTING_NATIVE_COMPACTION_AND_RECOVERY_COMPLETE','RETAINED_STATE_READBACK_PASS'}:
                     print(line)
                 elif line.startswith('{'):
                     try:value=json.loads(line)
                     except ValueError:continue
                     keys={'catalog_revision','publication_count','keep_count','retire_count','bytes_reclaimable'}
                     if set(value)==keys and re.fullmatch('[a-f0-9]{64}',value['catalog_revision']):print(json.dumps(value,sort_keys=True))
+                    readback_keys={'status','verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts','original_catalog_equivalent'}
+                    if set(value)==readback_keys and value['status']=='RETAINED_STATE_VERIFIED':print(json.dumps(value,sort_keys=True))
                     identity_keys={'identity_copy_preparation','snapshots','updated_observations','updated_fields',
                                    'protected_data_unchanged','protected_digest'}
                     if set(value)==identity_keys and value['identity_copy_preparation']=='PASS':print(json.dumps(value,sort_keys=True))
@@ -119,7 +131,7 @@ jobs:
             for role in ('MemoryPeak','Result','ExecMainStatus'):
                 value=subprocess.check_output(['systemctl','show',unit,'--property='+role,'--value'],timeout=10,text=True).strip()
                 if re.fullmatch('[a-z0-9-]+',value):print(json.dumps({'unit_property':role,'value':value}))
-            prefix={'identity-apply':'IDENTITY_METADATA_APPLY','compaction-apply':'REVERSIBLE_WEEKLY_COMPACTION'}.get(mode,'READ_ONLY_WEEKLY_PREFLIGHT')
+            prefix={'identity-apply':'IDENTITY_METADATA_APPLY','compaction-apply':'REVERSIBLE_WEEKLY_COMPACTION','readback':'INDEPENDENT_RETAINED_READBACK'}.get(mode,'READ_ONLY_WEEKLY_PREFLIGHT')
             print(prefix+'_PASS' if result.returncode==0 else prefix+'_FAILED')
             raise SystemExit(0 if result.returncode==0 else 2)
             PY
