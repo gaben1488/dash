@@ -79,8 +79,9 @@ one workflow. This leaves the service's own limits unchanged. Full execution
 must demonstrate whether the chosen rehearsal budget is sufficient; OOM or a
 budget refusal remains FAIL, never a reason to weaken the data check.
 
-Each run labels only its disposable containers with numeric workflow-run and
-fixed job role. Its EXIT/HUP/INT/TERM cleanup removes only those exact labelled
+Each run labels only its disposable containers with numeric workflow-run,
+execution attempt and fixed job role. A rerun cannot inherit the old attempt
+cleanup scope. Its EXIT/HUP/INT/TERM cleanup removes only those exact labelled
 containers. Python entrypoints also run under timeout1200s with5s termination,
 inside the container, so losing SSH cannot leave unbounded replay work. The
 existing26minute SSH/28minute job deadlines are not raised. Production data stays

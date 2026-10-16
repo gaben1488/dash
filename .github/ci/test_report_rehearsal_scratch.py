@@ -58,6 +58,7 @@ class ReportRehearsalScratchTests(unittest.TestCase):
                     if [ "$1" = ps ]; then printf '%s\\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi
                 }
                 rehearsal_run=123
+                rehearsal_attempt=2
                 work="$OWNED_SCRATCH"
                 ''' + function + '\ntrap cleanup_rehearsal EXIT\nexit 7\n'
                 result = subprocess.run(['bash', '-c', script], env={**os.environ,
@@ -67,6 +68,7 @@ class ReportRehearsalScratchTests(unittest.TestCase):
                 self.assertEqual(result.stdout, '')
                 args = log.read_text().splitlines()
                 self.assertIn('label=aemr.rehearsal-run=123', args)
+                self.assertIn('label=aemr.rehearsal-attempt=2', args)
                 self.assertIn('label=aemr.rehearsal-job=' + job, args)
                 self.assertEqual(args[-3:], ['rm', '--force', 'a' * 64])
                 self.assertFalse(scratch.exists())
@@ -81,6 +83,7 @@ class ReportRehearsalScratchTests(unittest.TestCase):
                 self.assertIn('--cpus ', command)
                 self.assertIn('--pids-limit ', command)
                 self.assertIn('--label "aemr.rehearsal-run=$rehearsal_run"', command)
+                self.assertIn('--label "aemr.rehearsal-attempt=$rehearsal_attempt"', command)
 
     def test_long_python_runs_have_a_daemon_side_deadline_after_ssh_cancellation(self):
         commands = [cmd for cmd in docker_commands(WORKFLOW.read_text()) if '/opt/report-env/bin/python' in cmd]

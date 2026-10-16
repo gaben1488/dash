@@ -235,7 +235,9 @@ jobs:
             work=$(mktemp -d /tmp/report-schema-preflight.XXXXXX)
             rehearsal_run='${{ github.run_id }}'
             case "$rehearsal_run" in *[!0-9]*|'') exit 2 ;; esac
-            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label aemr.rehearsal-job=source-schema --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
+            rehearsal_attempt='${{ github.run_attempt }}'
+            case "$rehearsal_attempt" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label "aemr.rehearsal-attempt=$rehearsal_attempt" --label aemr.rehearsal-job=source-schema --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
             cleanup_rehearsal() {
               result=$?
               trap - EXIT HUP INT TERM
@@ -243,7 +245,7 @@ jobs:
               while IFS= read -r id; do
                 case "$id" in ''|*[!0-9a-f]*) continue ;; esac
                 docker rm --force "$id" >/dev/null 2>&1
-              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter 'label=aemr.rehearsal-job=source-schema')
+              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter "label=aemr.rehearsal-attempt=$rehearsal_attempt" --filter 'label=aemr.rehearsal-job=source-schema')
               rm -rf -- "$work"
               exit "$result"
             }
@@ -425,7 +427,9 @@ jobs:
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
             rehearsal_run='${{ github.run_id }}'
             case "$rehearsal_run" in *[!0-9]*|'') exit 2 ;; esac
-            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label aemr.rehearsal-job=frozen-replay --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
+            rehearsal_attempt='${{ github.run_attempt }}'
+            case "$rehearsal_attempt" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label "aemr.rehearsal-attempt=$rehearsal_attempt" --label aemr.rehearsal-job=frozen-replay --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
             cleanup_rehearsal() {
               result=$?
               trap - EXIT HUP INT TERM
@@ -433,7 +437,7 @@ jobs:
               while IFS= read -r id; do
                 case "$id" in ''|*[!0-9a-f]*) continue ;; esac
                 docker rm --force "$id" >/dev/null 2>&1
-              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter 'label=aemr.rehearsal-job=frozen-replay')
+              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter "label=aemr.rehearsal-attempt=$rehearsal_attempt" --filter 'label=aemr.rehearsal-job=frozen-replay')
               rm -rf -- "$work"
               exit "$result"
             }
