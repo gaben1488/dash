@@ -7,6 +7,83 @@ import time
 from pathlib import Path
 
 
+def runtime_log_stages(raw):
+    """Decode JSON or the installed multiline pino-pretty format privately."""
+    from datetime import datetime
+
+    records, current = [], None
+    for line in raw.splitlines():
+        stamp, _, text = re.sub(r'\x1b\[[0-9;]*m', '', line).partition(' ')
+        try:
+            at_ms = int(datetime.fromisoformat(stamp).timestamp() * 1000)
+        except ValueError:
+            continue
+        try:
+            decoded = json.loads(text)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, dict):
+            records.append(decoded)
+            current = None
+            continue
+        header = re.fullmatch(r'\[\d{2}:\d{2}:\d{2}\.\d+\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\([^)]+\):\s*(.*)', text)
+        if header:
+            current = {'time': at_ms, 'msg': header[1]}
+            records.append(current)
+        elif current is not None:
+            field = re.fullmatch(r'\s+(reqId|responseTime|ms):\s*(.+)', text)
+            url = re.fullmatch(r'\s+"url":\s*(".*")\s*,?', text)
+            try:
+                if field:
+                    current[field[1]] = json.loads(field[2])
+                elif url and current['msg'] == 'incoming request':
+                    current['req'] = {'url': json.loads(url[1])}
+            except ValueError:
+                continue
+    stages = runtime_stage_summary(records)
+    if not stages:
+        raise ValueError('RUNTIME_STAGE_FORMAT_UNSUPPORTED')
+    return stages
+
+
+def runtime_stage_summary(records):
+    """Project only fixed stage names/times from the existing private Pino log."""
+    import math
+
+    result, dashboard_requests = [], set()
+    for record in records:
+        if not isinstance(record, dict) or type(record.get('time')) is not int or not 0 <= record['time'] <= 2**53 - 1:
+            continue
+        message, request_id = record.get('msg'), record.get('reqId')
+        stage, duration = None, None
+        if message == 'incoming request' and isinstance(request_id, str):
+            request = record.get('req')
+            if isinstance(request, dict) and isinstance(request.get('url'), str) and request['url'].split('?', 1)[0] == '/api/dashboard':
+                dashboard_requests.add(request_id)
+                stage = 'dashboard_begin'
+        elif message == 'request completed' and isinstance(request_id, str) and request_id in dashboard_requests:
+            stage, duration = 'dashboard_complete', record.get('responseTime')
+        elif isinstance(message, str):
+            for prefix, category in (
+                ('Источник прочитан', 'source_read'),
+                ('Периметр строк собран', 'perimeter_ready'),
+                ('Снимок сохраняется:', 'snapshot_save_begin'),
+                ('Строки-атомы снимка записаны:', 'snapshot_rows_saved'),
+                ('Чистка снимков по сроку хранения:', 'snapshot_pruned'),
+            ):
+                if message.startswith(prefix):
+                    stage, duration = category, record.get('ms')
+                    break
+        if stage:
+            event = {'at_ms': record['time'], 'stage': stage}
+            if type(duration) in (int, float) and math.isfinite(duration) and 0 <= duration <= 2**53 - 1:
+                event['duration_ms'] = duration
+            result.append(event)
+            if len(result) >= 80:
+                break
+    return result
+
+
 def snapshot_stage_summary(database):
     """Read existing scalar timings; never scan/copy historical JSON payloads."""
     import sqlite3

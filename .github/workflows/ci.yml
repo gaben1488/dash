@@ -85,6 +85,20 @@ jobs:
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
             for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)
+            if mode=='snapshot' and result.returncode==0:
+                # Inspect the already measured 07:22 read, not another warm GET.
+                import signal
+                with subprocess.Popen(['timeout','-k','5s','15s','docker','logs','--timestamps',
+                    '--since','2026-10-16T07:21:00Z','--until','2026-10-16T07:24:00Z',
+                    '--tail','1000',record['Id']],stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True) as logs:
+                    raw=logs.stdout.read(2*1024*1024+1)
+                    if len(raw)>2*1024*1024:os.killpg(logs.pid,signal.SIGTERM)
+                    logs.wait(timeout=5)
+                    assert logs.returncode==0 and len(raw)<=2*1024*1024
+                namespace={'__name__':'private_log_projector'}
+                exec(compile(body,'<reviewed-log-projector>','exec'),namespace)
+                print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'))}),flush=True)
             if result.returncode:
                 names={'AssertionError','PermissionError','FileNotFoundError','KeyError','TypeError','ImportError','ModuleNotFoundError','ValueError'}
                 errors=sorted(set(re.findall(rb'^([A-Za-z]+Error):',result.stderr,re.M)))

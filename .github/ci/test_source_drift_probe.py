@@ -12,6 +12,52 @@ class DriftProbeTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def test_runtime_stage_projection_does_not_expose_log_text_or_request_details(self):
+        records = [
+            {'time': 1000, 'msg': 'incoming request', 'reqId': 'PRIVATE_REQUEST',
+             'req': {'url': '/api/dashboard?year=2026&PRIVATE_QUERY'}},
+            {'time': 1100, 'msg': 'Источник прочитан PRIVATE', 'ms': 75, 'what': 'PRIVATE_SOURCE'},
+            {'time': 2000, 'msg': 'Снимок сохраняется: PRIVATE', 'bytes': 9999},
+            {'time': 3000, 'msg': 'Строки-атомы снимка записаны: PRIVATE'},
+            {'time': 4000, 'msg': 'Чистка снимков по сроку хранения: PRIVATE'},
+            {'time': 5000, 'msg': 'request completed', 'reqId': 'PRIVATE_REQUEST',
+             'responseTime': 4000.5, 'res': {'statusCode': 200}},
+            {'time': 6000, 'msg': 'PRIVATE_VALUE'},
+            {'time': 6001, 'msg': 'request completed', 'reqId': []},
+            {'time': 'PRIVATE_TIME', 'msg': 'Снимок сохраняется: PRIVATE'},
+        ]
+        result = self.module.runtime_stage_summary(records)
+        self.assertEqual(result, [
+            {'at_ms': 1000, 'stage': 'dashboard_begin'},
+            {'at_ms': 1100, 'stage': 'source_read', 'duration_ms': 75},
+            {'at_ms': 2000, 'stage': 'snapshot_save_begin'},
+            {'at_ms': 3000, 'stage': 'snapshot_rows_saved'},
+            {'at_ms': 4000, 'stage': 'snapshot_pruned'},
+            {'at_ms': 5000, 'stage': 'dashboard_complete', 'duration_ms': 4000.5},
+        ])
+        self.assertNotIn('PRIVATE', str(result))
+        self.assertEqual(len(self.module.runtime_stage_summary(records * 100)), 80)
+
+    def test_runtime_stages_read_actual_ansi_multiline_pretty_format(self):
+        raw = '''2026-10-16T07:22:01.123456789Z [07:22:01.123] \x1b[32mINFO\x1b[39m (123): \x1b[36mincoming request\x1b[39m
+2026-10-16T07:22:01.123456789Z     \x1b[35mreqId\x1b[39m: "PRIVATE_REQUEST"
+2026-10-16T07:22:01.123456789Z     req: {
+2026-10-16T07:22:01.123456789Z       "url": "/api/dashboard?PRIVATE_QUERY"
+2026-10-16T07:22:01.123456789Z     }
+2026-10-16T07:22:02.123456789Z [07:22:02.123] INFO (123): Снимок сохраняется: PRIVATE
+2026-10-16T07:22:03.123456789Z [07:22:03.123] INFO (123): request completed
+2026-10-16T07:22:03.123456789Z     reqId: "PRIVATE_REQUEST"
+2026-10-16T07:22:03.123456789Z     responseTime: 2000.5
+'''
+        result = self.module.runtime_log_stages(raw)
+        self.assertEqual([item['stage'] for item in result],
+                         ['dashboard_begin', 'snapshot_save_begin', 'dashboard_complete'])
+        self.assertEqual(result[-1]['duration_ms'], 2000.5)
+        self.assertEqual(result[1]['at_ms'] - result[0]['at_ms'], 1000)
+        self.assertNotIn('PRIVATE', str(result))
+        with self.assertRaisesRegex(ValueError, '^RUNTIME_STAGE_FORMAT_UNSUPPORTED$'):
+            self.module.runtime_log_stages('PRIVATE_OTHER_FORMAT')
+
     def test_snapshot_stage_probe_reads_scalar_metadata_without_payload_or_writes(self):
         import json
         import sqlite3
