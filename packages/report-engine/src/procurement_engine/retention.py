@@ -276,13 +276,22 @@ def safe_compact_transient_attempts(state_dir: str | Path, *, keep_full: int = D
         }
 
 
+def _catalog_revision(records, keep, targets):
+    import hashlib
+    digest=hashlib.sha256()
+    # Same canonical bytes as the original v1 plan, without one catalog-sized
+    # JSON string followed by another complete UTF-8 allocation.
+    for chunk in json.JSONEncoder(separators=(',', ':')).iterencode([records,sorted(keep),sorted(targets)]):
+        digest.update(chunk.encode())
+    return digest.hexdigest()
+
+
 def plan_publication_compaction(store):
     """Keep weekly replay roots and current/previous; compact only daily copies.
 
     The catalog keeps exact artifact links. Ledger/RAW/identity databases are
     never deletion targets. Every full release is checksum checked before plan.
     """
-    import hashlib
     import re
     import sqlite3
     from contextlib import closing
@@ -359,7 +368,7 @@ def plan_publication_compaction(store):
                     missing_signatures += missing or 0
                     if not count or missing:
                         signatures = False
-    return {'catalog_revision': hashlib.sha256(json.dumps([records, sorted(keep), sorted(r[0] for r in targets)], separators=(',', ':')).encode()).hexdigest(),
+    return {'catalog_revision': _catalog_revision(records, keep, (r[0] for r in targets)),
             'keep_release_ids': sorted(keep), 'retire_release_ids': sorted(r[0] for r in targets),
             'identity_ready': signatures, 'records': records,
             'identity_missing_signatures': missing_signatures if identity.is_file() else None,

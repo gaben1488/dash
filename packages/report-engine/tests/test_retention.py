@@ -1,4 +1,6 @@
+import hashlib
 import json
+import tracemalloc
 from datetime import datetime, timedelta, timezone
 
 from procurement_engine import retention
@@ -6,6 +8,29 @@ from procurement_engine.retention import (
     apply_transient_attempt_retention,
     plan_transient_attempt_retention,
 )
+
+
+def test_publication_revision_preserves_exact_legacy_json_bytes():
+    rows=[('REL-b','2026-10-16','2026-10-16T00:00:00Z','{"text":"смета\\n№173/18🌅"}','{}'),
+          ('REL-a','2026-10-15','2026-10-15T00:00:00Z','{"empty":null,"zero":0}','{}')]
+    keep={'REL-b','REL-a'};targets=['REL-z','REL-c']
+    legacy=json.dumps([rows,sorted(keep),sorted(targets)],separators=(',',':')).encode()
+    assert retention._catalog_revision(rows,keep,iter(targets))==hashlib.sha256(legacy).hexdigest()
+
+
+def test_publication_revision_does_not_allocate_the_whole_encoded_catalog():
+    # Repeated observed content still has64 distinct catalog records. Measure
+    # serialization overhead, with the already-read input outside the probe.
+    receipt='{"proof":"'+'x'*(512*1024)+'"}'
+    rows=[(f'REL-{index:064x}','2026-10-16','2026-10-16T00:00:00Z',receipt,'{}') for index in range(64)]
+    tracemalloc.start()
+    try:
+        revision=retention._catalog_revision(rows,set(),(row[0] for row in rows))
+        _,peak=tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert len(revision)==64
+    assert peak<8*1024**2, f'Catalog serialization retained {peak} bytes for32MiB of receipts'
 
 
 def _attempt(state, name, *, when, report_date="07.10.2034", size=128):
