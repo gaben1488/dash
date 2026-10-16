@@ -25,7 +25,7 @@ interface PlanProvenanceSectionProps {
   /** Канонический идентификатор управления («УКСиМП»). */
   deptId: string;
   /** «№ п/п» закупки (колонка A) — ключ журнала; null — номера у строки нет. */
-  rowSeq: number | null;
+  rowSeq: string | number | null;
   /** Текущий плановый итог строки, тыс. руб. */
   planNow: number;
   /** Адрес ячейки итога («K96») либо честная фраза о неизвестном адресе. */

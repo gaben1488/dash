@@ -50,7 +50,7 @@
  * «_ChangeLog» и текущие строки листа.
  */
 
-import { dayNumberOf } from '@aemr/shared';
+import { dayNumberOf, readProcurementSequence } from '@aemr/shared';
 
 // ── Плановые колонки ──────────────────────────────────────────────────
 
@@ -215,8 +215,8 @@ export interface PlanEvent {
  * строки листа: живой пример УД — ячейка J177 при № п/п 195.
  */
 export interface ParsedJournalRowKey {
-  /** № п/п строки (колонка A), целое ≥ 1; null — поле не разобрано. */
-  ordinal: number | null;
+  /** Полная адресная метка колонки A; null — поле не разобрано. */
+  ordinal: string | null;
   /** Предмет из поля, если он там был; null — формат без предмета. */
   subject: string | null;
   /** true — предмет обрезан журналом (оканчивается многоточием «…»). */
@@ -230,7 +230,7 @@ const ROW_KEY_SEPARATOR = '·';
 
 /**
  * Разбирает поле «Строка» журнала правок. Терпим к обоим живым форматам и к
- * мусору: номер обязан быть целым положительным, иначе ordinal = null и строка
+ * мусору: полная метка должна быть распознана, иначе ordinal = null и строка
  * честно остаётся несопоставленной (молча приписывать правку соседней строке
  * хуже, чем признать, что ключ не читается).
  */
@@ -244,21 +244,19 @@ export function parseJournalRowKey(raw: unknown): ParsedJournalRowKey {
   if (text === '') return empty;
 
   // Формат 2: голый номер («177»). Google отдаёт числа и как «177», и как «177.0».
-  const bare = text.match(/^(\d+)(?:[.,]0+)?$/);
-  if (bare) {
-    const ordinal = parseInt(bare[1], 10);
-    return ordinal >= 1 ? { ordinal, subject: null, truncated: false, raw: text } : empty;
-  }
+  const bare = readProcurementSequence(raw);
+  if (bare !== null) return { ordinal: bare, subject: null, truncated: false, raw: text };
+  if (typeof raw !== 'string') return empty;
 
   // Формат 1: «№ 38 · Услуги почтовой связи». Предмет может содержать переводы
   // строк (операторы вставляют многострочные наименования) — флаг /s обязателен.
   const withSubject = text.match(
-    new RegExp(`^(?:№|N|#)\\s*(\\d+)\\s*(?:${ROW_KEY_SEPARATOR}\\s*(.*))?$`, 's'),
+    new RegExp(`^(?:№|N|#)\\s*([\\d/]+(?:[.,]0+)?)\\s*(?:${ROW_KEY_SEPARATOR}\\s*(.*))?$`, 's'),
   );
   if (!withSubject) return empty;
 
-  const ordinal = parseInt(withSubject[1], 10);
-  if (!(ordinal >= 1)) return empty;
+  const ordinal = readProcurementSequence(withSubject[1]);
+  if (ordinal === null) return empty;
 
   const rest = (withSubject[2] ?? '').replace(/\s+/g, ' ').trim();
   const truncated = rest.endsWith('…');
@@ -451,8 +449,8 @@ export interface JournalRecord {
 
 /** Текущее состояние строки листа — то, к чему приклеивается история. */
 export interface PlanRowInput {
-  /** № п/п строки (колонка A) — ключ сопоставления с полем «Строка» журнала. */
-  ordinal: number;
+  /** Source label; legacy numeric callers are adapted at the build boundary. */
+  ordinal: string | number;
   /** Текущее «ИТОГО план» (K), тыс. руб.; null — пусто либо нечитаемо. */
   planNow: number | null;
   /**
@@ -559,7 +557,7 @@ export interface PlanProvenanceSummary {
 /** Провенанс плановых сумм одной строки. */
 export interface PlanProvenance {
   /** № п/п строки (колонка A) — тот же ключ, что в поле «Строка» журнала. */
-  ordinal: number;
+  ordinal: string;
   /** Текущее «ИТОГО план» (K) из строки листа, тыс. руб. */
   planNow: number | null;
   /** События по времени; дедуп по (ячейка, момент, было, стало). */
@@ -645,7 +643,7 @@ function humanDate(at: string): string {
 // ── Сборка ────────────────────────────────────────────────────────────
 
 interface PreparedRecord {
-  ordinal: number;
+  ordinal: string;
   event: PlanEvent | null;
   isPlanCell: boolean;
 }
@@ -659,13 +657,13 @@ function prepareJournal(
   journal: readonly JournalRecord[],
   options: PlanProvenanceOptions,
 ): {
-  byOrdinal: Map<number, PreparedRecord[]>;
+  byOrdinal: Map<string, PreparedRecord[]>;
   entries: number;
   unparsedRowKeys: number;
   unparsedCells: number;
 } {
   const wantSheet = options.sheetName?.trim().toLowerCase();
-  const byOrdinal = new Map<number, PreparedRecord[]>();
+  const byOrdinal = new Map<string, PreparedRecord[]>();
   let entries = 0;
   let unparsedRowKeys = 0;
   let unparsedCells = 0;
@@ -740,7 +738,7 @@ function prepareJournal(
   return { byOrdinal, entries, unparsedRowKeys, unparsedCells };
 }
 
-function pushPrepared(map: Map<number, PreparedRecord[]>, rec: PreparedRecord): void {
+function pushPrepared(map: Map<string, PreparedRecord[]>, rec: PreparedRecord): void {
   const list = map.get(rec.ordinal);
   if (list) list.push(rec);
   else map.set(rec.ordinal, [rec]);
@@ -800,7 +798,7 @@ function buildSummaryNote(
   summary: Omit<PlanProvenanceSummary, 'note'>,
   events: readonly PlanEvent[],
   observability: Omit<PlanObservability, 'note'>,
-  ordinal: number,
+  ordinal: string,
   sheetName: string | undefined,
 ): string {
   const where = sheetName ? `${sheetName}, строка № ${ordinal}` : `строка № ${ordinal}`;
@@ -907,7 +905,9 @@ export function buildPlanProvenance(
   const prepared = prepareJournal(journal, options);
 
   return rows.map((row) => {
-    const records = prepared.byOrdinal.get(row.ordinal) ?? [];
+    const ordinal = readProcurementSequence(row.ordinal);
+    if (ordinal === null) throw new Error('INVALID_PROCUREMENT_SEQUENCE');
+    const records = prepared.byOrdinal.get(ordinal) ?? [];
     const factDay = dayNumberOf(row.factDate);
 
     const events = records
@@ -942,11 +942,11 @@ export function buildPlanProvenance(
     const summaryBase = buildSummaryBase(deduped, row);
     const summary: PlanProvenanceSummary = {
       ...summaryBase,
-      note: buildSummaryNote(summaryBase, deduped, observabilityBase, row.ordinal, label),
+      note: buildSummaryNote(summaryBase, deduped, observabilityBase, ordinal, label),
     };
 
     return {
-      ordinal: row.ordinal,
+      ordinal,
       planNow: row.planNow,
       events: deduped,
       summary,

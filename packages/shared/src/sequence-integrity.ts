@@ -77,6 +77,18 @@ export interface SequenceReport {
   note: string;
 }
 
+/** Read an A-column address without treating it as a number or entity ID. */
+export function readProcurementSequence(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+  }
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  const label = text.match(/^(\d+)[.,]0+$/)?.[1] ?? text;
+  if (!/^\d+(?:\/\d+)*$/.test(label) || !/[1-9]/.test(label.split('/')[0])) return null;
+  return label;
+}
+
 /** Показывать в карточке столько отрезков и строк — остальное свернуто числом. */
 const SHOWN_GAPS = 12;
 const SHOWN_ROWS = 20;

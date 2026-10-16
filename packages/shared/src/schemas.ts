@@ -159,6 +159,7 @@ export const IssueSchema = z.object({
   sheet: z.string().optional(),
   cell: z.string().optional(),
   row: z.number().optional(),
+  rowSeq: z.string().optional(),
   metricKey: z.string().optional(),
   departmentId: z.string().optional(),
   recommendation: z.string().optional(),

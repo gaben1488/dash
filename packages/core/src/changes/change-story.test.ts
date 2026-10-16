@@ -65,6 +65,15 @@ describe('род правки по колонке — деньги, сроки, 
 });
 
 describe('адрес записи — по № п/п, а не по строке листа', () => {
+  it('preserves composite labels in journal entries and row groups', () => {
+    const labels = ['173', '173/1', '173/18', '00173'];
+    const { entries, rowKeyless } = entriesFromBookJournal('УО', labels.map((label, index) =>
+      rec(`K${900 - index}`, `№ ${label} · Закупка`, '100', '90', '16.10.2026 10:00:00')));
+    expect(entries.map((entry) => entry.rowSeq)).toEqual(labels);
+    expect(rowKeyless).toBe(0);
+    expect(foldRowEvents(entries).map((entry) => entry.rowSeq).sort()).toEqual([...labels].sort());
+  });
+
   it('ключ журнала «№ 38 · Услуги почтовой связи» даёт № п/п и предмет', () => {
     const { entries } = entriesFromBookJournal('УО', [
       rec('J177', '№ 38 · Услуги почтовой связи', '100', '120', '14.08.2026 15:53:44'),

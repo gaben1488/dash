@@ -135,6 +135,42 @@ describe('/api/provenance/*', () => {
   });
 
   describe('GET /api/provenance/:deptId/:rowSeq', () => {
+    it('delivers complete textual labels, retains duplicate ambiguity and counts their coverage', async () => {
+      const { getDeptSheetCache, setDeptSheetCache } = await import('../services/snapshot.js');
+      const { resetProvenanceJournalCache } = await import('../services/provenance-journal.js');
+      const prior = getDeptSheetCache();
+      const priorJournal = [...h.journalRows];
+      const labels = ['173', '173/1', '173/18'];
+      try {
+        resetProvenanceJournalCache();
+        h.journalRows.splice(1, h.journalRows.length - 1, ...labels.map((label, index) =>
+          ['ВСЕ', `K${460 + index}`, 'ИТОГО', `№ ${label} · Закупка`, '100', '90', '16.10.2026 10:00:00', 'author']));
+        setDeptSheetCache({ 'УЭР': {
+          values: [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h'),
+            ...[...labels, '173/1'].map((label) => sheetRow({ A: label, G: 'Закупка', K: 90 }))],
+          formulas: [], sheetName: 'УЭР',
+        } });
+        for (const index of [1, 2, 0]) {
+          const label = labels[index];
+          const response = await app.inject({ method: 'GET', url: `/api/provenance/УЭР/${encodeURIComponent(label)}` });
+          expect(response.statusCode).toBe(200);
+          const body = response.json();
+          expect(body.rowSeq).toBe(label);
+          expect(body.sheetRow).toBe(4 + index);
+          expect(body.events.map((event: { cell: string }) => event.cell)).toEqual([`K${460 + index}`]);
+          expect(body.ambiguity?.sheetRows ?? null).toEqual(label === '173/1' ? [5, 7] : null);
+        }
+        const health = (await app.inject({ method: 'GET', url: '/api/provenance/health' })).json();
+        const uer = health.books.find((item: { dept: string }) => item.dept === 'УЭР');
+        expect(uer.rows).toBe(4);
+        expect(uer.rowsCovered).toBe(4);
+      } finally {
+        setDeptSheetCache(prior);
+        h.journalRows.splice(0, h.journalRows.length, ...priorJournal);
+        resetProvenanceJournalCache();
+      }
+    });
+
     it('идентификатор книги УЭР в тесте совпадает с каноном источников', async () => {
       const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
       expect(DEPARTMENT_SPREADSHEETS['УЭР']).toBe(h.UER_SPREADSHEET_ID);
@@ -146,7 +182,7 @@ describe('/api/provenance/*', () => {
       const body = res.json();
 
       expect(body.dept).toBe('УЭР');
-      expect(body.rowSeq).toBe(25);
+      expect(body.rowSeq).toBe('25');
       // № п/п 25 стоит на строке ЛИСТА 4 — числа разные, и роут их не путает.
       expect(body.sheetRow).toBe(4);
       expect(body.subject).toBe('Капитальный ремонт учебных классов');

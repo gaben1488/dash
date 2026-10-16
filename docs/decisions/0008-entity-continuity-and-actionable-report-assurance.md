@@ -59,3 +59,22 @@ section_audit reproduce those historical fingerprints and 159 ledger chains.
 Changing that default requires a declared existing source/reader compatibility
 boundary across raw_pipeline, section_audit and calendar consumers. That part is
 not implemented or accepted live by this identity-continuity correction.
+
+## 2026-10-16 — textual addresses in plan provenance (implementation in progress)
+
+The A-column label is a source address within its book, not a permanent entity ID.
+`173`, `173/1` and `173/18` must remain distinct throughout issue transport,
+journal matching, API routes and the row panel. Physical sheet row is separate.
+Existing issue IDs, raw observations and historical hashes do not change.
+
+One shared boundary reader preserves textual labels, including leading zeroes,
+and accepts the historical integral Google forms (`94`, `94.0`, `94,0`). The
+current provenance key is a string. Legacy numeric caller inputs are adapted
+once when building provenance; calculations do not gain parallel version paths.
+Composite labels are URL-encoded as a single route segment. A duplicate exact
+label remains ambiguous; absent journal row keys are not reconstructed from cell
+coordinates, subject similarity or amount.
+
+Acceptance requires distinct-label journal/API/UI tests, physical-row movement,
+duplicate-label ambiguity and issue-schema round-trip. No new fields are written
+to source books. This clarification is not evidence of live acceptance.

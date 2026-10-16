@@ -5,12 +5,38 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 15:23 UTC
+### Текущий выпуск — 16.10.2026, 15:51 UTC
 
 **Установлен `83b813ab`; его restore, два цикла и перечисленные браузерные
 сценарии приняты. Новая расширенная проверка обнаружила отдельный отказ
 чтения API; полная мобильная/продуктовая приёмка остаётся открыта.**
 Это не закрывает весь реестр 56 результатов.
+
+**Кандидат `19289667` допущен к controlled release38927016449, установка ещё
+не подтверждена.** Три source jobs38923925347 PASS; overall FAIL из-за
+старого83/journal READ_UNAVAILABLE. Frozen38923925267 SUCCESS: current replay,
+independent audit/two rebuilt DOCX PASS; weekly — доказанный одинаковый
+`UNCHANGED_FROZEN_SOURCE_REFUSAL`, historical_replay_verified=false.
+Оба генератора отказали на сохранённых буквальных #REF!, архив не изменён.
+Это квалификация отказа по ADR0010, не принятый исторический отчёт.
+
+До downtime native probe38924567639 построил exact192 scope index на
+согласованной копии434049024B SQLite3.51.3 за1952ms. На15снимках результаты
+2026/2027/all совпали; запросы1353–1645ms →0.113–0.498ms. Исходный API
+не перезапущен, production index не создавался. Копия удалена, receipt приватный.
+Отдельный native journal38926925837: cold15.022s/200, повтор2.116s/200,
+одинаковый hash13937B. Это НЕ доказательство, что dashboard fix исправляет
+холодное чтение журнала; отдельная граница остаётся на проверке.
+
+Следующий локальный участок: полный строковый адрес `173`/`173/1`/`173/18`
+через shared→core journal→API→row panel; исправлен сброс IssueSchema.rowSeq,
+URL encoding, единый reader, прежние numeric caller/response adapters на границе.
+Leading zeroes не теряются, unsafe numeric не выдаётся за точную метку,
+отсутствующий ключ не выводится из физической строки, дубли остаются ambiguous.
+RED→GREEN; full shared740/core1872(+1skip)/server1018/web2303 PASS,
+lint0errors/303existingwarnings, tsc PASS. **Не в192 и не установлен.**
+Это не закрывает общий provenance/KPI: финансовая агрегация неоднозначных
+меток, общие human-decision overlays и живые employee cases ещё требуют приёмки.
 
 - [Выпуск38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150):
   checkpoint 21 244 275 001 B, архив 3 222 981 097 B; два независимых restore
@@ -39,7 +65,7 @@
   **`ccbd4213` в ветке, ещё не установлен.** Дополнительно проверен expression
   index существующих scope metadata: реальных SQLite JSON evaluations0;
   no-index control обнаруживает scan. Malformed JSON/строковый год не приняты
-  и не изменены. Стоимость создания на рабочей копии проверяется до downtime.
+  и не изменены. Стоимость создания на рабочей копии подтверждена до downtime (см. native probe выше).
   Новые cold/API/WebKit доказательства обязательны.
   Локально: shared737/core1869(+1skip)/server1017/web2301, lint0errors/303warnings,
   tsc четырёх пакетов и production build PASS. Независимый review выявил SSE race;
@@ -55,7 +81,7 @@
   требует полные hashes frozen bytes до/после и exact issue digest; сохраняет
   FAIL/historical_replay_verified=false. CandidatePASS при literal#REF запрещён;
   другие ошибки/missing proof не допускаются. Локально Python1132PASS, reviewed
-  negative/privacy52PASS, workflowguard2PASS; real same-input readback ещё нужен.
+  negative/privacy52PASS, workflowguard2PASS; real same-input38923925267 подтвердил точный unchanged refusal, не выпуск отчёта.
   Source-schema/runtime прежней точки PASS.
 - Storage:99выпусков/249Word/99dashboard сохранены,92уплотнены,7защищены.
   Pre38903432153/finalize38904202760/post38905123990 PASS; освобождено
@@ -68,8 +94,8 @@
 **Конечный состав ближайшего исправления:** ограниченное чтение API + уже
 реализованный writer-fix `a80ae142` (identical retry без дублирования истории,
 changed5fields/nohistory409, blankreason400), exact-source gates, разрешённая
-установка и API/WebKit readback. Недельный replay требует установить причину
-его отдельного отказа; повтор прежнего ожидания не является исправлением.
+установка и API/WebKit readback. Причина weekly refusal установлена и доказана exact frozen hashes/lexer;
+этот архив не объявлен пригодным для публикации. Повтор не требуется без изменения зависимостей.
 `43b1ac8e` сделал actual-browser transport/touch guards частью source CI;
 это оснастка, не новая установка UI. Принятые проверки83 не повторять без причины.
 

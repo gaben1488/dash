@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { checkSequenceIntegrity, type SequenceRow } from './sequence-integrity.js';
+import { checkSequenceIntegrity, readProcurementSequence, type SequenceRow } from './sequence-integrity.js';
+
+describe('procurement source address', () => {
+  it('keeps composite and zero-prefixed labels distinct', () => {
+    expect(['173', '173/1', '173/18', '00173'].map(readProcurementSequence))
+      .toEqual(['173', '173/1', '173/18', '00173']);
+    expect([94, '94.0', '94,00', ' 94 '].map(readProcurementSequence))
+      .toEqual(['94', '94', '94', '94']);
+  });
+
+  it('does not invent an address from an invalid value', () => {
+    for (const value of [null, undefined, '', 0, -1, 1.5, Infinity, {}, 'без номера',
+      '0', '000/1', '173//1', '173/1/']) {
+      expect(readProcurementSequence(value)).toBeNull();
+    }
+  });
+});
 
 const row = (o: Partial<SequenceRow> & { sheetRow: number; rowSeq: string }): SequenceRow => ({
   countable: true,

@@ -52,6 +52,7 @@ import {
   DEPT_COLUMNS,
   collectRowsByDept,
   findDept,
+  readProcurementSequence,
   type DepartmentEntry,
 } from '@aemr/shared';
 import {
@@ -90,19 +91,9 @@ interface SheetRow {
   /** Номер строки ЛИСТА (1-based): шапка 3 строки, данные с 4-й. */
   sheetRow: number;
   cells: unknown[];
-  /** № п/п из колонки A; null — номер не проставлен либо не число. */
-  ordinal: number | null;
+  /** № п/п из колонки A; null — метка отсутствует либо не распознана. */
+  ordinal: string | null;
   subject: string;
-}
-
-/** № п/п из колонки A. Google отдаёт номера и как «25», и как «25.0». */
-function readOrdinal(value: unknown): number | null {
-  const s = String(value ?? '').trim().replace(/ /g, '');
-  if (s === '') return null;
-  const m = s.match(/^(\d+)(?:[.,]0+)?$/);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return n >= 1 ? n : null;
 }
 
 /**
@@ -168,7 +159,7 @@ function deptSheetRows(
     out.push({
       sheetRow: dto.rowIndex,
       cells: row,
-      ordinal: readOrdinal(row[DEPT_COLUMNS.ID]),
+      ordinal: readProcurementSequence(row[DEPT_COLUMNS.ID]),
       subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
     });
   });
@@ -176,7 +167,7 @@ function deptSheetRows(
 }
 
 /** Вход ядра из строки листа. */
-function toPlanRowInput(row: SheetRow, ordinal: number): PlanRowInput {
+function toPlanRowInput(row: SheetRow, ordinal: string): PlanRowInput {
   return {
     ordinal,
     planNow: readMoney(row.cells[DEPT_COLUMNS.TOTAL_PLAN]),
@@ -296,7 +287,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
 
       const sheetRows = dept ? deptSheetRows(dept, rowsByDeptId) : null;
       const planRows: PlanRowInput[] = (sheetRows ?? [])
-        .filter((r): r is SheetRow & { ordinal: number } => r.ordinal !== null)
+        .filter((r): r is SheetRow & { ordinal: string } => r.ordinal !== null)
         .map((r) => toPlanRowInput(r, r.ordinal));
 
       const list: PlanProvenance[] = planRows.length > 0
@@ -402,13 +393,13 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const rowSeq = readOrdinal(request.params.rowSeq);
+      const rowSeq = readProcurementSequence(request.params.rowSeq);
       if (rowSeq === null) {
         return reply.status(400).send({
           error: 'BadRequest',
           message:
-            `Номер «${request.params.rowSeq}» не подходит: нужен «№ п/п» закупки — целое число ` +
-            'от 1 (колонка A книги, тот же номер, которым журнал правок помечает строку).',
+            `Номер «${request.params.rowSeq}» не подходит: нужен полный «№ п/п» из колонки A ` +
+            '(например, 173 или 173/18), которым журнал правок помечает закупку.',
           statusCode: 400,
         });
       }
@@ -429,7 +420,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       if (matches.length === 0) {
         // Подсказка против путаницы «№ п/п против номера строки листа» (п.98б):
         // если под этим числом на листе СТОИТ строка, называем её настоящий № п/п.
-        const atSheetRow = sheetRows.find((r) => r.sheetRow === rowSeq);
+        const atSheetRow = sheetRows.find((r) => String(r.sheetRow) === rowSeq);
         const hint = atSheetRow
           ? ` На строке листа ${rowSeq} стоит закупка с № п/п ${atSheetRow.ordinal ?? '—'}` +
             `${atSheetRow.subject ? ` («${atSheetRow.subject}»)` : ''}: возможно, нужен именно он.`

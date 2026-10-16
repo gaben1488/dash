@@ -17,7 +17,15 @@ Expected endpoints:
 
 ## Verification
 
-На 16.10.2026, 14:53 UTC установлен `83b813ab` (PR #79).
+На 16.10.2026, 15:51 UTC последняя подтверждённая установка — `83b813ab` (PR #79).
+Controlled release кандидата19289667 запущен в38927016449 после exact-source
+трёх jobs PASS и frozen38923925267 SUCCESS; завершение ещё не подтверждено.
+Недельный результат — доказанный неизменный отказ #REF! обоих генераторов,
+не успешная публикация исторической недели. Старый FAIL38914725365 сохранён.
+До downtime index-copy38924567639 PASS:434049024B consistent SQLite copy,
+index1952ms, exact scopes/results; production index не создавался этим probe.
+Journal-only38926925837:15.022s cold/2.116s repeat, HTTP200/hash equality;
+dashboard read-model correction не считается доказательством быстрого журнала.
 [Выпуск 38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150)
 прошёл свежий checkpoint и два независимых restore: 111 SQLite и 266 DOCX
 в каждом; API/worker `sha256:9aa3c5eb…`, web `sha256:18efa368…`.

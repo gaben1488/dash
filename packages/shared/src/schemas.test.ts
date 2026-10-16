@@ -35,6 +35,7 @@ import {
   BudgetLevelSchema,
   MoneyUnitSchema,
   IssueSeveritySchema,
+  IssueSchema,
   TrustGradeSchema,
   DashboardDataSchema,
   DataSnapshotSchema,
@@ -42,6 +43,20 @@ import {
   SelectedReportReleaseStatusSchema,
 } from './schemas.js';
 import { z } from 'zod';
+
+describe('Issue API addresses', () => {
+  it('preserves distinct procurement labels through the parsed issue list', () => {
+    const items = ['173', '173/1', '173/18'].map((rowSeq) => ({
+      id: `issue-${rowSeq}`, rowSeq, row: 460,
+      severity: 'warning', origin: 'bi_heuristic', category: 'data', title: 'Проверка',
+      description: 'Адрес закупки', status: 'open', detectedAt: '2026-10-16T00:00:00Z',
+      detectedBy: 'test',
+    }));
+    expect(items.map((item) => IssueSchema.parse(item).rowSeq)).toEqual(['173', '173/1', '173/18']);
+    expect(IssueSchema.parse({ ...items[0], rowSeq: undefined }).rowSeq).toBeUndefined();
+    expect(IssueSchema.safeParse({ ...items[0], rowSeq: 173 }).success).toBe(false);
+  });
+});
 
 // ────────────────────────────────────────────────────────────
 // Primitive enums

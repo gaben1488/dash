@@ -55,31 +55,31 @@ import {
 describe('parseJournalRowKey — оба живых формата поля «Строка»', () => {
   it('формат УФБП/УО: «№ 38 · Услуги почтовой связи» → номер и предмет', () => {
     const r = parseJournalRowKey('№ 38 · Услуги почтовой связи');
-    expect(r.ordinal).toBe(38);
+    expect(r.ordinal).toBe('38');
     expect(r.subject).toBe('Услуги почтовой связи');
     expect(r.truncated).toBe(false);
   });
 
   it('живой УО: «№ 25 · Капитальный ремонт учебных классов»', () => {
-    expect(parseJournalRowKey('№ 25 · Капитальный ремонт учебных классов').ordinal).toBe(25);
+    expect(parseJournalRowKey('№ 25 · Капитальный ремонт учебных классов').ordinal).toBe('25');
   });
 
   it('формат УД: голый номер «177»', () => {
     const r = parseJournalRowKey('177');
-    expect(r.ordinal).toBe(177);
+    expect(r.ordinal).toBe('177');
     expect(r.subject).toBeNull();
   });
 
   it('число, а не строка (Google отдаёт numberValue) — тоже номер', () => {
-    expect(parseJournalRowKey(177).ordinal).toBe(177);
-    expect(parseJournalRowKey('157.0').ordinal).toBe(157);
+    expect(parseJournalRowKey(177).ordinal).toBe('177');
+    expect(parseJournalRowKey('157.0').ordinal).toBe('157');
   });
 
   it('обрезанный журналом предмет помечается флагом, многоточие в текст не идёт', () => {
     const r = parseJournalRowKey(
       '№ 14 · Приобретение образовательных услуг по профессиональной переподготовке и повышению квалифик…',
     );
-    expect(r.ordinal).toBe(14);
+    expect(r.ordinal).toBe('14');
     expect(r.truncated).toBe(true);
     expect(r.subject?.endsWith('квалифик')).toBe(true);
   });
@@ -88,19 +88,19 @@ describe('parseJournalRowKey — оба живых формата поля «С�
     const r = parseJournalRowKey(
       '№ 1 · Оказание услуг по предоставлению кредита в форме возобновляемой кредитной линии\n с лимитом…',
     );
-    expect(r.ordinal).toBe(1);
+    expect(r.ordinal).toBe('1');
     expect(r.subject).toContain('кредитной линии с лимитом');
     expect(r.truncated).toBe(true);
   });
 
   it('номер без предмета — «№ 42»', () => {
     const r = parseJournalRowKey('№ 42');
-    expect(r.ordinal).toBe(42);
+    expect(r.ordinal).toBe('42');
     expect(r.subject).toBeNull();
   });
 
   it('неразрывные пробелы Google не ломают разбор', () => {
-    expect(parseJournalRowKey('№\u00a038\u00a0·\u00a0Услуги').ordinal).toBe(38);
+    expect(parseJournalRowKey('№\u00a038\u00a0·\u00a0Услуги').ordinal).toBe('38');
   });
 
   describe('мусор — ordinal null, строка честно остаётся несопоставленной', () => {
@@ -301,6 +301,33 @@ function rec(
   return { sheet, cell, column: 'подпись колонки — свободный текст', row, was, became, at, author };
 }
 
+describe('textual procurement addresses', () => {
+  it('does not restore lost numeric precision by stringifying rejected input', () => {
+    const unsafe = Number.MAX_SAFE_INTEGER + 1;
+    expect(parseJournalRowKey(unsafe).ordinal).toBeNull();
+    expect(parseJournalRowKey(String(unsafe)).ordinal).toBe(String(unsafe));
+    expect(() => buildPlanProvenance([
+      rec('ВСЕ', 'K4', String(unsafe), 100, 90, '2026-10-16T10:00:00', 'author'),
+    ], [{ ordinal: unsafe, planNow: 90 }])).toThrow('INVALID_PROCUREMENT_SEQUENCE');
+  });
+
+  it('matches each complete label independently of its current physical row', () => {
+    const labels = ['173', '173/1', '173/18'];
+    const journal = labels.map((label, index) => rec('ВСЕ', `K${460 + index}`,
+      index === 1 ? `№ ${label} · Закупка` : label, 100, 90, '2026-10-16T10:00:00', 'author'));
+    expect(labels.map((label) => parseJournalRowKey(label).ordinal)).toEqual(labels);
+    const result = buildPlanProvenance(journal,
+      labels.map((ordinal, index) => ({ ordinal, sheetRow: 900 - index, planNow: 90 })));
+    expect(result.map((item) => item.events.map((event) => event.cell)))
+      .toEqual([['K460'], ['K461'], ['K462']]);
+    const withoutLabel = buildPlanProvenance([
+      rec('ВСЕ', 'K173', '', 100, 90, '2026-10-16T10:00:00', 'author'),
+    ], [{ ordinal: '173', sheetRow: 173, planNow: 90 }])[0];
+    expect(withoutLabel.events).toEqual([]);
+    expect(withoutLabel.observability.unparsedRowKeys).toBe(1);
+  });
+});
+
 describe('buildPlanProvenance — живой УО H28 (исправление единиц в два шага)', () => {
   const journal: JournalRecord[] = [
     rec('ВСЕ', 'H28', '№ 25 · Капитальный ремонт учебных классов',
@@ -491,7 +518,7 @@ describe('PlanObservability — «правок не было» никогда н
       { ordinal: 7, planNow: 100 },
       { ordinal: 3, planNow: null },
     ]);
-    expect(list.map((p) => p.ordinal)).toEqual([9, 7, 3]);
+    expect(list.map((p) => p.ordinal)).toEqual(['9', '7', '3']);
     expect(list[0].observability.coversRow).toBe(true);
     expect(list[1].observability.coversRow).toBe(false);
   });

@@ -55,7 +55,7 @@ function response(patch: Partial<RowProvenanceResponse> = {}): RowProvenanceResp
     deptLatin: 'UKSIMP',
     deptName: 'Управление культуры, спорта и молодёжной политики',
     sheetName: 'ВСЕ',
-    rowSeq: 94,
+    rowSeq: '94',
     sheetRow: 96,
     subject: 'Поставка оборудования',
     planNow: 12,
