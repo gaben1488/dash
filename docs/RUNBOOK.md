@@ -17,45 +17,41 @@ Expected endpoints:
 
 ## Verification
 
-Временная граница обслуживания установленного `43f10742` (16.10):
-инструмент из `268f9e5a` staged38895891036 SUCCESS11:46:30UTC; code/dependencies
-проверены в `/root/codex-fixes/weekly-38895891036`. Read-only preflight38896058189
-SUCCESS11:54:40UTC:99pubs/keep7/retire92;28581079465B upper bound. Exact revision
-`a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03`.
-Trusted immutable target inventory прошёл gate,3unbacked roots защищены.
-Independent review допустил только reversible apply, не finalize. Это версия инструмента, не новая версия рабочего приложения.
-Прикладные образы, два принятых цикла38860353565, backup/restore38831492016
-и root release proof остаются привязаны к `43f10742`.
-Полный состав файлов сверяется с неизменяемой квитанцией
-`weekly-38875479942/source-hashes.json`: допустимы ровно семь изменений
-maintenance/reader/retention, плюс один вспомогательный canonical source-CI
-qualifier. Его hash сверяется с принятым root release window ДО import.
-Остальные identity/leases/backup modules должны совпадать побайтно.
-API/worker проверяют reader behavior на одноразовых синтетических данных.
+Временная граница обслуживания установленного `43f10742` (16.10,12:56UTC):
+backup/два restore38831492016 и R08/два автономных цикла38860353565 остаются
+принятыми только для43. Прикладные образы и контейнеры не менялись.
+Source83b813ab прошёл3exact source jobs38901265492 (общий live43FAIL сохранён),
+tool83 staged38902081199 SUCCESS12:40:54; private source receipt/CI/dependencies
+в `/root/codex-fixes/weekly-38902081199`. Runtime сверяется с независимым
+`weekly-38875479942/source-hashes.json`:74native modules/7reviewed differences,
+неизменный root-pinned CI helper и настоящий reader behavior.
 
-Три exact-SHA source jobs учитываются через существующий `source_ci_gate.py`;
-owner workflow получает run/jobs через authenticated GitHub API, привязывает
-каждый job к тому же run и сохраняет исходный общий conclusion. FAIL live browser
-старого API не объявляется зелёным CI. Эта квалификация допускает только код
-служебного инструмента, не приложение/UI и не удаление данных.
-Первый preflight строит один свежий план под штатными locks, защищает корни,
-которых нет в доверенном backup, и проверяет реальные файлы каждого target.
-Уменьшенный marker+SQLite journal сохраняет v1 recovery compatibility; только
-неизменяемые publication artifacts могут временно делиться inode.
-Apply/recover/readback/finalize и независимая проверка сохранённых выпусков
-остаются обязательны. Пока compaction не выполнялась. Owner-only apply transport требует отдельного
-литерального reviewed plan revision; live marker не допускает
-мутацию. Отдельный native readback требует exact original catalog revision, все original
-download/dashboard/identity/ledger hashes, receipt whitelist и period по frozen
-report_model. Пять consistent tamper кейсов RED→GREEN;3tests/11negatives и
-independent exact43-reader replay PASS. При apply quarantine сохраняется.
-Readback daemon child имеет внутренний590s timeout; CLI600s не считается
-ограничением daemon lifetime. Native stable DB+WAL copy использует отдельный
-RW disk scratch, primary volume RO; private receipt хранит hashes entries/marker.
-Apply38897987071 ещё идёт. Новый выявленный CLI blocker partial-finalize resume
-исправляется отдельно в main; до exact source qualification finalize запрещён.
-Finalize transport пока отсутствует. После принятия полного
-приложения временные pins заменяются одной совместимой точкой.
+Preflight38896058189:99roots/keep7/retire92,3unbacked защищены; каждый target
+побайтно совпал trusted backup. Exact revision:
+`a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03`.
+Apply38897987071 rootTIMEOUT не объявляется PASS; native COMPACTED92 и
+quarantine retained подтверждены38899973071. Recovery завершён; повторный
+apply запрещён. Первое RO38901759065 timeout без удаления originals.
+Причина избыточной работы checker: полное хеширование root на каждый view.
+Полный hash всехroots сохранён, native view sample ограничен одним root
+каждого класса. Отрицательный тест24→6calls на8roots;35tests/53subtests PASS.
+
+Независимый RO38903432153 SUCCESS12:54:38UTC:99roots/92compact/7protected,
+99dashboard/249Word, original catalog equivalent. Private root600 proof:
+`weekly-38902081199/retained-readback-38903432153.json`; checker digest
+`c07bc2a5ab01a4f1f09e2b21b18443d9b7574084879f9be615b45c4255ec3921`.
+Metadata38903934509 подтвердил завершение/exit0/readers_ready=true/no finalizing.
+Free12:55:19=4369240064B, не освобождённое compaction место.
+
+Явный finalize83 связывает candidate/plan/entries/marker под native locks и
+использует только этот успешный proof. Resume разрешает лишь штатную durable
+finalizing phase; changed compact/original остатки отвергаются. Watcher может
+только recover, не dispose. После finalize обязателен отдельный native43
+readback всех99roots/7replay/249Word/99dashboard; counts сверяются с pre-proof.
+Согласованное удаление файла и catalog entry ловится отрицательным тестом.
+Глобальный EX9 сохраняет inode; native locks run→readerEX→publication.
+Node/API не останавливаются, данные не откатываются. Новый application release
+допускается только после фактического освобождения места и post-readback.
 
 Для host maintenance `TMPDIR` явно направляется в приватный каталог на диске
 `/var/lib/aemr/weekly-scratch`, с UID/GID1000 для временных SQLite clones.

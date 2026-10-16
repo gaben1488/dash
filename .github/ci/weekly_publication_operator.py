@@ -551,7 +551,7 @@ def main():
                     require(planned['catalog_revision']==args.expected_revision,'RETAINED_READBACK_PLAN_CHANGED')
                     if args.finalized_readback:
                         planned['_finalized_readback']=True
-                        prior=json.loads(owned(Path('/root/codex-fixes/weekly-38895891036/retained-readback-38901759065.json')))
+                        prior=json.loads(owned(Path('/root/codex-fixes/weekly-38902081199/retained-readback-38903432153.json')))
                         planned['_expected_artifacts']={k:prior['result'][k] for k in ('word_artifacts','dashboard_artifacts')}
                     source=owned(args.retained_readback,limit=16*1024)
                     release=json.loads(owned(Path('/var/lib/aemr/release-runtime/trial-plan.json')))

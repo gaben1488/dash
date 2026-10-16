@@ -81,20 +81,20 @@ jobs:
             def reviewed_finalize_token(proof):
                 assert set(proof)=={'runtime_source','tool_source','plan_revision','readback_source_sha256','operator_run','result'}
                 assert proof['runtime_source']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
-                assert proof['tool_source']=='268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
-                assert proof['operator_run']=='38901759065'
-                assert proof['readback_source_sha256']=='10bb2caaaeef07757de7804fbb82ff3f8a8af7a5c5153c35174fe56cdf1cbb1d'
+                assert proof['tool_source']=='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
+                assert proof['operator_run']=='38903432153'
+                assert proof['readback_source_sha256']=='c07bc2a5ab01a4f1f09e2b21b18443d9b7574084879f9be615b45c4255ec3921'
                 revision='a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03'
                 assert proof['plan_revision']==revision
                 result=proof['result']
                 assert set(result)=={'status','verified_roots','compacted_roots','protected_roots','word_artifacts','dashboard_artifacts','original_catalog_equivalent','journal_sha256','marker_sha256'}
                 assert result['status']=='RETAINED_STATE_VERIFIED' and result['original_catalog_equivalent'] is True
-                expected={'verified_roots':99,'compacted_roots':92,'protected_roots':7,'word_artifacts':297,'dashboard_artifacts':99}
+                expected={'verified_roots':99,'compacted_roots':92,'protected_roots':7,'word_artifacts':249,'dashboard_artifacts':99}
                 assert all(type(result[k]) is int and result[k]==v for k,v in expected.items())
                 assert all(isinstance(result[k],str) and re.fullmatch('[a-f0-9]{64}',result[k]) for k in ('journal_sha256','marker_sha256'))
                 return '83b813ab250b4533d1b80ba9e306afaa8bc5f383:'+revision+':'+result['journal_sha256']+':'+result['marker_sha256']
             def load_reviewed_finalize_token():
-                proof_path=Path('/root/codex-fixes/weekly-38895891036/retained-readback-38901759065.json')
+                proof_path=Path('/root/codex-fixes/weekly-38902081199/retained-readback-38903432153.json')
                 for parent in proof_path.parents:
                     info=parent.lstat();assert stat.S_ISDIR(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
                 with os.fdopen(os.open(proof_path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
@@ -142,8 +142,8 @@ jobs:
                 command[command.index('--expected-revision')+1]=revision
                 if mode=='finalized-readback':command.append('--finalized-readback')
             if mode=='finalize':
-                # Independent proof remains at its original268 stage; its source
-                # is never relabelled as the new83 finalizer.
+                # Independent readback used the installed43 reader and staged83
+                # tools. Keep its exact private receipt and source digest.
                 token=load_reviewed_finalize_token()
                 command.remove('--check')
                 command[command.index('--operation')+1]='finalize'
