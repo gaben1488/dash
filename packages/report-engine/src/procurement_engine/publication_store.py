@@ -68,6 +68,14 @@ def _revisions_equivalent(stage, expected, observed, proofs):
 class PublicationError(ValueError):
     pass
 
+
+def _assurance_hash(value):
+    digest = hashlib.sha256()
+    for chunk in json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).iterencode(value):
+        digest.update(chunk.encode())
+    return digest.hexdigest()
+
+
 def _document_artifacts(model):
     """Older verified releases are immutable two-Word publications."""
     items = [('main_report.docx', 'main'), ('management_report.docx', 'management')]
@@ -395,15 +403,69 @@ class PublicationStore:
                 cutoff_at TEXT NOT NULL, receipt TEXT NOT NULL, files TEXT NOT NULL
             )''')
 
-    def _checked(self, row):
+    def _checked(self, row, *, expected_release_id=None):
         if row is None:
             return None
         receipt, files = row
         record = json.loads(receipt)
+        if expected_release_id is not None and (not isinstance(record, dict) or record.get('release_id') != expected_release_id):
+            raise PublicationError('ATTEMPT_PROOF_INVALID')
         root = self.releases / record['release_id']
         if not root.is_dir() or root.is_symlink() or _files(root) != json.loads(files):
             raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
         return record
+
+    @_leased_read
+    def read_attempt(self, attempt_id):
+        """Complete original observation; metadata scans deliberately do not hydrate."""
+        if not isinstance(attempt_id, str) or not re.fullmatch(r'[a-f0-9]{32}', attempt_id):
+            raise PublicationError('ATTEMPT_PROOF_INVALID')
+        directory = self.root.parent / 'attempts'
+        path = directory / attempt_id / 'status.json'
+        if any(item.is_symlink() for item in (directory, path.parent, path)):
+            raise PublicationError('ATTEMPT_PROOF_INVALID')
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, 'r', encoding='utf-8') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise PublicationError('ATTEMPT_PROOF_INVALID')
+                status = json.load(stream)
+        except (OSError, ValueError) as error:
+            raise PublicationError('ATTEMPT_PROOF_INVALID') from error
+        if not isinstance(status, dict) or status.get('attempt_id') != attempt_id:
+            raise PublicationError('ATTEMPT_PROOF_INVALID')
+        publication = status.get('publication')
+        if not isinstance(publication, dict) or 'automation_assurance_ref' not in publication:
+            return status  # Historical inline bytes and their interpretation stay unchanged.
+        reference = publication['automation_assurance_ref']
+        if (not isinstance(reference, dict) or set(reference) != {'release_id', 'content_sha256'}
+                or not isinstance(reference.get('content_sha256'), str)
+                or not re.fullmatch(r'[a-f0-9]{64}', reference['content_sha256'])
+                or not isinstance(reference.get('release_id'), str)
+                or not re.fullmatch(r'REL-[a-f0-9]{64}', reference['release_id'])
+                or reference['release_id'] != publication.get('release_id')
+                or publication.get('model_sha256') != reference['release_id'][4:]
+                or 'automation_assurance' in status
+                or 'automation_assurance' in publication or status.get('reused_publication') is not True
+                or status.get('status') not in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+                or publication.get('status') != status['status']
+                or not status.get('snapshot_id') or status['snapshot_id'] != publication.get('snapshot_id')):
+            raise PublicationError('ATTEMPT_PROOF_INVALID')
+        try:
+            with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+                row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (reference['release_id'],)).fetchone()
+                record = self._checked(row, expected_release_id=reference['release_id'])
+            if (record is None or any(record.get(key) != publication.get(key)
+                                      for key in ('release_id', 'snapshot_id', 'model_sha256'))
+                    or not isinstance(record.get('automation_assurance'), dict)
+                    or _assurance_hash(record['automation_assurance']) != reference['content_sha256']):
+                raise PublicationError('ATTEMPT_PROOF_INVALID')
+        except PublicationError:
+            raise
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise PublicationError('ATTEMPT_PROOF_INVALID') from error
+        restored = {key: value for key, value in publication.items() if key != 'automation_assurance_ref'}
+        return {**status, 'publication': {**restored, 'automation_assurance': record['automation_assurance']}}
 
     def _first_live(self, rows):
         """Archive recomputation never replaces the live worker's baseline.

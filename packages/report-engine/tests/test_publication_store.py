@@ -31,7 +31,7 @@ class Source:
                              '0', 'schema1')
 
 
-def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z', year=2026, quarter=3, history=False):
+def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z', year=2026, quarter=3, history=False, assurance=None):
     path.mkdir()
     class HistorySource(Source):
         source_id = 'HISTORICAL_RECOMMENDATIONS'
@@ -49,6 +49,8 @@ def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:0
         'release': {'official_release_allowed': not blocked,
                     'blockers': [{'code': 'UNPROVEN'}] if blocked else []},
         'contract': {'report_model_version': 'model1'}}
+    if assurance is not None:
+        model['automation_assurance'] = assurance
     write_json(path / 'report_model.json', model)
     write_json(path / 'dashboard.json', project_dashboard(model))
     for name, view in [('main_report.docx', 'main'), ('management_report.docx', 'management')]:
@@ -60,6 +62,166 @@ def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:0
 
 def revisions():
     return {'synthetic': 'revision1'}
+
+
+def attempt_receipt(store, receipt, *, attempt_id='a'*32):
+    from procurement_engine.runtime import _finish_attempt
+    attempt = store.root.parent / 'attempts' / attempt_id
+    attempt.mkdir(parents=True)
+    status = {'attempt_id': attempt_id, 'status': receipt['status'], 'snapshot_id': receipt['snapshot_id'],
+              'report_date': receipt['report_date'], 'publication': {**receipt, 'future_receipt_field': {'kept': [False, None]}}, 'reused_publication': True,
+              'started_at': '2026-10-16T00:00:00Z', 'unknown_observation': {'retained': ['exactly']}}
+    return _finish_attempt(store.root.parent, attempt, status), attempt / 'status.json'
+
+
+def test_attempt_assurance_hash_streams_exact_strict_canonical_bytes(monkeypatch):
+    import procurement_engine.publication_store as module
+    values = [{'meaning': 'ёж\nUnicode😀', 'numbers': [0, -1, -0.0, 1.5, 1e30], 'empty': None},
+              {'z': [True, False, {'b': 2, 'a': 1}], 'a': 'quotes"\\'}]
+    expected = [hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                         separators=(',', ':'), allow_nan=False).encode()).hexdigest() for value in values]
+    def forbidden(*args, **kwargs):
+        raise AssertionError('whole-payload serialization')
+    with monkeypatch.context() as local:
+        local.setattr(module.json, 'dumps', forbidden)
+        assert [module._assurance_hash(value) for value in values] == expected
+
+
+@pytest.mark.parametrize('problem', ['receipt_json', 'receipt_shape', 'files_json', 'assurance_nan', 'assurance_shape'])
+def test_attempt_proof_normalizes_malformed_referenced_catalog_evidence(tmp_path, problem):
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Exact evidence'}), read_revisions=revisions)
+    attempt_receipt(store, receipt)
+    with sqlite3.connect(store.database_path) as db:
+        if problem in {'receipt_json', 'receipt_shape'}:
+            body = 'not-json' if problem == 'receipt_json' else '[]'
+            db.execute('UPDATE publications SET receipt=?', (body,))
+        elif problem == 'files_json': db.execute('UPDATE publications SET files=?', ('not-json',))
+        else:
+            changed = {**receipt, 'automation_assurance': {'invalid': float('nan')} if problem == 'assurance_nan' else []}
+            db.execute('UPDATE publications SET receipt=?', (json.dumps(changed),))
+    with pytest.raises(PublicationError, match='^ATTEMPT_PROOF_INVALID$'):
+        store.read_attempt('a'*32)
+
+
+def test_attempt_proof_catalog_unavailability_is_not_a_missing_reference(tmp_path):
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Exact evidence'}), read_revisions=revisions)
+    attempt_receipt(store, receipt)
+    store.database_path.rename(store.database_path.with_suffix('.saved'))
+    with pytest.raises(sqlite3.OperationalError):
+        store.read_attempt('a'*32)
+    assert not store.database_path.exists()
+
+
+def test_attempt_proof_rejects_wrong_catalog_release_before_scanning_its_path(tmp_path, monkeypatch):
+    import procurement_engine.publication_store as module
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Exact evidence'}), read_revisions=revisions)
+    attempt_receipt(store, receipt)
+    outside = tmp_path / 'outside'; outside.mkdir()
+    changed = {**receipt, 'release_id': '../../../outside'}
+    with sqlite3.connect(store.database_path) as db:
+        db.execute('UPDATE publications SET receipt=?', (json.dumps(changed),))
+    scanned = []
+    monkeypatch.setattr(module, '_files', lambda root: scanned.append(root) or {})
+    with pytest.raises(PublicationError): store.read_attempt('a'*32)
+    assert scanned == [], 'An unbound catalog receipt must not choose the artifact root'
+
+
+@pytest.mark.parametrize('problem', ['hash', 'ref_rid', 'publication_rid', 'snapshot', 'model', 'type', 'extra', 'both', 'missing', 'corrupt', 'cross_release', 'receipt_evidence', 'outcome_mismatch', 'model_missing_both', 'top_assurance'])
+def test_attempt_proof_reference_rejects_changed_binding_and_corrupt_publication(tmp_path, problem):
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Exact evidence'}), read_revisions=revisions)
+    _, path = attempt_receipt(store, receipt)
+    stored = json.loads(path.read_text())
+    reference = stored['publication']['automation_assurance_ref']
+    if problem == 'hash': reference['content_sha256'] = '0'*64
+    elif problem == 'ref_rid': reference['release_id'] = 'REL-' + 'b'*64
+    elif problem == 'publication_rid': stored['publication']['release_id'] = 'REL-' + 'b'*64
+    elif problem == 'snapshot': stored['publication']['snapshot_id'] = 'different'
+    elif problem == 'model': stored['publication']['model_sha256'] = '0'*64
+    elif problem == 'type': stored['publication']['automation_assurance_ref'] = None
+    elif problem == 'extra': reference['unexpected'] = True
+    elif problem == 'both': stored['publication']['automation_assurance'] = receipt['automation_assurance']
+    elif problem == 'top_assurance': stored['automation_assurance'] = {'meaning': 'An independent attempt payload'}
+    elif problem == 'missing':
+        with sqlite3.connect(store.database_path) as db:
+            db.execute('DELETE FROM publications WHERE release_id=?', (receipt['release_id'],))
+    elif problem == 'corrupt': (store.releases / receipt['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+    elif problem == 'cross_release':
+        other = store.publish(candidate(tmp_path / 'other', date='29.09.2026', assurance=receipt['automation_assurance']), read_revisions=revisions)
+        reference['release_id'] = stored['publication']['release_id'] = other['release_id']
+    elif problem == 'receipt_evidence':
+        changed = {**receipt, 'automation_assurance': {'meaning': 'Different evidence in the catalog'}}
+        with sqlite3.connect(store.database_path) as db:
+            db.execute('UPDATE publications SET receipt=? WHERE release_id=?', (json.dumps(changed), receipt['release_id']))
+    elif problem == 'outcome_mismatch': stored['publication']['status'] = 'NOT_ISSUED'
+    elif problem == 'model_missing_both':
+        stored['publication'].pop('model_sha256')
+        changed = {key: value for key, value in receipt.items() if key != 'model_sha256'}
+        with sqlite3.connect(store.database_path) as db:
+            db.execute('UPDATE publications SET receipt=? WHERE release_id=?', (json.dumps(changed), receipt['release_id']))
+    write_json(path, stored)
+    with pytest.raises(PublicationError, match='^PUBLISHED_BUNDLE_CORRUPT$' if problem == 'corrupt' else '^ATTEMPT_PROOF_INVALID$'):
+        store.read_attempt('a'*32)
+
+
+def test_attempt_proof_read_preserves_legacy_bytes_and_rejects_unsafe_identity_or_reader_fence(tmp_path):
+    import fcntl
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    original, path = attempt_receipt(store, receipt)
+    before = path.read_bytes()
+    assert store.read_attempt('a'*32) == original
+    assert path.read_bytes() == before
+    for bad_id in ('../outside', '/outside', 'a'*31, 'A'*32):
+        with pytest.raises(PublicationError): store.read_attempt(bad_id)
+    wrong = {**original, 'attempt_id': 'b'*32}
+    write_json(path, wrong)
+    with pytest.raises(PublicationError): store.read_attempt('a'*32)
+    path.unlink(); path.symlink_to(tmp_path / 'missing')
+    with pytest.raises(PublicationError): store.read_attempt('a'*32)
+    path.unlink(); write_json(path, original)
+    for directory in (path.parent, path.parent.parent):
+        saved = directory.with_name(directory.name + '-saved')
+        directory.rename(saved); directory.symlink_to(saved, target_is_directory=True)
+        with pytest.raises(PublicationError): store.read_attempt('a'*32)
+        directory.unlink(); saved.rename(directory)
+    with (store.root.parent / 'publication-readers.lock').open('r') as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PublicationError, match='PUBLICATION_MAINTENANCE_ACTIVE'):
+            store.read_attempt('a'*32)
+
+
+def test_reused_attempt_assurance_reference_survives_real_compaction_and_backup_restore(tmp_path):
+    import importlib.util
+    from pathlib import Path
+    source = tmp_path / 'server_data'; source.mkdir()
+    store, receipts = _compaction_fixture(source, assurance={'meaning': 'Frozen assurance', 'actions': []}, state_name='reports')
+    original, path = attempt_receipt(store, receipts[0])
+    (store.root.parent / 'status.json').unlink()  # Current-pointer protection must not mask the compacted reference case.
+    thin = path.read_bytes()
+    plan = store.plan_compaction()
+    assert receipts[0]['release_id'] in plan['retire_release_ids']
+    store.compact_publications(expected_revision=plan['catalog_revision'])
+    store.finalize_compaction()
+    assert not (store.releases / receipts[0]['release_id'] / 'report_model.json').exists()
+    assert store.read_attempt('a'*32) == original
+    assert path.read_bytes() == thin
+    with sqlite3.connect(source / 'aemr.db') as db:
+        db.execute('CREATE TABLE synthetic(id)')
+    inputs = store.root.parent / 'inputs'; inputs.mkdir()
+    write_json(inputs / 'registry.json', {}); write_json(inputs / 'ledger.json', {})
+    spec = importlib.util.spec_from_file_location('attempt_backup', Path(__file__).resolve().parents[3] / 'deploy/stateful_backup.py')
+    backup = importlib.util.module_from_spec(spec); spec.loader.exec_module(backup)
+    archived = tmp_path / 'backup'; restored = tmp_path / 'restored'; restored.mkdir()
+    backup.create(source, archived, compressed=True, compression_level=1)
+    proof = backup.restore_state(archived, restored, backup._archive_hash(archived / 'manifest.json'))
+    assert proof['state'] == 'STATE_RESTORED'
+    reopened = PublicationStore(restored / 'reports/published', readonly=True)
+    assert reopened.read_attempt('a'*32) == original
+    assert (restored / 'reports/attempts' / ('a'*32) / 'status.json').read_bytes() == thin
 
 
 def test_renderer_manifest_binds_actual_document_bytes(tmp_path):
@@ -243,12 +405,12 @@ def test_compacted_publication_preserves_artifacts_and_context_without_replay(tm
     assert store.latest() == latest
 
 
-def _compaction_fixture(tmp_path):
-    store = PublicationStore(tmp_path / 'state/published')
+def _compaction_fixture(tmp_path, *, assurance=None, state_name='state'):
+    store = PublicationStore(tmp_path / state_name / 'published')
     receipts = []
     for i, day in enumerate(('28.09.2026', '29.09.2026', '30.09.2026', '01.10.2026', '02.10.2026', '03.10.2026', '04.10.2026')):
-        receipts.append(store.publish(candidate(tmp_path / f'c{i}', date=day), read_revisions=revisions))
-    with sqlite3.connect(tmp_path / 'state/identity.sqlite') as db:
+        receipts.append(store.publish(candidate(tmp_path / f'c{i}', date=day, assurance=assurance), read_revisions=revisions))
+    with sqlite3.connect(tmp_path / state_name / 'identity.sqlite') as db:
         db.execute('CREATE TABLE observations(snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
         db.executemany('INSERT INTO observations VALUES (?, ?, ?)', [(r['snapshot_id'], 'plan', 'entity') for r in receipts])
     return store, receipts

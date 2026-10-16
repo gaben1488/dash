@@ -41,6 +41,66 @@ def inputs(root):
     return registry, ledger
 
 
+@pytest.mark.parametrize('size', [1024*1024, 2*1024*1024])
+def test_reused_attempt_storage_is_bounded_but_global_and_full_proof_remain_exact(tmp_path, size):
+    import hashlib
+
+    from test_publication_store import attempt_receipt
+    store = PublicationStore(tmp_path / 'state/published')
+    assurance = {'contract': 'actionable-assurance-v1', 'fully_automated': True,
+                 'user_action_count': 0, 'engine_action_count': 0, 'active_recommendations': 0,
+                 'link_status_counts': {}, 'action_status_counts': {}, 'actions': [], 'meaning': 'ёж ' + 'x'*size}
+    if size > 1024*1024:
+        assurance.update(contract='actionable-assurance-v2', source_observations=[], nonprocurement_identity_observations=0)
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance=assurance), read_revisions=revisions)
+    before = json.dumps(receipt)
+    for attempt_id in ('a'*32, 'b'*32):
+        original, path = attempt_receipt(store, receipt, attempt_id=attempt_id)
+        assert path.stat().st_size < 16384, 'Repeated immutable assurance is copied into every observation'
+        stored = json.loads(path.read_text())
+        expected_hash = hashlib.sha256(json.dumps(assurance, ensure_ascii=False, sort_keys=True,
+                                                  separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        assert stored['publication']['automation_assurance_ref'] == {'release_id': receipt['release_id'], 'content_sha256': expected_hash}
+        assert json.loads((store.root.parent / 'status.json').read_text()) == original
+        assert original['publication']['automation_assurance'] == assurance
+        assert store.read_attempt(attempt_id) == original
+    assert json.dumps(receipt) == before
+
+
+@pytest.mark.parametrize('change', [
+    {'status': 'NOT_ISSUED'}, {'reused_publication': False}, {'reused_publication': 1},
+    {'snapshot_id': 'different'}, {'automation_assurance': {'meaning': 'Own different evidence'}},
+])
+def test_ineligible_attempt_retains_its_complete_evidence(tmp_path, change):
+    from procurement_engine.runtime import _finish_attempt
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Immutable evidence'}), read_revisions=revisions)
+    attempt = store.root.parent / 'attempts' / ('a'*32); attempt.mkdir(parents=True)
+    status = {'attempt_id': attempt.name, 'status': receipt['status'], 'publication': receipt,
+              'snapshot_id': receipt['snapshot_id'], 'reused_publication': True, **change}
+    _finish_attempt(store.root.parent, attempt, status)
+    before = (attempt / 'status.json').read_bytes()
+    assert json.loads((attempt / 'status.json').read_text()) == status
+    assert store.read_attempt(attempt.name) == status
+    assert (attempt / 'status.json').read_bytes() == before
+
+
+@pytest.mark.parametrize('invalid', [float('nan'), float('inf'), object()])
+@pytest.mark.parametrize('where', ['assurance', 'other'])
+def test_compact_attempt_does_not_hide_original_nonfinite_serialization_error(tmp_path, where, invalid):
+    from procurement_engine.runtime import _finish_attempt
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = {'release_id': 'REL-' + 'a'*64, 'model_sha256': 'a'*64, 'snapshot_id': 'snapshot',
+               'status': 'VERIFIED', 'automation_assurance': {'meaning': invalid if where == 'assurance' else 'Normal'}}
+    attempt = store.root.parent / 'attempts' / ('a'*32); attempt.mkdir(parents=True)
+    status = {'attempt_id': attempt.name, 'status': 'VERIFIED', 'publication': receipt,
+              'snapshot_id': 'snapshot', 'reused_publication': True}
+    if where == 'other': status['unknown_field'] = invalid
+    with pytest.raises((ValueError, TypeError)): _finish_attempt(store.root.parent, attempt, status)
+    assert not (attempt / 'status.json').exists()
+    assert not (store.root.parent / 'status.json').exists()
+
+
 def test_real_capture_build_and_block_leave_previous_publication_available(tmp_path):
     registry, ledger = inputs(tmp_path)
     state = tmp_path / 'state'

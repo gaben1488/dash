@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from .google_adapter import (
     recheck_google_sources,
 )
 from .identity_store import IdentityStore
-from .publication_store import PublicationStore
+from .publication_store import PublicationStore, _assurance_hash
 from .raw_pipeline import (
     build_from_capture,
     bundle_from_capture,
@@ -163,9 +164,29 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         return _finish_attempt(state, attempt, status)
 
 
+def _retained_attempt_status(status):
+    """Only a new reused observation references immutable evidence (ADR-001)."""
+    publication = status.get('publication')
+    if (status.get('reused_publication') is not True
+            or status.get('status') not in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+            or 'automation_assurance' in status or not isinstance(publication, dict)
+            or publication.get('status') != status['status']
+            or not status.get('snapshot_id') or status['snapshot_id'] != publication.get('snapshot_id')
+            or not isinstance(publication.get('model_sha256'), str)
+            or not re.fullmatch(r'[a-f0-9]{64}', publication['model_sha256'])
+            or publication.get('release_id') != 'REL-' + publication['model_sha256']
+            or 'automation_assurance_ref' in publication
+            or not isinstance(publication.get('automation_assurance'), dict)):
+        return status
+    reference = {'release_id': publication['release_id'],
+                 'content_sha256': _assurance_hash(publication['automation_assurance'])}
+    retained = {key: value for key, value in publication.items() if key != 'automation_assurance'}
+    return {**status, 'publication': {**retained, 'automation_assurance_ref': reference}}
+
+
 def _finish_attempt(state, attempt, status):
     status['finished_at'] = datetime.now(timezone.utc).isoformat()
-    _write(attempt / 'status.json', status)
+    _write(attempt / 'status.json', _retained_attempt_status(status))
     _write(state / 'status.json', status)
     from .report_health import record_attempt
     try:
