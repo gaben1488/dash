@@ -59,6 +59,8 @@ class DriftProbeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', str(result))
         with self.assertRaisesRegex(ValueError, '^RUNTIME_STAGE_FORMAT_UNSUPPORTED$'):
             self.module.runtime_log_stages('PRIVATE_OTHER_FORMAT')
+        with self.assertRaisesRegex(ValueError, '^RUNTIME_STAGE_LOG_WINDOW_EMPTY$'):
+            self.module.runtime_log_stages('')
 
     def test_pretty_event_time_handles_midnight_and_rejects_unproven_dates(self):
         from datetime import datetime

@@ -11,6 +11,8 @@ def runtime_log_stages(raw, *, logger_utc=False):
     """Decode JSON or the installed multiline pino-pretty format privately."""
     from datetime import datetime, timedelta
 
+    if not raw.strip():
+        raise ValueError('RUNTIME_STAGE_LOG_WINDOW_EMPTY')
     records, current = [], None
     for line in raw.splitlines():
         stamp, _, text = re.sub(r'\x1b\[[0-9;]*m', '', line).partition(' ')

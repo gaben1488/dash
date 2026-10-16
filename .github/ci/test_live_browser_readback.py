@@ -149,6 +149,8 @@ class BrowserAdmissionTests(unittest.TestCase):
         marker='Verify real browser for accepted 43f10742'
         for name,event,actor,branch,message,mode,sha,expected in (
             ('explicit-push','push','owner','codex/release-observe-20261015',marker,'','',True),
+            ('iphone-body','push','owner','codex/release-observe-20261015','Verify iPhone browser for accepted 43f10742\n\nReviewed touch fixture.','','',True),
+            ('foreign-iphone','push','someone','codex/release-observe-20261015','Verify iPhone browser for accepted 43f10742','','',False),
             ('ordinary-push','push','owner','codex/release-observe-20261015','other','','',False),
             ('foreign-push','push','someone','codex/release-observe-20261015',marker,'','',False),
             ('main-push','push','owner','main',marker,'','',False),
@@ -156,6 +158,7 @@ class BrowserAdmissionTests(unittest.TestCase):
             ('metadata-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'metadata','43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa',False)):
             with self.subTest(name=name):
                 context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))), 'inputs':SimpleNamespace(mode=mode,release_sha=sha)}
+                context['startsWith'] = lambda value, prefix: value.lower().startswith(prefix.lower())
                 result=eval(expression,{'__builtins__':{}},context)  # Evaluate only the checked-in fixed Actions condition.
                 self.assertEqual(bool(result),expected)
 

@@ -85,23 +85,6 @@ jobs:
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
             for line in result.stdout.splitlines():print(json.dumps(json.loads(line)),flush=True)
-            if mode=='snapshot' and result.returncode==0:
-                # Inspect the already measured 07:22 read, not another warm GET.
-                import signal
-                timezone=subprocess.run(['docker','exec','--user','1000:1000',record['Id'],'node','-e',
-                    'process.exit(new Date().getTimezoneOffset()===0?0:2)'],capture_output=True,timeout=10)
-                assert timezone.returncode==0
-                with subprocess.Popen(['timeout','-k','5s','15s','docker','logs','--timestamps',
-                    '--since','2026-10-16T07:21:00Z','--until','2026-10-16T07:24:00Z',
-                    '--tail','1000',record['Id']],stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True) as logs:
-                    raw=logs.stdout.read(2*1024*1024+1)
-                    if len(raw)>2*1024*1024:os.killpg(logs.pid,signal.SIGTERM)
-                    logs.wait(timeout=5)
-                    assert logs.returncode==0 and len(raw)<=2*1024*1024
-                namespace={'__name__':'private_log_projector'}
-                exec(compile(body,'<reviewed-log-projector>','exec'),namespace)
-                print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'),logger_utc=True)}),flush=True)
             if result.returncode:
                 names={'AssertionError','PermissionError','FileNotFoundError','KeyError','TypeError','ImportError','ModuleNotFoundError','ValueError'}
                 errors=sorted(set(re.findall(rb'^([A-Za-z]+Error):',result.stderr,re.M)))
@@ -1498,20 +1481,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - uses: actions/checkout@v4
+      - name: Bind reviewed runtime log projector
+        run: |
+          python - <<'PYBIND'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/source_drift_probe.py').read_bytes()
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('DRIFT_PROBE='+base64.b64encode(body).decode()+'\n')
+              target.write('DRIFT_PROBE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PYBIND
       - name: Measure two ordinary reads with bounded streaming and cumulative API container CPU
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DRIFT_PROBE: ${{ env.DRIFT_PROBE }}
+          DRIFT_PROBE_SHA: ${{ env.DRIFT_PROBE_SHA }}
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DRIFT_PROBE,DRIFT_PROBE_SHA
           timeout: 60s
           command_timeout: 3m
           script: |
             set -euo pipefail
-            sudo -n python3 -IB - <<'PYAPITIMING'
-            import json,re,subprocess
+            sudo -n --preserve-env=DRIFT_PROBE,DRIFT_PROBE_SHA python3 -IB - <<'PYAPITIMING'
+            import base64,hashlib,json,os,re,subprocess
+            from datetime import datetime,timezone
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d' and record['State']['Running']
+            body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
+            assert len(body)<=16384 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
+            window_start=datetime.now(timezone.utc).isoformat()
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 43f10742' && 'journal' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],'timeout','-k','5s','90s','/opt/report-env/bin/python','-IB','-',resource],input=code,capture_output=True,text=True,timeout=100,check=False)
@@ -1526,6 +1528,22 @@ jobs:
              if 'response_sha256' in value:assert re.fullmatch('[a-f0-9]{64}',value['response_sha256'])
              if 'error_code' in value:assert value['error_code'] in {'TIMEOUT_40S','READ_OR_PARSE_FAILED'}
              print(json.dumps(value),flush=True)
+            if resource=='dashboard':
+                import signal
+                logger_clock=subprocess.run(['docker','exec','--user','1000:1000',record['Id'],'node','-e',
+                    'process.exit(new Date().getTimezoneOffset()===0?0:2)'],capture_output=True,timeout=10)
+                assert logger_clock.returncode==0
+                with subprocess.Popen(['timeout','-k','5s','15s','docker','logs','--timestamps',
+                    '--since',window_start,
+                    '--tail','1000',record['Id']],stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True) as logs:
+                    raw=logs.stdout.read(2*1024*1024+1)
+                    if len(raw)>2*1024*1024:os.killpg(logs.pid,signal.SIGTERM)
+                    logs.wait(timeout=5)
+                    assert logs.returncode==0 and len(raw)<=2*1024*1024
+                namespace={'__name__':'private_log_projector'}
+                exec(compile(body,'<reviewed-log-projector>','exec'),namespace)
+                print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'),logger_utc=True)}),flush=True)
             PYAPITIMING
 
   worker-observe:
