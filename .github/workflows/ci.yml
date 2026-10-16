@@ -1294,6 +1294,7 @@ jobs:
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
        (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release bae73c20 metadata' ||
+        github.event.head_commit.message == 'Inspect current release transport for bae73c20' ||
         github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
@@ -1303,9 +1304,10 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release bae73c20 metadata' && 'yes' || 'no' }}
+          RELEASE_TRANSPORT_ONLY: ${{ github.event.head_commit.message == 'Inspect current release transport for bae73c20' && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
-          envs: WEEKLY_ONLY,RELEASE_ONLY
+          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_TRANSPORT_ONLY
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1313,7 +1315,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_TRANSPORT_ONLY python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -1827,6 +1829,10 @@ jobs:
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
             def main():
+             if os.environ.get('RELEASE_TRANSPORT_ONLY')=='yes':
+              checkpoint_metadata()
+              print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
+              return
              if os.environ.get('RELEASE_ONLY')=='yes':
               accepted_cycle_metadata()
               worker_operational_metadata()
