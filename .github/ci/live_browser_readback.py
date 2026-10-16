@@ -58,15 +58,31 @@ def record_response(response, proof):
             statuses.append(response.status)
 
 
-async def select_page(page, nav, label):
+async def select_page(page, nav, label, proof=None):
+    def phase(value):
+        if proof is not None:
+            proof['navigation_phase'] = value
+    phase('locate_button')
     button = nav.locator('.np-btn').filter(has=page.locator('.np-label', has_text=re.compile('^' + re.escape(label) + '$')))
     # Native keyboard navigation, never forced clicks through an overlay.
     group = int(await button.evaluate("e => e.closest('[data-nav-group]').dataset.navGroup"))
+    phase('focus_navigation')
     await nav.focus()
+    phase('home_group')
     await nav.press('Home')
     for _ in range(group):
+        phase('move_group')
         await nav.press('ArrowDown')
+    if proof is not None:
+        proof['navigation_hit'] = await button.evaluate('''e => {
+            const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+            return {positive_size:r.width>0&&r.height>0,inside_viewport:r.left>=0&&r.right<=innerWidth,
+                receives_pointer:hit!==null&&(hit===e||e.contains(hit)),
+                covered_by_dialog:!!hit?.closest('[role="dialog"]')};
+        }''')
+    phase('click_button')
     await button.click(timeout=5000)
+    phase('confirm_selection')
     assert await button.get_attribute('aria-current') == 'page'
 
 
@@ -153,19 +169,25 @@ async def run():
 
             for label in PAGES:
                 proof['stage'] = 'page_' + str(len(visited) + 1)
-                await select_page(page, nav, label)
+                proof['page_phase'] = 'select'
+                await select_page(page, nav, label, proof)
+                proof['page_phase'] = 'read_page_context'
                 page_id = await page.locator('header[data-page-skin]').get_attribute('data-page-skin')
                 main = page.locator('main[data-page="' + page_id + '"]')
+                proof['page_phase'] = 'wait_main'
                 await main.wait_for()
+                proof['page_phase'] = 'wait_content'
                 await main.get_by_text('Раздел загружается', exact=True).wait_for(state='hidden', timeout=30000)
+                proof['page_phase'] = 'assert_content'
                 assert await main.get_by_text('Этот раздел не открылся — числа в нём показать не удалось', exact=True).count() == 0
                 assert await page.get_by_text('Приложение не отрисовалось — числа на экране показать не удалось', exact=True).count() == 0
                 assert len((await main.inner_text()).strip()) > 10
                 assert not errors
                 visited.append(label)
+                proof['pages_visited'] = len(visited)
             proof['pages_visited'] = len(visited)
             proof['stage'] = 'report_navigation'
-            await select_page(page, nav, 'Отчёт')
+            await select_page(page, nav, 'Отчёт', proof)
             await page.get_by_role('button', name='Отчёт в Word', exact=True).wait_for(timeout=30000)
             downloads = []
             release_ids = set()
