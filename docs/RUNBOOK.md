@@ -17,7 +17,7 @@ Expected endpoints:
 
 ## Verification
 
-На16.10.2026,17:57UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+На16.10.2026,18:37UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
 health16:25:58UTC PASS. Observer38930502207 SUCCESS16:49:26UTC: два новых
 36d28700/d396cb45, RUNNING/double host FLOCK, interval≥900s, context/snapshot/
@@ -28,28 +28,23 @@ Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/
 Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
 manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
-c5015936 CI38944104327: engine/image/live candidate API PASS, verify FAIL
-только на дополнительном preflight2RAF (frames0/1 после успешного bitmap).
-В том же WebKit run настоящий file calendar/reset/Undo PASS. Этот добавленный
-readiness-контракт убран: native bitmap5с уже ждёт fonts/paint, реальные5с
-click/tap продолжают проверять visible/enabled/stable/hit и все состояния.
-Independent actualWK desktop+touch counterfactual PASS38.3s; полные local
-Chromium9/WebKit9 PASS. Это не claim об исправлении WPE/production CSS.
-
-b6c1da52 CI38943716004 остановился ДО браузера: прежний regression lookup
-ожидал удалённый cycle block. Process-availability guard сохранён отдельно,
-его два отрицательных случая не удалены; добавлен healthy-process/NOT_RUN case.
-Все35deployment-scope и8rehearsal tests PASS; старый b6FAIL сохранён.
-
-Remotea7e0b27e не установлен: CI38941504501 WebKit RAF0/5с даже по HTTP;
-transport/focus-гипотезы отвергнуты. Local headedGTK не исправил touch, отменён.
-Новый bounded initial bitmap с animations=allow сохраняет эффекты и реальные
-click/tap; runner proof ещё нужен. Frozen63338938876490 завершил actual replay/
-audit/qualified old#REF!, но итоговый job FAIL на одном live worker status poll.
-Readback38942301087 RUNNING ff0236ce не доказывает terminal failure. Frozen
-больше не принимает installed worker за кандидата: explicit NOT_RUN; dedicated
-postdeploy2cycle+native3Word observer обязателен, diagnostics сохранены.
-Workflow8tests RED→GREEN и23deployment-smoke tests PASS; review PASS.
+B13 source CI38945039207: engine1127tests/image/live API PASS, verify FAIL
+на первой QA-кнопке WebKit5с; приложение192 не пересоздавалось.
+Парный CI38946188061/job117125775449 на том же b13: GTK9PASS/WPE FAIL/
+WPE9PASS/GTK9PASS. Полный fixture теперь WebKit GTK под Xvfb, с прежними
+эффектами/реальными click/tap/assertions/5с. Chromium и auth isolation остаются
+headless. Это замена нестабильного renderer оснастки, не исправление продукта
+и не доказательство физического iPhone или cold latency. Exact-head CI нужен.
+Bounded native38941504634 SUCCESS: current build/audit/twoDOCX/projection PASS;
+weekly ready=true, historical_replay_verified=false: неизменный старый #REF!
+не исправлен. 1.5GiB RAM/1.75GiB total/1CPU/128PIDs хватило этому входу.
+B13 native38945039201 ещё выполняется. Не переносить component proof на
+новые входы/правила без точной привязки; итог weekly не содержит input digests.
+Frozen633 single worker poll FAIL оказался чтением RUNNING ff0236ce,
+завершившегося успешно17:49:05UTC (readback38944127527). Replay больше не
+заявляет worker acceptance: NOT_RUN. Running-process availability guard и
+отрицательные тесты сохранены; два attributed autonomous cycles/native Word
+нужны после каждого нового установленного кандидата.
 Native weekly index38935736313: тот же selector1096.623→0.312ms, build1127.75ms,
 production index не создан. Native installed validation38938184833 отдельно:
 selector14383.390ms wall/2177ms CPU на0.5CPU;23MB baseline validation4–5s.
@@ -57,7 +52,7 @@ selector14383.390ms wall/2177ms CPU на0.5CPU;23MB baseline validation4–5s.
 Census38939051025: после cancelled CI остался unbounded read-only replay.
 Remote3e0/2783/a7: exact run+attempt+job labels, caps/internal timeout, cleanup,
 serial schema→replay, newheads queue. Bounded native38941504634 schema/diagnostics
-PASS; frozen идёт, budget ещё не принят. При отмене CI не считать Docker
+PASS; frozen SUCCESS в указанной выше области. При отмене CI не считать Docker
 автоматически завершённым. Cleanup только собственных labelled disposable;
 старые unlabelled процессы нельзя выбирать по одному image ID.
 Read-only диагностика сохраняет15с gate и печатает fixed stage/reason/elapsed,

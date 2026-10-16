@@ -19,6 +19,13 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
           'Федеральный бюджет', 'Краевой бюджет', 'Муниципальный бюджет']
 
 
+async def launch_browser(driver):
+    # Linux headless selects WPE; CI uses the GTK renderer under Xvfb for this
+    # full glass fixture. Same real input, effects and actionability assertions.
+    return await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch(
+        headless=os.environ.get('BROWSER_HEADED') != '1')
+
+
 @contextmanager
 def header_fixture(artifact):
     """Serve exactly the compiled synthetic Header, with no directory access."""
@@ -98,7 +105,7 @@ class FailureEvidenceTests(unittest.TestCase):
 class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
     async def scenario(self, inert=False, corrupt_period=False, corrupt_context=False):
         async with async_playwright() as driver:
-            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
+            browser = await launch_browser(driver)
             try:
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
@@ -139,7 +146,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
     async def test_current_header_periods_and_undo_use_real_touch(self):
         artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
         async with async_playwright() as driver:
-            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
+            browser = await launch_browser(driver)
             try:
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
@@ -154,7 +161,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
     async def test_current_header_controls_restore_selection_on_desktop_and_touch(self):
         artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
         async with async_playwright() as driver:
-            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
+            browser = await launch_browser(driver)
             try:
                 with header_fixture(artifact) as url:
                     for profile in ('desktop', 'iphone'):

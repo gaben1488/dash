@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 17:57 UTC
+### Текущий выпуск — 16.10.2026, 18:37 UTC
 
 **Установлен `19289667`: release38927016449 SUCCESS, независимые restore
 с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
@@ -28,38 +28,38 @@ manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Оба restore110SQLite/263DOCX. Keeper:/home/aemr/.dash-private-backups/worker-38927016449/backup.
 Free16714596352B/MemAvailable2588721152B — отдельный замер16:50, не гарантия будущего места.
 
-c5015936 CI38944104327: engine/image/live candidate API PASS, verify FAIL
-только на дополнительном preflight2RAF (frames0/1 после успешного bitmap).
-В том же WebKit run настоящий file calendar/reset/Undo PASS. Этот добавленный
-readiness-контракт убран: native bitmap5с уже ждёт fonts/paint, реальные5с
-click/tap продолжают проверять visible/enabled/stable/hit и все состояния.
-Independent actualWK desktop+touch counterfactual PASS38.3s; полные local
-Chromium9/WebKit9 PASS. Это не claim об исправлении WPE/production CSS.
+Ближайший конечный кандидат включает текстовые номера закупок d158a7ba,
+частичный индекс недельной базы c4f19f96 и исправления оснастки. Новый участок
+provenance проверяется отдельно и не расширяет состав этого выпуска.
+`b13cd9e5` не установлен: CI38945039207 engine1127tests/image/live API PASS,
+verify FAIL на первой настоящей QA-кнопке WebKit5с. Предыдущие отказы
+c501/670 на дополнительном2RAF и b6 на устаревшем test lookup сохранены.
 
-b6c1da52 CI38943716004 остановился ДО браузера: прежний regression lookup
-ожидал удалённый cycle block. Process-availability guard сохранён отдельно,
-его два отрицательных случая не удалены; добавлен healthy-process/NOT_RUN case.
-Все35deployment-scope и8rehearsal tests PASS; старый b6FAIL сохранён.
+Парный renderer experiment38946188061/job117125775449 на неизменном b13:
+GTK9PASS179.687s → WPE FAIL45.217s → WPE9PASS56.929s → GTK9PASS169.174s.
+Это воспроизводит нестабильность headless WPE на полном glass fixture.
+CI запускает тот же WebKit сценарий GTK/headed через Xvfb; реальный click/tap,
+эффекты, assertions и5с actionability сохранены. Auth isolation обоих движков
+остаётся headless. Свежий Chromium9PASS50.792s. Exact-head CI ещё обязателен;
+это не исправление CSS, cold API latency или проверка физического Safari.
 
-Remote `a7e0b27e` включает d158/c4f19, но не установлен. Source CI38941504501
-отказал на WebKit RAF0/5с даже с HTTP fixture: transport/focus-гипотезы не
-подтвердились. JS heartbeat/fonts/visibility/focus исправны. Headed GTK отдельно
-пропустил первый paint, но touch всё ещё отказал; этот эксперимент отменён.
-Новая узкая проверка требует реальный initial bitmap с animations=allow перед
-прежними RAF5с/action5с. Локальный WPE frame probe показал1RAF/18timer ticks,
-после bitmap настоящие calendar/reset/Undo PASS. Это ещё не runner proof и не
-исправление production CSS; эффекты/анимации/реальные click/tap не отключены.
-Полные local Chromium9/WebKit9 PASS с новой initial-paint проверкой.
+Bounded native38941504634 SUCCESS: current replay/audit/twoDOCX18:03:26UTC,
+projection18:03:30UTC; weekly18:11:34UTC ready=true,
+historical_replay_verified=false (неизменный старый literal#REF! остаётся отказом).
+Бюджет1.5GiB RAM/1.75GiB total/1CPU/128PIDs достаточен для этого входа;
+это не гарантия будущего объёма. Engine tree e5f84671748d91d4648e519f3d9ecc8741dbae0a
+и deploy tree e3f1dac2a5bccd857e84ca31eba09f1909a7e3e0 идентичны installed192,
+a7 и b13; проверка компонента не заменяет приёмку нового полного кандидата.
+Точный frozen input hash не выводился в итоговой сводке qualification —
+не приписывать ей отсутствующие digest. B13 native38945039201 ещё выполняется.
 
-Frozen63338938876490 закончил build/audit/twoDOCX и квалификацию неизменного
-старого #REF!, затем job FAIL17:45:20 на одном чтении установленного worker.
-Близкий status38942301087: RUNNING ff0236ce с17:44:16Z. Это не доказанный
-новый терминальный отказ. Исправляется граница: frozen replay явно NOT_RUN
-для worker acceptance; отдельные diagnostics и обязательный postdeploy observer
-двух новых attributed cycles/native Word сохранены. Регрессия8tests RED→GREEN,
-23deployment-smoke tests PASS, independent review PASS. Frozen84138935153610
-SUCCESS сохраняется в своём объёме; исторический #REF! не принят за исправленный.
-**Никакому новому кандидату доказательства192 не засчитываются.**
+Старый frozen63338938876490 отказал17:45:20 на одном чтении RUNNING ff0236ce,
+хотя replay/audit/qualified weekly уже завершились. Независимый readback
+38944127527 подтвердил тот же ff0236ce успешным17:49:05.896120UTC.
+Frozen replay теперь явно NOT_RUN для worker acceptance; отдельная проверка
+наличия running process сохранена с отрицательными тестами. Только observer
+двух новых attributed cycles после установки принимает нового worker.
+**Доказательства192 не засчитываются новому полному кандидату.**
 
 Native classified38937411651: четыре FETCH/TIMEOUT15с; последующие journal
 5.430/3.697s, CPU5.010/3.615s, HTTP200/13937B. Native38938184833: consistent
@@ -74,7 +74,7 @@ rehearsal start17:17:31 оставался17:21 после отмены389379930
 cleanup. Новые heads стоят в очереди, не отменяют активный native replay;
 source-schema/replay последовательны. Actual Bash cleanup сохраняет exit7/
 защищённый соседний путь; Ruff/actionlint/review PASS. Первый bounded native
-run38941504634: schema/diagnostics PASS, frozen в работе. Budget ещё не принят.
+run38941504634: schema/diagnostics/frozen PASS; границы бюджета указаны выше.
 Это доказанный дефект владения операцией, не единственное объяснение latency.
 Memory census38941388269 сохранил worker peak2415919104B (точно cap); это
 не доказательство отсутствия child OOM по одному State.OOMKilled=false.

@@ -104,3 +104,23 @@ post-deployment attributed two-cycle/native-Word observer remain in place.
 Historical acceptance stays bound to its installed source/image; RUNNING is
 neither a new acceptance nor a terminal worker failure. Real failed attempts
 remain visible in diagnostics and stop the dedicated acceptance observer.
+
+
+### Reference browser renderer for the full glass fixture
+
+The paired Ubuntu CI38946188061/job117125775449 used immutable b13cd9e5 and
+GTK→WPE→WPE→GTK ordering:9PASS179.687s,FAIL45.217s,9PASS56.929s,9PASS169.174s.
+The WPE failure was actual5s button stability, not a network or assertion failure.
+Both GTK positions passed the unchanged real desktop/touch actions, including
+negative controls. Run this synthetic full fixture in WebKit GTK under Xvfb.
+Keep Chromium and auth isolation headless, all effects, input actionability and
+assertions intact. This changes the reference renderer, not the app or thresholds.
+The previous failures remain evidence; this does not certify physical Safari,
+cold HTTP performance, or acceptance of an uninstalled candidate.
+
+Bounded native38941504634 subsequently passed current replay/audit/twoDOCX and
+qualified the unchanged historical literal#REF! refusal. Its final weekly output
+says ready=true/historical_replay_verified=false and omits exact frozen hashes;
+never cite that summary as a digest it does not contain. Identical engine/deploy
+trees permit scoped component comparisons, not transfer of full candidate
+installation/restore/two-cycle acceptance. Those remain bound to the exact release.

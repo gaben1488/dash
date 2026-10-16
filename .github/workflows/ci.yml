@@ -71,7 +71,11 @@ jobs:
           export DASH_HEADER_QA_HTML="$RUNNER_TEMP/navigation-qa.html"
           for engine in chromium webkit; do
             BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_auth_isolation.py
-            BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py
+            if [ "$engine" = webkit ]; then
+              xvfb-run --auto-servernum env BROWSER_ENGINE=webkit BROWSER_HEADED=1 python3 .github/ci/test_browser_header_controls.py
+            else
+              BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py
+            fi
           done
 
       - name: ESLint
