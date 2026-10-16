@@ -48,7 +48,8 @@ def record_response(response, proof):
     parsed = urlsplit(response.url)
     if parsed.netloc != urlsplit(BASE).netloc:
         return
-    names = {'/api/dashboard': 'dashboard_http_statuses', '/api/change-story': 'journal_http_statuses'}
+    names = {'/api/dashboard': 'dashboard_http_statuses', '/api/change-story': 'journal_http_statuses',
+             '/api/report-releases': 'release_status_http_statuses'}
     name = names.get(parsed.path)
     if parsed.path.startswith('/api/report-releases/') and parsed.path.endswith('.docx'):
         name = 'word_http_statuses'
@@ -167,7 +168,11 @@ async def run():
             await nav.wait_for(timeout=30000)
             visited = []
 
-            for label in PAGES:
+            scenario = os.environ.get('BROWSER_SCENARIO', 'full')
+            if scenario not in {'full', 'word-readiness'}:
+                raise ValueError('BROWSER_SCENARIO_INVALID')
+            proof['scenario'] = scenario
+            for label in (PAGES if scenario == 'full' else ['Отчёт']):
                 proof['stage'] = 'page_' + str(len(visited) + 1)
                 proof['page_phase'] = 'select'
                 await select_page(page, nav, label, proof)
@@ -195,7 +200,23 @@ async def run():
                 proof['stage'] = 'word_' + str(len(downloads) + 1)
                 proof['word_phase'] = 'wait_enabled'
                 button = page.get_by_role('button', name=label, exact=True)
-                await page.wait_for_function('label => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === label && !b.disabled)', arg=label, timeout=30000)
+                try:
+                    await page.wait_for_function('label => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === label && !b.disabled)', arg=label, timeout=30000)
+                except Exception:
+                    # Fixed product states only: never copy report text or source payload.
+                    proof['word_disabled'] = await button.is_disabled()
+                    proof['word_exact_text'] = await button.evaluate('(b,label)=>b.textContent.trim()===label', label)
+                    proof['word_readiness'] = await page.locator('#report-word-status').evaluate('''e=>{
+                        const s=e.textContent;
+                        for(const [prefix,code] of [
+                            ['Word:','READY'],['Проверяем готовность','CHECKING'],
+                            ['Несовместимый формат','SCHEMA'],['Вход на сайте','AUTH'],
+                            ['Проверка готовности Word превысила','TIMEOUT'],['Сервис отчётов','SERVICE'],
+                            ['Для выбранной даты','NO_RELEASE'],['Word станет доступен','NO_CONTEXT']])
+                            if(s.startsWith(prefix))return code;
+                        return 'OTHER';
+                    }''')
+                    raise
                 before = len(word_requests)
                 async with page.expect_download(timeout=30000) as event:
                     proof['word_phase'] = 'click'
