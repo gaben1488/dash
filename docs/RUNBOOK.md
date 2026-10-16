@@ -23,7 +23,8 @@ archive3,222,981,097B; independent full restore нового и предыдущ
 runtime PASS13:40:09; exact-SHA candidate/API/Word acceptance PASS13:43:07,
 public health PASS13:43:08. Guardian resumed штатно; старый43 уже не runtime.
 Observer38906488066 теперь RUNNING; два будущих автономных цикла83 пока
-не приняты. Desktop browser readback запускается отдельно, без deploy/restart.
+не приняты. Desktop browser readback запущен отдельно; полный iPhone/WebKit readback
+запускается с touch controls, без keyboard fallback и без deploy/restart.
 Старые43 maintenance pins ниже — исторические доказательства, не допуск
 для новых мутаций83. Regular weekly retention ещё не включена.
 
