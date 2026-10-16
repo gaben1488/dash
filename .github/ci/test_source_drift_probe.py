@@ -110,6 +110,7 @@ class DriftProbeTests(unittest.TestCase):
             database = Path(temporary) / 'state.sqlite'
             with sqlite3.connect(database) as connection:
                 connection.executescript('''
+                    PRAGMA journal_mode=WAL;
                     CREATE TABLE snapshots (created_at TEXT, read_duration_ms INTEGER,
                         pipeline_duration_ms INTEGER, row_count INTEGER, issue_count INTEGER, data TEXT);
                     CREATE TABLE issues (id TEXT, status TEXT, comment TEXT);
@@ -141,6 +142,8 @@ class DriftProbeTests(unittest.TestCase):
             self.assertGreaterEqual(storage['page_count'],storage['freelist_pages'])
             self.assertGreater(storage['page_size'],0)
             self.assertIn(storage['auto_vacuum'],(0,1,2))
+            self.assertEqual(storage['file_bytes'],database.stat().st_size)
+            self.assertGreater(storage['wal_bytes'],0)
             self.assertNotIn('PRIVATE', json.dumps(result))
             self.assertFalse(any(statement.lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE', 'CREATE'))
                                  for statement in statements))

@@ -151,6 +151,15 @@ def snapshot_stage_summary(database):
         storage = {key: connection.execute('PRAGMA ' + pragma).fetchone()[0] for key, pragma in
                    (('page_count', 'page_count'), ('freelist_pages', 'freelist_count'),
                     ('page_size', 'page_size'), ('auto_vacuum', 'auto_vacuum'))}
+        for key, path in (('file_bytes', Path(database)), ('wal_bytes', Path(str(database) + '-wal'))):
+            try:
+                info = path.stat()
+                storage[key] = info.st_size
+                storage['allocated_' + key] = info.st_blocks * 512
+            except FileNotFoundError:
+                if key != 'wal_bytes':
+                    raise
+                storage[key] = storage['allocated_' + key] = 0
     if any(value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1)
            for value in [count, reviewed, *storage.values(), *(value for row in recent for value in row)]):
         raise ValueError('SNAPSHOT_STAGE_METADATA_INVALID')
