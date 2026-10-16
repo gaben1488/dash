@@ -1,8 +1,8 @@
 """Copy a quiescent SQLite catalog plus WAL without opening the production DB.
 
 A mode=ro connection can still need writable shared memory for WAL. Rehearsal
-mounts cannot supply it. The byte-stable barrier below copies only the small
-publication catalog into temporary storage, verifies its integrity there, and
+mounts cannot supply it. The byte-stable barrier below copies the complete
+catalog into admitted temporary storage, verifies its integrity there, and
 keeps immutable release files on the original read-only volume. A moving catalog
 is retried, never opened with immutable=1 (which would ignore committed WAL).
 """
@@ -40,6 +40,11 @@ def copied_catalog(source):
                 continue
             if before[0] is None:
                 raise ValueError('PUBLICATION_NOT_FOUND')
+            # A copy plus WAL recovery/checkpoint may grow the cloned main DB.
+            # Admit the actual scratch filesystem, never assume /tmp is a disk.
+            required = 2 * sum(stamp[1] for stamp in before if stamp is not None) + 1024**2
+            if shutil.disk_usage(folder).free < required:
+                raise ValueError('PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT')
             target = Path(folder) / source.name
             try:
                 for path, stamp in zip(paths, before):

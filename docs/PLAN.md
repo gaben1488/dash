@@ -23,6 +23,14 @@ SUCCESS. Header4 / metric425 / selected Word schema также проверен�
 b0cc6854 (38850730958). Эти внутренние проверки не доказывают холодную задержку API.
 Отдельный rehearsal 38850730935 FAILURE: копирование выросшего catalog в 128 MiB
 tmpfs даёт ENOSPC, до source-schema/frozen replay; production не останавливался.
+В следующем ограниченном исправлении три catalog-reader контейнера переведены
+на прежний disposable disk volume с production `:ro`; общий `copied_catalog`
+проверяет место для DB+WAL и recovery до копирования. Hash barrier/WAL/quick_check
+сохранены; RAM tmpfs не увеличен. RED: прежний workflow нарушает все три
+границы и не отказывает до copy при нехватке места; GREEN: 5 engine-тестов,
+workflow regression, независимое ревью, Ruff/actionlint и полный Python1082 PASS.
+Эксплуатационный повтор ещё не выполнен; предварительный допуск не резервирует
+место от конкурентного заполнения. Недельная очистка не запускалась.
 Нельзя выдавать основной CI за успешную отдельную репетицию. Реестр 56 результатов и
 приёмки — [issue #69](https://github.com/gaben1488/dash/issues/69#issuecomment-6107363839).
 **Новая версия установлена; автоматический exact-SHA gate прошёл в 01:28:34 UTC.**

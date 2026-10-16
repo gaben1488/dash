@@ -264,7 +264,9 @@ jobs:
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.cli check-publication-readers --state /app/packages/server/data/reports
-            docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            # Catalog copies contain DB+committed WAL. Use the same disposable
+            # disk scratch as the full replay; copied_catalog admits its space.
+            docker run --rm -i --read-only --mount type=volume,dst=/tmp \
               --env-file .env.production -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
@@ -442,7 +444,7 @@ jobs:
             echo "=== end installed source contract geometry ==="
             echo "=== latest live release aggregate footprint ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
@@ -450,7 +452,7 @@ jobs:
               -c 'import json; from pathlib import Path; from procurement_engine.publication_store import PublicationStore; from procurement_engine.readonly_catalog import copied_catalog; root=Path("/app/packages/server/data/reports/published"); store=PublicationStore(root,readonly=True); context=copied_catalog(store.database_path); catalog=context.__enter__(); store.database_path=catalog; receipt=store.latest(); release=root/"releases"/receipt["release_id"] if receipt else None; size=lambda p: sum(x.stat().st_size for x in p.rglob("*") if x.is_file()) if p and p.exists() else 0; print(json.dumps({"report_date":receipt.get("report_date") if receipt else None,"release_bytes":size(release),"identity_bytes":(release/"identity.sqlite").stat().st_size if release and (release/"identity.sqlite").is_file() else 0,"snapshot_bundle_bytes":size(release/"snapshot_bundle") if release else 0,"main_docx_bytes":(release/"main_report.docx").stat().st_size if release and (release/"main_report.docx").is_file() else 0,"management_docx_bytes":(release/"management_report.docx").stat().st_size if release and (release/"management_report.docx").is_file() else 0},ensure_ascii=False,sort_keys=True)); context.__exit__(None,None,None)'
             echo "=== published unresolved recommendation index ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \

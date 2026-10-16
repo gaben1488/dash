@@ -112,6 +112,7 @@ jobs:
           python .github/ci/test_vps_cache_cleanup.py
           python .github/ci/test_runtime_state_probe.py
           python .github/ci/test_runtime_guard.py
+          python .github/ci/test_report_rehearsal_scratch.py
           python .github/ci/test_frozen_backup_readback.py
           python .github/ci/test_frozen_trial_replay.py
           python .github/ci/test_native_status_probe.py
