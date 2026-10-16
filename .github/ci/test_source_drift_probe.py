@@ -117,6 +117,9 @@ class DriftProbeTests(unittest.TestCase):
                     CREATE TABLE audit_log (entity_id TEXT, action TEXT);
                     INSERT INTO snapshots VALUES ('2026-10-16T07:22:00Z', 123, 25000, 5000, 700, 'PRIVATE_PAYLOAD');
                     INSERT INTO issues VALUES ('PRIVATE_ID', 'false_positive', NULL);
+                    CREATE TABLE discarded (value BLOB);
+                    INSERT INTO discarded VALUES (zeroblob(65536));
+                    DROP TABLE discarded;
                 ''')
             real_connect = sqlite3.connect
             statements = []
@@ -133,6 +136,11 @@ class DriftProbeTests(unittest.TestCase):
                 'row_count': 5000, 'issue_count': 700}])
             self.assertEqual(result['reviewed_case_count'], 1)
             self.assertEqual(result['snapshot_count'], 1)
+            storage=result['sqlite_storage']
+            self.assertGreater(storage['freelist_pages'],0)
+            self.assertGreaterEqual(storage['page_count'],storage['freelist_pages'])
+            self.assertGreater(storage['page_size'],0)
+            self.assertIn(storage['auto_vacuum'],(0,1,2))
             self.assertNotIn('PRIVATE', json.dumps(result))
             self.assertFalse(any(statement.lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE', 'CREATE'))
                                  for statement in statements))

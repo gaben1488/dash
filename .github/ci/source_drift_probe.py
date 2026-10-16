@@ -148,11 +148,15 @@ def snapshot_stage_summary(database):
             OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id = issues.id
                 AND audit_log.action = 'issue_comment')''').fetchone()[0]
         count = connection.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0]
+        storage = {key: connection.execute('PRAGMA ' + pragma).fetchone()[0] for key, pragma in
+                   (('page_count', 'page_count'), ('freelist_pages', 'freelist_count'),
+                    ('page_size', 'page_size'), ('auto_vacuum', 'auto_vacuum'))}
     if any(value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1)
-           for value in [count, reviewed, *(value for row in recent for value in row)]):
+           for value in [count, reviewed, *storage.values(), *(value for row in recent for value in row)]):
         raise ValueError('SNAPSHOT_STAGE_METADATA_INVALID')
     return {'recent_snapshots': [dict(zip(('read_ms', 'pipeline_ms', 'row_count', 'issue_count'), row, strict=True))
-                                 for row in recent], 'snapshot_count': count, 'reviewed_case_count': reviewed}
+                                 for row in recent], 'snapshot_count': count, 'reviewed_case_count': reviewed,
+            'sqlite_storage': storage}
 
 
 def weekly_formula_summary(state):
