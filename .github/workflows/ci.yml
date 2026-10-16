@@ -2389,7 +2389,7 @@ jobs:
             db.pragma('wal_checkpoint(TRUNCATE)');db.close();const afterSize=statSync('/probe/aemr.db');
             console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,scopes:years.map((year,i)=>({year,before_ms:prior[i].ms,after_ms:current[i].ms,matches:current[i].ids.length})),results_equal:true,scope_choice:'largest_snapshot_book'}));
             '''
-              result=subprocess.run(['docker','run','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','INDEX_DDL='+os.environ['INDEX_DDL'],'--entrypoint','node',record['Image'],'--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
+              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','INDEX_DDL='+os.environ['INDEX_DDL'],'-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
               (work/'native.stdout').write_text(result.stdout[:16384])
               assert result.returncode==0 and len(result.stdout)<=4096

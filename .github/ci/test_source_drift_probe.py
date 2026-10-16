@@ -7,6 +7,28 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_isolated_scope_probe_accepts_stdin_and_bounds_its_daemon_process(self):
+        import ast
+        import textwrap
+
+        workflow = Path(__file__).parents[1] / 'workflows' / 'ci.yml'
+        body = workflow.read_text().split("<<'PYSCOPE'\n", 1)[1].split('\n            PYSCOPE', 1)[0]
+        tree = ast.parse(textwrap.dedent(body))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and node.func.attr == 'run'
+                 and node.args and isinstance(node.args[0], ast.List)
+                 and any(keyword.arg == 'input' and isinstance(keyword.value, ast.Name)
+                         and keyword.value.id == 'code' for keyword in node.keywords)]
+        self.assertEqual(len(calls), 1)
+        values = [item.value for item in calls[0].args[0].elts if isinstance(item, ast.Constant)]
+        self.assertEqual(values[:2], ['docker', 'run'])
+        self.assertIn('-i', values, 'Docker must forward the submitted Node program')
+        self.assertIn('TMPDIR=/probe', values)
+        self.assertEqual(values[values.index('--entrypoint') + 1], '/usr/bin/timeout')
+        self.assertIn('180s', values)
+        self.assertIn('5s', values)
+        self.assertIn('node', values)
+
     def setUp(self):
         spec = importlib.util.spec_from_file_location('source_drift_probe', Path(__file__).with_name('source_drift_probe.py'))
         self.module = importlib.util.module_from_spec(spec)
