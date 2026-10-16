@@ -5,15 +5,27 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 15:51 UTC
+### Текущий выпуск — 16.10.2026, 16:34 UTC
 
-**Установлен `83b813ab`; его restore, два цикла и перечисленные браузерные
-сценарии приняты. Новая расширенная проверка обнаружила отдельный отказ
-чтения API; полная мобильная/продуктовая приёмка остаётся открыта.**
-Это не закрывает весь реестр 56 результатов.
+**Установлен `19289667`: release38927016449 SUCCESS, независимые restore
+с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
+public health16:25:58UTC PASS.** Observer38930502207 уже наблюдает два новых
+автономных цикла; результат ещё не получен. Принятые циклы83 не выдаются за192.
+Полная продуктовая приёмка и весь реестр56 остаются открыты.
 
-**Кандидат `19289667` допущен к controlled release38927016449, установка ещё
-не подтверждена.** Три source jobs38923925347 PASS; overall FAIL из-за
+Расширенный iPhone/WebKit38932318516 PASS16:32:30UTC:13разделов touch,
+методы/деятельность/бюджеты/единицы/тема/поиск/popover, year/quarter/month/week,
+corner reset/Undo, три вкладки журнала и три Word с native hashes. Это эмуляция,
+не физический iPhone. Desktop38932107962 FAIL после13разделов на Header
+assertion; HTTP dashboard/journal200. Сохранён FAIL; добавлен privacy-tested
+fixed code-frame diagnostic для установления точной проверки, без ослабления
+assertions/timeout и без production restart.
+
+Native ordinary dashboard38932040065:5.652/4.473s, HTTP200,12298408B,
+state=refreshing/captured15:26:42Z. Journal38932221489:3.347/2.027s, HTTP200,
+13937B. Это наблюдения, не приёмка cold latency и не доказательство свежести.
+
+Три source jobs38923925347 PASS; overall FAIL из-за
 старого83/journal READ_UNAVAILABLE. Frozen38923925267 SUCCESS: current replay,
 independent audit/two rebuilt DOCX PASS; weekly — доказанный одинаковый
 `UNCHANGED_FROZEN_SOURCE_REFUSAL`, historical_replay_verified=false.

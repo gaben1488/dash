@@ -66,6 +66,18 @@ async def activate(locator, profile, *, timeout=5000):
         await locator.click(timeout=timeout)
 
 
+def failure_location(error):
+    """Publish only our fixed verifier frame, never exception text or locals."""
+    location, frame = None, error.__traceback__
+    while frame is not None:
+        code = frame.tb_frame.f_code
+        if (Path(code.co_filename).name == Path(__file__).name
+                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods'}):
+            location = {'function': code.co_name, 'line': frame.tb_lineno}
+        frame = frame.tb_next
+    return location
+
+
 async def verify_header_controls(page, profile, proof):
     """Exercise the real header without source writes; restore every selection."""
     header = page.locator('header[data-page-skin]')
@@ -364,6 +376,7 @@ async def run():
     except Exception as error:  # noqa: BLE001 — never expose page text or credentials in public logs.
         proof['result'] = 'FAILED'
         proof['failure_class'] = type(error).__name__
+        proof['failure_location'] = failure_location(error)
         if isinstance(error, ValueError) and str(error) == 'OWNER_BROWSER_PASSWORD_SECRET_REQUIRED':
             proof['error_code'] = str(error)
     finally:

@@ -1,6 +1,7 @@
 """Browser acceptance must detect inert controls using real pointer/touch input."""
 import os
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import live_browser_readback as verifier
@@ -10,6 +11,26 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
           'Конкурентные способы, статья 24 44-ФЗ', 'Единственный поставщик, статья 93 44-ФЗ',
           'Все способы закупки', 'Программные мероприятия', 'Текущая деятельность',
           'Федеральный бюджет', 'Краевой бюджет', 'Муниципальный бюджет']
+
+
+class FailureEvidenceTests(unittest.TestCase):
+    def test_failure_location_exposes_only_known_code_frame_without_private_message(self):
+        def verify_header_controls():
+            raise AssertionError('PRIVATE_PAGE_TEXT')
+        with patch.object(verifier, '__file__', __file__):
+            try:
+                verify_header_controls()
+            except AssertionError as error:
+                result = verifier.failure_location(error)
+        self.assertEqual(result, {'function': 'verify_header_controls',
+                                  'line': verify_header_controls.__code__.co_firstlineno + 1})
+        self.assertNotIn('PRIVATE', str(result))
+
+    def test_foreign_frames_are_not_published_as_product_source(self):
+        try:
+            raise AssertionError('PRIVATE_PAGE_TEXT')
+        except AssertionError as error:
+            self.assertIsNone(verifier.failure_location(error))
 
 
 class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):

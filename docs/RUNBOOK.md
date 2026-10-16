@@ -17,9 +17,16 @@ Expected endpoints:
 
 ## Verification
 
-На 16.10.2026, 15:51 UTC последняя подтверждённая установка — `83b813ab` (PR #79).
-Controlled release кандидата19289667 запущен в38927016449 после exact-source
-трёх jobs PASS и frozen38923925267 SUCCESS; завершение ещё не подтверждено.
+На16.10.2026,16:34UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
+health16:25:58UTC PASS. Observer38930502207 идёт; два цикла192 ещё не приняты.
+iPhone/WebKit38932318516 PASS13touch-разделов/все периоды/reset/Undo/журнал/3Word;
+это эмуляция. Desktop38932107962 FAIL на Header assertion после13разделов;
+диагностика fixed frame/line добавлена без изменения требований и timeout.
+Ordinary dashboard38932040065:5.652/4.473s, refreshing/captured15:26:42Z;
+journal38932221489:3.347/2.027s. Cold latency и общая свежесть ещё не приняты.
+Три source jobs38923925347 PASS и frozen38923925267 SUCCESS; overall source CI
+FAIL на старом83/journal сохраняется в доказательствах, не переименован в PASS.
 Недельный результат — доказанный неизменный отказ #REF! обоих генераторов,
 не успешная публикация исторической недели. Старый FAIL38914725365 сохранён.
 До downtime index-copy38924567639 PASS:434049024B consistent SQLite copy,
