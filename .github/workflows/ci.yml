@@ -855,9 +855,13 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 43f10742'))
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 43f10742') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify iPhone browser for accepted 43f10742'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      BROWSER_PROFILE: ${{ github.event.head_commit.message == 'Verify iPhone browser for accepted 43f10742' && 'iphone' || 'desktop' }}
+      BROWSER_ENGINE: ${{ github.event.head_commit.message == 'Verify iPhone browser for accepted 43f10742' && 'webkit' || 'chromium' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -866,7 +870,7 @@ jobs:
       - name: Install the existing browser verifier runtime
         run: |
           python -m pip install playwright==1.62.0
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps "$BROWSER_ENGINE"
       - name: Bind browser credentials to the actual accepted runtime
         env:
           VPS_USER: ${{ secrets.DEPLOY_USER }}

@@ -17,6 +17,15 @@ PAGES = ['Пульс', 'Отчёт', 'Свод', 'Реестр', 'Не обес�
          'Мониторинг', 'Экономия', 'Конкуренция', 'Дисциплина', 'Контроль', 'Аналитика', 'Система']
 
 
+def browser_settings(profile, devices):
+    if profile == 'desktop':
+        return 'chromium', {'viewport': {'width': 1600, 'height': 1000}}
+    if profile == 'iphone':
+        return 'webkit', {key: value for key, value in devices['iPhone 13'].items()
+                          if key != 'default_browser_type'}
+    raise ValueError('BROWSER_PROFILE_INVALID')
+
+
 def record_response(response, proof):
     parsed = urlsplit(response.url)
     if parsed.netloc != urlsplit(BASE).netloc:
@@ -52,13 +61,16 @@ async def run():
         metadata = json.loads(Path(os.environ['BROWSER_AUTH_METADATA']).read_text())
         assert metadata['release_sha'] == proof['source_sha']
         async with async_playwright() as driver:
+            profile = os.environ.get('BROWSER_PROFILE', 'desktop')
+            engine, options = browser_settings(profile, driver.devices)
+            proof['browser_profile'] = profile
             proof['stage'] = 'unauthenticated_edge'
             unauthenticated = await driver.request.new_context()
             response = await unauthenticated.get(BASE + '/api/report-releases', max_redirects=0)
             assert response.status == 401
             await unauthenticated.dispose()
-            browser = await driver.chromium.launch(headless=True)
-            context = await browser.new_context(viewport={'width': 1600, 'height': 1000},
+            browser = await getattr(driver, engine).launch(headless=True)
+            context = await browser.new_context(**options,
                 accept_downloads=True, http_credentials={'username': metadata['username'],
                     'password': password, 'origin': BASE})
             blocked = []
