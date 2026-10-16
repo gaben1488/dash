@@ -43,12 +43,18 @@ PostgreSQL остаётся отдельным решением C08: снача�
 
 [ADR0012](decisions/0012-bounded-dashboard-read-model.md) отделяет обычное HTTP
 чтение готовой модели от импорта. `ccbd4213` реализует background materialization,
-строгий scope, исходное время и явную freshness. Следующее изменение добавляет
-метаданный expression index, чтобы отсутствие нужного года не требовало разбора
+строгий scope, исходное время и явную freshness. Bfd625fc добавил частичный
+индекс по времени/ID для weekly-кандидатов, чтобы отсутствие нужного года не требовало разбора
 JSON всей истории. Это не общий канонический вход и не доказательство полной
-миграции. В production уже установлен19289667: install/restore, два автономных
-цикла, расширенные Desktop/WebKit сценарии подтверждены в PLAN. Cold latency
-ещё не принята; следующий weekly metadata index в этом runtime отсутствует.
+миграции. Предыдущий19289667 принят в своих install/restore/двухциклах/браузере.
+Текущийbfd625fc установлен release38949403808: restore/API/3Word PASS19:25UTC,
+новые два цикла observer38949805075 PASS,1638sealed неизменны. Индекс установлен; первое journal HTTP в
+закрытой установочной приёмке4.617с (startup-log), повторные2.714/3.285с и
+4Header15с PASS. Это не host-cold benchmark. Mobile13страниц/3Word PASS;
+desktop full repeat PASS с selectedGET19587ms, ранний CHECKING30с сохранён.
+Новый native selected-reader исключает доказанный повторный hash traversal
+одинаковогоreceipt/files только внутри GET (ADR0012); production эффект не
+доказан, исходный отказ не объявлен устранённым. Подробности PLAN.
 
 Конкурирующие объяснения проверены разными материалами: deferred Google test
 доказал coupling импорта/GET; SQLite expression counter и контроль без индекса
@@ -76,7 +82,43 @@ unknown:REF от потери registered payload. Последний отказ 
 синхронном GET. Classified probe38937411651 отдельно зафиксировал четыре
 Header FETCH/TIMEOUT15с; быстрые следующие чтения не отменяют отказ.
 Измерения обосновывают исправление границы metadata/payload, а не смену БД.
-Индекс пока не установлен; полный cold HTTP после установки обязателен.
+Индекс установлен вbfd625fc; первое записанное journal HTTP4.617с и
+повторные2.714/3.285с измерены отдельно. Это разные условия, не paired benchmark.
+
+### Один вход также требует одного временного контекста
+
+16.10,19:05UTC на synthetic source-context fixture проверены действительные
+CalcEngine/computeUnifiedGrid и Python canonical_metrics: план100, факт90,
+AD=да/Z=10, N=10.10.2026, Q=20.10.2026, срез17.10.2026. Live TS безcutoff
+возвращает fact1/economy10; тот же CalcEngine с явнымasOfDay и Python с тем
+жеas_of возвращают fact0/economy0. Это не измерение живых закупок. Rawfixture
+и результаты сохранены в /tmp/dash-economy-context-repro{.ts,-ts.json,-py.json}.
+Исполняемые причины: orchestrator передаётasOf в сигналы, но compute вызывает
+безasOfDay; attachUnifiedGrid также не передаётcutoff. Прежний CalcEngine
+документирует «весь введённый факт» как совместимый режим, поэтому различие
+контекстов нельзя молча назвать ошибкой одной суммы или перенести Word cutoff
+на live без явного решения о смысле текущего факта.
+
+Независимое чтение ADR0007:60 и week-regression:175 подтвердило намеренное
+различие live/archive. У live report.ts:262 и economic-metrics.ts:424 cutoff
+также явно отсутствует. Ни snapshot.createdAt, ни время webhook не доказывают
+расчётныйcutoff (reconciliation.ts:136). Для абсолютного момента уже есть
+shared/time-selection.ts:35 productCalendarDay; dayNumberOf(Date) использует
+локальный календарь машины. Snapshot cache сейчас year/TTL, безprojectday.
+Кроме этого, live report читаетdeptcache отдельно от snapshot/grid/issues,
+а Python работает с frozenbundle. Один clock не является одной source revision.
+МусорнаяQ тоже требует явной политики: TSfactCountsOn считает нераспознанный
+текст фактом, Python normalize/date-aware completion — нет. До изменения
+правила нужно сохранить прежнийконтракт, контрпримеры иhistorical reader.
+
+Целевая миграция официальной экономии должна фиксировать один вход И один
+контекст времени/правил: календарный день проекта отдельно от instant чтения,
+границы периода отдельно от mutable identity, явныйcutoff у всех потребителей.
+Нужны контрпримеры future/today/invalid dates, Kamchatka day-rollover, старые
+снимки и одинаковое значение в API/BI/Word. Это уточнение критерия первого
+вертикального перехода; новая модель времени ещё не реализована/не установлена,
+исторические payload/хэши не переписываются. Состав текущего конечного выпуска
+bfd625fc не расширяется этим исследованием.
 
 ## Layers
 

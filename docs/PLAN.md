@@ -5,9 +5,47 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 18:37 UTC
+### Текущий выпуск — 16.10.2026, 19:59 UTC
 
-**Установлен `19289667`: release38927016449 SUCCESS, независимые restore
+**Текущий установлен `bfd625fcb7d66ab504de9fe8827a225ba95a7082`.**
+Controlled release38949403808/job117136696240 SUCCESS: свежий полный checkpoint,
+два полных восстановления с новым и прежним приложением PASS19:22UTC,
+exact-SHA API/3Word PASS19:25:51.785UTC, publichealth19:25:53.333UTC, resume/cleanup PASS.
+Текущий keeper: /home/aemr/.dash-private-backups/worker-38949403808/backup;
+checkpoint20979114829B/3519entries, archive3178137569B, оба restore110SQLite/263DOCX;
+manifest66b2ec2b0b81ebf0410d45d518dc88eba437977309d1b6661dff78048acd5983;
+trialproofdca0632fff74f5eb275338c6bb5acb516482eb48d696f67a7545fcc660e7c756.
+Observer38949805075/job117138033869 SUCCESS:647e16e4 start19:26:50.407763UTC
+и6657e1cc start19:46:28.001295UTC, double host FLOCK/interval≥900с; context/
+snapshot/3Word PASS после каждого19:31:49/19:50:06UTC, sealed1638 неизменны.
+Второй finish19:49:40.395605UTC VERIFIED_WITH_WARNINGS. History8v2/1absent/
+0invalid, current selected200/PASS19:51:02UTC. Metadata38958075523 независимо
+подтвердила sourcebfd/попытки/двойныеFLOCK/новыйcheckpoint. Все4running, APIhealthy,
+State.OOMKilled=false/restarts0; free15149236224B в19:52, не будущая гарантия.
+API/worker image d2f366681cceb21233202cf45165c1fc2049fc2c4d4b1ba62b3e996fd8d7ae14;
+web328a705690451e82804adbd13b82164c564c304968c6e05a7201edf727c35e5a.
+Это новая приёмкаbfd; результаты192 не переносились.
+
+Exactbfd CI38948625747 attempt2 SUCCESS: повторён только failed live job после
+установки, sourcejobs сохранили свои прежние успешные проверки. Shared740/
+core1872+1skip/server1020/web2303, Python1127/5deselected; compiled Header
+Chromium9PASS25.012s/GTK9PASS174.848s. Attempt1 journal FETCH/TIMEOUT15с
+старой192 сохранён. Новый live job117155729435:4Header PASS,425metricnodes/
+0contradictions/77recovered annual nodes,4.6MB report/selected consumer PASS;
+отдельный current-signals diagnostic UNAVAILABLE не подтверждает эти адреса.
+
+Probe38954905888:4Header в штатном15с PASS; повторные journal HTTP200/13937B
+за2.714/3.285с. Из startup-лога первое более раннее journal чтение закрытой
+установочной приёмки4.617с: внешние измерения не называются cold-first/host-cold.
+Mobile/WebKit38955093647 PASS19:32:11UTC:13страниц, touch Header/periods/undo,
+3журналвкладки,3Word с исходными хешами,0pageerrors/0blocked; не физический Safari.
+Desktop38955068166 FAIL19:29:23UTC после13страниц/Header:word1 CHECKING на30с,
+при product35с и отсутствии selected-status response. Отказ сохранён;
+transport-instrumented full repeat38956025769 PASS19:37:24UTC без сменыdeadline.
+Трасса:раннийselectedGETfailed, следующийcompleted200/19587ms. Это не fix
+первого отказа и не доказательство причины; стоимость selected-read открыта.
+
+**Предыдущий принятый `19289667`: release38927016449 SUCCESS, независимые restore
 с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
 public health16:25:58UTC PASS.** Observer38930502207 SUCCESS16:49:26UTC:
 новые36d28700(start16:26:45Z) иd396cb45(start16:45:22Z), double host FLOCK,
@@ -51,7 +89,10 @@ historical_replay_verified=false (неизменный старый literal#REF!
 и deploy tree e3f1dac2a5bccd857e84ca31eba09f1909a7e3e0 идентичны installed192,
 a7 и b13; проверка компонента не заменяет приёмку нового полного кандидата.
 Точный frozen input hash не выводился в итоговой сводке qualification —
-не приписывать ей отсутствующие digest. B13 native38945039201 ещё выполняется.
+не приписывать ей отсутствующие digest. B13 native38945039201 SUCCESS18:37:50:
+current replay/audit/twoDOCX/projection PASS, qualified old#REF!, worker NOT_RUN.
+Bfd engine/deploy/rehearsal workflow идентичны b13. Повтор38948625759 отменён
+до frozen-replay: CANCELLED, не PASS. Новая полная приёмка не отменяется.
 
 Старый frozen63338938876490 отказал17:45:20 на одном чтении RUNNING ff0236ce,
 хотя replay/audit/qualified weekly уже завершились. Независимый readback
@@ -78,6 +119,31 @@ run38941504634: schema/diagnostics/frozen PASS; границы бюджета у
 Это доказанный дефект владения операцией, не единственное объяснение latency.
 Memory census38941388269 сохранил worker peak2415919104B (точно cap); это
 не доказательство отсутствия child OOM по одному State.OOMKilled=false.
+
+Отдельный provenance vertical3ffe9d46+6b1c5dde+529d43f6 сохранён в рабочей ветке
+codex/provenance-witnesses-20261016, в этот выпуск не включён. Свидетельства
+сохраняют originalbook/logrow/readAt/author/knownflags, confirmed subtotal
+отделён от недоказанной кратности. Root review воспроизвёл same-author100→90
+в разных logrows: full10 ошибочен, теперь incomplete с сохранением100/90.
+Финальные gates shared740/core1887+1skip/server1026/web2310,4tsc/lint/build PASS;
+источники в UI подписаны временем чтения по Камчатке, полный адрес сохранён.
+Реальные click/tap/Tab двух original-book ссылок проверены в Chromium1280/390:
+24/32px targets, без перекрытия и внешних запросов. Первичный full-web прогон
+при параллельных build/tsc упал на WorkloadSection5с; затем весь web отдельно
+2310PASS88.87s. Первый отказ сохранён, exact-head CI после интеграции обязателен.
+Интеграция:20ed96c4(provenance),933c1fed(native reader),6f670834(оснастка).
+Во время observer HEADbfd сохранялся; затем normalcommit/hook PASS. Полный
+root gate shared740/core1887+1skip/server1026/web2310/4tsc/lint/build PASS
+(полный web79.86s), это не live acceptance и не официальная AD-экономия.
+В том же следующем кандидате native reader22a1e099: same-payload hash обходы
+2→1 внутри одного GET, оба selectors и отрицательные проверки сохранены.
+Полный Python1139PASS273.21s, независимый rootreader22PASS; Python tree
+f688124879d4f061c30e6bea49bfd9edf7aaea33 совпадает. Два modelparse остаются;
+production ускорение пока не доказано. Новый probe выводит только3booleans
+exact/fallback/same_release, privacy3testsPASS. Observerbfd завершён; изменения сохранены в интеграционных коммитах,
+новый source ещё не установлен.
+Далее exact-head CI/native comparison и отдельный контролируемый выпуск;
+все общие обязательства журнала/решений/KPI остаются видимыми.
 
 #69 содержит все56 результатов без условных процентов. Уточнены192 install/
 restore/worker/browser; общие решения/KPI/provenance, весь mobile и остальные

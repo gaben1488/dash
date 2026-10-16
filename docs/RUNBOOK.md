@@ -17,7 +17,27 @@ Expected endpoints:
 
 ## Verification
 
-На16.10.2026,18:37UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+На16.10.2026,19:54UTC установленbfd625fc: release38949403808 SUCCESS,
+checkpoint20979114829B/3519entries, archive3178137569B; два независимых полных
+restore110SQLite/263DOCX, API/3Word19:25:51UTC/publichealth/resume PASS.
+Keeper:/home/aemr/.dash-private-backups/worker-38949403808/backup;
+manifest66b2ec2b0b81ebf0410d45d518dc88eba437977309d1b6661dff78048acd5983;
+trialproofdca0632fff74f5eb275338c6bb5acb516482eb48d696f67a7545fcc660e7c756.
+Observer38949805075 SUCCESS:647e16e4(start19:26:50Z)/6657e1cc(start19:46:28Z),
+doublehostFLOCK/interval≥900с; context/snapshot/3Word после каждого PASS,
+sealed1638unchanged. History8v2/1absent/0invalid/currentselected200PASS.
+Metadata38958075523 подтвердила sourcebfd, оба receipts/attribution иcheckpoint;
+all4running/APIhealthy/restarts0/State.OOMKilledfalse, free15149236224B19:52UTC.
+API/worker image d2f366681cceb21233202cf45165c1fc2049fc2c4d4b1ba62b3e996fd8d7ae14;
+web328a705690451e82804adbd13b82164c564c304968c6e05a7201edf727c35e5a.
+CI38948625747 attempt2 SUCCESS: только oldfailedlivejob повторён после установки.
+Desktop full38956025769 иMobile38955093647 PASS13страниц/Header/3journal/3Word;
+раннийdesktop38955068166 FAILWordCHECKING30с сохранён. Instrumented selectedGET
+19587ms — открытая стоимость, nextreaderfix ещё не установлен. Первый journal
+изstartup-лога4.617с, внешние повторные2.714/3.285с; это не host-cold benchmark.
+
+История предыдущего выпуска (его checkpoint не подставлять вместо текущего):
+Предыдущий принятый выпуск `19289667` (PR #79): release38927016449 SUCCESS,
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
 health16:25:58UTC PASS. Observer38930502207 SUCCESS16:49:26UTC: два новых
 36d28700/d396cb45, RUNNING/double host FLOCK, interval≥900s, context/snapshot/
@@ -38,7 +58,8 @@ headless. Это замена нестабильного renderer оснастк
 Bounded native38941504634 SUCCESS: current build/audit/twoDOCX/projection PASS;
 weekly ready=true, historical_replay_verified=false: неизменный старый #REF!
 не исправлен. 1.5GiB RAM/1.75GiB total/1CPU/128PIDs хватило этому входу.
-B13 native38945039201 ещё выполняется. Не переносить component proof на
+B13 native38945039201 SUCCESS18:37:50, worker explicitNOT_RUN. Bfd tree/workflow
+идентичны; повтор38948625759 отменён до frozen, не PASS. Не переносить component proof на
 новые входы/правила без точной привязки; итог weekly не содержит input digests.
 Frozen633 single worker poll FAIL оказался чтением RUNNING ff0236ce,
 завершившегося успешно17:49:05UTC (readback38944127527). Replay больше не
