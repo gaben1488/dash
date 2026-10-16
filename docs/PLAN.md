@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 17:10 UTC
+### Текущий выпуск — 16.10.2026, 17:34 UTC
 
 **Установлен `19289667`: release38927016449 SUCCESS, независимые restore
 с кандидатом/прежним приложением PASS, exact-SHA API/три Word16:25:57UTC и
@@ -28,18 +28,41 @@ manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Оба restore110SQLite/263DOCX. Keeper:/home/aemr/.dash-private-backups/worker-38927016449/backup.
 Free16714596352B/MemAvailable2588721152B — отдельный замер16:50, не гарантия будущего места.
 
-Remote кандидат84181464 уже включаетd158/c4f19 и проверочную оснастку.
-CI38935153858: report-engine/runtime и production image PASS; source job FAIL
-на первом выборе палитры QA в WebKit, live job FAIL на journal READ_UNAVAILABLE.
-Остальные три Header endpoints,425metricnodes и полный report schema PASS.
-Runtime capture38935153702 PASS, frozen38935153610 ещё идёт.
-**Этот новый кандидат не установлен и не принят доказательствами192.**
-Локальный WebKit воспроизведён: стабильный rect/loaded fonts не доказывают
-первые RAF. Оснастка отдельно ждёт fonts + два rendered frames не более5с,
-не меняя click/tap5с и assertions. Полные Chromium8/WebKit8 PASS. Это startup
-оснастки, не исправление production. Нативная read-only диагностика журнала
-различает timeout/transport/JSON и длительность без текста ошибки/payload;
-сохранён прежний15с предел. Быстрый повтор не закрывает холодный отказ.
+Remote63370d1d включаетd158/c4f19 и проверочную оснастку, но не установлен.
+CI38938876407: report-engine/runtime и production image PASS; source job FAIL
+на первых RAF в WebKit; live job: все4Header FETCH/TIMEOUT15с, не JSON/schema.
+Fonts=true/frames0/heartbeat=true/visible=true/focused=true доказывают, что
+активация вкладки не устранила отказ renderer. Local PASS не закрывает CI.
+Bounded HTTP fixture с тем же compiled Header (только loopback/exact file,
+соседние пути404) проверяется как транспорт настоящего preview. Original
+file period test сохранён; startup5с/click/tap5с и negative controls не ослаблены.
+Local Chromium9/WebKit9 PASS; runner HTTP-эксперимент ещё не выполнен.
+Frozen84138935153610 SUCCESS: current replay/independent audit/two rebuilt
+DOCX и159recommendations без потери подтверждённых связей; weekly — прежний
+квалифицированный отказ #REF!, не принятый архив. Frozen63338938876490 идёт.
+**Никакому новому кандидату доказательства192 не засчитываются.**
+
+Native classified38937411651: четыре FETCH/TIMEOUT15с; последующие journal
+5.430/3.697s, CPU5.010/3.615s, HTTP200/13937B. Native38938184833: consistent
+copy434122752B, installed192 selector двух candidates14383.390ms wall/
+2177ms CPU при0.5CPU; baseline23.34/22.61MB validation5372.202/4385.457ms.
+Warm empty-live comparison5607.087ms — не полный cold HTTP. Partial index
+отдельно доказал сохранение тех же ID/порядка (см. ниже), пока не production.
+
+Census38939051025 нашёл три concurrent same-image diagnostics без caps;
+rehearsal start17:17:31 оставался17:21 после отмены38937993041. В локальном
+3e0ccb4a существующий workflow ограничен RAM/CPU/PIDs и daemon-side timeout,
+контейнеры labelled run+job, cleanup трогает только свои; source-schema/replay
+последовательны, !cancelled() запрещает новую работу после отмены. Actual
+Bash cleanup сохраняет exit7/защищённый соседний путь;6tests/Ruff/actionlint
+и independent review PASS. Новый resource budget ещё требует native proof.
+Это доказанный дефект владения операцией, не утверждение, что он один
+объясняет каждый API timeout. Старый незавершённый replay не прерывается новым
+push; завершение/ограничение операций не должно становиться cancellation churn.
+
+#69 содержит все56 результатов без условных процентов. Уточнены192 install/
+restore/worker/browser; общие решения/KPI/provenance, весь mobile и остальные
+незавершённые обязательства остаются открыты.
 
 Расширенный iPhone/WebKit38932318516 PASS16:32:30UTC:13разделов touch,
 методы/деятельность/бюджеты/единицы/тема/поиск/popover, year/quarter/month/week,

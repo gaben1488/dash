@@ -17,7 +17,7 @@ Expected endpoints:
 
 ## Verification
 
-На16.10.2026,17:10UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
+На16.10.2026,17:34UTC установлен `19289667` (PR #79): release38927016449 SUCCESS,
 независимые restore с кандидатом/прежним runtime, exact-SHA API/три Word и public
 health16:25:58UTC PASS. Observer38930502207 SUCCESS16:49:26UTC: два новых
 36d28700/d396cb45, RUNNING/double host FLOCK, interval≥900s, context/snapshot/
@@ -28,14 +28,24 @@ Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/
 Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
 manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
-Следующий remote84181464 не установлен: CI38935153858 имеет source WebKit
-startup FAIL и live journal READ_UNAVAILABLE; report-engine/image PASS.
-Runtime capture38935153702 PASS, frozen38935153610 ещё идёт.
-Нельзя выпускать этот кандидат или засчитывать ему доказательства192.
-Native weekly index38935736313 PASS на согласованной копии:1096.623→0.312ms,
-те же15снимков/2кандидата, build1127.75ms; production index не создавался.
-Read-only диагностика журнала сохраняет15с gate и выводит лишь fixed stage/
-reason/elapsed, без сообщений исключений или source payload.
+Remote63370d1d не установлен: CI38938876407 source WebKit RAF0/5с FAIL и
+Header4 FETCH/TIMEOUT15с; report-engine/image PASS. Fonts/JS heartbeat/видимость/
+фокус исправны; bring_to_front не доказал исправление. HTTP fixture9tests
+local Chrome/WebKit PASS — ещё не runner acceptance. Frozen84138935153610
+SUCCESS; frozen63338938876490 ещё идёт. Нельзя выпускать failed candidate.
+Native weekly index38935736313: тот же selector1096.623→0.312ms, build1127.75ms,
+production index не создан. Native installed validation38938184833 отдельно:
+selector14383.390ms wall/2177ms CPU на0.5CPU;23MB baseline validation4–5s.
+Разные условия wall timing не превращать в общий cold HTTP benchmark.
+Census38939051025: после cancelled CI остался unbounded read-only replay.
+Локальный3e0ccb4a labels run+job/caps/internal timeout/cleanup/serial schema→replay
+проверен6tests; фактический native budget ещё не принят. При отмене CI не считать
+Docker автоматически завершённым. Удалять можно лишь собственные disposable
+контейнеры по точному label/ID и доказанной принадлежности; production не трогать.
+Старые unlabelled процессы не подводятся под новый cleanup по одному image ID.
+Read-only диагностика сохраняет15с gate и печатает fixed stage/reason/elapsed,
+без сообщений исключений/payload. Работающий192 не пересоздавался.
+
 Cold latency и вся продуктовая программа не закрыты этими результатами.
 iPhone/WebKit38932318516 PASS13touch-разделов/все периоды/reset/Undo/журнал/3Word;
 это эмуляция. Desktop38933155485 PASS16:37:55UTC на тех же сценариях.

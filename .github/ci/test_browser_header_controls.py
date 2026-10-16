@@ -2,9 +2,15 @@
 import asyncio
 import json
 import os
+import tempfile
 import unittest
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import live_browser_readback as verifier
 from playwright.async_api import async_playwright
@@ -15,8 +21,38 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
           'Федеральный бюджет', 'Краевой бюджет', 'Муниципальный бюджет']
 
 
-async def open_current_header(page, artifact):
-    await page.goto(artifact.as_uri())
+@contextmanager
+def header_fixture(artifact):
+    """Serve exactly the compiled synthetic Header, with no directory access."""
+    body = artifact.read_bytes()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != '/navigation-qa.html':
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}/navigation-qa.html'
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+async def open_current_header(page, url):
+    await page.goto(url)
     await page.bring_to_front()
     # WebKit's pointer stability check needs rendered frames. Treat initial
     # font/layout startup separately; keep the real action's 5s bound intact.
@@ -42,6 +78,20 @@ async def open_current_header(page, artifact):
 
 
 class FailureEvidenceTests(unittest.TestCase):
+    def test_http_fixture_serves_only_the_compiled_synthetic_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / 'navigation-qa.html'
+            artifact.write_bytes(b'<p>synthetic Header</p>')
+            (root / 'private.txt').write_text('MUST_NOT_BE_SERVED')
+            with header_fixture(artifact) as url:
+                with urlopen(url, timeout=2) as response:
+                    self.assertEqual(response.read(), artifact.read_bytes())
+                for path in ('/', '/private.txt', '/navigation-qa.html?file=private.txt'):
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(url.removesuffix('/navigation-qa.html') + path, timeout=2)
+                    self.assertEqual(error.exception.code, 404)
+
     def test_failure_location_exposes_only_known_code_frame_without_private_message(self):
         def verify_header_controls():
             raise AssertionError('PRIVATE_PAGE_TEXT')
@@ -109,7 +159,7 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
             try:
                 _, options = verifier.browser_settings('iphone', driver.devices)
                 page = await browser.new_page(**options)
-                await open_current_header(page, artifact)
+                await page.goto(artifact.as_uri())
                 await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
                 proof = {}
                 await verifier.verify_header_periods(page, 'iphone', proof)
@@ -122,18 +172,19 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
         async with async_playwright() as driver:
             browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
             try:
-                for profile in ('desktop', 'iphone'):
-                    with self.subTest(profile=profile):
-                        _, options = verifier.browser_settings(profile, driver.devices)
-                        page = await browser.new_page(**options)
-                        try:
-                            await open_current_header(page, artifact)
-                            await verifier.activate(page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True), profile)
-                            proof = {}
-                            await verifier.verify_header_controls(page, profile, proof)
-                            self.assertEqual(proof['header_controls'], 'PASS')
-                        finally:
-                            await page.close()
+                with header_fixture(artifact) as url:
+                    for profile in ('desktop', 'iphone'):
+                        with self.subTest(profile=profile):
+                            _, options = verifier.browser_settings(profile, driver.devices)
+                            page = await browser.new_page(**options)
+                            try:
+                                await open_current_header(page, url)
+                                await verifier.activate(page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True), profile)
+                                proof = {}
+                                await verifier.verify_header_controls(page, profile, proof)
+                                self.assertEqual(proof['header_controls'], 'PASS')
+                            finally:
+                                await page.close()
             finally:
                 await browser.close()
 
