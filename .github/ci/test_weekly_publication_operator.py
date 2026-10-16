@@ -5,10 +5,12 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -41,6 +43,39 @@ class WeeklyOperatorTests(unittest.TestCase):
         ci = {'id':42,'head_sha':sha,'status':'completed','conclusion':'success','name':'CI',
               'head_repository':{'full_name':'gaben1488/dash'}}
         return plan,records,cycle,native,{'__init__.py':'f'*64},ci
+
+    def test_staging_job_only_delivers_and_smokes_public_code(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        match=re.search(r'^  weekly-stage:\n.*?(?=^  [a-z][-a-z]*:|\Z)',workflow,re.MULTILINE|re.DOTALL)
+        self.assertIsNotNone(match,'Missing isolated public-code staging job')
+        commands=match.group()
+        self.assertIn('timeout-minutes: 8',commands)
+        self.assertIn('github.actor == github.repository_owner',commands)
+        self.assertIn("inputs.mode == 'weekly-stage'",commands)
+        for forbidden in ('docker ', 'backup_reference', 'maintenance_lock_acquire', '--operation apply', '--operation finalize'):
+            self.assertNotIn(forbidden,commands)
+        for required in ('--only-binary=:all:','--no-cache-dir','--no-compile',
+                         'MemoryMax=256M','CPUQuota=40%','Nice=19','STAGED_CODE_ONLY_NOT_ADMITTED'):
+            self.assertIn(required,commands)
+
+    def test_staging_failed_ci_never_reaches_ssh_delivery(self):
+        workflow=(Path(__file__).parents[1]/'workflows/ci.yml').read_text()
+        job=re.search(r'^  weekly-stage:\n.*?(?=^  [a-z][-a-z]*:|\Z)',workflow,re.MULTILINE|re.DOTALL).group()
+        program=textwrap.dedent(job.split('        run: |\n',1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);binaries=root/'bin';binaries.mkdir()
+            for name,body in {'gh':'exit 2','git':'exit 0','ssh-keyscan':'echo synthetic-host',
+                              'ssh':'touch "$DELIVERY_SENTINEL"'}.items():
+                path=binaries/name;path.write_text('#!/bin/sh\n'+body+'\n');path.chmod(0o700)
+            marker=root/'delivery'
+            env={**os.environ,'PATH':str(binaries)+':'+os.environ['PATH'],'RUNNER_TEMP':str(root),
+                 'GITHUB_RUN_ID':'123','GITHUB_REPOSITORY':'gaben1488/dash','VPS_USER':'aemr',
+                 'VPS_KEY':'synthetic','GH_TOKEN':'synthetic','DELIVERY_SENTINEL':str(marker)}
+            result=subprocess.run(['/bin/bash','-s'],input=program,text=True,env=env,capture_output=True,
+                                  cwd=Path(__file__).parents[2],timeout=15,check=False)
+            self.assertNotEqual(result.returncode,0,'Failed exact source admission must abort staging')
+            self.assertFalse(marker.exists(),'Source CI failure reached remote delivery')
+            self.assertEqual(result.stdout.strip(),'WEEKLY_PUBLIC_CODE_STAGE_FAILED_SOURCE_CI')
 
     def test_exact_accepted_runtime_and_cycle_are_admitted(self):
         self.module.validate_context(*self.context(),backup_reference='worker-38831492016/backup')
