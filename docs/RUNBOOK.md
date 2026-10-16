@@ -28,6 +28,14 @@ Checkpoint20943366733B/3503entries, archive3176285073B; оба restore110SQLite/
 Keeper /home/aemr/.dash-private-backups/worker-38927016449/backup;
 manifest11706825c56574fef8d1e3af36f74a3d935dd8df66f582fe0ff6ccbd7276c4c2.
 Free16714596352B/MemAvailable2588721152B измерены16:50UTC.
+c5015936 CI38944104327: engine/image/live candidate API PASS, verify FAIL
+только на дополнительном preflight2RAF (frames0/1 после успешного bitmap).
+В том же WebKit run настоящий file calendar/reset/Undo PASS. Этот добавленный
+readiness-контракт убран: native bitmap5с уже ждёт fonts/paint, реальные5с
+click/tap продолжают проверять visible/enabled/stable/hit и все состояния.
+Independent actualWK desktop+touch counterfactual PASS38.3s; полные local
+Chromium9/WebKit9 PASS. Это не claim об исправлении WPE/production CSS.
+
 b6c1da52 CI38943716004 остановился ДО браузера: прежний regression lookup
 ожидал удалённый cycle block. Process-availability guard сохранён отдельно,
 его два отрицательных случая не удалены; добавлен healthy-process/NOT_RUN case.

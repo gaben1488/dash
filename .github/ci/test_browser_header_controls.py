@@ -1,6 +1,4 @@
 """Browser acceptance must detect inert controls using real pointer/touch input."""
-import asyncio
-import json
 import os
 import tempfile
 import unittest
@@ -58,27 +56,9 @@ async def open_current_header(page, url):
     # WPE's offscreen fixture can run JS timers while withholding paint/RAF;
     # a native snapshot requests that paint without force-clicks or reduced motion.
     await page.screenshot(timeout=5000, animations='allow')
-    # WebKit's pointer stability check needs rendered frames. Treat initial
-    # font/layout startup separately; keep the real action's 5s bound intact.
-    try:
-        await asyncio.wait_for(page.evaluate('''async () => {
-            window.qaRenderer = {fonts: false, frames: 0, heartbeat: false};
-            setTimeout(() => { window.qaRenderer.heartbeat = true; }, 0);
-            await document.fonts.ready;
-            window.qaRenderer.fonts = true;
-            await new Promise(resolve => requestAnimationFrame(() => {
-                window.qaRenderer.frames = 1;
-                requestAnimationFrame(() => { window.qaRenderer.frames = 2; resolve(); });
-            }));
-        }'''), timeout=5)
-    except TimeoutError:
-        # Fixed synthetic-renderer metadata only; never page text or error data.
-        state = await asyncio.wait_for(page.evaluate('''() => ({
-            ...window.qaRenderer, visible: document.visibilityState === 'visible',
-            focused: document.hasFocus(), fontStatus: document.fonts.status === 'loaded'
-        })'''), timeout=1)
-        print('HEADER_QA_RENDERER_TIMEOUT ' + json.dumps(state), flush=True)
-        raise
+    # Do not add a second readiness contract based on idle RAF delivery. Native
+    # screenshot already waits for fonts and paint; real click/tap below still
+    # require Playwright visibility, stability and hit testing within 5 seconds.
 
 
 class FailureEvidenceTests(unittest.TestCase):
