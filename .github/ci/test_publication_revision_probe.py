@@ -63,5 +63,16 @@ class RevisionProbeTests(unittest.TestCase):
         self.assertEqual(private[0]['release_ids'],self.reference['retire_release_ids'])
         self.assertEqual((state/'identity.sqlite').read_bytes(),before)
 
+    def test_backup_coverage_uses_exact_catalog_file_hashes_and_counts(self):
+        rid=self.reference['retire_release_ids'][0]
+        files={'dashboard.json':'a'*64,'identity.sqlite':'b'*64}
+        with sqlite3.connect(self.database) as db:db.execute('UPDATE publications SET files=? WHERE release_id=?',(json.dumps(files),rid))
+        manifest={'files':{f'reports/published/releases/{rid}/{name}':{'kind':'file','sha256':sha} for name,sha in files.items()}}
+        exact=self.module.backup_coverage_summary(self.database,self.reference,manifest)
+        self.assertEqual(exact,{'target_roots':1,'covered_roots':1,'missing_roots':0,'mismatched_roots':0,'catalog_hashes_only':True})
+        changed=json.loads(json.dumps(manifest));changed['files'][f'reports/published/releases/{rid}/identity.sqlite']['sha256']='c'*64
+        self.assertEqual(self.module.backup_coverage_summary(self.database,self.reference,changed)['mismatched_roots'],1)
+        self.assertEqual(self.module.backup_coverage_summary(self.database,self.reference,{'files':{}})['missing_roots'],1)
+
 
 if __name__=='__main__':unittest.main()

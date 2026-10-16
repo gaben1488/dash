@@ -74,6 +74,25 @@ def identity_gap_summary(state,reference):
             'missing_snapshots':sum(v['observations']==0 for v in private),'atomic':False},private
 
 
+def backup_coverage_summary(database,reference,manifest):
+    reference_ids(reference)
+    targets=reference['retire_release_ids'];covered=missing=mismatched=0
+    with closing(sqlite3.connect(Path(database).absolute().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+        db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+        for rid in targets:
+            row=db.execute('SELECT files FROM publications WHERE release_id=?',(rid,)).fetchone()
+            if row is None:raise ValueError('REFERENCE_ROWS_MISSING')
+            current=json.loads(row[0]);prefix='reports/published/releases/'+rid+'/'
+            saved={name[len(prefix):]:item['sha256'] for name,item in manifest['files'].items()
+                   if name.startswith(prefix) and item.get('kind') in (None,'file')}
+            if not saved:missing+=1
+            elif saved!=current:mismatched+=1
+            else:covered+=1
+    # Preliminary index comparison, not archive re-verification or live-file proof.
+    return {'target_roots':len(targets),'covered_roots':covered,'missing_roots':missing,
+            'mismatched_roots':mismatched,'catalog_hashes_only':True}
+
+
 if __name__=='__main__':
     import sys
     # The authenticated job prepends the actual reviewed function from exact
@@ -83,6 +102,10 @@ if __name__=='__main__':
     if sys.argv[1]=='identity':
         summary,private=identity_gap_summary('/app/packages/server/data/reports',reference)
         print(json.dumps({'identity_signature_gaps':summary,'private_signature_gaps':private},sort_keys=True))
+    elif sys.argv[1]=='coverage':
+        print(json.dumps({'backup_root_index_coverage':backup_coverage_summary(
+            '/app/packages/server/data/reports/published/publications.sqlite',reference,
+            json.loads(Path('/backup-manifest.json').read_bytes()))},sort_keys=True))
     else:
         print(json.dumps({'publication_revision_replay':revision_summary(
             '/app/packages/server/data/reports/published/publications.sqlite',reference,method)},sort_keys=True))

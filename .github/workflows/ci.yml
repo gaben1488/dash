@@ -171,14 +171,15 @@ jobs:
        github.event.head_commit.message == 'Inspect snapshot stages for accepted 43f10742' ||
        github.event.head_commit.message == 'Compare scoped retention for accepted 43f10742' ||
        github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' ||
-       github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742')
+       github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' ||
+       github.event.head_commit.message == 'Inspect backup root coverage for accepted 43f10742')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - name: Bind public diagnostic source
         env:
-          REVISION_PROBE: ${{ github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' || github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' }}
+          REVISION_PROBE: ${{ github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' || github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' || github.event.head_commit.message == 'Inspect backup root coverage for accepted 43f10742' }}
         run: |
           python - <<'PY'
           import ast,base64,hashlib,os,subprocess
@@ -217,10 +218,10 @@ jobs:
             assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
-            mode='${{ github.event.head_commit.message == 'Inspect weekly formula closure for accepted 43f10742' && 'weekly' || github.event.head_commit.message == 'Inspect snapshot stages for accepted 43f10742' && 'snapshot' || github.event.head_commit.message == 'Compare scoped retention for accepted 43f10742' && 'retention' || github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' && 'revision' || github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' && 'identity' || 'f20d108be83441189c665b5eca3fe7e1' }}'
-            assert mode in {'weekly','snapshot','retention','revision','identity','f20d108be83441189c665b5eca3fe7e1'}
+            mode='${{ github.event.head_commit.message == 'Inspect weekly formula closure for accepted 43f10742' && 'weekly' || github.event.head_commit.message == 'Inspect snapshot stages for accepted 43f10742' && 'snapshot' || github.event.head_commit.message == 'Compare scoped retention for accepted 43f10742' && 'retention' || github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' && 'revision' || github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Inspect backup root coverage for accepted 43f10742' && 'coverage' || 'f20d108be83441189c665b5eca3fe7e1' }}'
+            assert mode in {'weekly','snapshot','retention','revision','identity','coverage','f20d108be83441189c665b5eca3fe7e1'}
             command=['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout']
-            if mode in {'weekly','snapshot','retention','revision','identity'}:
+            if mode in {'weekly','snapshot','retention','revision','identity','coverage'}:
                 mounts=[m for m in record['Mounts'] if m['Type']=='volume' and m['Destination']=='/app/packages/server/data']
                 assert len(mounts)==1 and re.fullmatch('[A-Za-z0-9_.-]+',mounts[0]['Name'])
                 # Full frozen dependency validation is isolated from the live
@@ -229,7 +230,7 @@ jobs:
                     '--memory-swap','768m','--cpus','0.5','--pids-limit','64','--user','1000:1000',
                     '--mount','type=volume,src='+mounts[0]['Name']+',dst=/app/packages/server/data,readonly',
                     '--entrypoint','/usr/bin/timeout',record['Image']]
-                if mode in {'revision','identity'}:
+                if mode in {'revision','identity','coverage'}:
                     reference=Path('/root/codex-fixes/weekly-38881380220/retention-plan-38884224354.json')
                     info=reference.lstat()
                     assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=1024*1024
@@ -240,6 +241,13 @@ jobs:
                     private.write_text(json.dumps({k:original[k] for k in ('keep_release_ids','retire_release_ids','catalog_revision')}))
                     private.chmod(0o400);os.chown(private,1000,1000)
                     command[-1:-1]=['--mount','type=bind,src='+str(private)+',dst=/reference.json,readonly']
+                    if mode=='coverage':
+                        saved=Path('/home/aemr/.dash-private-backups/worker-38831492016/backup/manifest.json')
+                        assert not any(p.is_symlink() for p in (saved,*saved.parents))
+                        info=saved.stat();assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=16*1024*1024
+                        raw=saved.read_bytes();assert hashlib.sha256(raw).hexdigest()=='4e6cdf147150e362425973f9c831763d429c64f5b677cfe0b2c5dc6ce2767588'
+                        copy=root/'backup-manifest.json';copy.write_bytes(raw);copy.chmod(0o400);os.chown(copy,1000,1000)
+                        command[-1:-1]=['--mount','type=bind,src='+str(copy)+',dst=/backup-manifest.json,readonly']
             result=subprocess.run([*command,'-k','5s','175s','/opt/report-env/bin/python','-IB','-',mode],input=body,capture_output=True,timeout=190,check=False)
             assert len(result.stdout)<=32768
             # The trusted script emits only fixed keys, booleans, counts and coordinates.
