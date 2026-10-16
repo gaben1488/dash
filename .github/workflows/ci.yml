@@ -1239,7 +1239,8 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa') ||
-       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release 83b813ab metadata' ||
+        github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -1247,9 +1248,10 @@ jobs:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
+          RELEASE_ONLY: ${{ github.event.head_commit.message == 'Inspect accepted release 83b813ab metadata' && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
-          envs: WEEKLY_ONLY
+          envs: WEEKLY_ONLY,RELEASE_ONLY
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1257,7 +1259,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_ONLY python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -1723,6 +1725,12 @@ jobs:
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
             def main():
+             if os.environ.get('RELEASE_ONLY')=='yes':
+              worker_operational_metadata()
+              checkpoint_metadata()
+              recovery_preflight()
+              print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
+              return
              if weekly_only=='yes':
               import shutil
               weekly_operator_metadata()
