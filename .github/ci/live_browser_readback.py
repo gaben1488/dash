@@ -72,6 +72,9 @@ async def run():
                     await route.continue_()
 
             await context.route('http*://**', readonly)
+            proof['stage'] = 'authenticated_edge'
+            basic_response = await context.request.get(BASE, max_redirects=0, timeout=30000)
+            proof['basic_http_status'] = basic_response.status
             page = await context.new_page()
             errors = []
             word_requests = []
