@@ -411,7 +411,11 @@ reviewed `recover`. Таймеров, конфигурации и чужого r
 
 `finalize` — отдельная операция после независимого readback всех сохранённых
 Word/dashboard и protected replay roots. Требуется отдельный reviewed аргумент
-`--finalize-review "$REVIEWED_SHA:$PLAN_REVISION"`; apply/watchdog его не вызывают.
+`--finalize-review "$REVIEWED_SHA:$PLAN_REVISION:$ENTRIES_SHA256:$MARKER_SHA256"`;
+оба хеша берутся из независимого readback и повторно проверяются под native locks.
+Apply/watchdog не вызывают finalize. При прерванном удалении повторный finalize
+принимает тот же proof только для штатного перехода journal в `finalizing`;
+изменившийся состав entries, marker или сохранённые файлы блокируют продолжение.
 Без внешнего допуска, совместимого установленного runtime и независимого readback
 эта команда не является разрешением на live очистку.
 

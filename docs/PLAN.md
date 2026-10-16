@@ -5,72 +5,101 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 12:30 UTC
+### Текущий выпуск — 16.10.2026, 14:18 UTC
 
-Установлен `43f10742`; прикладной кандидат `268f9e5a` ещё не установлен.
-R08/два автономных цикла/context/snapshot/3Word/history98 из38860353565 и
-backup/два независимых restore38831492016 остаются принятыми только для43.
-Новая история/инструмент не превращают их в приёмку другого приложения.
+**Установлен `83b813ab`. Эксплуатационная приёмка этой версии завершена.**
+Это не закрывает весь реестр 56 результатов.
 
-CI38895292149: три exact-SHA source/native jobs SUCCESS, общий FAILURE из-за
-GET установленного43. Source qualification использует прежний canonical helper,
-сохраняет общий conclusion и привязывает jobs к run/SHA/repository. Она разрешает
-только источник инструмента; не приложение/UI и не удаление данных.
-Все1105engine наb6, затем86store/13CLI/3canonical на268 PASS; следующий exact
-CI также прошёл engine/TS/lint/tests/build/audit/image. Новый tool staged
-38895891036 SUCCESS11:46:30, source268, isolated venv, immutable source hashes.
-Ровно74 native43 modules,7reviewed differences и неизменный root-pinned CI
-helper проверены; reader behavior проверен на настоящем установленном43.
+- [Выпуск38905551150](https://github.com/gaben1488/dash/actions/runs/38905551150):
+  свежий checkpoint 21 244 275 001 B, архив 3 222 981 097 B; два независимых
+  restore с новым/предыдущим приложением, 111 SQLite и 266 DOCX в каждом.
+  Exact-SHA API/Word и public health PASS в13:43UTC.
+- [Observer38906488066](https://github.com/gaben1488/dash/actions/runs/38906488066)
+  SUCCESS14:07:36UTC: fe8f4e61 13:43:56–13:47:35; 8a1cf915
+  14:03:04–14:06:20UTC. Оба VERIFIED_WITH_WARNINGS, RUNNING/double host FLOCK,
+  context/snapshot/три Word после каждого. Интервал929,661с≥900; noOOM/noRestart.
+  1638 sealed entries неизменны. Исторические модели:8v2/1absent/0invalid,
+  current selected HTTP200/PASS; полный retained readback99dashboard/249Word
+  подтверждён отдельно. Metadata38913742654 независимо связала оба attempt.
+- Desktop38910751084 и iPhone/WebKit touch38911238949 PASS:13разделов,
+  три вкладки журнала и три Word. iPhone также: единицы, способ, деятельность,
+  бюджеты, тема, поиск, popover. **Не вся U01–U07:** права, сохранение решений,
+  сложные таблицы и все периоды требуют отдельной приёмки. Календарь/Undo
+  прошли actual Header на Chromium touch; production WebKit проверяется отдельно.
+- Storage:99выпусков/249Word/99dashboard сохранены,92уплотнены,7защищены.
+  Pre38903432153/finalize38904202760/post38905123990 PASS; освобождено
+  **12 001 247 232 B физических блоков**. Regular retention не включена.
+  Последний free≈18 210 623 488 B — не освобождённый объём.
+- Cold dashboard по startup-log38912109192:18 797,838мс с pipeline/save;
+  повтор3795,376мс. Ordinary GET38911784923:3,834/3,561с,12 298 373B.
+  Timeout не увеличен; скорость ещё улучшать. Warm не выдаётся за cold.
 
-Законченный identity-участок: copy-only38889251691, live CAS38891326813
-SUCCESS11:04:29UTC, independent native38891473586 SUCCESS11:05:42UTC:
+**Следующий законченный участок — C06/K01/K02/U06:** сохранение решения
+сотрудника → повторное чтение → единые статусы/объяснение KPI/история,
+с проверкой оставшихся мобильных действий. Writer-fix `a80ae142` уже в коде:
+identical retry200/replayed без новой истории, changed5fields/nohistory409,
+blankreason400. Targeted14/full server1004/shared736/core1869(+1skip)/web2297,
+lint0errors/303warnings и tsc PASS; independent review PASS. **Не установлен.**
+`43b1ac8e` переносит actual-browser transport/touch guards в обычный source CI;
+это проверочная инфраструктура, не новая установка UI. Exact CI новой точки
+обязателен. Приёмку83/backup/restore/storage без новой причины не повторять.
+Все56, employee cases/KPI/productjournal, K07–K10, Apps Script/Figma и
+архитектурные вертикали сохраняют свои незавершённые обязательства ниже.
+
+<details>
+<summary>Доказательства принятого обслуживания хранения и устранённых препятствий</summary>
+
+Identity-участок завершён: copy-only38889251691, live CAS38891326813
+SUCCESS11:04:29UTC, independent38891473586 SUCCESS11:05:42UTC:
 95snapshots/0missing. Восстановлены8126derived observations/16252NULL fields;
-UID/raw/history/frozen results не менялись. Первый38890817567 отказал на
-занятом run.lock ДО DB write; bounded idle wait исправлен. Не повторять repair.
+UID/raw/history/frozen results не менялись. Первый38890817567 отказал
+на занятом run.lock ДО DB write; bounded idle wait исправлен. Не повторять.
 
-Readonly preflight38896058189 SUCCESS11:54:40:99publications/keep7/retire92,
-28581079465B logical upper bound. Revision:
+Preflight38896058189 SUCCESS11:54:40:99publications/keep7/retire92,
+28581079465B logical upper bound, не освобождённое место. Revision:
 `a9b010a8710e97634231f0beeb0086b7cf5986997dc91a598c67bf1af423db03`.
-3unbacked roots защищены; все92target inventories совпали с trusted backup.
-Ранее index-only38891425973 установил92covered/3missing; preflight добавил
-свежую проверку настоящих bytes. NoOOM/errors; sampled child HWM395165696B,
-не заявлять этот sample полным MemoryPeak. После обычного выхода scratch удалён.
+Все92target inventories совпали с trusted backup;3unbacked roots защищены.
+Reversible apply38897987071: root900s timeout12:19:43, не PASS; native
+COMPACTED92/quarantine retained подтверждено38899973071. Recovery освободил
+EX до следующего checker. Apply не повторять; на обратимом этапе оригиналы сохранялись.
 
-Reversible apply38897987071: root900s timeout12:19:43UTC, не PASS. Native
-COMPACTED92/quarantine retained подтверждено independent38899973071 в12:21:57.
-Тогда оставался native recovery подEX, безOOM, marker readers_ready=true.
-Не повторять apply; дождаться завершения recovery и независимого readback.
-Небольшой marker/temporary SQLite journal вместо большого повторного JSON;
-immutable artifact hardlinks сохраняют физические blocks в quarantine до finalize.
-Current/previous/weekly/unbacked защищены. Исходные publications не удалялись;
-старый backup/rollback keeper сохраняется.23exact unused images уже освободили
-564068352B; последний до операции free11:01UTC6427480064B — не текущий остаток.
+Independent checker38901759065 остановился по внутреннему590s deadline.
+Он обнаружил избыточное повторное full-root hashing при каждом download view.
+Новый negative test показал24native view calls на8roots; исправление оставляет
+полный hash каждогоroot и6native view calls для protected/compact samples.
+Проверка всех остальных Word ZIP/dashboard и соответствия frozen originals
+сохраняется. Новый RO38903432153 SUCCESS12:54:38UTC:99roots/92compact/7protected,
+99dashboard/249Word и original_catalog_equivalent=true. Metadata38903934509
+подтвердил exit0/readers_ready=true; free12:55:19=4369240064B.
+35operator/readback tests/53subtests,Ruff/actionlint PASS на byte-identical43
+engine. Primary volume RO/network none; stable DB+WAL copy только на private
+host disk scratch, не в128MiB tmpfs. Timeout не увеличен.
 
-Independent retained-state checker связывает все download/dashboard/identity/
-ledger hashes и receipt/period с frozen originals, восстанавливает первоначальный
-catalog hash. Five consistent-tamper cases RED→GREEN;31operator/readback tests
-и31subtests PASS на byte-identical43 engine, independent review PASS. Тяжёлое
-чтение выполняется в отдельном bounded/network-none/RO-source container;
-DB+WAL копируются native stable barrier только на private disk scratch.
-Внутренний timeout ограничивает daemon child при потере SSH. Private proof
-сохраняет journal/marker hashes; перед finalize их надо повторно связать под
-root EX/native gates. Finalize ещё не допущен и transport отсутствует. Выявлен и воспроизведён
-CLI blocker resume после частичного удаления quarantine: finalizing recovery
-требовал полный original inventory. Новый узкий gate проверяет каждый
-оставшийся объект против trusted backup, отсутствие допускает только после
-начала finalize; rollback/precommit сохраняют equality. Отдельный finalize
-review теперь связывает source/plan/entries/marker и сверяется под native locks;
-повтор допускает только штатный переход readers_ready→finalizing. Legacy-v1
-embedded entry hash поддержан без SQL sidecar.109targeted tests/26subtests PASS;
-пять stale/interrupted/tamper сценариев и legacy/perf replay прошли.
-Полная модель больше не загружается ради периода: sealed manifest/dashboard
-дают те же поля, publisher ранее доказал parity. Новые изменения ещё не staged.
+Finalize83 — отдельная операция только после успешного независимого readback.
+Token связывает candidate/plan/entries/marker под native locks; stale journal,
+изменённый compact artifact/receipt и непроверенный source отвергаются.
+Partial-finalize resume проверяет каждый оставшийся original против trusted
+backup и допускает отсутствие только после durable finalizing. Legacy-v1
+embedded journal поддержан. Period берётся из уже проверенных manifest/dashboard,
+без полной model parse; protected original/replay/hashes не переписываются.
+Post-finalized checker сравнивает counts с успешным pre-proof: согласованное
+удаление Word/dashboard из каталога и файла теперь RED→GREEN. Успешный proof привязан к exact source/readback run; independent review PASS,
+явный finalize38904202760 SUCCESS13:03:50UTC:12001247232B физических
+exclusive blocks освобождено,28581079465B logical retired (не physical).
+Free4512882688→17356713984B включает также штатную очистку temporary scratch.
+Отдельный post-readback38905123990 SUCCESS13:06:42UTC:
+99roots/92compact/7protected,249Word/99dashboard сохранены. Приложение
+этой storage-операцией не менялось; регулярная retention ещё не включена.
+23unused images ранее освободили564068352B.
 
-Следующий конечный шаг: apply → independent native readback → reviewed finalize
-→ измерение реального freed space → controlled полный app release. Не объявлять
-верхнюю оценку физически освобождённым местом, а tool — приложением. Все56 и
-мобильная эквивалентность/жалобы/единое дело/KPI/продуктовый журнал остаются
-отдельными обязательствами ниже; завершение storage их не закрывает.
+Source qualification инструмента83: три exact source jobs38901265492 SUCCESS,
+общий CI FAILURE из-за тогда установленного43 сохранён. Python1107+5root PASS;
+TS/lint/tests/build/audit/image PASS. Tool83 staged38902081199 SUCCESS;
+74native43modules/7reviewed differences были допуском обслуживания43,
+а не разрешением мутаций нового83. Fresh restore/new application acceptance
+выполнены собственным release38905551150. Старые43 proofs остаются историческими.
+
+</details>
 
 ### Предыдущая точка — 16.10.2026, 10:19 UTC
 
@@ -293,8 +322,12 @@ Workflow/тесты закоммичены в 92d68a30, PLAN/архитекту�
 4. **R06/C08:** недельное сокращение избыточных публикаций существующим CLI:
    census/dry-run → обратимый apply → независимая проверка → явный finalize.
    До apply нужны принятые worker/потребители, reader fence/bootstrap и совместимый
-   откат. Host-stage остановился на отсутствии ensurepip у host Python 3.14;
-   данные этим шагом не менялись. Не покупать диск и не копировать данные на ПК.
+   откат. Отсутствие ensurepip обойдено изолированным venv/bootstrap без
+   системной установки. Identity CAS и fresh target-byte gate завершены;
+  92roots обратимо уплотнены, независимый native readback99roots/249Word
+   принят38903432153. Explicit finalize38904202760 SUCCESS:12001247232B
+   physical reclaimed; post-readback и регулярная политика пока не приняты. Не покупать
+   диск и не копировать данные на ПК.
 
 Эта приёмка не закрывает R07/1.5.0rc24, все 144 live-комбинации, весь UI,
 комментарии, редактор, Apps Script, PostgreSQL и самостоятельные O/G-контуры.
@@ -332,9 +365,10 @@ Workflow/тесты закоммичены в 92d68a30, PLAN/архитекту�
   карточки и возврат в контекст; это источник взаимодействий, не основание
   заменять согласованную «Зарю» чужим оформлением. Старые13страниц прошли
   клавиатурным обходом, узкий iPhone Report/журнал/3Word PASS38859871699.
-  Новый настоящий touch fixture в native WebKit прошёл38865650403, полный
-  production-проход остановился на dashboard_response40s до навигации.
-  Отдельный профиль двух обычных dashboard GET запускается38866738455;
+  Исторический touch38865650403 прошёл fixture и отказал на старом43
+  dashboard_response40s. Новый installed83 touch38911238949 прошёл13разделов,
+  линейку фильтров/единиц/темы/поиск/popover/журнал/3Word. Все периоды,
+  сохранение решений, права, сложные таблицы и Undo ещё не приняты;
   не повышать timeout и не выдавать тёплый ответ за доказательство cold path.
 - **U04/C04/C06 — Пульс 2.0.** Новое прямое поручение разрешает брать в работу
   прежний макет `docs/superpowers/mockups/pulse-2-0.html` и спутники концепции
