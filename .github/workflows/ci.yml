@@ -2047,6 +2047,66 @@ jobs:
             raise SystemExit(0 if result.returncode==0 else 2)
             PYREGISTRY
 
+  native-selection-profile:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Profile native selection for accepted bae73c20'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the bounded native status profiler
+        run: python3 .github/ci/test_native_selection_profile.py
+      - name: Bind reviewed probe source
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,os
+          from pathlib import Path
+          body=Path('.github/ci/native_selection_profile.py').read_bytes()
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('NATIVE_PROFILE='+base64.b64encode(body).decode()+'\n')
+              target.write('NATIVE_PROFILE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PY
+      - name: Read the sample from the exact installed candidate without source writes
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          NATIVE_PROFILE: ${{ env.NATIVE_PROFILE }}
+          NATIVE_PROFILE_SHA: ${{ env.NATIVE_PROFILE_SHA }}
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: NATIVE_PROFILE,NATIVE_PROFILE_SHA
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -euo pipefail
+            sudo -n --preserve-env=NATIVE_PROFILE,NATIVE_PROFILE_SHA python3 -IB - <<'PY'
+            import base64,hashlib,json,os,subprocess
+            record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
+            assert record['State']['Running'] and record['Name']=='/aemr-server-1'
+            assert record['State']['Health']['Status']=='healthy'
+            labels=record['Config']['Labels']
+            assert labels['com.docker.compose.project']=='aemr' and labels['com.docker.compose.service']=='server'
+            image=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
+            assert image['Config']['Labels']['org.opencontainers.image.revision']=='bae73c20c94b866540e61e63e9d764e41b3ff8a6'
+            body=base64.b64decode(os.environ['NATIVE_PROFILE'],validate=True)
+            assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['NATIVE_PROFILE_SHA']
+            # One native read; no HTTP timing or context discovery. The existing reader lock is retained.
+            result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],
+                'timeout','-k','5s','45s','/opt/report-env/bin/python','-IB','-',
+                '--report-date','2026-10-17','--report-year','2026','--quarter','4'],
+                input=body,capture_output=True,timeout=55,check=False)
+            assert result.returncode in (0,2) and not result.stderr and len(result.stdout)<=4096
+            value=json.loads(result.stdout)
+            assert value.get('state') in {'NATIVE_SELECTION_PROFILE_PASS','NATIVE_SELECTION_PROFILE_FAILED'}
+            assert value.get('scope')=='NATIVE_SINGLE_READ' and value.get('timings_inclusive_non_additive') is True
+            print(json.dumps(value,sort_keys=True),flush=True)
+            raise SystemExit(result.returncode)
+            PY
+
   provenance-readback:
     if: >-
       github.actor == github.repository_owner &&
