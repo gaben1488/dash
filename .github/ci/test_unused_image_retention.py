@@ -40,7 +40,7 @@ class ImageRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             self.module.STATE=Path(temporary)
             (self.module.STATE/'pending-release.json').symlink_to('missing')
-            (self.module.STATE/'release-marker.json').write_text('{}')
+            (self.module.STATE/'release-accepted.json').write_text('{}')
             self.module.owned=lambda path:(_ for _ in ()).throw(AssertionError('custody marker bypassed'))
             with self.assertRaises(ValueError):self.module.observe()
 

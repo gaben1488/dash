@@ -93,6 +93,10 @@ def owned(path):
     require(not any(parent.is_symlink() for parent in (path, *path.parents)))
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as stream:
         info = os.fstat(stream.fileno())
+        if not (stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 4 * 1024**2):
+            print(json.dumps({'status': 'IMAGE_REFERENCE_METADATA_REJECTED', 'uid': info.st_uid,
+                'mode': stat.S_IMODE(info.st_mode), 'links': info.st_nlink, 'bytes': info.st_size}))
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
                 and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 4 * 1024**2)
         return stream.read(4 * 1024**2 + 1)
@@ -107,8 +111,14 @@ def observe():
     PHASE = 'REFERENCE_FILES'
     require(not any(os.path.lexists(STATE / name) for name in ('pending-release.json', 'release-recovery-progress.json')))
     require(not list(BACKUPS.glob('*/quiescent')))
-    paths = sorted(set((STATE / 'release-runtime').rglob('*.json'))
-        | set(STATE.glob('release-*.json')) | set((STATE / 'worker-quarantine').glob('*.json'))
+    # Enumerate the actual image-bearing custody documents, not arbitrary
+    # payload/evidence JSON under the operational tree.
+    fixed = [STATE / name for name in ('release-runtime/trial-plan.json', 'release-runtime/stage.json',
+        'release-runtime/compose.json', 'release-runtime/candidate-compose.json',
+        'release-runtime/candidate-resume/compose.json', 'release-runtime/recovery/compose.json',
+        'release-accepted.json', 'release-recovered.json', 'worker-quarantine/quarantine.json',
+        'worker-quarantine/rollback-lineage.json')]
+    paths = sorted({path for path in fixed if os.path.lexists(path)}
         | set(BACKUPS.glob('*/runtime.json')) | set(BACKUPS.glob('*/release-window.json'))
         | set(BACKUPS.glob('*/plan-prepared.json')))
     require(0 < len(paths) <= 256)
