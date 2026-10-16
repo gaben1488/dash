@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SHA = '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
-TOOL_SHA = '268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
+TOOL_SHA = '83b813ab250b4533d1b80ba9e306afaa8bc5f383'
 # Exact reviewed maintenance changes; actual43 hashes remain independently pinned.
 TOOL_DIFFERENCES = {'packages/report-engine/src/procurement_engine/'+name for name in (
     'deployment_diagnostics.py','publication_reader.py','readonly_catalog.py',

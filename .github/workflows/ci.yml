@@ -317,7 +317,7 @@ jobs:
           cat > "$private/stage.sh" <<'SHSTAGE'
           set -euo pipefail
           private=$1
-            candidate=268f9e5a15fe5345c04b69c8163ae7ac3fe55801
+            candidate=83b813ab250b4533d1b80ba9e306afaa8bc5f383
             [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
             [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
             root="/root/codex-fixes/weekly-$GITHUB_RUN_ID"
@@ -402,7 +402,7 @@ jobs:
           from pathlib import Path
           root=Path(sys.argv[1]);source=root/'source'
           expected=json.loads((root/'source-hashes.json').read_text())
-          assert expected['candidate']=='268f9e5a15fe5345c04b69c8163ae7ac3fe55801'
+          assert expected['candidate']=='83b813ab250b4533d1b80ba9e306afaa8bc5f383'
           def hashes(package):
               assert package.is_dir() and not package.is_symlink()
               assert not any(p.is_symlink() for p in package.rglob('*'))
