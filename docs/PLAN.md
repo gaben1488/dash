@@ -5,7 +5,64 @@
 
 ---
 
-### Текущий выпуск — 16.10.2026, 23:40 UTC
+### Текущий выпуск — 17.10.2026, 01:44 UTC
+
+Установлен `d40222eac54d7cf9df13b04c5cbb32925c0e1115`,
+[release38982892729](https://github.com/gaben1488/dash/actions/runs/38982892729)
+SUCCESS. Fresh checkpoint21 019 285 305 B/3545entries, архив3 181 287 126 B;
+manifest `a41e37740b9afbe3dea8458cf3bb61c3383a75aaca149090a7caa70185b773bd`,
+trial `995bde944ba8e9cee468dc55bc71e4b79a417549d72cef0b8d029183ebb6cac0`.
+Два восстановления нового/предыдущего runtime: каждый110SQLite/263DOCX.
+API/три Word PASS00:19:25, public health00:19:26, resume/cleanup PASS.
+Фаза восстановления23:59:29–00:17:29 не равна точно измеренному downtime.
+
+[Worker38984598658](https://github.com/gaben1488/dash/actions/runs/38984598658)
+SUCCESS: `eb539acdf92344b29b2b75988252368f` (00:20:04–00:22:45 UTC) и
+`3f5e35d6d5014b0fb1a38eed00c349f4` (00:38:06–00:40:03 UTC), оба
+VERIFIED_WITH_WARNINGS/RUNNING/double host FLOCK, интервал после finish≥900сек.
+Native context/snapshot/3Word после каждого PASS00:22:57/00:40:14;
+два assurance reference roundtrip PASS,1638sealed неизменны, history0invalid.
+[Metadata38987627897](https://github.com/gaben1488/dash/actions/runs/38987627897)
+подтвердил source/checkpoint/атрибуции. Реальное вооружение00:04:08.993964,
+StartedAt нового worker00:19:17.844729, cutoff равен максимуму этих времён;
+первый новый цикл учтён без ретродатирования и ожидания третьего.
+Новые retained status по4083logical/4096allocated B, полное global evidence
+сохранено. Прежние attempt payload не удалялись. Superseded b96 backup archive
+3 181 420 526 logical B штатно удалён только после двух restore нового a41
+checkpoint; физическое освобождение отдельно не измерялось.
+
+API/worker image084554aaf05ab541bb95cc9ff756246d9ba4c454061945e419dcbe39c2a658e6,
+webc43753ecb016803d3457f1b67d31410f7da1ca9b2e403ddebc01f8cee2168683;
+all4running/APIhealthy/OOM=false/restarts0 в00:42:59. Free10 827 923 456 B —
+замер, не гарантия. Публичный health дополнительноHTTP200/status=ok в01:34.
+
+[Desktop38985868522](https://github.com/gaben1488/dash/actions/runs/38985868522)
+PASS13разделов/Header/периоды/Undo/3journal/3Word. Все четыре эксплуатационных
+показателя действующего компонента, включая время отказа в Камчатке, совпали
+с тем же GET; DOCX совпали с native hashes. Source CI38982653307 и native
+38982653315 PASS в своей области; исторический#REF! остаётся непринятым.
+
+Мобильный выпуск не принят. WebKit38985894006 отказал на touch navigation;
+GTK38986826991 прошёл дальше, а focused38987785810 воспроизвёл потерю Undo:
+перед кликом прошло6410,7ms, кнопка исчезала/истекала после6000ms. Ни deadline
+клика, ни assertion не ослаблены. Локальный RED воспроизвёл этот отказ.
+Текущий UI-fix убирает срок у отмены **локального представления**, добавляет
+явное закрытие касанием и сохраняет проверку страницы/всех RESET_FIELDS прямо
+при клике. Новые данные/отбор не перезаписываются. Три red cases→33component
+PASS. Полный локальный TS743/1887+1skip/1028/2320, четыре tsc,
+lint0errors/303existing warnings и webbuild PASS. Actual compiled Header в
+Chromium прошёл11browser tests, включая реальную паузу6,5сек. Viewport320 test
+отдельно воспроизвёл выход close-кнопки вправо до368,4375px при длинном поиске.
+Перенос текста внутри прежнего `.fi-undo` вернул обе кнопки в viewport;
+рамка, палитры и анимации Header не менялись. WebKit и установленный следующий
+кандидат ещё не проверены.
+Это объяснённое изменение UX-контракта: прежние проверки шестисекундного
+истечения заменены проверками задержки, явного закрытия и защит от новых правок.
+Исправление пока не установлено; ближайший кандидат ограничен этим дефектом.
+Общий вход/официальная экономия на одном input, весь журнал/решения/сигналы/KPI,
+cold и полная мобильная эквивалентность остаются в прежних56обязательствах.
+
+### История принятого b96 — 16.10.2026, 23:40 UTC
 
 Установлен `b96e169d024bd0da218288506b678a3adc27bd58`;
 [release38975748581](https://github.com/gaben1488/dash/actions/runs/38975748581)
@@ -47,7 +104,8 @@ status — 4083 B logical / 4096 B allocated, вместе 8166 / 8192 B. В м�
 проверки каждой ссылки полный global был 4 459 296 B, proof_matches=true.
 Итоговый metadata readback проверяет размеры и ссылки на сохранённые proof,
 не перечитывает содержимое status. Старые пять Bae status по-прежнему занимают
-22 302 720 allocated B: старые данные не удалялись, освобождено **0 B**.
+22 302 720 allocated B: старые attempt payload не удалялись; **0 B освобождено
+именно этой сменой формата status**. Архивы checkpoint обслуживаются отдельно.
 Все четыре контейнера running, API healthy, OOM=false/restarts=0 в23:39:04.
 Free12 323 414 016 B, MemAvailable2 493 734 912 B — точечные замеры.
 
@@ -145,7 +203,8 @@ Matched local measurement использовал исходный `_finish_attem
 с 1 MiB assurance: retained logical 2 099 022 → 2078 B, physical blocks
 2 105 344 → 8192 B; с 2 MiB: logical 4 196 174 → 2078 B, physical
 4 202 496 → 8192 B. Глобальный полный status — прежние 1 049 511 / 2 098 087 B;
-proof roundtrip точный. Это измерение локальных файлов, **0 B освобождено на VPS**.
+proof roundtrip точный. Это измерение локальных файлов; удаление старых attempt
+payload на VPS не выполнялось. Это не общий итог обслуживания backup archives.
 
 Итоговый полный Python **1181 PASS**, Ruff PASS. [Exact Linux CI38973810592](https://github.com/gaben1488/dash/actions/runs/38973810592)
 подтвердил1176 обычных и5 privileged проверок, shared740/core1887+1skip/
@@ -189,9 +248,9 @@ BI/Word или их DTO. Он не заменяет общий acquisition и с
 вертикаль официальной экономии, решения/KPI/полный provenance и остальные
 обязательства #69. Границы и критерии находятся в ADR-001 и ADR-0012.
 
-### Следующий локальный кандидат — эксплуатационные показатели
+### История подготовки эксплуатационных показателей (до установки d402)
 
-Коммит `c0e96be45ae68dc23c5460043e6cff56eaf690a6`, пока не установлен.
+Коммит `c0e96be45ae68dc23c5460043e6cff56eaf690a6` позднее установлен в d402.
 Python уже передаёт `operations`; shared-схемы его не описывали,
 hook не отдавал потребителю, представления не было. `.parse` обеих схем
 отбрасывал поле (3RED→GREEN), но настоящий `fetchParsed` сохраняет исходный
@@ -215,8 +274,8 @@ warnings, shared743/core1887+1skip/server1028 и полный web2317, webbuild 
 actual компонента:30учебных состояний (320/768/1440×2темы×5состояний),
 0page errors/overflow, keyboard expansion PASS; четыре KB-подсказки доступны
 с клавиатуры и касанием в пределах viewport. Это не live-приёмка нового UI.
-Перед его установкой нужны source-SHA CI и фактический backend/frontend proof;
-проверка b96 не подменяет приёмку этого следующего исходного кода.
+Перед установкой требовались source-SHA CI и фактический backend/frontend proof;
+их результаты для d402 приведены выше. Проверка b96 их не подменяла.
 
 ### История предыдущего выпуска — 16.10.2026, 19:59 UTC
 

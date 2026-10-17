@@ -70,13 +70,12 @@ const DOT_AXES = ['dates','week','orgs','method','activity','budget','unit','sta
 export function SelectionTokens({compact = false, style}: {compact?: boolean; style?: CSSProperties} = {}) {
   const [open,setOpen]=useState(false);
   const [hovered,setHovered]=useState<string|null>(null);
-  const [undo,setUndo]=useState<{before:FilterSnapshot;after:FilterSnapshot;page:AppState['page'];label:string;expiresAt:number}|null>(null);
+  const [undo,setUndo]=useState<{before:FilterSnapshot;after:FilterSnapshot;page:AppState['page'];label:string}|null>(null);
   useEffect(()=>{
     if (!undo) return;
-    const timer=setTimeout(()=>setUndo(null),6000);
     const dismiss=(e:KeyboardEvent)=>{if(e.key==='Escape')setUndo(null);};
     document.addEventListener('keydown',dismiss,true);
-    return ()=>{clearTimeout(timer);document.removeEventListener('keydown',dismiss,true);};
+    return ()=>document.removeEventListener('keydown',dismiss,true);
   },[undo]);
   const {
     page,
@@ -283,13 +282,14 @@ export function SelectionTokens({compact = false, style}: {compact?: boolean; st
   if (!compact && tokens.length === 0) return null;
 
   if (compact) {
-    const currentUndo = () => undo !== null && Date.now()<undo.expiresAt && undo.page === useStore.getState().page && RESET_FIELDS.every(key=>Object.is(useStore.getState()[key],undo.after[key]));
+    // Reading time does not invalidate a local view reset; a newer edit still does.
+    const currentUndo = () => undo !== null && undo.page === useStore.getState().page && RESET_FIELDS.every(key=>Object.is(useStore.getState()[key],undo.after[key]));
     const canUndo=currentUndo();
     const reset = () => {
       const before=structuredClone(captureFilters());
       const label=tokens.map(t=>t.label).join(' · ');
       resetAllFilters();
-      setUndo({before,after:captureFilters(),page,label,expiresAt:Date.now()+6000});
+      setUndo({before,after:captureFilters(),page,label});
     };
     return <>
       <Popover.Root open={open} onOpenChange={setOpen}>
@@ -316,6 +316,9 @@ export function SelectionTokens({compact = false, style}: {compact?: boolean; st
         <button type="button" disabled={!canUndo} aria-label={`Вернуть фильтры: ${undo.label}`} onClick={()=>{
           if(currentUndo()){useStore.setState({...undo.before,searchQueryDebounced:undo.before.searchQuery});setUndo(null);}
         }}>Вернуть</button>
+        <button type="button" aria-label="Закрыть отмену сброса фильтров" onClick={()=>setUndo(null)}>
+          <X size={14} aria-hidden="true"/>
+        </button>
       </div>,document.body)}
     </>;
   }

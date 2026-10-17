@@ -17,7 +17,22 @@ Expected endpoints:
 
 ## Verification
 
-Текущая установленная версия16.10.2026,23:40UTC — `b96e169d`.
+Текущая установленная версия17.10.2026 — `d40222ea`.
+Release38982892729 SUCCESS; keeper `worker-38982892729/backup`:
+21 019 285 305B/3545entries, архив3 181 287 126B,
+manifest a41e37740b9afbe3dea8458cf3bb61c3383a75aaca149090a7caa70185b773bd,
+trial995bde944ba8e9cee468dc55bc71e4b79a417549d72cef0b8d029183ebb6cac0.
+Два restore по110SQLite/263DOCX; API/3Word/health/resume PASS00:19UTC.
+Observer38984598658 SUCCESS: eb539acd/3f5e35d6, doubleFLOCK/≥900сек/native5
+после каждого/два reference proof/1638sealed. Metadata38987627897 PASS.
+Desktop38985868522 PASS, включая четыре значения operations из того же GET.
+WebKit mobile пока не принят; исходный FAIL и локальный Undo-fix в PLAN.
+API/worker image084554aaf05ab541bb95cc9ff756246d9ba4c454061945e419dcbe39c2a658e6;
+webc43753ecb016803d3457f1b67d31410f7da1ca9b2e403ddebc01f8cee2168683.
+Прежний b96 backup archive штатно retired после двух новых restore; manifest
+и receipt сохранены. Это не удаление report history или attempt payload.
+
+История b96,16.10.2026,23:40UTC:
 Release38975748581 SUCCESS: checkpoint21 019 256 685B/3537entries,
 archive3 181 420 526B; manifest09d9c5b717439f06ff971d742e7a7563fb8a5764869c1edc6d72f4f2bedd1ba5,
 trial a1e7434292ef3acec36c77c92a6359a7fdebfb9255bb2bea5da9204e593f5267.

@@ -1,5 +1,7 @@
 """Browser acceptance must detect inert controls using real pointer/touch input."""
+import asyncio
 import os
+import re
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -11,7 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import live_browser_readback as verifier
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 LABELS = ['Показывать суммы в тысячах рублей', 'Показывать суммы в миллионах рублей',
           'Конкурентные способы, статья 24 44-ФЗ', 'Единственный поставщик, статья 93 44-ФЗ',
@@ -103,6 +105,60 @@ class FailureEvidenceTests(unittest.TestCase):
 
 
 class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_long_reset_summary_keeps_touch_actions_inside_narrow_viewport(self):
+        artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
+        async with async_playwright() as driver:
+            browser = await launch_browser(driver)
+            try:
+                _, options = verifier.browser_settings('iphone', driver.devices)
+                options['viewport'] = {'width': 320, 'height': 844}
+                page = await browser.new_page(**options)
+                await open_current_header(page, artifact.as_uri())
+                await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
+                header = page.locator('header[data-page-skin]')
+                await header.get_by_role('textbox', name='Поиск по реестру закупок', exact=True).fill('123456789012345678901234567890123456')
+                await header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$')).tap()
+                dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+                await dialog.get_by_role('button', name='Снять фильтры линейки', exact=True).tap()
+                for button in await page.locator('.fi-undo button').all():
+                    bounds = await button.bounding_box()
+                    self.assertIsNotNone(bounds)
+                    self.assertGreaterEqual(bounds['x'], 0)
+                    self.assertLessEqual(bounds['x']+bounds['width'], 320)
+                await page.get_by_role('button', name='Закрыть отмену сброса фильтров', exact=True).tap()
+            finally:
+                await browser.close()
+
+    async def test_reset_undo_survives_reading_delay_and_can_be_dismissed_by_touch(self):
+        artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
+        async with async_playwright() as driver:
+            browser = await launch_browser(driver)
+            try:
+                _, options = verifier.browser_settings('iphone', driver.devices)
+                page = await browser.new_page(**options)
+                await open_current_header(page, artifact.as_uri())
+                await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
+                header = page.locator('header[data-page-skin]')
+                millions = header.get_by_role('button', name='Показывать суммы в миллионах рублей', exact=True)
+                await millions.tap()
+                await expect(millions).to_have_attribute('aria-pressed', 'true')
+                corner = header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$'))
+                await corner.tap()
+                dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+                await dialog.get_by_role('button', name='Снять фильтры линейки', exact=True).tap()
+                # Real elapsed reading time exceeds the old six-second expiry.
+                await asyncio.sleep(6.5)
+                await page.get_by_role('button', name=re.compile('^Вернуть фильтры:')).tap(timeout=5000)
+                await expect(millions).to_have_attribute('aria-pressed', 'true')
+                if not await dialog.is_visible():
+                    await corner.tap()
+                await dialog.get_by_role('button', name='Снять фильтры линейки', exact=True).tap()
+                await page.get_by_role('button', name='Закрыть отмену сброса фильтров', exact=True).tap()
+                await expect(page.get_by_role('button', name=re.compile('^Вернуть фильтры:'))).to_have_count(0)
+                await expect(millions).to_have_attribute('aria-pressed', 'false')
+            finally:
+                await browser.close()
+
     async def scenario(self, inert=False, corrupt_period=False, corrupt_context=False):
         async with async_playwright() as driver:
             browser = await launch_browser(driver)

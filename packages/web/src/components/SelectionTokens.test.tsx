@@ -23,6 +23,18 @@ import { getActiveFilterCount, isWeekShifted, useStore, type Page } from '../sto
 vi.stubGlobal('ResizeObserver',class {observe() {} unobserve() {} disconnect() {}});
 
 describe('compact filter instrument',()=>{
+ it('keeps view reset undo available while the user reads unchanged filters',()=>{
+  vi.useFakeTimers();
+  try {
+   resetState();useStore.getState().setMoneyUnit('млн');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:/Фильтры линейки: 1/}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   act(()=>vi.advanceTimersByTime(60_000));
+   fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+   expect(useStore.getState().moneyUnit).toBe('млн');
+  } finally {vi.useRealTimers();}
+ });
  it('opens the real filter list and restores a reset without changing data',()=>{
   resetState();useStore.getState().toggleMethod('single');
   const beforeData=useStore.getState().dashboardData;
@@ -56,7 +68,7 @@ describe('compact filter instrument',()=>{
   expect(useStore.getState().selectedMethods.size).toBe(0);
   expect(useStore.getState().selectedBudgets.has('fb')).toBe(true);
  });
- it('refuses expired undo even when the browser has not delivered its timer',()=>{
+ it('keeps undo usable when a delayed browser clock advances',()=>{
   vi.useFakeTimers();
   try {
    resetState();useStore.getState().toggleMethod('single');
@@ -65,19 +77,37 @@ describe('compact filter instrument',()=>{
    fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
    vi.setSystemTime(Date.now()+6001);
    fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
-   expect(useStore.getState().selectedMethods.size).toBe(0);
+   expect(useStore.getState().selectedMethods.has('single')).toBe(true);
   } finally {vi.useRealTimers();}
  });
- it('expires reset undo after six seconds',()=>{
-  vi.useFakeTimers();
-  try {
+ it('lets touch users dismiss reset undo without restoring filters',()=>{
    resetState();useStore.getState().toggleMethod('single');
    const view=render(<SelectionTokens compact/>);
    fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
    fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
-   act(()=>{vi.advanceTimersByTime(6001);});
+   fireEvent.click(view.getByRole('button',{name:'Закрыть отмену сброса фильтров'}));
    expect(view.queryByRole('button',{name:/Вернуть фильтры/})).toBeNull();
-  } finally {vi.useRealTimers();}
+   expect(useStore.getState().selectedMethods.size).toBe(0);
+ });
+ it('does not restore a reset from another page',()=>{
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   act(()=>useStore.setState({page:'monitoring'}));
+   const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+   expect(undo.hasAttribute('disabled')).toBe(true);
+   fireEvent.click(undo);
+   expect(useStore.getState().selectedMethods.size).toBe(0);
+ });
+ it('dismisses reset undo with Escape',()=>{
+   resetState();useStore.getState().setMoneyUnit('млн');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   fireEvent.keyDown(document,{key:'Escape'});
+   expect(view.queryByRole('button',{name:/Вернуть фильтры/})).toBeNull();
+   expect(useStore.getState().moneyUnit).toBe('тыс');
  });
 });
 
