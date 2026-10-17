@@ -1253,7 +1253,7 @@ jobs:
                   assert stat.S_IMODE(info.st_mode)==0o600 if private else not info.st_mode&0o022
                   return source.read(1024*1024+1)
           tools=Path('/usr/local/libexec/aemr')
-          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-38993968988/release-window.json')))
+          window=json.loads(owned(Path('/home/aemr/.dash-private-backups/worker-39021770421/release-window.json')))
           assert window['candidate']==sha
           assert set(window['module_sha256'])=={'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
           for name,pin in window['module_sha256'].items():
@@ -1264,7 +1264,7 @@ jobs:
           assert plan['release_sha']==sha
           accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
           assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
-          assert plan['backup_reference']=='worker-38993968988/backup'
+          assert plan['backup_reference']=='worker-39021770421/backup'
           assert not any(os.path.lexists(r.STATE_DIR/name) for name in ('pending-release.json','release-recovery-progress.json'))
           executor=r.ReleaseRecovery(lock_fd=None);records=executor._records(plan,candidate=True)
           assert all(records[name]['State']['Status']=='running' for name in ('server','web','caddy'))
@@ -1622,7 +1622,7 @@ jobs:
              print(json.dumps({'scope':'CURRENT_GLOBAL_LSTAT_ONLY',**status_metadata(reports/'status.json'),'content_reverified':False}),flush=True)
 
             def checkpoint_metadata():
-             base=Path('/home/aemr/.dash-private-backups/worker-38993968988')
+             base=Path('/home/aemr/.dash-private-backups/worker-39021770421')
              for name,path in [('fresh_backup',base/'backup/manifest.json'),('independent_trial',Path('/var/lib/aemr/release-runtime/trial-proof.json'))]:
               result={'checkpoint_metadata':name,'present':os.path.lexists(path)}
               if result['present']:
@@ -1650,13 +1650,13 @@ jobs:
                 print(json.dumps({'restore_capacity_planning_only':True,'source_logical_bytes':logical,
                  'checkpoint_files_singleton_blocks_bytes':reclaimable,'free_bytes':free,
                  'margin_before_new_images_and_backup_bytes':free+reclaimable-logical-128*1024**2}),flush=True)
-                previous=Path('/home/aemr/.dash-private-backups/worker-38982892729/backup/manifest.json')
+                previous=Path('/home/aemr/.dash-private-backups/worker-38993968988/backup/manifest.json')
                 if previous.exists():
                  assert not any(parent.is_symlink() for parent in (previous,*previous.parents))
                  with os.fdopen(os.open(previous,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
                   info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=16*1024*1024
                   prior_body=stream.read(16*1024*1024+1)
-                 assert hashlib.sha256(prior_body).hexdigest()=='a41e37740b9afbe3dea8458cf3bb61c3383a75aaca149090a7caa70185b773bd'
+                 assert hashlib.sha256(prior_body).hexdigest()=='28114ce0811fd863ff4822b693d5fd029f65a812b19dbc636759fe5508864f36'
                  prior=json.loads(prior_body)
                  added=[relative for relative in value['files'] if relative not in prior['files'] and re.fullmatch(r'reports/attempts/[a-f0-9]{32}/status\.json',relative)]
                  added_bytes=sum(value['files'][relative]['bytes'] for relative in added)
@@ -1669,7 +1669,7 @@ jobs:
                   if stat.S_ISREG(info.st_mode) and info.st_size==value['files'][relative]['bytes'] and info.st_nlink==1:
                    matched+=1;blocks+=info.st_blocks*512
                  delta=value['bytes']-prior['bytes']
-                 print(json.dumps({'checkpoint_growth_from_d402':True,'logical_delta_bytes':delta,
+                 print(json.dumps({'checkpoint_growth_from_283':True,'logical_delta_bytes':delta,
                   'added_attempt_status_count':len(added),'added_attempt_status_bytes':added_bytes,
                   'other_net_logical_delta_bytes':delta-added_bytes,'matched_current_status_files':matched,
                   'current_status_allocated_blocks_bytes':blocks,'content_hashes_rechecked':False}),flush=True)
@@ -1679,7 +1679,7 @@ jobs:
                   with os.fdopen(os.open(retired,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb') as stream:
                    info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and 0<info.st_size<=16384
                    retirement=json.loads(stream.read(16385))
-                  expected={'state':'SUPERSEDED_ARCHIVE_RETIRED','retained_backup':'worker-38993968988/backup',
+                  expected={'state':'SUPERSEDED_ARCHIVE_RETIRED','retained_backup':'worker-39021770421/backup',
                    'retained_manifest_sha256':result['sha256'],'removed_bytes':prior['archive_bytes'],'removed_sha256':prior['archive_sha256']}
                   assert retirement==expected and not os.path.lexists(previous.parent/'state.tar.gz')
                   print(json.dumps({'superseded_backup_archive_retired':True,'removed_logical_bytes':retirement['removed_bytes'],
