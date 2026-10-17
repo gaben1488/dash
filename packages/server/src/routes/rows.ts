@@ -183,7 +183,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const sortCol = query.sort ?? '';
     const sortOrder: 'asc' | 'desc' = query.order === 'desc' ? 'desc' : 'asc';
 
-    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    // Чтение строк — cache-first в rows-read (кэш → основная книга управления).
     const read = await readDeptRows(dept);
     if (!read.ok) {
       if (read.reason === 'read-error') {
