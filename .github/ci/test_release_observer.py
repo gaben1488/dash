@@ -54,7 +54,7 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
             def save(name, value):
                 path = base / name; path.write_text(json.dumps(value)); path.chmod(0o600)
             save('result.json', {'state': 'TWO_AUTONOMOUS_CYCLES_VERIFIED',
-                'source_sha': '0'*40 if defect == 'source' else '8d5522620fc5fb916334bd0fa12986efc7db58a5',
+                'source_sha': '0'*40 if defect == 'source' else '78d293b217a8afe982583c73bc67aaccdb4d906c',
                 'native_word': 'PASS', 'sealed_entries_verified': 123, 'attempt_ids': ids,
                 'observation_since': '2026-10-16T21:59:00Z',
                 'worker_started_at': '2026-10-16T21:59:30Z',
