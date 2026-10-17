@@ -1,0 +1,110 @@
+/*
+ * Dash source-material lab / proposed chrome only.
+ * Applies one chosen material across related LIVE navigation controls:
+ * source cylinder, time drum, filter drums, source status/corner and OrgStrip.
+ * No font, geometry, procurement-status, table, Report or KPI overrides.
+ * Six finishes are visual candidates, not approved production styling.
+ */
+:root:not([data-preview-family='original']) {
+  --dash-glass-ink:var(--ink-strong);
+  --dash-glass-line:color-mix(in srgb,var(--line-strong) 70%,white 7%);
+  --dash-glass-fill:linear-gradient(160deg,
+    color-mix(in srgb,var(--surface-raised) 88%,transparent),
+    color-mix(in srgb,var(--surface-sunken) 85%,transparent));
+  --dash-glass-border:var(--dash-glass-line);
+  --dash-glass-shadow:inset 0 1px 0 #ffffff20,inset 0 -1px 0 #00000022,0 3px 11px #00000020;
+  --dash-glass-backdrop:blur(14px) saturate(155%);
+  --dash-glass-accent:color-mix(in srgb,var(--qa-current-top,#86a4c8) 20%,var(--surface-raised));
+}
+:root[data-preview-finish='candy']:not([data-preview-family='original']) {
+  --dash-glass-fill:linear-gradient(168deg,
+    color-mix(in srgb,var(--surface-raised) 84%,white 12%) 0%,
+    color-mix(in srgb,var(--surface-card) 70%,transparent) 45%,
+    color-mix(in srgb,var(--surface-sunken) 93%,transparent) 100%);
+  --dash-glass-shadow:inset 0 1px 0 #ffffff4c,inset 0 -2px 2px #00000025,
+    0 2px 8px #00000024,0 0 12px color-mix(in srgb,var(--qa-current-top,#68b4ee) 14%,transparent);
+}
+:root[data-preview-finish='metal']:not([data-preview-family='original']) {
+  --dash-glass-fill:linear-gradient(172deg,var(--surface-raised),
+    color-mix(in srgb,var(--surface-card) 60%,white 12%) 39%,
+    var(--surface-sunken) 49%,
+    color-mix(in srgb,var(--surface-raised) 82%,white 10%) 53%,
+    var(--surface-sunken));
+  --dash-glass-shadow:inset 0 1px 0 #ffffff36,0 2px 7px #0000002b;
+  --dash-glass-backdrop:blur(8px) saturate(120%);
+}
+:root[data-preview-finish='pearl']:not([data-preview-family='original']) {
+  --dash-glass-fill:radial-gradient(ellipse at 23% 4%,#baf7ef24,transparent 60%),
+    radial-gradient(ellipse at 85% 95%,#e0aefa1a,transparent 65%),
+    linear-gradient(160deg,var(--surface-raised),var(--surface-sunken));
+  --dash-glass-backdrop:blur(15px) saturate(165%);
+}
+:root[data-preview-finish='xirallic']:not([data-preview-family='original']) {
+  --dash-glass-fill:radial-gradient(circle at 17% 12%,#ffffff24 0 1px,transparent 2px),
+    radial-gradient(circle at 78% 88%,#ffffff24 0 1px,transparent 2px),
+    linear-gradient(165deg,var(--surface-raised),var(--surface-sunken));
+  --dash-glass-backdrop:blur(12px) saturate(180%);
+}
+:root[data-preview-finish='glass']:not([data-preview-family='original']) {
+  --dash-glass-fill:linear-gradient(142deg,
+    color-mix(in srgb,var(--surface-raised) 58%,transparent),
+    color-mix(in srgb,var(--surface-card) 55%,transparent) 48%,
+    color-mix(in srgb,var(--surface-raised) 62%,transparent));
+  --dash-glass-border:color-mix(in srgb,var(--line-strong) 62%,white 18%);
+  --dash-glass-shadow:inset 0 1px 1px #ffffff66,inset 0 -2px 2px #0000002c,0 5px 16px #0000002c;
+  --dash-glass-backdrop:blur(22px) saturate(180%);
+}
+:root[data-preview-finish='matte']:not([data-preview-family='original']) {
+  --dash-glass-fill:var(--surface-raised);
+  --dash-glass-border:var(--line-soft);
+  --dash-glass-shadow:none;
+  --dash-glass-backdrop:none;
+}
+/* The same recipe is visible across the entire navigation family,
+ * not just an active tab. Keep CSS provenance and per-element inheritance. */
+:root:not([data-preview-family='original']) :is(
+  .dash-source-navigation .баран-навигации,
+  .hbar .tg-drum,
+  .hbar .vf-drum,
+  .dash-source-axis-toggle,
+  .hdr-ugol .lh-drum,
+  .dash-org-mobile-toggle
+){
+  background:var(--dash-glass-fill) !important;
+  background-image:var(--dash-glass-fill) !important;
+  border-color:var(--dash-glass-border) !important;
+  box-shadow:var(--dash-glass-shadow) !important;
+  -webkit-backdrop-filter:var(--dash-glass-backdrop) !important;
+  backdrop-filter:var(--dash-glass-backdrop) !important;
+  transition:background-color 180ms ease,border-color 180ms ease,box-shadow 180ms ease;
+}
+:root:not([data-preview-family='original']) :is(
+  .hbar .nav-tools .hf-icon-btn,
+  .dash-source-navigation .source-nav-keys button
+){
+  background:color-mix(in srgb,var(--surface-card) 65%,transparent);
+  border-color:var(--line-soft);
+  border-radius:8px;
+}
+:root:not([data-preview-family='original']) .dash-source-navigation .source-nav-keys button:hover {
+  background:var(--dash-glass-accent);
+}
+:root:not([data-preview-family='original']) .header-glass {
+  backdrop-filter:var(--dash-glass-backdrop) !important;
+  -webkit-backdrop-filter:var(--dash-glass-backdrop) !important;
+}
+/* The matching OrgStrip uses a quieter version of the same material:
+ * body/rows remain opaque for legibility. */
+:root:not([data-preview-family='original']) .dash-org-container>.ob-strip {
+  border-right-color:var(--dash-glass-border) !important;
+  box-shadow:var(--dash-glass-shadow) !important;
+  backdrop-filter:var(--dash-glass-backdrop) !important;
+}
+/* Never paint data tables, report papers or evidence panels with gloss.
+ * They use flat surfaces for numeric comprehension. */
+@media(prefers-reduced-motion:reduce) {
+  :root:not([data-preview-family='original']) :is(
+    .dash-source-navigation .баран-навигации,.hbar .tg-drum,.hbar .vf-drum,
+    .dash-source-axis-toggle,.hdr-ugol .lh-drum
+  ){transition:none !important}
+}
