@@ -47,10 +47,17 @@ def checkpoint_content_summary(files):
                         for key, value in sorted(classes.items())}}
 
 
-def image_storage_summary(images, referenced):
+def image_storage_summary(images, referenced, disk_usage=None):
     """Logical image census only; shared layers and protected rollback roots need separate proof."""
     if not isinstance(images,list) or len(images)>256:
         raise ValueError('IMAGE_INVENTORY_INVALID')
+    usage={}
+    if disk_usage is not None:
+        values=disk_usage.get('Images') if isinstance(disk_usage,dict) else None
+        if not isinstance(values,list) or len(values)>256:raise ValueError('IMAGE_LAYER_INVENTORY_INVALID')
+        for value in values:
+            if not isinstance(value,dict) or value.get('Id') in usage:raise ValueError('IMAGE_LAYER_INVENTORY_INVALID')
+            usage[value.get('Id')]=value
     seen,rows=set(),[]
     for image in images:
         if not isinstance(image,dict):
@@ -68,6 +75,18 @@ def image_storage_summary(images, referenced):
         rows.append({'image':identity,'logical_bytes':size,'referenced_by_container':identity in referenced,
                      'release_tags':[tag for tag in tags if re.fullmatch(r'aemr-(?:server|web):release-[a-f0-9]{40}',tag)],
                      'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None})
+        if disk_usage is not None:
+            value=usage.get(identity,{})
+            total,shared,containers=value.get('Size'),value.get('SharedSize'),value.get('Containers')
+            # containerd inspect and DiskUsage account packed/unpacked resources
+            # differently. Preserve both; equality is not an image identity check.
+            if (type(total) is not int or not 0<=total<=2**63-1 or type(shared) is not int
+                    or not 0<=shared<=total or type(containers) is not int or not 0<=containers<=65536):
+                raise ValueError('IMAGE_LAYER_INVENTORY_INVALID')
+            rows[-1].update(engine_reported_size_bytes=total,engine_reported_shared_bytes=shared,
+                            engine_reported_unique_bytes=total-shared,
+                            engine_container_count=containers)
+    if disk_usage is not None and set(usage)!=seen:raise ValueError('IMAGE_LAYER_INVENTORY_INVALID')
     return {'image_count':len(rows),'logical_image_bytes':sum(row['logical_bytes'] for row in rows),
             'physical_shared_layers_measured':False,'deletion_plan':False,'images':rows}
 

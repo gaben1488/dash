@@ -1711,7 +1711,21 @@ jobs:
                 assert len(identities)<=256 and all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for identity in identities)
                 images=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30)) if identities else []
                 referenced={row['image'] for row in snapshot(lambda args:subprocess.check_output(args,text=True,timeout=20)) if row['image']}
-                print(json.dumps({'image_storage_inventory':namespace['image_storage_summary'](images,referenced)}),flush=True)
+                # API 1.52 keeps legacy Images when verbose is omitted. Read
+                # only image layer accounting; no volumes/cache/prune request.
+                import http.client,socket
+                endpoint=Path('/run/docker.sock');socket_info=endpoint.lstat()
+                assert stat.S_ISSOCK(socket_info.st_mode) and socket_info.st_uid==0
+                connection=http.client.HTTPConnection('localhost',timeout=30)
+                try:
+                 connection.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);connection.sock.settimeout(30)
+                 connection.sock.connect(str(endpoint));connection.request('GET','/v1.52/system/df?type=image')
+                 response=connection.getresponse();layer_body=response.read(4*1024*1024+1)
+                 assert response.status==200 and len(layer_body)<=4*1024*1024
+                 assert endpoint.lstat().st_ino==socket_info.st_ino
+                 image_usage=json.loads(layer_body)
+                finally:connection.close()
+                print(json.dumps({'image_storage_inventory':namespace['image_storage_summary'](images,referenced,image_usage)}),flush=True)
                 # Planning scalars only; this live inventory is not an atomic backup or release admission.
                 import shutil
                 source=Path('/var/lib/docker/volumes/aemr_server_data/_data')

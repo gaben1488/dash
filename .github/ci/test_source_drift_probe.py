@@ -62,6 +62,26 @@ class DriftProbeTests(unittest.TestCase):
         self.assertFalse(result['deletion_plan'])
         self.assertNotIn('PRIVATE',json.dumps(result))
 
+    def test_image_layer_inventory_reports_engine_estimates_without_claiming_deletion(self):
+        identity='sha256:'+'a'*64
+        images=[{'Id':identity,'Size':100,'RepoTags':[],'Config':{}}]
+        usage={'Images':[{'Id':identity,'Size':150,'SharedSize':120,'Containers':1,
+                          'RepoTags':['PRIVATE']}],'LayersSize':100}
+        result=self.module.image_storage_summary(images,{identity},usage)
+        self.assertEqual(result['images'][0]['logical_bytes'],100)
+        self.assertEqual(result['images'][0]['engine_reported_size_bytes'],150)
+        self.assertEqual(result['images'][0]['engine_reported_unique_bytes'],30)
+        self.assertEqual(result['images'][0]['engine_reported_shared_bytes'],120)
+        self.assertEqual(result['images'][0]['engine_container_count'],1)
+        self.assertNotIn('PRIVATE',str(result))
+        self.assertFalse(result['physical_shared_layers_measured'])
+        self.assertFalse(result['deletion_plan'])
+        for changed in ({'Size':-1},{'Size':True},{'SharedSize':151},{'SharedSize':-1},{'Containers':True}):
+            with self.subTest(changed=changed),self.assertRaises(ValueError):
+                self.module.image_storage_summary(images,set(),{'Images':[{**usage['Images'][0],**changed}]})
+        with self.assertRaises(ValueError):
+            self.module.image_storage_summary(images,set(),{'Images':[]})
+
     def test_image_inventory_rejects_ambiguous_or_unbounded_input(self):
         image={'Id':'sha256:'+'a'*64,'Size':100,'RepoTags':[],'Config':{}}
         for images in ([image,image],[{**image,'Size':True}],[{**image,'Id':'bad'}],[image]*257):
