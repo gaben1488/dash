@@ -72,9 +72,9 @@ jobs:
           for engine in chromium webkit; do
             BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_auth_isolation.py
             if [ "$engine" = webkit ]; then
-              xvfb-run --auto-servernum env BROWSER_ENGINE=webkit BROWSER_HEADED=1 python3 .github/ci/test_browser_header_controls.py
+              xvfb-run --auto-servernum env BROWSER_ENGINE=webkit BROWSER_HEADED=1 python3 .github/ci/test_browser_header_controls.py -v
             else
-              BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py
+              BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py -v
             fi
           done
 

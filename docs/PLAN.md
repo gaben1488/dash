@@ -63,7 +63,7 @@ GET39033307704:200/4 582 665B за2,595 и3,718с. Следующая огран
 Actual compiled Header35363516:13Chromium browser tests PASS (desktop/touch,
 26theme/page combinations); физический iPhone/Safari и весь13-page UX не приняты.
 Полный локальный TS:743/1887(+1skip)/1059/2340,4tsc, lint0errors/302existing
-warnings, webbuild PASS. Это не CI/установка нового полного кандидата.
+warnings, webbuild PASS. CI370f: Python/image/live contract PASS, основной job отменён на зависшем GTK browser этапе; полного PASS нет. В проверке движения обнаружено отдельное неограниченное ожидание декоративных анимаций; новое ожидание ограничено прежними5сек и только рядами, runaway motion остаётся отказом. Chromium14cases PASS. Это не установка нового полного кандидата.
 Отдельный `18b2ef3d` исправляет malformed native-comment collections/geometry:
 не выдумывает пустой список или нулевой адрес, сохраняет уже доказанные записи;
 47focused/1059server PASS. Весь продуктовый журнал K06 этим не закрыт.

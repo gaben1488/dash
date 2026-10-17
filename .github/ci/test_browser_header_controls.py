@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import live_browser_readback as verifier
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright, expect
 
 LABELS = ['Показывать суммы в тысячах рублей', 'Показывать суммы в миллионах рублей',
@@ -70,6 +71,14 @@ async def open_current_header(page, url):
     # require Playwright visibility, stability and hit testing within 5 seconds.
 
 
+async def wait_for_drum_settle(nav):
+    # Wait only for the real row movement, not unrelated decorative animations.
+    # A broken animation must fail this gate instead of occupying the runner.
+    await nav.page.wait_for_function('''el=>[...el.querySelectorAll('.np-group')]
+        .every(row=>row.getAnimations().every(a=>!a.pending&&a.playState!=='running'))''',
+        arg=await nav.element_handle(), timeout=5000)
+
+
 class FailureEvidenceTests(unittest.TestCase):
     def test_http_fixture_serves_only_the_compiled_synthetic_file(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -104,6 +113,20 @@ class FailureEvidenceTests(unittest.TestCase):
             self.assertIsNone(verifier.failure_location(error))
 
 
+class DrumReadinessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nonterminating_row_motion_is_rejected_with_the_existing_five_second_budget(self):
+        async with async_playwright() as driver:
+            browser = await launch_browser(driver)
+            try:
+                page = await browser.new_page()
+                await page.set_content('<nav aria-label="Навигация"><div class="np-group">group</div></nav>')
+                await page.locator('.np-group').evaluate("el=>el.animate([{translate:'0 0'},{translate:'0 20px'}],{duration:1000,iterations:Infinity})")
+                with self.assertRaises(PlaywrightTimeoutError):
+                    await wait_for_drum_settle(page.get_by_role('navigation'))
+            finally:
+                await browser.close()
+
+
 class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
     async def test_navigation_wraps_real_wheel_keyboard_and_touch_without_duplicate_routes(self):
         artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
@@ -119,13 +142,9 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
                     current = nav.locator('.np-btn[aria-current="page"]')
                     await expect(current).to_have_text('Пульс')
 
-                    async def check(name):
+                    async def check(name, nav=nav, current=current):
                         await expect(nav.locator('.np-group-center')).to_have_attribute('aria-label', name)
-                        await nav.evaluate("""async el => {
-                            await Promise.all(el.getAnimations({subtree:true})
-                              .filter(a=>a.effect.getTiming().iterations!==Infinity)
-                              .map(a=>a.finished.catch(()=>{})));
-                        }""")
+                        await wait_for_drum_settle(nav)
                         rows = nav.locator('.np-group-top,.np-group-center,.np-group-bottom')
                         await expect(rows).to_have_count(3)
                         await expect(nav.locator('.np-btn')).to_have_count(13)
