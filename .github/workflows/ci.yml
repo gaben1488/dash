@@ -1201,10 +1201,10 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
-        inputs.release_sha == '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 7b794913') ||
-       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 7b794913')) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 7b794913'))
+        inputs.release_sha == '8d5522620fc5fb916334bd0fa12986efc7db58a5') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted 8d552262') ||
+       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted 8d552262')) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted 8d552262'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -1244,7 +1244,7 @@ jobs:
             "$VPS_USER@193.233.91.162" sudo -n python3 -IB - > "$private/auth.json" <<'PY'
           import hashlib,json,os,re,stat,subprocess,sys
           from pathlib import Path
-          sha='7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2'
+          sha='8d5522620fc5fb916334bd0fa12986efc7db58a5'
           def owned(path,private=True):
               assert not any(p.is_symlink() for p in (path,*path.parents))
               with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:
@@ -1297,7 +1297,7 @@ jobs:
       - name: Real browser navigation, journal and three native Word downloads
         env:
           DASH_BROWSER_BASIC_PASSWORD: ${{ secrets.DASH_BROWSER_BASIC_PASSWORD }}
-          EXPECTED_SOURCE_SHA: 7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2
+          EXPECTED_SOURCE_SHA: 8d5522620fc5fb916334bd0fa12986efc7db58a5
           EXPECT_OPERATIONS_UI: "yes"
           BROWSER_AUTH_METADATA: ${{ runner.temp }}/browser-readback/auth.json
           BROWSER_PRIVATE_PROOF: ${{ runner.temp }}/browser-readback/proof.json
@@ -1315,11 +1315,11 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
-        inputs.release_sha == '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2') ||
+        inputs.release_sha == '8d5522620fc5fb916334bd0fa12986efc7db58a5') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'release-progress' &&
-        inputs.release_sha == '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2') ||
-       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release 7b794913 metadata' ||
-        github.event.head_commit.message == 'Inspect installed release progress for 7b794913' ||
+        inputs.release_sha == '8d5522620fc5fb916334bd0fa12986efc7db58a5') ||
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release 8d552262 metadata' ||
+        github.event.head_commit.message == 'Inspect installed release progress for 8d552262' ||
         github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
@@ -1328,8 +1328,8 @@ jobs:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
-          RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release 7b794913 metadata') && 'yes' || 'no' }}
-          RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for 7b794913') && 'yes' || 'no' }}
+          RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release 8d552262 metadata') && 'yes' || 'no' }}
+          RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for 8d552262') && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
         with:
           envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY
@@ -1573,7 +1573,7 @@ jobs:
                body=stream.read(limit+1);assert len(body)<=limit
                return json.loads(body)
              result=read('result.json')
-             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2'
+             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='8d5522620fc5fb916334bd0fa12986efc7db58a5'
              assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
              observer_start=datetime.fromisoformat(result['observation_since']);worker_start=datetime.fromisoformat(result['worker_started_at'])
              cutoff=datetime.fromisoformat(result['eligibility_since'])
@@ -1685,7 +1685,7 @@ jobs:
                   print(json.dumps({'superseded_backup_archive_retired':True,'removed_logical_bytes':retirement['removed_bytes'],
                    'retained_backup':retirement['retained_backup'],'physical_bytes_independently_measured':False}),flush=True)
                else:
-                result['expected_source']=value.get('release_sha')=='7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2'
+                result['expected_source']=value.get('release_sha')=='8d5522620fc5fb916334bd0fa12986efc7db58a5'
                 for kind in ('full_restore','in_place_restore'):
                  detail=value.get(kind,{})
                  result[kind]={key:detail[key] for key in ('files','bytes','sqlite_checked','docx_checked') if type(detail.get(key)) is int}
@@ -2258,12 +2258,12 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'api-timing' &&
-        inputs.release_sha == '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2') ||
+        inputs.release_sha == '8d5522620fc5fb916334bd0fa12986efc7db58a5') ||
        (github.event_name == 'push' &&
-        (github.event.head_commit.message == 'Profile latest API stages for accepted 7b794913' ||
-         github.event.head_commit.message == 'Profile journal read for accepted 7b794913' ||
-         github.event.head_commit.message == 'Profile selected HTTP for accepted 7b794913' ||
-         github.event.head_commit.message == 'Profile dashboard read for accepted 7b794913')))
+        (github.event.head_commit.message == 'Profile latest API stages for accepted 8d552262' ||
+         github.event.head_commit.message == 'Profile journal read for accepted 8d552262' ||
+         github.event.head_commit.message == 'Profile selected HTTP for accepted 8d552262' ||
+         github.event.head_commit.message == 'Profile dashboard read for accepted 8d552262')))
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -2304,7 +2304,7 @@ jobs:
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['State']['Running'] and record['Name']=='/aemr-server-1'
             installed=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
-            assert installed['Config']['Labels']['org.opencontainers.image.revision']=='7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2'
+            assert installed['Config']['Labels']['org.opencontainers.image.revision']=='8d5522620fc5fb916334bd0fa12986efc7db58a5'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
             running=subprocess.check_output(['docker','ps','--quiet'],text=True,timeout=10).splitlines()
@@ -2335,13 +2335,13 @@ jobs:
                row[key]=int(value)
              except (OSError,StopIteration,AssertionError):pass
             print(json.dumps({'running_container_resources':census}),flush=True)
-            latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted 7b794913' && 'True' || 'False' }}
+            latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted 8d552262' && 'True' || 'False' }}
             window_start=record['State']['StartedAt']
             assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',window_start)
             window_end=(datetime.fromisoformat(window_start)+timedelta(minutes=3)).isoformat()
             if latest:
              window_end=datetime.now(timezone.utc).isoformat();window_start=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat()
-            resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 7b794913' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted 7b794913' && 'report' || 'dashboard' }}"
+            resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 8d552262' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted 8d552262' && 'report' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1','report':'/api/report-releases?date=2026-10-17&year=2026&quarter=4'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             if resource=='journal':
              window_start=(datetime.now(timezone.utc)-timedelta(minutes=2)).isoformat()
@@ -2396,8 +2396,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
-        inputs.release_sha == '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted 7b794913'))
+        inputs.release_sha == '8d5522620fc5fb916334bd0fa12986efc7db58a5') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted 8d552262'))
     runs-on: ubuntu-latest
     timeout-minutes: 70
     concurrency:
@@ -2423,7 +2423,7 @@ jobs:
           command_timeout: 67m
           script: |
             set -euo pipefail
-            observer='7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2'
+            observer='8d5522620fc5fb916334bd0fa12986efc7db58a5'
             git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$observer"
             git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin '${{ github.sha }}'
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
@@ -2603,7 +2603,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - '7b79491349bd5370ff7dd5b4b4a1d0acbf0b26c2' <<'PYSCHEMA'
+            sudo -n python3 -I - '8d5522620fc5fb916334bd0fa12986efc7db58a5' <<'PYSCHEMA'
             import json,re,subprocess,sys
             from pathlib import Path
             try:
@@ -2706,7 +2706,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      SCOPE_SOURCE_SHA: 7c2e2e11d6f878196b59291c2a65fca8cb8756ba
+      SCOPE_SOURCE_SHA: 8d5522620fc5fb916334bd0fa12986efc7db58a5
     steps:
       - uses: actions/checkout@v4
       - name: Bind only the reviewed metadata index DDL
@@ -2773,14 +2773,15 @@ jobs:
             const version=db.prepare('SELECT sqlite_version() AS version').get().version;
             const beforeSize=statSync('/probe/aemr.db');const rows=db.prepare('SELECT COUNT(*) AS n FROM snapshots').get().n;
             const fields=`id,created_at,spreadsheet_id,CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END AS year_type,CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END AS year_value,instr(data, '\"rowsByDept\"') > 0 AS has_rows,instr(data, '\"weeklyTableContext\"') > 0 AS has_weekly`;
-            const query=indexed=>`SELECT ${fields} FROM snapshots ${indexed?'INDEXED BY idx_snapshots_retention_metadata':'NOT INDEXED'} ORDER BY rowid`;
+            const query=indexed=>`SELECT ${fields} FROM snapshots ${indexed?'INDEXED BY idx_snapshots_retention_metadata WHERE id IS id':'NOT INDEXED'} ORDER BY rowid`;
             const run=indexed=>{const start=performance.now();const values=db.prepare(query(indexed)).all();return{values,ms:Math.round((performance.now()-start)*1000)/1000}};
             const prior=run(false);
             const start=performance.now();db.exec(Buffer.from(process.env.INDEX_DDL,'base64').toString('utf8'));const indexMs=performance.now()-start;
-            const current=run(true);
-            if(JSON.stringify(current.values)!==JSON.stringify(prior.values))throw Error('RETENTION_METADATA_CHANGED');
+            const current=run(true),warmControl=run(false),repeat=run(true);
+            const legacy=db.prepare(`SELECT ${fields} FROM snapshots`).all();
+            if([current.values,warmControl.values,repeat.values,legacy].some(values=>JSON.stringify(values)!==JSON.stringify(prior.values)))throw Error('RETENTION_METADATA_CHANGED');
             db.pragma('wal_checkpoint(TRUNCATE)');db.close();const afterSize=statSync('/probe/aemr.db');
-            console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,query:'retention_candidate_metadata',before_ms:prior.ms,after_ms:current.ms,matches:current.values.length,results_equal:true}));
+            console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,query:'retention_candidate_metadata',before_ms:prior.ms,after_ms:current.ms,warm_control_ms:warmControl.ms,repeat_after_ms:repeat.ms,legacy_reader_results_equal:true,matches:current.values.length,results_equal:true}));
             '''
               result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','INDEX_DDL='+os.environ['INDEX_DDL'],'-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
@@ -2789,7 +2790,7 @@ jobs:
               value=json.loads(result.stdout)
               assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',value['sqlite_version'])
               assert value['results_equal'] is True and value['query']=='retention_candidate_metadata'
-              assert set(value)=={'snapshot_count','sqlite_version','index_build_ms','index_logical_growth_bytes','index_physical_growth_bytes','query','before_ms','after_ms','matches','results_equal'}
+              assert set(value)=={'snapshot_count','sqlite_version','index_build_ms','index_logical_growth_bytes','index_physical_growth_bytes','query','before_ms','after_ms','warm_control_ms','repeat_after_ms','legacy_reader_results_equal','matches','results_equal'}
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
               value.update(source_sha=os.environ['SCOPE_SOURCE_SHA'],index_ddl_sha256=os.environ['INDEX_SHA'],consistent_copy_bytes=size,copy_seconds=copied,production_index_created=False)
