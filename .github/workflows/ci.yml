@@ -326,7 +326,7 @@ jobs:
               functions=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name=='_catalog_revision']
               assert len(functions)==1
               body=ast.get_source_segment(source,functions[0]).encode()+b'\n'+Path('.github/ci/publication_revision_probe.py').read_bytes()
-          assert len(body)<=20480
+          assert len(body)<=24576
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('DRIFT_PROBE='+base64.b64encode(body).decode()+'\n')
               target.write('DRIFT_PROBE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
@@ -351,7 +351,7 @@ jobs:
             assert record['Image']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d'
             assert record['State']['Status']=='running' and record['State']['Health']['Status']=='healthy'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
-            assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
+            assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
             mode='${{ github.event.head_commit.message == 'Inspect weekly formula closure for accepted 43f10742' && 'weekly' || github.event.head_commit.message == 'Inspect snapshot stages for accepted 43f10742' && 'snapshot' || github.event.head_commit.message == 'Compare scoped retention for accepted 43f10742' && 'retention' || github.event.head_commit.message == 'Prove streamed plan revision for accepted 43f10742' && 'revision' || github.event.head_commit.message == 'Inspect exact signature gaps for accepted 43f10742' && 'identity' || github.event.head_commit.message == 'Inspect backup root coverage for accepted 43f10742' && 'coverage' || 'f20d108be83441189c665b5eca3fe7e1' }}'
             assert mode in {'weekly','snapshot','retention','revision','identity','coverage','f20d108be83441189c665b5eca3fe7e1'}
             command=['docker','exec','-i','--user','1000:1000',record['Id'],'/usr/bin/timeout']
@@ -2308,7 +2308,7 @@ jobs:
             installed=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
             assert installed['Config']['Labels']['org.opencontainers.image.revision']=='8d5522620fc5fb916334bd0fa12986efc7db58a5'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
-            assert len(body)<=20480 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
+            assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
             running=subprocess.check_output(['docker','ps','--quiet'],text=True,timeout=10).splitlines()
             assert 0<len(running)<=32
             containers=json.loads(subprocess.check_output(['docker','inspect',*running],text=True,timeout=20))
@@ -2368,7 +2368,7 @@ jobs:
                  '/opt/report-env/bin/python','-IB','-'],input=program,capture_output=True,text=True,timeout=15,check=False)
              if measured.returncode==0 and len(measured.stdout)<=4096:
               census=json.loads(measured.stdout)
-              assert set(census)=={'reviewed_cases','rule_cases','other_cases'}
+              assert set(census)=={'reviewed_cases','rule_cases','other_cases','signal_cases'}
               assert all(type(value) is int and 0<=value<=2**53-1 for value in census.values())
               print(json.dumps({'reviewed_case_census':census}),flush=True)
              else:print(json.dumps({'reviewed_case_census':'BOUNDED_READ_FAILED'}),flush=True)

@@ -130,7 +130,7 @@ class DriftProbeTests(unittest.TestCase):
                 ''')
             before = database.read_bytes()
             result = self.module.reviewed_case_census(database)
-            self.assertEqual(result, {'reviewed_cases': 3, 'rule_cases': 2, 'other_cases': 1})
+            self.assertEqual(result, {'reviewed_cases': 3, 'rule_cases': 2, 'other_cases': 1, 'signal_cases': 1})
             self.assertNotIn('PRIVATE', json.dumps(result))
             self.assertEqual(database.read_bytes(), before)
 

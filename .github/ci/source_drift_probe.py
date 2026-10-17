@@ -167,15 +167,16 @@ def reviewed_case_census(database):
     with closing(sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as connection:
         connection.execute('PRAGMA query_only=ON')
         connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
-        total, rules = connection.execute('''SELECT COUNT(*),
-            coalesce(sum(CASE WHEN detected_by LIKE 'rule:%' THEN 1 ELSE 0 END),0)
+        total, rules, signals = connection.execute('''SELECT COUNT(*),
+            coalesce(sum(CASE WHEN detected_by LIKE 'rule:%' THEN 1 ELSE 0 END),0),
+            coalesce(sum(CASE WHEN detected_by LIKE 'signal:%' THEN 1 ELSE 0 END),0)
             FROM issues WHERE status <> 'open' OR length(trim(coalesce(comment,''))) > 0
             OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id=issues.id)
             OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id=issues.id
                 AND audit_log.action='issue_comment')''').fetchone()
-    if any(type(v) is not int or not 0 <= v <= 2**53-1 for v in (total, rules)) or rules > total:
+    if any(type(v) is not int or not 0 <= v <= 2**53-1 for v in (total, rules, signals)) or rules + signals > total:
         raise ValueError('CASE_METADATA_INVALID')
-    return {'reviewed_cases': total, 'rule_cases': rules, 'other_cases': total-rules}
+    return {'reviewed_cases': total, 'rule_cases': rules, 'other_cases': total-rules, 'signal_cases': signals}
 
 
 def snapshot_stage_summary(database):
