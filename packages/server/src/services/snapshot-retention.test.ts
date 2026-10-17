@@ -200,6 +200,40 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     vi.resetModules();
   });
 
+  it.each([true, false])('does not scan protected JSON to select retention metadata (indexed=%s)', async indexed => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const payload = JSON.stringify({ metadata: { targetYear: null }, rowsByDept: {}, weeklyTableContext: {}, padding: 'x'.repeat(65536) });
+    for (let week = 0; week < 15; week++) db.insert(schema.snapshots).values({
+      id: `protected-${week}`, spreadsheetId: 'book',
+      createdAt: new Date((THU - week * 7) * 86400000).toISOString(), data: payload,
+    }).run();
+    for (const [id, data] of [['malformed', '{'], ['unknown-scope', '{}'],
+      ['text-year', '{"metadata":{"targetYear":"2026"}}']]) db.insert(schema.snapshots).values({
+      id, spreadsheetId: 'book', createdAt: new Date(THU * 86400000).toISOString(), data,
+    }).run();
+    const before = db.select().from(schema.snapshots).all();
+    if (!indexed) db.$client.exec('DROP INDEX IF EXISTS idx_snapshots_retention_metadata');
+    const inspectPayload = vi.fn((text: string, needle: string) => text.indexOf(needle) + 1);
+    db.$client.function('instr', { deterministic: true }, inspectPayload);
+    if (indexed) expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(0);
+    else db.$client.prepare(`SELECT instr(data, '"rowsByDept"'), instr(data, '"weeklyTableContext"') FROM snapshots NOT INDEXED`).all();
+    if (indexed) expect(inspectPayload).not.toHaveBeenCalled();
+    else expect(inspectPayload).toHaveBeenCalled();
+    expect(db.select().from(schema.snapshots).all()).toEqual(before);
+  });
+
+  it('preserves the prior retention winner when two snapshots have the same timestamp', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    for (const id of ['z-first', 'a-second']) db.insert(schema.snapshots).values({
+      id, spreadsheetId: 'book', createdAt: new Date(THU * 86400000).toISOString(),
+      data: '{"metadata":{"targetYear":null},"rowsByDept":{},"weeklyTableContext":{}}',
+    }).run();
+    expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(1);
+    expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots).all()).toEqual([{ id: 'z-first' }]);
+  });
+
   it('does not rescan case history when every snapshot is already retained', async () => {
     const { db, schema } = await import('../db/index.js');
     const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');

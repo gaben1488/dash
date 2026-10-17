@@ -235,6 +235,14 @@ export const SCHEMA_DDL = `
     CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
     created_at DESC
   );
+  -- Retention uses these exact scalar expressions, never historical payload per pass.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_retention_metadata ON snapshots(
+    id, created_at, spreadsheet_id,
+    CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END,
+    CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
+    instr(data, '"rowsByDept"') > 0,
+    instr(data, '"weeklyTableContext"') > 0
+  );
 
   -- Журнал и его статистика читают аудит-лог и историю замечаний окном по
   -- времени («последние 100», «за 30 дней»). Индекс по действию (выше) на этих

@@ -98,15 +98,17 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
   try {
     const rows = db
       .select({
-        id: schema.snapshots.id,
-        createdAt: schema.snapshots.createdAt,
-        spreadsheetId: schema.snapshots.spreadsheetId,
+        id: sql<string>`${schema.snapshots.id}`,
+        createdAt: sql<string>`${schema.snapshots.createdAt}`,
+        spreadsheetId: sql<string>`${schema.snapshots.spreadsheetId}`,
         yearType: sql<string | null>`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') END`,
         yearValue: sql<number | null>`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_extract(${schema.snapshots.data}, '$.metadata.targetYear') END`,
         hasRows: HAS_ROWS_SQL,
         hasWeeklyContext: HAS_WEEKLY_CONTEXT_SQL,
       })
-      .from(schema.snapshots)
+      .from(sql`${schema.snapshots} INDEXED BY idx_snapshots_retention_metadata`)
+      // Preserve the former table scan's tie order; sort only scalar index entries.
+      .orderBy(sql`${schema.snapshots}.rowid`)
       .all()
       // data NULL → instr даёт NULL → драйвер вернёт null: считаем бесстрочным.
       .map((r) => ({ id: r.id, createdAt: r.createdAt, spreadsheetId: r.spreadsheetId,
