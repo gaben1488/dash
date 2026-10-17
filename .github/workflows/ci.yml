@@ -2741,46 +2741,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      SCOPE_SOURCE_SHA: 8d5522620fc5fb916334bd0fa12986efc7db58a5
+      SCOPE_SOURCE_SHA: 78d293b217a8afe982583c73bc67aaccdb4d906c
     steps:
       - uses: actions/checkout@v4
-      - name: Bind only the reviewed metadata index DDL
+      - name: Bind the exact read-only candidate module against installed 8d
         run: |
           python3 - <<'PY'
           import base64,hashlib,os,re,subprocess
           sha=os.environ['SCOPE_SOURCE_SHA'];assert re.fullmatch('[a-f0-9]{40}',sha)
           subprocess.run(['git','fetch','--quiet','origin',sha],check=True,capture_output=True)
-          source=subprocess.check_output(['git','show',sha+':packages/server/src/db/ddl.ts'],text=True)
-          ddl=re.search(r'CREATE INDEX IF NOT EXISTS idx_snapshots_retention_metadata ON snapshots\([\s\S]*?;',source).group().encode()
-          assert 0<len(ddl)<=2048
+          module='packages/server/src/services/issue-decisions.ts'
+          changed=subprocess.check_output(['git','diff','--name-only','8d5522620fc5fb916334bd0fa12986efc7db58a5',sha],text=True).splitlines()
+          allowed={module,'packages/server/src/services/issue-decisions-history.test.ts','docs/PLAN.md','docs/RUNBOOK.md','docs/decisions/0012-bounded-dashboard-read-model.md','.mulch/expertise/aemr-server.jsonl'}
+          assert set(changed)<=allowed and module in changed
+          body=subprocess.check_output(['git','show',sha+':'+module])
+          assert 0<len(body)<=32768
           with open(os.environ['GITHUB_ENV'],'a') as target:
-           target.write('INDEX_DDL='+base64.b64encode(ddl).decode()+'\n')
-           target.write('INDEX_SHA='+hashlib.sha256(ddl).hexdigest()+'\n')
-          PY
+           target.write('CASE_SOURCE='+base64.b64encode(body).decode()+'\n')
+           target.write('CASE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
       - name: Profile the actual installed decision reader on one isolated SQLite copy
         uses: appleboy/ssh-action@v1.2.0
         env:
-          INDEX_DDL: ${{ env.INDEX_DDL }}
-          INDEX_SHA: ${{ env.INDEX_SHA }}
+          CASE_SOURCE: ${{ env.CASE_SOURCE }}
+          CASE_SHA: ${{ env.CASE_SHA }}
           SCOPE_SOURCE_SHA: ${{ env.SCOPE_SOURCE_SHA }}
         with:
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: INDEX_DDL,INDEX_SHA,SCOPE_SOURCE_SHA
+          envs: CASE_SOURCE,CASE_SHA,SCOPE_SOURCE_SHA
           timeout: 60s
           command_timeout: 7m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=INDEX_DDL,INDEX_SHA,SCOPE_SOURCE_SHA python3 -IB - <<'PYSCOPE'
+            sudo -n --preserve-env=CASE_SOURCE,CASE_SHA,SCOPE_SOURCE_SHA python3 -IB - <<'PYSCOPE'
             import base64,hashlib,json,os,re,shutil,sqlite3,subprocess,tempfile,time
             from pathlib import Path
             from contextlib import closing
             def probe():
              os.umask(0o077);os.nice(15)
              deadline=time.monotonic()+360
-             ddl=base64.b64decode(os.environ['INDEX_DDL'],validate=True)
-             assert 0<len(ddl)<=2048 and hashlib.sha256(ddl).hexdigest()==os.environ['INDEX_SHA']
+             candidate_source=base64.b64decode(os.environ['CASE_SOURCE'],validate=True)
+             assert 0<len(candidate_source)<=32768 and hashlib.sha256(candidate_source).hexdigest()==os.environ['CASE_SHA']
              assert re.fullmatch('[a-f0-9]{40}',os.environ['SCOPE_SOURCE_SHA'])
              record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
              assert record['Image']=='sha256:cba048d9637b20afdcf9f9505cb076ca975cf8722bb33c0144b0a81c5d499f0e' and record['State']['Running']
@@ -2789,6 +2791,7 @@ jobs:
              parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
              work=Path(tempfile.mkdtemp(prefix='snapshot-index-',dir=parent));database=work/'aemr.db'
              probe_name='aemr-'+work.name
+             (work/'candidate.ts').write_bytes(candidate_source)
              try:
               with closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as src:
                src.execute('PRAGMA query_only=ON')
@@ -2805,29 +2808,36 @@ jobs:
             const {createHash}=await import('node:crypto');
             const {db}=await import('./src/db/index.ts');
             const {overlayPersistedStatus}=await import('./src/services/issue-decisions.ts');
-            db.$client.pragma('cache_size=-32768');db.$client.pragma('temp_store=FILE');
+            const {overlayPersistedStatus: candidateRead}=await import('./src/services/issue-decisions-candidate.ts');
+            db.$client.pragma('cache_size=-32768');db.$client.pragma('temp_store=FILE');db.$client.pragma('query_only=ON');
             const stored=db.$client.prepare('SELECT data FROM snapshots ORDER BY created_at DESC LIMIT 1').get();
             if(!stored||typeof stored.data!=='string'||stored.data.length>64*1024*1024)throw Error('PROFILE_SNAPSHOT_BUDGET');
             const snapshot=JSON.parse(stored.data),ids=new Set(snapshot.issues.map(i=>i.id));
             const cases=db.$client.prepare(`SELECT id FROM issues WHERE status<>'open' OR length(trim(coalesce(comment,'')))>0 OR EXISTS(SELECT 1 FROM issue_history WHERE issue_id=issues.id) OR EXISTS(SELECT 1 FROM audit_log WHERE entity_id=issues.id AND action='issue_comment')`).all();
-            let queries=0;const original=db.$client.prepare;
-            db.$client.prepare=function(sql,...args){if(sql.includes('instr(')&&sql.includes('snapshots')){queries++;console.log(JSON.stringify({phase:'HISTORICAL_LOOKUP',query:queries}));}return original.call(this,sql,...args)};
+            let queries=0,implementation='BASELINE';const original=db.$client.prepare;
+            db.$client.prepare=function(sql,...args){if(sql.includes('instr(')&&sql.includes('snapshots')){queries++;console.log(JSON.stringify({phase:'HISTORICAL_LOOKUP',implementation,query:queries}));}return original.call(this,sql,...args)};
             console.log(JSON.stringify({phase:'DECISION_PROFILE_BEGIN',saved_cases:cases.length,missing_saved_cases:cases.filter(c=>!ids.has(c.id)).length,current_issue_count:snapshot.issues.length,snapshot_scope:snapshot.metadata.targetYear??null}));
-            const start=performance.now(),cpu=process.cpuUsage();
-            const result=overlayPersistedStatus(snapshot.issues,snapshot),used=process.cpuUsage(cpu);
-            console.log(JSON.stringify({phase:'DECISION_PROFILE_COMPLETE',elapsed_ms:Math.round(performance.now()-start),cpu_ms:Math.round((used.user+used.system)/1000),history_queries:queries,result_count:result.length,result_sha256:createHash('sha256').update(JSON.stringify(result.map(i=>[i.id,i.status]))).digest('hex')}));
+            function run(read,label){implementation=label;queries=0;const start=performance.now(),cpu=process.cpuUsage();
+            const result=read(snapshot.issues,snapshot),used=process.cpuUsage(cpu),serialized=JSON.stringify(result);
+            console.log(JSON.stringify({phase:'DECISION_PROFILE_COMPLETE',implementation,elapsed_ms:Math.round(performance.now()-start),cpu_ms:Math.round((used.user+used.system)/1000),history_queries:queries,result_count:result.length,result_sha256:createHash('sha256').update(serialized).digest('hex')}));return serialized;}
+            const before=run(overlayPersistedStatus,'BASELINE'),after=run(candidateRead,'CANDIDATE');
+            if(before!==after)throw Error('DECISION_RESULTS_CHANGED');
+            console.log(JSON.stringify({phase:'DECISION_PROFILE_EQUIVALENCE',results_equal:true}));
             db.$client.close();
             '''
-              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','SQLITE_PATH=/probe/aemr.db','-e','NODE_ENV=test','-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
+              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-v',str(work/'candidate.ts')+':/app/packages/server/src/services/issue-decisions-candidate.ts:ro','-e','SQLITE_PATH=/probe/aemr.db','-e','NODE_ENV=test','-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
               (work/'native.stdout').write_text(result.stdout[:16384])
               assert len(result.stdout)<=8192
               rows=[json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"phase":')]
-              assert all(set(row)<={'phase','saved_cases','missing_saved_cases','current_issue_count','snapshot_scope','query','elapsed_ms','cpu_ms','history_queries','result_count','result_sha256'} for row in rows)
+              assert all(set(row)<={'phase','implementation','results_equal','saved_cases','missing_saved_cases','current_issue_count','snapshot_scope','query','elapsed_ms','cpu_ms','history_queries','result_count','result_sha256'} for row in rows)
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
-              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'source_sha':os.environ['SCOPE_SOURCE_SHA'],'records':rows}}),flush=True)
+              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'candidate_source_sha':os.environ['SCOPE_SOURCE_SHA'],'candidate_module_sha256':os.environ['CASE_SHA'],'base_source_sha':'8d5522620fc5fb916334bd0fa12986efc7db58a5','records':rows}}),flush=True)
               (work/'result.json').write_text(json.dumps({'exit_code':result.returncode,'records':rows}))
+              assert result.returncode==0
+              assert len([row for row in rows if row['phase']=='DECISION_PROFILE_COMPLETE'])==2
+              assert rows[-1]=={'phase':'DECISION_PROFILE_EQUIVALENCE','results_equal':True}
              finally:
               running=subprocess.run(['docker','inspect',probe_name],capture_output=True,text=True,timeout=10,check=False)
               if running.returncode==0:
@@ -2840,7 +2850,7 @@ jobs:
               if not any(work.iterdir()):work.rmdir()
             try:probe()
             except Exception:
-             print('ISOLATED_SNAPSHOT_SCOPE_PROBE_FAILED')
+             print('ISOLATED_DECISION_PROFILE_FAILED')
              raise SystemExit(2) from None
             PYSCOPE
 
