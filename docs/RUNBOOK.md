@@ -17,6 +17,21 @@ Expected endpoints:
 
 ## Verification
 
+Runtime17.10.2026 — `78d293b2`, release39029386193 SUCCESS12:17UTC.
+Keeper worker-39029386193/backup:21 063 718 219logicalB/3621entries,
+archive3 185 621 581B; manifestd3d8284f…/triald35ff48d…; оба restore
+110SQLite/263DOCX, native API/3Word/health/resume PASS. Точные хэши, образы,
+версионные границы и native parity — текущий раздел PLAN/#93.
+Observer39031123999 ещё идёт:71ba141d VERIFIED_WITH_WARNINGS,
+76011432 RUNNING12:44:16UTC. Не пересоздавать контейнеры во время приёмки.
+Desktop39033073610 отказал на Word readiness; iPhoneGTK39033074571 —
+на перекрытом нажатии Word после13страниц/фильтров/Undo. Native selectedGET200
+за2,595–3,718с не закрывает браузерный отказ. Полная приёмка пока не заявлена.
+Новые Header35363516 и comment parser18b2ef3d проверены локально, не установлены.
+Не подменять установленную78d новым исходным HEAD при чтении старых receipts.
+
+История8d (следующая запись не является текущим состоянием):
+
 Текущий runtime17.10.2026 — `8d552262`; release39023590292 SUCCESS,
 но fullacceptance FAIL: APIguardrestart10:48:30, desktopWordstatus502,
 iPhone dashboard502, observer39024988744 REJECTED/historyFAIL.

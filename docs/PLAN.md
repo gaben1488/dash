@@ -5,7 +5,81 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026, 11:22 UTC
+### Текущий выпуск — 17.10.2026, 12:48 UTC
+
+Установлен `78d293b217a8afe982583c73bc67aaccdb4d906c`:
+[release39029386193](https://github.com/gaben1488/dash/actions/runs/39029386193)
+SUCCESS. Оба восстановления нового/предыдущего runtime проверили110SQLite и
+263DOCX. Checkpoint21 063 718 219logicalB/3621entries, архив3 185 621 581B;
+manifest `d3d8284f7dab04313f36a9df862b814532e59f9cae43fc574970e1b656a1a10d`,
+trial `d35ff48d3ec4411341d5a881d629f839218d43aa9dafde9d8f4488ca54befeae`.
+Keeper worker-39029386193/backup. API/worker image
+`sha256:8e81e27ee31262a9f145f3a5927c1bc05d0cbe19a0413e7c074700dc9bebadfb`;
+web `sha256:aa172137b99bcf2b25bf1d9f5c10ddb81fc97a80a7734aba719bab41ad0ea9f0`.
+Native API/3Word/health/resume PASS12:17UTC. Прежний8d backup archive retired
+только после проверенного нового восстановления; физически освобождённые блоки
+отдельно не измерены. Полный CI39028636423 после установленного78d прошёл live
+Header/425metricnodes/0contradictions/77annualrecoveries и selectedWord contract.
+Это не заменяет последующую браузерную и worker приёмку.
+
+Причина лишних исторических сканов устранена в78d: известные pipeline-дела не
+отправляются в rule-only перепривязку. На одной native копии478420992B:
+6historyqueries/17315ms/6195CPUms →0/1869ms/906CPUms при0,5CPU;
+все1320полных issue objects эквивалентны, hash
+`ce5e582a70d047f00de83ec3b79fbea4b0733d766a9fe8d2131bdf4dfb794490`.
+[Parity39028691802](https://github.com/gaben1488/dash/actions/runs/39028691802).
+Legacy producer/null/неоднозначные исторические учреждения сохраняют полную
+проверку; небезопасный отбор только по текущему адресу отклонён тестом.
+
+[Observer39031123999](https://github.com/gaben1488/dash/actions/runs/39031123999)
+вооружён до активации. Первый новый71ba141d:12:18:30–12:28:41UTC,
+VERIFIED_WITH_WARNINGS. Второй76011432 начался12:44:16UTC и ещё наблюдается;
+не объявлять два цикла до terminal/native/FLOCK receipts. API StartedAt
+12:16:28 неизменен, OOM=false/restarts0 через readback39033749163. Три public
+health во время второго цикла:200/10loaded/0failed,761,8–1900,5ms из этого
+runner; это не cold benchmark и не измерение с VPS.
+
+Полная браузерная приёмка78d пока отказала. Desktop39033073610:
+13разделов/фильтры/Undo PASS, Word CHECKING timeout. iPhoneGTK39033074571:
+13разделов/фильтры/Undo PASS, selectedGET200, но кнопку Word перекрывает другой
+элемент. Статус не повышен и лимиты не увеличены. Independent native selected
+GET39033307704:200/4 582 665B за2,595 и3,718с. Следующая ограниченная диагностика
+разделяет UI/network/перекрытие, сохраняя отказ исходного сценария.
+
+Следующий интерфейсный diff `35363516` проверен отдельно и **не установлен**:
+закольцован настоящий NavPills в обе стороны без копий маршрутов; всегда три
+ряда,13кнопок, wheel/touch/keyboard, Home/End и внешний activePage. Палитры13страниц
+сведены в один каталог с цветами shield/выбранных кнопок/недели; устранён
+оставшийся чёрный текст недель и пустая filter rail «Системы». Разметка барабанов,
+нижнее положение фильтров и независимые организационные цвета сохранены.
+Actual compiled Header35363516:13Chromium browser tests PASS (desktop/touch,
+26theme/page combinations); физический iPhone/Safari и весь13-page UX не приняты.
+Полный локальный TS:743/1887(+1skip)/1059/2340,4tsc, lint0errors/302existing
+warnings, webbuild PASS. Это не CI/установка нового полного кандидата.
+Отдельный `18b2ef3d` исправляет malformed native-comment collections/geometry:
+не выдумывает пустой список или нулевой адрес, сохраняет уже доказанные записи;
+47focused/1059server PASS. Весь продуктовый журнал K06 этим не закрыт.
+
+Уточнение17.10 по целевой миграции: экономное content-addressed хранение,
+отдельные наблюдения и semantic diff применяются ко всем потребителям provenance,
+а не одному worker. Инвентаризация checkpoint по уже сохранённым hashes:
+2490regular files,21 063 718 219logicalB,19 936 437 894unique-contentB,
+1 127 280 325duplicate-logicalB/132groups. Это не измерение освобождаемых блоков,
+повторная проверка всех hashes или список на удаление. Следующий участок должен
+сохранить ссылки выпусков/истории/незавершённых операций, исходные доказательства,
+фактические provider revisions и кратность сущностей. Один hash не равен ID закупки.
+Требование распространяется на все13вкладок, backend/frontend/Word и полный
+редактор всех строк/ячеек/формул с конфликтами/отменой/историей и рабочей mobile.
+
+Приложение о polling прочитано и сверено с78d:20s SSE heartbeat и30s capped
+reconnect — транспорт; текущий60s Header quickRefresh отдельно принуждает
+повторное получение и включает global loading. Не отключать этот таймер до
+проверенного общего version/catch-up пути, включая restart/gap/reconnect и
+конечный retry после transient failure. Не размножать независимые refresh loops.
+Все56обязательств, K02scorer/общий input/официальная экономия/полный журнал/
+RBAC/редактор/mobile остаются в прежних строках; ближайшая поставка конечна.
+
+### История отказавшего выпуска8d — 17.10.2026, 11:22 UTC
 
 Установлен `8d5522620fc5fb916334bd0fa12986efc7db58a5`, но полная приёмка
 **отказала**. [Release39023590292](https://github.com/gaben1488/dash/actions/runs/39023590292)
