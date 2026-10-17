@@ -1348,8 +1348,9 @@ jobs:
           import ast,base64,hashlib,os
           from pathlib import Path
           source=Path('.github/ci/source_drift_probe.py').read_text()
-          node=next(node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name=='checkpoint_content_summary')
-          body=('import re\nfrom pathlib import Path\n'+ast.get_source_segment(source,node)).encode()
+          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'checkpoint_content_summary','image_storage_summary'}]
+          assert len(nodes)==2
+          body=('import re\nfrom pathlib import Path\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in nodes)).encode()
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('CONTENT_PROJECTOR='+base64.b64encode(body).decode()+'\n')
               target.write('CONTENT_PROJECTOR_SHA='+hashlib.sha256(body).hexdigest()+'\n')
@@ -1696,6 +1697,11 @@ jobs:
                 namespace={'__name__':'checkpoint_content_projector'}
                 exec(compile(code,'<reviewed-checkpoint-projector>','exec'),namespace)
                 print(json.dumps({'checkpoint_content_storage':namespace['checkpoint_content_summary'](value['files'])}),flush=True)
+                identities=sorted(set(subprocess.check_output(['docker','image','ls','--all','--quiet','--no-trunc'],text=True,timeout=20).split()))
+                assert len(identities)<=256 and all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for identity in identities)
+                images=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30)) if identities else []
+                referenced={row['image'] for row in snapshot(lambda args:subprocess.check_output(args,text=True,timeout=20)) if row['image']}
+                print(json.dumps({'image_storage_inventory':namespace['image_storage_summary'](images,referenced)}),flush=True)
                 # Planning scalars only; this live inventory is not an atomic backup or release admission.
                 import shutil
                 source=Path('/var/lib/docker/volumes/aemr_server_data/_data')

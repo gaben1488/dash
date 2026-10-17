@@ -47,6 +47,31 @@ def checkpoint_content_summary(files):
                         for key, value in sorted(classes.items())}}
 
 
+def image_storage_summary(images, referenced):
+    """Logical image census only; shared layers and protected rollback roots need separate proof."""
+    if not isinstance(images,list) or len(images)>256:
+        raise ValueError('IMAGE_INVENTORY_INVALID')
+    seen,rows=set(),[]
+    for image in images:
+        if not isinstance(image,dict):
+            raise TypeError('IMAGE_INVENTORY_INVALID')
+        identity,size=image.get('Id'),image.get('Size')
+        if (not isinstance(identity,str) or not re.fullmatch('sha256:[a-f0-9]{64}',identity)
+                or identity in seen or type(size) is not int or not 0<=size<=2**63-1):
+            raise ValueError('IMAGE_INVENTORY_INVALID')
+        seen.add(identity)
+        tags=image.get('RepoTags') or []
+        if not isinstance(tags,list) or len(tags)>64 or any(not isinstance(tag,str) for tag in tags):
+            raise ValueError('IMAGE_INVENTORY_INVALID')
+        labels=(image.get('Config') or {}).get('Labels') or {}
+        revision=labels.get('org.opencontainers.image.revision')
+        rows.append({'image':identity,'logical_bytes':size,'referenced_by_container':identity in referenced,
+                     'release_tags':[tag for tag in tags if re.fullmatch(r'aemr-(?:server|web):release-[a-f0-9]{40}',tag)],
+                     'source_sha':revision if isinstance(revision,str) and re.fullmatch('[a-f0-9]{40}',revision) else None})
+    return {'image_count':len(rows),'logical_image_bytes':sum(row['logical_bytes'] for row in rows),
+            'physical_shared_layers_measured':False,'deletion_plan':False,'images':rows}
+
+
 def retention_query_summary(database):
     """Compare query cost on one read transaction; no retention/deletion runs.
 

@@ -7,6 +7,25 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_image_inventory_projects_only_release_metadata_and_references(self):
+        import json
+
+        images=[{'Id':'sha256:'+'a'*64,'Size':100,'RepoTags':['aemr-server:release-'+'b'*40,'PRIVATE_REPOSITORY'],
+                 'Config':{'Env':['SECRET=PRIVATE_VALUE'],'Labels':{'org.opencontainers.image.revision':'b'*40}}},
+                {'Id':'sha256:'+'c'*64,'Size':200,'RepoTags':None,'Config':{}}]
+        result=self.module.image_storage_summary(images,{'sha256:'+'a'*64})
+        self.assertEqual(result['logical_image_bytes'],300)
+        self.assertEqual([v['referenced_by_container'] for v in result['images']],[True,False])
+        self.assertFalse(result['physical_shared_layers_measured'])
+        self.assertFalse(result['deletion_plan'])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+
+    def test_image_inventory_rejects_ambiguous_or_unbounded_input(self):
+        image={'Id':'sha256:'+'a'*64,'Size':100,'RepoTags':[],'Config':{}}
+        for images in ([image,image],[{**image,'Size':True}],[{**image,'Id':'bad'}],[image]*257):
+            with self.subTest(images=len(images)),self.assertRaises(ValueError):
+                self.module.image_storage_summary(images,set())
+
     def test_checkpoint_inventory_counts_equal_content_without_merging_entities_or_leaking_paths(self):
         import json
 
