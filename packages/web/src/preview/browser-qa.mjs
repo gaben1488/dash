@@ -91,7 +91,7 @@ try{
    fail('Original 3-row cylinder not functioning: '+JSON.stringify(navGeometry));
  // Browser gate for the real animated circular drum, not just a modulo helper.
  const navGroups=['Обзор','Реестры','Разборы','Надзор'];
- const centerLabel=async()=>(await page.locator('.dash-source-navigation .vkladki-stroka--centr .vkladki-imya-gruppy').innerText()).trim();
+ const centerLabel=async()=>(await page.locator('.dash-source-navigation .vkladki-stroka--centr .vkladki-imya-gruppy').textContent()??'').trim();
  const initialGroup=await centerLabel();
  const start=navGroups.indexOf(initialGroup);
  if(start<0)fail('Unknown initial source navigation centre: '+initialGroup);
