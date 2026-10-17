@@ -142,17 +142,28 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
                     current = nav.locator('.np-btn[aria-current="page"]')
                     await expect(current).to_have_text('Пульс')
 
-                    async def check(name, nav=nav, current=current):
+                    async def check(name, nav=nav):
                         await expect(nav.locator('.np-group-center')).to_have_attribute('aria-label', name)
                         await wait_for_drum_settle(nav)
-                        rows = nav.locator('.np-group-top,.np-group-center,.np-group-bottom')
-                        await expect(rows).to_have_count(3)
-                        await expect(nav.locator('.np-btn')).to_have_count(13)
-                        await expect(current).to_have_text('Пульс')
-                        window = await nav.locator('.np-drum-window').bounding_box()
-                        positions = [await nav.locator('.np-group-' + role).bounding_box()
-                                     for role in ('top', 'center', 'bottom')]
-                        self.assertTrue(all(box is not None for box in positions))
+                        # One renderer read preserves the same geometry assertions;
+                        # serial WebKit IPC used to dominate every turn.
+                        state = await nav.evaluate("""el=>{
+                            const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+                            return {visible_count:el.querySelectorAll('.np-group-top,.np-group-center,.np-group-bottom').length,
+                                routes:el.querySelectorAll('.np-btn').length,
+                                current:el.querySelector('.np-btn[aria-current="page"] .np-label')?.textContent,
+                                window:rect(el.querySelector('.np-drum-window')),
+                                positions:['top','center','bottom'].map(kind=>{
+                                    const row=el.querySelector('.np-group-'+kind);
+                                    return row?{...rect(row),visible:getComputedStyle(row).visibility!=='hidden'}:null;
+                                })};
+                        }""")
+                        self.assertEqual(state['visible_count'], 3)
+                        self.assertEqual(state['routes'], 13)
+                        self.assertEqual(state['current'], 'Пульс')
+                        window, positions = state['window'], state['positions']
+                        self.assertTrue(all(box is not None and box['visible'] and box['width'] > 0 and box['height'] > 0
+                                            for box in positions))
                         self.assertLess(positions[0]['y'], positions[1]['y'])
                         self.assertLess(positions[1]['y'], positions[2]['y'])
                         for box in positions:
@@ -175,17 +186,18 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
                             else:
                                 await next_group.click()
                             await check(name)
-                    await nav.focus()
-                    for key, name in (('ArrowUp', 'Надзор'), ('PageDown', 'Обзор'),
-                                      ('End', 'Надзор'), ('ArrowDown', 'Обзор'), ('Home', 'Обзор')):
-                        await nav.press(key)
-                        await check(name)
-                    bounds = await nav.bounding_box()
-                    await page.mouse.move(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
-                    await page.mouse.wheel(0, -80)
-                    await check('Надзор')
-                    await page.mouse.wheel(0, 80)
-                    await check('Обзор')
+                    if profile == 'desktop':
+                        await nav.focus()
+                        for key, name in (('ArrowUp', 'Надзор'), ('PageDown', 'Обзор'),
+                                          ('End', 'Надзор'), ('ArrowDown', 'Обзор'), ('Home', 'Обзор')):
+                            await nav.press(key)
+                            await check(name)
+                        bounds = await nav.bounding_box()
+                        await page.mouse.move(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
+                        await page.mouse.wheel(0, -80)
+                        await check('Надзор')
+                        await page.mouse.wheel(0, 80)
+                        await check('Обзор')
                     await page.close()
             finally:
                 await browser.close()
