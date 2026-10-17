@@ -69,10 +69,20 @@ def admit_runtime(plan,marker,stage,containers):
     return protected
 
 
+def registry_references(image):
+    refs=image.get('RepoDigests')
+    if refs is None:refs=[]
+    if not isinstance(refs,list) or any(not isinstance(value,str) or not value for value in refs):
+        raise ValueError('IMAGE_ARCHIVE_REGISTRY_REFERENCE_INVALID')
+    return sorted(refs)
+
+
 def verify_loaded_image(original,loaded):
     admit_image(original,[],set());admit_image(loaded,[],set())
     if any(original.get(key)!=loaded.get(key) for key in ('Id','Config','RootFS','Os','Architecture')):
         raise ValueError('IMAGE_ARCHIVE_LOADED_IMAGE_MISMATCH')
+    if registry_references(original)!=registry_references(loaded):
+        raise ValueError('IMAGE_ARCHIVE_REGISTRY_REFERENCE_MISMATCH')
 
 
 def compress_archive(raw,target,*,max_bytes=MAX_ARCHIVE,reserve_bytes=RESERVE):

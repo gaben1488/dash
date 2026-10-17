@@ -45,6 +45,14 @@ class ImageArchiveTests(unittest.TestCase):
             with self.subTest(changed=changed),self.assertRaises(ValueError):
                 self.m.verify_loaded_image(self.image,{**self.image,**changed})
 
+    def test_roundtrip_preserves_every_registry_reference_without_losing_multiplicity(self):
+        refs=['aemr-server@sha256:'+'b'*64,'other/repository@sha256:'+'a'*64]
+        original={**self.image,'RepoDigests':refs}
+        self.m.verify_loaded_image(original,{**original,'RepoDigests':list(reversed(refs))})
+        for changed in (None,[],refs[:1],[refs[0],refs[0]],[*refs,refs[0]],'invalid'):
+            with self.subTest(changed=changed),self.assertRaisesRegex(ValueError,'REGISTRY_REFERENCE'):
+                self.m.verify_loaded_image(original,{**original,'RepoDigests':changed})
+
     def test_compression_preserves_bytes_with_an_exclusive_private_output(self):
         with tempfile.TemporaryDirectory() as folder:
             raw=Path(folder)/'raw.tar';target=Path(folder)/'archive.gz'
