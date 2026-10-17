@@ -2364,9 +2364,10 @@ jobs:
         inputs.release_sha == 'd40222eac54d7cf9df13b04c5cbb32925c0e1115') ||
        (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted d40222ea'))
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 70
     concurrency:
-      group: deploy-vps
+      # This job only reads runtime after exact acceptance; it must not block activation.
+      group: worker-observe-readonly
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -2374,7 +2375,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Prove normal-release observation needs no repair receipt
-        run: bash .github/ci/run_attempt_readback_tests.sh "$(command -v python)"
+        run: |
+          bash .github/ci/run_attempt_readback_tests.sh "$(command -v python)"
+          python .github/ci/test_worker_release_wait.py
       - name: Observe current accepted worker cycles without restarting or restoring any service
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -2382,7 +2385,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 47m
+          command_timeout: 67m
           script: |
             set -euo pipefail
             observer='d40222eac54d7cf9df13b04c5cbb32925c0e1115'
@@ -2405,10 +2408,10 @@ jobs:
                             if not re.fullmatch('[A-Za-z0-9_-]{1,128}',status['attempt_id']):raise m.RecoveryError('WORKER_CYCLE_PROOF_INVALID')
                             attributed.add(status['attempt_id'])
                             save('attribution-'+status['attempt_id']+'.json',{'started_at':status['started_at'],'double_host_flock':True,'samples':list(samples)})
-                    accepted=m.accept_cycle(status,observation_since,seen,attributed,interval)
+                    accepted=m.accept_cycle(status,eligibility_since,seen,attributed,interval)
                     if (status.get('status')=='NOT_ISSUED' and status.get('error_code')=='SOURCE_CHANGED_BEFORE_PUBLICATION'
                         and status.get('failure_stage')=='publication'
-                        and m.datetime.fromisoformat(status['started_at'])>=m.datetime.fromisoformat(observation_since)):
+                        and m.datetime.fromisoformat(status['started_at'])>=m.datetime.fromisoformat(eligibility_since)):
                         save('rejected-cycle.json',{key:status[key] for key in
                             ('status','attempt_id','started_at','finished_at','failure_stage','error_code')})
                         raise m.RecoveryError('WORKER_NEW_CYCLE_SOURCE_CHANGED')
@@ -2422,7 +2425,8 @@ jobs:
                         print('WORKER_AUTONOMOUS_CYCLE_'+str(len(seen))+'_AND_THREE_WORDS_PASS',flush=True)
                     if len(seen)==2:
                         return {'state':'TWO_AUTONOMOUS_CYCLES_VERIFIED','worker':worker_id,'worker_image':image,
-                            'worker_started_at':since,'observation_since':observation_since,'attempt_ids':sorted(seen),'native_word':'PASS',
+                            'worker_started_at':since,'observation_since':observation_since,'eligibility_since':eligibility_since,
+                            'attempt_ids':sorted(seen),'native_word':'PASS',
                             'attempt_proofs_verified':len(attempt_proofs),
                             'reference_attempts_verified':sum(p['coverage']=='OBSERVED' for p in attempt_proofs)}
                     time.sleep(5)
@@ -2430,13 +2434,17 @@ jobs:
             try:
                 os.umask(0o077)
                 assert os.geteuid()==0 and re.fullmatch('[a-f0-9]{40}',sys.argv[1]) and re.fullmatch('[0-9]+',sys.argv[2]) and re.fullmatch('[1-9][0-9]*',sys.argv[3])
+                observation_since=datetime.now(timezone.utc).isoformat()
+                print(json.dumps({'observer_armed_at':observation_since,'waiting_for_release':sys.argv[1]}),flush=True)
                 tools=Path('/usr/local/libexec/aemr');sys.path.insert(0,str(tools))
                 import release_recovery as r
-                plan=r.validate_plan(json.loads(r.read_owned(r.RUNTIME_DIR/'trial-plan.json')))
+                def git(*args):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args],timeout=30)
+                waiter=types.ModuleType('worker_release_wait');waiter.__file__=str(tools/'worker-release-wait-source.py')
+                exec(compile(git('show','${{ github.sha }}:.github/ci/worker_release_wait.py'),waiter.__file__,'exec'),waiter.__dict__)
+                plan=waiter.wait_for_release(sys.argv[1],r)
                 accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
                 assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
                 sha=plan['release_sha']
-                def git(*args):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args],timeout=30)
                 changed=git('diff','--name-only',sha,sys.argv[1]).decode().splitlines()
                 assert all((name.startswith(('.github/','docs/')) or name in {'AGENTS.md','CLAUDE.md'}) and name!='.github/ci/header_api_probe.mjs' for name in changed)
                 window=json.loads(r.read_owned(r.BACKUP_BASE/Path(plan['backup_reference']).parent/'release-window.json'))
@@ -2463,6 +2471,7 @@ jobs:
                 assert sha==sys.argv[1] and plan['original_running']['report-worker'] is True
                 assert baseline['report-worker']['State']['Status']=='running'
                 since=baseline['report-worker']['State']['StartedAt'];interval=900
+                eligibility_since=waiter.cycle_cutoff(observation_since,since)
                 cmd=baseline['report-worker']['Config']['Cmd'];assert cmd[cmd.index('--interval-seconds')+1]=='900'
                 session_created=False
                 session=r.STATE_DIR/'worker-quarantine'/('acceptance-'+sys.argv[2]+'-'+sys.argv[3]);session.mkdir(mode=0o700);session_created=True
@@ -2512,8 +2521,8 @@ jobs:
                         raise m.RecoveryError('WORKER_ATTEMPT_PROOF_CHECK_FAILED') from None
                     finally:
                         permitted_proofs.discard(tuple(command))
-                observation_since=datetime.now(timezone.utc).isoformat()
-                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,'source_sha':sha,
+                save('observation.json',{'worker_started_at':since,'observation_since':observation_since,
+                    'eligibility_since':eligibility_since,'activation_wait_limit_seconds':1200,'source_sha':sha,
                     'start_provenance':'CONTROLLED_RELEASE_ACCEPTANCE'})
                 result=observe();check()
                 manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
@@ -2543,8 +2552,10 @@ jobs:
                 save('result.json',result);print('TWO_AUTONOMOUS_CYCLES_VERIFIED_AND_SEALED_HISTORY_UNCHANGED')
             except Exception as error:
                 code=str(error) if type(error).__name__=='RecoveryError' and re.fullmatch('[A-Z_]{5,100}',str(error)) else 'WORKER_OBSERVATION_REJECTED'
+                if (isinstance(error,getattr(globals().get('waiter'),'WorkerReleaseWaitError',()))
+                    and str(error) in {'WORKER_RELEASE_WAIT_TIMED_OUT','WORKER_RELEASE_ACCEPTANCE_INVALID'}):code=str(error)
                 if globals().get('session_created'):save('pending.json',{'state':'NOT_ACCEPTED','reason':code})
-                print(code);raise SystemExit(3 if code=='WORKER_TWO_CYCLES_TIMED_OUT' else 2) from None
+                print(code);raise SystemExit(3 if code in {'WORKER_TWO_CYCLES_TIMED_OUT','WORKER_RELEASE_WAIT_TIMED_OUT'} else 2) from None
             PYACCEPTCURRENT
       - name: Check actual historical schemas independently of timer acceptance
         if: always()
