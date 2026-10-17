@@ -28,6 +28,22 @@ class PublicationDedupTests(unittest.TestCase):
         (self.source/status).write_bytes(path.read_bytes());self.files[status]=dict(self.files[relative])
         self.assertEqual(len(self.m.plan_dedup(self.source,self.files,self.catalog,min_bytes=1,frozen_attempts={attempt})[0]),4)
 
+    def test_finished_build_output_scope_is_explicit_and_does_not_admit_mutable_neighbors(self):
+        attempt='a'*32
+        outputs=('capture.json','bundle/report_model.json','bundle/snapshot.json',
+                 'bundle/diagnostic_protocol.json','bundle/snapshot_bundle/manifest.json')
+        blocked=('status.json','error.json','identity.sqlite','bundle/identity.sqlite',
+                 'bundle/custom.json','bundle/nested/report_model.json')
+        for name in (*outputs,*blocked):
+            relative=f'reports/attempts/{attempt}/{name}'
+            path=self.source/relative;path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(self.paths[0].read_bytes())
+            self.files[relative]=dict(next(iter(self.files.values())))
+        groups=self.m.plan_dedup(self.source,self.files,self.catalog,min_bytes=1,frozen_attempts={attempt})
+        actual={item['relative'] for group in groups for item in group}
+        self.assertEqual(actual,set(self.files)-{f'reports/attempts/{attempt}/{name}' for name in blocked})
+        self.assertEqual(sum(len(group) for group in self.plan()),3)
+
     def setUp(self):
         spec=importlib.util.spec_from_file_location('dedup',SCRIPT)
         self.m=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.m)

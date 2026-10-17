@@ -46,7 +46,7 @@ def _checked_file(root, relative, expected):
 
 def plan_dedup(source, files, catalog, *, min_bytes=1024**2, frozen_attempts=()):
     # Caller must prove terminal status before admitting an attempt. Only its
-    # build-once source payloads qualify; mutable status/DB/ledger never do.
+    # explicit build-once JSON outputs qualify; mutable status/DB/ledger never do.
     if (not isinstance(frozen_attempts,(set,frozenset,tuple,list))
             or any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{32}',value) for value in frozen_attempts)):
         raise ValueError('DEDUP_ATTEMPT_SCOPE_INVALID')
@@ -59,7 +59,7 @@ def plan_dedup(source, files, catalog, *, min_bytes=1024**2, frozen_attempts=())
                 or type(value.get('bytes')) is not int or value['bytes']<min_bytes):
             continue
         match=re.fullmatch(r'reports/published/releases/(REL-[a-f0-9]{64})/(.+\.json)',relative)
-        attempt=re.fullmatch(r'reports/attempts/([a-f0-9]{32})/bundle/snapshot_bundle/payloads/[^/]+\.json',relative)
+        attempt=re.fullmatch(r'reports/attempts/([a-f0-9]{32})/(capture\.json|bundle/(.+))',relative)
         if '..' in Path(relative).parts or Path(relative).as_posix()!=relative:
             raise ValueError('DEDUP_UNSAFE_PATH')
         # Historical/pending directories are outside the immutable catalog scope.
@@ -69,8 +69,15 @@ def plan_dedup(source, files, catalog, *, min_bytes=1024**2, frozen_attempts=())
             if release not in catalog:continue
             if catalog.get(release,{}).get(name)!=value.get('sha256'):
                 raise ValueError('DEDUP_CATALOG_MISMATCH')
-        elif not attempt or attempt[1] not in frozen_attempts:
-            continue
+        else:
+            if not attempt or attempt[1] not in frozen_attempts:continue
+            output=attempt[3] or ''
+            if (attempt[2]!='capture.json' and output not in {
+                    'snapshot.json','report_model.json','recommendation_review.json','diagnostic_protocol.json',
+                    'qa.json','procedure_lifecycle.json','monthly.json','dashboard.json','release_status.json',
+                    'independent_audit.json','closed_procedure_quality.json','identity_observations.json'}
+                    and not re.fullmatch(r'snapshot_bundle/(?:manifest\.json|bundle\.json|payloads/[^/]+\.json)',output)):
+                continue
         key=tuple(value.get(k) for k in ('sha256','bytes','uid','gid','mode'))
         groups.setdefault(key,[]).append({'relative':relative,'expected':dict(value)})
     selected=[group for group in groups.values() if len(group)>1]
