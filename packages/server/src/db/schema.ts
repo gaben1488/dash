@@ -273,6 +273,18 @@ export const journalGaps = sqliteTable(
  * Привязка к ячейке публичными средствами не разворачивается, поэтому здесь
  * честно хранится цитата содержимого ячейки, а не адрес.
  */
+/** Append-only witnesses extend the existing comments family, not source edit events. */
+export const driveCommentObservations = sqliteTable('drive_comment_observations', {
+  id: text('id').primaryKey(),
+  book: text('book').notNull(),
+  fileId: text('file_id'),
+  kind: text('kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  payload: text('payload').notNull(),
+  readAt: text('read_at').notNull(),
+});
+
 export const driveComments = sqliteTable('drive_comments', {
   /** «книга#идентификатор комментария» — идентификаторы уникальны в файле. */
   id: text('id').primaryKey(),

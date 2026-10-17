@@ -60,6 +60,8 @@ RUN corepack enable
 COPY --from=builder /app /app
 
 COPY packages/report-engine /app/packages/report-engine
+# Reuse the reviewed Header API contract during closed-ingress release checks.
+COPY .github/ci/header_api_probe.mjs /opt/aemr/header_api_probe.mjs
 RUN python3 -m venv /opt/report-env \
     && /opt/report-env/bin/pip install --no-cache-dir /app/packages/report-engine
 

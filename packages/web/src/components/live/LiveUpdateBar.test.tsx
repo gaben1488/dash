@@ -12,7 +12,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { LiveUpdateBar } from './LiveUpdateBar';
+import { LiveUpdateBar, SnapshotFreshnessNotice } from './LiveUpdateBar';
 import { countWord, liveDetail, liveHeadline, plural, relativeMoment, rowChangeHint, changedRowKeys } from './live-text';
 import { closeLiveEvents, reduceLive, resetLiveEvents, type LiveState } from '../../hooks/useLiveEvents';
 
@@ -208,4 +208,19 @@ describe('фразы прямого эфира', () => {
     expect(keys.has('УО#158')).toBe(true);
     expect(keys.has('УО#159')).toBe(false);
   });
+});
+
+
+it('shows the captured time and refresh state instead of presenting a stale model as newly updated', () => {
+  const snapshot = { createdAt: '2026-10-16T01:00:00.000Z', metadata: {
+    sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0,
+    readModel: { state: 'refreshing' as const },
+  } };
+  const view = render(<SnapshotFreshnessNotice snapshot={snapshot} />);
+  expect(screen.getByRole('status').textContent).toContain('16.10.2026');
+  expect(screen.getByRole('status').textContent).toContain('Обновляем расчёты');
+  view.rerender(<SnapshotFreshnessNotice snapshot={{ ...snapshot, metadata: { ...snapshot.metadata, readModel: { state: 'stale' } } }} />);
+  expect(screen.getByRole('status').textContent).toContain('Обновление не завершилось');
+  view.rerender(<SnapshotFreshnessNotice snapshot={{ ...snapshot, metadata: { ...snapshot.metadata, readModel: undefined } }} />);
+  expect(screen.queryByRole('status')).toBeNull();
 });

@@ -1,7 +1,8 @@
 import type { DepartmentSummary, TrustComponent, TrustScore } from '@aemr/shared';
 
 export interface TrustViewModel {
-  overallScore: number;
+  overallScore: number | null;
+  unavailableComponents: string[];
   components: TrustComponent[];
 }
 
@@ -23,14 +24,19 @@ export function weightedTrustOverall(components: TrustComponent[]): number {
 
 export function buildTrustViewModel(
   trustData: TrustScore | null | undefined,
-  filteredDepartments: DepartmentSummary[] = [],
+  filteredDepartments?: DepartmentSummary[],
 ): TrustViewModel {
   const globalComponents = trustData?.components ?? [];
-  if (filteredDepartments.length === 0) {
+  if (filteredDepartments === undefined) {
     return {
-      overallScore: trustData?.overall ?? 0,
+      overallScore: trustData?.overall ?? null,
+      unavailableComponents: [],
       components: globalComponents,
     };
+  }
+
+  if (filteredDepartments.length === 0) {
+    return { overallScore: null, components: [], unavailableComponents: [] };
   }
 
   const componentNames = [
@@ -40,36 +46,32 @@ export function buildTrustViewModel(
     ),
   ].filter((name, index, names) => names.indexOf(name) === index);
 
-  const components = componentNames.map((name): TrustComponent => {
+  const unavailableComponents: string[] = [];
+  const components = componentNames.flatMap((name): TrustComponent[] => {
     const globalComponent = globalComponents.find((component) => component.name === name);
     const matching = filteredDepartments
       .flatMap((department) => department.trustComponents ?? [])
       .filter((component) => component.name === name);
 
-    if (matching.length === 0) {
-      return globalComponent ?? {
-        name,
-        label: name,
-        weight: 0,
-        score: 0,
-        issues: 0,
-        criticalIssues: 0,
-        details: 'Нет данных по выбранному фильтру',
-      };
+    if (matching.length !== filteredDepartments.length) {
+      unavailableComponents.push(globalComponent?.label ?? matching[0]?.label ?? name);
+      return [];
     }
 
     const base = globalComponent ?? matching[0];
-    return {
+    return [{
       ...base,
       score: roundAverage(matching.map((component) => component.score)),
       issues: matching.reduce((sum, component) => sum + component.issues, 0),
       criticalIssues: matching.reduce((sum, component) => sum + component.criticalIssues, 0),
       details: `Фильтр: ${matching.length} управлений`,
-    };
+    }];
   });
 
   return {
-    overallScore: weightedTrustOverall(components),
+    overallScore: components.length > 0 && unavailableComponents.length === 0
+      ? weightedTrustOverall(components) : null,
+    unavailableComponents,
     components,
   };
 }

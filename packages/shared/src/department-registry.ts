@@ -80,7 +80,7 @@ export interface DepartmentEntry {
 export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
   {
     id: 'УЭР', latinId: 'uer',
-    fullName: 'Управление экономического развития',
+    fullName: 'Управление экономического развития администрации Елизовского муниципального округа',
     shortName: 'УЭР',
     // «ВСЕ» = управление + подвед МКУ «ЦЭР» — тот же периметр, что официальный
     // СВОД (IMPORTRANGE книги УЭР тянет именно «ВСЕ»). Вкладка «УЭР» (только
@@ -90,49 +90,49 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
   },
   {
     id: 'УИО', latinId: 'uio',
-    fullName: 'Управление имущественных отношений',
+    fullName: 'Управление имущественных отношений администрации Елизовского муниципального округа',
     shortName: 'УИО',
     sheetName: 'УИО', hasSubordinates: false,
     svod: { kpQ1: 72, kpYear: 77, epQ1: 83, epYear: 88, totalCombined: 90, totalCurrent: 91, compShareRow: 93, epShareRow: 94 },
   },
   {
     id: 'УАГЗО', latinId: 'uagzo',
-    fullName: 'Управление архитектуры, градостроительства и земельных отношений',
+    fullName: 'Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа',
     shortName: 'УАГЗО',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 102, kpYear: 107, epQ1: 113, epYear: 118, totalCombined: 120, totalCurrent: 121, compShareRow: 123, epShareRow: 124 },
   },
   {
     id: 'УФБП', latinId: 'ufbp',
-    fullName: 'Управление финансово-бюджетной политики',
+    fullName: 'Управление финансов администрации Елизовского муниципального округа',
     shortName: 'УФБП',
     sheetName: 'УФБП', hasSubordinates: false,
     svod: { kpQ1: 132, kpYear: 137, epQ1: 143, epYear: 148, totalCombined: 150, totalCurrent: 151, compShareRow: 153, epShareRow: 154 },
   },
   {
     id: 'УД', latinId: 'ud',
-    fullName: 'Управление делами',
+    fullName: 'Управление делами администрации Елизовского муниципального округа',
     shortName: 'УД',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 163, kpYear: 168, epQ1: 175, epYear: 180, totalCombined: 182, totalCurrent: 183, compShareRow: 185, epShareRow: 186 },
   },
   {
     id: 'УДТХ', latinId: 'udtx',
-    fullName: 'Управление дорожно-транспортного хозяйства',
+    fullName: 'Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа',
     shortName: 'УДТХ',
     sheetName: 'УДТХ', hasSubordinates: false,
     svod: { kpQ1: 195, kpYear: 200, epQ1: 206, epYear: 211, totalCombined: 213, totalCurrent: 214, compShareRow: 216, epShareRow: 217 },
   },
   {
     id: 'УКСиМП', latinId: 'uksimp',
-    fullName: 'Управление культуры, спорта и молодёжной политики',
+    fullName: 'Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа',
     shortName: 'УКСиМП',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 225, kpYear: 230, epQ1: 236, epYear: 241, totalCombined: 243, totalCurrent: 244, compShareRow: 246, epShareRow: 247 },
   },
   {
     id: 'УО', latinId: 'uo',
-    fullName: 'Управление образования',
+    fullName: 'Управление образования администрации Елизовского муниципального округа',
     shortName: 'УО',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 255, kpYear: 260, epQ1: 266, epYear: 271, totalCombined: 273, totalCurrent: 274, compShareRow: 276, epShareRow: 277 },

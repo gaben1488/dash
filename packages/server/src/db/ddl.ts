@@ -201,6 +201,14 @@ export const SCHEMA_DDL = `
     recorded_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS drive_comment_observations (
+    id TEXT PRIMARY KEY, book TEXT NOT NULL, file_id TEXT,
+    kind TEXT NOT NULL, source_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+    payload TEXT NOT NULL, read_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_comment_observations_source
+    ON drive_comment_observations(file_id, kind, source_id, read_at);
+
   CREATE INDEX IF NOT EXISTS idx_metric_history_key ON metric_history(metric_key);
   CREATE INDEX IF NOT EXISTS idx_metric_history_snapshot ON metric_history(snapshot_id);
   CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);
@@ -217,6 +225,24 @@ export const SCHEMA_DDL = `
   -- а в строке снимка лежит многомегабайтный data-JSON, поэтому перебор здесь
   -- стоит дороже, чем где-либо ещё в базе.
   CREATE INDEX IF NOT EXISTS idx_snapshots_created ON snapshots(created_at);
+  -- Metadata candidate selection only; full weekly proof remains in verifiedBaselineRows.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_weekly_evidence ON snapshots(created_at DESC, id DESC)
+    WHERE instr(data, '"weeklyTableContext"') > 0;
+  -- Ready read models are addressed by scope; never parse all historical JSON per GET.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_read_scope ON snapshots(
+    spreadsheet_id,
+    CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END,
+    CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
+    created_at DESC
+  );
+  -- Partial tautology includes every row but keeps legacy unhinted readers off this index.
+  CREATE INDEX IF NOT EXISTS idx_snapshots_retention_metadata ON snapshots(
+    id, created_at, spreadsheet_id,
+    CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END,
+    CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
+    instr(data, '"rowsByDept"') > 0,
+    instr(data, '"weeklyTableContext"') > 0
+  ) WHERE id IS id;
 
   -- Журнал и его статистика читают аудит-лог и историю замечаний окном по
   -- времени («последние 100», «за 30 дней»). Индекс по действию (выше) на этих

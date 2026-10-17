@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
+import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
@@ -282,7 +282,7 @@ export function getActiveFilterCount(input: ActiveFilterCountInput): number {
 
 // ── Динамические годы: не хардкодим, определяем от текущей даты ──
 const FIRST_DATA_YEAR = 2025; // первый год с данными
-const currentYear = new Date().getFullYear();
+const currentYear = productDayParts().y;
 /** Доступные годы: от первого года данных до текущего+1, плюс "all" */
 export const AVAILABLE_YEARS: number[] = Array.from(
   { length: currentYear - FIRST_DATA_YEAR + 2 },
@@ -541,7 +541,8 @@ export interface AppState {
   isDemo: boolean;
 
   // Действия
-  fetchDashboard: (force?: boolean) => Promise<void>;
+  /** True only when this request committed the shared dashboard view. */
+  fetchDashboard: (force?: boolean) => Promise<boolean>;
   /** Полное обновление: СВОД + 8 dept sheets + ШДЮ + pipeline */
   refresh: () => Promise<void>;
   /** Быстрая проверка: только СВОД (без перезагрузки dept sheets) */
@@ -554,7 +555,7 @@ export interface AppState {
    * не загружено или сервер не ответил — кнопка показывается БЕЗ числа
    * (отсутствие счёта не выдаётся за ноль строк).
    */
-  bucketCounts: { unfunded: number; yearlong: number } | null;
+  bucketCounts: { unfunded: number; yearlong: number; reading?: Awaited<ReturnType<typeof api.getRegistryBuckets>> } | null;
   fetchBucketCounts: () => Promise<void>;
 
   // Утилиты
@@ -594,6 +595,9 @@ function isDemoData(data: DashboardData): boolean {
  * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
  */
 let dashboardRequestSeq = 0;
+/** Версия обычного запроса: тихая подмена не должна обходить его защиту гонок. */
+export function dashboardRequestVersion(): number { return dashboardRequestSeq; }
+let bucketRequestSeq = 0;
 
 /** Страж повторного запроса живого коэффициента (fetchLiveStavka). */
 let liveStavkaInFlight = false;
@@ -610,8 +614,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Фильтры — default year: current year if in AVAILABLE_YEARS, else last available
-  year: (AVAILABLE_YEARS.includes(new Date().getFullYear())
-    ? new Date().getFullYear()
+  year: (AVAILABLE_YEARS.includes(productDayParts().y)
+    ? productDayParts().y
     : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]) as YearFilter,
   setYear: (year) => {
     // Mirror toggleMonthInYear/toggleQuarterInYear/toggleYearFull: when the user is in
@@ -778,7 +782,7 @@ export const useStore = create<AppState>((set, get) => ({
     // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
     // сброшенное умолчание само считалось бы срезом у границы недель.
     const monday = getProductMonday();
-    const currentYear = new Date().getFullYear();
+    const currentYear = productDayParts().y;
     const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
       ? currentYear
       : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
@@ -837,7 +841,7 @@ export const useStore = create<AppState>((set, get) => ({
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
     const rawTargetYear = filters?.year ?? get().year;
-    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : new Date().getFullYear();
+    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : productDayParts().y;
     if (filters?.months) {
       updates.activeMonths = new Set(filters.months);
       updates.monthsByYear = { ...get().monthsByYear, [targetYear]: new Set(filters.months) };
@@ -921,7 +925,11 @@ export const useStore = create<AppState>((set, get) => ({
         const currentSubs = new Set(get().selectedSubordinates);
         let changed = false;
         for (const sub of deptSubs) {
-          if (currentSubs.has(sub)) { currentSubs.delete(sub); changed = true; }
+          for (const selected of currentSubs) {
+            if (subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub)) {
+              currentSubs.delete(selected); changed = true;
+            }
+          }
         }
         if (changed) set({ selectedDepartments: current, selectedSubordinates: currentSubs, deptOnlyMode: deptOnly });
         else set({ selectedDepartments: current, deptOnlyMode: deptOnly });
@@ -953,8 +961,9 @@ export const useStore = create<AppState>((set, get) => ({
   selectedSubordinates: new Set<string>(),
   toggleSubordinate: (sub) => {
     const current = new Set(get().selectedSubordinates);
-    if (current.has(sub)) {
-      current.delete(sub);
+    const matches = [...current].filter(selected => subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub));
+    if (matches.length > 0) {
+      for (const selected of matches) current.delete(selected);
     } else {
       current.add(sub);
     }
@@ -971,7 +980,10 @@ export const useStore = create<AppState>((set, get) => ({
     // Clear any sub selections for this dept
     const subs = new Set(get().selectedSubordinates);
     const deptSubs = get().subordinatesMap[deptId] ?? [];
-    for (const s of deptSubs) subs.delete(s);
+    const deptKeys = new Set(deptSubs.map(subordinateNameMatchKey));
+    for (const selected of subs) {
+      if (deptKeys.has(subordinateNameMatchKey(selected))) subs.delete(selected);
+    }
     set({ deptOnlyMode: current, selectedDepartments: depts, selectedSubordinates: subs });
   },
   clearDeptOnly: (deptId) => {
@@ -1174,7 +1186,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Данные
   dashboardData: null,
-  dataYear: new Date().getFullYear(),
+  dataYear: productDayParts().y,
   loading: false,
   error: null,
   lastRefreshed: null,
@@ -1188,7 +1200,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const year = get().year;
       const data = await api.getDashboard(force, year);
-      if (seq !== dashboardRequestSeq) return; // ответ устарел — победил более поздний запрос
+      if (seq !== dashboardRequestSeq) return false; // ответ устарел — победил более поздний запрос
       // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
       // формула, время чтения каждой официальной строки СВОДа.
       setOfficialProvenance(
@@ -1197,13 +1209,15 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
+      return true;
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return; // устаревшая ошибка не затирает свежие данные
+      if (seq !== dashboardRequestSeq) return false; // устаревшая ошибка не затирает свежие данные
       // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
       // Приставка через точку, а не через двоеточие: иначе в плашке шапки
       // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
@@ -1212,6 +1226,7 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         error: `Данные не загружены. ${msg}`,
       });
+      return false;
     }
   },
 
@@ -1233,12 +1248,13 @@ export const useStore = create<AppState>((set, get) => ({
         // Баг #11: dataYear пишется во ВСЕХ путях загрузки — иначе после
         // обновления баннер «данные за другой год» сравнивал год фильтра
         // с годом давно прошедшей загрузки.
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
         refreshResult: { sources: result.sources ?? [], loading: false },
       });
+      void get().fetchBucketCounts();
     } catch (err) {
       if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
@@ -1266,11 +1282,12 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(), // баг #11 — см. refresh
+        dataYear: data.year ?? productDayParts().y, // баг #11 — см. refresh
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
     } catch (err) {
       if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
@@ -1283,10 +1300,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   bucketCounts: null,
   fetchBucketCounts: async () => {
+    const seq = ++bucketRequestSeq;
+    const acceptedSnapshot = get().dashboardData?.snapshot.id ?? null;
+    set({ bucketCounts: null });
     try {
       const b = await api.getRegistryBuckets();
-      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows } });
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows, reading: b } });
     } catch {
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: null });
       // Сервер не ответил — счётчик остаётся null: кнопка навигации живёт
       // без числа, отсутствие счёта не выдаётся за ноль строк.
     }

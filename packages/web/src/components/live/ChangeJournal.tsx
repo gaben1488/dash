@@ -28,7 +28,7 @@
  * Тексты — в change-story-text.ts под стражами. Компонент рисует, тот файл
  * решает, ЧТО написано.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import { RefreshCw, Search, X } from 'lucide-react';
@@ -39,21 +39,18 @@ import {
   DELETION_NOTE,
   digestLines,
   emptinessLine,
-  entryAddress,
-  entryChangeLine,
-  entryWhoWhen,
   kindLabel,
-  originNote,
   shownLine,
 } from './change-story-text';
 import { relativeMoment } from './live-text';
+import { UpdateFeed } from './UpdateFeed';
 
 /** Сколько правок просить у сервера. Больше человек не листает. */
 const LIMIT = 400;
 
 /** Окна, между которыми переключается читатель. */
 const WINDOWS: ReadonlyArray<{ key: string; label: string; days: number | null }> = [
-  { key: 'week', label: 'неделя', days: 7 },
+  { key: 'week', label: 'с контрольного среза', days: 7 },
   { key: 'month', label: 'месяц', days: 30 },
   { key: 'quarter', label: 'три месяца', days: 92 },
   { key: 'all', label: 'всё, что есть', days: null },
@@ -67,7 +64,7 @@ function sinceOf(days: number | null): string | undefined {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose: () => void; style?: CSSProperties }) {
   const navigateTo = useStore((s) => s.navigateTo);
 
   const [windowKey, setWindowKey] = useState('week');
@@ -85,7 +82,9 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
   }, [search]);
 
   const query = useMemo(() => ({
-    since: sinceOf(WINDOWS.find((w) => w.key === windowKey)?.days ?? 7),
+    // No local seven-day approximation: use the same completed control slice
+    // as the compact header. Explicit longer history remains user-selectable.
+    since: windowKey === 'week' ? undefined : sinceOf(WINDOWS.find((w) => w.key === windowKey)?.days ?? null),
     books,
     kinds,
     authors: author === '' ? [] : [author],
@@ -115,12 +114,12 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
     setKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
 
   /**
-   * Провал к закупке в Реестре. Ведёт № п/п: отбор Реестра ищет его по
-   * колонке A. Если ключа нет, ведём предметом — это хуже точного адреса, и
-   * потому второй, а не первый.
+   * Переход к существующему номеру — точный поиск. Для отсутствующей строки
+   * возможен только поиск похожих по предмету: не обещать открытие того,
+   * чего больше нет в книге. У гипотезы смены № переходим на номер кандидата.
    */
   const drillTo = (entry: ChangeEntry) => {
-    const needle = entry.rowSeq ?? entry.subject ?? '';
+    const needle = entry.relatedRowSeq ?? (entry.kind === 'row-vanished' ? entry.subject : entry.rowSeq) ?? entry.subject ?? '';
     if (needle === '') return;
     navigateTo('data', { department: entry.book, search: needle });
     onClose();
@@ -138,10 +137,11 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
       role="dialog"
       aria-modal="true"
       aria-label="Журнал изменений: что именно поменялось"
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-[2px] p-4 sm:p-8"
+      style={style}
+      className="change-journal fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-[2px] p-4 sm:p-8"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-4xl max-h-full flex flex-col rounded-xl bg-[var(--surface-overlay)] text-[var(--ink)] shadow-2xl ring-1 ring-black/10 dark:ring-white/10">
+      <div className="cj-frame w-full max-w-4xl max-h-full flex flex-col rounded-xl bg-[var(--surface-overlay)] text-[var(--ink)] shadow-2xl ring-1 ring-black/10 dark:ring-white/10">
 
         {/* ── Шапка: что это и когда прочитано ── */}
         <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[var(--border-subtle)]">
@@ -165,7 +165,7 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
             <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
               {readAt === null ? 'журнал ещё не прочитан' : `прочитано ${relativeMoment(readAt)}`}
               {response?.comparison
-                ? ` · пропажи найдены сравнением снимков ${response.comparison.beforeAt.slice(0, 10)} и ${response.comparison.afterAt.slice(0, 10)}`
+                ? ` · контроль ${response.comparison.beforeAt.slice(0, 10)} → текущие чтения (${response.comparison.oldestCurrentAt.slice(0, 10)}–${response.comparison.afterAt.slice(0, 10)})`
                 : ''}
             </p>
           </div>
@@ -266,33 +266,7 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
             </p>
           )}
 
-          <ul className="divide-y divide-[var(--border-subtle)]">
-            {entries.map((e) => (
-              <li key={e.id} className="py-1.5 flex items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-[var(--ink-faint)] truncate" title={entryAddress(e)}>
-                    {entryAddress(e)}
-                  </p>
-                  <p className="text-[11px] leading-snug text-[var(--ink)] break-words">
-                    {entryChangeLine(e)}
-                  </p>
-                  <p className="text-[10px] text-[var(--ink-faint)]">
-                    {entryWhoWhen(e)} · {originNote(e)}
-                  </p>
-                </div>
-                {(e.rowSeq !== null || e.subject !== null) && (
-                  <button
-                    type="button"
-                    onClick={() => drillTo(e)}
-                    className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded-md text-[10px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-raised)]"
-                    title="Открыть эту закупку в Реестре"
-                  >
-                    в Реестре
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <UpdateFeed entries={entries} onOpen={drillTo}/>
         </div>
 
         {/* ── Подвал: сколько показано и чего источник не видит ── */}

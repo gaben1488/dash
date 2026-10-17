@@ -13,6 +13,7 @@ import {
   SIGNAL_LABELS,
 } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowState } from '@aemr/core';
+import { rowRevision } from './row-revision.js';
 
 /** Бейдж сигнала (core не экспортирует тип SignalBadge из барреля — деривим). */
 type SignalBadge = ReturnType<typeof getSignalBadges>[number];
@@ -85,6 +86,8 @@ const STATE_STATUS_RU: Record<RowState, string> = {
 export interface RowDto {
   /** 1-based номер строки листа: idx=0 после среза шапки → строка 4. */
   rowIndex: number;
+  /** Stable content revision for conflict checks; excludes recalculated formula columns. */
+  rowRevision: string;
   /** A — порядковый номер (сырьё листа). */
   id: unknown;
   /** B — реестровый номер (пустая ячейка → ''). */
@@ -128,6 +131,8 @@ export interface RowDto {
   economyMB: number;
   /** M — правовое основание выбора ЕП (сырой текст оператора). */
   epReason: string;
+  amountBasis: 'position-total';
+  necessityJustification: unknown;
   /** T — официальное отклонение в днях, считает сама книга. */
   deviationDays: number;
   /** AD — признак экономии. */
@@ -160,7 +165,9 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
 
   const signalsObj = detectSignals(cells);
   const state = classifyRowState(signalsObj);
-  const badges = getSignalBadges(signalsObj);
+  const badges = getSignalBadges(signalsObj, { dept: opts.deptId, id: cells.A, subject: cells.G,
+    method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: toNumber(cells.Y), epReason: cells.M, amountBasis: 'position-total' as const, planYear: toNumber(cells.P),
+      necessityJustification: cells.AE, commentGRBS: cells.AF });
   // RowSignals (объект булевых) → массив активных ключей сигналов для фронта
   const signals = Object.entries(signalsObj)
     .filter(([, v]) => v === true)
@@ -175,6 +182,7 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
 
   return {
     rowIndex: idx + DEPT_HEADER_ROWS + 1, // 1-based: срез шапки в 3 строки → idx=0 = строка 4
+    rowRevision: rowRevision(row),
     id: col('ID'),
     // B — наименование управления, а не реестровый номер: канон
     // column-map.ts исправлен по 3 852 живым строкам (номера там нет).
@@ -192,6 +200,8 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
     // (аудит 30.07), а продукт его не показывал — «риск ЕП» считался без
     // взгляда на основание. Сырой текст; кластеризация — этап сигналов.
     epReason: String(col('EP_REASON') ?? ''),
+    amountBasis: 'position-total',
+    necessityJustification: col('JUSTIFICATION') ?? '',
     planDate: sheetDateToIso(col('PLAN_DATE')),
     planDateRaw: col('PLAN_DATE') ?? '',
     planQuarter: col('PLAN_QUARTER') ?? '',

@@ -1,50 +1,149 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_ACTIVITY_KEYS, recalcTotalsByActivity, resolveActivityKeys } from './activity-aggregation';
+import {
+  ALL_ACTIVITY_KEYS, activityPeriodKeys, recalcTotalsByActivity, resolveActivityKeys,
+  mergeSubordinateActivityPeriods,
+} from './activity-aggregation';
 import { makeBudgetPlanFact } from './budget-filter';
+import { resolvePeriodSelection } from './period-resolution';
 
-describe('resolveActivityKeys (извлечено из useFilteredData §9b)', () => {
-  it('фильтр пуст — все виды деятельности', () => {
-    expect(resolveActivityKeys(new Set())).toBe(ALL_ACTIVITY_KEYS);
-  });
-
-  it('выбранные — только они', () => {
-    expect(resolveActivityKeys(new Set(['program']))).toEqual(['program']);
-  });
+const noBudget = makeBudgetPlanFact(new Set());
+const metric = (plan: number, fact: number, fb: number, kb = 0) => ({
+  plan, fact, planSum: fb + kb, factSum: fb / 2 + kb / 2,
+  planFB: fb, planKB: kb, planMB: 0,
+  factFB: fb / 2, factKB: kb / 2, factMB: 0,
 });
 
-describe('recalcTotalsByActivity (извлечено из useFilteredData §9b)', () => {
-  const noBudget = makeBudgetPlanFact(new Set());
-  const dept = {
-    byActivity: {
-      q1: {
-        program: { planCount: 2, planTotal: 50, factTotal: 25 },
-        current_program: { planCount: 1, planTotal: 30, factTotal: 10 },
-      },
+const comp = metric(2, 1, 40, 10);
+const ep = metric(1, 1, 8, 2);
+const dept = {
+  byActivity: {
+    q1: {
+      program: { planCount: 3, byMethod: { competitive: comp, ep } },
+      current_program: { planCount: 1, byMethod: { competitive: metric(0, 0, 0), ep: metric(1, 0, 20) } },
     },
-  };
+    m1: { program: { planCount: 1, byMethod: {
+      competitive: metric(0, 0, 0), ep: metric(1, 1, 8, 2),
+    } } },
+    m2: { program: { planCount: 2, byMethod: {
+      competitive: comp, ep: metric(0, 0, 0),
+    } } },
+    m4: { program: { planCount: 1, byMethod: {
+      competitive: metric(0, 0, 0), ep: metric(1, 0, 7),
+    } } },
+  },
+};
 
-  it('суммирует выбранные виды по активным периодам; ЕП обнуляется (byActivity не делит КП/ЕП)', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget });
-    expect(t).toEqual({ totalPlan: 50, totalFact: 25, totalKP: 2, totalEP: 0 });
+describe('разрез деятельности × способа закупки', () => {
+  it('пустой выбор означает все виды деятельности', () => {
+    expect(resolveActivityKeys(new Set())).toBe(ALL_ACTIVITY_KEYS);
+    expect(resolveActivityKeys(new Set(['program']))).toEqual(['program']);
   });
-
-  it('все ключи (фильтр пуст) — сумма всех видов', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ALL_ACTIVITY_KEYS, periodKeys: ['q1'], budgetPlanFact: noBudget });
-    expect(t.totalPlan).toBe(80);
-    expect(t.totalKP).toBe(3);
+  it('считает реальные конкурентные и ЕП вместо planCount=КП/ЕП=0', () => {
+    expect(recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    })).toEqual({
+      totalPlan: 60, totalFact: 30, totalKP: 2, totalEP: 1,
+      planCount: 3, factCount: 2, complete: true,
+    });
   });
-
-  it('нет byActivity за период — нули', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ['program'], periodKeys: ['q2'], budgetPlanFact: noBudget });
-    expect(t.totalPlan).toBe(0);
+  it('выбор только ЕП исключает конкурентные деньги и позиции', () => {
+    const result = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+      showKP: false, showEP: true,
+    });
+    expect(result).toMatchObject({ totalPlan: 10, totalFact: 5, totalKP: 0, totalEP: 1 });
   });
-
-  it('учитывает бюджет-фильтр через budgetPlanFact', () => {
-    const d = { byActivity: { q1: { program: { planCount: 1, planTotal: 50, factTotal: 25, planFB: 40, factFB: 20 } } } };
-    const t = recalcTotalsByActivity([d], {
+  it('выбор ФБ применяется к каждому способу, а не к общей неправильной сумме', () => {
+    const result = recalcTotalsByActivity([dept], {
       actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
     });
-    expect(t.totalPlan).toBe(40);
-    expect(t.totalFact).toBe(20);
+    expect(result).toMatchObject({ totalPlan: 48, totalFact: 24, totalKP: 2, totalEP: 1 });
+  });
+  it('нельзя складывать весь квартал и выбранный месяц дважды', () => {
+    const partial = resolvePeriodSelection('year', new Set([1]), true);
+    const full = resolvePeriodSelection('year', new Set([1, 2, 3]), true);
+    expect(activityPeriodKeys(partial, true)).toEqual(['m1']);
+    expect(activityPeriodKeys(full, true)).toEqual(['q1']);
+    const t = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: activityPeriodKeys(partial, true), budgetPlanFact: noBudget,
+    });
+    expect(t).toMatchObject({ totalPlan: 10, totalEP: 1, totalKP: 0 });
+  });
+  it('полный Q1 + часть Q2 не удваивают январь–март', () => {
+    const selected = resolvePeriodSelection('year', new Set([1, 2, 3, 4]), true);
+    const keys = activityPeriodKeys(selected, true);
+    expect(keys).toEqual(['q1', 'm4']);
+    const result = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: keys, budgetPlanFact: noBudget,
+    });
+    expect(result).toMatchObject({ totalPlan: 67, totalKP: 2, totalEP: 2, planCount: 4 });
+  });
+
+  it('устаревший снимок без оси способа НЕ объявляется нулём ЕП', () => {
+    const old = { byActivity: { q1: { program: { planCount: 7, planTotal: 100 } } } };
+    const t = recalcTotalsByActivity([old], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    });
+    expect(t.complete).toBe(false);
+    expect(t.totalKP).toBe(0);
+    expect(t.totalEP).toBe(0);
+  });
+  it('месяц с закупками без byActivity — неполнота, а не проверенный ноль', () => {
+    const legacy = {
+      months: { 1: { planCount: 2, factCount: 1, planTotal: 40, factTotal: 20 } },
+      byActivity: {},
+    };
+    const result = recalcTotalsByActivity([legacy], {
+      actKeys: ['program'], periodKeys: ['m1'], budgetPlanFact: noBudget,
+    });
+    expect(result).toMatchObject({ complete: false, totalPlan: 0, totalKP: 0, totalEP: 0 });
+
+    // Genuine empty month is not automatically a failed read.
+    const emptyMonth = { months: { 1: { planCount: 0, factCount: 0, planTotal: 0 } }, byActivity: {} };
+    expect(recalcTotalsByActivity([emptyMonth], {
+      actKeys: ['program'], periodKeys: ['m1'], budgetPlanFact: noBudget,
+    }).complete).toBe(true);
+  });
+
+  it('выпавший вид деятельности выявляется сверкой с общим количеством периода', () => {
+    const partial = {
+      quarters: { q1: { planCount: 4, planTotal: 80 } },
+      byActivity: { q1: { program: { planCount: 2, byMethod: {
+        competitive: metric(1, 0, 20), ep: metric(1, 0, 10),
+      } } } },
+    };
+    const result = recalcTotalsByActivity([partial], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    });
+    expect(result.planCount).toBe(2);
+    expect(result.complete).toBe(false); // TD vanished from a nonempty source
+  });
+
+  it('разрез с обеими группами КП/ЕП, но с потерянной позицией, не считается полным', () => {
+    const partial = { byActivity: { q1: { program: {
+      planCount: 4, factCount: 2,
+      byMethod: { competitive: metric(1, 1, 10), ep: metric(1, 1, 10) },
+    } } } };
+    const result = recalcTotalsByActivity([partial], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.planCount).toBe(2); // known positions, not invented missing ones
+  });
+
+  it('суммирует только выбранные подведы без подсоса всего управления', () => {
+    const a = { activityByPeriod: { q1: { program: {
+      planCount: 2, factCount: 1, planTotal: 50, factTotal: 20,
+      byMethod: { competitive: comp, ep: metric(0, 0, 0) },
+    } } } };
+    const b = { activityByPeriod: { q1: { program: {
+      planCount: 1, factCount: 1, planTotal: 10, factTotal: 5,
+      byMethod: { competitive: metric(0, 0, 0), ep },
+    } } } };
+    const d = { byActivity: mergeSubordinateActivityPeriods([a, b]) };
+    expect(recalcTotalsByActivity([d], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    })).toMatchObject({ totalKP: 2, totalEP: 1, planCount: 3 });
+    expect(mergeSubordinateActivityPeriods([a, {}])).toEqual({});
   });
 });

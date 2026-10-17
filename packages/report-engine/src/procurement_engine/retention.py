@@ -23,7 +23,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FULL_ATTEMPTS = 12
+# Owner policy: weekly history; only the working/previous attempts stay complete.
+DEFAULT_FULL_ATTEMPTS = 2
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -134,6 +135,7 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
 
     current = _load_json(state / "status.json") or {}
     current_id = current.get("attempt_id") if isinstance(current.get("attempt_id"), str) else None
+    del current
     sealed_days, weekly_source_attempts = _sealed_week_evidence(state)
     valid: list[tuple[Path, dict[str, Any]]] = []
     protected: set[str] = set(weekly_source_attempts)
@@ -147,7 +149,8 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
         if status is None or status.get("attempt_id") != root.name:
             malformed += 1
             continue
-        valid.append((root, status))
+        # Preserve status files, but retain only fields used by this plan in memory.
+        valid.append((root, {key: status.get(key) for key in ("finished_at", "started_at", "report_date")}))
         if root.name == current_id:
             protected.add(root.name)
         day = _report_day(status.get("report_date"))
@@ -271,3 +274,113 @@ def safe_compact_transient_attempts(state_dir: str | Path, *, keep_full: int = D
             "error_type": type(error).__name__,
             "bytes_reclaimed": 0,
         }
+
+
+def _catalog_revision(records, keep, targets):
+    import hashlib
+    digest=hashlib.sha256()
+    # Same canonical bytes as the original v1 plan, without one catalog-sized
+    # JSON string followed by another complete UTF-8 allocation.
+    for chunk in json.JSONEncoder(separators=(',', ':')).iterencode([records,sorted(keep),sorted(targets)]):
+        digest.update(chunk.encode())
+    return digest.hexdigest()
+
+
+def plan_publication_compaction(store, *, protected_release_ids=()):
+    """Keep weekly replay roots and current/previous; compact only daily copies.
+
+    The catalog keeps exact artifact links. Ledger/RAW/identity databases are
+    never deletion targets. Every full release is checksum checked before plan.
+    """
+    import re
+    import sqlite3
+    from contextlib import closing
+    from datetime import datetime, timedelta, timezone
+
+    from .publication_store import _ordered_publication_rows
+    from .readonly_catalog import copied_catalog
+
+    if store.releases.is_symlink() or not store.releases.is_dir():
+        raise ValueError('PUBLICATION_RETENTION_ROOT_UNSAFE')
+    with copied_catalog(store.database_path) as path, closing(sqlite3.connect(path)) as db:
+        records = list(_ordered_publication_rows(db))
+    keep, weeks, live = set(), {}, []
+    for rid, day, cutoff, receipt, files in records:
+        # Bind the catalog selector to the same root and civil period validated
+        # by _checked; never permit a receipt to redirect an apply path.
+        try:
+            metadata = json.loads(receipt)
+            if not isinstance(rid, str) or re.fullmatch(r'REL-[0-9a-f]{64}', rid) is None:
+                raise ValueError('release id')
+            if metadata.get('release_id') != rid:
+                raise ValueError('receipt release id')
+            parsed_day = date.fromisoformat(day)
+            receipt_day = datetime.strptime(metadata['report_date'], '%d.%m.%Y').date()  # noqa: DTZ007 — civil report date.
+            sql_cutoff = datetime.fromisoformat(cutoff.replace('Z', '+00:00'))
+            receipt_cutoff = datetime.fromisoformat(metadata['cutoff_at'].replace('Z', '+00:00'))
+            if (receipt_day != parsed_day or sql_cutoff.utcoffset() is None
+                    or receipt_cutoff.utcoffset() is None
+                    or sql_cutoff.astimezone(timezone.utc) != receipt_cutoff.astimezone(timezone.utc)):
+                raise ValueError('period metadata')
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise ValueError('PUBLICATION_RETENTION_METADATA_INVALID') from error
+        record = store._checked((receipt, files))
+        if record.get('replay_available') is False:
+            continue
+        if 'archive_origin' in record:
+            keep.add(rid)
+            continue
+        live.append(rid)
+        parsed = date.fromisoformat(day)
+        week = (parsed - timedelta(days=parsed.weekday())).isoformat()
+        priority = (parsed.weekday() in {3, 4}, day, cutoff, rid)
+        if week not in weeks or priority > weeks[week][0]:
+            weeks[week] = priority, rid
+    keep.update(live[:2])
+    keep.update(rid for _, rid in weeks.values())
+    protected = set(protected_release_ids)
+    if any(not isinstance(rid, str) or not re.fullmatch(r'REL-[a-f0-9]{64}', rid) for rid in protected):
+        raise ValueError('PUBLICATION_RETENTION_PROTECTED_INVALID')
+    if not protected <= {row[0] for row in records}:
+        raise ValueError('PUBLICATION_RETENTION_PROTECTED_MISSING')
+    keep.update(protected)
+    status_path = store.root.parent / 'status.json'
+    if status_path.exists() or status_path.is_symlink():
+        if status_path.is_symlink():
+            raise ValueError('PUBLICATION_RETENTION_STATUS_UNSAFE')
+        status = _load_json(status_path)
+        if status is None or not isinstance(status.get('publication') or {}, dict):
+            raise ValueError('PUBLICATION_RETENTION_STATUS_INVALID')
+        current = status.get('publication') or {}
+        if current.get('release_id'):
+            if current['release_id'] not in {r[0] for r in records}:
+                raise ValueError('PUBLICATION_RETENTION_CURRENT_MISSING')
+            current_record = next(json.loads(r[3]) for r in records if r[0] == current['release_id'])
+            if current_record.get('replay_available') is False:
+                raise ValueError('PUBLICATION_RETENTION_CURRENT_COMPACTED')
+            keep.add(current['release_id'])
+    targets = [r for r in records if r[0] not in keep and json.loads(r[3]).get('replay_available') is not False]
+    signatures = True
+    missing_signatures = missing_snapshots = 0
+    identity = store.root.parent / 'identity.sqlite'
+    if targets:
+        if not identity.is_file() or identity.is_symlink():
+            signatures = False
+        else:
+            with copied_catalog(identity) as path, closing(sqlite3.connect(path)) as db:
+                for sid in {json.loads(r[3])['snapshot_id'] for r in targets}:
+                    count, missing = db.execute('SELECT COUNT(*), SUM(plan_signature IS NULL OR entity_signature IS NULL) FROM observations WHERE snapshot_id=?', (sid,)).fetchone()
+                    missing_snapshots += int(not count)
+                    missing_signatures += missing or 0
+                    if not count or missing:
+                        signatures = False
+    return {'catalog_revision': _catalog_revision(records, keep, (r[0] for r in targets)),
+            'keep_release_ids': sorted(keep), 'retire_release_ids': sorted(r[0] for r in targets),
+            'identity_ready': signatures, 'records': records,
+            'identity_missing_signatures': missing_signatures if identity.is_file() else None,
+            'identity_missing_snapshots': missing_snapshots if identity.is_file() else None,
+            'weekly_live_count': len(weeks), 'publication_count': len(records),
+            'keep_count': len(keep), 'retire_count': len(targets),
+            # Upper bound before retaining old downloadable artifacts and exact
+            # ledger/identity proofs. Finalization reports actual removed bytes.
+            'bytes_reclaimable_upper_bound': sum(_payload_bytes(store.releases / r[0]) for r in targets)}

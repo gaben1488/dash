@@ -1,5 +1,5 @@
 import type { DepartmentId, IssueSeverity, TrustGrade } from './types.js';
-import { ALL_DEPT_IDS } from './department-registry.js';
+import { ALL_DEPT_IDS, getDept } from './department-registry.js';
 
 // ============================================================
 // AEMR Platform — Constants
@@ -218,14 +218,14 @@ export const UI_LABELS = {
   'unit.days': 'дн.',
 
   // Управления (полные названия)
-  'dept.УЭР': 'Управление экономического развития',
-  'dept.УИО': 'Управление имущественных отношений',
-  'dept.УАГЗО': 'Управление автоматизации и ГЗО',
-  'dept.УФБП': 'Управление финансово-бюджетной политики',
-  'dept.УД': 'Управление делами',
-  'dept.УДТХ': 'Управление дорожно-транспортного хозяйства',
-  'dept.УКСиМП': 'Управление культуры, спорта и МП',
-  'dept.УО': 'Управление образования',
+  'dept.УЭР': getDept('УЭР').fullName,
+  'dept.УИО': getDept('УИО').fullName,
+  'dept.УАГЗО': getDept('УАГЗО').fullName,
+  'dept.УФБП': getDept('УФБП').fullName,
+  'dept.УД': getDept('УД').fullName,
+  'dept.УДТХ': getDept('УДТХ').fullName,
+  'dept.УКСиМП': getDept('УКСиМП').fullName,
+  'dept.УО': getDept('УО').fullName,
 
   // Общие действия
   'action.refresh': 'Обновить данные',

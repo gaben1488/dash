@@ -12,13 +12,205 @@ permissions:
 
 concurrency:
   group: report-readonly-rehearsal-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # A new head queues behind native work; losing SSH does not stop Docker.
+  cancel-in-progress: false
 
 jobs:
+  worker-diagnostics:
+    name: Read-only report-worker state and rollback prerequisites
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect running state without credentials or source rows
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            echo 'worker_diagnostic_ssh=CONNECTED'
+            umask 077
+            cd /home/aemr/dash/deploy
+            echo 'worker_diagnostic_directory=FOUND'
+            # Do not expose .env.production, logs, source rows or credentials.
+            if ! docker compose --env-file .env.production --profile reports config --services >/dev/null 2>&1; then
+              echo 'compose_readback=UNAVAILABLE'
+              exit 1
+            fi
+            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker 2>/dev/null || true)
+            if [ -z "$worker" ]; then
+              echo 'report_worker_state=NOT_CREATED'
+            else
+              raw=$(docker inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.RestartCount}}|{{.State.StartedAt}}|{{.State.FinishedAt}}' "$worker" 2>/dev/null) || { echo 'worker_inspect=UNAVAILABLE'; exit 1; }
+              IFS='|' read -r state exitcode oom restarts started finished <<< "$raw"
+              case "$state" in running|exited|created|restarting|paused|dead|removing) ;; *) state=UNKNOWN ;; esac
+              echo "report_worker_state=$state"
+              echo "report_worker_exitcode=$exitcode"
+              echo "report_worker_oom=$oom"
+              echo "report_worker_restarts=$restarts"
+              echo "report_worker_started_at=$started"
+              echo "report_worker_finished_at=$finished"
+              docker logs --tail 200 "$worker" 2>&1 | python3 -c 'import sys,json;data=sys.stdin.read();codes=("MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH","SOURCE_CHANGED_DURING_FREEZE","RUNNING_REPORT_WORKER_NOT_FOUND","REPORT_WORKER_CYCLE_FAILED","DUPLICATE_PROCEDURE_CODE");print(json.dumps({"worker_log_evidence_counts":{c:data.count(c) for c in codes}},sort_keys=True))'
+            fi
+            docker ps --all --filter label=com.docker.compose.service=report-worker --format '{{.ID}}' 2>/dev/null | python3 -c 'import sys,json;print(json.dumps({"compose_worker_container_count":len([x for x in sys.stdin if x.strip()])}))'
+            for name in aemr-server:previous aemr-web:previous; do
+              if docker image inspect "$name" >/dev/null 2>&1; then echo "rollback_image_${name%%:*}=PRESENT"; else echo "rollback_image_${name%%:*}=MISSING"; fi
+            done
+            if test -s .last-known-good; then echo 'rollback_code_marker=PRESENT'; else echo 'rollback_code_marker=MISSING'; fi
+            if docker compose --env-file .env.production ps --status running --quiet server 2>/dev/null | grep -q .; then
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -c 'import json;from pathlib import Path;p=Path("/app/packages/server/data/reports/status.json");d=json.loads(p.read_text()) if p.is_file() else {};s=str(d.get("status",""));valid={"VERIFIED","VERIFIED_WITH_WARNINGS","FAILED","NOT_ISSUED","RUNNING","PLAN_CHANGED"};print(json.dumps({"status_exists":p.is_file(),"status_class":s if s in valid else "UNKNOWN","attempt_started":bool(d.get("started_at")),"attempt_finished":bool(d.get("finished_at")),"has_snapshot":bool(d.get("snapshot_id")),"has_publication":bool(d.get("publication"))},sort_keys=True))' 2>/dev/null || echo 'report_status_readback=UNAVAILABLE'
+              # Manual refresh is independent of the scheduled worker.
+              # Only publish coarse age/process/error classes, never paths/args.
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - <<'PYSTATUS' 2>/dev/null || echo 'manual_refresh_diagnostic=UNAVAILABLE'
+            import json
+            import os
+            from datetime import datetime, timezone
+            from pathlib import Path
+            p = Path("/app/packages/server/data/reports/status.json")
+            data = json.loads(p.read_text()) if p.is_file() else {}
+            stamp = data.get("started_at")
+            try:
+                started = datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
+                seconds = (datetime.now(timezone.utc) - started).total_seconds() if started and started.tzinfo else None
+            except ValueError:
+                seconds = None
+            count = 0
+            for item in Path("/proc").iterdir():
+                if not item.name.isdigit() or int(item.name) == os.getpid():
+                    continue
+                try:
+                    cmd = (item / "cmdline").read_bytes()
+                    count += int(b"proc-report" in cmd and b"run-google" in cmd)
+                except OSError:
+                    continue
+            codes = {"MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH", "SOURCE_CHANGED_DURING_FREEZE",
+                     "GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT"}
+            stages = {"inputs", "acquisition", "publication_selection", "build", "publication"}
+            print(json.dumps({
+                "manual_run_google_process_count": count,
+                "attempt_age_bucket": "UNKNOWN" if seconds is None else (
+                    "FUTURE" if seconds < 0 else "OLDER_THAN_20_MIN" if seconds > 1200 else "RECENT"),
+                "failure_code": data.get("error_code") if data.get("error_code") in codes else "NONE_OR_OTHER",
+                "failure_stage": data.get("failure_stage") if data.get("failure_stage") in stages else "NONE_OR_OTHER",
+            }, sort_keys=True))
+            import re
+            publication = data.get("publication") if isinstance(data.get("publication"), dict) else {}
+            key = publication.get("release_id")
+            valid_key = isinstance(key, str) and bool(re.fullmatch(r"REL-[a-f0-9]{64}", key))
+            release = Path("/app/packages/server/data/reports/published/releases") / key if valid_key else None
+            docs = ("main_report.docx", "management_report.docx", "operational_report.docx")
+            availability = [
+                release.joinpath(name).is_file() and release.joinpath(name).stat().st_size > 0
+                if release else False for name in docs
+            ]
+            pub_date = publication.get("report_date")
+            pub_date = pub_date if isinstance(pub_date, str) and re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", pub_date) else None
+            finished = data.get("finished_at")
+            finished = finished[:16] if isinstance(finished, str) and len(finished) > 15 else None
+            print(json.dumps({
+                "publication_report_date": pub_date,
+                "attempt_finish_utc_minute": finished,
+                "snapshot_matches_publication": bool(publication.get("snapshot_id"))
+                  and publication.get("snapshot_id") == data.get("snapshot_id"),
+                "primary_docx_present": availability[0],
+                "supplement_docx_present": availability[1],
+                "operational_docx_present": availability[2],
+                "operational_expected": publication.get("operational_available") is True,
+            }, sort_keys=True))
+            PYSTATUS
+              # Read-only loopback GET through the same published three Word routes as the UI.
+              # The smoke prints only fixed diagnostic labels, never document bytes.
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -m procurement_engine.deployment_smoke 2>&1 \
+                | python3 -c 'import json,sys; s=sys.stdin.read(); keys=("context","main","supplement","operational","snapshot"); ok=all("\""+k+"\": \"PASS\"" in s for k in keys); codes=("REPORT_EXPORT_CONTEXT_MISSING","REPORT_EXPORT_SNAPSHOT_MISMATCH","REPORT_EXPORT_DOCUMENT_INVALID","REPORT_EXPORT_RESPONSE_TOO_LARGE","REPORT_EXPORT_HTTP_400","REPORT_EXPORT_HTTP_401","REPORT_EXPORT_HTTP_403","REPORT_EXPORT_HTTP_404","REPORT_EXPORT_HTTP_429","REPORT_EXPORT_HTTP_500","REPORT_EXPORT_HTTP_502","REPORT_EXPORT_HTTP_503","REPORT_EXPORT_HTTP_504","REPORT_EXPORT_HTTP_CHECK_FAILED");print(json.dumps({"native_word_http_status":"PASS" if ok else "BLOCKED","reason":"NONE" if ok else next((x for x in codes if x in s),"OTHER_OR_UNKNOWN")},sort_keys=True));sys.exit(0 if ok else 1)' \
+                || echo 'native_word_http_readonly=BLOCKED'
+            else
+              echo 'report_status_readback=SERVER_NOT_RUNNING'
+            fi
+            # Candidate code runs in memory against fixed paths, without source values in output.
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            probe_dir=$(mktemp -d)
+            trap 'rm -rf "$probe_dir"' EXIT
+            git show "$candidate:.github/ci/report_storage_probe.py" > "$probe_dir/probe.py"
+            git show "$candidate:.github/ci/report_auth_probe.py" > "$probe_dir/auth.py"
+            git show "$candidate:packages/report-engine/src/procurement_engine/readonly_catalog.py" > "$probe_dir/catalog.py"
+            git show "$candidate:packages/report-engine/src/procurement_engine/storage_inventory.py" > "$probe_dir/inventory.py"
+            python3 - "$probe_dir" > "$probe_dir/execute.py" <<'PYSTORAGE'
+            import json
+            import sys
+            from pathlib import Path
+            root = Path(sys.argv[1])
+            sources = [json.dumps((root / name).read_text()) for name in ("catalog.py", "inventory.py")]
+            print("_probe_sources = iter(" + repr(sources) + ")")
+            print((root / "probe.py").read_text().replace("sys.stdin.readline()", "next(_probe_sources)"))
+            PYSTORAGE
+            cd deploy
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$probe_dir/auth.py" \
+              || echo 'auth_refresh_diagnostic=UNAVAILABLE'
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$probe_dir/execute.py" \
+              || echo 'report_storage_inventory=UNAVAILABLE'
+            echo '=== Report browser-path forensic preflight (read-only) ==='
+            # Fastify JSON is not enough: the actual browser enforces @aemr/shared
+            # Zod. Check production's exact selected date and schema without exposing
+            # row values, documents, release IDs or authorization headers.
+            if docker compose --env-file .env.production ps --status running --quiet server | grep -q .; then
+              docker compose --env-file .env.production exec -T server ./node_modules/.bin/tsx -e '
+                import { readFileSync } from "node:fs";
+                import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
+                void (async () => {
+                  const x = JSON.parse(readFileSync("/app/packages/server/data/reports/status.json","utf8"));
+                  const day = x.publication?.report_date || x.report_date;
+                  if (typeof day !== "string" || !/^\d{2}\.\d{2}\.\d{4}$/.test(day)) {
+                    console.log(JSON.stringify({report_status_contract:"NO_VALID_DATE"})); return;
+                  }
+                  const [d,m,y] = day.split(".");
+                  const date = y+"-"+m+"-"+d;
+                  const quarter = Math.ceil(Number(m)/3);
+                  const url = "http://127.0.0.1:3000/api/report-releases?date="+date+"&year="+y+"&quarter="+quarter;
+                  const resp = await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
+                  const value = await resp.json();
+                  const parsed = SelectedReportReleaseStatusSchema.safeParse(value);
+                  console.log(JSON.stringify({
+                    report_status_http:resp.status,
+                    browser_zod_contract:parsed.success?"PASS":"FAIL",
+                    selected_present:Boolean(value?.selected),
+                    errors:parsed.success?[]:parsed.error.issues.slice(0,6).map(e=>({
+                      path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),
+                      code:e.code
+                    }))
+                  }));
+                })().catch(() => console.log(JSON.stringify({report_browser_contract:"READ_ONLY_CHECK_FAILED"})));
+              ' 2>/dev/null || echo 'browser_schema_probe=UNAVAILABLE'
+            fi
+            # Caddy access telemetry never prints URLs, identities, query values,
+            # tokens or IPs: only finite status labels for report endpoints.
+            docker compose --env-file .env.production logs --since 45m --no-color caddy 2>/dev/null \
+              | tail -n 1200 \
+              | python3 -c 'import collections,json,re,sys; counts=collections.Counter(); total=0; 
+            for line in sys.stdin:
+             if "/api/report-releases" not in line: continue
+             total+=1
+             match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
+             counts[match.group(1) if match else "UNKNOWN"]+=1
+            print(json.dumps({"report_endpoint_log_entries":total,"http_status_classes":dict(counts)},sort_keys=True))' \
+              || echo 'edge_access_diagnostic=UNAVAILABLE'
+            echo '=== End report browser-path preflight ==='
+            echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
   source-schema:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
+      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
+       github.head_ref == 'codex/dash-audit-integrated-20261010')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,7 +234,26 @@ jobs:
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-schema-preflight.XXXXXX)
-            trap 'rm -rf "$work"' EXIT
+            rehearsal_run='${{ github.run_id }}'
+            case "$rehearsal_run" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_attempt='${{ github.run_attempt }}'
+            case "$rehearsal_attempt" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label "aemr.rehearsal-attempt=$rehearsal_attempt" --label aemr.rehearsal-job=source-schema --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
+            cleanup_rehearsal() {
+              result=$?
+              trap - EXIT HUP INT TERM
+              set +e
+              while IFS= read -r id; do
+                case "$id" in ''|*[!0-9a-f]*) continue ;; esac
+                docker rm --force "$id" >/dev/null 2>&1
+              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter "label=aemr.rehearsal-attempt=$rehearsal_attempt" --filter 'label=aemr.rehearsal-job=source-schema')
+              rm -rf -- "$work"
+              exit "$result"
+            }
+            trap cleanup_rehearsal EXIT
+            trap 'exit 129' HUP
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
             python3 - <<'PYENDPOINT'
@@ -66,10 +277,19 @@ jobs:
               ''|*[!A-Za-z0-9_.-]*) echo 'Report read-only source volume was not identified' >&2; exit 1 ;;
             esac
             docker volume inspect "$data_volume" >/dev/null
-            docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            # This checks the existing live fence only. Never bootstrap a lease
+            # inside a read-only rehearsal against an older running runtime.
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
+              -m procurement_engine.cli check-publication-readers --state /app/packages/server/data/reports
+            # Catalog copies contain DB+committed WAL. Use the same disposable
+            # disk scratch as the full replay; copied_catalog admits its space.
+            docker run --rm "${rehearsal_limits[@]}" -i --read-only --mount type=volume,dst=/tmp \
               --env-file .env.production -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python - <<'PYREAD'
             import json, shutil, tempfile
             from pathlib import Path
             from procurement_engine.google_adapter import GoogleReadClient, GoogleReadError
@@ -155,9 +375,11 @@ jobs:
                 print(json.dumps({"remote_contract": [{k: source[k] for k in keys if k in source} for source in remote["sources"]], "ledger_unchanged": json.loads((target / "ledger.json").read_text()) == json.loads((root / "inputs/ledger.json").read_text())}, ensure_ascii=False, sort_keys=True))
             PYREAD
   frozen-replay:
+    needs: source-schema
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
+      !cancelled() && github.event.pull_request.head.repo.full_name == github.repository &&
+      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
+       github.head_ref == 'codex/dash-audit-integrated-20261010')
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:
@@ -204,18 +426,44 @@ jobs:
             # scratch volume, automatically destroyed by docker run --rm.
             # None of the existing business volumes can be written here.
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
-            trap 'rm -rf "$work"' EXIT
+            rehearsal_run='${{ github.run_id }}'
+            case "$rehearsal_run" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_attempt='${{ github.run_attempt }}'
+            case "$rehearsal_attempt" in *[!0-9]*|'') exit 2 ;; esac
+            rehearsal_limits=(--label "aemr.rehearsal-run=$rehearsal_run" --label "aemr.rehearsal-attempt=$rehearsal_attempt" --label aemr.rehearsal-job=frozen-replay --memory 1536m --memory-swap 1792m --cpus 1 --pids-limit 128)
+            cleanup_rehearsal() {
+              result=$?
+              trap - EXIT HUP INT TERM
+              set +e
+              while IFS= read -r id; do
+                case "$id" in ''|*[!0-9a-f]*) continue ;; esac
+                docker rm --force "$id" >/dev/null 2>&1
+              done < <(docker ps --all --quiet --no-trunc --filter "label=aemr.rehearsal-run=$rehearsal_run" --filter "label=aemr.rehearsal-attempt=$rehearsal_attempt" --filter 'label=aemr.rehearsal-job=frozen-replay')
+              rm -rf -- "$work"
+              exit "$result"
+            }
+            trap cleanup_rehearsal EXIT
+            trap 'exit 129' HUP
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
+            # This checks the existing live fence only. Never bootstrap a lease
+            # inside a read-only rehearsal against an older running runtime.
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
+              -m procurement_engine.cli check-publication-readers --state /app/packages/server/data/reports
             # Verify the image user can create and remove scratch files before
             # a lengthy replay. Anonymous volumes are removed on exit.
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               --entrypoint /bin/sh "$image" \
               -ec 'test -w /tmp; : > /tmp/rehearsal-permission-check; rm /tmp/rehearsal-permission-check'
             echo "=== report state aggregate footprint (no source contents) ==="
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               -v "$data_volume:/app/packages/server/data:ro" \
               --entrypoint /bin/sh "$image" \
               -ec 'root=/app/packages/server/data/reports;
@@ -229,101 +477,142 @@ jobs:
                    printf "release_dirs "; find "$root/published/releases" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l;
                    printf "weekly_dirs "; find "$root/archives" -mindepth 1 -maxdepth 1 -type d -name "WEEKLY-*" 2>/dev/null | wc -l'
             echo "=== installed source contract geometry (no source contents) ==="
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               -v "$data_volume:/app/packages/server/data:ro" \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json; from pathlib import Path; r=json.loads(Path("/app/packages/server/data/reports/inputs/registry.json").read_text()); keys=("sheet","role","columns","header_rows","schema_fingerprint","semantic_header_fingerprint","previous_semantic_header_fingerprint"); print(json.dumps({"installed_source_contracts":[{k:s[k] for k in keys if k in s} for s in r["sources"]]},ensure_ascii=False,sort_keys=True))'
             echo "=== end installed source contract geometry ==="
             echo "=== latest live release aggregate footprint ==="
-            docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
+              --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json; from pathlib import Path; from procurement_engine.publication_store import PublicationStore; from procurement_engine.readonly_catalog import copied_catalog; root=Path("/app/packages/server/data/reports/published"); store=PublicationStore(root,readonly=True); context=copied_catalog(store.database_path); catalog=context.__enter__(); store.database_path=catalog; receipt=store.latest(); release=root/"releases"/receipt["release_id"] if receipt else None; size=lambda p: sum(x.stat().st_size for x in p.rglob("*") if x.is_file()) if p and p.exists() else 0; print(json.dumps({"report_date":receipt.get("report_date") if receipt else None,"release_bytes":size(release),"identity_bytes":(release/"identity.sqlite").stat().st_size if release and (release/"identity.sqlite").is_file() else 0,"snapshot_bundle_bytes":size(release/"snapshot_bundle") if release else 0,"main_docx_bytes":(release/"main_report.docx").stat().st_size if release and (release/"main_report.docx").is_file() else 0,"management_docx_bytes":(release/"management_report.docx").stat().st_size if release and (release/"management_report.docx").is_file() else 0},ensure_ascii=False,sort_keys=True)); context.__exit__(None,None,None)'
             echo "=== published unresolved recommendation index ==="
-            docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
+              --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json; from pathlib import Path; from procurement_engine.publication_store import PublicationStore; from procurement_engine.readonly_catalog import copied_catalog; root=Path("/app/packages/server/data/reports/published"); store=PublicationStore(root,readonly=True); context=copied_catalog(store.database_path); catalog=context.__enter__(); store.database_path=catalog; receipt=store.latest(); model=json.loads((root/"releases"/receipt["release_id"]/"report_model.json").read_text()); rows=[]; [rows.append({"grbs":r.get("grbs"),"table_no":r.get("table_no"),"row_no":r.get("row_no"),"link_status":(r.get("current_link") or {}).get("status"),"origin_date":((r.get("current_link") or {}).get("origin") or {}).get("document_date"),"required_id_count":len((r.get("current_link") or {}).get("required_business_ids") or [])}) for r in model.get("recommendation_records",[]) if r.get("active_in_current_slice") and (r.get("current_link") or {}).get("status")!="CONFIRMED"]; print(json.dumps({"release_id":receipt["release_id"],"report_date":receipt["report_date"],"unresolved_count":len(rows),"rows":rows},ensure_ascii=False,sort_keys=True)); context.__exit__(None,None,None)'
             echo "=== end unresolved recommendation index ==="
             echo "=== candidate retention dry run ==="
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json; from procurement_engine.retention import plan_transient_attempt_retention as p; r=p("/app/packages/server/data/reports"); r.pop("compact_attempts", None); print(json.dumps(r, ensure_ascii=False, sort_keys=True))'
             echo "=== end report state footprint ==="
 
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --failed-attempt
             echo "=== fast published-evidence inventory (no candidate replay) ==="
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --published-summary
             echo "=== end published-evidence inventory ==="
             echo "=== sanitized current-release diagnostic (weekly archive checked separately) ==="
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage-summary
             echo "=== end current-release diagnostic ==="
+            # Measure the candidate DTO on ONE real response. Raw evidence stays
+            # inside this private pipe; only byte counts and invariants are public.
+            docker exec "$server" /opt/report-env/bin/python -IB -c '
+            import os,sys,urllib.request
+            try:
+                request=urllib.request.Request("http://127.0.0.1:3000/api/report-releases",headers={"Authorization":"Bearer "+os.environ["AEMR_API_KEY"]})
+                with urllib.request.urlopen(request,timeout=25) as response:
+                    if response.status!=200:raise ValueError()
+                    body=response.read(32*1024*1024+1)
+                if len(body)>32*1024*1024:raise ValueError()
+                sys.stdout.buffer.write(body)
+            except Exception:
+                print("REPORT_DTO_SOURCE_READ_FAILED",file=sys.stderr)
+                raise SystemExit(2) from None
+            ' | docker run --rm "${rehearsal_limits[@]}" --network none --read-only --memory 512m --cpus 1 --pids-limit 32 -i \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python -IB -c '
+            import json,sys
+            try:
+                sys.path.insert(0,"/candidate/src")
+                from procurement_engine.publication_reader import _status_projection
+                raw=sys.stdin.buffer.read(32*1024*1024+1)
+                if not raw or len(raw)>32*1024*1024:raise ValueError()
+                value=json.loads(raw)
+                encode=lambda obj:json.dumps(obj,ensure_ascii=False,allow_nan=False,separators=(",",":")).encode()
+                before=encode(value)
+                projected=_status_projection(value)
+                after=encode(projected)
+                if encode(value)!=before:raise ValueError()
+                visible=value.get("selected") or value.get("latest") or value.get("latest_matching")
+                current=projected.get("selected") or projected.get("latest") or projected.get("latest_matching")
+                if visible!=current:raise ValueError()
+                print(json.dumps({"report_status_projection":{"source_bytes":len(raw),"before_bytes":len(before),"after_bytes":len(after),"input_unchanged":True,"visible_release_unchanged":True}}))
+            except Exception:
+                print("REPORT_DTO_PROJECTION_CHECK_FAILED",file=sys.stderr)
+                raise SystemExit(2) from None
+            '
             # Check the latest sealed weekly archive against both the CURRENT
             # DEPLOYED report-engine and the CANDIDATE, with the same read-only
             # volume and no network. An immutable historical defect may already
             # be present; never mislabel it as candidate regression or as PASS.
-            # Any new/changed failure still blocks CI; only the exact known
-            # inherited duplicate-procedure defect is explicitly classified.
-            baseline_weekly=$(docker run --rm --network none --read-only \
+            # Use the same reviewed qualification probe for both engines. Baseline
+            # retains its installed imports (no PYTHONPATH override); the probe only
+            # measures evidence and refusal. Literal bad historical #REF! requires
+            # complete frozen hashes + exact issue digest, never a generic waiver.
+            # Every other/new/changed failure blocks; historical refusal is not PASS.
+            baseline_weekly=$(docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
-              --entrypoint /opt/report-env/bin/python "$image" \
-              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only || true)
-            candidate_weekly=$(docker run --rm --network none --read-only \
+              -v "$work/packages/report-engine:/qualification:ro" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
+              -c 'import runpy,sys; probe=runpy.run_path("/qualification/src/procurement_engine/rehearsal.py",run_name="procurement_engine.rehearsal_probe"); sys.exit(probe["main"](["--state","/app/packages/server/data/reports","--weekly-only"]))' || true)
+            candidate_weekly=$(docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only || true)
-            docker run --rm --network none --read-only \
+            docker run --rm "${rehearsal_limits[@]}" --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               -e BASELINE_WEEKLY="$baseline_weekly" \
               -e CANDIDATE_WEEKLY="$candidate_weekly" \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /usr/bin/timeout "$image" -k 5s 1200s /opt/report-env/bin/python \
               -c 'import json,os,sys; from procurement_engine.rehearsal_policy import compare_weekly_replay; baseline=json.loads(os.environ["BASELINE_WEEKLY"]); candidate=json.loads(os.environ["CANDIDATE_WEEKLY"]); result=compare_weekly_replay(baseline,candidate); print(json.dumps({"weekly_archive_comparison":result},ensure_ascii=False,sort_keys=True)); sys.exit(0 if result["ready"] else 2)'
-            # Startup success is insufficient: observe a later timer attempt.
-            worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
-            if [ -z "$worker" ]; then
-              echo '{"scheduled_worker_cycle":{"status":"BLOCKED","reason":"RUNNING_REPORT_WORKER_NOT_FOUND"}}'
+            # The installed worker must be present; this is process availability,
+            # not acceptance of a completed cycle or of the candidate runtime.
+            if ! worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker); then
+              echo '{"installed_worker_process":{"status":"BLOCKED","reason":"REPORT_WORKER_LOOKUP_FAILED"}}'
               exit 1
             fi
-            started=$(docker inspect --format '{{.State.StartedAt}}' "$worker")
-            interval=$(docker exec "$worker" /bin/sh -c 'printf "%s" "${REPORT_POLL_SECONDS:-900}"')
-            docker run --rm --network none --read-only \
-              -v "$data_volume:/app/packages/server/data:ro" \
-              -v "$work/packages/report-engine:/candidate:ro" \
-              -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
-              -c 'import json, sys; from datetime import datetime, timedelta; from pathlib import Path; from procurement_engine.deployment_smoke import check_worker_cycle; since=(datetime.fromisoformat(sys.argv[1])+timedelta(seconds=float(sys.argv[2]))).isoformat(); result=check_worker_cycle(lambda: json.loads(Path("/app/packages/server/data/reports/status.json").read_text()), since, attempts=1); print(json.dumps({"scheduled_worker_cycle": result}, sort_keys=True))' \
-              "$started" "$interval"
+            if [ -z "$worker" ]; then
+              echo '{"installed_worker_process":{"status":"BLOCKED","reason":"RUNNING_REPORT_WORKER_NOT_FOUND"}}'
+              exit 1
+            fi
+            # A one-shot read of the installed worker may legitimately be RUNNING.
+            # It cannot accept automation of this not-yet-installed candidate.
+            # Keep worker diagnostics separate; after deployment, require the
+            # attributed two-cycle observer and native context/three-Word checks.
+            echo '{"worker_acceptance":{"status":"NOT_RUN","reason":"REQUIRES_EXACT_DEPLOYED_CANDIDATE_TWO_CYCLES"}}'

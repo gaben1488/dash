@@ -1,6 +1,15 @@
 from procurement_engine.deployment_diagnostics import summarize_status
 
 
+def test_catalog_capacity_failure_retains_its_fixed_public_code():
+    from procurement_engine.deployment_diagnostics import public_error_code
+
+    code = 'PUBLICATION_CATALOG_SCRATCH_INSUFFICIENT'
+    assert public_error_code(code + ': private filesystem path') == code
+    assert summarize_status({'status': 'NOT_ISSUED', 'error_code': code}) == {
+        'last_report_status': 'NOT_ISSUED', 'error_code': code}
+
+
 def test_failure_summary_exposes_only_safe_codes_and_no_source_details():
     status = {'status': 'NOT_ISSUED', 'attempt_id': 'private-attempt',
               'error_code': 'GOOGLE_BATCH_RANGE_MISMATCH', 'error_type': 'GoogleReadError',

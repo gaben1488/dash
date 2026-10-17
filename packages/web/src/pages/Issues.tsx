@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import type { IssueHistoryEvent } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -9,6 +10,7 @@ import {
   issueStatusLabel,
   issueTransitionNeedsReason,
   issueTransitionRefusal,
+  issueDecisionExplanation,
 } from '../lib/selectors/issue-transitions';
 import { formatEventTime } from '../lib/selectors/event-time';
 import { groupIssuesByMechanism, type MechanismGroup } from '../lib/diagnostics/mechanism-groups';
@@ -30,6 +32,7 @@ interface DisplayIssue {
   description: string;
   /** Ключ управления; пустая строка = управление у замечания не проставлено. */
   dept: string;
+  sheet?: string;
   row?: number;
   /** «№ п/п» из колонки A — стабильный второй адрес: строки листа двигаются (п.98б). */
   rowSeq?: string;
@@ -96,16 +99,6 @@ function issuesWord(n: number): string {
   return pluralRu(n, 'замечание', 'замечания', 'замечаний');
 }
 
-interface HistoryEntry {
-  type: 'created' | 'status_change' | 'comment';
-  at: string;
-  author?: string;
-  text?: string;
-  from?: string;
-  to?: string;
-  reason?: string;
-}
-
 const HISTORY_ICON: Record<string, typeof GitCommit> = {
   created: PlusCircle,
   status_change: Edit3,
@@ -113,7 +106,7 @@ const HISTORY_ICON: Record<string, typeof GitCommit> = {
 };
 
 function IssueTimeline({ issueId }: { issueId: string }) {
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<IssueHistoryEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -125,7 +118,7 @@ function IssueTimeline({ issueId }: { issueId: string }) {
     setLoading(true);
     try {
       const data = await api.getIssueHistory(issueId);
-      setHistory(Array.isArray(data) ? data : data?.history ?? []);
+      setHistory(data.history);
       setLoadError(null);
     } catch (err) {
       // Молчаливый провал показывал «Нет записей в истории» — то есть выдавал
@@ -189,12 +182,12 @@ function IssueTimeline({ issueId }: { issueId: string }) {
         </div>
       ) : history.length > 0 ? (
         <div className="relative ml-3 border-l-2 border-zinc-200 dark:border-zinc-700 space-y-3 mb-4">
-          {history.map((entry, i) => {
+          {history.map((entry) => {
             const Icon = HISTORY_ICON[entry.type] ?? GitCommit;
             const isComment = entry.type === 'comment';
             const isStatusChange = entry.type === 'status_change';
             return (
-              <div key={i} className="relative pl-5">
+              <div key={entry.eventId} className="relative pl-5">
                 <span className={clsx(
                   'absolute -left-[9px] top-0.5 w-4 h-4 rounded-full flex items-center justify-center',
                   isComment ? 'bg-blue-100 dark:bg-blue-900/40' : isStatusChange ? 'bg-amber-100 dark:bg-amber-900/40' : 'bg-emerald-100 dark:bg-emerald-900/40'
@@ -205,12 +198,9 @@ function IssueTimeline({ issueId }: { issueId: string }) {
                 </span>
                 <div className="text-[11px]">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {entry.author && <span className="font-medium text-zinc-700 dark:text-zinc-200">{entry.author}</span>}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-200">{entry.author ?? 'Автор не указан'}</span>
                     <span className="text-zinc-400 dark:text-zinc-500">{formatEventTime(entry.at)}</span>
                   </div>
-                  {entry.type === 'created' && (
-                    <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">Замечание создано</p>
-                  )}
                   {isStatusChange && (
                     <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">
                       {/* Статус приходит с сервера сырым ключом; фразу даёт словарь продукта. */}
@@ -220,7 +210,10 @@ function IssueTimeline({ issueId }: { issueId: string }) {
                       {entry.reason && <span className="ml-1 text-zinc-400 dark:text-zinc-500">({entry.reason})</span>}
                     </p>
                   )}
-                  {isComment && entry.text && (
+                  {entry.justification && <p className="mt-0.5">Обоснование: {entry.justification}</p>}
+                  {entry.responsible && <p className="mt-0.5">Ответственный: {entry.responsible}</p>}
+                  {entry.deadline && <p className="mt-0.5">Срок: {entry.deadline}</p>}
+                  {entry.text && (
                     <p className="text-zinc-600 dark:text-zinc-300 mt-0.5 bg-white dark:bg-zinc-800/60 rounded-lg px-3 py-2 border border-zinc-100 dark:border-transparent">{entry.text}</p>
                   )}
                 </div>
@@ -298,7 +291,6 @@ export function IssuesPage() {
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
-  const [statusOverrides, setStatusOverrides] = useState<Record<string, Status>>({});
   const [statusError, setStatusError] = useState<Record<string, string>>({});
   /** Открытая форма причины: сервер не примет отказ и «ложное» без слов человека. */
   const [reasonDraft, setReasonDraft] = useState<{ issueId: string; target: Status; text: string } | null>(null);
@@ -308,7 +300,12 @@ export function IssuesPage() {
     setStatusError(prev => ({ ...prev, [issueId]: '' }));
     try {
       await api.updateIssueStatus(issueId, target, reason);
-      setStatusOverrides(prev => ({ ...prev, [issueId]: target }));
+      // Refresh the existing shared dashboard view (issues/counts/trust), not
+      // the source sheets. Other Control pages must see the saved decision too.
+      const refreshed = await useStore.getState().fetchDashboard();
+      if (!refreshed) {
+        throw new Error('Статус сохранён и подтверждён, но общие данные не обновлены. Обновите страницу, чтобы проверить замечание.');
+      }
       setReasonDraft(null);
     } catch (err) {
       const raw = humanizeRequestError(err);
@@ -317,7 +314,7 @@ export function IssuesPage() {
       // "resolved" недопустим») пользователю не показываем — он с ключами.
       const message = /код 400/.test(raw)
         ? `Статус не изменён: замечание уже перевели в другом месте. Обновите страницу и посмотрите, в каком оно статусе сейчас.`
-        : `Статус не изменён. ${raw}`;
+        : `Не удалось подтвердить обновление замечания. ${raw}`;
       setStatusError(prev => ({ ...prev, [issueId]: message }));
     } finally {
       setStatusUpdating(null);
@@ -338,25 +335,26 @@ export function IssuesPage() {
     const raw = fd.issues;
     return raw.map((iss: any) => ({
       id: iss.id,
-      severity: iss.severity as Severity,
+      severity: formulaDiagnosticInapplicableReason(iss) ? 'info' : iss.severity as Severity,
       title: iss.title,
-      description: iss.description,
+      description: formulaDiagnosticInapplicableReason(iss) ? `${formulaDiagnosticInapplicableReason(iss)} Исходная серьёзность: ${iss.severity}. ${iss.description}` : iss.description,
       dept: iss.departmentId || iss.sheet || '',
+      sheet: iss.sheet,
       row: iss.row,
       rowSeq: iss.rowSeq,
       cell: iss.cell,
       signal: iss.signal,
       checkId: iss.checkId,
       kbHint: iss.kbHint,
-      status: statusOverrides[iss.id] ?? ((iss.status as Status) || 'open'),
+      status: (iss.status as Status) || 'open',
       // Своё время замечания, а не время обновления дашборда: подменять одно
       // другим значит выдавать «когда последний раз читали книги» за «когда
       // нашли это». Обе величины про прогон конвейера, но у замечания она своя.
       detectedAt: iss.detectedAt ?? dashboardData?.lastRefreshed ?? '',
-      recommendation: iss.recommendation,
+      recommendation: formulaDiagnosticInapplicableReason(iss) ?? iss.recommendation,
       comments: [],
     }));
-  }, [fd.issues, dashboardData, statusOverrides]);
+  }, [fd.issues, dashboardData]);
 
   // Оси шапки, за которыми нет данных замечания. Проверяется по самим данным,
   // а не по памяти: появится поле — подпись исчезнет вместе с ним.
@@ -834,6 +832,9 @@ export function IssuesPage() {
 
                 {expanded && (
                   <div id={bodyId} className="border-t border-zinc-100 dark:border-zinc-700/50 px-4 py-4 bg-zinc-50/50 dark:bg-zinc-900/30">
+                    <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-300" role="status">
+                      {issueDecisionExplanation(iss.status)}
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <div>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">{iss.description}</p>

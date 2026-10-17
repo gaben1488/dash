@@ -34,6 +34,11 @@ function makeCells(overrides: Record<string, unknown> = {}): Record<string, unkn
   return { ...base, ...overrides };
 }
 
+/** Закрытая годовая позиция: Q — последний контракт, а не первая накопленная сумма. */
+function makeClosedCells(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return makeCells({ Q: '12.04.2026', ...overrides });
+}
+
 /** Fixed reference date for deterministic tests */
 const REF_DATE = new Date(2026, 3, 13); // April 13, 2026
 
@@ -345,28 +350,28 @@ describe('Financial signals', () => {
 
   describe('economyConflict', () => {
     it('conflict (случай а, оживает): AD="да" but fact >= plan', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000_000, Y: 1_000_000, AD: 'да',
       }), REF_DATE);
       expect(s.economyConflict).toBe(true);
     });
 
     it('NO conflict: AD="да" + экономия 30% — флаг честно проставлен (УЭР стр.6: K=445, Y=312.79)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 445, Y: 312.79, AD: 'да', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
     });
 
     it('NO conflict: AD="нет" + экономия 84% — «нет» это решение органа, не пробел (УАГЗО стр.6: K=63.03332, Y=9.81406)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 63.03332, Y: 9.81406, AD: 'нет', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
     });
 
     it('случай (а) границу не заметил: AD="да" при равенстве плана и факта (УО стр.7: K=Y=15799.9968)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 15_799.9968, Y: 15_799.9968, AD: 'да', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(true);
@@ -378,7 +383,7 @@ describe('Financial signals', () => {
     // счёт. Строки ниже — те самые живые числа, на которых прежде проверялась
     // полоса 15–25 %: они не замолчали, они переехали в свой класс.
     it('экономия без отметки — это НЕ конфликт: конфликт остался про отметку «да» (УД стр.122: K=624.6345, Y=477.84504)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 624.6345, Y: 477.84504, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
@@ -386,7 +391,7 @@ describe('Financial signals', () => {
     });
 
     it('экономия выше 25 % без отметки — тоже свой класс, а не конфликт (УД стр.10: K=333.8024, Y=188.56238)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 333.8024, Y: 188.56238, AD: '·', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
@@ -396,7 +401,7 @@ describe('Financial signals', () => {
     });
 
     it('НЕТ конфликта, когда факта нет вовсе', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000_000, Y: 0, AD: 'да',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
@@ -412,7 +417,7 @@ describe('Financial signals', () => {
   // ────────────────────────────────────────────────────────────
   describe('economyFlagUndetermined (класс «Экономия без отметки»)', () => {
     it('экономия 15,5 % без отметки — строка в классе (УД стр.20: K=74.79996, Y=63.20598)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 74.79996, Y: 63.20598, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(true);
@@ -421,28 +426,28 @@ describe('Financial signals', () => {
     it('мелкая экономия тоже в классе: полос и порогов у явления нет', () => {
       // Прежде 10 % не доходили ни до одного счётчика: конфликт требовал 15 %,
       // правило листа — заполненных столбцов экономии и целой тысячи рублей.
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 900, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(true);
     });
 
     it('отметка «нет» — решение органа: строка вне класса (УАГЗО стр.6: K=63.03332, Y=9.81406)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 63.03332, Y: 9.81406, AD: 'нет', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(false);
     });
 
     it('отметка «да» — решение принято: строка вне класса (УЭР стр.6: K=445, Y=312.79)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 445, Y: 312.79, AD: 'да', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(false);
     });
 
     it('единственный поставщик ВХОДИТ в класс (решение владельца 20.08: «ЕП включённо»)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 800, AD: '', L: 'ЕП',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(true);
@@ -451,28 +456,28 @@ describe('Financial signals', () => {
     });
 
     it('заглушка «Х» в графе — та же непроставленная отметка', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 800, AD: 'Х', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(true);
     });
 
     it('факта нет — вопроса об отметке ещё не возникло', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 0, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(false);
     });
 
     it('факт выше плана — экономии по числам нет', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 1_200, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyFlagUndetermined).toBe(false);
     });
 
     it('бейдж класса — жёлтый и называется «Экономия без отметки»', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         K: 1_000, Y: 800, AD: '', L: 'ЭА',
       }), REF_DATE);
       const badge = getSignalBadges(s).find((b) => b.label === 'Экономия без отметки');
@@ -482,6 +487,20 @@ describe('Financial signals', () => {
   });
 
   describe('epRisk', () => {
+    it('annual aggregate stays reviewable with an informational badge, not a single-contract claim', () => {
+      const cells = makeCells({ A: '3', L: 'ЕП', K: 1200, Y: 800, Q: 'Х' });
+      const signals = detectSignals(cells, REF_DATE);
+      expect(signals.epRisk).toBe(true);
+      const context = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+      expect(getSignalBadges(signals, context).some(b =>
+        b.label.includes('отдельных договоров') && b.color === 'blue')).toBe(true);
+    });
+    it('does not suppress the EP threshold signal for a negated monopoly claim', () => {
+      expect(detectSignals(makeCells({ L: 'ЕП', K: 1200, M: 'не является монополистом' }), REF_DATE).epRisk).toBe(true);
+    });
+    it('a negated monopoly claim does not erase an independent explicit article 93 basis', () => {
+      expect(detectSignals(makeCells({ L: 'ЕП', K: 1200, M: 'не является монополистом; п.8 ч.1 ст.93' }), REF_DATE).epRisk).toBe(false);
+    });
     // K — тыс. руб. (канон колонок книг ГРБС): 601/600 значат 601/600 тыс. руб.,
     // граница лимита 600 тыс. по п.4 ч.1 ст.93 44-ФЗ. bug-hunt 2026-08-08 (БАГ #1):
     // раньше порог был в рублях (600_000), а K тоже сравнивался как рубли —
@@ -558,7 +577,7 @@ describe('Financial signals', () => {
 
   describe('highEconomy', () => {
     it('true: economy > 25% on competitive method', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1_000_000, Y: 700_000,
       }), REF_DATE);
       // economy = 30% > 25%
@@ -566,21 +585,21 @@ describe('Financial signals', () => {
     });
 
     it('false: economy exactly 25%', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1_000_000, Y: 750_000,
       }), REF_DATE);
       expect(s.highEconomy).toBe(false);
     });
 
     it('false: economy > 25% but method is ЕП', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЕП', K: 1_000_000, Y: 700_000,
       }), REF_DATE);
       expect(s.highEconomy).toBe(false);
     });
 
     it('false: fact > plan (negative economy)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1_000_000, Y: 1_200_000,
       }), REF_DATE);
       expect(s.highEconomy).toBe(false);
@@ -589,7 +608,7 @@ describe('Financial signals', () => {
 
   describe('lowCompetition (FP-fix signal_audit 2026-07-14 §3.2)', () => {
     it('true: economy < 2% on competitive method', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1_000_000, Y: 990_000,
       }), REF_DATE);
       // economy = 1% < 2%
@@ -597,7 +616,7 @@ describe('Financial signals', () => {
     });
 
     it('false: economy >= 2%', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1_000_000, Y: 970_000,
       }), REF_DATE);
       // economy = 3%
@@ -605,14 +624,14 @@ describe('Financial signals', () => {
     });
 
     it('false: method is ЕП (no competition expected)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЕП', K: 1_000_000, Y: 990_000,
       }), REF_DATE);
       expect(s.lowCompetition).toBe(false);
     });
 
     it('false: план == факт копейка-в-копейку — артефакт заполнения, не конкуренция (УДТХ стр.4: K=Y=1210.59135)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 1210.59135, Y: 1210.59135,
       }), REF_DATE);
       expect(s.lowCompetition).toBe(false);
@@ -622,7 +641,7 @@ describe('Financial signals', () => {
       // До канона текст «ед.подавшим заявку» давал singleParticipant и гасил
       // lowCompetition. Свободный текст больше не интерпретируется: остаётся
       // числовой информационный сигнал о нулевой экономии.
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 5812.91, Y: 5812.90875,
         U: 'Аукцион не состоялся, заключен контракт с ед.подавшим заявку на участие, контракт исполнен',
       }), REF_DATE);
@@ -631,7 +650,7 @@ describe('Financial signals', () => {
     });
 
     it('true: честная малая экономия ~1% без единственного участника (УЭР стр.11: K=123.46, Y=122.23)', () => {
-      const s = detectSignals(makeCells({
+      const s = detectSignals(makeClosedCells({
         L: 'ЭА', K: 123.46, Y: 122.23,
       }), REF_DATE);
       expect(s.lowCompetition).toBe(true);
@@ -684,38 +703,38 @@ describe('Financial signals', () => {
 
   describe('epFactDeviation — по ЕП факт обязан равняться плану (канон п.98м + п.102)', () => {
     it('ЕП, факт < план — горит: «экономия», которой по ЕП быть не должно', () => {
-      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 900_000 }), REF_DATE);
+      const s = detectSignals(makeClosedCells({ L: 'ЕП', K: 1_000_000, Y: 900_000 }), REF_DATE);
       expect(s.epFactDeviation).toBe(true);
       // Превышения нет — factExceedsPlan молчит: сигналы про разное.
       expect(s.factExceedsPlan).toBe(false);
     });
 
     it('ЕП, факт = план — молчит: канон соблюдён', () => {
-      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 1_000_000 }), REF_DATE);
+      const s = detectSignals(makeClosedCells({ L: 'ЕП', K: 1_000_000, Y: 1_000_000 }), REF_DATE);
       expect(s.epFactDeviation).toBe(false);
     });
 
     it('ЭА, факт < план — молчит: у конкурентного способа план = НМЦК, экономия — норма торгов (п.102)', () => {
-      const s = detectSignals(makeCells({ L: 'ЭА', K: 1_000_000, Y: 900_000 }), REF_DATE);
+      const s = detectSignals(makeClosedCells({ L: 'ЭА', K: 1_000_000, Y: 900_000 }), REF_DATE);
       expect(s.epFactDeviation).toBe(false);
     });
 
     it('допуск округления 0.5% (как у factExceedsPlan): микрорасхождение в обе стороны не горит', () => {
       // План в 2 знака, факт в 5 — копеечный шум не считается расхождением.
       for (const y of [999_999, 1_000_001, 995_001, 1_004_999]) {
-        const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: y }), REF_DATE);
+        const s = detectSignals(makeClosedCells({ L: 'ЕП', K: 1_000_000, Y: y }), REF_DATE);
         expect(s.epFactDeviation, `Y=${y}`).toBe(false);
       }
     });
 
     it('ЕП, факт > план сверх допуска — то же расхождение (горит вместе с factExceedsPlan)', () => {
-      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 1_100_000 }), REF_DATE);
+      const s = detectSignals(makeClosedCells({ L: 'ЕП', K: 1_000_000, Y: 1_100_000 }), REF_DATE);
       expect(s.epFactDeviation).toBe(true);
       expect(s.factExceedsPlan).toBe(true);
     });
 
     it('ЕП без факта — молчит: строка ещё не исполнена, сравнивать нечего', () => {
-      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 0 }), REF_DATE);
+      const s = detectSignals(makeClosedCells({ L: 'ЕП', K: 1_000_000, Y: 0 }), REF_DATE);
       expect(s.epFactDeviation).toBe(false);
     });
   });
@@ -1474,7 +1493,7 @@ describe('Edge cases', () => {
   });
 
   it('string numbers with comma decimal separator', () => {
-    const s = detectSignals(makeCells({
+    const s = detectSignals(makeClosedCells({
       K: '1000000,50', Y: '500000,25', L: 'ЭА',
     }), REF_DATE);
     expect(s.highEconomy).toBe(true); // ~50% economy
@@ -2454,5 +2473,51 @@ describe('слепота 9: пустой способ закупки (L)', () =>
     // ЗНАЧЕНИЕ, о нём говорит проверка способа закупки.
     expect(checkBook('method_missing', bookRow({ L: 'Х' })).passed).toBe(true);
     expect(checkBook('method_validation', bookRow({ L: 'Х' })).passed).toBe(false);
+  });
+});
+
+
+describe('годовая потребность — накопленные обязательства и закрытие позиции', () => {
+  for (const L of ['ЕП', 'ЭА']) {
+    it(`${L}: незавершённый остаток не получает сигналы экономии`, () => {
+      for (const Q of ['', 'Х', 'по мере необходимости']) {
+        const result = detectSignals(makeCells({ K: 100, Y: 20, L, Q }), REF_DATE);
+        expect(result.economyFlagUndetermined).toBe(false);
+        expect(result.highEconomy).toBe(false);
+        expect(result.epFactDeviation).toBe(false);
+        const rule = RULE_BOOK.find(x => x.id === 'status_on_data_rows')!;
+        expect(rule.check({ cells: makeCells({ K: 100, Y: 20, L, Q }),
+          rowIndex: 534, sheet: 'УКСиМП', classification: 'procurement', allRows: [] }).passed).toBe(true);
+      }
+    });
+  }
+  it('последний контракт завершает позицию и делает проверку отметки применимой', () => {
+    const result = detectSignals(makeCells({ K: 100, Y: 80, L: 'ЭА', Q: '12.04.2026' }), REF_DATE);
+    expect(result.economyFlagUndetermined).toBe(true);
+  });
+});
+
+describe('economy mark is evaluated at the supplied snapshot day', () => {
+  it.each(['ЕП', 'ЭА'])('%s: a dated future final contract is not completed at the historical snapshot', L => {
+    const cells = makeCells({ L, K: 100, Y: 80, Q: '31.12.2026', AD: '' });
+    const asOf = new Date(2026, 9, 12);
+    expect(detectSignals(cells, asOf).economyFlagUndetermined).toBe(false);
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(rule.check({ cells, rowIndex: 534, sheet: 'УКСиМП', classification: 'procurement', asOf }).passed).toBe(true);
+  });
+  it('preserves an arrived final date, exact day, and official approval', () => {
+    const cells = makeCells({ L: 'ЭА', K: 100, Y: 80, Q: '12.10.2026', AD: '' });
+    const asOf = new Date(2026, 9, 12);
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(detectSignals(cells, asOf).economyFlagUndetermined).toBe(true);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf }).passed).toBe(false);
+    expect(detectSignals({ ...cells, AD: 'да' }, new Date(2026, 9, 11)).economyFlag).toBe(true);
+  });
+  it('does not use current wall time for an invalid or absent rule snapshot clock', () => {
+    const cells = makeCells({ L: 'ЭА', K: 100, Y: 80, Q: '12.10.2026' });
+    const rule = RULE_BOOK.find(r => r.id === 'status_on_data_rows')!;
+    expect(detectSignals(cells, new Date(NaN)).economyFlagUndetermined).toBe(false);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement' }).passed).toBe(true);
+    expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf: new Date(NaN) }).passed).toBe(true);
   });
 });

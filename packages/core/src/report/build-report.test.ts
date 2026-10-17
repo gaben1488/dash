@@ -586,7 +586,7 @@ describe('buildReport — период, порядок, сигналы', () => {
   it('deptLabel — полное имя из реестра', () => {
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
-    expect(uer.deptLabel).toBe('Управление экономического развития');
+    expect(uer.deptLabel).toBe('Управление экономического развития администрации Елизовского муниципального округа');
   });
 
   it('pendingPositions: незаключённые квартала с пояснениями и адресом строки', () => {

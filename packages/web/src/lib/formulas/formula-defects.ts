@@ -24,7 +24,7 @@
  * принял, продукт обязан говорить «не смотрели», а не «чисто»: за это отвечает
  * `formulaIntegritySpot`, и молчание он отличает от нуля.
  */
-import { getCheckById } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, getCheckById, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { toCanonicalDeptId } from '../dept-key';
 
@@ -82,6 +82,8 @@ export interface FormulaIssueLike {
 
 /** Дефект формулы, как его показывают экраны. */
 export interface FormulaDefectView {
+  /** Доказанная неприменимость к закупкам; исходное замечание остаётся в истории. */
+  inapplicableReason?: string;
   /** Идентификатор замечания — ключ отрисовки. */
   id: string;
   /** Класс дефекта (идентификатор паспорта). */
@@ -174,6 +176,7 @@ export function collectFormulaDefects(
     const description = textOrEmpty(issue.description);
     const rowRaw = Number(issue.row);
     out.push({
+      inapplicableReason: formulaDiagnosticInapplicableReason(issue),
       id: textOrEmpty(issue.id),
       checkId: kind,
       className: formulaDefectName(kind),
@@ -216,10 +219,11 @@ export function countFormulaDefects(
   } as Record<FormulaDefectCheckId, number>;
   const byBook: Record<string, number> = {};
   for (const d of defects) {
+    if (d.inapplicableReason) continue;
     byClass[d.checkId] += 1;
     byBook[d.book] = (byBook[d.book] ?? 0) + 1;
   }
-  return { total: defects.length, byClass, byBook };
+  return { total: Object.values(byClass).reduce((sum, count) => sum + count, 0), byClass, byBook };
 }
 
 /**
@@ -241,6 +245,11 @@ export function indexFormulaDefectsByRow(
   const index = new Map<string, FormulaDefectView[]>();
   for (const d of defects) {
     if (d.rowSeq === '') continue;
+    // Старый снимок мог принять нумерацию колонок шапки за закупку №1.
+    // Не переписываем историю, но такой адрес не является строкой реестра.
+    const cellRow = /\$?[A-Z]+\$?(\d+)$/i.exec(d.cell)?.[1];
+    if ((d.row !== null && d.row <= DEPT_HEADER_ROWS)
+      || (cellRow !== undefined && Number(cellRow) <= DEPT_HEADER_ROWS)) continue;
     // Книга замечания приходит именем листа («УО»), ключ строки Реестра —
     // ключом управления: обе формы канонизируются одной функцией.
     const key = formulaRowKey(d.book !== '' ? d.book : d.departmentId, d.rowSeq);

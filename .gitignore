@@ -104,7 +104,11 @@ packages/server/repair-basis.mjs
 scripts/out-zarya/
 
 # Python package build and test products
+!deploy/runtime-policy.json
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .venv/
+
+# Ephemeral reviewed browser contract transported by read-only CI
+.github/ci/_browser-contract.br

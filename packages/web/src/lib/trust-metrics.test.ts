@@ -33,7 +33,7 @@ function dept(name: string, trustScore: number, dataScore: number, formulaScore:
 
 describe('buildTrustViewModel', () => {
   it('returns global trust when no filtered departments are provided', () => {
-    const result = buildTrustViewModel(baseTrust, []);
+    const result = buildTrustViewModel(baseTrust);
 
     expect(result.overallScore).toBe(70);
     expect(result.components).toEqual(baseTrust.components);
@@ -61,4 +61,27 @@ describe('buildTrustViewModel', () => {
     expect(result.components[0]).toMatchObject({ name: 'data_quality', score: 70, issues: 2, criticalIssues: 0 });
     expect(result.components[1]).toMatchObject({ name: 'formula_integrity', score: 30, issues: 4, criticalIssues: 2 });
   });
+  it('does not substitute district trust for an empty local selection', () => {
+    const result = buildTrustViewModel(baseTrust, []);
+    expect(result.overallScore).toBeNull();
+    expect(result.components).toEqual([]);
+  });
+
+  it('marks a missing local component unavailable rather than using district data', () => {
+    const local = dept('d1', 90, 100, 90);
+    local.trustComponents = local.trustComponents!.slice(0, 1);
+    const result = buildTrustViewModel(baseTrust, [local]);
+    expect(result.overallScore).toBeNull();
+    expect(result.components.map(c => c.name)).toEqual(['data_quality']);
+    expect(result.unavailableComponents).toEqual(['Целостность формул']);
+  });
+
+  it('does not average a component from only part of the selected departments', () => {
+    const missing = dept('d2', 90, 100, 90);
+    missing.trustComponents = [];
+    const result = buildTrustViewModel(baseTrust, [dept('d1', 90, 100, 90), missing]);
+    expect(result.overallScore).toBeNull();
+    expect(result.components).toEqual([]);
+  });
+
 });

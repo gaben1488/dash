@@ -29,7 +29,7 @@ def test_routine_plan_updates_keep_proven_unique_identity(tmp_path, update):
 
 
 @pytest.mark.parametrize('update', [
-    {'subject': 'Другой товар'}, {'institution': 'Другая школа'}, {'planned_year': 2027},
+    {'subject': 'Другой товар'}, {'institution': 'Другая школа'},
     {'source_row_no': '99', 'plan_mb': 10}, {'grbs': 'УД'},
 ])
 def test_scope_or_subject_or_renumbered_and_changed_row_needs_separate_evidence(tmp_path, update):

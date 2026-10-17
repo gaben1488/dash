@@ -8,27 +8,40 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import * as React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DISPOSAL_MOCK, EconomyDisposalMock } from './EconomyDisposalMock';
 
-const formatMoney = (v: number) => `${(v / 1_000_000).toFixed(1).replace('.', ',')} млн ₽`;
+const formatMoney = (v: number) => `${(v / 1_000).toFixed(1).replace('.', ',')} млн ₽`;
 
 afterEach(() => cleanup());
 
 describe('EconomyDisposalMock — макет статусов свободной экономии', () => {
+  it('передаёт форматтеру тысячи рублей, а не рубли', () => {
+    render(<EconomyDisposalMock formatMoney={v => `${v} тыс. ₽`} />);
+    expect(screen.getByText('12400 тыс. ₽')).toBeTruthy();
+    expect(screen.queryByText('12400000 тыс. ₽')).toBeNull();
+  });
   it('показывает пометку макета, все пять статусов и их суммы', () => {
     render(<EconomyDisposalMock formatMoney={formatMoney} />);
 
     // Честность: читатель обязан видеть, что блок — макет и ждёт решения
     // владельца (формулировка плашки — дословно из приказа 20.08).
-    expect(screen.getByText(/макет, ждёт решения/i)).toBeTruthy();
+    expect(screen.getByText(/Интерактивный макет/i)).toBeTruthy();
 
     // Все пять статусов из постановки вопроса 72 названы и объяснены суммой.
     expect(DISPOSAL_MOCK).toHaveLength(5);
     for (const row of DISPOSAL_MOCK) {
-      expect(screen.getByText(row.label)).toBeTruthy();
-      expect(screen.getAllByText(formatMoney(row.amount)).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(row.label)[0]).toBeTruthy();
+      expect(screen.getAllByText(formatMoney(row.amount / 1000)).length).toBeGreaterThan(0);
     }
+  });
+
+  it('позволяет выбрать состояние без записи финансового решения', () => {
+    render(<EconomyDisposalMock formatMoney={formatMoney} />);
+    const status = screen.getByRole('button', { name: /Спорная/ });
+    fireEvent.click(status);
+    expect(status.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('Выбрано: Спорная')).toBeTruthy();
   });
 
   it('доли статусов в стек-баре складываются в 100 %', () => {
@@ -50,6 +63,6 @@ describe('EconomyDisposalMock — макет статусов свободной
     expect(btn.disabled).toBe(true);
     // Тултип живёт на обёртке: disabled-кнопка в части браузеров title не кажет.
     const wrapper = btn.closest('span[title]');
-    expect(wrapper?.getAttribute('title')).toMatch(/решения владельца/i);
+    expect(wrapper?.getAttribute('title')).toMatch(/источник, права и хранилище/i);
   });
 });

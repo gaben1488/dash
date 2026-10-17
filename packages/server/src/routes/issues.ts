@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
+import { overlayPersistedStatus } from '../services/issue-decisions.js';
+import { readIssueHistory } from '../services/issue-history.js';
 import { db, schema } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
 import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { z } from 'zod';
@@ -47,41 +49,8 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   'false_positive': ['open'],           // переоткрытие
 };
 
-/**
- * Overlays the DB-persisted status on top of issues that are freshly rebuilt
- * from the snapshot on every call (the pipeline always assigns status:'open' —
- * see packages/core/src/pipeline/orchestrator.ts:479,621 — and so does the
- * demo generator). Without this merge, PUT /api/issues/:id/status never
- * changes what any GET/export caller sees. The DB is the source of truth for
- * status; every other field still comes from the snapshot as before.
- */
-function overlayPersistedStatus(issues: Issue[]): Issue[] {
-  if (issues.length === 0) return issues;
-  const rows = db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all();
-  if (rows.length === 0) return issues;
-  const statusById = new Map(rows.map((r) => [r.id, r.status]));
-  return issues.map((issue) => {
-    const persisted = statusById.get(issue.id);
-    return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
-  });
-}
-
 /** Строка истории статуса — тип выводится из схемы, не описывается второй раз. */
-type IssueHistoryRow = typeof schema.issueHistory.$inferSelect;
-
-/**
- * История смен статуса замечания.
- * Единственное место чтения: карточка (/:id) и отдельный роут (/:id/history)
- * обязаны показывать одно и то же — иначе «история» зависит от того, откуда смотреть.
- */
-function readIssueHistory(app: FastifyInstance, issueId: string): IssueHistoryRow[] {
-  try {
-    return db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, issueId)).all();
-  } catch (err) {
-    app.log.warn({ err, issueId }, 'issues/history: failed to read issue_history');
-    return [];
-  }
-}
+const HISTORY_UNAVAILABLE = { error: 'История замечания недоступна. Повторите чтение позже.', code: 'ISSUE_HISTORY_UNAVAILABLE' };
 
 export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
@@ -110,7 +79,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
-    const allIssues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
+    const allIssues: Issue[] = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
     let issues: Issue[] = allIssues;
 
     // Apply filters
@@ -161,7 +130,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
-    const issue = overlayPersistedStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
+    const issue = overlayPersistedStatus(snapshot.issues ?? [], snapshot).find((i: Issue) => i.id === id);
     if (!issue) {
       return reply.status(404).send({ error: `Замечание «${id}» не найдено` });
     }
@@ -169,10 +138,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     // История отдавалась пустым массивом-заглушкой, хотя таблица issue_history
     // заполняется каждой сменой статуса: карточка замечания показывала «истории
     // нет» там, где история есть. Читаем тот же источник, что и /:id/history.
-    return reply.send({
-      issue,
-      history: readIssueHistory(app, id),
-    });
+    try {
+      return reply.send({ issue, history: readIssueHistory(id) });
+    } catch (err) {
+      app.log.warn({ err, issueId: id }, 'issues/history: read failed');
+      return reply.status(503).send(HISTORY_UNAVAILABLE);
+    }
   });
 
   /**
@@ -234,6 +205,28 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       if (snapshotIssue.status) currentStatus = snapshotIssue.status;
     }
 
+    // Для wont_fix и false_positive — требуется причина
+    if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason?.trim()) {
+      return reply.status(400).send({
+        error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
+      });
+    }
+
+    // A lost response may cause the same decision to be sent again. A retry
+    // acknowledges only the latest identical persisted decision; different
+    // evidence is a conflict, never a successful silent discard or new event.
+    if (body.status === currentStatus && dbIssue) {
+      const latest = db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id))
+        .orderBy(desc(schema.issueHistory.id)).limit(1).get();
+      const fields = ['comment', 'reason', 'justification', 'responsible', 'deadline'] as const;
+      if (latest?.toStatus === currentStatus && fields.every(field => latest[field] === (body[field] ?? null))) {
+        return reply.send({ success: true, issueId: id, fromStatus: latest.fromStatus,
+          toStatus: currentStatus, replayed: true, message: 'Это решение уже сохранено' });
+      }
+      return reply.status(409).send({ success: false, code: 'ISSUE_DECISION_CONFLICT',
+        error: 'Этот статус уже сохранён с другим основанием. Обновите карточку; новое пояснение можно добавить комментарием.' });
+    }
+
     // Проверка допустимости перехода. Текст — фразами продукта: сырые ключи
     // («open → resolved») веб был вынужден прятать за общей заглушкой,
     // потому что показывать их пользователю нельзя.
@@ -247,13 +240,6 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         // Машинный список ключей остаётся для клиента — он рисует по нему кнопки.
         allowed: allowedTransitions || [],
         allowedLabels: allowedNames,
-      });
-    }
-
-    // Для wont_fix и false_positive — требуется причина
-    if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason) {
-      return reply.status(400).send({
-        error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
       });
     }
 
@@ -417,10 +403,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/issues/:id/history', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    return reply.send({
-      issueId: id,
-      history: readIssueHistory(app, id),
-    });
+    try {
+      return reply.send({ issueId: id, history: readIssueHistory(id) });
+    } catch (err) {
+      app.log.warn({ err, issueId: id }, 'issues/history: read failed');
+      return reply.status(503).send(HISTORY_UNAVAILABLE);
+    }
   });
 
   /**
@@ -455,7 +443,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    let issues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
+    let issues: Issue[] = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
 
     if (query.severity) issues = issues.filter(i => i.severity === query.severity);
     if (query.status) issues = issues.filter(i => i.status === query.status);

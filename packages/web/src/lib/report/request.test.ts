@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { dayNumberOf } from '@aemr/shared';
 import { AVAILABLE_YEARS } from '../../store';
 import { EMPTY_FILTER_CONTEXT, type FilterContext } from '../filter-context';
-import { reportRequestParams } from './request';
+import { reportRequestParams, wordExportContext } from './request';
 
 // Пятница 24.07.2026: последний четверг ≤ сегодня — 23.07.2026
 const FRIDAY = dayNumberOf('2026-07-24')!;
@@ -72,5 +72,35 @@ describe('reportRequestParams — параметры GET /api/report из Filter
     expect(reportRequestParams(ctxWith({ year: 'all' }), FRIDAY).year).toBe(currentYear);
     expect(reportRequestParams(ctxWith({ year: 'all' }), FRIDAY).year)
       .not.toBe(AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]);
+  });
+});
+
+
+describe('Word context does not depend on the live analytics response', () => {
+  const productToday = '2026-10-11';
+
+  it('allows the currently published Word even if GET /api/report is unavailable', () => {
+    expect(wordExportContext({ year: 2026 }, 'live', productToday)).toEqual({
+      date: productToday, year: 2026, quarter: 4, mode: 'live',
+    });
+  });
+
+  it('keeps the explicitly selected live quarter rather than silently showing another quarter', () => {
+    expect(wordExportContext({ year: 2026, quarter: 2 }, 'live', productToday)).toEqual({
+      date: productToday, year: 2026, quarter: 2, mode: 'live',
+    });
+  });
+
+  it('uses the exact archived control day, never current data instead', () => {
+    expect(wordExportContext({ year: 2026, asOf: '2026-07-09' }, 'archive', productToday)).toEqual({
+      date: '2026-07-09', year: 2026, quarter: 3, mode: 'archive',
+    });
+    expect(wordExportContext({ year: 2026 }, 'archive', productToday)).toBeNull();
+  });
+
+  it('does not silently advance the chosen archival quarter', () => {
+    expect(wordExportContext({
+      year: 2026, quarter: 1, asOf: '2026-07-09',
+    }, 'archive', productToday)?.quarter).toBe(1);
   });
 });

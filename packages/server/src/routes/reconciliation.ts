@@ -102,7 +102,7 @@ function buildDepartmentReconciliation(snapshot: DataSnapshot): ReconSummary {
  *
  * Дельта без объяснения — недоделанная сверка, поэтому по каждому ГРБС
  * прогоняются классификаторы по трём мерам сразу (план-деньги, факт-деньги,
- * количество процедур), а каскады схлопываются: одна причина, задевшая три
+ * утверждённая экономия), а каскады схлопываются: одна причина, задевшая три
  * показателя, показывается один раз со списком следствий.
  *
  * Строки-атомы берутся из снимка. Их нет (старый снимок до 24.07 либо демо) —
@@ -128,10 +128,14 @@ function attachRootCauses(summary: ReconSummary, snapshot: DataSnapshot): ReconS
       { metric: `${sheet}.fact_total`, official: row.fullFactOfficial, computed: row.fullFactCalculated, delta: row.factDelta, rootCauses: [] },
       { metric: `${sheet}.economy_total`, official: row.ecoTotalOfficial, computed: row.ecoTotalCalculated, delta: row.ecoDelta, rootCauses: [] },
     ];
-    const measures: ReconMeasure[] = ['planMoney', 'factMoney', 'factMoney'];
+    const measures: ReconMeasure[] = ['planMoney', 'factMoney', 'economyMoney'];
 
     const explained = lines.map((line, i) =>
-      explainReconLine(line, { rows: atoms, sheet, measure: measures[i] }),
+      explainReconLine(line, { rows: atoms, sheet, measure: measures[i],
+        year: typeof snapshot.metadata?.targetYear === 'number' ? snapshot.metadata.targetYear : undefined,
+        // createdAt is a read timestamp, not proof of the CalcEngine cutoff.
+        // No authoritative asOfDay is persisted in this snapshot contract.
+      }),
     );
     const groups = groupCascades(linkCascades(explained));
     return groups.length > 0 ? { ...row, rootCauses: groups } : row;

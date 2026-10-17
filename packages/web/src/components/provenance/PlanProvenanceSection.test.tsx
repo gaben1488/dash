@@ -25,7 +25,7 @@ const empty = {
   deptLatin: 'udtx',
   deptName: 'Управление дорожного и транспортного хозяйства',
   sheetName: 'ВСЕ',
-  rowSeq: 12,
+  rowSeq: '12',
   sheetRow: 15,
   subject: 'Содержание дорог',
   planNow: 500,

@@ -306,11 +306,11 @@ describe('перечитка объявляет изменения в прямо
     const { subscribeLiveEvents, resetLiveEventBus } = await import('./event-bus.js');
     resetLiveEventBus();
     getDeptSheetCache.mockReturnValueOnce({
-      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка']] },
+      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЕП']] },
     });
     fetchDepartmentSpreadsheets.mockResolvedValueOnce({
       data: {
-        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка систем']], formulas: [], sheetName: 'ВСЕ' },
+        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЭА']], formulas: [], sheetName: 'ВСЕ' },
       },
       errors: {},
     });
@@ -322,7 +322,30 @@ describe('перечитка объявляет изменения в прямо
 
     expect(heard.map((e) => e.kind)).toEqual(['book-updated', 'row-changed']);
     expect(heard[0]).toMatchObject({ book: 'УО', changedRows: 1, origin: 'webhook' });
-    expect(heard[1]).toMatchObject({ book: 'УО', column: 'G', before: 'Опрессовка', after: 'Опрессовка систем' });
+    expect(heard[1]).toMatchObject({ book: 'УО', column: 'L', before: 'ЕП', after: 'ЭА' });
+    resetLiveEventBus();
+  });
+
+  it('смена предмета при прежнем номере требует проверки связи вместо автоматической привязки ячейки', async () => {
+    const { subscribeLiveEvents, resetLiveEventBus } = await import('./event-bus.js');
+    resetLiveEventBus();
+    getDeptSheetCache.mockReturnValueOnce({
+      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЕП']] },
+    });
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: {
+        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка систем', '', '', '', '', 'ЕП']], formulas: [], sheetName: 'ВСЕ' },
+      },
+      errors: {},
+    });
+
+    const heard: any[] = [];
+    subscribeLiveEvents((e) => heard.push(e.event));
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'webhook');
+
+    expect(heard.map((e) => e.kind)).toEqual(['book-updated']);
+    expect(heard[0]).toMatchObject({ book: 'УО', changedRows: 1, origin: 'webhook' });
     resetLiveEventBus();
   });
 

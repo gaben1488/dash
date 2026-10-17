@@ -30,12 +30,13 @@
  * половину ответ говорит словами, а не молчит.
  *
  * ЦЕНА ЗАПРОСА. Ни одного обращения к Google: нумерация и вид ячеек считаются
- * по уже прочитанному кэшу книг, пропажи — по строкам-атомам двух последних
- * снимков в местной базе. Момент чтения назван всегда (канон п.58).
+ * по уже прочитанному кэшу книг и строкам-атомам последнего завершённого
+ * недельного контрольного среза в местной базе. Различаем момент контроля
+ * и моменты чтения каждой книги; пробелы источников называем явно (п.58).
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, inArray } from 'drizzle-orm';
 import {
+  DAYS_PER_WEEK,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -43,8 +44,6 @@ import {
   findDept,
   isMetaRow,
   isReadableDeptRow,
-  subordinateKey,
-  ORG_ITSELF_SENTINEL,
   type DateFormatFinding,
   type DepartmentEntry,
   type SequenceReport,
@@ -59,18 +58,19 @@ import {
   type RowDiff,
   type SnapshotRow,
 } from '@aemr/core';
-import { db, schema } from '../db/index.js';
-import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
+import { productCalendarDay } from '../services/product-calendar.js';
+import { isDataRow } from '../services/rows-dto.js';
+import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, iterateWeeklySnapshotHistory } from '../services/snapshot.js';
+import { refreshAllSources } from '../services/source-refresh.js';
+import { orgLabel, verifiedBaselineRows } from '../services/weekly-control-validation.js';
+export { atomsToSnapshotRows, indexHistoricalDepartments, interpretWeeklySnapshotJson, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 
 /** Номер строки книги = индекс в массиве листа + 1 (кэш несёт шапку). */
 const SHEET_ROW_FROM_INDEX = 1;
 
 /** Сколько строк со сбитым видом даты показывать поимённо. */
 const SHOWN_DATE_ROWS = 20;
-
-/** Сколько снимков просматривать в поисках двух со строками. */
-const SNAPSHOT_LOOKBACK = 10;
 
 // ────────────────────────────────────────────────────────────
 // Формы ответа
@@ -124,6 +124,24 @@ export interface VanishedBookDto {
   vanishedFactSum: number;
   unkeyed: { before: number; after: number };
   note: string;
+  /** Возможная смена № п/п, требующая подтверждения; не автоматическая идентичность. */
+  /** Время последнего достоверного чтения данной ведомственной книги. */
+  currentAt: string;
+  identityCandidates: Array<{
+    beforeRowSeq: string; afterRowSeq: string;
+    beforeSheetRow: number; afterSheetRow: number;
+    subject: string; subordinate: string; planSum: number;
+    evidence: 'subject+subordinate+plan+method'; status: 'needs-review';
+  }>;
+  /** Ключи с дублями не сравнивались: first-wins скрывал неопределённость. */
+  ambiguousKeys: { before: string[]; after: string[] };
+  /** № остался, но изменились предмет или учреждение — это ещё не доказанная подмена. */
+  contextChanged: Array<{
+    rowSeq: string; beforeSheetRow: number; afterSheetRow: number;
+    beforeSubject: string; afterSubject: string;
+    beforeSubordinate: string; afterSubordinate: string;
+    status: 'needs-review';
+  }>;
 }
 
 export interface IntegrityResponse {
@@ -133,8 +151,15 @@ export interface IntegrityResponse {
   totals: { gapCount: number; duplicates: number; countableWithoutSeq: number; dateFormat: number };
   /** Сравнение снимков; null — сравнивать не с чем. */
   comparison: {
+    /** Последний подтверждённый недельный контроль, не просто суточный снимок. */
     beforeAt: string;
+    /** Самое позднее успешное чтение среди сопоставленных текущих книг. */
     afterAt: string;
+    /** Самое раннее чтение среди сопоставленных книг: стороны не атомарны. */
+    oldestCurrentAt: string;
+    baselineId: string;
+    /** Книги вне сравнения — отсутствие источника не равно нулю пропаж. */
+    unavailableBooks: Array<{ dept: string; reason: string }>;
     books: VanishedBookDto[];
     vanishedTotal: number;
     vanishedPlanSum: number;
@@ -157,10 +182,6 @@ function money(row: unknown[], col: number): number | null {
   return cellNumber(row[col]);
 }
 
-function orgLabel(raw: unknown): string {
-  const key = subordinateKey(raw);
-  return key === ORG_ITSELF_SENTINEL ? 'Аппарат управления' : key;
-}
 
 const DATE_COLUMN_LABEL: Record<'N' | 'Q', string> = {
   N: 'плановая дата',
@@ -235,86 +256,71 @@ export function buildDateFormatFindings(values: readonly unknown[][]): DateForma
 }
 
 // ────────────────────────────────────────────────────────────
-// Пропавшие строки: два последних снимка со строками-атомами
+// Пропавшие номера: последнее чтение книг относительно недельной контрольной точки
 // ────────────────────────────────────────────────────────────
 
-interface AtomRow {
-  snapshotId: string | null;
-  departmentId: string;
-  rowIndex: number;
-  cellsJson: string;
-  subject: string | null;
-  planAmount: number | null;
-  factAmount: number | null;
+interface WeeklySnapshotRef {
+  id: string;
+  createdAt: string;
 }
 
-/** Строки-атомы снимка, разложенные по управлению, в форме входа сравнения. */
-export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, SnapshotRow[]> {
-  const byDept = new Map<string, SnapshotRow[]>();
-  for (const atom of atoms) {
-    let cells: Record<string, unknown>;
-    try {
-      cells = JSON.parse(atom.cellsJson) as Record<string, unknown>;
-    } catch {
-      // Повреждённый JSON строки — пропускаем её, а не роняем сравнение книги.
-      continue;
+/**
+ * Контрольная точка: самый новый ЗАВЕРШЁННЫЙ четверговый снимок, не позже
+ * настоящего момента. Его реестр даёт только sealed weeklyTableContext.
+ * Даже при пропущенной неделе берётся последний доступный контроль — текущие
+ * данные сравниваются с ним, а не с предыдущим четвергом или суточным срезом.
+ */
+export function pickLatestControlSnapshot(
+  sealed: readonly WeeklySnapshotRef[],
+  nowMs: number,
+  utcOffsetHours: number,
+): WeeklySnapshotRef | null {
+  let latest: WeeklySnapshotRef | null = null;
+  let latestAt = -Infinity;
+  for (const snap of sealed) {
+    const at = Date.parse(snap.createdAt);
+    if (!Number.isFinite(at) || at > nowMs) continue;
+    if (productCalendarDay(new Date(at), utcOffsetHours) % DAYS_PER_WEEK !== 0) continue;
+    if (at > latestAt) {
+      latest = snap;
+      latestAt = at;
     }
-    const bucket = byDept.get(atom.departmentId) ?? [];
-    bucket.push({
-      rowSeq: String(cells.A ?? '').trim(),
-      sheetRow: atom.rowIndex,
-      subject: String(cells.G ?? atom.subject ?? '').trim(),
-      subordinate: orgLabel(cells.C),
-      ...(atom.planAmount === null ? {} : { planSum: atom.planAmount }),
-      ...(atom.factAmount === null ? {} : { factSum: atom.factAmount }),
+  }
+  return latest;
+}
+
+/** Текущее ЧТЕНИЕ книги: ровно та же геометрия строк, что у SQL-атомов. */
+export function currentSheetToSnapshotRows(values: readonly unknown[][]): SnapshotRow[] {
+  const result: SnapshotRow[] = [];
+  values.forEach((raw, index) => {
+    if (index < DEPT_HEADER_ROWS || !Array.isArray(raw)) return;
+    const rowSeq = text(raw, DEPT_COLUMNS.ID);
+    const subject = text(raw, DEPT_COLUMNS.SUBJECT);
+    // Канон фильтра — тот же isDataRow, что и в SQL-атомах /api/rows.
+    const method = text(raw, DEPT_COLUMNS.METHOD);
+    const planSum = money(raw, DEPT_COLUMNS.TOTAL_PLAN);
+    if (!isDataRow({ id: rowSeq, subject, planSum: planSum ?? 0, method })) return;
+    const factSum = money(raw, DEPT_COLUMNS.TOTAL_FACT);
+    result.push({
+      rowSeq,
+      sheetRow: index + 1,
+      subject,
+      subordinate: orgLabel(raw[DEPT_COLUMNS.SUBORDINATE]),
+      ...(planSum === null ? {} : { planSum }),
+      ...(factSum === null ? {} : { factSum }),
+      method,
     });
-    byDept.set(atom.departmentId, bucket);
-  }
-  return byDept;
+  });
+  return result;
 }
 
-/** Два последних снимка, у которых строки-атомы записаны. */
-function findComparableSnapshots(): Array<{ id: string; createdAt: string }> {
-  const recent = db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
-    .from(schema.snapshots)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK)
-    .all();
-  const withRows: Array<{ id: string; createdAt: string }> = [];
-  for (const snap of recent) {
-    const probe = db.select({ id: schema.procurementRows.id })
-      .from(schema.procurementRows)
-      .where(eq(schema.procurementRows.snapshotId, snap.id))
-      .limit(1)
-      .all();
-    if (probe.length > 0) withRows.push(snap);
-    if (withRows.length === 2) break;
-  }
-  return withRows;
-}
-
-function readAtoms(snapshotIds: readonly string[]): AtomRow[] {
-  if (snapshotIds.length === 0) return [];
-  return db.select({
-    snapshotId: schema.procurementRows.snapshotId,
-    departmentId: schema.procurementRows.departmentId,
-    rowIndex: schema.procurementRows.rowIndex,
-    cellsJson: schema.procurementRows.cellsJson,
-    subject: schema.procurementRows.subject,
-    planAmount: schema.procurementRows.planAmount,
-    factAmount: schema.procurementRows.factAmount,
-  })
-    .from(schema.procurementRows)
-    .where(inArray(schema.procurementRows.snapshotId, [...snapshotIds]))
-    .all();
-}
 
 // ────────────────────────────────────────────────────────────
 // Сборка ответа
 // ────────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cached: { at: number; response: IntegrityResponse } | null = null;
+let cached: { at: number; sourceAt: number; response: IntegrityResponse } | null = null;
 
 export function resetIntegrityCache(): void {
   cached = null;
@@ -329,36 +335,94 @@ function unreadNote(dept: DepartmentEntry): string {
 }
 
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
-export function buildComparison(): { comparison: IntegrityResponse['comparison']; note: string } {
-  const snaps = findComparableSnapshots();
-  if (snaps.length < 2) {
-    return {
-      comparison: null,
-      note: snaps.length === 0
-        ? 'Строк-атомов нет ни в одном сохранённом снимке: сравнивать нечего. Пропажу строки ' +
-          'иначе не увидеть — журнал книги удаление не записывает.'
-        : 'Сохранён только один снимок со строками. Пропажи видны сравнением двух — ' +
-          'следующий недельный снимок даст первую пару.',
-    };
+/**
+ * Одна общая истина для /api/integrity и /api/change-story.
+ * База — последний контрольный четверг. После — последнее ДОСТОВЕРНОЕ чтение
+ * живых ведомственных книг из общего кэша, с собственной меткой каждой книги.
+ * Источники не пересобираются в SQL-снимок ради сравнения; никаких записей.
+ */
+export function buildComparison(now: number = Date.now()): { comparison: IntegrityResponse['comparison']; note: string } {
+  let baseline: WeeklySnapshotRef | null = null;
+  let verified: ReturnType<typeof verifiedBaselineRows> | null = null;
+  let skippedControls = 0;
+  let lastError: string | null = null;
+  for (const candidate of iterateWeeklySnapshotHistory()) {
+    if (!pickLatestControlSnapshot([candidate], now, config.weeklySnapshot.utcOffsetHours)) continue;
+    const checked = verifiedBaselineRows(candidate);
+    if (checked.error !== null) { skippedControls++; lastError = checked.error; continue; }
+    baseline = candidate;
+    verified = checked;
+    break;
   }
-  const [after, before] = snaps;
-  const atoms = readAtoms([before.id, after.id]);
-  const beforeRows = atomsToSnapshotRows(atoms.filter((a) => a.snapshotId === before.id));
-  const afterRows = atomsToSnapshotRows(atoms.filter((a) => a.snapshotId === after.id));
-
+  if (!baseline || !verified) return {
+    comparison: null,
+    note: lastError
+      ? 'Недельный контроль не пригоден для достоверной сверки: ' + lastError +
+        '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.'
+      : 'Нет последнего подтверждённого недельного контрольного среза. Сравнивать текущее состояние с суточными чтениями вместо него нельзя.',
+  };
+  const baselineNote = skippedControls > 0
+    ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
+      '. Использован последний полностью проверенный недельный срез.'
+    : '';
+  const baselineRows = verified.rows;
+  const liveValues = getDeptSheetValues();
+  const loadMeta = getDeptLoadMeta();
+  const unavailableBooks: Array<{ dept: string; reason: string }> = [];
   const books: VanishedBookDto[] = [];
+  const currentReadTimes: number[] = [];
   let vanishedTotal = 0;
   let vanishedPlanSum = 0;
-  const deptKeys = new Set([...beforeRows.keys(), ...afterRows.keys()]);
-  for (const key of deptKeys) {
-    const dept = findDept(key);
-    const diff: RowDiff = diffSnapshots(beforeRows.get(key) ?? [], afterRows.get(key) ?? []);
-    if (diff.vanished.length === 0 && diff.moved.length === 0 && diff.unkeyed.before === 0) continue;
+  const baseAt = Date.parse(baseline.createdAt);
+  // По умолчанию источники обновляются чаще. Час допускает длительный
+  // пропуск фонового цикла, но не выдаёт вчерашний кэш за «сейчас».
+  const maxAge = Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000);
+
+  for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
+    const dept = findDept(deptId);
+    if (!dept) {
+      unavailableBooks.push({ dept: deptId, reason: 'Управление отсутствует в каноническом справочнике' });
+      continue;
+    }
+    const live = Object.entries(liveValues).find(([name]) => findDept(name)?.id === dept.id)?.[1];
+    const meta = Object.entries(loadMeta).find(([name]) => findDept(name)?.id === dept.id)?.[1];
+    const previous = [...baselineRows].find(([name]) => findDept(name)?.id === dept.id)?.[1];
+    const loadedAt = meta ? Date.parse(meta.loadedAt) : NaN;
+    let unavailable: string | null = null;
+    if (!previous || previous.length === 0) {
+      unavailable = 'В контрольном снимке нет пригодных строк этой книги';
+    } else if (!live || live.length <= DEPT_HEADER_ROWS || !meta || meta.error) {
+      unavailable = 'Действующая книга не прочитана полностью';
+    } else if (!Number.isFinite(loadedAt) || loadedAt < baseAt) {
+      unavailable = 'Последнее чтение книги сделано до контрольного снимка';
+    } else if (loadedAt > now || now - loadedAt > maxAge) {
+      unavailable = 'Чтение устарело — нужно перечитать действующую книгу';
+    }
+    if (unavailable !== null) {
+      unavailableBooks.push({ dept: dept.id, reason: unavailable });
+      continue;
+    }
+
+    const current = currentSheetToSnapshotRows(live!);
+    if (current.length === 0) {
+      unavailableBooks.push({ dept: dept.id, reason: 'Текущая книга не содержит пригодных строк; массовую пропажу не утверждаем без проверки источника' });
+      continue;
+    }
+    const diff: RowDiff = diffSnapshots(previous!, current);
+    currentReadTimes.push(loadedAt);
     vanishedTotal += diff.vanished.length;
     vanishedPlanSum += diff.vanishedPlanSum;
+    const identityCandidates = diff.identityCandidates ?? [];
+    const contextChanged = diff.contextChanged ?? [];
+    const ambiguousKeys = diff.ambiguousKeys ?? { before: [], after: [] };
+    if (diff.vanished.length === 0 && diff.moved.length === 0 &&
+        diff.unkeyed.before === 0 && diff.unkeyed.after === 0 &&
+        identityCandidates.length === 0 && contextChanged.length === 0 &&
+        ambiguousKeys.before.length === 0 && ambiguousKeys.after.length === 0) continue;
     books.push({
-      dept: dept?.id ?? key,
-      deptName: dept?.fullName ?? key,
+      dept: dept.id,
+      deptName: dept.fullName,
+      currentAt: new Date(loadedAt).toISOString(),
       vanished: diff.vanished.map((v) => ({
         rowSeq: v.rowSeq,
         wasAtSheetRow: v.wasAtSheetRow,
@@ -367,29 +431,49 @@ export function buildComparison(): { comparison: IntegrityResponse['comparison']
         planSum: v.planSum ?? null,
         factSum: v.factSum ?? null,
       })),
-      moved: diff.moved.map((m) => ({
-        rowSeq: m.rowSeq,
-        fromSheetRow: m.fromSheetRow,
-        toSheetRow: m.toSheetRow,
-        subject: m.subject ?? '',
+      moved: diff.moved.map((v) => ({
+        rowSeq: v.rowSeq,
+        fromSheetRow: v.fromSheetRow,
+        toSheetRow: v.toSheetRow,
+        subject: v.subject ?? '',
       })),
       appeared: diff.appeared.length,
       vanishedPlanSum: diff.vanishedPlanSum,
       vanishedFactSum: diff.vanishedFactSum,
       unkeyed: diff.unkeyed,
+      identityCandidates,
+      contextChanged,
+      ambiguousKeys,
       note: diff.note,
     });
   }
 
+  if (currentReadTimes.length === 0) {
+    return {
+      comparison: null,
+      note: 'Контрольный недельный снимок есть, но нет ни одной сопоставимой свежей действующей книги. Перечитайте источники; отсутствие результата не означает отсутствие пропаж.',
+    };
+  }
+
+  const partialNote = unavailableBooks.length
+    ? 'Сравнение частичное: ' + unavailableBooks.length +
+      ' из ' + Object.keys(DEPARTMENT_SPREADSHEETS).length +
+      ' книг не удалось достоверно сверить. Не считать их пропажи нулём.'
+    : '';
+  const note = [baselineNote, partialNote].filter(Boolean).join(' ');
+
   return {
     comparison: {
-      beforeAt: before.createdAt,
-      afterAt: after.createdAt,
+      baselineId: baseline.id,
+      beforeAt: baseline.createdAt,
+      oldestCurrentAt: new Date(Math.min(...currentReadTimes)).toISOString(),
+      afterAt: new Date(Math.max(...currentReadTimes)).toISOString(),
+      unavailableBooks,
       books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
       vanishedTotal,
       vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
     },
-    note: '',
+    note,
   };
 }
 
@@ -434,11 +518,11 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     });
   }
 
-  const { comparison, note: comparisonNote } = buildComparison();
+  const { comparison, note: comparisonNote } = buildComparison(now);
 
   const notes: string[] = [
-    'Пропуск номера — след удалённой строки: журнал книги удаление не записывает, и ' +
-    'нумерация остаётся единственным его следом.',
+    'Пропуск номера не доказывает удаления строки: он бывает от перенумерации и других изменений. ' +
+    'Сравнение с контрольным срезом показывает отсутствие прежнего номера, а не причину.',
     'Вид ячейки проверяется только там, где код даты лежит ТЕКСТОМ: книги читаются в ' +
     'необработанном виде, и дату с правильным форматом от даты с числовым отличить нечем. ' +
     'Пустой список здесь означает «текстовых кодов не найдено», а не «формат везде верен».',
@@ -472,11 +556,19 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/integrity', async (request, reply) => {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
     const now = Date.now();
-    if (!fresh && cached && now - cached.at < CACHE_TTL_MS) {
+    if (!fresh && cached && now - cached.at < CACHE_TTL_MS &&
+        cached.sourceAt === getDeptCacheFilledAt()) {
       return reply.send(cached.response);
     }
-    const response = buildIntegrityResponse(now);
-    cached = { at: now, response };
+    if (fresh) {
+      // Ручная кнопка действительно перечитывает 8 источников, без проверки
+      // ревизии Drive. Это read-only Google Sheets, без записи в книги.
+      // Даже если чтение частично упало, buildComparison выдаёт честные gaps.
+      await refreshAllSources(undefined, 'request', { askDrive: false, svod: false, fresh: true });
+    }
+    const readAt = Date.now();
+    const response = buildIntegrityResponse(readAt);
+    cached = { at: readAt, sourceAt: getDeptCacheFilledAt(), response };
     return reply.send(response);
   });
 }

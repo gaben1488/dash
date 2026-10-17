@@ -143,13 +143,52 @@ docker compose --env-file .env.production exec caddy \
 Но браузеры, уже получившие HSTS, год будут ходить только по HTTPS: откат
 после боевого запуска пользователям бесплатно не даётся.
 
-## Обновление
+## Обновление и выпускной допуск
 
-```bash
-git pull
-cd deploy
-docker compose --env-file .env.production up -d --build
-```
+**В ветке PR #79** автоматическое развёртывание от обычного push в main
+отключено: такой push только выполняет CI и классификацию изменений.
+Развёртывание возможно лишь через явный запуск GitHub Actions
+**CI → Run workflow**, на точной текущей ревизии `main`, с тремя параметрами:
+
+- `release_sha` — полный 40-значный SHA `main` (должен совпасть с `github.sha`);
+- `backup_root` — абсолютный непубличный каталог вне репозитория и `server_data`;
+- `backup_name` — каталог уже созданной полной резервной копии внутри `backup_root`.
+
+Задача имеет `environment: production`. Дополнительное согласование через
+reviewers работает **только при отдельно настроенной защите GitHub Environment**,
+одно название окружения не считается approval. Без явного запуска задачу
+развёртывания workflow не выполняет.
+
+До любого `docker image prune`, сборки, запуска контейнеров, миграции или
+публикации запускается **read-only scratch восстановление** указанной копии
+кандидатной версией проверяющего кода из заданного SHA. Отсутствующая,
+неполная или повреждённая копия блокирует выпуск. При неудаче restore
+предыдущего worker проверяется по Docker ID и состоянию `running`, а не
+только по коду возврата `docker start`.
+
+**Запрещено** обходить эти ворота ручным `git pull && docker compose up -d
+--build` без отдельного аварийного разрешения. Эта документация описывает
+возможный управляемый выпуск, но **не свидетельствует**, что backup на VPS
+создан, старые данные восстановлены в отдельном рабочем runtime или два
+самостоятельных цикла worker прошли. До этого релиз #79 остаётся draft.
+Существующий `enable-reports.sh` по-прежнему делает изменения состояния
+и может опубликовать Word; нужен отдельный операторский допуск.
+
+**Предохранитель истории в PR #79.** `enable-reports.sh` проверяет доступность
+отчётного движка **до остановки worker**. Автоматическая очистка старых попыток
+и восстановление недельных архивов исключены из шага релиза: это самостоятельные
+операции сопровождения, а не побочный эффект публикации. Для отдельного
+ручного обслуживания сначала нужны проверенный полный снимок `server_data`,
+контроль непрерывности истории и отдельный допуск. Наличие команды `prune-state`
+не является разрешением запускать её с `--apply` на production.
+
+**Граница этого изменения:** плановый `report-worker` по-прежнему выполняет
+`recover_weekly_archives` и защищённое уплотнение *старых неконтрольных*
+попыток при старте и после цикла. Его тесты сохраняют статус/ошибки каждой
+попытки, непрерывность выпущенных документов, исходный набор подтверждённого
+четверга и единственный независимый недельный источник. Это существующее правило
+retention, а не полное отключение уплотнения. Не считать его фактически
+проверенным на VPS до разрешённого восстановления и двух самостоятельных циклов.
 
 ## Откат
 
@@ -179,27 +218,142 @@ git -C /home/aemr/dash rev-parse HEAD > /home/aemr/dash/deploy/.last-known-good
 for img in aemr-server aemr-web; do docker tag "$img:latest" "$img:previous"; done
 ```
 
-## SQLite Backup
+## Полная резервная копия состояния и проверка восстановления
 
-В репозитории нет автоматического cron backup. Делайте backup volume явно:
+Полная копия теперь поддерживает сжатый формат 2: `stateful_backup.py create
+--compressed --source /source --backup /private/backup-name`. Он сохраняет
+каждый файл и пустой каталог с SHA-256, владельцами и разрешениями, включая
+SQLite/WAL и DOCX. `verify --backup /private/backup-name --scratch-parent
+/private/restore --source /source` проверяет архив и выполняет настоящее
+полное восстановление. Источник должен оставаться остановленным для записи.
+Проверка заранее требует свободное место под **несжатый** объём плюс 128 MiB;
+размер сжатого архива не является размером необходимого scratch-диска.
+Формат 1 остаётся совместимым. Сжатие не разрешает удаление исходного состояния.
+Внешняя проверка на другом диске пока не заменяет существующий локальный
+release gate: передача копии и привязанный к источнику допуск ещё не реализованы.
+
+**Состояние: процедура подготовлена в PR, но на рабочем VPS не проводилась.**
+Старый пример копирования одного `aemr.db` при работающем сервисе
+**не является надёжным backup**: SQLite может использовать WAL, а отчёты
+держат дополнительные базы, журнал рекомендаций, immutable releases, DOCX,
+архивы и прочую историю в одном томе `server_data`.
+
+Добавлен `deploy/verify-state-backup.sh`. Он работает только когда оператор
+**уже остановил запись** и явно проверил согласованное окно, сам не выполняет
+`stop`, `up`, `migrate`, `run-google` или публикацию. Он:
+
+1. Fail-closed удостоверяет через Docker inspect, что `server` остановлен,
+   а `report-worker` отсутствует либо тоже остановлен; закрепляет
+   существующие container/image/volume (а не предполагает имя тома).
+2. Читает весь том `server_data` через Docker mount **read-only** и делает
+   отдельную копию вне тома с SHA-256 каждого файла, владельцами,
+   разрешениями и сохранением пустых каталогов. Изменение источника
+   во время копирования или неполнота обязательных файлов останавливает процесс.
+3. В отдельном временном Docker volume пересоздаёт копию, сверяет
+   содержимое и метаданные, проверяет SQLite `PRAGMA integrity_check`
+   и целостность каждого DOCX. До и после восстановления сравнивает копию
+   с остановленным источником через read-only mount, не открывая исходную
+   SQLite и не создавая в ней WAL/SHM. Временный том удаляется.
+4. Печатает только технические счётчики и фиксированные статусы, без
+   исходных строк, комментариев, идентификаторов или секретов.
+
+В согласованное окно **и только после отдельного допуска** оператор может
+использовать следующие шаги (пути и ID копии выбрать до начала):
 
 ```bash
-docker run --rm \
-  -v aemr_server_data:/data:ro \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /data/aemr.db /backup/aemr-db-$(date +%F-%H%M%S).db'
-```
-
-Restore:
-
-```bash
+cd /home/aemr/dash/deploy
+# /private/backups/aemr должен существовать, быть закрыт от посторонних
+# и находиться вне repository/server_data. Скрипт не создаёт корневую папку.
+docker compose --env-file .env.production --profile reports stop report-worker
 docker compose --env-file .env.production stop server
-docker run --rm \
-  -v aemr_server_data:/data \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /backup/aemr.db /data/aemr.db && chown 1000:1000 /data/aemr.db'
-docker compose --env-file .env.production start server
+bash verify-state-backup.sh /private/backups/aemr RELEASE-APPROVED-SHA
 ```
+
+Не использовать пример выше как команду для запуска из этого аудита:
+остановка двух служб — **production-операция**, требует отдельного решения.
+Не хранить резервные копии и `manifest.json` в Git или публичном Actions.
+Нужны независимое хранилище и проверка возможности восстановления данных
+и образов старого рабочего выпуска.
+
+Выпускной workflow повторяет проверку остановки `server` и `report-worker`,
+извлекает фактический том из mount существующего сервера и проверяет копию
+с `verify --source /source`. Исправная историческая копия, отличающаяся от
+текущего состояния, не допускает выпуск (`BACKUP_SOURCE_MISMATCH`). Изменение
+источника во время проверки также прерывает допуск. Отказ до начала
+отчётного выпуска не запускает и не перезапускает worker. Режим `verify`
+без `--source` остаётся проверкой исторической копии для восстановления,
+но сам по себе не является выпускным допуском.
+
+**Граница результата.** Успешная пробная распаковка и SQLite/DOCX integrity
+показывают побайтовую сохранность `server_data`, но не подтверждают работающий
+старый сервер, атомарность правок Google Sheets, сохранность всех внешних
+зависимостей или успешный релизный rollback. Для допуска обязательны:
+проверенный restore в отдельном старом runtime, все ссылки snapshot/receipt,
+предыдущее image digest, контроль старых DOCX, проверка версии источников,
+затем контролируемый запуск и два самостоятельных цикла worker.
+
+Текущий `deploy/rollback.sh` возвращает **только код и образы**, но не
+содержимое `server_data`. Его нельзя считать самостоятельным планом
+восстановления после миграции БД. `enable-reports.sh` также пока меняет
+report state и может публиковать новый выпуск — использовать только после
+полного выпускного допуска.
+
+### Полная копия при недостатке VPS для scratch
+
+Owner-authorized maintenance label `maintenance: full-worker-backup` на
+каноническом PR #79 требует exact-head CI, прекращает оба writer, создаёт
+полную неизменяемую compressed копию вне checkout и тома данных. Manifest
+и архив передаются по SSH на временный закрытый Actions scratch; UID/GID,
+SQLite/WAL, DOCX и все байты проверяются существующим `verify`. Публичные
+artifacts не создаются. Прежний Node возобновляется с проверкой health;
+worker не запускается. Независимый30мин watchdog возвращает Node при
+потере runner; source-match обязан проверить quiescence до и после scan.
+
+`match-source` отдельно означает только сравнение с копией. Он не заменяет
+restore и не разрешает deployment. Завершённый workflow доказывает копию
+на момент quiescence; после resume источник может измениться. Допуск к
+выпуску требует нового сопоставления текущего остановленного состояния,
+доказанного rollback старого runtime и самостоятельных worker cycles.
+Копия остаётся в приватном `.dash-private-backups`; временные runner copies
+и SSH credentials удаляются даже после ошибки.
+
+Техническое обслуживание использует единый EX-lock
+`/run/lock/aemr-maintenance.lock`. Deploy, rollback и enable-reports держат
+его до завершения операции; вложенный enable-reports принимает fd9 только
+после проверки kernel fdinfo, а не флага окружения. У backup-window lock
+держит отдельный guardian: READY проверяется до остановки API, исключение
+сохраняется между prepare, переносом копии, match-source и healthy resume.
+Watchdog через 30 минут запускает только исходный API; при ошибке Docker
+сохраняет lock и повторяет ограниченный по времени запуск.
+
+Worker recovery держит lock при изменении контейнеров, но освобождает его
+на время наблюдения двух циклов. После проверки исходного состояния,
+но до изменения runtime, а также перед намеренной остановкой worker
+существующая runtime policy атомарно переводится в `worker_enabled:false`
+без изменения остальных полей, владельца и прав. Автоматического обратного
+допуска нет. Отсутствующая policy не создаётся; недоступная, чужая или
+символьная ссылка блокирует остановку. Оператор должен иметь разрешённый
+доступ к lock и policy; тестовая проверка этих механизмов не подтверждает
+установку или работоспособность guard на VPS.
+
+Независимый backup job полностью возобновляет исходный API и освобождает
+свой guardian. Затем release CI получает собственный EX fd9, проверяет
+исходный runtime и до остановки API допускает только реально доступный
+объём для новой сжатой копии и одного полного scratch restore. Count-only
+preview и release capture используют одинаковый быстрый gzip level 1;
+внешние копии сохраняют прежний default level 9 и формат. Preview не является
+снимком: capture отдельно ограничен запасом для scratch, а новый полный
+checkpoint проверяется source-match до и после scratch restore.
+
+Старая копия остаётся исторической, отдельно полностью проверяется и не
+подменяется. Новый checkpoint/receipt имеет SHA, run и attempt, поэтому
+повторный dispatch не переписывает историю. При Git/build/preflight ошибке
+до замены контейнера возвращается именно исходный API с проверкой health.
+Поздняя ошибка worker не запускает старый API или глобальный restore.
+Выпуск требует активного установленного host guard с проверенным кодом,
+unit и владением исходным API. Дочерние внешние процессы не сохраняют fd9
+после смерти shell; независимый guard может восстановить API после освобождения
+lock. Синтетические SIGKILL/process проверки не доказывают состояние VPS.
 
 ## Web Auth Bootstrap
 
@@ -210,3 +364,131 @@ localStorage.setItem('aemr_api_key', '<same-key-as-AEMR_API_KEY>')
 ```
 
 Это MLP-режим для внутреннего контура. Для публичного доступа нужен отдельный login/session слой.
+
+### Одноразовое уплотнение опубликованных отчётов
+
+`plan-weekly-publications.py` по умолчанию остаётся read-only census. Режимы
+`apply`, `recover`, `rollback`, `finalize` используют тот же native PublicationStore.
+Оператор не останавливает Node, не меняет Caddy, Basic/Bearer, HSTS, таймер или
+контейнеры и не восстанавливает mutable state из старой резервной копии.
+
+До live apply требуется отдельный выпуск совместимого report reader/runtime.
+Установленный старый reader, требующий `report_model.json` в `select` и
+`latest_for_period`, несовместим с уплотнённым выпуском: проверка поведения на
+синтетическом выпуске и точных хешей установленного пакета должна отказать.
+Новый runtime создаёт `publication-readers.lock` в каталоге report-state; read-only GET его не создаёт.
+Report GET и архивный расчёт держат shared lease; обслуживание берёт locks в
+порядке run → reader EX → publication. Новые GET получают 503 через существующий
+маршрут, остальные API продолжают работать. Незавершённый retirement journal
+сохраняет fail-closed fence после смерти процесса; GET ничего не исправляет.
+
+Release gate должен получить CI-run JSON через авторизованный GitHub API для
+точного кандидата и независимо подтвердить исходный trusted backup из успешного
+`full-worker-backup` run **38178244703**, включая существующую проверку scratch
+restore. Передача произвольного JSON или создание свежей копии mutable state не
+заменяет этот внешний допуск. Код повторно проверяет SHA, чистоту candidate source,
+установленный пакет и его поведение уже под lease; fresh plan защищает current,
+previous и weekly, а identity gaps блокируют apply. Только выбранные retirement
+roots сравниваются побайтно и по uid/gid/mode с trusted backup. Новые mutable
+записи не становятся rollback target.
+
+Пример параметров после прохождения внешнего release gate (пути приватные):
+
+```sh
+python deploy/plan-weekly-publications.py --state /private/reports --operation apply \
+  --candidate "$REVIEWED_SHA" --ci-evidence /private/operator/ci-run.json \
+  --reader-package /installed/procurement_engine --expected-revision "$PLAN_REVISION" \
+  --backup /private/worker-38178244703/backup
+```
+
+Первый apply сохраняет quarantine. Обработанное исключение вызывает только
+проверенное native recovery; независимый CLI watchdog отслеживает PID вместе с
+Linux start token и выполняет тот же recovery после смерти владельца, снова
+проверяя источник, runtime и backup. PID reuse не удерживает fence чужого процесса.
+CI evidence, candidate checkout, package и backup должны оставаться доступными
+watchdog; при изменении ownership/доказательств fence остаётся закрытым до явного
+reviewed `recover`. Таймеров, конфигурации и чужого runtime watchdog не касается.
+
+`finalize` — отдельная операция после независимого readback всех сохранённых
+Word/dashboard и protected replay roots. Требуется отдельный reviewed аргумент
+`--finalize-review "$REVIEWED_SHA:$PLAN_REVISION:$ENTRIES_SHA256:$MARKER_SHA256"`;
+оба хеша берутся из независимого readback и повторно проверяются под native locks.
+Apply/watchdog не вызывают finalize. При прерванном удалении повторный finalize
+принимает тот же proof только для штатного перехода journal в `finalizing`;
+изменившийся состав entries, marker или сохранённые файлы блокируют продолжение.
+Без внешнего допуска, совместимого установленного runtime и независимого readback
+эта команда не является разрешением на live очистку.
+
+В существующем Docker runtime нет Git. Для Docker transport management job после
+авторизованного чтения успешного CI вызывает `candidate_source_receipt` на exact
+clean Git checkout: SHA кандидата, CI run ID, ID management job и хеши только
+public `.py` package/tool/backup helper. Job передаёт эту ephemeral receipt и
+`git archive` тех же public code paths read-only; апplier получает
+`--source-receipt /private/operator/candidate-source.json`. Внутри image проверяются
+CI context, полный точный набор хешей транспортированного package и обоих tools,
+хеши реально импортированного установленного package и behavioral reader probe.
+Самодельный `verified: true` не является допуском: доверие к receipt обеспечивается
+аутентифицированным existing release gate. Никакого Git checkout, установки Git,
+нового сервиса или зависимости в image не требуется. Gate отдельно связывает
+actual Node `REPORT_ENGINE_BIN`, Node/worker image/package и mounted report volume;
+сам native applier не меняет эти ресурсы и не заменяет такую проверку.
+
+CLI apply требует доказуемую независимость watchdog: PID1 applier и one-off
+Docker/tini container отклоняются (`WATCHDOG_LIFECYCLE_UNPROVEN`), поскольку exit
+контейнера уничтожает sibling watchdog. Для resident Node exec PID1 Node остаётся
+живым; backup/code/proof transport при этом должен быть доступен. Для one-off
+management image existing host watchdog обязан владеть отдельным recovery вызовом
+и может вызывать проверенный native `operate` под этим внешним жизненным циклом.
+Не обходить этот отказ флагом «watchdog verified». Applier должен работать с UID
+владельца published directory, совпадающим с actual report-reader/data owner;
+иначе private journal/staged roots после обслуживания окажутся недоступны API.
+
+Rollout нового reader теперь явно вызывает `initialize-publication-readers` в
+Node startup **до createApp/listen/preload**, если существует legacy catalog;
+worker может оставаться выключенным. Инициализатор не читает/переписывает catalog,
+создаёт один пустой owned inode с fsync и повторно использует его без замены.
+Symlink, чужой UID, непустой файл и подмена inode отклоняются; ошибка bootstrap
+останавливает startup с фиксированным кодом. Старые readers/runtime должны быть
+остановлены и drained до rollout/GC: bootstrap не делает старый код совместимым.
+Read-only GET по-прежнему никогда не создаёт lease. Без published catalog сохраняется
+старый development startup; первый native writer/archive создаёт lease до catalog.
+
+Read-only candidate-overlay rehearsal запускает `check-publication-readers --state`
+перед source-schema и frozen-replay (включая published-summary, подробную статистику,
+weekly/history и archived source-schema). Проверка берёт только существующий shared
+lease, не создаёт каталог/lock, не копирует release и не запускает worker. Без
+старого lease печатает JSON `status=BLOCKED`,
+`error_code=PUBLICATION_READER_LEASE_UNINITIALIZED`,
+`required_action=AUTHORIZED_QUIESCENT_READER_BOOTSTRAP` и выходит с кодом 2;
+CI остаётся заблокированным. `PUBLICATION_MAINTENANCE_ACTIVE` и незавершённое
+retention recovery сохраняют отдельные коды, а не трактуются как нужда в bootstrap.
+
+Для старого runtime это отдельный предварительный допуск оператора: остановить и
+дождаться завершения старых readers/writers (проверить отсутствие RUNNING writer),
+зафиксировать backup/rollback и точный кандидат; от UID владельца report-state
+в approved maintenance выполнить существующий
+`python -m procurement_engine.cli initialize-publication-readers --state <report-state>`.
+Не выполнять эту запись внутри read-only workflow и не обходить fence при отсутствии
+файла. После допуска readonly rehearsal повторяется на том же exact SHA; наличие
+lease само по себе не подтверждает все результаты replay и не разрешает retention
+под работающим старым runtime, который не знает shared lease. Runtime startup нового
+кода по-прежнему инициализирует reader до listen в утверждённом rollout.
+
+Проверка ёмкости 12.10.2026: read-only CI38199188606 увидел
+12 113 375 232B свободного места в существующем приватном backup-разделе.
+Это меньше полного scratch для прежней проверенной копии (22 048 941 998B),
+даже без новой сжатой копии и запаса. Текущий release-capacity требует этот
+scratch локально и должен отклонить такой допуск до остановки API. Полное
+восстановление на временном GitHub runner уже доказано full-worker-backup,
+но ещё не встроено в release job. Исторический restore не удостоверяет
+свежесть сегодняшнего checkpoint. Допустимое продолжение — связать новую
+копию с независимым runner restore и повторным match-source у того же EX
+владельца; lock нельзя отпускать на время передачи. Эта схема ещё не введена.
+
+Полный in-place rollback состояния также не доказан: stateful_backup.py
+восстанавливает отчётный каталог, rollback.sh сохраняет основную БД.
+Nullable ADD COLUMN и reader bootstrap не показывают разрушительной SQL
+миграции, но не заменяют smoke точного прежнего образа на candidate-modified
+scratch. enable-reports.sh дополнительно меняет registry. Пока этот гейт
+открыт, compaction не финализируется в rollback-окне; старый reader не знает
+нового lease. Эти ограничения не означают отказ работающего API/воркера.

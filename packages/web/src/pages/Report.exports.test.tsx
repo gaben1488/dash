@@ -45,7 +45,8 @@ beforeEach(() => {
   request.mockReset();
   request.mockImplementation(async (url: string) => ({ ok: true,
     json: async () => ({ latest: receipt, attempt: null,
-      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null }),
+      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null,
+      latest_matching: url.includes('year=2026&quarter=3') ? receipt : null }),
     blob: async () => new Blob(['docx']),
   }));
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:test', revokeObjectURL: () => {} }));
@@ -119,7 +120,8 @@ it('prepares and downloads the full frozen archive even when the old dashboard s
           report_year: selected.year, quarter: selected.quarter } }) };
     }
     return { ok: true, json: async () => ({ latest: receipt, attempt: null,
-      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null }),
+      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null,
+      latest_matching: url.includes('year=2026&quarter=3') ? receipt : null }),
       blob: async () => new Blob(['archive docx']) };
   });
   render(<TooltipProvider><ReportPage /></TooltipProvider>);

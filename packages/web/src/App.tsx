@@ -1,6 +1,6 @@
 import { useEffect, useRef, Component, Suspense, type ReactNode } from 'react';
 import { useStore } from './store';
-import { useThemeInit } from './components/ThemeProvider';
+import { useThemeInit, pageDawnStyle } from './components/ThemeProvider';
 import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
 import { OrgStrip } from './components/OrgStrip';
@@ -14,7 +14,7 @@ import {
   DisciplinePage, MonitoringPage, Analytics, QualityPage, SettingsPage, PageSkeleton,
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
-import { LiveUpdateBar } from './components/live/LiveUpdateBar';
+import { LiveUpdateBar, SnapshotFreshnessNotice } from './components/live/LiveUpdateBar';
 import { setKBRegistry } from './components/ui/kb-tooltip';
 import { STANDARD_METRICS } from './lib/metrics-registry';
 
@@ -130,7 +130,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 /* ── App ───────────────────────────────────────────────── */
 
 export function App() {
-  const { page, year, fetchDashboard, fetchSubordinates, fetchBucketCounts } = useStore();
+  const { page, year, dashboardData, fetchDashboard, fetchSubordinates } = useStore();
   useThemeInit();
   useUrlSync();
 
@@ -138,10 +138,9 @@ export function App() {
   useEffect(() => {
     fetchDashboard();
     fetchSubordinates();
-    // Честные счётчики корзин Реестра (п.73в) для кнопок навигации: пока
-    // сервер не ответил, кнопки живут без числа — ноль не выдумывается.
-    fetchBucketCounts();
-  }, [fetchDashboard, fetchSubordinates, fetchBucketCounts]);
+    // Счётчики корзин загружаются после принятия Dashboard общим путём store;
+    // отдельный запрос здесь дублировал бы чтение для навигации и Пульса.
+  }, [fetchDashboard, fetchSubordinates]);
 
   // Re-fetch when year filter changes
   const isFirstRender = useRef(true);
@@ -150,7 +149,7 @@ export function App() {
       isFirstRender.current = false;
       return;
     }
-    fetchDashboard(true);
+    fetchDashboard();
   }, [year, fetchDashboard]);
 
   const renderPage = () => {
@@ -211,8 +210,9 @@ export function App() {
             {page !== 'report' && <OrgStrip />}
             {/* min-w-0 — чтобы широкая таблица внутри прокручивалась сама, а не
                 распирала строку и не выдавливала полосу организаций за край. */}
-            <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto">
+            <main id="main-content" tabIndex={-1} data-page={page} style={pageDawnStyle(page)} className="page-context flex-1 min-w-0 overflow-y-auto">
               <div className="max-w-[1400px] mx-auto p-6">
+                {page !== 'report' && <SnapshotFreshnessNotice snapshot={dashboardData?.snapshot} />}
                 <ErrorBoundary resetKey={page} scope="раздел">
                   {/* Пока файл раздела едет по сети, на его месте стоит скелет
                       той же формы — экран не прыгает, когда раздел появился. */}

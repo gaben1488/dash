@@ -598,6 +598,13 @@ export type CanonicalizeResult =
  * кроме EP_NOT_WORTHWHILE («нецелеобразность») — слишком высокий риск
  * ложных срабатываний при коротких regex.
  */
+/** Shared bound and guard for reason grading, signals and Competition. */
+export const EP_REASON_SCAN_LIMIT = 2000;
+
+export function hasNegatedEpMonopoly(reason: unknown): boolean {
+  return /(?:^|[^\p{L}\p{N}_])не\s+(?:явля(?:ется|ются)\s+)?(?:субъектом\s+)?(?:естественн\p{L}*\s+)?монопол\p{L}*/iu.test(String(reason ?? '').slice(0, EP_REASON_SCAN_LIMIT));
+}
+
 export function canonicalizeReasonEp(raw: unknown): CanonicalizeResult {
   if (raw === null || raw === undefined || raw === '') {
     return { cluster: 'EMPTY' };
@@ -611,6 +618,8 @@ export function canonicalizeReasonEp(raw: unknown): CanonicalizeResult {
   const normalized = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
   for (const cluster of EP_REASON_CLUSTERS) {
+    // A denial is not evidence for this exemption; keep reviewing other explicit bases.
+    if (cluster === 'EP_MONOPOLIST' && hasNegatedEpMonopoly(normalized)) continue;
     const entry = EP_REASON_DICT[cluster];
     for (const re of entry.regex) {
       if (re.test(normalized)) {

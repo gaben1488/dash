@@ -432,3 +432,80 @@ def test_rehearsal_os_errors_disclose_only_safe_errno_not_private_path(monkeypat
     assert result['os_error_code'] == 'ENOSPC'
     assert 'private' not in json.dumps(result)
     assert 'secret' not in json.dumps(result)
+
+
+def test_invalid_reference_proof_requires_literal_errors_in_the_complete_audit():
+    from copy import deepcopy
+
+    from procurement_engine.rehearsal import _invalid_reference_proof
+    from test_formula_dependencies import source
+
+    original = source(sid='PRIVATE_SOURCE', formulas=[
+        {'row': row, 'column': 1, 'formula': '=#REF!'} for row in (1, 2, 3)])
+    capture = {'sources': [original], 'archive_origin': {'snapshot_id': 'PRIVATE_SNAPSHOT'}}
+    proof = _invalid_reference_proof(capture, {'private/path': 'a' * 64})
+    assert proof['invalid_reference_count'] == 3
+    assert 'PRIVATE' not in json.dumps(proof) and 'private/path' not in json.dumps(proof)
+    moved = deepcopy(capture)
+    moved['sources'][0]['formula_evidence']['formulas'][0]['column'] = 2
+    assert _invalid_reference_proof(moved, {'private/path': 'a' * 64})['dependency_issue_sha256'] != proof['dependency_issue_sha256']
+    assert _invalid_reference_proof(capture, {'private/path': 'b' * 64})['archive_sha256'] != proof['archive_sha256']
+    for formula in ('=Support!A1', '=CUSTOM_REMOTE(A1)', '=REF!A1'):
+        different = deepcopy(capture)
+        different['sources'][0]['formula_evidence']['formulas'][0]['formula'] = formula
+        assert _invalid_reference_proof(different, {}) is None
+
+
+def test_weekly_refusal_proves_frozen_input_without_changing_it_or_authorizing_a_publication(tmp_path, monkeypatch, capsys):
+    import test_weekly_archive as weekly
+    from procurement_engine import rehearsal
+    from procurement_engine.weekly_archive import seal_weekly_archive
+
+    original = weekly.FormulaGoogle.formulas
+    def broken(self, provider, title, start, end, columns):
+        if provider == 'master-0':
+            return [['=#REF!'] if row <= 3 else [] for row in range(start, end + 1)]
+        return original(self, provider, title, start, end, columns)
+    monkeypatch.setattr(weekly.FormulaGoogle, 'formulas', broken)
+    state, status = weekly.complete_attempt(tmp_path)
+    seal_weekly_archive(state, status)
+    before = business_files(state)
+    assert rehearsal.main(['--state', str(state), '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['blocker_codes'] == ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN']
+    assert result['frozen_refusal']['invalid_reference_count'] == 3
+    assert business_files(state) == before
+    assert not (state / 'published/releases').exists()
+
+
+@pytest.mark.parametrize('valid_hash', [False, True])
+def test_refusal_cli_does_not_publish_arbitrary_exception_attributes(monkeypatch, capsys, valid_hash):
+    from procurement_engine import rehearsal
+    from procurement_engine.archive_runtime import ArchiveError
+
+    error = ArchiveError('ARCHIVE_BUILD_FAILED')
+    error.blockers = [{'code': 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN'}]
+    error.frozen_refusal = {'contract': 'frozen-invalid-reference-proof-v1',
+        'invalid_reference_count': 3, 'archive_sha256': 'a' * 64 if valid_hash else 'PRIVATE_SENTINEL',
+        'snapshot_sha256': 'b' * 64, 'dependency_issue_sha256': 'c' * 64,
+        'private_note': 'PRIVATE_SENTINEL'}
+    def fail(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', fail)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    text = capsys.readouterr().out
+    assert 'PRIVATE_SENTINEL' not in text and 'private_note' not in text
+    assert ('frozen_refusal' in json.loads(text)) is valid_hash
+
+
+def test_quoted_sheet_title_containing_ref_error_does_not_prove_an_unrelated_missing_reference():
+    from procurement_engine.rehearsal import _invalid_reference_proof
+    from test_formula_dependencies import source
+
+    first = source(formulas=[{'row': 1, 'column': 1, 'formula': "=IFERROR(REF!A1;'#REF!'!A1)"}])
+    second = source('captured-title', 2, '#REF!')
+    for item in (first, second):
+        item['formula_evidence']['sheets'].append({'sheetId': 2, 'title': '#REF!'})
+    capture = {'sources': [first, second], 'archive_origin': {'snapshot_id': 'SNP-synthetic'}}
+    assert _invalid_reference_proof(capture, {}) is None

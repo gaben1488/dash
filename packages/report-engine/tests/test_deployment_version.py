@@ -15,6 +15,11 @@ def test_deploy_resets_to_tested_sha_and_checks_it_before_building():
     script = workflow.split('          script: |', 1)[1]
     assert "tested_commit='${{ github.sha }}'" in script
     assert 'git reset --hard "$tested_commit"' in script
-    assert 'test "$(git rev-parse HEAD)" = "$tested_commit"' in script
-    assert script.index('git reset --hard "$tested_commit"') < script.index('up -d --build')
+    exact_sha_check = 'test "$(exec 9>&-; git rev-parse HEAD)" = "$tested_commit"'
+    assert exact_sha_check in script
+    reset = script.index('git reset --hard "$tested_commit"')
+    check = script.index(exact_sha_check)
+    build = script.index('docker compose --env-file .env.production build server web')
+    replace = script.index('up -d --no-build server web caddy')
+    assert reset < check < build < replace
     assert 'git reset --hard origin/main' not in script

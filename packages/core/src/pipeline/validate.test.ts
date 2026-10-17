@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateData, roundMoneyInText } from './validate.js';
 import { classifyRows } from './classify.js';
+import { getActiveRules, REPORT_MAP } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ValidationRule, ReportMapEntry, RuleCheckContext } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────
@@ -53,6 +54,34 @@ function makeFailingRule(overrides: Partial<ValidationRule> = {}): ValidationRul
 
 const EMPTY_METRICS = new Map<string, NormalizedMetric>();
 const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
+
+describe('СВОД — границы разных схем на одном листе', () => {
+  const arithmetic = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact', 'execution_percentage', 'deviation_calc', 'fact_leq_plan'].includes(r.id));
+  const primaryHeader = makeRow({ rowIndex: 3, classification: 'header', cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
+  const wrongForPrimary = { A: 'УД', D: 20, E: 30, F: 50, G: 0.2, H: 100, I: 200, J: 300, K: 5, L: 10, M: 20, N: 30, O: 7 };
+
+  it.each(['Анализ экономии', 'Операционная нагрузка', 'Дисциплина планирования'])('не применяет закупочную арифметику к блоку %s независимо от номера строки', title => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: title } }), makeRow({ rowIndex: 18, cells: wrongForPrimary })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP)).toEqual([]);
+  });
+
+  it('возобновляет реальные проверки после следующей закупочной шапки', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: 'Анализ экономии' } }), makeRow({ ...primaryHeader, rowIndex: 21 }), makeRow({ rowIndex: 22, cells: wrongForPrimary })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP).map(i => i.category)).toContain('budget_sum_plan');
+  });
+
+  it('показывает проблему неизвестной схемы вместо фиктивных финансовых нарушений', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: 'ГРБС', B: 'Новый показатель', C: 'Сумма' } }), makeRow({ rowIndex: 18, cells: wrongForPrimary })];
+    const issues = validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP);
+    expect(issues.map(i => i.category)).toEqual(['svod_validation_schema_unknown']);
+    expect(issues[0].origin).toBe('runtime_error');
+  });
+
+  it('не объявляет неизвестную шапку проверенной даже без прочитанных строк данных', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, classification: 'header', cells: { A: 'ГРБС', B: 'Новый показатель', C: 'Сумма' } })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP).map(i => i.category)).toEqual(['svod_validation_schema_unknown']);
+  });
+});
 
 // ────────────────────────────────────────────────────────────
 // 1. Basic validation flow
@@ -221,9 +250,10 @@ describe('validateData — error handling', () => {
     const goodRule = makeFailingRule({ id: 'good_rule' });
 
     const issues = validateData(EMPTY_METRICS, [row], [brokenRule, goodRule], EMPTY_REPORT_MAP);
-    // Broken rule is skipped, good rule still fires
-    expect(issues).toHaveLength(1);
-    expect(issues[0].category).toBe('good_rule');
+    // The healthy rule still fires; the broken rule produces a visible failure.
+    expect(issues).toHaveLength(2);
+    expect(issues.map(issue => issue.category).sort()).toEqual(['good_rule', 'rule_execution_failed']);
+    expect(issues.find(issue => issue.category === 'rule_execution_failed')?.origin).toBe('runtime_error');
   });
 
   it('continues validation after broken rule', () => {
@@ -232,8 +262,11 @@ describe('validateData — error handling', () => {
       id: 'broken',
       check: () => { throw new TypeError('Cannot read property'); },
     });
-    // Should not crash
-    expect(() => validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP)).not.toThrow();
+    const issues = validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1); // one diagnostic per broken rule, not per row
+    expect(issues[0].category).toBe('rule_execution_failed');
+    expect(issues[0].description).toContain('2 строк');
+    expect(issues[0].row).toBe(5);
   });
 });
 

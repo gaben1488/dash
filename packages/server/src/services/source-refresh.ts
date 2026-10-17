@@ -75,7 +75,7 @@ let queuedFresh: Promise<SourceRefreshResult> | null = null;
  * обеими книгами; взять цель только у первого вставшего значит потерять вторую
  * правку до планового опроса.
  */
-let queuedScope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null = null;
+let queuedScope: { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } | null = null;
 
 /** Отпечатки прошлого чтения — по ним видно, изменилось ли что-нибудь. */
 const bookPrints = new Map<string, string>();
@@ -327,19 +327,21 @@ function publishBookChanges(
  * хвост тихо отменил бы уже обещанное чтение остальных книг.
  */
 function widenScope(
-  scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null,
+  scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } | null,
   options: RefreshOptions,
-): { books: Set<string> | null; svod: boolean; withFormulas: boolean } {
+): { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } {
   const wantsAll = !options.books || options.books.length === 0;
   const svod = (scope?.svod ?? false) || (options.svod ?? true);
   // Просьба прочитать формулы тоже СКЛАДЫВАЕТСЯ: уведомление вебхука, попавшее
   // в серию вместе с обычным вызовом, не имеет права потерять чтение формул —
   // иначе перебитая формула дождалась бы только ночного обхода.
   const withFormulas = (scope?.withFormulas ?? false) || (options.withFormulas ?? false);
-  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod, withFormulas };
-  if (scope.books === null || wantsAll) return { books: null, svod, withFormulas };
+  // Принудительное чтение не должно теряться в обещанном хвосте: false побеждает.
+  const askDrive = (scope?.askDrive ?? true) && (options.askDrive ?? true);
+  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod, withFormulas, askDrive };
+  if (scope.books === null || wantsAll) return { books: null, svod, withFormulas, askDrive };
   for (const book of options.books ?? []) scope.books.add(book);
-  return { books: scope.books, svod, withFormulas };
+  return { books: scope.books, svod, withFormulas, askDrive };
 }
 
 /**
@@ -438,6 +440,7 @@ export function refreshAllSources(log?: {
           books: scope?.books ? [...scope.books] : undefined,
           svod: scope?.svod ?? true,
           withFormulas: scope?.withFormulas ?? false,
+          askDrive: scope?.askDrive ?? true,
         });
       });
     return queuedFresh;

@@ -108,3 +108,46 @@ describe('отказ книги', () => {
     expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(1);
   });
 });
+
+it('same department switched to another file reads that file', async () => {
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['old']]).mockResolvedValueOnce([['new']]);
+  await readChangelogRows('УО', 'file-A', 1000);
+  expect(await readChangelogRows('УО', 'file-B', 1001)).toEqual([['new']]);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenLastCalledWith('file-B', '_ChangeLog');
+});
+it('pre-reset completion cannot replace or detach the winning request', async () => {
+  let oldDone!: (rows: unknown[][]) => void; let newDone!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { oldDone = resolve; }))
+    .mockImplementationOnce(() => new Promise(resolve => { newDone = resolve; }));
+  const old = readChangelogRows('УО', 'file-A', 1000);
+  resetChangelogSource();
+  const winner = readChangelogRows('УО', 'file-A', 2000);
+  oldDone([['old']]); await old;
+  const follower = readChangelogRows('УО', 'file-A', 2001);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
+  newDone([['new']]);
+  expect(await winner).toEqual([['new']]); expect(await follower).toEqual([['new']]);
+  expect(await readChangelogRows('УО', 'file-A', 2002)).toEqual([['new']]);
+  expect(changelogReadAt('УО')).toBe(2000);
+});
+it('slow old file cannot replace new file reading or freshness', async () => {
+  let oldDone!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { oldDone = resolve; })).mockResolvedValueOnce([['new']]);
+  const old = readChangelogRows('УО', 'file-A', 1000);
+  expect(await readChangelogRows('УО', 'file-B', 2000)).toEqual([['new']]);
+  oldDone([['old']]); await old;
+  expect(await readChangelogRows('УО', 'file-B', 2001)).toEqual([['new']]);
+  expect(changelogReadAt('УО')).toBe(2000);
+});
+it('freshness stays compatible and does not attribute A to a pending B', async () => {
+  let release!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['A']]).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  await readChangelogRows('УО', 'file-A', 1000);
+  expect(changelogReadAt('УО', 'file-A')).toBe(1000);
+  expect(changelogReadAt('УО', 'file-B')).toBeNull();
+  const pending = readChangelogRows('УО', 'file-B', 2000);
+  expect(changelogReadAt('УО')).toBeNull();
+  release([['B']]); await pending;
+  expect(changelogReadAt('УО')).toBe(2000);
+  expect(changelogReadAt('УО', 'file-A')).toBeNull();
+});

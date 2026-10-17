@@ -38,7 +38,7 @@
 // snapshot.js импортируется ЛЕНИВО (внутри функций): статический импорт тянул
 // в этот модуль весь тяжёлый граф (googleapis, drizzle, @aemr/core) — тесты
 // чистых функций платили за него ~25 с на холодном кэше.
-import { isoOfDayNumber } from '@aemr/shared';
+import { isoOfDayNumber, DAYS_PER_WEEK } from '@aemr/shared';
 import { productCalendarDay } from './product-calendar.js';
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 
@@ -49,13 +49,6 @@ const TICK_INTERVAL_MS = MS_PER_HOUR;
 
 /** Горизонт дедупликации — ~10 недель: старше в решении «снимать ли сегодня» не участвует. */
 const DEDUP_WINDOW_DAYS = 70;
-
-/**
- * Сколько последних строк истории читаем (метаданные, без data-JSON). Для
- * решения важен только сегодняшний день, а свежие строки идут первыми —
- * лимита с запасом достаточно даже при частых сохранениях в день среза.
- */
-const HISTORY_SCAN_LIMIT = 500;
 
 /**
  * Порог свежести книг: чтение старше суток описывает уже другой день, а срез
@@ -192,13 +185,16 @@ export function shouldTakeWeeklySnapshot(nowDay: number, snapshotDays: readonly 
  * снятый в четверг 04:00 Камчатки (= среда 16:00 UTC), дедупится с четвергом.
  */
 export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number): Promise<number[]> {
-  const { getWeeklySnapshotHistory } = await import('./snapshot.js');
+  const { iterateWeeklySnapshotHistory } = await import('./snapshot.js');
+  const { verifiedBaselineRows } = await import('./weekly-control-validation.js');
   const days = new Set<number>();
-  for (const row of getWeeklySnapshotHistory(HISTORY_SCAN_LIMIT)) {
+  for (const row of iterateWeeklySnapshotHistory()) {
     const ms = Date.parse(row.createdAt);
-    if (Number.isNaN(ms)) continue;
+    if (!Number.isFinite(ms)) continue;
     const day = productCalendarDay(new Date(ms), utcOffsetHours);
-    if (day >= nowDay - DEDUP_WINDOW_DAYS) days.add(day);
+    if (day < nowDay - DEDUP_WINDOW_DAYS) break;
+    if (day > nowDay || day % DAYS_PER_WEEK !== 0 || days.has(day)) continue;
+    if (verifiedBaselineRows(row).error === null) days.add(day);
   }
   return [...days];
 }

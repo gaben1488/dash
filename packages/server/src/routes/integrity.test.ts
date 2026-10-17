@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -132,5 +132,101 @@ describe('atomsToSnapshotRows + diffSnapshots — пропажа строки', 
     ]);
     expect(rows.get('uer')).toHaveLength(1);
     expect(rows.get('uer')?.[0].rowSeq).toBe('13');
+  });
+});
+
+
+
+describe('единая классификация строк для исторического контроля и текущего чтения', () => {
+  const history = (row: Record<string, unknown>, rowIndex: number, planAmount: number) => ({
+    snapshotId: 'history', departmentId: 'uer', rowIndex,
+    cellsJson: JSON.stringify(row), subject: String(row.G ?? ''),
+    planAmount, factAmount: null,
+  });
+
+  it('служебный итог/заголовок не создаёт ложное исчезновение закупки', () => {
+    const before = atomsToSnapshotRows([
+      history({ A: '1', C: 'Школа', G: 'Ремонт', L: 'ЕП' }, 4, 100),
+      history({ A: 'ИТОГО', G: 'Итого', L: 'Подзаголовок' }, 5, 500),
+    ]).get('uer') ?? [];
+    const live = [
+      ...HEADER,
+      row({ 0: '1', 2: 'Школа', 6: 'Ремонт', 10: 100, 11: 'ЕП' }),
+    ];
+    const after = currentSheetToSnapshotRows(live);
+    expect(before.map((r) => r.rowSeq)).toEqual(['1']);
+    expect(after.map((r) => r.rowSeq)).toEqual(['1']);
+    expect(diffSnapshots(before, after).vanished).toEqual([]);
+  });
+
+  it('разметочная строка без предмета и без плана не становится закупкой', () => {
+    const live = [...HEADER, row({ 0: '2' })];
+    expect(currentSheetToSnapshotRows(live)).toEqual([]);
+  });
+});
+
+describe('текущие книги против последнего контрольного четверга', () => {
+  const snap = (id: string, createdAt: string) => ({ id, createdAt });
+
+  it('берёт последний контроль, не предыдущий четверг и не суточный снимок', () => {
+    const latest = pickLatestControlSnapshot([
+      snap('daily', '2026-10-10T09:00:00Z'),
+      snap('control', '2026-10-08T06:00:00Z'),
+      snap('older-control', '2026-10-01T06:00:00Z'),
+    ], Date.parse('2026-10-11T10:00:00Z'), 12);
+    expect(latest?.id).toBe('control');
+  });
+
+  it('не требует двух последовательных контрольных снимков', () => {
+    expect(pickLatestControlSnapshot([
+      snap('old-control', '2026-09-24T06:00:00Z'),
+    ], Date.parse('2026-10-11T09:00:00Z'), 12)?.id).toBe('old-control');
+  });
+
+  it('четверг Камчатки ещё в среду UTC и не пропускается', () => {
+    expect(pickLatestControlSnapshot([
+      snap('kamchatka-thursday', '2026-07-22T17:00:00Z'),
+    ], Date.parse('2026-07-23T07:00:00Z'), 12)?.id).toBe('kamchatka-thursday');
+  });
+
+  it('будущий, недатированный или недатированный контроль не подставляется', () => {
+    expect(pickLatestControlSnapshot([
+      snap('future', '2026-10-15T06:00:00Z'),
+      snap('broken', 'нет даты'),
+    ], Date.parse('2026-10-11T09:00:00Z'), 12)).toBeNull();
+  });
+
+  it('из текущего листа с заголовками получает те же координаты, что из атомов', () => {
+    const values = [
+      row({ 0: '№' }), row({}), row({}),
+      row({ 0: '12', 2: 'МБОУ СОШ № 1', 6: 'Канцтовары', 10: 240.5, 11: 'ЕП' }),
+      row({}), row({ 0: '15', 2: 'МБОУ СОШ № 1', 6: 'Ремонт', 10: 100 }),
+    ];
+    const result = currentSheetToSnapshotRows(values);
+    expect(result.map((r) => ({ seq: r.rowSeq, row: r.sheetRow }))).toEqual([
+      { seq: '12', row: 4 }, { seq: '15', row: 6 },
+    ]);
+    expect(result[0]).toMatchObject({ subject: 'Канцтовары', planSum: 240.5, method: 'ЕП' });
+  });
+});
+
+
+
+describe('исторические снимки — совместимость без подмены происхождения', () => {
+  it('книга читается по удостоверенному алиасу, но коллизии не объединяются', () => {
+    expect(indexHistoricalDepartments({ 'УАГЗО': 1, 'УДТХ': 2 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'УАГиЗО': 1, 'УДТХ': 2 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'Управление архитектуры, градостроительства и земельных отношений': 1 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'УАГЗО': 1, 'УАГиЗО': 2 })).toBeNull();
+    expect(indexHistoricalDepartments({ 'Неизвестная организация': 1 })).toBeNull();
+  });
+
+  it('не путает отсутствующий снимок, прежний формат и нечитаемый JSON', () => {
+    expect(interpretWeeklySnapshotJson(null).error).toContain('отсутствует');
+    expect(interpretWeeklySnapshotJson('{}').error).toContain('не сохранён');
+    expect(interpretWeeklySnapshotJson('null').error).toContain('не поддерживается');
+    expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v2"}}').error).toContain('не поддерживается');
+    expect(interpretWeeklySnapshotJson('{invalid').error).toContain('не разбирается');
+    expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v1"}}').error).toBeNull();
   });
 });

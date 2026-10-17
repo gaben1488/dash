@@ -20,6 +20,7 @@ import {
   EP_RISK_STRICT_GRADES,
   epRiskStrictnessOfGrade,
   epRiskStrictnessOfReason,
+  epRiskReviewDetails,
 } from './ep-justification-grade.js';
 import {
   COMPOSITE_GRADE_CUTS,
@@ -57,10 +58,34 @@ describe('п.137(1) «в течение года» — только стадия
 });
 
 describe('п.137(2) ЕП-риск — развилка по обоснованию', () => {
+  it('годовая серия требует проверки договоров, а не критической претензии к общей сумме', () => {
+    const row = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+    expect(epRiskStrictnessOfReason('', row)).toBe('info');
+    // Neither an individual dated contract nor an unclassified row is exempt.
+    expect(epRiskStrictnessOfReason('', { ...row, factDateRaw: '10.10.2026' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, id: 'unknown' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, factSum: 0 })).toBe('critical');
+  });
+  it('a reused curated number does not classify another subject as an annual series', () => {
+    const row = { dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+    expect(epRiskStrictnessOfReason('', { ...row, subject: 'Другая закупка' })).toBe('critical');
+    expect(epRiskStrictnessOfReason('', { ...row, subject: undefined })).toBe('critical');
+  });
+  it('a negated monopoly claim remains a reason requiring verification', () => {
+    expect(epRiskStrictnessOfReason('не является монополистом')).toBe('warning');
+  });
+  it('12 October: a recognized discretionary reason remains an actionable warning, not a confirmed violation', () => {
+    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('warning');
+    expect(epRiskStrictnessOfReason('')).toBe('critical');
+  });
+  it('a nonempty unrecognized reason is dictionary uncertainty, not an absent basis', () => {
+    expect(epRiskStrictnessOfReason('Проверить особое основание')).toBe('warning');
+    expect(epRiskStrictnessOfReason('')).toBe('critical');
+  });
   it('СТРАЖ: строгий конец — «без обоснования» и «решение заказчика»', () => {
-    expect([...EP_RISK_STRICT_GRADES].sort()).toEqual(['discretionary', 'unfounded']);
+    expect([...EP_RISK_STRICT_GRADES].sort()).toEqual(['unfounded']);
     expect(epRiskStrictnessOfGrade('unfounded')).toBe('critical');
-    expect(epRiskStrictnessOfGrade('discretionary')).toBe('critical');
+    expect(epRiskStrictnessOfGrade('discretionary')).toBe('warning');
   });
 
   it('СТРАЖ: справочный конец — законная безальтернативность и подтверждённая выгода', () => {
@@ -73,7 +98,7 @@ describe('п.137(2) ЕП-риск — развилка по обосновани
     // «нецелесообразно» — риск.
     expect(epRiskStrictnessOfReason('Единственный поставщик тепловой энергии, естественная монополия'))
       .toBe('info');
-    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('critical');
+    expect(epRiskStrictnessOfReason('Проведение аукциона нецелесообразно')).toBe('warning');
   });
 
   it('СТРАЖ: пустое и нераспознанное обоснование судится строго', () => {
@@ -81,7 +106,7 @@ describe('п.137(2) ЕП-риск — развилка по обосновани
     // умолчанием в паспорте, чтобы чип и карточка не разошлись.
     expect(epRiskStrictnessOfReason('')).toBe('critical');
     expect(epRiskStrictnessOfReason(null)).toBe('critical');
-    expect(epRiskStrictnessOfReason('по решению руководителя учреждения')).toBe('critical');
+    expect(epRiskStrictnessOfReason('по решению руководителя учреждения')).toBe('warning');
   });
 
   it('СТРАЖ: умолчание паспорта совпадает со строгим концом развилки', () => {
@@ -184,5 +209,36 @@ describe('§6 спеки: объяснения без развилок', () => {
     const entry = check('plan_year_missing')!;
     expect(entry.description).toContain('рукописной плановой даты (N)');
     expect(entry.description).toContain('P — вторичная история');
+  });
+});
+
+ describe('source position total is not a single-contract price', () => {
+  const row = { dept: 'UKSiMP', id: '999', subject: 'Годовая потребность', method: 'ЕП',
+    amountBasis: 'position-total' as const, factDateRaw: '10.10.2026', factSum: 1200,
+    planYear: 2026, necessityJustification: 'Потребность учреждения', commentGRBS: '' };
+  it.each([
+    ['Серия', 'Два договора по 600 тыс. руб.'],
+    ['Компенсация', 'Компенсация сотрудникам: 180 тыс. руб. × 3'],
+    ['Иной закон', 'Охрана по 223-ФЗ'],
+    ['Разные ссылки', 'п.12 ч.1 ст.93; не ч.12 ст.93'],
+    ['Отрицание', 'Поставщик не является монополистом'],
+    ['Чужая история', 'В 2024 году приобретены канцтовары за 20 тыс. руб.'],
+    ['Изменённое пояснение', 'Пояснение заменено; индивидуальные цены не указаны'],
+  ])('%s cannot establish a violation or a lawful exemption', (_, commentGRBS) => {
+    const context = { ...row, commentGRBS };
+    expect(epRiskStrictnessOfReason('', context)).toBe('warning');
+    const details = epRiskReviewDetails('', context);
+    expect(details.title).toContain('Цена отдельного договора не установлена');
+    expect(details.explanation).toContain('не подтверждают');
+  });
+  it('does not reuse the 2026 curated observation in another year or subject', () => {
+    const series = { ...row, dept: 'УКСиМП', id: '3', subject: 'Окорока (куриные)', factDateRaw: 'Х' };
+    expect(epRiskStrictnessOfReason('', series)).toBe('info');
+    expect(epRiskStrictnessOfReason('', { ...series, planYear: 2027 })).toBe('warning');
+    expect(epRiskStrictnessOfReason('', { ...series, planYear: undefined })).toBe('warning');
+    expect(epRiskStrictnessOfReason('', { ...series, subject: 'Другая потребность' })).toBe('warning');
+  });
+  it('does not turn source explanations into a legal PASS', () => {
+    expect(epRiskStrictnessOfReason('монополист', row)).toBe('warning');
   });
 });

@@ -45,13 +45,12 @@ import { connectFormulaSink } from './services/formula-sink.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
-import { startDriveWatch } from './services/drive-watch.js';
-import { setChangeAuthorResolver } from './services/live-diff.js';
-import { findChangeAuthor } from './services/changelog-authors.js';
+import { startWebhookChannels, stopWebhookChannels } from './services/webhook-channel.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
+import { registerSnapshotReadState } from './plugins/snapshot-read-state.js';
 import { registerDemoMarker } from './plugins/demo-marker.js';
 import { registerErrorShape, sendNotFound } from './plugins/error-shape.js';
 import { registerHttpCache } from './plugins/http-cache.js';
@@ -174,6 +173,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     crossOriginEmbedderPolicy: false,
   });
 
+  registerSnapshotReadState(app);
   installProcessGuards(app.log);
 
   // Журнал обращений к таблицам-источникам — в журнал приложения.
@@ -190,6 +190,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
+    shutdownGuards.get(app)?.begin();
+    stopWebhookChannels();
     setSourceLogger(null);
   });
 
@@ -349,13 +351,12 @@ http://localhost:${actualPort}
 }
 
 export function preloadData(app: FastifyInstance): void {
+  if (shutdownGuards.get(app)?.isClosing()) return;
   // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
   // официальные ячейки читались свежими, а строки брались из кэша от старта
   // (канон п.66: обе стороны сверки — из одного момента).
-  // Подпись автора под живым событием «строка изменилась» — из журнала правок,
-  // уже осевшего в базе. Резолвер задаётся здесь, а не внутри сравнения книг:
-  // модуль сравнения не должен тянуть за собой базу.
-  setChangeAuthorResolver((book, cell) => findChangeAuthor(book, cell));
+  // Read-diffs have an observation time, not an attributed operator action.
+  // Original journal/comment authors remain on their own source evidence.
 
   setSourceRefresher(async () => {
     await refreshAllSources({
@@ -378,6 +379,7 @@ export function preloadData(app: FastifyInstance): void {
       app.log.warn('Department spreadsheets unavailable at startup: %s', (err as Error).message);
     }
 
+    if (shutdownGuards.get(app)?.isClosing()) return;
     try {
       app.log.info('Loading SVOD snapshot and pipeline...');
       const snapshot = await getSnapshot(true);
@@ -389,6 +391,8 @@ export function preloadData(app: FastifyInstance): void {
     } catch (err) {
       app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
     }
+
+    if (shutdownGuards.get(app)?.isClosing()) return;
 
     // Самообновление источников включается ПОСЛЕ первой полной загрузки:
     // иначе тик мог бы наложиться на старт и читать книги дважды.
@@ -403,7 +407,7 @@ export function preloadData(app: FastifyInstance): void {
 
     // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
     // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
-    startDriveWatch({
+    startWebhookChannels({
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });

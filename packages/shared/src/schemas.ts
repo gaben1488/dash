@@ -159,6 +159,7 @@ export const IssueSchema = z.object({
   sheet: z.string().optional(),
   cell: z.string().optional(),
   row: z.number().optional(),
+  rowSeq: z.string().optional(),
   metricKey: z.string().optional(),
   departmentId: z.string().optional(),
   recommendation: z.string().optional(),
@@ -275,6 +276,8 @@ export const DataSnapshotSchema = z.object({
     cellsRead: z.number().int(),
     readDurationMs: z.number(),
     pipelineDurationMs: z.number(),
+    targetYear: z.number().int().nullable().optional(),
+    readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
     perSheetRowCount: z.record(z.string(), z.number()).optional(),
   }),
 });
@@ -446,10 +449,28 @@ export const IssuesListResponseSchema = z.object({
   }).passthrough(),
 }).passthrough();
 
+/** Существующие Dash-решения и комментарии; не Google-посты и не правки ячеек. */
+export const IssueHistoryEventSchema = z.object({
+  eventId: z.string().min(1),
+  issueId: z.string(),
+  type: z.enum(['status_change', 'comment']),
+  source: z.enum(['dash_decision', 'dash_comment']),
+  at: z.string().min(1),
+  author: z.string().nullable(),
+  text: z.string().nullable(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  reason: z.string().nullable().optional(),
+  justification: z.string().nullable().optional(),
+  responsible: z.string().nullable().optional(),
+  deadline: z.string().nullable().optional(),
+}).passthrough();
+export type IssueHistoryEvent = z.infer<typeof IssueHistoryEventSchema>;
+
 /** GET /api/issues/:id/history */
 export const IssueHistoryResponseSchema = z.object({
   issueId: z.string(),
-  history: z.array(z.object({}).passthrough()),
+  history: z.array(IssueHistoryEventSchema),
 }).passthrough();
 
 /** GET /api/journal */
@@ -532,14 +553,35 @@ export const ReportActionSchema = z.object({
     subject: z.string().nullable(), business_id: z.string().nullable(),
   })),
 });
-export const ReportAssuranceSchema = z.object({
-  contract: z.literal('actionable-assurance-v1'), fully_automated: z.boolean(),
+// Historical immutable Word releases use v1; the current report engine
+// publishes v2 with source observations. Both are approved, but v2 must retain
+// the new evidence rather than silently treating a missing field as success.
+const ReportAssuranceCoreSchema = z.object({
+  fully_automated: z.boolean(),
   user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
   active_recommendations: z.number().int().nonnegative(),
   link_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   action_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   actions: z.array(ReportActionSchema), meaning: z.string(),
 });
+const ReportSourceStatementSchema = z.object({
+  kind: z.enum(['NO_FUNDING_REPORTED', 'FUNDING_REPORTED', 'POSTPONED_REPORTED',
+    'PLAN_YEAR_CHANGE_REPORTED', 'CONTRACT_DATE_REPORTED']),
+  target: z.union([z.number().int(), z.string(), z.null()]),
+  field: z.string(), column: z.string(), quote: z.string(),
+  source_text: z.string(), evidence_kind: z.literal('SOURCE_STATEMENT'),
+});
+export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
+  ReportAssuranceCoreSchema.extend({ contract: z.literal('actionable-assurance-v1') }),
+  ReportAssuranceCoreSchema.extend({
+    contract: z.literal('actionable-assurance-v2'),
+    source_observations: z.array(z.object({
+      source_row_key: z.string().nullable(),
+      events: z.array(ReportSourceStatementSchema),
+    })),
+    nonprocurement_identity_observations: z.number().int().nonnegative(),
+  }),
+]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
 export const ReportRefreshResponseSchema = z.object({
@@ -579,11 +621,33 @@ export const PublishedReleaseSchema = z.object({
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
   operational_available: z.boolean().optional(),
+  /** False retains exact artifacts/context but makes no source-replay promise. */
+  replay_available: z.boolean().optional(),
   automation_assurance: ReportAssuranceSchema.optional(),
+  /** Equal evidence of this release remains complete in the selected DTO. */
+  automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
 
+/** Current worker observations; independent of the selected Word's historical cutoff. */
+export const ReportOperationsSchema = z.object({
+  checked_at: z.string().datetime({ offset: true }),
+  worker_state: z.enum(['idle', 'running', 'interrupted', 'unknown']),
+  running_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_cycle_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_success_at: z.string().datetime({ offset: true }).nullable(),
+  last_success_age_seconds: z.number().int().nonnegative().safe().nullable(),
+  check_stale: z.boolean(),
+  last_failure_at: z.string().datetime({ offset: true }).nullable(),
+  last_failure_code: z.string().regex(/^[A-Z][A-Z0-9_]{1,100}$/).nullable(),
+  last_failure_stage: z.enum(['inputs', 'acquisition', 'publication_selection', 'build', 'publication']).nullable(),
+  failure_resolved: z.boolean(),
+  publication_cutoff_at: z.string().datetime({ offset: true }).nullable(),
+});
+export type ReportOperations = z.infer<typeof ReportOperationsSchema>;
+
 export const ReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   latest: PublishedReleaseSchema.nullable(),
   attempt: z.object({
     status: z.enum(['RUNNING', 'NOT_ISSUED', 'VERIFIED', 'VERIFIED_WITH_WARNINGS']),
@@ -592,6 +656,7 @@ export const ReportReleaseStatusSchema = z.object({
     blockers: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
     error_code: z.string().optional(),
     automation_assurance: ReportAssuranceSchema.nullable().optional(),
+    automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   }).nullable(),
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;
@@ -605,12 +670,18 @@ export const ArchivePreparationSchema = z.object({
     missing_sections: z.array(z.string()) }).optional(),
 });
 
+/** Strict receipt context for exact and last-in-period frozen Word. */
+const ContextualPublishedReleaseSchema = PublishedReleaseSchema.extend({
+  report_year: z.number().int().min(1900).max(9999),
+  quarter: z.number().int().min(1).max(4),
+});
+
 export const SelectedReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
-  selected: PublishedReleaseSchema.extend({
-    report_year: z.number().int().min(1900).max(9999),
-    quarter: z.number().int().min(1).max(4),
-  }).nullable(),
+  selected: ContextualPublishedReleaseSchema.nullable(),
+  /** Read-only period fallback; old Python engines may omit this key. */
+  latest_matching: ContextualPublishedReleaseSchema.nullable().optional(),
 });
 export type SelectedReportReleaseStatus = z.infer<typeof SelectedReportReleaseStatusSchema>;

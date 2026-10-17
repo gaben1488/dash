@@ -36,6 +36,12 @@ function TimelineSkeleton() {
 }
 
 export function RowTimelineSection({ deptId, sheetRow }: RowTimelineSectionProps) {
+  // A different address owns a different read: discard expanded/cached/pending
+  // history together instead of attaching an old response to the new card.
+  return <AddressTimeline key={`${deptId}:${sheetRow}`} deptId={deptId} sheetRow={sheetRow} />;
+}
+
+function AddressTimeline({ deptId, sheetRow }: RowTimelineSectionProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

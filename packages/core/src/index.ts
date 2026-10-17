@@ -11,6 +11,7 @@ export { detectSignals, classifyRowState, getSignalBadges, type RowSignals, type
 export {
   detectFormulaIntegrity,
   formulaIntegrityIssues,
+  formulaIntegrityRowNumber,
   FORMULA_COLUMNS as FORMULA_INTEGRITY_COLUMNS,
   type FormulaDefect,
   type FormulaIntegrityInput,
@@ -174,10 +175,10 @@ export {
   CHANGE_KIND_LABELS, CHANGE_KIND_ORDER, CHANGE_ORIGIN_LABELS, ROW_EVENT_CELLS,
   authorTally, bookTally, buildChangeStory, changeKindOfColumn, columnLabelOf,
   columnLetterOf, compareEntries, entriesFromBookJournal, entriesFromRowDiff,
-  filterChangeEntries, foldRowEvents, orderingMsOf, sheetRowOfAddress, summarizeChanges,
+  filterChangeEntries, foldRowEvents, mergeChangeEntries, orderingMsOf, sheetRowOfAddress, summarizeChanges,
 } from './changes/change-story.js';
 export type {
-  ChangeDigest, ChangeEntry, ChangeFilter, ChangeGap, ChangeKind, ChangeOrigin,
+  ChangeDigest, ChangeEntry, ChangeEvidence, ChangeFilter, ChangeGap, ChangeKind, ChangeOrigin,
   ChangeStory, ChangeStoryInput,
 } from './changes/change-story.js';
 
@@ -215,3 +216,5 @@ export type {
 } from './provenance/plan-provenance.js';
 
 export { monitoringDate } from './monitoring/cells.js';
+
+export { issueIdentity, ruleIssueIdentityParts } from './pipeline/issue-identity.js';

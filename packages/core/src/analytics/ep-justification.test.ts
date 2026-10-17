@@ -45,6 +45,12 @@ describe('epPlanQuarter — квартал плана из столбца O', ()
 });
 
 describe('buildEpJustificationDept — разбивка ЕП по степеням', () => {
+  it('Competition does not count a negated monopoly as lawful-exclusive or change its plan', () => {
+    const d = buildEpJustificationDept([row({ reason: 'не является монополистом', planTotal: 100, quarter: 1 })]);
+    expect(d.byGrade['lawful-exclusive']).toEqual({ rows: 0, sum: 0 });
+    expect(d.byGrade.unfounded).toEqual({ rows: 1, sum: 100 });
+    expect(d.ep).toEqual({ rows: 1, sum: 100 });
+  });
   it('разносит четыре причины по четырём степеням и считает деньги', () => {
     const d = buildEpJustificationDept([
       row({ reason: REASON.monopoly, planTotal: 100, quarter: 1 }),

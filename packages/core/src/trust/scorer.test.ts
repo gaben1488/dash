@@ -112,3 +112,27 @@ describe('computeTrustScore', () => {
     expect(result.components).toHaveLength(5);
   });
 });
+
+describe('saved control decisions', () => {
+  it('does not charge a department for a saved numbering-header formula diagnostic', () => {
+    const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+    const issue = makeIssue({ checkId: 'formula_overwritten', sheet: 'УЭР',
+      cell: 'AA1', row: 1, rowSeq: '1', severity: 'critical', group: 'formula_consistency' });
+    const original = JSON.parse(JSON.stringify(issue));
+    const clean = computeTrustScore(metrics, [], [], 'snapshot');
+    expect(computeTrustScore(metrics, [issue], [], 'snapshot').overall).toBe(clean.overall);
+    expect(issue).toEqual(original);
+    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4', row: 4 }], [], 'snapshot').overall)
+      .toBeLessThan(clean.overall);
+    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4' }], [], 'snapshot').overall)
+      .toBeLessThan(clean.overall);
+  });
+  it('excludes confirmed false positives but keeps unresolved evidence and accepted risk', () => {
+    const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+    const clean = computeTrustScore(metrics, [], [], 'snapshot');
+    for (const status of ['open', 'acknowledged', 'in_progress', 'resolved', 'wont_fix'] as const) {
+      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').overall).toBeLessThan(clean.overall);
+    }
+    expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status: 'false_positive' })], [], 'snapshot').overall).toBe(clean.overall);
+  });
+});

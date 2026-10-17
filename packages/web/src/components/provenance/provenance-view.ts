@@ -18,6 +18,8 @@
  * при округлении до тысяч превратилось бы в ноль, то есть в «ничего не было».
  */
 import { pluralRu } from '../../lib/economy-copy';
+import { buildSheetUrl } from '@aemr/shared';
+import { fmtReadAt, sourceCellUrl } from '../../lib/monitoring/format';
 import type {
   PlanEvent,
   PlanEventKind,
@@ -158,6 +160,8 @@ export interface ProvenanceEventView {
   transition: string;
   /** Адрес ячейки книги («J96») — там правку видно глазами. */
   cell: string;
+  sources: { label: string; meta: string; href: string | null }[];
+  witnessCount: number;
   /** Русское имя колонки («план, местный бюджет»). */
   columnLabel: string;
   tone: ProvenanceTone;
@@ -189,7 +193,13 @@ export function buildProvenanceEvents(events: readonly PlanEvent[]): ProvenanceE
         kindLabel: meta.label,
         kindHint: meta.hint,
         transition: `${sideLabel(e.was, e.wasKnown)} → ${sideLabel(e.became, e.becameKnown)}`,
-        cell: e.cell,
+        cell: e.sheet ? `${e.sheet}!${e.cell}` : e.cell,
+        sources: (e.sources ?? []).map(source => ({
+          label: `Запись журнала, строка ${source.journalRow} · прочитано ${fmtReadAt(new Date(source.readAt).toISOString())}`,
+          meta: `Книга ${source.spreadsheetId} · ${source.journalSheet}!${source.journalRow} · время чтения ${new Date(source.readAt).toISOString()}`,
+          href: sourceCellUrl(buildSheetUrl(source.spreadsheetId), source.journalSheet, `A${source.journalRow}`),
+        })),
+        witnessCount: e.witnessCount ?? 1,
         columnLabel: PLAN_COLUMN_RU[e.column] ?? e.column,
         tone: meta.tone,
         emphasis: meta.emphasis,
@@ -343,6 +353,18 @@ export function buildRetroCutHeadline(p: RowProvenanceResponse): RetroCutHeadlin
   const excluded = excludedParts.length > 0
     ? `В итог не вошли: ${excludedParts.join(', ')}. Это дефекты записи, а не движение денег.`
     : null;
+
+  if (s.financialAmbiguityCount > 0) {
+    return {
+      present: true,
+      title: 'Полный финансовый итог не подтверждён',
+      mechanism: `Свидетельств сохранено — ${s.witnessCount}; неоднозначных групп — ${s.financialAmbiguityCount}. `
+        + 'Один момент записи не доказывает число отдельных правок. Исходные записи показаны в ленте.',
+      afterFact: s.retroCutCount > 0
+        ? `Подтверждённая часть: ${formatThousands(s.retroCutTotal)} тыс. ₽ (${s.retroCutCount} переходов).` : null,
+      excluded,
+    };
+  }
 
   if (s.retroCutCount === 0) {
     return {

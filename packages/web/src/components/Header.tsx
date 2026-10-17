@@ -1,25 +1,24 @@
 import {
-  useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek,
-  PAGE_FILTERS, isWeekShifted, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
+  useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getMondayOfWeek,
+  PAGE_FILTERS, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
 } from '../store';
 import type { BudgetType, FilterGroup, Page } from '../store';
 import {
-  Sun, Moon, AlertTriangle, RotateCcw, Search, X,
+  Sun, Moon, AlertTriangle, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
-  CalendarX2, Repeat, Radar,
+  CalendarX2, Repeat, Radar, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useTheme } from './ThemeProvider';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useTheme, pageDawnStyle, pageTheme } from './ThemeProvider';
 import { SelectionTokens } from './SelectionTokens';
 import { ProvenanceHub } from './live/ProvenanceHub';
-import { LiveHistory } from './live/LiveHistory';
 import { useLiveEvents } from '../hooks/useLiveEvents';
 import { getISOWeekNumber } from '../lib/week-number';
 import { fmtPct2 } from '../lib/report/mappers';
 import { usePeriodCoverage } from '../hooks/usePeriodCoverage';
 import {
-  classifyPeriod, classifyQuarter, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf,
+  classifyPeriod, classifyQuarter, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf, productDayParts,
   type PeriodCoverageKind,
 } from '../lib/period-coverage';
 
@@ -36,48 +35,32 @@ export type { FilterGroup };
  */
 const TD_ACTIVITY_KEYS = ['current_program', 'current_non_program'] as const;
 
+
+
 const QTR_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 
-/* ─── Nav items with BRAND COLORS ────────────────────────── */
-
-// Цвет вкладки — заливка активной кнопки. Значений ДВА, и это не дубль.
-//
-// Повод (регресс, замечен владельцем 19.08.2026): кнопка строится как
-// «заливка цветом раздела плюс подпись поверх», и силуэт её держится на том,
-// что заливка по светлоте отличается от фона страницы. Все тона ниже были
-// подобраны под тёмную тему (фон #0b0a08) и потому светлые. На светлой теме
-// (фон #faf8f3) светлая заливка даёт около 1,3:1 — силуэта нет вовсе, коническое
-// свечение тем же тоном невидно, а подпись читается вялой.
-//
-// Решение: у каждого раздела два значения ОДНОГО тона — светлое для тёмной
-// темы (`color`) и насыщенное тёмное для светлой (`colorLight`). Семейство цвета
-// при этом НЕ меняется — меняется только светлота, поэтому исключения
-// канона п.115 целы: «Реестр» остаётся бирюзовым в обеих темах.
-//
-// Подпись берётся ролью `--accent-ink` (белая на светлой теме, чернильная на
-// тёмной), поэтому оба набора обязаны давать не меньше 4,5:1 к своей подписи
-// и не меньше 3:1 к фону своей страницы. Замер держит страж `nav-contrast.test.ts`.
-export const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; colorLight: string; title?: string }[] = [
-  { id: 'dashboard', label: 'Пульс',     icon: Gauge,           color: '#e5d3a9', colorLight: '#7a5f33' },  // Cream (чёрный дэш + кремовый хром, 07.08)
-  { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b', colorLight: '#a25a06' },  // Amber — еженедельный отчёт
-  { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2', colorLight: '#0e6d85' },  // Cyan — источник истины
-  { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9', colorLight: '#0b6f96' },  // Sky Teal
-  // Корзины Реестра (п.73в). Цвета НАМЕРЕННО светлые: заливка активной кнопки
-  // несёт тёмную подпись #1b170f, и обе пары дают контраст сильно выше 4,5:1
-  // (#fde68a ≈ 12,3:1, #c7d2fe ≈ 10,9:1).
-  { id: 'unfunded',  label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием (год плана не проставлен)', icon: CalendarX2, color: '#fde68a', colorLight: '#8a6508' },  // Light Amber (п.23)
-  { id: 'yearlong',  label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat, color: '#c7d2fe', colorLight: '#4338ca' },  // Light Indigo (п.71)
-  // Мониторинг (п.69в/п.101а): реестр процедур из книги «Ежедневный
-  // мониторинг». Светлый тон ради тёмной подписи активной кнопки (#bae6fd ≈ 12:1).
-  { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar, color: '#bae6fd', colorLight: '#0369a1' },  // Light Sky
-  { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981', colorLight: '#04704f' },  // Emerald
-  { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4', colorLight: '#0d6d63' },  // Light Teal (тёмная подпись ≥4,5:1)
-  { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74', colorLight: '#9a3a0b' },  // Light Orange — рабочий список дел
-  { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444', colorLight: '#b3211d' },  // Ruby Red
-  { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#a78bfa', colorLight: '#6431c4' },  // Violet
-  { id: 'settings',  label: 'Система',    icon: Settings,    color: '#a1a1aa', colorLight: '#55555f' },  // Zinc
+/** Navigation owns labels/icons; theme colors come from the same registry as
+ * the shield, periods and page surfaces. */
+const NAV_METADATA: { id: Page; label: string; icon: typeof Gauge; title?: string }[] = [
+  { id: 'dashboard', label: 'Пульс', icon: Gauge },
+  { id: 'report', label: 'Отчёт', icon: FileText },
+  { id: 'svod', label: 'Свод', icon: FileSpreadsheet },
+  { id: 'data', label: 'Реестр', icon: Table2 },
+  { id: 'unfunded', label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием: плановая дата не указана', icon: CalendarX2 },
+  { id: 'yearlong', label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat },
+  { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar },
+  { id: 'economy', label: 'Экономия', icon: Coins },
+  { id: 'competition', label: 'Конкуренция', icon: Gavel },
+  { id: 'discipline', label: 'Дисциплина', icon: ListChecks },
+  { id: 'quality', label: 'Контроль', icon: ShieldCheck },
+  { id: 'analytics', label: 'Аналитика', icon: TrendingUp },
+  { id: 'settings', label: 'Система', icon: Settings },
 ];
+export const NAV_ITEMS = NAV_METADATA.map(item => {
+  const palette = pageTheme(item.id);
+  return { ...item, color: palette.accentDark, colorLight: palette.accentLight };
+});
 
 /**
  * Системная настройка «уменьшить движение». Читается подпиской, а не разово:
@@ -102,16 +85,6 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
-/** Get brand color for current page */
-function getPageColor(page: string): string {
-  switch (page) {
-    case 'recon': case 'trust': case 'issues': case 'recs': case 'journal':
-      return '#ef4444';
-    default:
-      return NAV_ITEMS.find(n => n.id === page)?.color ?? '#d6bf85';
-  }
-}
-
 /** Get page icon component */
 function getPageIcon(page: string): typeof Gauge {
   switch (page) {
@@ -132,13 +105,13 @@ function getPageIcon(page: string): typeof Gauge {
    ═══════════════════════════════════════════════════════════════════ */
 
 function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
-  page: string;
+  page: Page;
   loading: boolean;
   isOnline: boolean;
   secondsLeft: number;
   onRefresh: () => void;
 }) {
-  const color = getPageColor(page);
+  const palette = pageTheme(page);
   const PageIcon = getPageIcon(page);
   const reducedMotion = usePrefersReducedMotion();
   const s = 34;
@@ -175,7 +148,7 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
       onClick={onRefresh}
       title={loading ? 'Загрузка...' : isOnline ? `Обновить (${secondsLeft}с)` : 'Нет связи — повторить'}
       aria-label={label}
-      style={{ '--shield-color': color } as React.CSSProperties}
+      style={{ '--shield-color': 'var(--page-accent)' } as React.CSSProperties}
     >
       <svg
         width={s}
@@ -187,11 +160,11 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
       >
         <defs>
           <linearGradient id="shield-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.9" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.5" />
+            <stop offset="0%" stopColor={palette.sky} stopOpacity="1" />
+            <stop offset="100%" stopColor={palette.horizon} stopOpacity="1" />
           </linearGradient>
           <radialGradient id="shield-inner-glow" cx="50%" cy="35%" r="55%">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.25" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.05" />
             <stop offset="100%" stopColor="#fff" stopOpacity="0" />
           </radialGradient>
         </defs>
@@ -207,10 +180,10 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
         {isOnline && !loading && (
           <g opacity="0.38">
             <path d={`M ${wifiCx - 5} ${wifiY + 1} A 5 5 0 0 1 ${wifiCx + 5} ${wifiY + 1}`}
-              stroke="#fff" strokeWidth="0.9" strokeLinecap="round" fill="none" />
+              stroke={palette.ink} strokeWidth="0.9" strokeLinecap="round" fill="none" />
             <path d={`M ${wifiCx - 3} ${wifiY + 3} A 3 3 0 0 1 ${wifiCx + 3} ${wifiY + 3}`}
-              stroke="#fff" strokeWidth="0.8" strokeLinecap="round" fill="none" />
-            <circle cx={wifiCx} cy={wifiY + 5} r="0.7" fill="#fff" />
+              stroke={palette.ink} strokeWidth="0.8" strokeLinecap="round" fill="none" />
+            <circle cx={wifiCx} cy={wifiY + 5} r="0.7" fill={palette.ink} />
           </g>
         )}
         {!isOnline && !loading && (
@@ -224,7 +197,7 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
         {loading && (
           <g opacity="0.42">
             <circle cx={wifiCx} cy={wifiY + 3} r="2.5" fill="none"
-              stroke="#fff" strokeWidth="1" strokeDasharray="3.5 1.5">
+              stroke={palette.ink} strokeWidth="1" strokeDasharray="3.5 1.5">
               {/* Вращение живёт в разметке SVG, а не в CSS, поэтому системную
                   настройку «уменьшить движение» приходится учитывать здесь
                   вручную: без этого кольцо крутится вопреки настройке. */}
@@ -306,8 +279,8 @@ export function TimeDrum() {
   const { year, setYear, monthsByYear, toggleMonthInYear, toggleQuarterInYear, toggleYearFull, clearAllPeriods, focusedWeekStart } = useStore();
   const coverage = usePeriodCoverage();
   const covReady = coverage.status === 'ready';
-  const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
+  const currentMonth = productDayParts().m;
+  const currentYear = productDayParts().y;
   const drumRef = useRef<HTMLDivElement>(null);
   const focusedWMonth = focusedWeekStart.getMonth() + 1;
   const focusedWYear = focusedWeekStart.getFullYear();
@@ -740,6 +713,66 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
     ? [...NAV_GROUPS, { name: '', ids: orphans.map((item) => item.id) }]
     : NAV_GROUPS;
 
+  // pulse.html: three-row cylinder. Browsing groups never selects a route.
+  const navRef = useRef<HTMLElement>(null);
+  const activeGroup = Math.max(0, rows.findIndex(group => group.ids.includes(activePage as Page)));
+  const [position, setPosition] = useState({ page: activePage, index: activeGroup });
+  const center = position.page === activePage ? position.index : activeGroup;
+  const lastGroup = rows.length - 1;
+  const wrapGroup = useCallback((index: number) => (index + lastGroup + 1) % (lastGroup + 1), [lastGroup]);
+  const previousCenter = useRef(center);
+  useLayoutEffect(() => {
+    const previous = previousCenter.current;
+    previousCenter.current = center;
+    const nav = navRef.current;
+    if (!nav || previous === center || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const direction = wrapGroup(center - previous) === 1 ? 1
+      : wrapGroup(previous - center) === 1 ? -1 : 0;
+    if (!direction) return;
+    const height = parseFloat(getComputedStyle(nav).getPropertyValue('--np-row-height'));
+    const animations: Animation[] = [];
+    nav.querySelectorAll<HTMLElement>('[data-nav-group]').forEach(row => {
+      if (typeof row.animate !== 'function') return;
+      const index = Number(row.dataset.navGroup);
+      const before = wrapGroup(index - previous + 1) - 1;
+      const after = wrapGroup(index - center + 1) - 1;
+      // Four real rows, no cloned routes. The spare enters from the turning
+      // edge; the departing row leaves through that edge, never across the face.
+      const from = direction < 0 && after === -1 ? -2 : before;
+      const to = direction > 0 && before === -1 ? -2 : after;
+      const opacity = (slot: number) => slot === 0 ? 1 : Math.abs(slot) === 1 ? .82 : 0;
+      const animation = row.animate([
+        { translate: `0 ${(from + 1) * height}px`, opacity: opacity(from) },
+        { translate: `0 ${(to + 1) * height}px`, opacity: opacity(to) },
+      ], { duration: 220, easing: 'cubic-bezier(.23,1,.32,1)' });
+      animations.push(animation);
+    });
+    return () => animations.forEach(animation => animation.cancel());
+  }, [center, wrapGroup]);
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLButtonElement>('.np-btn[aria-current="page"]');
+    if (!active) return;
+    if (nav?.contains(document.activeElement) && document.activeElement?.classList.contains('np-btn')) active.focus();
+    active.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activePage]);
+  const move = useCallback((direction: number) => {
+    setPosition(previous => ({ page: activePage,
+      index: wrapGroup((previous.page === activePage ? previous.index : activeGroup) + direction) }));
+  }, [activePage, activeGroup, wrapGroup]);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || Math.abs(event.deltaY) < 1
+        || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      move(event.deltaY > 0 ? 1 : -1);
+    };
+    nav.addEventListener('wheel', wheel, { passive: false });
+    return () => nav.removeEventListener('wheel', wheel);
+  }, [move]);
+
   const renderButton = (item: (typeof NAV_ITEMS)[number]) => {
     const Icon = item.icon;
     const isActive = item.id === activePage;
@@ -786,11 +819,34 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
   };
 
   return (
-    <nav className="nav-pills-wrap" aria-label="Навигация">
-      {rows.map((group) => (
+    <nav ref={navRef} className="nav-pills-wrap hdr-liquid-surface" aria-label="Навигация"
+      tabIndex={0}
+      onFocusCapture={event => {
+        const group = (event.target as HTMLElement).closest<HTMLElement>('[data-nav-group]');
+        if (group) setPosition({ page: activePage, index: Number(group.dataset.navGroup) });
+      }}
+      onKeyDown={event => {
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? lastGroup
+          : ['ArrowDown', 'PageDown'].includes(event.key) ? wrapGroup(center + 1)
+          : ['ArrowUp', 'PageUp'].includes(event.key) ? wrapGroup(center - 1) : null;
+        if (next === null) return;
+        event.preventDefault();
+        setPosition({ page: activePage, index: next });
+        if (event.target !== event.currentTarget) {
+          navRef.current?.querySelector<HTMLButtonElement>(`[data-nav-group="${next}"] .np-btn`)?.focus();
+        }
+      }}>
+      <div className="np-drum-window">
+      <div className="np-drum-track">
+      {rows.map((group, index) => {
+        const slot = wrapGroup(index - center + 1) - 1;
+        return (
         <div
           key={group.name || 'прочее'}
-          className="np-group"
+          className={clsx('np-group', slot === 0 && 'np-group-center',
+            slot === -1 && 'np-group-top', slot === 1 && 'np-group-bottom')}
+          style={{ '--np-slot': slot } as React.CSSProperties}
+          data-nav-group={index}
           role="group"
           aria-label={group.name || undefined}
         >
@@ -804,7 +860,15 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
               .map(renderButton)}
           </div>
         </div>
-      ))}
+      ); })}
+      </div>
+      </div>
+      <div className="np-drum-controls">
+        <button type="button" aria-label="Предыдущая группа разделов"
+          onClick={() => move(-1)}><ChevronUp size={14} aria-hidden="true" /></button>
+        <button type="button" aria-label="Следующая группа разделов"
+          onClick={() => move(1)}><ChevronDown size={14} aria-hidden="true" /></button>
+      </div>
     </nav>
   );
 }
@@ -817,15 +881,11 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
 export function Header() {
   const {
     loading, error, isDemo, page, setPage,
-    year,
     moneyUnit, setMoneyUnit,
     selectedMethods, toggleMethod, clearMethods,
     selectedActivities, toggleActivity,
     selectedBudgets, toggleBudget,
     searchQuery, setSearchQuery,
-    resetAllFilters, selectedDepartments, selectedSubordinates,
-    activeMonths, monthsByYear, periodMode, focusedWeekStart,
-    stavkaMode,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
   const { secondsLeft, isOnline } = useAutoRefresh();
@@ -841,23 +901,6 @@ export function Header() {
     }
   })();
 
-  const activeCount = getActiveFilterCount({
-    yearChanged: year !== new Date().getFullYear(),
-    moneyUnitChanged: moneyUnit !== 'тыс',
-    stavkaChanged: stavkaMode !== 'norm',
-    // Срез недели — тем же предикатом, что жетон угла (страж схождения):
-    // жетон без счёта означал бы «Сбросить» молчит про видимый отбор.
-    weekShifted: isWeekShifted(periodMode, focusedWeekStart),
-    selectedMethods,
-    selectedActivities,
-    selectedBudgets,
-    selectedDepartments,
-    selectedSubordinates,
-    activeMonths,
-    monthsByYear,
-    periodMode,
-    searchQuery,
-  });
 
   const showTime = has('period');
   const showMethod = has('procurement');
@@ -870,8 +913,9 @@ export function Header() {
   const aAll = selectedActivities.size === 0;
   const bAll = selectedBudgets.size === 0;
 
+  const dawnStyle=pageDawnStyle(activePage);
   return (
-    <header className="sticky top-0 z-40 header-glass flex-shrink-0">
+    <header className="sticky top-0 z-40 header-glass flex-shrink-0" data-page-skin={activePage} style={dawnStyle}>
       {/* Error banner */}
       {error && (
         <div role="alert"
@@ -887,8 +931,9 @@ export function Header() {
         </div>
       )}
 
-      {/* ══════ ONE CONTINUOUS HORIZONTAL BAR ══════ */}
+      {/* Shared glass instrument row, with horizontal controls underneath. */}
       <div className="hbar">
+      <div className="hbar-primary">
         {/* 1. Shield Hub — animated logo with status */}
         <ShieldHub
           page={page}
@@ -898,7 +943,8 @@ export function Header() {
           onRefresh={() => useStore.getState().refresh()}
         />
 
-        {/* 2. Nav pills — 6 horizontal buttons */}
+        <div className="hbar-drumline hdr-liquid-surface" role="group" aria-label="Навигация и период">
+        {/* 2. Original navigation cylinder — all thirteen routes */}
         <NavPills activePage={activePage} setPage={setPage} />
 
         {/* 3. Time drums */}
@@ -909,7 +955,16 @@ export function Header() {
           </div>
         )}
 
-        {/* 4. Filter drums */}
+        </div>
+        <div className="hdr-ugol hdr-liquid-surface">
+          <div className="hbar-journal">
+            <ProvenanceHub compact className="hbar-provenance" style={dawnStyle} />
+          </div>
+        </div>
+      </div>
+      <div className="hbar-secondary">
+        {page !== 'settings' && <div className="hbar-filters hdr-liquid-surface" role="group" aria-label="Фильтры закупок">
+        {/* 4. Filter controls — same state/actions, one horizontal row */}
         {showMethod && (
           <div className="vf-drum" role="group" aria-label="Способ закупки">
             {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
@@ -986,7 +1041,7 @@ export function Header() {
         {/* Ставка снижения — режим счёта (канон п.144: действует на всех
             вкладках), поэтому столбик не гейтится PAGE_FILTERS, как и тема.
             Единственное исключение — «Система»: там нет ни одного числа. */}
-        {page !== 'settings' && <StavkaDrum />}
+        <StavkaDrum />
 
         {/* Search */}
         {showSearch && (
@@ -1011,38 +1066,16 @@ export function Header() {
           </div>
         )}
 
-        {/* Правый угол линейки (контракт пробы «угол», срез 1): эфир-история
-            (мини-барабан правок с журналом) над жетонами состояния отбора.
-            Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
-            перенесены в SelectionTokens целиком (опись в его шапке); панельный
-            variant="panel" на Пульте живёт как жил. */}
-        <div className="hdr-ugol">
-          <LiveHistory />
-          <SelectionTokens />
-        </div>
-
-        {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
-        <div className="nav-tools">
+        </div>}
+        <div className="hdr-selection-tools hdr-liquid-surface" role="group" aria-label="Фильтры и оформление">
           <button type="button" onClick={toggleTheme} className="hf-icon-btn"
             title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
             aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
             {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
           </button>
-          {activeCount > 0 && (
-            <button type="button" onClick={resetAllFilters}
-              className="hf-icon-btn group hover:text-red-500 hover:bg-red-50/80 dark:hover:bg-red-950/20"
-              title="Сбросить все фильтры"
-              aria-label={`Сбросить все фильтры (включено: ${activeCount})`}>
-              <RotateCcw size={9} className="group-hover:rotate-[-180deg] transition-transform duration-300" aria-hidden="true" />
-              <span aria-hidden="true" className="w-2.5 h-2.5 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[6px] font-bold">{activeCount}</span>
-            </button>
-          )}
-          {/* Провенанс и изменения — крайний правый угол линейки, справа от
-              смены темы и снятия фильтров (канон п.133). Свёрнутый вид —
-              одна тихая строка «обновлено …»; раскрытый отвечает разом на
-              «откуда числа», «как они обновляются» и «что изменилось». */}
-          <ProvenanceHub className="ml-1" />
+          <SelectionTokens compact style={dawnStyle} />
         </div>
+      </div>
       </div>
     </header>
   );

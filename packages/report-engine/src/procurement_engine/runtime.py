@@ -4,15 +4,21 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .deployment_diagnostics import public_error_code, safe_sqlite_error
-from .google_adapter import GoogleReadClient, capture_google
+from .google_adapter import (
+    GoogleReadClient,
+    GoogleReadError,
+    capture_google,
+    recheck_google_sources,
+)
 from .identity_store import IdentityStore
-from .publication_store import PublicationStore
+from .publication_store import PublicationStore, _assurance_hash
 from .raw_pipeline import (
     build_from_capture,
     bundle_from_capture,
@@ -27,10 +33,12 @@ def _load(path):
 
 
 def _write(path, value):
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     try:
         with temporary.open('x', encoding='utf-8') as file:
-            json.dump(value, file, ensure_ascii=False, indent=2, allow_nan=False)
+            os.fchmod(file.fileno(), mode)
+            json.dump(value, file, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary, path)
@@ -106,19 +114,28 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             if model['release']['official_release_allowed'] is not True:
                 status.update(status='NOT_ISSUED', blockers=model['release']['blockers'])
             else:
+                source_equivalence = {}
                 def final_revisions():
-                    providers = {s['provider_id'] for s in registry['sources']}
-                    versions = {provider: client.revision(provider) for provider in providers}
+                    versions, proofs = recheck_google_sources(registry, capture, client)
+                    source_equivalence.clear()
+                    source_equivalence.update(proofs)
                     current_ledger, _, metadata = read_google_history(client, issued_recommendations(_load(ledger_path)))
                     history_revision = {'RECOMMENDATION_HISTORY_EVIDENCE': canonical_semantic_hash(metadata)} if metadata is not None else {}
-                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']}, **history_revision,
+                    if proofs:
+                        # History reads must not leave a window after the content reread barrier.
+                        providers = {source['provider_id'] for source in registry['sources']}
+                        final_versions = {provider: client.revision(provider) for provider in sorted(providers)}
+                        if any(final_versions[source['provider_id']] != versions[source['source_id']]
+                               for source in registry['sources']):
+                            raise GoogleReadError('SOURCE_CHANGED_DURING_FREEZE')
+                    return {**versions, **history_revision,
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(current_ledger),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
                             'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at'])),
                             'WEEKLY_BASELINE': canonical_semantic_hash(capture['weekly_baseline'])}
 
                 stage = 'publication'
-                receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)
+                receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions, source_equivalence=source_equivalence)
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = public_error_code(str(error))
@@ -147,8 +164,33 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         return _finish_attempt(state, attempt, status)
 
 
+def _retained_attempt_status(status):
+    """Only a new reused observation references immutable evidence (ADR-001)."""
+    publication = status.get('publication')
+    if (status.get('reused_publication') is not True
+            or status.get('status') not in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+            or 'automation_assurance' in status or not isinstance(publication, dict)
+            or publication.get('status') != status['status']
+            or not status.get('snapshot_id') or status['snapshot_id'] != publication.get('snapshot_id')
+            or not isinstance(publication.get('model_sha256'), str)
+            or not re.fullmatch(r'[a-f0-9]{64}', publication['model_sha256'])
+            or publication.get('release_id') != 'REL-' + publication['model_sha256']
+            or 'automation_assurance_ref' in publication
+            or not isinstance(publication.get('automation_assurance'), dict)):
+        return status
+    reference = {'release_id': publication['release_id'],
+                 'content_sha256': _assurance_hash(publication['automation_assurance'])}
+    retained = {key: value for key, value in publication.items() if key != 'automation_assurance'}
+    return {**status, 'publication': {**retained, 'automation_assurance_ref': reference}}
+
+
 def _finish_attempt(state, attempt, status):
     status['finished_at'] = datetime.now(timezone.utc).isoformat()
-    _write(attempt / 'status.json', status)
+    _write(attempt / 'status.json', _retained_attempt_status(status))
     _write(state / 'status.json', status)
+    from .report_health import record_attempt
+    try:
+        record_attempt(state, status)
+    except (OSError, ValueError):
+        print('REPORT_HEALTH_WRITE_FAILED', file=__import__('sys').stderr)
     return status

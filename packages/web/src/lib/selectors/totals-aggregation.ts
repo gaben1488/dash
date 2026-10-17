@@ -247,7 +247,13 @@ export function aggregateNodeTotals(
   }
 
   // ── Кварталы (или год как один ключ) ──
-  const aggregateQuarters = hasActiveMonths && coveredQuarters.length > 0 ? coveredQuarters : [periodKey];
+  // Older and current subordinate DTOs carry q1–q4, but no `year` block.
+  // Year must use that same period base; falling back to top-level amounts
+  // lost their available factCount and made every subordinate appear at 0%.
+  const aggregateQuarters = hasActiveMonths && coveredQuarters.length > 0
+    ? coveredQuarters
+    : periodKey === 'year' && !node.quarters?.year && QUARTER_KEYS.every(key => node.quarters?.[key])
+      ? QUARTER_KEYS : [periodKey];
   for (const qKey of aggregateQuarters) {
     const q = node.quarters?.[qKey];
     // Один ключ и нет квартального среза — падаем на годовые поля узла
@@ -284,6 +290,16 @@ export function aggregateNodeTotals(
     }
   }
 
+  // Historical subordinate quarters do not contain method counts. Keep the
+  // existing annual method totals, rather than dropping them while repairing
+  // the combined execution count. Explicit quarter zeros remain real zeros.
+  if (periodKey === 'year' && !hasActiveMonths && !node.quarters?.year
+      && QUARTER_KEYS.every(key => node.quarters?.[key])) {
+    if (showKP && QUARTER_KEYS.every(key => node.quarters[key].kpCount == null))
+      t.kp = node.competitiveCount ?? 0;
+    if (showEP && QUARTER_KEYS.every(key => node.quarters[key].epCount == null))
+      t.ep = node.epCount ?? node.soleCount ?? 0;
+  }
   return t;
 }
 

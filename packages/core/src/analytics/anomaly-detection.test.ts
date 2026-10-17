@@ -622,3 +622,38 @@ describe('тон и язык признаков', () => {
     }
   });
 });
+
+
+// Задача № 13: строгий смысл предмета не должен теряться в 60-м символе.
+// В живых восьми книгах 31 группа / 109 строк разделяет такой префикс при
+// разных полных текстах. Префикс — не доказательство одного объекта закупки.
+describe('предметный отпечаток сохраняет различие после 60 символов', () => {
+  const prefix = 'Ремонт инженерной системы в здании образовательного учреждения, ';
+  const subjectA = prefix + 'корпус А, ввод отопления';
+  const subjectB = prefix + 'корпус Б, вентиляция';
+  const subjectC = prefix + 'корпус В, водоснабжение';
+
+  it('нормализация не отбрасывает разные объекты после общего начала', () => {
+    expect(prefix.length).toBeGreaterThan(60);
+    expect(normalizeSubject(subjectA)).not.toBe(normalizeSubject(subjectB));
+  });
+
+  it('не скрывает подозрительно равную сумму у соседних разных предметов', () => {
+    const found = detectRepeatOfNeighbour([
+      row({ sheetRow: 100, subject: subjectA, planTotal: 12.345 }),
+      row({ sheetRow: 101, subject: subjectB, planTotal: 12.345 }),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0].sign).toBe('repeat-of-neighbour');
+  });
+
+  it('не сообщает о дроблении из трёх разных предметов с общим префиксом', () => {
+    const items = [subjectA, subjectB, subjectC].map((subject, i) => row({
+      sheetRow: i + 100,
+      subject,
+      planTotal: 150000,
+      planDate: serial('2026-09-01') + i,
+    }));
+    expect(detectSplittingWindow(items)).toHaveLength(0);
+  });
+});

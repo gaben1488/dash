@@ -25,7 +25,7 @@
  * стояло ни одного дефекта).
  */
 import type { Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS } from '@aemr/shared';
+import { CHECK_REGISTRY, DEPT_COLUMNS, isMetaRow } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
 /**
@@ -138,18 +138,25 @@ export function normalizeFormula(raw: unknown, sheetRow: number): string {
 /**
  * Номер закупки из графы A — и одновременно ГЕЙТ судимости строки.
  *
- * Канон валидации книги для A — «число больше нуля, строго». Поэтому шапка
- * («№ п/п») и пустые строки хвоста сюда не проходят, и это ровно тот урок
- * дампов 30.08: строки БЕЗ номера дырами не считаются, а формулы, протянутые
- * впрок на такие строки, дефектом не считаются тем более.
+ * Номер — идентификатор, включая составные номера 173/1 и 173/18, а не
+ * сумма. Подпись шапки и пустой хвост номером не являются. Назначение строки
+ * дополнительно проверяется по предмету закупки перед построением эталона.
  */
 function purchaseNumber(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
   const text = String(raw).trim();
   if (text === '') return null;
+  if (/^[1-9]\d*\/[1-9]\d*$/.test(text)) return text;
   const n = Number(text.replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return null;
   return text;
+}
+
+/** Номер закупки судимой строки; служебные строки не судятся и не дают эталон. */
+export function formulaIntegrityRowNumber(row: ReadonlyArray<unknown>): string | null {
+  const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
+  if (subject === '' || isMetaRow(subject) || Number.isFinite(Number(subject))) return null;
+  return purchaseNumber(row[DEPT_COLUMNS.ID]);
 }
 
 function isFormulaText(raw: unknown): boolean {
@@ -209,10 +216,11 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
   const startRow = input.startRow ?? 1;
   const height = Math.max(values.length, formulas.length);
 
-  // Судимые строки: только те, у кого в A стоит настоящий номер закупки.
+  // Номер без предмета бывает служебной нумерацией колонок или заготовкой.
+  // Такие строки не судятся и не участвуют в выборе формульного эталона.
   const judged: Array<{ index: number; row: number; seq: string }> = [];
   for (let i = 0; i < height; i++) {
-    const seq = purchaseNumber((values[i] ?? [])[DEPT_COLUMNS.ID]);
+    const seq = formulaIntegrityRowNumber(values[i] ?? []);
     if (seq === null) continue;
     judged.push({ index: i, row: startRow + i, seq });
   }

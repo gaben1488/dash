@@ -1,5 +1,6 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
+export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable } from './issue-conversion.js';
 
 // Re-export schemas (zod schemas for runtime validation, API contracts, drizzle-lite)
 export * from './schemas.js';
@@ -78,6 +79,7 @@ export * from './absence.js';
 // Re-export орг-классификатор по ОПФ (ось C: аппарат/ПБС/бюджетное/автономное/…; см. classifyOrg)
 export * from './org-classify.js';
 export * from './parse-sheet-date.js';
+export * from './editable-amount.js';
 export * from './svod-grid.js';
 export * from './time-selection.js';
 export * from './recon-root-cause.js';

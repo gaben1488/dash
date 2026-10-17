@@ -1,0 +1,12 @@
+{
+  "project": "aemr",
+  "worker_enabled": false,
+  "failure_threshold": 3,
+  "cooldown_seconds": 300,
+  "services": {
+    "server": {"container": "aemr-server-1"},
+    "web": {"container": "aemr-web-1"},
+    "caddy": {"container": "aemr-caddy-1"},
+    "report-worker": {"container": "aemr-report-worker-1"}
+  }
+}

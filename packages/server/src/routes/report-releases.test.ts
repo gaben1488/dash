@@ -9,7 +9,7 @@ it('returns the stored projection and pinned documents without recalculating liv
   const id = `REL-${'a'.repeat(64)}`;
   const response = await app.inject(`/api/report-releases/${id}/dashboard`);
   expect(response.json()).toEqual({ snapshot_id: 'frozen' });
-  expect(read).toHaveBeenLastCalledWith('dashboard', id);
+  expect(read).toHaveBeenLastCalledWith('dashboard', id, undefined, expect.any(AbortSignal));
   const doc = await app.inject(`/api/report-releases/${id}/main.docx`);
   expect(doc.body).toBe('DOCX');
   expect(doc.headers['content-disposition']).toContain(`${id}-main.docx`);
@@ -43,7 +43,7 @@ it('passes the selected report date, year and quarter to the frozen reader', asy
   await app.register(reportReleaseRoutes, { read });
   const response = await app.inject('/api/report-releases?date=2026-09-24&year=2026&quarter=3');
   expect(response.statusCode).toBe(200);
-  expect(read).toHaveBeenCalledWith('status', undefined, { date: '2026-09-24', year: 2026, quarter: 3 });
+  expect(read).toHaveBeenCalledWith('status', undefined, { date: '2026-09-24', year: 2026, quarter: 3 }, expect.any(AbortSignal));
   for (const query of ['date=2026-09-24', 'date=2026-02-30&year=2026&quarter=1',
     'date=2026-09-24&year=2026&quarter=5', 'date=2026-09-24&year=x&quarter=3']) {
     expect((await app.inject(`/api/report-releases?${query}`)).statusCode).toBe(400);
@@ -116,6 +116,7 @@ it('starts a single manual refresh and responds without waiting for full Google 
   const first = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
   expect(first.statusCode).toBe(202);
   expect(first.json().status).toBe('STARTED');
+  expect(first.json().message).toContain('не подтверждён');
   await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   const other = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
   expect(other.statusCode).toBe(202);
@@ -139,4 +140,28 @@ it('rejects user-provided refresh sources, archived dates and credentials', asyn
     url: '/api/report-releases/refresh?year=2026', payload: {} })).statusCode).toBe(400);
   expect(refresh).not.toHaveBeenCalled();
   await app.close();
+});
+
+it('bootstraps a legacy catalog before serving when the report worker is disabled', async () => {
+  const module = await import('./report-releases.js');
+  expect(module).toHaveProperty('initializePublicationReaders');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const state = mkdtempSync(join(tmpdir(), 'legacy-reader-startup-'));
+  mkdirSync(join(state, 'published'));
+  writeFileSync(join(state, 'published/publications.sqlite'), 'legacy catalog');
+  vi.stubEnv('REPORT_STATE_DIR', state);
+  vi.stubEnv('REPORT_ENGINE_BIN', '/installed/proc-report');
+  const run = vi.fn(async () => undefined);
+  try {
+    await Reflect.get(module, 'initializePublicationReaders')(run);
+    expect(run).toHaveBeenCalledWith('/installed/proc-report', ['initialize-publication-readers', '--state', state],
+      { timeout: 30_000, maxBuffer: 1024, shell: false });
+    run.mockRejectedValueOnce(new Error('private source path and values'));
+    await expect(Reflect.get(module, 'initializePublicationReaders')(run)).rejects.toThrow('PUBLICATION_READER_BOOTSTRAP_FAILED');
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(state, { recursive: true, force: true });
+  }
 });

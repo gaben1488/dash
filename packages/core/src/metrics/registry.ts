@@ -14,6 +14,42 @@ import { applyKbUplift } from './kb-uplift.js';
 // ── Base Metrics (accumulated from department rows) ────────────────
 
 export const METRIC_KB: Record<string, KBEntryData> = {
+  api_read_available: {
+    label: 'Доступность API при последнем чтении', unit: 'binary', category: 'operations',
+    whatIs: 'Получил ли интерфейс корректный ответ на последнюю проверку сведений о Word.',
+    howCalc: 'Успешный GET с прошедшим типизированную проверку ответом подтверждает доступность в этот момент.',
+    dataSource: 'Ответ API /report-releases и результат его проверки в интерфейсе.',
+    engine: 'useReportExport.apiState; состояние запроса, а не расчёт закупок.',
+    formula: 'last GET accepted by response contract', source: 'useReportExport.apiState',
+    pitfalls: 'Это наблюдение одного запроса, не процент uptime и не доказательство успешной работы генератора.',
+  },
+  report_check_age_seconds: {
+    label: 'Возраст последней успешной проверки', unit: 'seconds', category: 'operations',
+    whatIs: 'Сколько секунд прошло после последней успешной попытки генератора на момент проверки.',
+    howCalc: 'checked_at минус last_success_at; повторное использование неизменного выпуска тоже является новой успешной проверкой.',
+    dataSource: 'Сохранённый индекс report-health.json и текущая попытка worker.',
+    engine: 'report_health.last_success_age_seconds → operations.',
+    formula: 'checked_at - last_success_at', source: 'operations.last_success_age_seconds',
+    pitfalls: 'Это свежесть проверки, не возраст Word-среза. Отсутствующая запись не равна нулевому возрасту.',
+  },
+  worker_cycle_duration_seconds: {
+    label: 'Длительность последнего завершённого цикла', unit: 'seconds', category: 'operations',
+    whatIs: 'Продолжительность последней завершённой попытки генератора, включая ручной запуск и отказ.',
+    howCalc: 'finished_at минус started_at; секунды округлены генератором. Текущая попытка имеет отдельную длительность.',
+    dataSource: 'Времена сохранённой попытки и индекс report-health.json.',
+    engine: 'report_health.last_cycle_duration_seconds → operations.',
+    formula: 'last finished_at - started_at', source: 'operations.last_cycle_duration_seconds',
+    pitfalls: 'Это не интервал расписания и не длительность только успешного рендера.',
+  },
+  worker_last_failure: {
+    label: 'Последний зафиксированный отказ', unit: 'timestamp', category: 'operations',
+    whatIs: 'Время и безопасный код последней сохранённой неуспешной попытки.',
+    howCalc: 'Последняя запись отказа сохраняется и после успешной попытки; failure_resolved показывает последующее успешное выполнение.',
+    dataSource: 'Индекс report-health.json; исходные ошибки и приватные данные не передаются.',
+    engine: 'report_health.last_failure_at/code/failure_resolved → operations.',
+    formula: 'latest recorded failed attempt', source: 'operations.last_failure_at',
+    pitfalls: 'Отсутствие записи не доказывает отсутствие отказов во всей истории. Успешный цикл не стирает прежний отказ.',
+  },
   // ── Counts ──
   pending_count: {
     label: 'Осталось процедур',
@@ -797,7 +833,7 @@ export const METRIC_KB: Record<string, KBEntryData> = {
     whatIs: 'Доля закрытых строк плана у конкретного ГРБС. Главный индикатор «в графике / отстаёт / срыв».',
     howCalc: 'dept.factCount / dept.planCount × 100. Gate: fact_date NOT EMPTY. Учитывает подведы в составе ГРБС.',
     dataSource: 'СВОД ТД-ПМ + построчные листы подведов за выбранный период.',
-    engine: 'CalcEngine.byDept[id].{plan_count, fact_count} → execution_pct. Срез period/month применяется до агрегата.',
+    engine: 'CalcEngine.byDept[id].{plan_count, fact_count} → доля исполнения по количеству. Срез квартала/месяца применяется до агрегата; год подведа без year-блока — сумма q1–q4, как год управления.',
     thresholdsFull: '🟢 ≥ 80 % — в графике\n🟡 50–79 % — отстаёт\n🔴 < 50 % — срыв',
     lawFull: '44-ФЗ ст. 94\nИсполнение контракта. Для ГРБС — сводный показатель по подведомственной сети.',
     example: 'УО: план 210, факт 168 → 80 % (🟢).',
@@ -885,7 +921,7 @@ export const METRIC_KB: Record<string, KBEntryData> = {
     unit: 'count',
     category: 'quality',
     whatIs: 'Сколько замечаний по ГРБС: критические + предупреждения. Красный бейдж — critical, янтарный — warning.',
-    howCalc: 'count(issues WHERE dept = id). Учитывает severity: critical + error + warning + significant.',
+    howCalc: 'count активных issues WHERE dept = id; resolved, false_positive и снятые проверки исключены. Подведы — только по точному каноническому subordinateId, без привязки сигнал остаётся в общем счёте книги.',
     dataSource: 'snapshot.issues (pipeline signals + rule-book) с группировкой по dept.',
     engine: 'Issues фильтруются по severity и группируются. Красный бейдж считает только critical + error.',
     thresholdsFull: '🟢 0 — чисто\n🟡 1–5 — точечный контроль\n🔴 > 5 — системные проблемы',

@@ -340,3 +340,73 @@ def test_identity_recovery_fails_closed_for_malformed_published_donor(tmp_path):
 
     with pytest.raises(ValueError, match='IDENTITY_BACKFILL_DONOR_INVALID'):
         store.recover_latest_plan_signatures([donor])
+
+
+def test_plan_date_year_change_preserves_existing_identity_and_frozen_prior_result(tmp_path):
+    from contextlib import closing
+    store = IdentityStore(tmp_path / 'date-continuity.sqlite')
+    first = store.ingest([row(source_row_no='173')], snapshot_id='s1',
+                         captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+    with closing(store.connect()) as db:
+        old_result = db.execute("SELECT result FROM snapshots WHERE snapshot_id='s1'").fetchone()[0]
+    changed = row(source_row_no='173', row_number=3, planned_date='2027-02-01', planned_quarter=1, planned_year=2027)
+    second = store.ingest([changed], snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+    assert second['rows'][0]['procurement_uid'] == first['rows'][0]['procurement_uid']
+    assert second['unresolved_count'] == 0
+    with closing(store.connect()) as db:
+        assert db.execute("SELECT result FROM snapshots WHERE snapshot_id='s1'").fetchone()[0] == old_result
+
+
+
+@pytest.mark.parametrize('number', ['173', '173/1', '173/18'])
+def test_calendar_continuity_retains_exact_composite_number(tmp_path, number):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    first = store.ingest([row(source_row_no=number)], snapshot_id='s1', captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+    second = store.ingest([row(source_row_no=number, planned_year=2027, planned_date='2027-01-02', planned_quarter=1, row_number=200)], snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+    assert second['rows'][0]['procurement_uid'] == first['rows'][0]['procurement_uid']
+
+
+@pytest.mark.parametrize('change', [{'source_row_no':'173/1'}, {'subject':'Другой предмет'}, {'institution':'Иной заказчик'}, {'program':'Иная программа'}, {'source_id':'other-file'}])
+def test_calendar_change_does_not_join_reused_or_renamed_number(tmp_path, change):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    first = store.ingest([row(source_row_no='173')], snapshot_id='s1', captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+    second = store.ingest([row(source_row_no='173', planned_year=2027, planned_date='2027-01-02', planned_quarter=1, **change)] if 'source_row_no' not in change else [row(planned_year=2027, planned_date='2027-01-02', planned_quarter=1, **change)], snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+    assert second['rows'][0]['procurement_uid'] != first['rows'][0]['procurement_uid']
+
+
+def test_missing_or_incomplete_legacy_proof_cannot_restore_calendar_identity(tmp_path):
+    from contextlib import closing
+    for missing in (True, False):
+        store = IdentityStore(tmp_path / f'id-{missing}.sqlite')
+        first = store.ingest([row(source_row_no='173')], snapshot_id='s1', captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+        if missing:
+            store.ingest([], snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+        else:
+            with closing(store.connect()) as db, db:
+                db.execute("UPDATE observations SET entity_signature=NULL")
+        second = store.ingest([row(source_row_no='173', planned_year=2027, planned_date='2027-01-02', planned_quarter=1)], snapshot_id='s3', captured_at='2026-10-03T00:00:00Z', allow_plan_updates=True)
+        assert second['rows'][0]['procurement_uid'] != first['rows'][0]['procurement_uid']
+
+
+@pytest.mark.parametrize('duplicate_before', [True, False])
+def test_duplicate_business_number_never_proves_calendar_identity(tmp_path, duplicate_before):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    original = row(source_row_no='173')
+    duplicate = row(source_row_no='173', subject='Иной предмет', row_number=5)
+    store.ingest([original, duplicate] if duplicate_before else [original], snapshot_id='s1', captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+    changed = row(source_row_no='173', planned_year=2027, planned_date='2027-01-02', planned_quarter=1)
+    current = [changed] if duplicate_before else [changed, row(source_row_no='173', subject='Иной предмет', row_number=5, planned_year=2027)]
+    second = store.ingest(current, snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+    assert second['rows'][0]['procurement_uid'] is None
+
+
+def test_distinct_composite_numbers_do_not_merge_when_calendar_changes(tmp_path):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    numbers = ['173', '173/1', '173/18']
+    originals = [row(source_row_no=number, procurement_id=number, row_number=index+4, fact_mb=index+1) for index, number in enumerate(numbers)]
+    first = store.ingest(originals, snapshot_id='s1', captured_at='2026-10-01T00:00:00Z', allow_plan_updates=True)
+    from dataclasses import replace
+    moved = [replace(value, row_number=index+100, planned_year=2027, planned_quarter=1, planned_date='2027-02-01') for index, value in enumerate(originals)]
+    second = store.ingest(moved, snapshot_id='s2', captured_at='2026-10-02T00:00:00Z', allow_plan_updates=True)
+    assert [r['procurement_uid'] for r in second['rows']] == [r['procurement_uid'] for r in first['rows']]
+    assert len({r['procurement_uid'] for r in second['rows']}) == 3

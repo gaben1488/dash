@@ -55,6 +55,25 @@ describe('fetchJSON header merging (B-13)', () => {
   });
 });
 
+
+describe('production edge basic-auth compatibility', () => {
+  it('does not overwrite the browser Basic authorization with a stale stored API bearer', async () => {
+    vi.stubEnv('PROD', true);
+    vi.stubGlobal('localStorage', { getItem: () => 'old-browser-token' });
+    const call = vi.fn(async (_url: string, _init: RequestInit) => fakeResponse());
+    vi.stubGlobal('fetch', call);
+    try {
+      await fetchJSON('/report-releases?date=2026-10-11&year=2026&quarter=4');
+      const headers = new Headers(call.mock.calls[0]?.[1]?.headers);
+      expect(headers.has('Authorization')).toBe(false);
+      expect(call.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('reconciliation endpoints thread the year filter (B-11)', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', { getItem: () => null });
@@ -132,4 +151,45 @@ describe('ApiError: состояние ответа — поле, а не под
   it('сетевой отказ движка переводится в русскую фразу с действием', () => {
     expect(humanizeRequestError(new TypeError('Failed to fetch'))).toMatch(/Нет связи с сервером/);
   });
+});
+
+describe('issue decision confirmed persistence', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', { getItem: () => null }));
+  it.each([
+    { success: false, issueId: 'case-1', toStatus: 'false_positive' },
+    { success: true, issueId: 'other', toStatus: 'false_positive' },
+    { success: true, issueId: 'case-1', toStatus: 'open' },
+  ])('rejects misleading mutation acknowledgement %j', async body => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it('rejects when authoritative readback fails after acknowledged save', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'unavailable' }));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it.each([{ id: 'case-1', status: 'open' }, { id: 'other', status: 'false_positive' }])('rejects mismatched readback %j', async issue => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce(fakeResponse({ issue, history: [] })));
+    await expect(api.updateIssueStatus('case-1', 'false_positive', 'Evidence')).rejects.toThrow();
+  });
+  it('confirms persisted false-positive status from GET, preserving reason request', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(fakeResponse({ success: true, issueId: 'case-1', toStatus: 'false_positive' }))
+      .mockResolvedValueOnce(fakeResponse({ issue: { id: 'case-1', status: 'false_positive' }, history: [{ reason: 'Evidence' }] }));
+    vi.stubGlobal('fetch', request);
+    await api.updateIssueStatus('case-1', 'false_positive', 'Evidence');
+    expect(request.mock.calls.map(c => c[0])).toEqual(['/api/issues/case-1/status', '/api/issues/case-1']);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ status: 'false_positive', reason: 'Evidence' });
+  });
+});
+
+describe('API base prefix for journal and source consumers',()=>{
+ it.each([['/api/change-story?limit=1','/api/change-story?limit=1'],['/change-story?limit=1','/api/change-story?limit=1'],['/api/sources','/api/sources'],['/apiary','/api/apiary']])('requests %s at exactly one API prefix',async(input,expected)=>{
+  vi.stubGlobal('localStorage',{getItem:()=>null});
+  const request=vi.fn(async(_url:string)=>fakeResponse({}));vi.stubGlobal('fetch',request);
+  await fetchJSON(input);expect(request.mock.calls[0]?.[0]).toBe(expected);
+ });
 });

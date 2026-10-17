@@ -3,11 +3,12 @@ import { DEPARTMENT_REGISTRY } from './department-registry.js';
 import {
   ECONOMY_FLAG_BOOK_WORDS,
   ECONOMY_FLAG_CANON,
+  ECONOMY_DECISION_UPCOMING_ACTION,
   economyFlagVerdict,
   isEconomyFlagGarbage,
 } from './economy-flag.js';
-import { GRBS_BOOK_METHODS } from './dictionaries/method-families.js';
-import { EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
+import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
@@ -550,15 +551,22 @@ const statusOnDataRows: ValidationRule = {
     const verdict = economyFlagVerdict({
       planTotal: toNumber(ctx.cells['K']),
       factTotal: toNumber(ctx.cells['Y']),
+      declaredFactTotal: toNumber(ctx.cells['Y']),
       adCell: ctx.cells['AD'],
       isEp: method.includes('еп') || method.includes('единствен'),
+      completed: parseSheetDate(ctx.cells['Q']) !== null,
+      completionDay: dayOfDateCell(ctx.cells['Q']),
+      asOfDay: dayNumberOf(ctx.asOf),
+      methodKnown: normalizeMethod(ctx.cells.L) !== undefined,
+      monopoly: (method.includes('еп') || method.includes('единствен')) && canonicalizeReasonEp(String(ctx.cells.M ?? '').slice(0, 2000)).cluster === 'EP_MONOPOLIST',
     });
+    if (verdict.upcoming) return { passed: true, message: ECONOMY_DECISION_UPCOMING_ACTION };
     if (!verdict.matches) return { passed: true };
 
     // Род называется вслух (канон: «ЕП включённо, но с пометкой рода»).
     const kindNote = verdict.kind === 'ep'
-      ? ' Способ — единственный поставщик: по нему экономии быть не должно вовсе, поэтому строку'
-        + ' стоит разобрать заодно с проверкой «По ЕП факт не равен плану».'
+      ? ' Способ — единственный поставщик: сверьте завершённую годовую потребность'
+        + ' и накопленные обязательства по всем контрактам; разница сама не доказывает нарушение.'
       : '';
 
     return {
@@ -720,15 +728,17 @@ const deptEconomySumConsistency: ValidationRule = {
 const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
   'procurement',
   'procurement_derived',
-  'service',
 ]);
 
 function isNumberedRow(row: ClassifiedRow): boolean {
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
-  // проверку всего листа — поэтому header из страховки исключён.
-  if (row.classification === 'header') return false;
-  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+  // A service row can be an actual purchase without a number, but an empty
+  // formula tail (H:K = 0 with no subject or method) must stay silent.
+  if (row.classification === 'header' || row.classification === 'summary' ||
+      row.classification === 'separator' || row.classification === 'note') return false;
+  const hasBusinessText = String(row.cells['G'] ?? '').trim() !== '' ||
+    String(row.cells['L'] ?? '').trim() !== '';
+  return hasBusinessText || (toNumber(row.cells['K']) ?? 0) > 0;
 }
 
 /**
@@ -787,10 +797,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      // № п/п is an identifier, NOT an amount: parseFloat('173/1') === 173
+      // would otherwise merge distinct positions and generate false warnings.
+      const parsed = /^\d+$/.test(raw) ? Number(raw) : null;
+      const intNo = parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
       if (intNo !== null) ints.add(intNo);
-      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
+      // Numeric 531 and string "531" share an address; "531/1" is separate.
       const key = intNo !== null ? String(intNo) : raw;
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);

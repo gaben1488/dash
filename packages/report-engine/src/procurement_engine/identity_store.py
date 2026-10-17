@@ -108,6 +108,23 @@ def _same_entity(prior, entity, enabled):
     return not enabled or not entity or prior.get('entity_signature') == entity
 
 
+def _same_entity_across_plan_calendar(prior, row):
+    """Verify the old complete entity key without rewriting its year-bearing hash."""
+    if not prior.get('entity_signature'):
+        return False
+    try:
+        old_anchor = json.loads(prior['anchor'])
+    except (TypeError, ValueError):
+        return False
+    if (not isinstance(old_anchor, list) or len(old_anchor) != 5
+            or old_anchor[:4] != [row.source_id, row.grbs, row.institution, row.subject]):
+        return False
+    if old_anchor[4] == row.planned_year:
+        return False
+    legacy_entity = entity_signature(replace(row, planned_year=old_anchor[4]))
+    return bool(legacy_entity and legacy_entity == prior['entity_signature'])
+
+
 def _check_integrity(db):
     try:
         valid = [tuple(row) for row in db.execute('PRAGMA integrity_check')] == [('ok',)]
@@ -266,32 +283,47 @@ class IdentityStore:
                 updated += int(changed)
         return updated
 
-    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None):
-        """Recover the complete previous import from its sealed source payloads."""
+    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None, required_snapshot_ids=None):
+        """Recover derived migration metadata from sealed source payloads.
+
+        Explicit targets support retention preparation. None preserves runtime's
+        latest/chain selection; an empty set never falls back to that selection.
+        Frozen results, UIDs and source signatures remain unchanged.
+        """
         from .adapters import normalize_master_values
         from .snapshot_bundle_io import verify_persisted_bundle
 
         if diagnostics is not None:
             diagnostics.update(skipped_transient_donors=0, unrecovered_snapshots=0)
         with closing(self.connect()) as db:
-            latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
-            if latest is None:
-                return 0
-            earliest = latest['seq']
-            if recover_chain:
-                # Only restore the observed chain needed by currently unresolved
-                # anchors, not an unbounded scan of all unrelated historic rows.
-                prior = db.execute("""SELECT MIN(start_seq) FROM (
-                    SELECT MAX(s.seq) AS start_seq FROM observations current
-                    JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
-                    JOIN snapshots s ON s.snapshot_id=known.snapshot_id
-                    WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
-                    GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
-                if prior is not None:
-                    earliest = min(earliest, prior)
-            targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
-                FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
-                WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
+            if required_snapshot_ids is not None:
+                requested = set(required_snapshot_ids)
+                if any(not isinstance(sid, str) or not sid for sid in requested):
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_INVALID')
+                known = {r[0] for r in db.execute('SELECT snapshot_id FROM snapshots')}
+                observed = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations')}
+                if not requested <= known & observed:
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_MISSING')
+                targets = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations WHERE plan_signature IS NULL OR entity_signature IS NULL') if r[0] in requested}
+            else:
+                latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
+                if latest is None:
+                    return 0
+                earliest = latest['seq']
+                if recover_chain:
+                    # Only restore the observed chain needed by currently unresolved
+                    # anchors, not an unbounded scan of all unrelated historic rows.
+                    prior = db.execute("""SELECT MIN(start_seq) FROM (
+                        SELECT MAX(s.seq) AS start_seq FROM observations current
+                        JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
+                        JOIN snapshots s ON s.snapshot_id=known.snapshot_id
+                        WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
+                        GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
+                    if prior is not None:
+                        earliest = min(earliest, prior)
+                targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
+                    FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
+                    WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
         if not targets:
             return 0
         updated = 0
@@ -304,6 +336,8 @@ class IdentityStore:
             # half-written bundle left by a killed/failed run. published/releases/
             # is immutable evidence: corruption there must remain fail-closed.
             immutable = ('published' in root.parts and 'releases' in root.parts) or 'archives' in root.parts
+            if required_snapshot_ids is not None and not immutable:
+                raise ValueError('IDENTITY_BACKFILL_DONOR_NOT_SEALED')
             try:
                 manifest = json.loads(path.read_text(encoding='utf-8'))
                 if not isinstance(manifest, dict):
@@ -428,6 +462,11 @@ class IdentityStore:
                     by_continuity[proof.get('continuity_signature'), prior['business_id']].append(prior)
                     by_number[prior['source_id'], prior['business_id']].add(prior['uid'])
                     by_anchor[prior['anchor']].add(prior['uid'])
+            old_number_rows = defaultdict(list)
+            for prior in old:
+                if prior['business_id']:
+                    old_number_rows[prior['source_id'], prior['business_id']].append(prior)
+            number_counts = Counter((r.source_id, r.source_row_no) for r in rows if r.source_row_no)
             entity_counts = Counter(entity_signature(r) for r in rows)
             frequencies=Counter(signature(r) for r in rows)
             continuity_counts=Counter((continuity_signature(r), r.source_row_no) for r in rows)
@@ -465,6 +504,17 @@ class IdentityStore:
                     uid = prior['uid']; status = 'PLAN_CONTINUITY'
                     evidence.update(previous_locator=prior['locator'],
                                     plan_signature=plan_signature(row), rule='unique-plan-continuity-v1')
+                elif (allow_plan_updates and row.source_id and row.source_row_no
+                      and number_counts[row.source_id, row.source_row_no] == 1
+                      and len(old_number_rows[row.source_id, row.source_row_no]) == 1
+                      and old_number_rows[row.source_id, row.source_row_no][0]['uid']
+                      and _same_entity_across_plan_calendar(old_number_rows[row.source_id, row.source_row_no][0], row)):
+                    prior = old_number_rows[row.source_id, row.source_row_no][0]
+                    uid = prior['uid']; status = 'ENTITY_CONTINUITY'
+                    evidence.update(previous_locator=prior['locator'],
+                        rule='unique-source-number-calendar-continuity-v1',
+                        previous_plan_year=json.loads(prior['anchor'])[4], current_plan_year=row.planned_year,
+                        review_ids=json.loads(prior['evidence']).get('review_ids', []))
                 elif (allow_plan_updates and entity and row.source_row_no and entity_counts[entity] == 1
                       and len(entity_hits) == 1 and entity_hits[0]['uid']
                       and entity_hits[0]['business_id'] == row.source_row_no):

@@ -1,5 +1,6 @@
 /** Published reports read their frozen model; the live report endpoint is separate. */
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
@@ -20,12 +21,29 @@ const PreparationSchema = ContextSchema.extend({
   year: z.number().int().min(1900).max(9999), quarter: z.number().int().min(1).max(4),
 });
 
-async function readStoredRelease(view: View, releaseId?: string, context?: Context): Promise<Buffer> {
+/** Rollout bootstrap before createApp/listen, including a worker-disabled old DB. */
+export async function initializePublicationReaders(
+  run: (file: string, args: string[], options: { timeout: number; maxBuffer: number; shell: false }) => Promise<unknown> = execute,
+): Promise<void> {
+  const state = resolve(process.env.REPORT_STATE_DIR ?? 'data/reports');
+  // Fresh development without a report catalog keeps its existing startup flow.
+  // A future native writer creates the lease before the first catalog is exposed.
+  if (!existsSync(resolve(state, 'published/publications.sqlite'))) return;
+  try {
+    await run(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+      ['initialize-publication-readers', '--state', state],
+      { timeout: 30_000, maxBuffer: 1024, shell: false });
+  } catch {
+    throw new Error('PUBLICATION_READER_BOOTSTRAP_FAILED');
+  }
+}
+
+async function readStoredRelease(view: View, releaseId?: string, context?: Context, signal?: AbortSignal): Promise<Buffer> {
   const args = ['read-publication', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'), '--view', view];
   if (releaseId) args.push('--release-id', releaseId);
   if (context) args.push('--report-date', context.date, '--report-year', String(context.year), '--quarter', String(context.quarter));
   const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', args,
-    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false });
+    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false, signal });
   return result.stdout;
 }
 
@@ -49,7 +67,7 @@ async function refreshStoredReport(): Promise<void> {
 }
 
 export async function reportReleaseRoutes(app: FastifyInstance,
-  options: { read?: (view: View, releaseId?: string, context?: Context) => Promise<Buffer>;
+  options: { read?: (view: View, releaseId?: string, context?: Context, signal?: AbortSignal) => Promise<Buffer>;
     prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<void> } = {}): Promise<void> {
   const read = options.read ?? readStoredRelease;
   const prepare = options.prepare ?? prepareStoredArchive;
@@ -74,7 +92,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
     });
     refreshInProgress = task;
     return reply.code(202).send({ status: 'STARTED',
-      message: 'Проверка актуальных данных запущена. Два Word станут доступны после успешного выпуска.' });
+      message: 'Запрос на новый отчёт принят. Успешный выпуск пока не подтверждён; результат появится после проверки источников.' });
   });
   // One expensive archive build per server. Repeated requests for the same
   // context share its result; another context retries via the existing polling.
@@ -123,8 +141,16 @@ export async function reportReleaseRoutes(app: FastifyInstance,
           }
           context = parsed.data;
         }
+        const controller = new AbortController();
+        const abortRead = () => controller.abort();
+        const responseClosed = () => {
+          if (!reply.raw.writableEnded) abortRead();
+        };
+        request.raw.once('aborted', abortRead);
+        reply.raw.once('close', responseClosed);
+        if (request.raw.aborted || reply.raw.destroyed) abortRead();
         try {
-          const data = context ? await read(view, id, context) : await read(view, id);
+          const data = await read(view, id, context, controller.signal);
           if (view === 'main' || view === 'supplement' || view === 'operational') {
             reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);
@@ -132,11 +158,15 @@ export async function reportReleaseRoutes(app: FastifyInstance,
           }
           return reply.type('application/json; charset=utf-8').send(data);
         } catch (error) {
+          if (controller.signal.aborted) return reply;
           const missing = error instanceof Error && 'code' in error && error.code === 4;
           return reply.code(missing ? 404 : 503).send({
             code: missing ? 'PUBLICATION_NOT_FOUND' : 'PUBLICATION_UNAVAILABLE',
             message: missing ? 'Такой проверенный выпуск не опубликован.' : 'Проверенный комплект сейчас недоступен.',
           });
+        } finally {
+          request.raw.removeListener('aborted', abortRead);
+          reply.raw.removeListener('close', responseClosed);
         }
       });
   }

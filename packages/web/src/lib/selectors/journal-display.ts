@@ -29,7 +29,7 @@ const ACTOR_LABELS: Readonly<Record<string, string>> = {
 };
 
 export function journalActorLabel(actor: string | null | undefined): string {
-  if (!actor) return 'Система';
+  if (!actor) return 'Автор не указан';
   return ACTOR_LABELS[actor] ?? actor;
 }
 

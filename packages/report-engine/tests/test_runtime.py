@@ -3,6 +3,7 @@ import json
 
 import pytest
 from procurement_engine.constants import GRBS_ORDER
+from procurement_engine.google_adapter import APPROVED_PRIMARY_TITLE_ALIASES
 from procurement_engine.raw_pipeline import header_hash
 from procurement_engine.runtime import run_once
 from test_publication_store import PublicationStore, candidate, revisions
@@ -38,6 +39,66 @@ def inputs(root):
     registry = root / 'registry.json'; registry.write_text(json.dumps({'sources': sources}))
     ledger = root / 'ledger.json'; ledger.write_text('[]')
     return registry, ledger
+
+
+@pytest.mark.parametrize('size', [1024*1024, 2*1024*1024])
+def test_reused_attempt_storage_is_bounded_but_global_and_full_proof_remain_exact(tmp_path, size):
+    import hashlib
+
+    from test_publication_store import attempt_receipt
+    store = PublicationStore(tmp_path / 'state/published')
+    assurance = {'contract': 'actionable-assurance-v1', 'fully_automated': True,
+                 'user_action_count': 0, 'engine_action_count': 0, 'active_recommendations': 0,
+                 'link_status_counts': {}, 'action_status_counts': {}, 'actions': [], 'meaning': 'ёж ' + 'x'*size}
+    if size > 1024*1024:
+        assurance.update(contract='actionable-assurance-v2', source_observations=[], nonprocurement_identity_observations=0)
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance=assurance), read_revisions=revisions)
+    before = json.dumps(receipt)
+    for attempt_id in ('a'*32, 'b'*32):
+        original, path = attempt_receipt(store, receipt, attempt_id=attempt_id)
+        assert path.stat().st_size < 16384, 'Repeated immutable assurance is copied into every observation'
+        stored = json.loads(path.read_text())
+        expected_hash = hashlib.sha256(json.dumps(assurance, ensure_ascii=False, sort_keys=True,
+                                                  separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        assert stored['publication']['automation_assurance_ref'] == {'release_id': receipt['release_id'], 'content_sha256': expected_hash}
+        assert json.loads((store.root.parent / 'status.json').read_text()) == original
+        assert original['publication']['automation_assurance'] == assurance
+        assert store.read_attempt(attempt_id) == original
+    assert json.dumps(receipt) == before
+
+
+@pytest.mark.parametrize('change', [
+    {'status': 'NOT_ISSUED'}, {'reused_publication': False}, {'reused_publication': 1},
+    {'snapshot_id': 'different'}, {'automation_assurance': {'meaning': 'Own different evidence'}},
+])
+def test_ineligible_attempt_retains_its_complete_evidence(tmp_path, change):
+    from procurement_engine.runtime import _finish_attempt
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = store.publish(candidate(tmp_path / 'candidate', assurance={'meaning': 'Immutable evidence'}), read_revisions=revisions)
+    attempt = store.root.parent / 'attempts' / ('a'*32); attempt.mkdir(parents=True)
+    status = {'attempt_id': attempt.name, 'status': receipt['status'], 'publication': receipt,
+              'snapshot_id': receipt['snapshot_id'], 'reused_publication': True, **change}
+    _finish_attempt(store.root.parent, attempt, status)
+    before = (attempt / 'status.json').read_bytes()
+    assert json.loads((attempt / 'status.json').read_text()) == status
+    assert store.read_attempt(attempt.name) == status
+    assert (attempt / 'status.json').read_bytes() == before
+
+
+@pytest.mark.parametrize('invalid', [float('nan'), float('inf'), object()])
+@pytest.mark.parametrize('where', ['assurance', 'other'])
+def test_compact_attempt_does_not_hide_original_nonfinite_serialization_error(tmp_path, where, invalid):
+    from procurement_engine.runtime import _finish_attempt
+    store = PublicationStore(tmp_path / 'state/published')
+    receipt = {'release_id': 'REL-' + 'a'*64, 'model_sha256': 'a'*64, 'snapshot_id': 'snapshot',
+               'status': 'VERIFIED', 'automation_assurance': {'meaning': invalid if where == 'assurance' else 'Normal'}}
+    attempt = store.root.parent / 'attempts' / ('a'*32); attempt.mkdir(parents=True)
+    status = {'attempt_id': attempt.name, 'status': 'VERIFIED', 'publication': receipt,
+              'snapshot_id': 'snapshot', 'reused_publication': True}
+    if where == 'other': status['unknown_field'] = invalid
+    with pytest.raises((ValueError, TypeError)): _finish_attempt(store.root.parent, attempt, status)
+    assert not (attempt / 'status.json').exists()
+    assert not (store.root.parent / 'status.json').exists()
 
 
 def test_real_capture_build_and_block_leave_previous_publication_available(tmp_path):
@@ -226,7 +287,8 @@ def test_cli_busy_worker_is_not_a_successful_release(tmp_path, capsys):
     assert json.loads((state / 'status.json').read_text())['attempt_id'] == 'previous'
 
 
-def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tmp_path):
+def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tmp_path, monkeypatch):
+    from procurement_engine import report_health, runtime
     from procurement_engine.identity_store import IdentityStore
     from test_identity_and_metrics import row
 
@@ -242,9 +304,28 @@ def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tm
     state = tmp_path / 'state'
     identities = IdentityStore(state / 'identity.sqlite')
     initial = identities.ingest([row()], snapshot_id='seed', captured_at='2026-09-01T00:00:00Z')
+    builds = []
+    original_build = runtime.build_from_capture
+    def tracked_build(*args, **kwargs):
+        builds.append(True)
+        return original_build(*args, **kwargs)
+    monkeypatch.setattr(runtime, 'build_from_capture', tracked_build)
     first = run_once(registry, ledger, state, client=FormulaGoogle())
     unchanged = run_once(registry, ledger, state, client=FormulaGoogle())
     assert unchanged['reused_publication'] is True
+    assert len(builds) == 1
+    assert unchanged['publication']['release_id'] == first['publication']['release_id']
+    assert json.loads((state / 'report-health.json').read_text())['last_success_at'] == unchanged['finished_at']
+    original_record = report_health.record_attempt
+    def denied_health(*args):
+        raise OSError('private filesystem detail')
+    monkeypatch.setattr(report_health, 'record_attempt', denied_health)
+    denied = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert denied['status'] == unchanged['status']
+    assert denied['reused_publication'] is True
+    assert denied['publication']['release_id'] == unchanged['publication']['release_id']
+    assert len(builds) == 1
+    monkeypatch.setattr(report_health, 'record_attempt', original_record)
     identities.record_review(snapshot_id='seed', locator=row().physical_row_key,
         uid=initial['rows'][0]['procurement_uid'], reviewer='Ревизор',
         reviewed_at='2026-09-02T00:00:00Z', evidence={'source_ref': 'protocol/1', 'reason': 'Подтверждено'})
@@ -318,3 +399,166 @@ def test_identity_recovery_degradation_is_visible_in_attempt_status(tmp_path, mo
     monkeypatch.setattr(IdentityStore, 'recover_latest_plan_signatures', recover)
     status = run_once(registry, ledger, tmp_path / 'state', client=Google())
     assert status['identity_recovery'] == {'skipped_transient_donors': 1, 'unrecovered_snapshots': 1}
+
+@pytest.mark.parametrize('drift', ['hidden', 'format', 'money', 'date', 'formula', 'schema', 'geometry', 'dependency', 'unstable', 'late_unstable', 'read_error'])
+def test_final_barrier_rechecks_source_content_not_workbook_presentation(tmp_path, monkeypatch, drift):
+    from procurement_engine import runtime
+    registry, ledger = inputs(tmp_path)
+
+    class Rechecked(Google):
+        changed = False
+        checks = 0
+        def revision(self, provider):
+            if self.changed and provider == 'master-0':
+                self.checks += 1
+                return 'revision3' if ((drift == 'unstable' and self.checks > 1)
+                                       or (drift == 'late_unstable' and self.checks > 2)) else 'revision2'
+            return 'revision1'
+        def grid(self, provider, sheet_id):
+            result = super().grid(provider, sheet_id)
+            if self.changed and provider == 'master-0' and drift == 'geometry':
+                result['gridProperties']['rowCount'] = 4
+            return result
+        def formula_context(self, provider):
+            extra = {'sheetId': 99, 'title': 'Unregistered system',
+                     'gridProperties': {'rowCount': 65, 'columnCount': 12}, 'hidden': False, 'index': 1}
+            if self.changed and provider == 'master-0':
+                extra['hidden'] = True
+                if drift == 'format': extra['gridProperties']['frozenRowCount'] = 2
+            return {'sheets': [{'sheetId': 0, **self.grid(provider, 0)}, extra],
+                    'named_ranges': ([{'name': 'Dependency', 'range': {'sheetId': 99, 'endRowIndex': 5}}]
+                                     if self.changed and provider == 'master-0' and drift == 'dependency' else [])}
+        def values(self, provider, title, start, end, columns):
+            if self.changed and provider == 'master-0' and drift == 'read_error': raise OSError('private read failure')
+            result = super().values(provider, title, start, end, columns)
+            if self.changed and provider == 'master-0' and start == 1:
+                if drift == 'money': result[1] = [1500]
+                if drift == 'date': result[1] = ['12.10.2026']
+                if drift == 'schema': result[2] = ['Changed header']
+            return result
+        def formulas(self, provider, title, start, end, columns):
+            result = self.values(provider, title, start, end, columns)
+            if self.changed and provider == 'master-0' and drift == 'formula': result[1] = ['=1+2']
+            return result
+    client = Rechecked()
+    original = runtime.build_from_capture
+    def build(*args, **kwargs):
+        result = original(*args, **kwargs)
+        client.changed = True
+        return result
+    monkeypatch.setattr(runtime, 'build_from_capture', build)
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=client)
+    if drift in {'hidden', 'format'}:
+        assert status['status'] == 'VERIFIED'
+        receipt = status['publication']
+        assert receipt['source_revisions_at_publish']['master-0'] == 'revision2'
+        assert receipt['source_equivalence_at_publish']['master-0']['captured_revision'] == 'revision1'
+        capture = json.loads((state / 'attempts' / status['attempt_id'] / 'capture.json').read_text())
+        assert capture['sources'][0]['after'] == 'revision1'
+        assert capture['sources'][0]['formula_evidence']['sheets'][1]['hidden'] is False
+    else:
+        assert status['status'] == 'NOT_ISSUED'
+        assert PublicationStore(state / 'published').latest() is None
+
+@pytest.mark.parametrize('key', ['SOURCE_CONTRACT', 'HISTORICAL_RECOMMENDATIONS', 'IDENTITY_REVIEWS', 'WEEKLY_BASELINE', 'RECOMMENDATION_HISTORY_EVIDENCE'])
+def test_source_equivalence_never_authorizes_local_or_history_drift(tmp_path, key):
+    from procurement_engine.publication_store import _revisions_equivalent
+    expected = {'master': 'version1', key: 'original'}
+    actual = {'master': 'version1', key: 'changed'}
+    assert not _revisions_equivalent(tmp_path, expected, actual, {})
+
+
+def test_publication_proof_requires_exact_key_set_and_stable_actual_tokens(tmp_path):
+    from procurement_engine.publication_store import _revisions_equivalent
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {}, {})
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {'master': 'one', 'foreign': 'one'}, {})
+    assert not _revisions_equivalent(tmp_path, {'master': 'one'}, {'master': 'two'}, {})
+
+@pytest.mark.parametrize('drift', ['contract', 'ledger', 'identity', 'history'])
+def test_equivalent_google_sources_still_block_changed_non_google_evidence(tmp_path, monkeypatch, drift):
+    from procurement_engine import runtime
+    registry, ledger = inputs(tmp_path)
+    class StableContent(Google):
+        changed = False
+        def revision(self, provider):
+            return 'revision2' if self.changed and provider == 'master-0' else 'revision1'
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 0, **self.grid(provider, 0)}], 'named_ranges': []}
+        def formulas(self, *args): return self.values(*args)
+    client = StableContent()
+    original_build = runtime.build_from_capture
+    original_reviews = runtime.IdentityStore.review_evidence
+    original_history = runtime.read_google_history
+    def reviews(self, **kwargs):
+        return [{'changed_review': True}] if client.changed and drift == 'identity' else original_reviews(self, **kwargs)
+    def history(*args, **kwargs):
+        result = original_history(*args, **kwargs)
+        if client.changed and drift == 'history': return result[0], result[1], {'changed': True}
+        return result
+    def build(*args, **kwargs):
+        result = original_build(*args, **kwargs)
+        client.changed = True
+        if drift == 'contract':
+            data = json.loads(registry.read_text()); data['changed_contract'] = True
+            registry.write_text(json.dumps(data))
+        if drift == 'ledger': ledger.write_text('[{"original":"Changed historical evidence"}]')
+        return result
+    monkeypatch.setattr(runtime, 'build_from_capture', build)
+    monkeypatch.setattr(runtime.IdentityStore, 'review_evidence', reviews)
+    monkeypatch.setattr(runtime, 'read_google_history', history)
+    state = tmp_path / 'state'
+    result = run_once(registry, ledger, state, client=client)
+    assert result['status'] == 'NOT_ISSUED'
+    assert result['error_code'] == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
+    assert PublicationStore(state / 'published').latest() is None
+
+@pytest.mark.parametrize('alias', list(APPROVED_PRIMARY_TITLE_ALIASES.items()))
+@pytest.mark.parametrize('unapproved_rename', [False, True])
+def test_approved_primary_alias_remains_equivalent_on_workbook_only_drift(tmp_path, alias, unapproved_rename):
+    from procurement_engine.google_adapter import (
+        GoogleReadError,
+        capture_google,
+        recheck_google_sources,
+    )
+    from procurement_engine.publication_store import _revisions_equivalent
+    from procurement_engine.raw_pipeline import bundle_from_capture
+    from procurement_engine.snapshot_bundle_io import persist_atomic_bundle
+    registry, _ = inputs(tmp_path)
+    (provider, sheet_id, registered_title), live_title = alias
+    data = json.loads(registry.read_text())
+    data['sources'][0].update(provider_id=provider, sheet_id=sheet_id, sheet=registered_title)
+    class AliasGoogle(Google):
+        changed = False
+        def revision(self, book):
+            return 'revision2' if self.changed and book == provider else 'revision1'
+        def grid(self, book, tab):
+            if book == provider:
+                assert tab == sheet_id
+                return {'title': 'Unapproved rename' if self.changed and unapproved_rename else live_title,
+                        'gridProperties': {'rowCount': 3, 'columnCount': 34}}
+            return super().grid(book, tab)
+        def formula_context(self, book):
+            return {'sheets': [{'sheetId': sheet_id if book == provider else 0,
+                               **self.grid(book, sheet_id if book == provider else 0),
+                               'hidden': self.changed}], 'named_ranges': []}
+        def formulas(self, *args): return self.values(*args)
+    client = AliasGoogle()
+    capture = capture_google(data, client)
+    bundle = bundle_from_capture(capture, data)
+    stage = tmp_path / 'stage'
+    persist_atomic_bundle(bundle, stage / 'snapshot_bundle')
+    original_manifest = (stage / 'snapshot_bundle/manifest.json').read_bytes()
+    client.changed = True
+    if unapproved_rename:
+        with pytest.raises(GoogleReadError, match='GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'):
+            recheck_google_sources(data, capture, client)
+    else:
+        observed, proof = recheck_google_sources(data, capture, client)
+        assert _revisions_equivalent(stage, bundle.after, {**bundle.after, **observed}, proof)
+        assert observed['master-0'] == 'revision2'
+        assert proof['master-0']['captured_revision'] == 'revision1'
+    assert capture['sources'][0]['sheet'] == registered_title
+    assert capture['sources'][0]['formula_evidence']['sheets'][0]['title'] == live_title
+    assert capture['sources'][0]['formula_evidence']['sheets'][0]['hidden'] is False
+    assert (stage / 'snapshot_bundle/manifest.json').read_bytes() == original_manifest

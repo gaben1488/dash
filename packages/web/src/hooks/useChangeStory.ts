@@ -24,6 +24,7 @@ import {
   entriesFromLiveRows,
   fetchChangeStory,
   mergeStoryWithLive,
+  liveEntriesMatching,
   type ChangeStoryQuery,
   type ChangeStoryResponse,
 } from '../lib/changes/change-story-client';
@@ -112,8 +113,11 @@ export function useChangeStory(query: ChangeStoryQuery, enabled = true): UseChan
   }, [live.recentRows, enabled]);
 
   const entries = useMemo(
-    () => mergeStoryWithLive(response?.entries ?? [], liveEntries),
-    [response, liveEntries],
+    () => mergeStoryWithLive(response?.entries ?? [], liveEntriesMatching(liveEntries,
+      { ...query, since: query.since ?? response?.since })),
+    // query values are fully represented by key; new object identity is immaterial.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [response, liveEntries, key],
   );
 
   const reload = useCallback(() => setAgain((n) => n + 1), []);

@@ -109,6 +109,8 @@ export type RowTimelineResponse = RowTimeline & {
     journalEntries: number;
     snapshotObservations: number;
     weekSliceDates: string[];
+    /** null — признаков разрыва за последний контрольный интервал не обнаружено. */
+    identityWarning?: string | null;
   };
 };
 
@@ -237,13 +239,21 @@ async function fetchResponse(url: string, init?: RequestInit): Promise<Response>
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  // Attach Bearer token if configured (for auth middleware), unless the caller already set one
+  // Production is served through Caddy Basic auth. The browser owns the
+  // cached Basic credentials and Caddy injects the server-side Bearer token.
+  // A legacy aemr_api_key in localStorage MUST NOT overwrite Authorization:
+  // Bearer would be rejected by Caddy as invalid Basic credentials.
+  // Only the direct local development API needs a browser-supplied Bearer.
   const apiKey = typeof localStorage !== 'undefined' ? localStorage.getItem('aemr_api_key') : null;
-  if (apiKey && !headers.has('Authorization')) {
+  if (!import.meta.env.PROD && apiKey && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${apiKey}`);
   }
-  const res = await fetch(`${API_BASE}${url}`, {
+  // Some shared clients return a complete API path. Apply the base exactly
+  // once; /apiary is still an ordinary endpoint, not the /api namespace.
+  const requestUrl = /^\/api(?:\/|\?|$)/.test(url) ? url : `${API_BASE}${url}`;
+  const res = await fetch(requestUrl, {
     ...init,
+    credentials: init?.credentials ?? 'same-origin',
     headers,
   });
   if (!res.ok) {
@@ -308,11 +318,22 @@ export const api = {
     return fetchParsed(`/issues?${params}`, IssuesListResponseSchema);
   },
 
-  updateIssueStatus: (id: string, status: string, reason?: string) =>
-    fetchJSON<any>(`/issues/${id}/status`, {
+  updateIssueStatus: async (id: string, status: string, reason?: string) => {
+    const acknowledgement = await fetchJSON<{ success?: unknown; issueId?: unknown; toStatus?: unknown } | null>(`/issues/${encodeURIComponent(id)}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status, reason }),
-    }),
+    });
+    if (acknowledgement?.success !== true || acknowledgement.issueId !== id || acknowledgement.toStatus !== status) {
+      throw new Error('Сервер не подтвердил сохранение статуса. Обновите замечание перед повторной попыткой.');
+    }
+    // HTTP success alone is not proof of persistence. Read the authoritative
+    // decision before showing success; do not retry a potentially saved PUT.
+    const persisted = await fetchJSON<{ issue?: { id?: unknown; status?: unknown } } | null>(`/issues/${encodeURIComponent(id)}`);
+    if (persisted?.issue?.id !== id || persisted.issue.status !== status) {
+      throw new Error('Сохранение статуса не подтверждено при повторном чтении. Обновите замечание.');
+    }
+    return acknowledgement;
+  },
 
   addIssueComment: (id: string, comment: string) =>
     fetchJSON<any>(`/issues/${id}/comment`, {
@@ -320,10 +341,8 @@ export const api = {
       body: JSON.stringify({ comment }),
     }),
 
-  // Валидация контрактом + широкий тип: страница держит свой локальный HistoryEntry
-  // (passthrough-схема не сужается до него — сузим при типизации DTO).
-  getIssueHistory: (id: string): Promise<any> =>
-    fetchParsed(`/issues/${id}/history`, IssueHistoryResponseSchema),
+  getIssueHistory: (id: string) =>
+    fetchParsed(`/issues/${encodeURIComponent(id)}/history`, IssueHistoryResponseSchema),
 
   // Trust
   getTrust: () =>
@@ -345,7 +364,7 @@ export const api = {
     }),
 
   /** Batch-save edited rows (multiple field updates with audit logging) */
-  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>) =>
+  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>) =>
     fetchJSON<any>('/data/rows', {
       method: 'POST',
       body: JSON.stringify({ rows }),
@@ -553,7 +572,7 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
-      unfunded: { rows: number; planSum: number };
+      unfunded: { rows: number; planSum: number; initiativeRows?: number };
       yearlong: { rows: number; planSum: number };
     }>('/registry/buckets'),
 

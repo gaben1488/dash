@@ -97,7 +97,8 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     expect(screen.getByText('Безальтернативная по закону')).toBeTruthy();
     expect(screen.getByText(/Выгода подтверждена документом/)).toBeTruthy();
     expect(screen.getByText(/Решение заказчика/)).toBeTruthy();
-    expect(screen.getByText(/Без обоснования/)).toBeTruthy();
+    // Dictionary uncertainty is not proof of an absent legal basis (owner K02/C06, 12 October).
+    expect(screen.getByText('Основание не установлено')).toBeTruthy();
     // Сокращаемое — 400 из 1000 денег ЕП: 40 % ЕП и 20 % всего плана.
     expect(screen.getByText(/40[.,]0\s*%\s*денег ЕП/)).toBeTruthy();
     expect(screen.getByText(/20[.,]0\s*%\s*всего плана периметра/)).toBeTruthy();

@@ -1,4 +1,4 @@
-import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
+import { issueIdentity, ruleIssueIdentityParts, nextOccurrence, SEP } from './issue-identity.js';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
 import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
 
@@ -42,6 +42,7 @@ export function validateData(
   rows: ClassifiedRow[],
   rules: ValidationRule[],
   _reportMap: ReportMapEntry[],
+  asOf: Date = new Date(),
 ): Issue[] {
   const issues: Issue[] = [];
   const now = new Date().toISOString();
@@ -53,6 +54,48 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
+  // Один лист содержит несколько таблиц с разными значениями D:U. Граница
+  // определяется шапкой/названием блока, а не номером строки: вставка строк
+  // не должна возвращать проверку количества на денежную аналитическую таблицу.
+  // Старые фрагменты без шапки сохраняют прежний контракт; их геометрия здесь
+  // не переопределяется сведениями из текущей Google-книги.
+  const svodRows = new Set<number>();
+  const unknownSvodRows: number[] = [];
+  const unknownSvodHeaders: number[] = [];
+  if (sheetClass.kind === 'svod') {
+    let layout: 'primary' | 'analytics' | 'unknown' = 'primary';
+    const label = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    for (const row of [...rows].sort((a, b) => a.rowIndex - b.rowIndex)) {
+      const a = label(row.cells.A);
+      if (['анализ экономии', 'операционная нагрузка', 'дисциплина планирования'].includes(a)) {
+        layout = 'analytics';
+      } else if (a === 'грбс') {
+        if (label(row.cells.B) === 'квартал' && label(row.cells.C) === 'год') layout = 'primary';
+        else if (layout !== 'analytics') {
+          layout = 'unknown';
+          unknownSvodHeaders.push(row.rowIndex);
+        }
+      }
+      if (layout === 'primary') svodRows.add(row.rowIndex);
+      else if (layout === 'unknown' && row.classification !== 'header' && row.classification !== 'separator') unknownSvodRows.push(row.rowIndex);
+    }
+    if (unknownSvodHeaders.length > 0) {
+      issues.push({
+        id: issueIdentity(['svod-validation-schema-unknown', sheetName]),
+        severity: 'warning',
+        origin: 'runtime_error',
+        category: 'svod_validation_schema_unknown',
+        title: `Не распознана схема проверок: лист «${sheetName}»`,
+        description: `Неизвестная шапка в строке ${unknownSvodHeaders[0]}; закупочные проверки D:U не применены к ${unknownSvodRows.length} строкам данных неизвестного блока. Финансовые выводы по этому блоку не подтверждены.`,
+        sheet: sheetName,
+        row: unknownSvodHeaders[0],
+        recommendation: 'Сверить заголовки и назначение колонок блока; до подтверждения схемы не считать его прошедшим проверку.',
+        status: 'open',
+        detectedAt: now,
+        detectedBy: 'pipeline:validate',
+      });
+    }
+  }
 
   // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
   // теряет ВСЕ svod- и department-scoped правила ниже (scope='both' по-прежнему
@@ -82,8 +125,12 @@ export function validateData(
     if (rule.scope === 'svod' && sheetClass.kind !== 'svod') continue;
     if (rule.scope === 'department' && sheetClass.kind !== 'department' && sheetClass.kind !== 'subordinates_agg') continue;
 
+    // A failing rule must not silently turn an incomplete validation into clean data.
+    let failedRows = 0;
+    let firstFailedRow: number | null = null;
     // Run the rule's check() against each applicable row
     for (const row of rows) {
+      if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
       if (rule.rowFilter && !rule.rowFilter.includes(row.classification)) continue;
@@ -93,19 +140,22 @@ export function validateData(
         sheet: row.sheet,
         classification: row.classification,
         allRows: rows,
+        asOf,
       };
       let result;
       try {
         result = rule.check(ctx);
       } catch (_err) {
-        // Skip broken rule, don't crash entire validation
+        // Continue with other rows, but surface one bounded diagnostic per rule.
+        failedRows += 1;
+        if (firstFailedRow === null) firstFailedRow = row.rowIndex;
         continue;
       }
       if (!result.passed) {
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
         // Стабильный id (issue-identity.ts): содержимое-якорь, не номер строки.
-        const idBase = ['rule', checkId, row.sheet, result.cell ?? '', String(row.cells['A'] ?? ''), String(row.cells['B'] ?? ''), String(row.cells['G'] ?? '')] as const;
+        const idBase = ruleIssueIdentityParts(checkId, row.sheet, result.cell ?? '', row.cells);
         const occ = nextOccurrence(idOccurrence, idBase.join(SEP));
         const check = CHECK_REGISTRY.find(c => c.id === checkId);
 
@@ -147,6 +197,23 @@ export function validateData(
           detectedBy: `rule:${rule.id}`,
         });
       }
+    }
+    if (failedRows > 0) {
+      issues.push({
+        id: issueIdentity(['validation-rule-failed', rule.id, sheetName]),
+        severity: 'error',
+        origin: 'runtime_error',
+        category: 'rule_execution_failed',
+        title: `Проверка «${rule.name}» выполнена не полностью`,
+        description: `Проверка не смогла обработать ${failedRows} строк листа «${sheetName}» (первая — ${firstFailedRow}). Остальные проверки выполнены, но считать весь лист проверенным нельзя.`,
+        sheet: sheetName,
+        row: firstFailedRow ?? undefined,
+        departmentId: sheetClass.latinId,
+        recommendation: 'Передать сопровождению название проверки и лист; повторить проверку после исправления.',
+        status: 'open',
+        detectedAt: now,
+        detectedBy: `rule:${rule.id}`,
+      });
     }
   }
 

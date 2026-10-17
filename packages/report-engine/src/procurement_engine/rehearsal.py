@@ -22,6 +22,7 @@ from .identity_store import IdentityStore, freeze_identity_snapshot
 from .publication_store import PublicationError, PublicationStore, _validate
 from .raw_pipeline import build_from_capture
 from .runtime_inputs import validate_inputs
+from .snapshot import canonical_semantic_hash
 
 PUBLIC_SECTIONS = frozenset({'source_context', 'remaining_population', 'identity_evidence',
     'recommendation_records', 'recommendation_evidence', 'future_plan', 'procedure_source_contract',
@@ -60,18 +61,68 @@ def diagnose_failed_attempt(state):
     return {'recheck_status': 'PASS'}
 
 
+def _invalid_reference_proof(capture, fingerprint):
+    """Hashes only; a missing sheet/range is not proof of a literal historical #REF!."""
+    from .formula_dependencies import TOKEN, audit_formula_dependencies
+
+    audit = audit_formula_dependencies(capture)
+    issues = audit.get('issues') or []
+    if audit.get('closed') or not issues:
+        return None
+    sources = {source['source_id']: source for source in capture['sources']}
+    exact = []
+    for issue in issues:
+        if (issue.get('code') != 'FORMULA_DEPENDENCY_NOT_CAPTURED'
+                or issue.get('target_sheet_id') != 'unknown:REF'):
+            return None
+        source = sources.get(issue.get('source_id'))
+        if not source:
+            return None
+        formulas = (source.get('formula_evidence') or {}).get('formulas') or []
+        cells = [cell for cell in formulas if (cell.get('row'), cell.get('column'))
+                 == (issue.get('row'), issue.get('column'))]
+        if len(cells) != 1 or type(issue.get('row')) is not int or type(issue.get('column')) is not int:
+            return None
+        tokens = TOKEN.findall(cells[0]['formula'])
+        if not any(tokens[index:index + 3] == ['#', 'REF', '!'] for index in range(len(tokens) - 2)):
+            return None
+        exact.append((issue['source_id'], issue['row'], issue['column'], issue['code'], 'INVALID_REFERENCE'))
+    return {'contract': 'frozen-invalid-reference-proof-v1',
+        'archive_sha256': canonical_semantic_hash(fingerprint),
+        'snapshot_sha256': canonical_semantic_hash(capture['archive_origin']['snapshot_id']),
+        'dependency_issue_sha256': canonical_semantic_hash(sorted(exact)),
+        'invalid_reference_count': len(exact)}
+
+
 def rehearse_weekly(state):
     """Replay the newest own sealed week into disposable storage, offline."""
-    from .archive_runtime import build_archived_release
+    from .archive_runtime import (
+        ArchiveError,
+        _frozen_fingerprint,
+        build_archived_release,
+        load_frozen_input,
+    )
 
     weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
     if not weeks:
         return None
     source = weeks[-1]
     day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+    before = _frozen_fingerprint(source)
     with tempfile.TemporaryDirectory(prefix='report-weekly-rehearsal-') as temporary:
-        receipt = build_archived_release(source, temporary, day=day.isoformat(),
-                                         year=day.year, quarter=(day.month - 1) // 3 + 1)
+        try:
+            receipt = build_archived_release(source, temporary, day=day.isoformat(),
+                                             year=day.year, quarter=(day.month - 1) // 3 + 1)
+        except ArchiveError as error:
+            if str(error) == 'ARCHIVE_BUILD_FAILED':
+                capture, _, _, observed = load_frozen_input(source, day=day.isoformat(),
+                    year=day.year, quarter=(day.month - 1) // 3 + 1)
+                proof = _invalid_reference_proof(capture, observed)
+                if before != observed or before != _frozen_fingerprint(source):
+                    raise ArchiveError('ARCHIVE_CHANGED') from None
+                if proof is not None:
+                    error.frozen_refusal = proof
+            raise
         root = Path(temporary) / 'published/releases' / receipt['release_id']
         _validate(root)
         documents = all((root / name).read_bytes().startswith(b'PK')
@@ -81,6 +132,15 @@ def rehearse_weekly(state):
 
 
 def rehearse_release_restore(state, receipt):
+    lease_root = Path(state) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_release_restore(state, receipt)
+
+
+def _leased_rehearse_release_restore(state, receipt):
     """Restore one complete published package in isolation, never the live volume.
 
     This proves recovery of that release, its identity/evidence and native exports.
@@ -316,6 +376,15 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
 
 
 def published_evidence_summary(state_dir):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_published_evidence_summary(state_dir)
+
+
+def _leased_published_evidence_summary(state_dir):
     """Fast, sealed-current evidence inventory, independent of the weekly replay.
 
     It is NOT a test of new rules or a claim that today's Google inputs are fresh.
@@ -398,6 +467,15 @@ def _recommendation_replay_delta(published, candidate):
 
 
 def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_latest(state_dir, coverage=coverage, skip_weekly=skip_weekly)
+
+
+def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish
@@ -582,6 +660,14 @@ def main(argv=None):
                 else 'UNRECOGNIZED_ERROR'
                 for item in getattr(error, 'source_issues', [])
                 if isinstance(item, dict) and item.get('severity') == 'ERROR'))
+        proof = getattr(error, 'frozen_refusal', None)
+        hashes = ('archive_sha256', 'snapshot_sha256', 'dependency_issue_sha256')
+        if (isinstance(proof, dict) and proof.get('contract') == 'frozen-invalid-reference-proof-v1'
+                and type(proof.get('invalid_reference_count')) is int
+                and 0 < proof['invalid_reference_count'] <= 1_000_000
+                and all(isinstance(proof.get(key), str) and re.fullmatch('[a-f0-9]{64}', proof[key]) for key in hashes)):
+            # Fixed public projection; exception attributes must not expose source text.
+            result['frozen_refusal'] = {key: proof[key] for key in ('contract', 'invalid_reference_count', *hashes)}
         if isinstance(error, OSError):
             # OS paths and exception messages may expose protected source data;
             # only an allowlisted standard errno label is safe for public CI.

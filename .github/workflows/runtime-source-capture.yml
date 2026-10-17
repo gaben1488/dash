@@ -1,0 +1,85 @@
+name: Read-only encrypted runtime source capture
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/ci/runtime_source_capsule.py'
+      - '.github/ci/test_runtime_source_capsule.py'
+      - '.github/ci/runtime-source-recipient.pem'
+      - '.github/workflows/runtime-source-capture.yml'
+permissions:
+  contents: read
+concurrency:
+  group: source-capture-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  capture:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify privacy guards and bind source
+        run: |
+          python3 .github/ci/test_runtime_source_capsule.py
+          echo "CAPSULE_CODE_SHA=$(sha256sum .github/ci/runtime_source_capsule.py | cut -d ' ' -f1)" >> "$GITHUB_ENV"
+          echo "CAPSULE_CERT_SHA=$(sha256sum .github/ci/runtime-source-recipient.pem | cut -d ' ' -f1)" >> "$GITHUB_ENV"
+      - name: Prepare private scratch
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -eu
+            umask 077
+            target='/tmp/aemr-source-${{ github.run_id }}-${{ github.run_attempt }}'
+            test ! -e "$target" && test ! -L "$target"
+            mkdir -m 700 "$target"
+      - name: Transfer public collector and recipient
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: '.github/ci/runtime_source_capsule.py,.github/ci/runtime-source-recipient.pem'
+          target: '/tmp/aemr-source-${{ github.run_id }}-${{ github.run_attempt }}'
+          strip_components: 2
+      - name: Capture source into authenticated ciphertext
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: CAPSULE_CODE_SHA,CAPSULE_CERT_SHA
+          command_timeout: 4m
+          script: |
+            set -eu
+            umask 077
+            target='/tmp/aemr-source-${{ github.run_id }}-${{ github.run_attempt }}'
+            test -d "$target" && test ! -L "$target"
+            test "$(stat -c %u "$target")" = "$(id -u)"
+            test "$(stat -c %a "$target")" = 700
+            trap 'rm -rf -- "$target"' EXIT
+            test ! -L "$target/runtime_source_capsule.py" && test ! -L "$target/runtime-source-recipient.pem"
+            test "$(sha256sum "$target/runtime_source_capsule.py" | cut -d ' ' -f1)" = "$CAPSULE_CODE_SHA"
+            test "$(sha256sum "$target/runtime-source-recipient.pem" | cut -d ' ' -f1)" = "$CAPSULE_CERT_SHA"
+            python3 "$target/runtime_source_capsule.py" capture "$target/runtime-source-recipient.pem"
+      - name: Remove owned private scratch after any transfer or capture failure
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -eu
+            target='/tmp/aemr-source-${{ github.run_id }}-${{ github.run_attempt }}'
+            if test -e "$target" || test -L "$target"; then
+              test -d "$target" && test ! -L "$target"
+              test "$(stat -c %u "$target")" = "$(id -u)"
+              test "$(stat -c %a "$target")" = 700
+              rm -rf -- "$target"
+            fi

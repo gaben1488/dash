@@ -22,6 +22,8 @@ interface BucketTotals {
   rows: number;
   /** Сумма плана строк корзины, тыс. руб. */
   planSum: number;
+  /** Подгруппа инициатив внутри общего числа, не дополнительные строки. */
+  initiativeRows?: number;
 }
 
 /**
@@ -49,7 +51,7 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
-    const unfunded: BucketTotals = { rows: 0, planSum: 0 };
+    const unfunded: BucketTotals = { rows: 0, planSum: 0, initiativeRows: 0 };
     const yearlong: BucketTotals = { rows: 0, planSum: 0 };
 
     for (const [sheetName, rows] of Object.entries(reading.rowsByDept)) {
@@ -61,6 +63,7 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
         if (!isDataRow(dto)) return;
         if (dto.signals.includes('planYearMissing')) {
           unfunded.rows += 1;
+          if (dto.signals.includes('initiativeRequest')) unfunded.initiativeRows! += 1;
           unfunded.planSum += dto.planSum;
         }
         const cells = buildCellDict(row);

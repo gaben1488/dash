@@ -23,6 +23,8 @@
  *     исполнения». Модуль ничего не додумывает — группирует то, что пришло.
  */
 
+import { formulaDiagnosticInapplicableReason } from '@aemr/shared';
+
 /** Минимальный вид замечания, достаточный для карточки диагноста. */
 export interface DiagnosticIssueLike {
   id?: string;
@@ -164,10 +166,12 @@ export function groupIssuesByMechanism(
 ): MechanismGroup[] {
   const groups = new Map<string, MechanismGroup>();
 
-  for (const issue of issues) {
-    if (isRetiredIssue(issue)) continue;
+  for (const original of issues) {
+    if (isRetiredIssue(original)) continue;
+    const reason = formulaDiagnosticInapplicableReason(original);
+    const issue = reason ? { ...original, severity: 'info', title: 'Историческая диагностика шапки', kbHint: reason, recommendation: reason } : original;
     const label = mechanismLabel(issue, labelOf);
-    const key = mechanismKey(issue, label);
+    const key = reason ? 'historical_header_diagnostic' : mechanismKey(issue, label);
 
     let group = groups.get(key);
     if (!group) {

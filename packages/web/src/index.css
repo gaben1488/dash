@@ -852,15 +852,11 @@
      Logo → NavDrum → TimeDrums → AuroraFilters → Tools
      All in one seamless flex line
      ═══════════════════════════════════════════════════ */
-  /* Раньше строка уезжала в горизонтальную прокрутку с намеренно спрятанной
-     полосой: на мониторе 1280 и тем более 1024 часть фильтров оказывалась за
-     краем, и узнать об этом было нельзя — прокрутки не видно, а колесом
-     барабаны листают годы, а не строку. Теперь строка переносится: шапка
-     становится выше на ряд, но ни одна кнопка не пропадает. Прокрутки нет —
-     значит и обрезать кольцо фокуса нечем. */
+  /* Owner's two horizontal rails: original drums above, controls below.
+     Each rail exposes its overflow; popovers stay outside the scroll regions. */
   .hbar {
-    @apply flex items-center;
-    flex-wrap: wrap;
+    @apply flex flex-col;
+    align-items: stretch;
     padding: 6px 10px;
     gap: 6px;
     border-bottom: 1px solid rgba(228, 228, 231, 0.25);
@@ -1033,31 +1029,72 @@
     to { --np-angle: 360deg; }
   }
 
-  /* Навигация — четыре ряда, ряд = именованная группа (Обзор · Реестры ·
-     Разборы · Надзор; одобрено владельцем, проба линейки 29.08). Подпись
-     группы — мелкая капитель слева, кнопки ряда — те же np-btn.
-     Ширина блока ЗАЖАТА (340px — прежний след сетки 3×N): ряд из четырёх
-     кнопок не раздвигает линейку; длинной подписи тесноту добирает
-     ПЕРЕНОС (§16.1: многоточие в навигации — брак вёрстки), подсказка
-     кнопки остаётся дублёром полного имени. */
+  /* Original pulse.html navigation cylinder: three rows, a focused center,
+     perspective edges, and the existing section colors/glow. Whole labels
+     keep their intrinsic width; small screens scroll inside the drum. */
   .nav-pills-wrap {
     @apply select-none flex-shrink-0;
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    max-width: 340px;
+    align-items: center;
+    gap: 4px;
+    width: 640px;
+    max-width: 100%;
+    --np-row-height: 32px;
+    transition: box-shadow 280ms cubic-bezier(.23,1,.32,1), border-color 180ms ease;
+  }
+  .nav-pills-wrap:hover {
+    border-color: rgba(127,127,127,.22);
+  }
+  .np-drum-window {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--np-row-height) * 3 + 12px);
+    overflow: hidden;
+  }
+  .np-drum-track {
+    position: relative;
+    width: 100%;
+    height: calc(var(--np-row-height) * 3);
   }
   .np-group {
+    position: absolute;
+    inset: 0 0 auto;
+    translate: 0 calc((var(--np-slot) + 1) * var(--np-row-height));
     display: flex;
     align-items: center;
     gap: 6px;
-    min-width: 0;
+    height: var(--np-row-height);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 220ms cubic-bezier(.16,1,.3,1);
+  }
+  .np-group-center { opacity: 1; pointer-events: auto; }
+  .np-group-top, .np-group-bottom { opacity: .82; pointer-events: auto; }
+  .np-group-top {
+    transform: perspective(300px) rotateX(8deg) scale(.94);
+    transform-origin: center bottom;
+  }
+  .np-group-bottom {
+    transform: perspective(300px) rotateX(-8deg) scale(.94);
+    transform-origin: center top;
+  }
+  .np-group:focus-within { opacity: 1; transform: none; }
+  .np-drum-controls { display: flex; flex: 0 0 auto; flex-direction: column; gap: 4px; }
+  .np-drum-controls button {
+    display: grid; place-items: center; width: 26px; height: 28px;
+    border-radius: 7px; color: var(--ink-muted); background: transparent;
+    transition: color 180ms ease, background 180ms ease;
+  }
+  .np-drum-controls button:hover:not(:disabled) { color: var(--ink-strong); background: rgba(127,127,127,.12); }
+  .np-drum-controls button:disabled { opacity: .3; }
+  .np-drum-controls button:focus-visible, .nav-pills-wrap:focus-visible {
+    outline: 2px solid var(--action); outline-offset: 2px;
   }
   /* Имя группы: мелкая капитель, прижата вправо к своему ряду. Колонка
      фиксированная, чтобы кнопки всех рядов начинались с одной вертикали. */
   .np-group-name {
-    flex: 0 0 56px;
-    width: 56px;
+    flex: 0 0 68px;
+    width: 68px;
     text-align: right;
     font-size: 10px;
     font-weight: var(--weight-strong);
@@ -1072,7 +1109,14 @@
     gap: 3px;
     flex: 1 1 auto;
     min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(127,127,127,.5) rgba(127,127,127,.08);
+    scroll-padding-inline: 2px;
   }
+  .np-group-btns::-webkit-scrollbar { height: 5px; }
+  .np-group-btns::-webkit-scrollbar-track { background: rgba(127,127,127,.08); border-radius: 3px; }
+  .np-group-btns::-webkit-scrollbar-thumb { background: rgba(127,127,127,.5); border-radius: 3px; }
 
   /* Individual nav button — standalone, no shared card */
   /* Тон раздела зависит от темы, и это не прихоть (правка 19.08.2026).
@@ -1095,10 +1139,7 @@
     background: transparent;
     overflow: hidden;
     transition: transform 100ms ease;
-    /* Кнопка умеет ужиматься внутри зажатого ряда группы: подпись
-       не режется, а переносится (§16.1); полное имя — в подсказке. */
-    min-width: 0;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     --np-tone: var(--np-color-light, #7a5f33);
   }
   .dark .np-btn {
@@ -1114,10 +1155,10 @@
     z-index: 1;
     display: flex;
     align-items: center;
-    gap: 3px;
-    padding: 4px 8px;
+    gap: 5px;
+    padding: 5px 8px;
     border-radius: 8px;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: var(--weight-strong);
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -1130,14 +1171,9 @@
     border: 1px solid rgba(43, 38, 28, 0.09);
     transition: all 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
-  /* Подпись раздела НЕ обрезается никогда (§16.1, рецепт .qoi из
-     pulse.html): когда ряду группы тесно, подпись переносится на вторую
-     строку целиком — перенос вместо многоточия. Кегль не тронут: контраст
-     и плотность хрома выверены отдельной волной (см. .np-content). */
+  /* No ellipsis or letter-by-letter wrapping: the original drum owns overflow. */
   .np-label {
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
     line-height: 1.15;
     text-align: left;
   }
@@ -4908,6 +4944,8 @@
 }
 
 
+
+
 /* ═══════════════════════════════════════════════════════════
    ПРЯМОЙ ЭФИР — полоса оповещения и след правки в Реестре.
 
@@ -4960,4 +4998,306 @@
     animation: none;
     background-color: rgba(245, 158, 11, 0.12);
   }
+}
+
+/* Original liquid-glass recipe: mockups/otdelki.html .стекло.
+   Applied to existing grouped navigation and corner; geometry stays original. */
+.hdr-liquid-surface {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 82% -30%, rgba(151,140,209,.16), transparent 62%),
+    radial-gradient(ellipse at 30% 0%, rgba(101,190,195,.1), transparent 58%),
+    radial-gradient(ellipse at 78% 0%, rgba(128,188,225,.22), transparent 65%),
+    linear-gradient(176deg, rgba(233,240,247,.94), rgba(236,220,187,.86));
+  border: .75px solid rgba(102,106,116,.24);
+  border-radius: 12px;
+  padding: 4px;
+  backdrop-filter: blur(22px) saturate(155%);
+  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(0,0,0,.08), inset 0 2px 4px rgba(255,255,255,.03), 0 2px 4px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.05), 0 0 16px rgba(191,161,97,.05), 0 0 32px rgba(191,161,97,.02);
+}
+.dark .hdr-liquid-surface {
+  /* Planetary sky -> bronze horizon, inside the object (Zarya matrix §1). */
+  background:
+    radial-gradient(ellipse at 82% -30%, rgba(132,114,201,.18), transparent 62%),
+    radial-gradient(ellipse at 30% 0%, rgba(81,175,190,.13), transparent 58%),
+    radial-gradient(ellipse at 78% 0%, rgba(71,127,174,.22), transparent 65%),
+    linear-gradient(176deg, rgba(24,30,48,.93), rgba(55,45,31,.9));
+  border-color: rgba(192,209,234,.19);
+}
+.hdr-liquid-surface::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: -1;
+  background:
+    radial-gradient(ellipse at 62% -80%, transparent 62%, rgba(195,224,247,.22) 63%, transparent 65%),
+    radial-gradient(ellipse at 18% 100%, color-mix(in srgb,var(--hdr-horizon,#bfa161) 15%,transparent), transparent 68%);
+  animation: hdr-dawn-drift 9s ease-in-out alternate infinite;
+}
+.hdr-liquid-surface::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: -1;
+  background: repeating-linear-gradient(97deg, rgba(255,255,255,.009) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 1px rgba(241,246,255,.3), inset 0 -1px color-mix(in srgb,var(--hdr-horizon,#bfa161) 12%,transparent);
+}
+@keyframes hdr-dawn-drift {
+  from { transform: translate3d(0, -2px, 0); opacity: .65; }
+  to { transform: translate3d(0, 2px, 0); opacity: 1; }
+}
+.hbar-primary, .hbar-secondary { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Both rails inherit z-index:1. Lift the journal's rail only while its panel
+   is open, so the later lower glass rail cannot paint over the panel title. */
+.hbar-primary:has(.hbar-provenance > [role=dialog]),
+.hdr-ugol:has(.hbar-provenance > [role=dialog]) { z-index: 2; }
+.hbar-drumline {
+  display: flex; align-items: center; gap: 5px; flex: 0 1 auto;
+  min-width: 0; max-width: 100%; overflow-x: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(127,127,127,.5) rgba(127,127,127,.08);
+  scroll-padding-inline: 6px;
+}
+.hbar-drumline > * { flex-shrink: 0; }
+.hbar-drumline .nav-pills-wrap.hdr-liquid-surface {
+  width: 535px; max-width: none; --np-row-height: 26px;
+  padding: 0; border: 0; background: transparent; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.hbar-drumline .nav-pills-wrap::before, .hbar-drumline .nav-pills-wrap::after { content: none; }
+.hbar-drumline .np-drum-window { height: calc(var(--np-row-height) * 3 + 6px); }
+.hbar-drumline .np-group-name { width: 52px; flex-basis: 52px; font-size: 8.5px; letter-spacing: .04em; color: #57565b; }
+.dark .hbar-drumline .np-group-name { color: #b8becb; }
+.dark .hbar-drumline .np-btn:not(.np-btn-active) .np-content { color: #c7c9d4; }
+.hbar-drumline .np-content { font-size: 10px; padding: 4px 6px; gap: 4px; }
+.hbar-drumline .np-drum-controls button { width: 20px; height: 24px; }
+.hbar-drumline .np-btn-active .np-content {
+  background: linear-gradient(135deg, var(--np-tone), color-mix(in srgb, var(--np-tone) 88%, #bfa161));
+}
+.hbar-filters {
+  display: flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0;
+  padding: 4px; overflow-x: auto; scrollbar-width: thin;
+  scrollbar-color: rgba(127,127,127,.5) rgba(127,127,127,.08);
+  border-radius: 11px;
+  scroll-padding-inline: 6px;
+}
+.hbar-filters > * { flex-shrink: 0; }
+.hbar-filters .vf-drum {
+  flex-direction: row; align-items: center; padding: 2px; gap: 2px;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: inset 0 1px rgba(255,255,255,.1);
+}
+.hbar-filters .vf-btn { min-height: 24px; min-width: 27px; padding: 4px 7px; font-size: 10px; }
+.dark .hbar-filters .vf-btn:not(.vf-btn-active):not(.vf-cur-active) { color: #bdc0ca; }
+.hbar-provenance > button { color: #555c6b; }
+.dark .hbar-provenance > button { color: #bdc0ca; }
+.hbar-filters .sel-tokens { flex-wrap: nowrap; min-width: max-content; width: auto; }
+.hbar-filters .sel-chip-label { white-space: nowrap; }
+.hbar-secondary .hdr-ugol { flex: 0 0 auto; margin-left: 0; padding: 3px; }
+.hbar-journal { display: flex; align-items: center; gap: 3px; }
+.hbar-journal .lh-corner, .hbar-journal .hbar-provenance { position: static; }
+.lh-drum-compact { flex-direction: row; align-items: center; gap: 5px; min-height: 26px; font-size: 10px; padding: 4px 7px; }
+.lh-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-faint); }
+.lh-dot-connected { background: var(--good, #10b981); box-shadow: 0 0 7px rgba(16,185,129,.3); }
+.hbar-journal [role=dialog] {
+  width: min(400px, calc(100vw - 16px)); max-height: min(65vh, 520px); overflow-y: auto;
+}
+.hbar .nav-tools { margin-left: auto; }
+.hbar .time-machine { max-width: none; }
+.hbar .tg-drum, .hbar .wr-drum { flex-shrink: 0; }
+.hdr-ugol.hdr-liquid-surface:empty { display: none; }
+@media (max-width: 640px) {
+  .hbar { padding: 5px 8px; gap: 5px; }
+  .hbar-drumline .nav-pills-wrap.hdr-liquid-surface { width: 310px; --np-row-height: 44px; }
+  .np-group-name { flex-basis: 64px; width: 64px; }
+  .np-drum-controls button { width: 44px; height: 44px; }
+  .np-btn { min-height: 44px; }
+  .np-content { min-height: 44px; }
+  .hbar-drumline .np-drum-controls button { width: 44px; height: 44px; }
+  .hbar-filters .vf-btn, .hbar-filters .sel-chip, .lh-drum-compact, .hbar-provenance > button { min-height: 44px; }
+  .hbar-filters .vf-btn, .hbar-filters .sel-clear, .hbar .hf-icon-btn { min-width: 44px; min-height: 44px; }
+  .hbar-filters input { min-height: 44px; }
+  .hdr-ugol.hdr-liquid-surface { max-width: 100%; margin-left: 0; }
+}
+@media (forced-colors: active) {
+  .hdr-liquid-surface { background: Canvas; border-color: CanvasText; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .np-drum-track, .np-group { transition: none !important; }
+  .hdr-liquid-surface::before, .hdr-liquid-surface::after { animation: none !important; transform: none !important; }
+}
+
+/* The selected material owns its foreground; environment accents remain
+   readable on neutral surfaces in both themes. */
+.header-glass,.page-context { --page-accent:var(--page-accent-light); }
+.dark :is(.header-glass,.page-context) { --page-accent:var(--page-accent-dark); }
+.header-glass .shield-icon { color:var(--hdr-ink,#1b170f);filter:none; }
+/* Page-family dawn lives in the selected object, not merely in its halo.
+   OrgStrip and source warning states are outside this header-only surface. */
+.header-glass .hbar {
+  --lazur: var(--page-accent);
+  --hdr-selected: linear-gradient(180deg, var(--hdr-sky, #5b99f8), var(--hdr-horizon, #e5d3a9));
+}
+.header-glass .hbar :is(.tg-month-active,.tg-year-full,.tg-quarter-tab-full,.wr-row-driving:not(.wr-row-future):not(.wr-row-empty),.vf-btn-active,.vf-cur-active,.np-btn-active .np-content) {
+  background: var(--hdr-selected) !important;
+  color: var(--hdr-ink, #1b170f) !important; text-shadow: none !important;
+}
+.header-glass .hbar :is(.tg-month-active,.vf-btn-active,.vf-cur-active,.np-btn-active .np-content):hover {
+  filter: brightness(1.05);
+}
+.header-glass .hdr-liquid-surface {
+  background:
+    radial-gradient(ellipse at 78% 0%, color-mix(in srgb, var(--hdr-sky) 26%, transparent), transparent 65%),
+    linear-gradient(176deg, rgba(233,240,247,.94), color-mix(in srgb, var(--hdr-horizon) 45%, #e9e2d7));
+}
+.dark .header-glass .hdr-liquid-surface {
+  background:
+    radial-gradient(ellipse at 78% 0%, color-mix(in srgb, var(--hdr-sky) 18%, transparent), transparent 65%),
+    linear-gradient(176deg, #191919, color-mix(in srgb, var(--hdr-horizon) 13%, #232323));
+}
+.header-glass .hbar-drumline .nav-pills-wrap.hdr-liquid-surface { background: transparent; }
+.filter-instrument {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-width: 38px; min-height: 30px; padding: 6px 8px; border-radius: 9px;
+  color: var(--ink-muted); border: 1px solid transparent;
+}
+.filter-instrument-active {
+  background: linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9)); color:var(--hdr-ink,#1b170f);
+  box-shadow: inset 0 1px rgba(255,255,255,.3), 0 2px 8px rgba(0,0,0,.12);
+}
+.fi-grid { display: grid; grid-template-columns: repeat(3,5px); grid-template-rows:repeat(4,5px);gap:2px; }
+.fi-grid i { border-radius:50%; background:currentColor; opacity:.25; }
+.fi-grid .fi-dot-active { opacity:1; }
+.fi-grid .fi-dot-hover { box-shadow:0 0 0 2px rgba(255,255,255,.6); }
+.fi-count { font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }
+.fi-panel {
+  z-index:80; width:min(350px,calc(100vw - 16px)); max-height:55vh;overflow-y:auto;
+  padding:14px;border-radius:14px;border:1px solid var(--border-subtle);
+  background:var(--surface-overlay); color:var(--ink);box-shadow:0 12px 36px rgba(0,0,0,.25);
+}
+.fi-panel h2 { font-size:12px;font-weight:700;margin-bottom:8px; }
+.fi-panel p { font-size:11px;color:var(--ink-muted); }
+.fi-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 4px;font-size:11px;text-align:left;border-bottom:1px solid var(--border-subtle); }
+.fi-entry:hover { background:var(--surface-raised); }
+.fi-reset { margin-top:10px;padding:8px 12px;border-radius:8px;font-size:11px;background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
+.fi-undo { position:fixed;z-index:90;bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;width:max-content;max-width:min(600px,calc(100vw - 16px));padding:12px 16px;border-radius:12px;background:var(--surface-overlay);color:var(--ink);box-shadow:0 10px 32px rgba(0,0,0,.25);font-size:11px; }
+.fi-undo > span { min-width:0;max-height:min(8rem,calc(100dvh - 80px));overflow:auto;overflow-wrap:anywhere; }
+.fi-undo button { flex-shrink:0;color:var(--ink-strong);font-weight:700; }
+.fi-undo button:disabled { opacity:.4; }
+.pv-tabs { display:flex;gap:4px;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border-subtle); }
+/* These existing panels use the older border name. Scope its bridge to the
+   canonical soft line; an unset custom property otherwise makes lines black. */
+.hbar-journal,.fi-panel,.change-journal { --border-subtle:var(--line-soft); }
+.pv-tabs button { padding:6px 10px;border-radius:8px;font-size:11px; }
+.pv-tabs [aria-selected=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
+.change-journal .cj-frame { background:radial-gradient(ellipse at 80% 0%,color-mix(in srgb,var(--hdr-sky,#5b99f8) 10%,transparent),transparent 55%),var(--surface-overlay);box-shadow:inset 0 1px rgba(255,255,255,.2),0 20px 64px rgba(0,0,0,.35); }
+.change-journal button[aria-pressed=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
+@media (max-width:640px) {
+  .filter-instrument,.fi-entry,.fi-reset,.fi-undo button,.pv-tabs button,.change-journal button { min-height:44px;min-width:44px; }
+}
+
+.header-glass .hbar :is(.tg-month-active,.vf-btn-active,.vf-cur-active,.np-btn-active .np-content) {
+  position:relative;isolation:isolate;overflow:hidden;
+}
+.header-glass .hbar :is(.tg-month-active,.vf-btn-active,.vf-cur-active,.np-btn-active .np-content)::before {
+  content:'';position:absolute;inset:-100% 0;z-index:-1;pointer-events:none;
+  background:linear-gradient(180deg,var(--hdr-sky),var(--hdr-horizon) 50%,var(--hdr-sky));
+  animation:hdr-button-dawn 9s ease-in-out alternate infinite;
+}
+@keyframes hdr-button-dawn { from {transform:translate3d(0,-4%,0);} to {transform:translate3d(0,-10%,0);} }
+@media (prefers-reduced-motion:reduce) {
+  .header-glass .hbar :is(.tg-month-active,.vf-btn-active,.vf-cur-active,.np-btn-active .np-content)::before {animation:none !important;transform:none !important;}
+}
+
+/* Original live-update drum and three-layer feed; source events drive movement. */
+.hdr-selection-tools { display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:4px; }
+.hbar-journal,.hbar-provenance { width:100%; }
+.hbar-provenance > .uf-trigger { width:100%;height:64px;padding:4px 7px;text-align:left;gap:8px; }
+.uf-state { display:flex;flex-direction:column;gap:2px;flex:0 0 68px;font-weight:600; }
+.uf-mode { font-size:8px;font-weight:400;white-space:normal;color:var(--ink-muted); }
+.uf-tape { position:relative;display:block;flex:1;min-width:0;height:54px;overflow:hidden;perspective:320px; }
+.uf-lens { position:absolute;inset:18px 0;border-block:1px solid color-mix(in srgb,var(--hdr-sky) 25%,var(--line-soft));background:color-mix(in srgb,var(--hdr-sky) 7%,transparent); }
+.uf-preview-row { position:absolute;inset:18px 0 auto;display:grid;grid-template-columns:32px 48px minmax(0,1fr);gap:5px;height:18px;line-height:18px;font-size:9px;font-variant-numeric:tabular-nums;animation:uf-arrive .28s ease-out both; }
+.uf-preview-row>* { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.uf-preview-row>b { color:var(--ink-strong); }
+.uf-preview-0 { transform:none; }
+.uf-preview-1 { transform:perspective(320px) translateY(-18px) rotateX(8deg) scale(.94);opacity:.78; }
+.uf-preview-2 { transform:perspective(320px) translateY(18px) rotateX(-8deg) scale(.94);opacity:.78; }
+.uf-preview-empty { display:flex;height:100%;align-items:center;font-size:9px;white-space:normal;color:var(--ink-muted); }
+@keyframes uf-arrive { from {opacity:0;} }
+.hbar-provenance [role=dialog] { top:calc(100% + 8px);width:min(500px,calc(100vw - 16px));max-height:min(65vh,570px);padding:0;border-radius:14px; }
+.uf-panel-head { padding:13px 16px;background:var(--surface-sunken);border-bottom:1px solid var(--line-soft); }
+.uf-panel-head strong { font-size:12px;color:var(--ink-strong); }
+.uf-panel-head p,.uf-scope { margin-top:4px;font-size:10px;line-height:1.5;color:var(--ink-muted); }
+.uf-books { display:flex;gap:4px;flex-wrap:wrap;margin-top:8px; }
+.uf-books span { padding:3px 7px;border-radius:6px;font-size:10px;background:var(--surface-raised);color:var(--ink-muted); }
+.hbar-provenance .pv-tabs { padding:8px 12px;margin-bottom:0;background:var(--surface-sunken);position:sticky;top:0;z-index:2; }
+.hbar-provenance [role=tabpanel] { padding:12px 16px; }
+.uf-feed { display:flex;flex-direction:column;gap:3px; }
+.uf-event { display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line-soft); }
+.uf-time { font-size:10px;font-variant-numeric:tabular-nums;color:var(--ink-muted);padding-top:3px; }
+.uf-content { min-width:0;padding-left:12px;border-left:2px solid color-mix(in srgb,var(--hdr-sky,#75bfd4) 35%,var(--line-soft)); }
+.uf-change { font-size:12px;line-height:1.55;color:var(--ink);overflow-wrap:anywhere; }
+.uf-values { display:flex;gap:8px;flex-wrap:wrap;margin-top:3px;align-items:baseline; }
+.uf-values del { color:var(--ink-muted); }
+.uf-values strong { color:var(--ink-strong);background:color-mix(in srgb,var(--hdr-sky,#75bfd4) 12%,transparent);padding:1px 5px;border-radius:5px; }
+.uf-address,.uf-evidence { font-size:10px;line-height:1.5;margin-top:4px;color:var(--ink-muted);overflow-wrap:anywhere; }
+.uf-subject { font-size:11px;line-height:1.5;margin-top:5px;color:var(--ink); }
+.uf-drill { font-size:10px;color:var(--ink-strong);padding:4px 0;text-decoration:underline;text-underline-offset:3px; }
+.uf-comments { display:flex;flex-direction:column;gap:10px; }
+.uf-comment { padding:10px 12px;border-radius:10px;background:var(--surface-raised); }
+.uf-comment header { display:flex;flex-direction:column;gap:3px;font-size:11px; }
+.uf-comment header span { font-size:10px;color:var(--ink-muted); }
+.uf-comment-text,.uf-post p { font-size:11px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px; }
+.uf-comment details { margin-top:8px;font-size:10px; }
+.uf-comment summary { cursor:pointer;color:var(--ink-strong); }
+.uf-post { padding:8px;margin:6px 0;border-left:2px solid var(--line-strong); }
+.uf-empty { font-size:11px;line-height:1.5;color:var(--ink-muted); }
+@media(max-width:640px) {
+ .hbar-provenance > .uf-trigger { height:64px; }
+ .uf-state { flex-basis:47px; }
+ .uf-preview-row { grid-template-columns:28px minmax(0,1fr); }
+ .uf-preview-row>b { display:none; }
+ .hbar-provenance [role=dialog] { max-height:calc(100dvh - 280px); }
+ .uf-drill,.uf-comment summary { min-height:44px;display:flex;align-items:center; }
+}
+@media(prefers-reduced-motion:reduce) { .uf-preview-row {animation:none!important;} }
+
+
+/* Owner placement: live feed uses the upper-right slot; controls form one
+   coherent lower rail. Narrow screens retain full touch sizes in a grid. */
+.hbar-primary .hdr-ugol { flex:0 0 clamp(180px,18vw,280px);width:clamp(180px,18vw,280px);min-width:0;align-self:stretch;display:flex;align-items:center;padding:4px; }
+.hbar-primary .hdr-ugol .uf-state { flex-basis:52px; }
+.hbar-secondary .hbar-filters { flex:1; }
+.hbar-secondary .hbar-filters > :last-child { margin-left:auto; }
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum) { color:var(--hdr-ink,#1b170f)!important;text-shadow:none!important; }
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) .wr-range { font-weight:700; }
+/* Theme is immediately left of the bottom-right dot filter. */
+.hbar-secondary .hdr-selection-tools { margin-left:auto; }
+@media(max-width:640px) {
+ .hbar { display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center; }
+ .hbar-primary,.hbar-secondary { display:contents; }
+ .hbar .shield-hub { grid-column:1;grid-row:1; }
+ .hbar .hbar-drumline { grid-column:2/-1;grid-row:1; }
+ .hbar .hdr-ugol { grid-column:1/-1;grid-row:2;width:100%;min-width:0; }
+ .hbar .hbar-filters { grid-column:1/3;grid-row:3;width:100%; }
+ .hbar .hdr-selection-tools { grid-column:3;grid-row:3;margin-left:0; }
+}
+
+
+/* The selected week is a focused glass lens, not an unbounded neon halo. */
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) {
+ border-radius:7px;isolation:isolate;overflow:hidden;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.72),inset 0 -1px 0 rgba(27,23,15,.15),0 1px 3px rgba(0,0,0,.16),0 0 0 1px color-mix(in srgb,var(--hdr-sky) 28%,transparent);
+}
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty)::before {
+ inset:-40% -20%;border:0;border-radius:inherit;box-shadow:none;
+ background:radial-gradient(ellipse at 20% 0%,rgba(255,255,255,.025),transparent 55%),linear-gradient(135deg,transparent 30%,rgba(255,255,255,.02) 48%,transparent 65%);
+ transform:translate3d(-3%,0,0);animation:hdr-week-reflection 9s ease-in-out alternate infinite;
+}
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-label,.wr-wnum) {position:relative;z-index:1;}
+@keyframes hdr-week-reflection {to {transform:translate3d(3%,0,0);}}
+@media(prefers-reduced-motion:reduce) {.header-glass .hbar .wr-row-driving::before {animation:none!important;transform:none!important;}}
+/* Ambient page washes and neutral chart chrome share the same family. Signal,
+   department, budget and series colors keep their established meaning. */
+.page-context {
+ background-image:radial-gradient(ellipse at 85% 0%,color-mix(in srgb,var(--page-sky) 7%,transparent),transparent 58%),radial-gradient(ellipse at 0% 90%,color-mix(in srgb,var(--page-horizon) 6%,transparent),transparent 65%);
+ --chart-grid:color-mix(in srgb,var(--page-sky) 12%,var(--line-soft));
 }

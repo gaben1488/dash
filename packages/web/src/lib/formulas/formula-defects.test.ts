@@ -209,6 +209,19 @@ describe('сбор дефектов и счёт из данных', () => {
     // Номер строки листа ключом не является: сдвиг строк не орфанит дефект.
     expect(index.get(formulaRowKey('УО', '1894'))).toBeUndefined();
   });
+
+  it('историческое замечание шапки не прикрепляется к настоящей закупке №1', () => {
+    const defects = collectFormulaDefects([
+      { ...ISSUES[0], id: 'header', cell: 'AA1', row: 1, rowSeq: '1' },
+      { ...ISSUES[0], id: 'purchase', cell: 'AA4', row: 4, rowSeq: '1' },
+    ]);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '1'))?.map(d => d.id))
+      .toEqual(['purchase']);
+    // Исторический факт остаётся доступен в общем перечне для диагностики.
+    expect(defects.map(d => d.id)).toContain('header');
+    expect(countFormulaDefects(defects).total).toBe(1);
+    expect(defects[0].inapplicableReason).toContain('шапки');
+  });
 });
 
 // ────────────────────────────────────────────────────────────

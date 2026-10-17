@@ -1,5 +1,9 @@
 # AEMR Platform
 
+> **Исполнение 12.10.2026 (Камчатка):** действующий план — [docs/PLAN.md](docs/PLAN.md), канонические требования — [issue #69](https://github.com/gaben1488/dash/issues/69#issuecomment-6107363839), интеграционный кандидат — [PR #79](https://github.com/gaben1488/dash/pull/79). Исторические тестовые числа ниже не являются текущей приёмкой. Production требует exact-SHA release gate, полной проверенной резервной копии, восстановления/отката и допуска владельца.
+
+> **Актуальная перепроверка кода 10.10.2026:** [18 первоначальных замечаний с уточнёнными вердиктами](docs/superpowers/audits/2026-10-10-dash-code-review-verified/README.md). Не все из них подтверждены как production-баги; часть снята. Релизный и тестовый статус из исторического раздела ниже не является новым измерением. В аудите нет исправлений исходного кода или записей в живые источники.
+
 BI-платформа мониторинга закупочной деятельности Елизовского муниципального района.
 
 Проект читает Google Sheets, нормализует закупочные строки, считает KPI, сигналы, сверки и индекс доверия к данным, затем отдаёт Fastify API и React/Vite интерфейс.
@@ -21,16 +25,21 @@ docs/       архитектура, эксплуатация, security/review
 ## Требования
 
 - Node.js 22+
-- pnpm 10.33.0
+- pnpm 10.33.0 через Corepack (версия закреплена в `packageManager`)
 - Google service account с доступом к нужным таблицам
 
 ## Быстрый старт
 
 ```bash
-pnpm install
+corepack pnpm --version # ожидается 10.33.0
+corepack pnpm install --frozen-lockfile
 cp .env.example .env
-pnpm dev
+corepack pnpm dev
 ```
+
+Если глобальный `pnpm` другой версии, используйте `corepack pnpm` и для
+проверок/сборки. Не пересоздавайте lockfile или настройки overrides/patches
+ради запуска чужой версии менеджера пакетов.
 
 Откройте:
 
@@ -88,14 +97,23 @@ pnpm audit --audit-level moderate # dependency security audit
 
 Канонический production stack находится в `deploy/`: Caddy edge, отдельный web container и server container с persisted SQLite volume.
 
-```bash
-cd deploy
-cp .env.production.example .env.production
-# заполнить GOOGLE_*, AEMR_API_KEY, DOMAIN
-docker compose --env-file .env.production up -d --build
-```
+Выпуск выполняется по [release gate](deploy/README.md) и [runbook](docs/RUNBOOK.md).
+Прямой запуск `compose up --build` не является разрешённым обновлением действующего сервера.
+Конфигурация, постоянное состояние SQLite/WAL, архивы, рекомендации и документы должны
+сохраняться; зелёный CI сам по себе не разрешает deployment или запуск worker.
 
 Подробно: [deploy/README.md](deploy/README.md).
+
+Для отдельного восстановления уже остановленного report-worker предусмотрен
+owner-authorized `maintenance: restore-current-worker` в каноническом PR79.
+Он требует exact-head CI, read-only совместимость установленного server image,
+полную private backup с независимым восстановлением и отдельную пробу rollback
+reports/. Восстанавливается только worker, закреплённый на существующем image;
+Node/web и исходные Google-книги не развёртываются и не мигрируются. Приёмка
+требует два завершённых timer-цикла с доказанным владельцем FLOCK и все три
+Word-документа. Детальные receipts и backup остаются вне Git; полный выпуск
+новой версии проходит собственные gates отдельно.
+
 
 ## Документация
 

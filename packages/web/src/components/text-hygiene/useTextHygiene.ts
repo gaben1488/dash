@@ -1,9 +1,9 @@
 /**
  * useTextHygiene — загрузка перечня гигиены текста (GET /api/text-hygiene).
  *
- * Запрос уходит один раз на открытие раздела (enabled), повтор — только по
- * кнопке читателя: сервер держит пятиминутный кэш, дёргать его на каждое
- * переключение фильтров незачем — фильтры работают по уже полученному ответу.
+ * Запрос уходит при открытии раздела и принятии нового снимка источников.
+ * Кнопка читателя принудительно перечитывает книги; переключение
+ * фильтров не вызывает запрос — фильтры работают по уже полученному ответу.
  *
  * Кнопка «перечитать» шлёт ?refresh=true: сервер сначала перечитывает САМИ
  * книги и только потом пересчитывает. Без этого кнопка возвращала тот же
@@ -15,8 +15,9 @@
  * пришёл). Пустоту хук не выдумывает: «дефектов нет» и «книги не прочитаны»
  * различает сам ответ (cellsChecked, booksSilent), подменять их общим null нельзя.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchJSON, humanizeRequestError } from '../../api';
+import { useStore } from '../../store';
 import type { TextHygieneResponse } from './contract';
 
 export interface UseTextHygieneResult {
@@ -28,10 +29,12 @@ export interface UseTextHygieneResult {
 }
 
 export function useTextHygiene(enabled = true): UseTextHygieneResult {
+  const snapshotId = useStore((state) => state.dashboardData?.snapshot.id ?? null);
   const [data, setData] = useState<TextHygieneResponse | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const requestedAttempt = useRef(0);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -41,9 +44,11 @@ export function useTextHygiene(enabled = true): UseTextHygieneResult {
     setLoading(true);
     setError(null);
 
-    // Первый запрос живёт серверным кэшем (дёшево), повтор по кнопке требует
-    // свежести: перечитать книги и пересчитать, а не отдать то же окно кэша.
-    fetchJSON<TextHygieneResponse>(attempt === 0 ? '/text-hygiene' : '/text-hygiene?refresh=true')
+    // Только новое нажатие требует Google-чтения. После принятия общего
+    // снимка источники уже прочитаны: получаем актуальный серверный ответ.
+    const manualRead = attempt > requestedAttempt.current;
+    requestedAttempt.current = attempt;
+    fetchJSON<TextHygieneResponse>(manualRead ? '/text-hygiene?refresh=true' : '/text-hygiene')
       .then((response) => {
         if (cancelled) return;
         setData(response);
@@ -58,8 +63,10 @@ export function useTextHygiene(enabled = true): UseTextHygieneResult {
         if (!cancelled) setLoading(false);
       });
 
-    return () => { cancelled = true; };
-  }, [enabled, attempt]);
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, attempt, snapshotId]);
 
   return { data, loading, error, reload };
 }

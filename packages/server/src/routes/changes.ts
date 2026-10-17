@@ -14,7 +14,8 @@
  * рестарте, а молчащая книга выглядела как книга без правок.
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, getTableColumns, gte } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
 import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -63,12 +64,13 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
 /**
  * Устойчивый ключ записи журнала. У правки в источнике нет собственного
  * номера, поэтому опознаём её адресом: книга ГРБС + лист + ячейка + отметка
- * времени + автор. Ячейка несёт и строку, и колонку — две правки одной строки
+ * времени + автор + точные значения. Два разных перехода одной ячейки
  * в одну секунду не сливаются в одну запись. Журнал append-only, значит
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`;
+  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
+  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
 }
 
 /**
@@ -92,7 +94,9 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   if (records.length === 0) return 0;
   const recordedAt = now.toISOString();
   const byKey = new Map<string, typeof schema.changelogEntries.$inferInsert>();
+  const legacyKeys = new Map<string, string>();
   for (const r of records) {
+    legacyKeys.set(changeEntryKey(r), `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`);
     byKey.set(changeEntryKey(r), {
       id: changeEntryKey(r),
       dept: r.dept,
@@ -110,9 +114,20 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   let written = 0;
   db.transaction((tx) => {
     for (let i = 0; i < values.length; i += ENTRIES_PER_BATCH) {
+      const batch = values.slice(i, i + ENTRIES_PER_BATCH);
+      // Preserve legacy IDs in place. Upgrade must neither duplicate their
+      // identical values nor erase a different transition sharing the old ID.
+      const legacy = new Map(tx.select().from(schema.changelogEntries)
+        .where(inArray(schema.changelogEntries.id, batch.map(v => legacyKeys.get(v.id)!)))
+        .all().map(row => [row.id, row]));
+      const pending = batch.filter(value => {
+        const old = legacy.get(legacyKeys.get(value.id)!);
+        return !old || old.oldValue !== value.oldValue || old.newValue !== value.newValue;
+      });
+      if (pending.length === 0) continue;
       const res = tx
         .insert(schema.changelogEntries)
-        .values(values.slice(i, i + ENTRIES_PER_BATCH))
+        .values(pending)
         .onConflictDoNothing()
         .run();
       written += res.changes;

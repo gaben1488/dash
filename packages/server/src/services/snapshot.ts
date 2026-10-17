@@ -5,8 +5,10 @@ import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { db, schema } from '../db/index.js';
+import { recordSnapshotRead, snapshotReadContext } from './snapshot-read-context.js';
+import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
-import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
+import { and, eq, desc, getTableColumns, lt, sql, isNull } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
@@ -16,7 +18,22 @@ import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
-const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number }>();
+const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
+// Three calendar years in the UI plus the all-years view; old scopes remain in SQLite.
+const MAX_CACHED_SNAPSHOT_SCOPES = 4;
+let cacheGeneration = 0;
+
+function readState(snapshot: PipelineSnapshot, state: 'refreshing' | 'stale'): PipelineSnapshot {
+  return { ...snapshot, metadata: { ...snapshot.metadata, readModel: { state } } };
+}
+
+function rememberSnapshot(key: number, snapshot: PipelineSnapshot, timestamp: number): void {
+  cachedSnapshots.delete(key);
+  cachedSnapshots.set(key, { snapshot, timestamp, generation: cacheGeneration });
+  while (cachedSnapshots.size > MAX_CACHED_SNAPSHOT_SCOPES) {
+    cachedSnapshots.delete(cachedSnapshots.keys().next().value!);
+  }
+}
 
 /**
  * In-flight load memo per cache key (targetYear/0). Без него параллельные
@@ -25,6 +42,9 @@ const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp:
  * листов ГРБС + СВОД (B-9).
  */
 const inFlightLoads = new Map<number, Promise<PipelineSnapshot>>();
+// Different years share one CPU/memory budget; queued readers keep their saved scope.
+// ponytail: one materializer per API process; use one bounded worker before multi-process scaling.
+let materializationTail: Promise<void> = Promise.resolve();
 
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
@@ -429,32 +449,57 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
 
   const cached = cachedSnapshots.get(cacheKey);
   if (!force && cached && (now - cached.timestamp) < ttl) {
-    return cached.snapshot;
+    return recordSnapshotRead(cached.snapshot);
   }
 
-  // Дедуп конкурентных загрузок: если для этого cacheKey уже идёт createSnapshot(),
-  // все параллельные caller'ы дожидаются ОДНОГО общего промиса вместо запуска своего
-  // (иначе — TOCTOU-гонка, дублирующая полную перечитку всех листов, B-9).
+  // Reading a page must not await Google, calculations, persistence and pruning.
+  // Keep the last proven scope; its createdAt remains the actual captured time.
+  if (!force && !isDemoMode) {
+    const needsStorageRead = !cached || cached.generation !== cacheGeneration;
+    const previous = needsStorageRead
+      ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
+      : cached.snapshot;
+    if (previous && needsStorageRead) rememberSnapshot(cacheKey, previous, 0);
+    if (!inFlightLoads.has(cacheKey)) {
+      void snapshotReadContext.exit(() => getSnapshot(true, year)).catch((error: unknown) => {
+        logSourceProblem('Фоновая сборка снимка не завершена', {
+          reason: classifySourceFailure(error instanceof Error ? error.message : String(error)),
+        });
+      });
+    }
+    if (previous) return recordSnapshotRead(readState(previous, 'refreshing'));
+    throw Object.assign(new Error('Срез этого периода ещё готовится. Повторите чтение после обновления.'),
+      { code: 'SNAPSHOT_NOT_READY', statusCode: 503 });
+  }
+
   const inFlight = inFlightLoads.get(cacheKey);
-  if (inFlight) {
-    return inFlight;
-  }
-
+  if (inFlight) return recordSnapshotRead(await inFlight);
+  let generation = cacheGeneration;
+  const build = materializationTail.then(() => {
+    generation = cacheGeneration;
+    return createSnapshot(year);
+  });
+  // Do not retain the large result, or let one failed scope poison the queue.
+  materializationTail = build.then(() => undefined, () => undefined);
   const loadPromise = (async () => {
     try {
-      const snapshot = await createSnapshot(year);
+      const snapshot = await build;
+      // An invalidation while loading cannot become a falsely fresh cache hit.
+      const changedDuringLoad = generation !== cacheGeneration;
+      const result = changedDuringLoad && !snapshot.metadata.readModel
+        ? readState(snapshot, 'refreshing') : snapshot;
       if (!snapshot.id.startsWith('demo-')) {
-        cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
+        // A failed import keeps its explicit stale state for the normal retry interval.
+        rememberSnapshot(cacheKey, result, changedDuringLoad && result.metadata.readModel?.state !== 'stale' ? 0 : Date.now());
       }
-      announceSnapshot(snapshot, year ?? null);
-      return snapshot;
+      announceSnapshot(result, year ?? null);
+      return result;
     } finally {
       inFlightLoads.delete(cacheKey);
     }
   })();
-
   inFlightLoads.set(cacheKey, loadPromise);
-  return loadPromise;
+  return recordSnapshotRead(await loadPromise);
 }
 
 /**
@@ -693,7 +738,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }
 
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
-    await saveSnapshot(snapshot);
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_PERSIST_FAILED');
+    }
 
     return snapshot;
   } catch (error) {
@@ -702,14 +749,14 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // пайплайна после чтения) отдаётся честно: последний сохранённый снимок из SQL,
     // а если истории нет — ошибка пробрасывается, и роуты отвечают 503.
     if (!isDemoMode) {
-      const last = loadLatestSavedSnapshot();
+      const last = loadLatestSavedSnapshot(targetYear);
       if (last) {
         logSourceProblem('Снимок не собран — отдан последний сохранённый из базы', {
           reason: classifySourceFailure((error as Error)?.message ?? String(error)),
           snapshotId: last.id,
           createdAt: last.createdAt,
         });
-        return last;
+        return readState(last, 'stale');
       }
       throw error;
     }
@@ -727,22 +774,30 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
 /**
  * Последний сохранённый настоящий снимок из SQL — фолбэк на сбой источника при
  * настроенных кредах. Просматриваем несколько последних строк: повреждённый
- * data-JSON не должен лишать продукт более старого целого снимка. Снимок может
- * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
- * отличие от демо-генератора.
+ * data-JSON не должен лишать продукт более старого целого снимка. Периметр должен точно
+ * совпадать с запрошенным: чужой год или all-years не являются заменой.
  */
-function loadLatestSavedSnapshot(): PipelineSnapshot | null {
+function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
+    const scopeType = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') END`;
+    const scopeValue = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_extract(${schema.snapshots.data}, '$.metadata.targetYear') END`;
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
+      // Scope before limit: retained heads of other years/books are not candidates.
+      .where(and(
+        eq(schema.snapshots.spreadsheetId, config.google.spreadsheetId),
+        eq(scopeType, targetYear === undefined ? 'null' : 'integer'),
+        targetYear === undefined ? isNull(scopeValue) : eq(scopeValue, targetYear),
+      ))
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)
-      .all();
-    for (const row of rows) {
+      .toSQL();
+    for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
+      const row = raw as { data: string | null };
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) return snapshot;
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
       }
@@ -988,13 +1043,6 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   }
 }
 
-/**
- * Сколько последних снимков просматриваем в поиске строк-атомов. Снимки без
- * rowsByDept (сохранённые до 2026-07-24) пропускаются — лимит не даёт разбору
- * многомегабайтных JSON уйти вглубь истории без шанса на успех.
- */
-const SNAPSHOT_LOOKBACK_LIMIT = 50;
-
 const MS_PER_DAY = 86_400_000;
 const MS_PER_HOUR = 3_600_000;
 
@@ -1017,8 +1065,8 @@ const productDayEndIso = (day: number, utcOffsetHours: number): string =>
  * Камчатка +12): снимок пятницы продукта 00:30 (= четверг 12:30 UTC) в срез
  * «≤ четверг» НЕ входит — иначе он затенял бы настоящий снимок среза (ревью
  * R2a №4). Строконосность префильтруется в SQL маркером instr — до
- * SNAPSHOT_LOOKBACK_LIMIT многомегабайтных JSON не разбираются зря (№10);
- * разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
+ * SQLite cursor держит в памяти не более одного JSON; число отклонённых
+ * кандидатов не обрезает доступ к пригодному архиву. Разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
  * пустого объекта).
  */
 export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
@@ -1029,10 +1077,10 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
       sql`instr(${schema.snapshots.data}, '"rowsByDept"') > 0`,
     ))
     .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK_LIMIT)
-    .all();
+    .toSQL();
 
-  for (const row of rows) {
+  for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
+    const row = raw as { data: string | null };
     if (!row.data) continue;
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
@@ -1046,13 +1094,26 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   return null;
 }
 
-export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
-  return db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
+/** Упорядоченный SQLite cursor: число отклонённых попыток не ограничивает доноров. */
+export function* iterateWeeklySnapshotHistory(): Generator<{ id: string; createdAt: string }> {
+  const query = db.select({ id: schema.snapshots.id, createdAt: sql<string>`${schema.snapshots.createdAt}`.as('createdAt') })
     .from(schema.snapshots)
     .where(sql`instr(${schema.snapshots.data}, '"weeklyTableContext"') > 0`)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(limit)
-    .all();
+    .orderBy(desc(schema.snapshots.createdAt), desc(schema.snapshots.id))
+    .toSQL();
+  for (const raw of db.$client.prepare(query.sql).iterate(...query.params)) {
+    yield raw as { id: string; createdAt: string };
+  }
+}
+
+/** Совместимый metadata API; проверенные потребители используют cursor до своего result-cap. */
+export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
+  const result: Array<{ id: string; createdAt: string }> = [];
+  for (const row of iterateWeeklySnapshotHistory()) {
+    if (result.length >= limit) break;
+    result.push(row);
+  }
+  return result;
 }
 
 export function getSnapshotHistory(limit = 50): Array<{
@@ -1104,5 +1165,6 @@ export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
 }
 
 export function invalidateCache(): void {
-  cachedSnapshots.clear();
+  cacheGeneration++;
+  for (const entry of cachedSnapshots.values()) entry.timestamp = 0;
 }

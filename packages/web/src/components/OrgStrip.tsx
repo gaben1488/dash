@@ -1,7 +1,8 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store';
-import { isOrgItself } from '@aemr/shared';
+import { isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
 import clsx from 'clsx';
+import { compactSubordinateLabel } from '../lib/subordinate-label';
 import { ChevronDown } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -10,7 +11,7 @@ import { ChevronDown } from 'lucide-react';
    - ГРБС header = click selects dept + all subs
    - "только упр." button = select dept only (no subs)
    - Sub chips = only real subordinates (self-references removed)
-   - Names abbreviated uniformly to acronyms: МБОУ "Елизовская СШ №9" → ЕСШ9
+   - Compact names come from the shared approved dictionary; unknown names stay intact
    - Subs grouped by type with color tints
    - Strip width: 120px
    ═══════════════════════════════════════════════════════════════════ */
@@ -47,12 +48,10 @@ function detectGroup(name: string): { label: string; tint: string } | null {
   return null;
 }
 
-/** Check if a sub name is actually the department itself (self-reference).
- *  "Администрирование", "Опека", or when sub name contains the dept abbreviation.
- *  П.51 (14.08.2026): плейсхолдеры колонки C («X/x/Х/х», тире, «н/д», пусто)
- *  = закупка самого управления — канон-предикат isOrgItself (@aemr/shared),
- *  а не свой regex: разъехавшиеся копии предиката и рождали фейковые подведы. */
-const SELF_REF_PATTERNS = /^администрир|^опека$|^управлен/i;
+/** Only actual self-references belong to the department itself.
+ * «Опека» and «Администрирование» are real УО business categories with
+ * rows in source C; they must remain selectable, like «Совместные закупки». */
+const SELF_REF_PATTERNS = /^управлен/i;
 export function isSelfReference(subName: string, deptId: string): boolean {
   if (subName === '_org_itself') return true;
   if (isOrgItself(subName)) return true;
@@ -71,63 +70,6 @@ export function isSelfReference(subName: string, deptId: string): boolean {
  */
 export function deptPositionsCount(realSubsCount: number): number {
   return realSubsCount + 1; // + само управление (строки-заглушки X/Х колонки C)
-}
-
-/** Abbreviate sub name to uniform short label for chip display.
- *  Strategy: strip all org-type prefixes + brackets, then shorten what remains.
- *  Examples:
- *    МБУ ДО "КДМШ" → КДМШ
- *    МБУ ДО «ДШИ п.Термальный» → ДШИ Терм.
- *    МБОУ «Елизовская СОШ №9» → ЕСОШ №9
- *    МКУ "ЦБ УО" → ЦБ УО
- *    МБУДО Подростковый центр «Патриот» → ЦПатриот
- *    МБУК «Районный ДК» → РДК
- */
-function abbreviateSub(name: string): string {
-  // 1. Strip org-type prefix completely
-  let inner = name
-    .replace(/^(?:МКУ|МБУ\s*ДО|МБУДО|МБУК|МБОУ|МАОУ|МАУ|МБУ|МБДОУ|МАДОУ|МКОУ|МУП)\s*/i, '')
-    .trim();
-
-  // 2. Remove ALL quote/bracket pairs: «», "", ""
-  inner = inner.replace(/[«»""]/g, '').trim();
-
-  // 3. If already short (<=7 chars) — return as-is
-  if (inner.length <= 7) return inner;
-
-  // 4. If all-caps abbreviation (possibly with spaces/numbers) — return as-is
-  if (/^[А-ЯЁA-Z\s\d№.]+$/.test(inner) && inner.length <= 12) return inner;
-
-  // 5. Extract number (№9, №12) to append later
-  const numMatch = inner.match(/№\s*(\d+)/);
-  const num = numMatch ? ` №${numMatch[1]}` : '';
-  let base = inner.replace(/№\s*\d+/g, '').trim();
-
-  // 6. Remove location prefixes: п., г., с., пос., etc.
-  base = base.replace(/\b(?:п|г|с|пос|ст|мкр)\.\s*/gi, '');
-
-  // 7. Split into words, build short form
-  const SKIP = /^(и|в|на|по|для|от|из|при|им|имени|муниципальное|муниципальная|муниципальный|бюджетное|казённое|автономное)$/i;
-  const words = base.split(/[\s\-–]+/).filter(w => w.length > 0 && !SKIP.test(w));
-
-  if (words.length === 0) return inner;
-
-  if (words.length === 1) {
-    const w = words[0];
-    // Already an abbreviation
-    if (/^[А-ЯЁ]{2,6}$/.test(w)) return w + num;
-    // Truncate long single word
-    return (w.length > 8 ? w.slice(0, 7) + '.' : w) + num;
-  }
-
-  // Multi-word: take first letter of each, but keep existing abbreviations whole
-  const parts = words.map(w => {
-    if (/^[А-ЯЁA-Z]{2,5}$/.test(w)) return w;  // СОШ, ДШИ, ДК — keep
-    if (/^[А-ЯЁA-Z][а-яё]+$/.test(w) && w.length <= 4) return w; // Луч — keep
-    return w[0].toUpperCase();
-  });
-
-  return parts.join('') + num;
 }
 
 const COLLAPSE_THRESHOLD = 5;
@@ -298,8 +240,8 @@ export function OrgStrip() {
               {hasSubs && (
                 <div className="ob-chips">
                   {visibleItems.map(({ sub, groupTint }) => {
-                    const subActive = !isDeptOnly && (noFilter || selectedSubordinates.has(sub) || (isDeptSelected && selectedSubordinates.size === 0));
-                    const chipLabel = abbreviateSub(sub);
+                    const subActive = !isDeptOnly && (noFilter || [...selectedSubordinates].some(selected => subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub)) || (isDeptSelected && selectedSubordinates.size === 0));
+                    const chipLabel = compactSubordinateLabel(sub);
                     const chipColor = groupTint ?? dept.color;
                     return (
                       <button

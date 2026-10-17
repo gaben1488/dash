@@ -85,6 +85,8 @@ export interface SubRow {
    * подведов — выдуманное число вместо честной пустоты.
    */
   issueCount: number | null;
+  /** Book-level checks without a proven organization address. */
+  unattributedIssueCount?: number;
   /**
    * Аппарат управления (собственные строки ГРБС). Это не подведомственная
    * организация: в счётчик подведов он не входит и показывается отдельной
@@ -366,11 +368,13 @@ function CellProgress({ value, metricKey }: { value: number | null; metricKey: s
  * ноль: «плана не было» и «исполнено ноль» — разные вещи.
  */
 function SubLine({ sub }: { sub: SubRow }) {
+  const attributionNote = sub.unattributedIssueCount
+    ? ` Ещё ${sub.unattributedIssueCount} замечаний книги без привязки к организации — в общем счёте управления.` : '';
   const issuesHint = sub.issueCount == null
     ? 'Замечания ведутся по книге управления целиком — по организациям они не разложены'
     : sub.issueCount === 0
-      ? 'Замечаний нет'
-      : `Замечаний: ${sub.issueCount}`;
+      ? 'Активных замечаний с привязкой к этой организации нет' + attributionNote
+      : `Активных замечаний с привязкой к этой организации: ${sub.issueCount}` + attributionNote;
 
   return (
     <div className="flex items-center gap-4 px-3 py-2 rounded-xl hover:bg-white dark:hover:bg-zinc-800/60 transition-colors text-xs group/sub">

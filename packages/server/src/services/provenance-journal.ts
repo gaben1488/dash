@@ -49,7 +49,7 @@
  */
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { CHANGELOG_SHEET_NAME, readChangelogRows, resetChangelogSource } from './changelog-source.js';
+import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource } from './changelog-source.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export { CHANGELOG_SHEET_NAME };
@@ -92,19 +92,22 @@ function looksLikeCell(value: unknown): boolean {
  * что вообще не является записью правки (шапка листа, пустые строки): у них ни
  * в первой, ни во второй ячейке нет адреса.
  */
-export function parseProvenanceJournal(rows: readonly unknown[][]): {
+export function parseProvenanceJournal(rows: readonly unknown[][], reading?: { spreadsheetId: string; at: number }): {
   records: JournalRecord[];
   rowKeyless: number;
 } {
   const records: JournalRecord[] = [];
   let rowKeyless = 0;
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     if (!Array.isArray(row) || row.length < 5) continue;
+    const source = reading ? { spreadsheetId: reading.spreadsheetId, journalSheet: CHANGELOG_SHEET_NAME,
+      journalRow: index + 1, readAt: reading.at } : undefined;
 
     // Схема 8 колонок: адрес во второй ячейке, ключ строки — в четвёртой.
     if (looksLikeCell(row[1])) {
       records.push({
+        ...(source ? { source } : {}),
         sheet: row[0],
         cell: row[1],
         column: row[2],
@@ -121,6 +124,7 @@ export function parseProvenanceJournal(rows: readonly unknown[][]): {
     if (looksLikeCell(row[0])) {
       rowKeyless += 1;
       records.push({
+        ...(source ? { source } : {}),
         sheet: '',
         cell: row[0],
         column: '',
@@ -139,7 +143,8 @@ export function parseProvenanceJournal(rows: readonly unknown[][]): {
 }
 
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
-const cache = new Map<string, BookJournal>();
+const cache = new Map<string, { spreadsheetId: string; journal: BookJournal }>();
+const inFlight = new Map<string, { spreadsheetId: string; request: Promise<BookJournal> }>();
 
 /**
  * Сбрасывает окно кэша — нужен тестам и ручной перечитке. Сбрасывается И общий
@@ -148,6 +153,7 @@ const cache = new Map<string, BookJournal>();
  */
 export function resetProvenanceJournalCache(): void {
   cache.clear();
+  inFlight.clear();
   resetChangelogSource();
 }
 
@@ -162,34 +168,25 @@ export async function readBookJournal(
   now: number = Date.now(),
 ): Promise<BookJournal> {
   const cached = cache.get(dept);
-  if (cached && now - cached.readAt < CACHE_TTL_MS) return cached;
+  if (cached?.spreadsheetId === spreadsheetId && now - cached.journal.readAt < CACHE_TTL_MS) return cached.journal;
+  if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
+  const pending = inFlight.get(dept);
+  if (pending?.spreadsheetId === spreadsheetId) return pending.request;
 
-  try {
-    const rows = await readChangelogRows(dept, spreadsheetId, now);
-    const { records, rowKeyless } = parseProvenanceJournal(rows);
-    const journal: BookJournal = {
-      dept,
-      available: true,
-      records,
-      rowKeyless,
-      rawRows: rows.length,
-      readAt: now,
-    };
-    cache.set(dept, journal);
+  const request = readChangelogReading(dept, spreadsheetId, now).then((reading): BookJournal => {
+    const { records, rowKeyless } = parseProvenanceJournal(reading.rows, reading);
+    const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, readAt: reading.at };
+    if (inFlight.get(dept)?.request === request) cache.set(dept, { spreadsheetId, journal });
     return journal;
-  } catch (err) {
-    // Кэшировать отказ нельзя: иначе книга, ожившая через минуту, ещё пять
-    // минут числилась бы молчащей.
-    return {
-      dept,
-      available: false,
-      records: [],
-      rowKeyless: 0,
-      rawRows: 0,
-      readAt: now,
-      error: (err as Error).message,
-    };
-  }
+  }).catch((err): BookJournal => {
+    // Отказ не становится успешным пустым чтением и не кэшируется.
+    return { dept, available: false, records: [], rowKeyless: 0, rawRows: 0,
+      readAt: now, error: (err as Error).message };
+  }).finally(() => {
+    if (inFlight.get(dept)?.request === request) inFlight.delete(dept);
+  });
+  inFlight.set(dept, { spreadsheetId, request });
+  return request;
 }
 
 /**

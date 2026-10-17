@@ -28,7 +28,7 @@ export interface RowProvenanceResponse {
   deptName: string;
   sheetName: string;
   /** «№ п/п» закупки — ключ, которым журнал правок помечает строку. */
-  rowSeq: number;
+  rowSeq: string;
   /** Номер строки листа (1-based) — адрес для глаз, он подвижен. */
   sheetRow: number;
   subject: string;

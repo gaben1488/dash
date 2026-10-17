@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -16,6 +16,8 @@ import { formulaIntegrityIssues } from './formula-integrity.js';
 import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 
 export interface PipelineInput {
+  /** Explicit historical clock; live runs capture one clock at pipeline entry. */
+  asOf?: Date;
   /** Ответ batchGet для официальных ячеек */
   batchGetData: Array<{
     range: string;
@@ -543,6 +545,8 @@ export interface PipelineSnapshot extends DataSnapshot {
 }
 
 export function runPipeline(input: PipelineInput): PipelineSnapshot {
+  const asOf = input.asOf === undefined ? new Date() : input.asOf;
+  if (!(asOf instanceof Date) || !Number.isFinite(asOf.getTime())) throw new Error('INVALID_SNAPSHOT_AS_OF');
   const pipelineStart = Date.now();
   const snapshotId = nanoid();
 
@@ -571,7 +575,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
     perSheetRowCount[sheetName] = classified.length;
 
     // Валидация строк
-    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap);
+    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap, asOf);
     allIssues.push(...sheetIssues);
 
     // Signal detection + CalcEngine only for department sheets (СВОД has
@@ -588,7 +592,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
-      const sheetSignals = detectSheetSignals(rows as unknown[][]);
+      const sheetSignals = detectSheetSignals(rows as unknown[][], asOf);
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
@@ -688,7 +692,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
   return {
     id: snapshotId,
     spreadsheetId: input.spreadsheetId,
-    createdAt: new Date().toISOString(),
+    createdAt: asOf.toISOString(),
     officialMetrics: Object.fromEntries(officialMetrics),
     calculatedMetrics: Object.fromEntries(calculatedMetrics),
     deltas,
@@ -704,6 +708,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       cellsRead: ingestResult.cells.size,
       readDurationMs: ingestResult.durationMs,
       pipelineDurationMs: Date.now() - pipelineStart,
+      targetYear: input.targetYear ?? null,
       perSheetRowCount,
     },
   };
@@ -866,6 +871,7 @@ const SIGNAL_ISSUE_MAP: Record<string, {
  */
 function detectSheetSignals(
   rows: unknown[][],
+  asOf: Date,
 ): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
   const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
   for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
@@ -873,7 +879,7 @@ function detectSheetSignals(
     if (!row || row.length < 5) continue;
     const cells = buildCellDict(row);
     try {
-      out.set(r, { cells, signals: detectSignals(cells) });
+      out.set(r, { cells, signals: detectSignals(cells, asOf) });
     } catch { /* skip unparseable rows */ }
   }
   return out;
@@ -916,19 +922,31 @@ function detectSignalsToIssues(
       // один и лежит в @aemr/shared: замечание конвейера, чип Реестра и
       // проверка источника на сервере обязаны звать одну функцию, иначе список
       // критических разойдётся с цветом чипов на экране.
+      const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
+        factDateRaw: cells['Q'], planDateRaw: cells['N'], factSum: sheetNumber(cells['Y']) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        necessityJustification: cells.AE, commentGRBS: cells.AF };
+      const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
+      // Nonempty UNMAPPED is a proven dictionary limitation, not employee misconduct.
+      // Reuse the existing diagnostic classification while preserving this case's stable ID.
+      const dictionaryUncertainty = signalKey === 'epRisk' && typeof cells.M === 'string'
+        && cells.M.trim().length > 0
+        && canonicalizeReasonEp(cells.M.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED';
+      const amountUncertainty = signalKey === 'epRisk' && epContext.amountBasis === 'position-total' && !annualAggregate;
+      const classification = dictionaryUncertainty ? SIGNAL_ISSUE_MAP.unmappedReasonEP
+        : amountUncertainty ? { ...meta, group: 'completeness' as const } : meta;
       const severity: Issue['severity'] = signalKey === 'epRisk'
-        ? epRiskStrictnessOfReason(cells['M'])
-        : meta.severity;
+        ? epRiskStrictnessOfReason(cells['M'], epContext)
+        : signalKey === 'futureFactDate' ? futureFactDateSeverity(epContext) : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity,
-        origin: 'bi_heuristic',
+        origin: dictionaryUncertainty || amountUncertainty ? 'mapping_error' : 'bi_heuristic',
         category: `signal:${signalKey}`,
         signal: signalKey,
-        group: meta.group,
-        checkId: meta.checkId,
-        kbHint: meta.kbHint,
-        title: `${meta.title}: ${subject || `строка ${r + 1}`}`,
+        group: classification.group,
+        checkId: classification.checkId,
+        kbHint: amountUncertainty ? epRiskReviewDetails(cells.M, epContext).explanation : classification.kbHint,
+        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).title : meta.title}: ${subject || `строка ${r + 1}`}`,
         // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
         // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).
         description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}${
@@ -943,7 +961,7 @@ function detectSignalsToIssues(
         rowSeq: String(cells['A'] ?? '').trim() || undefined,
         departmentId: deptId,
         subordinateId,
-        recommendation: meta.recommendation,
+        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).explanation : meta.recommendation,
         status: 'open',
         detectedAt: now,
         detectedBy: `pipeline:signal:${signalKey}`,
