@@ -31,10 +31,12 @@ const readCurrentDeptRow = vi.fn(async () => {
   row[0] = 1; row[6] = 'Закупка 1';
   return row;
 });
+const readCurrentDeptRowFormulas = vi.fn(async () => dataRow(1));
 
 vi.mock('../services/google-sheets.js', () => ({
   writeCellValue,
   readCurrentDeptRow,
+  readCurrentDeptRowFormulas,
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
   batchGetCells: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
   batchGetFormulas: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
@@ -87,8 +89,98 @@ beforeEach(() => {
   writeCellValue.mockClear();
   readCurrentDeptRow.mockClear();
   readCurrentDeptRow.mockImplementation(async () => sheetValues()[3]);
+  readCurrentDeptRowFormulas.mockReset();
+  readCurrentDeptRowFormulas.mockImplementation(async () => dataRow(1));
   writeCellValue.mockImplementation(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
   setDeptSheetCache({ 'УО': { values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
+});
+
+describe('source row and actual formula protection', () => {
+  async function save(method: 'PUT' | 'POST', expectedRevision?: string) {
+    return method === 'PUT'
+      ? app.inject({ method, url: '/api/rows/uo/4/field',
+          payload: { field: 'H', value: 123, expectedRevision } })
+      : app.inject({ method, url: '/api/data/rows',
+          payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 123 }, expectedRevision }] } });
+  }
+
+  async function intentCount() {
+    const { db, schema } = await import('../db/index.js');
+    return db.select().from(schema.auditLog).all().filter(r => r.action === 'cell_edit_intent').length;
+  }
+
+  it.each(['PUT', 'POST'] as const)('%s refuses a total row read from the live source', async (method) => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const total = dataRow(1); total[6] = 'ИТОГО по управлению';
+    readCurrentDeptRow.mockResolvedValueOnce(total);
+    const before = await intentCount();
+    const response = await save(method, rowRevision(total));
+    expect(response.statusCode).toBe(method === 'PUT' ? 403 : 207);
+    expect(response.json()).toMatchObject(method === 'PUT'
+      ? { error: expect.stringContaining('служебная') }
+      : { results: [{ success: false, error: expect.stringContaining('служебная') }] });
+    expect(writeCellValue).not.toHaveBeenCalled();
+    expect(await intentCount()).toBe(before);
+  });
+
+  it.each(['PUT', 'POST'] as const)('%s protects a live total even when the legacy cache still contains a purchase', async (method) => {
+    const total = dataRow(1); total[0] = 'ИТОГО'; total[6] = '';
+    readCurrentDeptRowFormulas.mockResolvedValueOnce(total);
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 403 : 207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it.each(['PUT', 'POST'] as const)('%s refuses an actual formula in an otherwise editable column', async (method) => {
+    const formulas = dataRow(1); formulas[7] = '=SUM(H8:H10)';
+    readCurrentDeptRowFormulas.mockResolvedValueOnce(formulas);
+    const before = await intentCount();
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 403 : 207);
+    expect(response.json()).toMatchObject(method === 'PUT'
+      ? { error: expect.stringContaining('формул') }
+      : { results: [{ success: false, error: expect.stringContaining('формул') }] });
+    expect(writeCellValue).not.toHaveBeenCalled();
+    expect(await intentCount()).toBe(before);
+  });
+
+  it.each(['PUT', 'POST'] as const)('%s fails closed when the source formula read fails', async (method) => {
+    readCurrentDeptRowFormulas.mockRejectedValueOnce(new Error('source unavailable'));
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 503 : 207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it.each(['PUT', 'POST'] as const)('%s does not treat a missing source row as proof of no formulas', async (method) => {
+    readCurrentDeptRowFormulas.mockResolvedValueOnce([]);
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 409 : 207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it.each(['Итоговый отчёт', 'Разделочные доски', 'Блок питания'])('allows a real purchase named %s', async (subject) => {
+    const values = sheetValues(); values[3]![6] = subject;
+    setDeptSheetCache({ 'УО': { values, formulas: [], sheetName: 'ВСЕ' } });
+    readCurrentDeptRowFormulas.mockResolvedValueOnce(values[3]!);
+    const response = await save('PUT');
+    expect(response.statusCode).toBe(200);
+    expect(getDeptSheetValues().УО![3]![7]).toBe(123);
+  });
+
+  it('preserves the valid cell outcome in a mixed batch with a formula cell', async () => {
+    const formulas = dataRow(1); formulas[7] = '=SUM(H8:H10)';
+    readCurrentDeptRowFormulas.mockResolvedValueOnce(formulas);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 123, G: 'Новый предмет' } }] } });
+    expect(response.statusCode).toBe(207);
+    expect(response.json()).toMatchObject({ results: [
+      { field: 'H', success: false, error: expect.stringContaining('формул') },
+      { field: 'G', success: true },
+    ] });
+    expect(writeCellValue).toHaveBeenCalledTimes(1);
+    expect(writeCellValue).toHaveBeenCalledWith(expect.any(String), 'ВСЕ', 'G4', 'Новый предмет');
+    expect(getDeptSheetValues().УО![3]![7]).toBe('');
+  });
 });
 
 describe('guarded row writes against live source movement', () => {

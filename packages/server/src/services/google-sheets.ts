@@ -469,6 +469,24 @@ export async function readCurrentDeptRow(
   sheetName: string,
   rowIndex: number,
 ): Promise<unknown[]> {
+  return readDeptRow(spreadsheetId, sheetName, rowIndex, 'UNFORMATTED_VALUE');
+}
+
+/** Same bounded live row, with formulas preserved rather than their results. */
+export async function readCurrentDeptRowFormulas(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+): Promise<unknown[]> {
+  return readDeptRow(spreadsheetId, sheetName, rowIndex, 'FORMULA');
+}
+
+async function readDeptRow(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+  valueRenderOption: 'UNFORMATTED_VALUE' | 'FORMULA',
+): Promise<unknown[]> {
   if (!Number.isSafeInteger(rowIndex) || rowIndex < 4) {
     throw new Error('ROW_ADDRESS_INVALID');
   }
@@ -480,7 +498,7 @@ export async function readCurrentDeptRow(
         {
           spreadsheetId,
           range: sheetValuesRange(sheetName, `A${rowIndex}:AH${rowIndex}`),
-          valueRenderOption: 'UNFORMATTED_VALUE',
+          valueRenderOption,
           dateTimeRenderOption: 'FORMATTED_STRING',
           majorDimension: 'ROWS',
         },

@@ -13,7 +13,7 @@ import {
   isOrgItself,
   toNumber as sheetNumber,
 } from '@aemr/shared';
-import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow } from '../services/google-sheets.js';
+import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow, readCurrentDeptRowFormulas } from '../services/google-sheets.js';
 import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
 import { withRowWriteLock } from '../services/row-write-lock.js';
 import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
@@ -91,6 +91,22 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
+  return null;
+}
+
+/** Live row evidence is required even for explicitly enabled legacy writes. */
+function sourceCellWriteError(row: readonly unknown[], formulas: readonly unknown[], field: string): { status: 403 | 409; error: string } | null {
+  if (formulas.length === 0) {
+    return { status: 409, error: 'Исходная строка исчезла или переместилась — обновите реестр; правка не выполнялась' };
+  }
+  if ([row[0], row[DEPT_COLUMNS.SUBJECT], formulas[0], formulas[DEPT_COLUMNS.SUBJECT]]
+    .some(value => isMetaRow(String(value ?? '')))) {
+    return { status: 403, error: 'Это итоговая или служебная строка — её ячейки нельзя изменять через реестр' };
+  }
+  const formula = formulas[COL_LETTER_INDEX[field]];
+  if (typeof formula === 'string' && formula.trimStart().startsWith('=')) {
+    return { status: 403, error: 'Выбранная ячейка содержит формулу — измените исходные данные, правка не выполнялась' };
+  }
   return null;
 }
 
@@ -398,6 +414,15 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
         return reply.status(409).send({ error: 'Строка изменилась или переместилась. Обновите реестр; правка не выполнена.' });
       }
+      let formulas: unknown[];
+      try {
+        formulas = await readCurrentDeptRowFormulas(spreadsheetId, sheetName, idx);
+      } catch (readErr) {
+        app.log.warn({ err: readErr }, 'field-update: source formula preflight failed');
+        return reply.status(503).send({ error: 'Формулы исходной строки не прочитаны — правка не выполнялась' });
+      }
+      const sourceError = sourceCellWriteError(originalRow, formulas, field);
+      if (sourceError) return reply.status(sourceError.status).send({ error: sourceError.error });
       const previousValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
       try {
         db.insert(schema.auditLog).values({
@@ -618,10 +643,28 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
         }
 
+        let formulas: unknown[];
+        try {
+          sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+          formulas = await readCurrentDeptRowFormulas(spreadsheetId, sheetName, entry.rowIndex);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: source formula preflight failed');
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Формулы исходной строки не прочитаны — запись не выполнялась' });
+          }
+          return;
+        }
+
       let writeBlocked = false;
       const changedIndexes: number[] = [];
       let confirmedRevision: string | undefined;
       for (const [field, rawValue] of validChanges) {
+        const sourceError = sourceCellWriteError(originalRow, formulas, field);
+        if (sourceError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: sourceError.error });
+          continue;
+        }
         if (writeBlocked) {
           results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
             error: 'Остальные правки не выполнялись: предыдущая запись не подтверждена. Перечитайте строку.' });

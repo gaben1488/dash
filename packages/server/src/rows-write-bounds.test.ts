@@ -25,6 +25,7 @@ const writeCellValue = vi.fn(async () => ({ updatedCells: 1 }));
 
 vi.mock('./services/google-sheets.js', () => ({
   writeCellValue,
+  readCurrentDeptRowFormulas: vi.fn(async (_book: string, _sheet: string, row: number) => makeDataRow(row - 3)),
   getSheetData: vi.fn(async () => []),
   getSheetDataFromSpreadsheet: vi.fn(async () => []),
   readDeptSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'ВСЕ' })),
