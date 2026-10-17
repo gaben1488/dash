@@ -95,7 +95,7 @@ it('keeps a completed build invalidated if a newer source event arrived while it
   expect(google.read).toHaveBeenCalledTimes(2);
 });
 
-it('bounds retained scope models while still sharing each in-flight import after eviction', async () => {
+it('bounds retained scope models and serializes different scopes without delaying saved readers', async () => {
   const { source, saved, reject, db } = fixture;
   const years = [2022, 2023, 2024, 2025, 2026];
   for (const year of years.slice(0, -1)) {
@@ -110,8 +110,37 @@ it('bounds retained scope models while still sharing each in-flight import after
     }
     expect((await source.getSnapshot(false, 2022)).id).toBe('saved-2022');
     expect(scan.mock.calls.filter(([query]) => query.includes('json_type'))).toHaveLength(6);
-    expect(google.read).toHaveBeenCalledTimes(5);
+    // Five scopes still share their own work, but only one full import may run.
+    expect(google.read).toHaveBeenCalledTimes(1);
   } finally { scan.mockRestore(); reject(new Error('synthetic source failure')); await Promise.all(forces); }
+  expect(google.read).toHaveBeenCalledTimes(5);
+});
+
+it('continues the materialization queue after an uncaught failure in a different scope', async () => {
+  const { source, saved } = fixture;
+  google.read.mockRejectedValueOnce(new Error('synthetic missing scope')).mockResolvedValue([]);
+  const missing = source.getSnapshot(true, 2028);
+  const next = source.getSnapshot(true, 2026);
+  await expect(missing).rejects.toThrow('synthetic missing scope');
+  expect((await next).id).not.toBe(saved.id);
+  expect(google.read).toHaveBeenCalledTimes(2);
+});
+
+it('captures invalidation generation when queued work actually starts', async () => {
+  const { source } = fixture;
+  let release!: (value: unknown[]) => void;
+  google.read.mockReturnValueOnce(new Promise(resolve => { release = resolve; })).mockResolvedValue([]);
+  const first = source.getSnapshot(true, 2028);
+  const queued = source.getSnapshot(true, 2026);
+  await new Promise(resolve => setImmediate(resolve));
+  expect(google.read).toHaveBeenCalledTimes(1);
+  source.invalidateCache();
+  release([]);
+  expect((await first).metadata.readModel?.state).toBe('refreshing');
+  const result = await queued;
+  expect(result.metadata.readModel).toBeUndefined();
+  expect((await source.getSnapshot(false, 2026)).id).toBe(result.id);
+  expect(google.read).toHaveBeenCalledTimes(2);
 });
 
 

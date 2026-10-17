@@ -37,8 +37,22 @@ history readback FAIL. Worker6369f12c08:55:24–08:58:04 VERIFIED_WITH_WARNINGS,
 policy, payload и хэшей; ADR-0012. RED на повторном instr и на смене победителя
 при равных timestamps; GREEN59focused, включая прежний rowid tie order.
 Полный локальный gate PASS на Node24.19: четыре tsc, shared743/core1887(+1skip)/
-server1031/web2322, lint0errors/302existing warnings, webbuild. До установки
-обязательны exact Node22 CI и измерение index build/до-после на копии.
+server1031/web2322, lint0errors/302existing warnings, webbuild.
+[Copy39021208662](https://github.com/gaben1488/dash/actions/runs/39021208662)
+PASS на native SQLite3.51.3: согласованная БД478 404 608B,17снимков,
+query3116,005→4,132ms, results_equal=true; build3299,373ms,
+logical/physical file growth0B. Это измерение файла копии, не освобождение
+места на VPS. DDL pinbb33a416237bc11de97f36d1aa8b8c71382ab4c1542f9a38db109a7b47fe776f;
+production_index_created=false. Перед установкой нужен exact Node22 CI.
+
+Следующий ограниченный fix закрывает конкуренцию полных сборок разных лет:
+на исходном коде пять периметров начинали пять импортов одновременно.
+Одна последовательная цепочка createSnapshot сохраняет per-scope inFlight,
+мгновенное чтение прежнего снимка, продолжение после отказа и корректный
+generation при старте очередной задачи. RED5→1, GREEN32focused; повторный
+полный gate Node24.19 PASS743/1887(+1skip)/1033/2322,4tsc/lint0errors302warnings/
+webbuild. Таймауты и health guard не меняются.4d1964da — промежуточный
+интеграционный SHA до очереди; он не устанавливается вместо полного кандидата.
 
 MemAvailable2 635 284 480B/free9 291 694 080B в09:05 — точечные замеры.
 Новые7attempt status28 581logical/28 672allocatedB; другой net checkpoint delta0.

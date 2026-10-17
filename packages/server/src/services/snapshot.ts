@@ -42,6 +42,8 @@ function rememberSnapshot(key: number, snapshot: PipelineSnapshot, timestamp: nu
  * листов ГРБС + СВОД (B-9).
  */
 const inFlightLoads = new Map<number, Promise<PipelineSnapshot>>();
+// Different years share one CPU/memory budget; queued readers keep their saved scope.
+let materializationTail: Promise<void> = Promise.resolve();
 
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
@@ -471,10 +473,16 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
 
   const inFlight = inFlightLoads.get(cacheKey);
   if (inFlight) return recordSnapshotRead(await inFlight);
-  const generation = cacheGeneration;
+  let generation = cacheGeneration;
+  const build = materializationTail.then(() => {
+    generation = cacheGeneration;
+    return createSnapshot(year);
+  });
+  // Do not retain the large result, or let one failed scope poison the queue.
+  materializationTail = build.then(() => undefined, () => undefined);
   const loadPromise = (async () => {
     try {
-      const snapshot = await createSnapshot(year);
+      const snapshot = await build;
       // An invalidation while loading cannot become a falsely fresh cache hit.
       const changedDuringLoad = generation !== cacheGeneration;
       const result = changedDuringLoad && !snapshot.metadata.readModel
