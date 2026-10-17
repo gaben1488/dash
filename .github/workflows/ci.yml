@@ -1884,6 +1884,33 @@ jobs:
              assert references==result['reference_attempts_verified']
              print(json.dumps({'scope':'CURRENT_GLOBAL_LSTAT_ONLY',**status_metadata(reports/'status.json'),'content_reverified':False}),flush=True)
 
+            def image_retirement_metadata(r,images):
+             base=Path('/root/codex-fixes/image-retirement/43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa')
+             marker=base/'retirement.json';present=os.path.lexists(marker);state=None
+             if present:
+              assert not any(path.is_symlink() for path in (marker,*marker.parents))
+              value=json.loads(r.read_owned(marker,limit=16384)).get('state')
+              state=value if value in {'IMAGE_RETIREMENT_INTENT','IMAGE_RETIRED_RECOVERABLY'} else 'UNKNOWN'
+             print(json.dumps({'image_retirement_readback':{'journal_present':present,'journal_state':state,
+              'target_present':any(row['Id']=='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d' for row in images)}}),flush=True)
+             # Reuse the existing independent read-only comparator, including
+             # its explicit distinction between mount order and mount contents.
+             probe=Path('/root/codex-fixes/release-39044388523/deploy/runtime-state-probe.py')
+             assert not any(path.is_symlink() for path in (probe,*probe.parents))
+             assert hashlib.sha256(r.read_owned(probe,private=False)).hexdigest()=='8d812d56cd9da6d101565c6ca78797d5faa7e5f3126fd545d64f58f3962cbd48'
+             for sample in range(3):
+              value=json.loads(subprocess.check_output(['python3','-IB',str(probe)],timeout=45))
+              print(json.dumps({'independent_image_retirement_runtime_sample':sample,'probe':value}),flush=True)
+             identities=[row['Id'] for row in images]
+             again=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30))
+             old={row['Id']:row for row in images};new={row['Id']:row for row in again}
+             flags={key:0 for key in ('RepoTags','RepoDigests')}
+             for identity in old.keys()&new.keys():
+              for key in flags:
+               a,b=old[identity].get(key) or [],new[identity].get(key) or []
+               flags[key]+=a!=b and sorted(a)==sorted(b)
+             print(json.dumps({'image_reference_order_only_changes':flags}),flush=True)
+
             def checkpoint_metadata():
              r,plan=current_release_plan()
              backup=r.BACKUP_BASE/plan['backup_reference']
@@ -1907,6 +1934,7 @@ jobs:
                 identities=sorted(set(subprocess.check_output(['docker','image','ls','--all','--quiet','--no-trunc'],text=True,timeout=20).split()))
                 assert len(identities)<=256 and all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for identity in identities)
                 images=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30)) if identities else []
+                image_retirement_metadata(r,images)
                 referenced={row['image'] for row in snapshot(lambda args:subprocess.check_output(args,text=True,timeout=20)) if row['image']}
                 # API 1.52 keeps legacy Images when verbose is omitted. Read
                 # only image layer accounting; no volumes/cache/prune request.
