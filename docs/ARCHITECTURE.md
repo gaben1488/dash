@@ -18,6 +18,128 @@ Last broad overview: 2026-06-04. Source/storage paths below rechecked: 2026-10-1
 пилоты БД/server-state не являются принятыми заменами стека. Реестр не означает,
 что все142задачи реализованы или что исходники полностью проаудированы.
 
+### Независимая декомпозиция целевого продукта — 18.10.2026
+
+<a id="target-decomposition"></a>
+
+Владелец отдельно разрешил переписывание, рефакторинг и миграцию. Ограничение
+«только узкие заплатки» не является целью. Замена выбирается по дефекту,
+радиусу изменения, ресурсам и проверяемому результату; это разрешение на код,
+а не на изменение живых книг, необратимое удаление или обход условий выпуска.
+
+**Два основания одной программы.** Группировка требований отвечает «что нам
+обещано». Независимая декомпозиция отвечает «какие способности и состояния
+нужны, чтобы Dash решал работу человека от начала до конца». Её нельзя вывести
+только из количества прежних задач, названий страниц или семи технических
+слоёв. Ниже сначала определены результаты по рабочим сценариям и текущим
+исполняемым путям; их сверка со всеми142задачами находится в
+[PLAN](PLAN.md#target-reconciliation). D01–D16 — адреса этой модели,
+**не второй backlog**. Задачи, приоритеты и статусы остаются прежними.
+
+#### Что действительно прослежено в исходниках
+
+Основание — код `f53785795d9803e339c57b4af1928864ad0ff9e4`, чтение18.10
+по Камчатке. Это проверка перечисленных функций и их связей, не заявление
+о полном аудите всех файлов или нового наблюдения production.
+
+| Исполняемый путь / первичный код | Наблюдаемая граница и следствие для перехода |
+|---|---|
+| [app.ts](../packages/server/src/app.ts): `createApp`, `preloadData` → `refreshAllSources` → `getSnapshot` | Маршруты, source refresh, Thursday cron, comments/integrity sweeps и webhook recovery уже существуют. Общий координатор должен принять эти входы; второй независимый набор расписаний не нужен. |
+| [snapshot.ts](../packages/server/src/services/snapshot.ts): `getSnapshot`, `createSnapshot`, `saveSnapshot` | Кэш разделён по году, есть serial materialization и stale/refreshing; persist=false уже вызывает ошибку. Сохраняются полный JSON, metric history и строки-проекции. Общий CAS ещё не заменил этот путь. |
+| [orchestrator.ts](../packages/core/src/pipeline/orchestrator.ts): `runPipeline` | Нормализация официальных ячеек, построчные сигналы, CalcEngine, дельты и trust соединены в одном проходе. Это пригодное ядро, но его вход ещё содержит сетки/REPORT_MAP и не является общей моделью всех потребителей. |
+| [rows-read.ts](../packages/server/src/services/rows-read.ts): `readDeptRows` | Cache → непустое зеркало → master; свежесть зеркала этим путём не доказана. Новый адаптер должен локализовать этот каскад и статус резерва. |
+| [rows.ts](../packages/server/src/routes/rows.ts): одиночная и пакетная запись; [row-revision.ts](../packages/server/src/services/row-revision.ts) | Уже есть expected revision, локальный lock, intent и readback. Статические формульные колонки не защищают фактическую формулу в другом столбце; локальный lock не исключает внешнего Google-редактора. Нужна законченная команда, а не второй прямой write из нового UI. |
+| [issue-decisions.ts](../packages/server/src/services/issue-decisions.ts): `overlayPersistedStatus`, `withPersistedDecisions`; [issues.ts](../packages/server/src/routes/issues.ts) | Решения хранятся отдельно и накладываются на снимок; rebind требует доказательства и может читать историю. Нельзя объявить всё уже общим ControlCase либо удалить историческую проверку ради ускорения. |
+| [schema.ts](../packages/server/src/db/schema.ts), [event-bus.ts](../packages/server/src/services/event-bus.ts) | Есть snapshots/metric_history/procurement_rows, issues/history, audit, comment observations и changelog. SSE — память процесса, seq с нуля, ring100. Ни наличие таблиц, ни ring не доказывают общий durable change stream. |
+| [runtime.py](../packages/report-engine/src/procurement_engine/runtime.py): `run_once` → capture → identity → build → final recheck → publish | Python самостоятельно читает Google, ledger, identity reviews и weekly baseline. Переход должен сохранить эти существенные зависимости и fail-closed публикацию, а не заменить их одним хешем значений. |
+| [snapshot.py](../packages/report-engine/src/procurement_engine/snapshot.py): `_snapshot_id`; [publication_store.py](../packages/report-engine/src/procurement_engine/publication_store.py): `publish` | ID расчётного снимка включает provider revision; publish сохраняет фактически наблюдённые revisions и scoped equivalence proof. Разделение observation/reuse должно сохранить исходные receipt и исторические IDs. |
+| [App.tsx](../packages/web/src/App.tsx), [store.ts](../packages/web/src/store.ts): `fetchDashboard`, `refresh`, `quickRefresh` | 13 разделов, общий store, отдельные запросы и защита от поздних ответов уже есть. Контекст чтения и инвалидация должны проходить через них; перенос бизнес-расчёта в новый экран неприемлем. |
+| [TableEditor.tsx](../packages/web/src/components/TableEditor.tsx) → [DataBrowser.tsx](../packages/web/src/pages/DataBrowser.tsx) → [RowDetailCard.tsx](../packages/web/src/components/RowDetailCard.tsx) → [CellNotesMetadata.tsx](../packages/web/src/components/provenance/CellNotesMetadata.tsx) | Есть черновики, сохранение, паспорт и чтение notes выбранной ячейки. Это не полный Google-подобный редактор формул/форматов/threads; развитие сохраняет ввод, адрес и версии. |
+| [core registry](../packages/core/src/metrics/registry.ts) → [web wrapper](../packages/web/src/lib/metrics-registry.ts) | Подсказки метрик уже переиспользуются. Каталог описаний не равен исполняемому определению расчёта и графу зависимостей. Не создавать ещё одну копию KB при переходе. |
+
+Полное понимание достигается по участкам: до изменения ответственный читает
+весь затрагиваемый путь, всех вызывающих, схемы/миграции, jobs и динамические
+entrypoints; фиксирует неясное и отрицательные сценарии в существующих задачах.
+Инвентаризированное, прочитанное, воспроизведённое и проверенное на реальных
+данных различаются. Исторические190находок, весь Apps Script, все сочетания
+прав и полный UX13разделов этой таблицей не закрыты — R01.03/R01.04 остаются.
+
+#### Декомпозиция от результата, а не от списка просьб
+
+| Адрес | Законченная способность Dash | Контракт, владелец состояния и условие готовности |
+|---|---|---|
+| D01 | Получить пригодные факты и назвать точку, к которой они относятся | Source profiles → ограниченное приобретение → observation set/manifest: состав, actual revisions, интервалы, полнота, зависимости. Один прикладной координатор принимает webhook/cron/request, адаптеры владеют внешними адресами. TS и Python читают один sealed input; неполное чтение не становится полным выпуском. |
+| D02 | Узнать закупочный объект после перемещения и показать его связи | Наблюдаемые строки → системная identity и доказанные need/plan/procedure family+attempt/contract/execution/organization links. Репозиторий identity владеет соответствиями/решениями; похожесть текста — предложение, не merge. Перенос/renumber/split/merge/reuse проверяются с сохранением решений и кратности. |
+| D03 | Показать, что изменилось, и восстановить нужный срез экономно | Raw/canonical content + observations + typed diffs + checkpoints → воспроизводимая версия. Хранилище владеет объектами/ссылками; недельный маркер ссылается на пригодный четверг. Повторное чтение сохраняет новый факт наблюдения без тяжёлой копии; восстановление и GC ограничены графом ссылок. |
+| D04 | Получить одно объяснимое число во всех представлениях | Canonical facts + immutable calculation context → metric results и evidence. Предметное ядро владеет определением/единицами/grain/периодом/применимостью; UI/Word только представляют. Независимый пересчёт и все фильтры сходятся; изменение правила пересчитывает нужный результат. |
+| D05 | Пройти от сигнала до подтверждённого полезного действия | Finding + entity + rule evidence → ControlCase → версия решения → effective state/KPI/следующий выпуск. Дело и решение принадлежат прикладной операции, не странице. False positive не штрафует где-либо ещё; закрытие дела не выдумывает исправление первички. |
+| D06 | Обсудить работу и расследовать изменение | Evidence/events + Google notes/threads + Dash discussions/decisions → продуктовая лента и metadata строки/ячейки. Discussion/thread state отделён от cell history и ControlCase. Известны источник, было/стало и основание связи; неизвестные автор/время события не сочиняются. Повторные witnesses не удваивают событие/сумму. |
+| D07 | Безопасно исправить данные и проверить, что сохранено | Command с target identity/address, expected version, actor, idempotency → intent → external outcome/readback → reconcile → invalidation. Владелец — одна command service для API/batch/Undo/forms. Формулы/итоги защищены на сервере; lost ACK, partial batch и внешний конкурент не превращаются в ложный успех. |
+| D08 | Прочитать выбранный контекст без гонок и тяжёлой пересборки | Context-bound query → индексированная read model/summary/detail/cursor → общий client server-state. Прикладное чтение не запускает импорт синхронно; scope/version/access проверяются на каждой границе. Поздний ответ не заменяет новый фильтр, черновик остаётся у клиента. |
+| D09 | Принимать предметные решения во всех13разделах | Те же metric/case/entity queries → специализированные рабочие экраны, сравнения и сценарии. Раздел владеет компоновкой/действием, не формулой. От числа можно дойти до причин и действия; различаются планирование, факт, подтверждённая экономия и прогноз. Каждая страница имеет desktop/touch сценарий с readback. |
+| D10 | Выпустить и выбрать согласованный комплект документов | Frozen facts+rules+decisions+templates+baseline → ReportModel → main/supplement/operational → immutable receipt. Publication service владеет accepted release, attempt — только исполнением. Экран/история/3Word выбирают один выпуск; recheck, reuse, отказ и историческая совместимость доказаны. |
+| D11 | Работать красиво и удобно через общие компоненты | Typed view data + interaction states → production components/Design Lab/мобильная компоновка. UI-система владеет токенами, доступностью, движением и состоянием взаимодействия. Сохранены одобренная геометрия и характер13Зарь; preview использует тот же компонент, mobile завершает те же действия без hover. |
+| D12 | Ограничить действия и доказать авторство | Проверенная session/service identity → role/org/action policy → query/command/export. Сервер владеет полномочием; «ответственный» не становится авторизацией. Отзыв доступа, чужая организация, неизвестная среда и массовое действие проверяются отрицательно. |
+| D13 | Автоматически довести операцию до конечного результата | Durable job/lease/fencing + admission + delivery checkpoint → bounded execution/recovery/resync. Один владелец операции; event доступен после commit. Crash/restart/дубликат/разрыв SSE не теряет работу и не создаёт второй бизнес-результат. |
+| D14 | Работать быстро и экономно, объяснить отказ и безопасно обслужиться | Correlated stage timings/resource inventory/reference graph → budgets/diagnosis/guarded maintenance. Инженер эксплуатации владеет политикой ресурсов, не скрывает domain failure retry. Cold/warm/concurrent замерены отдельно; GC не задевает защищённые ссылки, четыре ops-метрики имеют один источник. |
+| D15 | Обновить систему и действительно восстановить прежнюю | Candidate passport/code+data compatibility → checkpoint → isolated restore → install → bounded acceptance/rollback. Один контроллер владеет переходом; прежний reader способен читать откатные данные. Исходный SHA, image digest, schema/rules и proof связываются без приписывания старой приёмки новой версии. |
+| D16 | Изменять продукт локально и проверять результат независимо | Требование + исполненный путь + замер → bounded change → oracle/regression → cutover/removal/proof. Интегратор владеет связностью. Изменение адаптера, правила и представления проверяется отдельно; временный мост имеет условие удаления, старый путь перестаёт быть активным владельцем. |
+
+Эти способности пересекают слои намеренно: «настроить таблицу» не завершено,
+пока её команда не подтверждена источником и зависимые показатели не обновлены.
+У каждого состояния ровно один владелец записи; общие определения и чтения
+могут иметь несколько потребителей. D01–D16 не означают16сервисов, новых БД,
+пакетов или релизов. Текущие shared/core/server/web и Python сохраняются,
+пока границу нельзя провести в них с приемлемой ценой сопровождения.
+
+#### Минимальная модель состояний и причин пересчёта
+
+Разделить существующие смешанные понятия до смены физической схемы:
+
+- **Observation** — факт чтения, источник/профиль/actual revision/время/полнота;
+  **content object** — неизменное содержимое; **canonical revision** — смысловое
+  представление с версией нормализации. Их ID не являются identity закупки.
+- **Entity и address binding** — объект и доказанное соответствие физическому
+  адресу на момент чтения. Номер/год/хеш строки не заменяет это соответствие.
+- **Calculation context/result** — manifest, normalization/rules/calendar,
+  decisions, scope/access и зависимости; **read model** — индексируемая проекция
+  этого результата. Она восстанавливается, а не становится новым master.
+- **Case/decision/discussion** — разные изменяемые предметные состояния;
+  **command/attempt/job** — факт выполнения; **release** — принятый неизменный
+  результат. Повтор job не создаёт второе решение, новое наблюдение не теряется.
+
+| Изменение | Что обновляется | Что обязано сохраниться |
+|---|---|---|
+| Только provider revision; scoped values/formulas/geometry/dependencies эквивалентны | Новое observation и proof; reuse допускается по полному ключу зависимостей | Фактическая revision, raw evidence, прежний receipt; запрет выдать expected token за observed |
+| Значимые values/formulas/schema/dependency | Canonical revision, entity changes/diffs и затронутые результаты/read models | Исходник обеих сторон, реальные structural diagnostics; fail-closed при недоказанной пригодности |
+| Оформление без предметного смысла | Editor/style projection; новый факт наблюдения при чтении | Форматы доступны редактору, но hidden/index/colors не создают ложный денежный drift |
+| Rules/normalization/calendar/template | Соответствующая canonical/result/document revision | Старые raw hashes/IDs и воспроизводимость прежнего правила, без переписи истории |
+| Решение/ответ/закрытие | Версия дела/обсуждения, effective signals/KPI и зависимый новый выпуск | Первичные данные и исходная версия решения; Google resolved не закрывает Dash case |
+| Filter/access scope | Разрешённая query projection, cache/cursor key | Проверка доступа на сервере; чужие данные не возвращаются из общего кэша |
+
+Смысловая эквивалентность определяется профилем, а не универсальным удалением
+метаданных: значимые named ranges/геометрия/ссылки остаются в доказательстве.
+Граф зависимостей нужен и для selective recompute, и для объяснения результата,
+и для reference-aware GC. Дифы не заменяют все полные объекты: checkpoints и
+предел стоимости восстановления выбираются по замеру рабочего объёма.
+Полная историческая перезапись ради нового формата запрещена.
+
+#### Переход и граница понимания
+
+Сначала ограниченная вертикаль официальной экономии: source profile/manifest
+→ canonical facts → AD-gated calculation → API/Экономия/3Word → readback.
+На том же входе проходят shadow comparison и независимый oracle; затем одна
+точка переключения потребителей, сохранённый совместимый rollback и отключение
+старого активного расчёта этой вертикали. Далее этот путь расширяется на
+identity/изменения, дела/журнал, команды/редактор и остальные показатели/страницы.
+Целевая модель не блокирует согласованный Header-релиз всей миграцией.
+
+Перед переносом каждого участка в PLAN добавляются точные изменяемые файлы,
+вход/выход, characterization/negative tests, состояния записи при переходе,
+условие остановки, чтение прежних данных и удаляемый старый вызов. Нельзя заранее
+выдумать интерфейс всей системы без проверки конкретного участка. Неясность
+фиксируется с проверкой, способной изменить решение, а не словом «enterprise».
+
 Выбран путь модульного монолита с существующим Word-worker. Ближайшая поставка
 и переход к общему входу разделены в [ADR-001](decisions/0001-verified-report-publication.md).
 Общий вход ещё не внедрён: TypeScript Dash и Python worker сейчас получают
