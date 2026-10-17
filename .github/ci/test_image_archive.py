@@ -88,7 +88,7 @@ class ImageArchiveTests(unittest.TestCase):
             with self.subTest(changed=changed),self.assertRaises(ValueError):
                 self.m.check_receipt(ready,{**receipt,**changed})
 
-    def test_runtime_admission_requires_the_accepted_cohort_and_pending_candidate(self):
+    def runtime_fixture(self):
         current=self.m.CURRENT_IMAGES
         plan={'release_sha':self.m.ACCEPTED_SOURCE,'manifest_sha256':'d'*64,
               'candidate_images':current,'images':{role:'sha256:'+str(i+1)*64 for i,role in enumerate(current)},
@@ -104,6 +104,11 @@ class ImageArchiveTests(unittest.TestCase):
                      'Config':{'Labels':{'com.docker.compose.project':'aemr','com.docker.compose.service':role}},
                      'State':{'Status':'running','OOMKilled':False,'Health':{'Status':'healthy'}}}
                     for i,(role,image) in enumerate(current.items())]
+        return plan,marker,stage,containers
+
+    def test_runtime_admission_requires_the_accepted_cohort_and_pending_candidate(self):
+        plan,marker,stage,containers=self.runtime_fixture()
+        current=self.m.CURRENT_IMAGES
         protected=self.m.admit_runtime(plan,marker,stage,containers)
         self.assertEqual(protected,set(current.values())|set(plan['images'].values())|set(stage['candidate_images'].values()))
         for target,changed in [('plan',{'release_sha':'f'*40}),('marker',{'plan_sha256':'f'*64}),
@@ -115,6 +120,45 @@ class ImageArchiveTests(unittest.TestCase):
         for update in ({'Image':self.m.IMAGE},{'RestartCount':1},{'State':{'Status':'exited'}}):
             with self.subTest(update=update),self.assertRaises(ValueError):
                 self.m.admit_runtime(plan,marker,stage,[{**containers[0],**update},*containers[1:]])
+
+    def test_mount_permutation_preserves_runtime_proof_but_changed_mounts_and_settings_do_not(self):
+        plan,marker,stage,containers=self.runtime_fixture()
+        containers[0]['Mounts']=[{'Type':'volume','Source':'one','Destination':'/data','RW':True},
+                                 {'Type':'bind','Source':'two','Destination':'/config','RW':False}]
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder)
+            directories={key:base/key for key in ('STATE_DIR','RUNTIME_DIR','BACKUP_BASE')}
+            for path in directories.values():path.mkdir(mode=0o700)
+            r=SimpleNamespace(**directories,private_directory=lambda path:None,
+                              read_owned=lambda path,**kwargs:path.read_bytes())
+            for path,value in [(r.RUNTIME_DIR/'trial-plan.json',plan),(r.RUNTIME_DIR/'stage.json',stage),
+                               (r.STATE_DIR/'release-accepted.json',marker)]:path.write_text(json.dumps(value))
+            def command(args,**kwargs):
+                if args[0]=='ps':return '\n'.join(row['Id'] for row in containers)
+                self.assertEqual(args[0],'inspect');return json.dumps(containers)
+            before=self.m.runtime_context(r,command)[0]
+            containers[0]['Mounts'].reverse()
+            self.assertEqual(self.m.runtime_context(r,command)[0],before)
+            for update in ({'Source':'other'},{'Destination':'/other'},{'RW':True}):
+                original=containers[0]['Mounts'][0]
+                containers[0]['Mounts'][0]={**original,**update}
+                self.assertNotEqual(self.m.runtime_context(r,command)[0],before)
+                containers[0]['Mounts'][0]=original
+            containers[0]['HostConfig']={'Memory':123456}
+            self.assertNotEqual(self.m.runtime_context(r,command)[0],before)
+
+    def test_image_reference_permutation_is_equivalent_but_reference_changes_are_detected(self):
+        image={**self.image,'RepoTags':[self.m.TAG,'other:tag'],
+               'RepoDigests':['one@sha256:'+'a'*64,'two@sha256:'+'b'*64]}
+        def command(args,**kwargs):
+            return self.m.IMAGE if args[1]=='ls' else json.dumps([image])
+        before=self.m.image_inventory(command)
+        image['RepoTags'].reverse();image['RepoDigests'].reverse()
+        self.assertEqual(self.m.image_inventory(command),before)
+        image['RepoTags'].append('new:tag')
+        self.assertNotEqual(self.m.image_inventory(command),before)
+        image['RepoTags'].pop();image['RepoDigests'].pop()
+        self.assertNotEqual(self.m.image_inventory(command),before)
 
     def test_recovery_loader_rejects_unpinned_or_symlinked_code(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -195,11 +239,16 @@ class PrivilegedImageArchiveTests(unittest.TestCase):
                           'State':{'Status':'running','OOMKilled':False,'StartedAt':'2026-10-17T12:00:00Z',
                                    'Pid':i+1,'Health':{'Status':'healthy'}}}
                          for i,(role,image) in enumerate(self.m.CURRENT_IMAGES.items())]
-        self.calls=[]
+        self.containers[0]['Mounts']=[{'Type':'volume','Source':'one','Destination':'/data','RW':True},
+                                      {'Type':'bind','Source':'two','Destination':'/config','RW':False}]
+        self.calls=[];self.inspections=0
         def command(args,**kwargs):
             self.calls.append(args)
             if args[:1]==['ps']:return '\n'.join(row['Id'] for row in self.containers)
-            if args[:1]==['inspect']:return json.dumps(self.containers)
+            if args[:1]==['inspect']:
+                self.inspections+=1;rows=json.loads(json.dumps(self.containers))
+                if self.inspections%2==0:rows[0]['Mounts'].reverse()
+                return json.dumps(rows)
             if args[:2]==['image','inspect']:return json.dumps([self.image])
             self.fail('Unexpected Docker mutation: '+str(args))
         self.command=command

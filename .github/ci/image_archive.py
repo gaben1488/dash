@@ -160,7 +160,8 @@ def runtime_context(r,command):
     protected=admit_runtime(*(json.loads(bodies[name]) for name in ('plan','marker','stage')),containers)
     # Ignore changing health timestamps/counters and child PIDs. Container
     # identity, settings, mounts, top-level PID and health must remain stable.
-    stable={value['Id']:{**{key:value.get(key) for key in ('Id','Image','Name','Config','HostConfig','Mounts','RestartCount')},
+    stable={value['Id']:{**{key:value.get(key) for key in ('Id','Image','Name','Config','HostConfig','RestartCount')},
+            'Mounts':sorted(value.get('Mounts',[]),key=lambda mount:json.dumps(mount,sort_keys=True)),
             'state':{key:value.get('State',{}).get(key) for key in ('Status','StartedAt','OOMKilled','Pid')},
             'health':value.get('State',{}).get('Health',{}).get('Status')} for value in containers}
     frame={key:hashlib.sha256(value).hexdigest() for key,value in bodies.items()}
@@ -278,7 +279,8 @@ def image_inventory(command):
     values=json.loads(body)
     if not isinstance(values,list) or sorted(row.get('Id','') for row in values)!=identities:
         raise ValueError('IMAGE_ARCHIVE_INVENTORY_REJECTED')
-    return {row['Id']:{key:row.get(key) for key in ('Id','Config','RootFS','Os','Architecture','RepoTags','RepoDigests')}
+    return {row['Id']:{**{key:row.get(key) for key in ('Id','Config','RootFS','Os','Architecture')},
+                      'RepoTags':sorted(row.get('RepoTags') or []),'RepoDigests':registry_references(row)}
             for row in values}
 
 
