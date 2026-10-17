@@ -109,6 +109,14 @@ def failure_location(error):
     return location
 
 
+def actionability_flags(error):
+    message = str(error)
+    return {key: token in message for key, token in (
+        ('unstable', 'element is not stable'), ('disabled', 'element is not enabled'),
+        ('outside_viewport', 'outside of the viewport'), ('covered', 'intercepts pointer events'),
+        ('detached', 'detached from the DOM'))}
+
+
 async def observe_operations_response(response, observed):
     """Reuse the browser's own GET; retain only four small diagnostic observations."""
     if (response.request.method != 'GET' or not readonly_request(response.url, response.request.method)
@@ -268,6 +276,9 @@ async def select_page(page, nav, label, proof=None):
         if proof is not None:
             proof['navigation_phase'] = value
     phase('locate_button')
+    if proof is not None:
+        proof.pop('navigation_hit', None)
+        proof.pop('navigation_control', None)
     button = nav.locator('.np-btn').filter(has=page.locator('.np-label', has_text=re.compile('^' + re.escape(label) + '$')))
     profile = (proof or {}).get('browser_profile', 'desktop')
     group = int(await button.evaluate("e => e.closest('[data-nav-group]').dataset.navGroup"))
@@ -277,7 +288,16 @@ async def select_page(page, nav, label, proof=None):
         current = int(await nav.locator('.np-group-center').get_attribute('data-nav-group'))
         name = 'Следующая группа разделов' if group > current else 'Предыдущая группа разделов'
         for _ in range(abs(group - current)):
-            await activate(nav.get_by_role('button', name=name, exact=True), profile)
+            control = nav.get_by_role('button', name=name, exact=True)
+            if proof is not None:
+                proof['navigation_control'] = await control.evaluate('''e=>{
+                    const r=e.getBoundingClientRect(),rail=e.closest('.hbar-drumline');
+                    return {disabled:e.disabled,rect:{x:r.x,y:r.y,width:r.width,height:r.height},
+                        rail_scroll_left:rail?.scrollLeft??null,rail_width:rail?.clientWidth??null,
+                        viewport_width:innerWidth};
+                }''')
+                proof['navigation_groups'] = {'target': group, 'current': current}
+            await activate(control, profile)
         assert int(await nav.locator('.np-group-center').get_attribute('data-nav-group')) == group
         await button.scroll_into_view_if_needed(timeout=5000)
     else:
@@ -399,10 +419,10 @@ async def run():
             visited = []
 
             scenario = os.environ.get('BROWSER_SCENARIO', 'full')
-            if scenario not in {'full', 'word-readiness'}:
+            if scenario not in {'full', 'navigation', 'word-readiness'}:
                 raise ValueError('BROWSER_SCENARIO_INVALID')
             proof['scenario'] = scenario
-            for label in (PAGES if scenario == 'full' else ['Отчёт']):
+            for label in (PAGES if scenario in {'full', 'navigation'} else ['Отчёт']):
                 proof['stage'] = 'page_' + str(len(visited) + 1)
                 proof['page_phase'] = 'select'
                 await select_page(page, nav, label, proof)
@@ -421,6 +441,12 @@ async def run():
                 visited.append(label)
                 proof['pages_visited'] = len(visited)
             proof['pages_visited'] = len(visited)
+            if scenario == 'navigation':
+                assert not errors and not blocked
+                proof.update(result='PASS', stage='complete', scope='NAVIGATION_ONLY', page_errors=0, blocked_requests=0)
+                await browser.close()
+                print(json.dumps(proof))
+                return 0
             if scenario == 'full':
                 proof['stage'] = 'header_controls'
                 await select_page(page, nav, 'Реестр', proof)
@@ -501,6 +527,7 @@ async def run():
         proof['result'] = 'FAILED'
         proof['failure_class'] = type(error).__name__
         proof['failure_location'] = failure_location(error)
+        proof['failure_actionability'] = actionability_flags(error)
         if isinstance(error, ValueError) and str(error) == 'OWNER_BROWSER_PASSWORD_SECRET_REQUIRED':
             proof['error_code'] = str(error)
     finally:

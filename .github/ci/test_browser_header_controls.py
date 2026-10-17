@@ -13,6 +13,12 @@ LABELS = ['Показывать суммы в тысячах рублей', 'П�
 
 
 class FailureEvidenceTests(unittest.TestCase):
+    def test_actionability_evidence_never_exposes_private_exception_text(self):
+        result = verifier.actionability_flags(Exception('PRIVATE_TEXT: element is not stable; outside of the viewport'))
+        self.assertTrue(result['unstable'])
+        self.assertTrue(result['outside_viewport'])
+        self.assertNotIn('PRIVATE', str(result))
+
     def test_failure_location_exposes_only_known_code_frame_without_private_message(self):
         def verify_header_controls():
             raise AssertionError('PRIVATE_PAGE_TEXT')
