@@ -147,11 +147,11 @@ class ImageArchiveTests(unittest.TestCase):
         ready={'image_id':self.m.IMAGE,'source_sha':self.m.SOURCE,'tag':self.m.TAG,
                'archive_bytes':100,'archive_sha256':'a'*64,'image_metadata_sha256':'b'*64}
         receipt={**ready,'state':'IMAGE_ARCHIVE_ROUNDTRIP_VERIFIED','runner_engine_version':'29.1.3',
-                 'run_id':'39050662769','run_attempt':'1','ops_sha':'2e41bc489f27b797e9f0d211d28ab97d347f4c50'}
+                 'run_id':'39051472665','run_attempt':'1','ops_sha':'48bc5d648192f697bfca5965e009ed1af5af67b9'}
         self.m.admit_retirement_proof(ready,receipt,self.image)
-        with self.assertRaisesRegex(ValueError,'REGISTRY_REFERENCE'):
-            self.m.admit_retirement_proof(ready,receipt,{**self.image,'RepoDigests':['registry/private@sha256:'+'d'*64]})
-        for changed in ({'ops_sha':'f'*40},{'run_id':'9999'},{'run_attempt':'2'},{'archive_sha256':'f'*64}):
+        self.m.admit_retirement_proof(ready,receipt,{**self.image,'RepoDigests':['registry/private@sha256:'+'d'*64]})
+        for changed in ({'ops_sha':'f'*40},{'run_id':'9999'},{'run_attempt':'2'},{'archive_sha256':'f'*64},
+                        {'ops_sha':'2e41bc489f27b797e9f0d211d28ab97d347f4c50','run_id':'39050662769'}):
             with self.subTest(changed=changed),self.assertRaises(ValueError):
                 self.m.admit_retirement_proof(ready,{**receipt,**changed},self.image)
 
@@ -273,6 +273,7 @@ class PrivilegedImageArchiveTests(unittest.TestCase):
         return ready,present,commands,command
 
     def test_retirement_removes_only_the_archived_image_and_keeps_all_recovery_material(self):
+        self.image['RepoDigests']=['aemr-server@sha256:'+'d'*64]
         ready,present,calls,command=self.retirement_fixture()
         result=self.m.retire_image(self.r,command,self.base,self.lock.fileno())
         self.assertEqual(result['state'],'IMAGE_RETIRED_RECOVERABLY')

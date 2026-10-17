@@ -27,8 +27,8 @@ MAX_RAW=2*1024**3
 MAX_ARCHIVE=512*1024**2
 RESERVE=1024**3
 RECOVERY_SHA256='7442ffc75007a44bc9c00e6bdb93cb8c32954890d461e27b1a628f8ecfbcf2b6'
-ROUNDTRIP_RUN='39050662769'
-ROUNDTRIP_OPS='2e41bc489f27b797e9f0d211d28ab97d347f4c50'
+ROUNDTRIP_RUN='39051472665'
+ROUNDTRIP_OPS='48bc5d648192f697bfca5965e009ed1af5af67b9'
 
 
 def admit_image(image,containers,protected):
@@ -264,9 +264,9 @@ def admit_retirement_proof(ready,proof,image):
     check_receipt(ready,proof)
     if (proof['run_id']!=ROUNDTRIP_RUN or proof['run_attempt']!='1' or proof['ops_sha']!=ROUNDTRIP_OPS):
         raise ValueError('IMAGE_ARCHIVE_ROUNDTRIP_NOT_ACCEPTED')
-    # Docker save/load proves the image ID and sole tag, but registry digest
-    # references are outside that roundtrip. Keep such images locally.
-    if image.get('RepoDigests') not in (None,[]):raise ValueError('IMAGE_ARCHIVE_REGISTRY_REFERENCE_PRESENT')
+    # This exact later proof also compared every registry reference. The older
+    # image/tag-only proof is intentionally not eligible for retirement.
+    registry_references(image)
 
 
 def image_inventory(command):
