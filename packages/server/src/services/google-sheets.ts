@@ -462,7 +462,7 @@ export async function getSheetDataFromSpreadsheet(
 
 /**
  * Read exactly one source row immediately before an addressed write.
- * Unlike readDeptRows(), this never trusts a cache or a mirrored sheet.
+ * Unlike readDeptRows(), this always reads the primary book instead of a cache.
  */
 export async function readCurrentDeptRow(
   spreadsheetId: string,
