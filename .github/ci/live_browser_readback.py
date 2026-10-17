@@ -123,6 +123,21 @@ async def activate(locator, profile, *, timeout=5000):
         await locator.click(timeout=timeout)
 
 
+async def hit_geometry(locator):
+    """Fixed geometry and cover kinds only; no DOM text, selectors or attributes."""
+    return await locator.evaluate('''el=>{
+        const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+        const main=document.querySelector('main');
+        return {receives_pointer:!!hit&&(hit===el||el.contains(hit)),
+            cover:hit?.closest('[role="dialog"]')?'DIALOG':hit?.closest('header')?'HEADER'
+                :hit?.closest('button')?'BUTTON':hit?.closest('main')?'MAIN':'OTHER',
+            rect:{x:r.x,y:r.y,width:r.width,height:r.height},
+            viewport:{width:innerWidth,height:innerHeight},
+            main:main?{top:main.getBoundingClientRect().top,height:main.clientHeight,
+                scroll_top:main.scrollTop}:null};
+    }''')
+
+
 def failure_location(error):
     """Publish only our fixed verifier frame, never exception text or locals."""
     location, frame = None, error.__traceback__
@@ -570,7 +585,11 @@ async def run():
                 before = len(word_requests)
                 async with page.expect_download(timeout=30000) as event:
                     proof['word_phase'] = 'click'
-                    await activate(button, profile)
+                    try:
+                        await activate(button, profile)
+                    except Exception:
+                        proof['word_hit_geometry'] = await hit_geometry(button)
+                        raise
                     proof['word_phase'] = 'wait_download'
                 download = await event.value
                 proof['word_phase'] = 'save_download'
