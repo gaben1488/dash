@@ -7,6 +7,28 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_incident_projection_reports_failure_classes_without_private_log_text(self):
+        import json
+
+        raw = '''2026-10-17T08:58:00Z FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory PRIVATE
+2026-10-17T08:58:01Z RangeError [ERR_STRING_TOO_LONG]: PRIVATE
+2026-10-17T08:58:02Z     at JSON.stringify (<anonymous>)
+2026-10-17T08:58:03Z     at saveSnapshot (/app/packages/server/src/snapshots/repository.ts:123:45)
+2026-10-17T08:58:04Z Error: SQLITE_FULL: PRIVATE
+2026-10-17T08:58:05Z Error: PRIVATE_UNRECOGNIZED
+'''
+        result = self.module.runtime_failure_summary(raw)
+        self.assertEqual(result['failure_counts'],
+                         {'NODE_HEAP_OOM': 1, 'ERR_STRING_TOO_LONG': 1, 'SQLITE_FULL': 1})
+        self.assertEqual(result['frames'], [{'file': 'snapshots/repository.ts', 'line': 123, 'column': 45}])
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_incident_projection_is_bounded_and_does_not_copy_unknown_paths(self):
+        raw = '2026-10-17T08:58:01Z     at private (/private/PRIVATE.js:1:2)\n' * 1000
+        self.assertEqual(self.module.runtime_failure_summary(raw), {'failure_counts': {}, 'frames': []})
+        raw = '2026-10-17T08:58:01Z     at f (/app/packages/server/src/routes/dashboard.ts:1:2)\n' * 1000
+        self.assertEqual(len(self.module.runtime_failure_summary(raw)['frames']), 1)
+
     def test_isolated_scope_probe_accepts_stdin_and_bounds_its_daemon_process(self):
         import ast
         import textwrap

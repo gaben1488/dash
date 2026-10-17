@@ -2261,6 +2261,7 @@ jobs:
         inputs.release_sha == '283a2b0e389aeeef44359a290d02dd689c3deb5b') ||
        (github.event_name == 'push' &&
         (github.event.head_commit.message == 'Profile latest API stages for accepted 283a2b0e' ||
+         github.event.head_commit.message == 'Diagnose API restart for accepted 283a2b0e' ||
          github.event.head_commit.message == 'Profile journal read for accepted 283a2b0e' ||
          github.event.head_commit.message == 'Profile selected HTTP for accepted 283a2b0e' ||
          github.event.head_commit.message == 'Profile dashboard read for accepted 283a2b0e')))
@@ -2335,12 +2336,32 @@ jobs:
                row[key]=int(value)
              except (OSError,StopIteration,AssertionError):pass
             print(json.dumps({'running_container_resources':census}),flush=True)
-            latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted 283a2b0e' && 'True' || 'False' }}
+            incident=${{ github.event.head_commit.message == 'Diagnose API restart for accepted 283a2b0e' && 'True' || 'False' }}
+            latest=${{ (github.event.head_commit.message == 'Profile latest API stages for accepted 283a2b0e' || github.event.head_commit.message == 'Diagnose API restart for accepted 283a2b0e') && 'True' || 'False' }}
             window_start=record['State']['StartedAt']
             assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',window_start)
             window_end=(datetime.fromisoformat(window_start)+timedelta(minutes=3)).isoformat()
             if latest:
              window_end=datetime.now(timezone.utc).isoformat();window_start=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat()
+            if incident:
+             window_start='2026-10-17T08:52:00Z';window_end='2026-10-17T09:01:00Z'
+             guard=json.loads(Path('/var/lib/aemr/runtime-guard.json').read_text())
+             recoveries={key:value for key,value in guard.get('last_recovery',{}).items()
+                 if key in {'server','web','caddy','report-worker'} and type(value) in {int,float} and 0<=value<=2**53-1}
+             print(json.dumps({'guard_last_recovery':recoveries}),flush=True)
+             journal=subprocess.run(['journalctl','--unit=aemr-runtime-guard.service','--since',window_start,
+                 '--until',window_end,'--lines=300','--output=json','--no-pager'],capture_output=True,text=True,timeout=15,check=False)
+             assert journal.returncode==0 and len(journal.stdout)<=512*1024
+             events=[]
+             for line in journal.stdout.splitlines():
+              entry=json.loads(line)
+              try:event=json.loads(entry.get('MESSAGE',''))
+              except (ValueError,TypeError):continue
+              if (isinstance(event,dict) and event.get('service') in {'server','web','caddy','report-worker'}
+                  and event.get('event') in {'start','restart','recovery_failed','resource_limits_failed','container_unavailable','worker_runtime_mismatch','ownership_mismatch'}
+                  and re.fullmatch('[0-9]{1,20}',str(entry.get('__REALTIME_TIMESTAMP','')))):
+               events.append({'service':event['service'],'event':event['event'],'at_microseconds':int(entry['__REALTIME_TIMESTAMP'])})
+             print(json.dumps({'guard_incident_events':events}),flush=True)
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 283a2b0e' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted 283a2b0e' && 'report' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1','report':'/api/report-releases?date=2026-10-17&year=2026&quarter=4'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             if resource=='journal':
@@ -2389,6 +2410,7 @@ jobs:
                 namespace={'__name__':'private_log_projector'}
                 exec(compile(body,'<reviewed-log-projector>','exec'),namespace)
                 print(json.dumps({'runtime_stages':namespace['runtime_log_stages'](raw.decode('utf-8',errors='replace'),logger_utc=True)}),flush=True)
+                if incident:print(json.dumps({'runtime_failures':namespace['runtime_failure_summary'](raw.decode('utf-8',errors='replace'))}),flush=True)
             PYAPITIMING
 
   worker-observe:

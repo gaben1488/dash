@@ -43,6 +43,29 @@ def retention_query_summary(database):
             'scoped_results_preserved': True, 'full_search_seconds': round(full, 3), 'scoped_search_seconds': round(scoped, 3)}
 
 
+def runtime_failure_summary(raw):
+    """Fixed failure vocabulary and own-code stack locations; never log values."""
+    counts, frames = {}, []
+    patterns = {
+        'NODE_HEAP_OOM': r'FATAL ERROR: .*JavaScript heap out of memory',
+        'ERR_STRING_TOO_LONG': r'\bERR_STRING_TOO_LONG\b',
+        'SQLITE_FULL': r'\bSQLITE_FULL\b',
+        'SQLITE_IOERR': r'\bSQLITE_IOERR\b',
+        'SQLITE_BUSY': r'\bSQLITE_BUSY\b',
+        'ERR_WORKER_OUT_OF_MEMORY': r'\bERR_WORKER_OUT_OF_MEMORY\b',
+    }
+    for line in raw.splitlines():
+        for code, pattern in patterns.items():
+            if re.search(pattern, line):
+                counts[code] = counts.get(code, 0) + 1
+        frame = re.search(r'\bat [^\n]*\(/app/packages/server/src/([a-zA-Z0-9_/-]+\.ts):(\d{1,6}):(\d{1,6})\)', line)
+        if frame:
+            item = {'file': frame[1], 'line': int(frame[2]), 'column': int(frame[3])}
+            if item not in frames and len(frames) < 20:
+                frames.append(item)
+    return {'failure_counts': counts, 'frames': frames}
+
+
 def runtime_log_stages(raw, *, logger_utc=False):
     """Decode JSON or the installed multiline pino-pretty format privately."""
     from datetime import datetime, timedelta
