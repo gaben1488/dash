@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from test_acceptance_target_binding import TARGET
+
 
 class ReleaseObserverTests(unittest.TestCase):
     def run_observer(self, target):
@@ -42,19 +44,19 @@ class ReleaseObserverTests(unittest.TestCase):
 
 class AcceptedAttemptMetadataTests(unittest.TestCase):
     """Actual inline projector; synthetic filesystem ownership is explicitly modelled."""
-    def run_projection(self, *, observed=True, defect=None):
+    def run_projection(self, *, observed=True, defect=None, receipt=True):
         workflow = (Path(__file__).resolve().parents[1] / 'workflows/ci.yml').read_text()
         function = re.search(r'^            def accepted_cycle_metadata\(\):\n.*?(?=^            def checkpoint_metadata\(\):)',
                              workflow, re.MULTILINE | re.DOTALL).group()
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary); base = root / 'acceptance'; reports = root / 'reports'
+            root = Path(temporary); base = root / 'acceptance-999999-1'; reports = root / 'reports'
             base.mkdir(); reports.mkdir()
             ids = ['a'*32, 'b'*32]
             self.expected_retained_stats={}
             def save(name, value):
                 path = base / name; path.write_text(json.dumps(value)); path.chmod(0o600)
             save('result.json', {'state': 'TWO_AUTONOMOUS_CYCLES_VERIFIED',
-                'source_sha': '0'*40 if defect == 'source' else '78d293b217a8afe982583c73bc67aaccdb4d906c',
+                'source_sha': '0'*40 if defect == 'source' else TARGET,
                 'native_word': 'PASS', 'sealed_entries_verified': 123, 'attempt_ids': ids,
                 'observation_since': '2026-10-16T21:59:00Z',
                 'worker_started_at': '2026-10-16T21:59:30Z',
@@ -81,8 +83,7 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
                 status.unlink(); status.symlink_to(root / 'missing')
             if defect == 'oversize':
                 path = base / ('attempt-proof-'+ids[0]+'.json'); path.write_text(path.read_text()+' '*4096)
-            code = re.sub(r'/var/lib/aemr/worker-quarantine/acceptance-[0-9]+-[0-9]+',
-                          lambda _: str(base), textwrap.dedent(function))
+            code = textwrap.dedent(function).replace('/var/lib/aemr/worker-quarantine', str(root))
             code = code.replace('/var/lib/docker/volumes/aemr_server_data/_data/reports', str(reports))
             original_lstat = Path.lstat
             class FixturePath(type(Path())):
@@ -102,8 +103,14 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
                 info = os.fstat(descriptor)
                 return SimpleNamespace(st_mode=info.st_mode, st_size=info.st_size, st_nlink=info.st_nlink, st_uid=0)
             guarded_os = SimpleNamespace(open=open_metadata, fdopen=os.fdopen, fstat=fstat_metadata,
-                O_RDONLY=os.O_RDONLY, O_NOFOLLOW=os.O_NOFOLLOW, O_NONBLOCK=os.O_NONBLOCK)
+                O_RDONLY=os.O_RDONLY, O_NOFOLLOW=os.O_NOFOLLOW, O_NONBLOCK=os.O_NONBLOCK,
+                environ={'WORKER_ACCEPTANCE':base.name if receipt else ''},path=os.path)
+            worker={'Image':'sha256:'+'a'*64, 'State':{'Status':'running',
+                'StartedAt':'2026-10-16T21:59:31Z' if defect=='worker_start' else '2026-10-16T21:59:30Z'}}
+            recovery=SimpleNamespace(ReleaseRecovery=lambda **kwargs:SimpleNamespace(_records=lambda *args,**kw:{'report-worker':worker}))
+            plan={'release_sha':TARGET, 'candidate_images':{'report-worker':worker['Image']}}
             namespace = {'Path': FixturePath, 'os': guarded_os, 'stat': stat, 'json': json, 're': re}
+            namespace['current_release_plan']=lambda **kwargs:(recovery,plan)
             exec(compile(code, '<actual-accepted-metadata>', 'exec'), namespace)  # noqa: S102 — actual trusted inline source.
             output = io.StringIO()
             with contextlib.redirect_stdout(output): namespace['accepted_cycle_metadata']()
@@ -130,8 +137,13 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
         self.assertEqual(len(proofs), 2)
         self.assertTrue(all(row['proof']['coverage'] == 'NOT_OBSERVED' for row in proofs))
 
+    def test_absent_receipt_selection_does_not_fall_back_to_old_acceptance(self):
+        rows, opened = self.run_projection(receipt=False)
+        self.assertEqual(rows,[{'accepted_worker':False,'state':'NOT_ACCEPTED','reason':'CURRENT_RECEIPT_NOT_SELECTED'}])
+        self.assertEqual(opened,[])
+
     def test_rejects_wrong_scope_source_count_size_symlink_and_oversized_proof(self):
-        for defect in ('scope', 'source', 'count', 'size', 'symlink', 'oversize'):
+        for defect in ('scope', 'source', 'count', 'size', 'symlink', 'oversize', 'worker_start'):
             with self.subTest(defect=defect), self.assertRaises(AssertionError):
                 self.run_projection(defect=defect)
 
