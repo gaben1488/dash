@@ -105,6 +105,93 @@ class FailureEvidenceTests(unittest.TestCase):
 
 
 class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_navigation_wraps_real_wheel_keyboard_and_touch_without_duplicate_routes(self):
+        artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
+        async with async_playwright() as driver:
+            browser = await launch_browser(driver)
+            try:
+                for profile in ('desktop', 'iphone'):
+                    _, options = verifier.browser_settings(profile, driver.devices)
+                    page = await browser.new_page(**options)
+                    await open_current_header(page, artifact.as_uri())
+                    await page.locator('.qa-palettes').get_by_role('button', name='Пульс', exact=True).click()
+                    nav = page.get_by_role('navigation', name='Навигация', exact=True)
+                    current = nav.locator('.np-btn[aria-current="page"]')
+                    await expect(current).to_have_text('Пульс')
+
+                    async def check(name):
+                        await expect(nav.locator('.np-group-center')).to_have_attribute('aria-label', name)
+                        await nav.evaluate("""async el => {
+                            await Promise.all(el.getAnimations({subtree:true})
+                              .filter(a=>a.effect.getTiming().iterations!==Infinity)
+                              .map(a=>a.finished.catch(()=>{})));
+                        }""")
+                        rows = nav.locator('.np-group-top,.np-group-center,.np-group-bottom')
+                        await expect(rows).to_have_count(3)
+                        await expect(nav.locator('.np-btn')).to_have_count(13)
+                        await expect(current).to_have_text('Пульс')
+                        window = await nav.locator('.np-drum-window').bounding_box()
+                        positions = [await nav.locator('.np-group-' + role).bounding_box()
+                                     for role in ('top', 'center', 'bottom')]
+                        self.assertTrue(all(box is not None for box in positions))
+                        self.assertLess(positions[0]['y'], positions[1]['y'])
+                        self.assertLess(positions[1]['y'], positions[2]['y'])
+                        for box in positions:
+                            self.assertGreaterEqual(box['y'], window['y'] - 2)
+                            self.assertLessEqual(box['y'] + box['height'], window['y'] + window['height'] + 2)
+
+                    previous = nav.get_by_role('button', name='Предыдущая группа разделов', exact=True)
+                    next_group = nav.get_by_role('button', name='Следующая группа разделов', exact=True)
+                    await expect(previous).to_be_enabled()
+                    for _ in range(2):
+                        for name in ('Надзор', 'Разборы', 'Реестры', 'Обзор'):
+                            if profile == 'iphone':
+                                await previous.tap()
+                            else:
+                                await previous.click()
+                            await check(name)
+                        for name in ('Реестры', 'Разборы', 'Надзор', 'Обзор'):
+                            if profile == 'iphone':
+                                await next_group.tap()
+                            else:
+                                await next_group.click()
+                            await check(name)
+                    await nav.focus()
+                    for key, name in (('ArrowUp', 'Надзор'), ('PageDown', 'Обзор'),
+                                      ('End', 'Надзор'), ('ArrowDown', 'Обзор'), ('Home', 'Обзор')):
+                        await nav.press(key)
+                        await check(name)
+                    bounds = await nav.bounding_box()
+                    await page.mouse.move(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
+                    await page.mouse.wheel(0, -80)
+                    await check('Надзор')
+                    await page.mouse.wheel(0, 80)
+                    await check('Обзор')
+                    await page.close()
+            finally:
+                await browser.close()
+
+    async def test_page_foreground_reaches_week_labels_and_palette_samples(self):
+        artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
+        async with async_playwright() as driver:
+            browser = await launch_browser(driver)
+            try:
+                page = await browser.new_page(viewport={'width': 1440, 'height': 1000})
+                await open_current_header(page, artifact.as_uri())
+                for theme in ('dark', 'light'):
+                    if theme == 'light':
+                        await page.get_by_role('button', name='Включить светлую тему', exact=True).click()
+                    for button in await page.locator('.qa-palettes button').all():
+                        await button.click()
+                        ink = await button.evaluate("el=>el.style.getPropertyValue('--hdr-ink')")
+                        self.assertRegex(ink, r'^#[a-f0-9]{6}$')
+                        expected = 'rgb(' + ', '.join(str(int(ink[i:i+2], 16)) for i in (1, 3, 5)) + ')'
+                        await expect(button).to_have_css('color', expected)
+                        for label in await page.locator('.wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum)').all():
+                            await expect(label).to_have_css('color', expected)
+            finally:
+                await browser.close()
+
     async def test_long_reset_summary_keeps_touch_actions_inside_narrow_viewport(self):
         artifact = Path(os.environ['DASH_HEADER_QA_HTML']).resolve(strict=True)
         async with async_playwright() as driver:

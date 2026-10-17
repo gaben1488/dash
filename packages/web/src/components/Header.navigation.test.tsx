@@ -17,6 +17,18 @@ it('changes the header dawn palette with the page without changing organisation 
  expect(header.style.getPropertyValue('--hdr-sky')).not.toBe(first);
  expect(useStore.getState().selectedDepartments.has('uksimp')).toBe(true);
 });
+it('uses both actual dawn colors and its foreground inside the shield',()=>{
+ const view=render(<Header/>);
+ for(const page of ['dashboard','report','svod','data','unfunded','yearlong','monitoring','economy','competition','discipline','quality','analytics','settings'] as const){
+  act(()=>useStore.setState({page}));
+  const header=view.container.querySelector('header')!;
+  const stops=header.querySelectorAll('#shield-fill stop');
+  expect(stops[0]?.getAttribute('stop-color')).toBe(header.style.getPropertyValue('--hdr-sky'));
+  expect(stops[1]?.getAttribute('stop-color')).toBe(header.style.getPropertyValue('--hdr-horizon'));
+  expect(stops[0]?.getAttribute('stop-opacity')).toBe('1');
+  expect(stops[1]?.getAttribute('stop-opacity')).toBe('1');
+ }
+});
 it('opens the unified journal and switches to source evidence', () => {
  const view=render(<Header />);
  fireEvent.click(view.getByRole('button',{name:/Журнал обновлений/}));
@@ -59,14 +71,38 @@ it('brings keyboard focus and external navigation into the center of the drum', 
  expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe('Обзор');
  expect(document.activeElement).toBe(within(nav).getByRole('button',{name:'Отчёт'}));
 });
-it('exposes bounded touch controls for every group without selecting a page', () => {
+it('loops touch controls through both boundaries with three unique visible rows', () => {
  const view=render(<Header />);const nav=view.getByRole('navigation',{name:'Навигация'});
  const next=within(nav).getByRole('button',{name:'Следующая группа разделов'});
  const previous=within(nav).getByRole('button',{name:'Предыдущая группа разделов'});
- expect(previous.hasAttribute('disabled')).toBe(true);
- for(let i=0;i<3;i++)fireEvent.click(next);
- expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe('Надзор');
- expect(next.hasAttribute('disabled')).toBe(true);
+ const check=(name:string)=>{
+  expect(nav.querySelector('.np-group-center')?.getAttribute('aria-label')).toBe(name);
+  const visible=nav.querySelectorAll('.np-group-top,.np-group-center,.np-group-bottom');
+  expect(visible).toHaveLength(3);
+  expect(new Set([...visible].map(row=>row.getAttribute('aria-label'))).size).toBe(3);
+  expect(nav.querySelectorAll('.np-btn')).toHaveLength(13);
+  expect(next.hasAttribute('disabled')).toBe(false);
+  expect(previous.hasAttribute('disabled')).toBe(false);
+  expect(useStore.getState().page).toBe('dashboard');
+ };
+ check('Обзор');
+ for(let cycle=0;cycle<3;cycle++){
+  for(const name of ['Реестры','Разборы','Надзор','Обзор']){fireEvent.click(next);check(name);}
+  for(const name of ['Надзор','Разборы','Реестры','Обзор']){fireEvent.click(previous);check(name);}
+ }
+});
+it('uses the same cycle for wheel and keyboard while Home and End keep their meaning',()=>{
+ const view=render(<Header/>);const nav=view.getByRole('navigation',{name:'Навигация'});
+ const center=()=>nav.querySelector('.np-group-center')?.getAttribute('aria-label');
+ fireEvent.wheel(nav,{deltaY:-80});expect(center()).toBe('Надзор');
+ fireEvent.keyDown(nav,{key:'PageDown'});expect(center()).toBe('Обзор');
+ fireEvent.keyDown(nav,{key:'ArrowUp'});expect(center()).toBe('Надзор');
+ fireEvent.keyDown(nav,{key:'ArrowDown'});expect(center()).toBe('Обзор');
+ fireEvent.keyDown(nav,{key:'End'});expect(center()).toBe('Надзор');
+ fireEvent.wheel(nav,{deltaY:80});expect(center()).toBe('Обзор');
+ fireEvent.keyDown(nav,{key:'Home'});expect(center()).toBe('Обзор');
+ fireEvent.wheel(nav,{deltaY:-80,ctrlKey:true});expect(center()).toBe('Обзор');
+ fireEvent.wheel(nav,{deltaY:-80,shiftKey:true});expect(center()).toBe('Обзор');
  expect(useStore.getState().page).toBe('dashboard');
 });
 it('retains all thirteen functional routes, current state and native keyboard focus', () => {
@@ -118,8 +154,15 @@ it('uses the free upper-right position for the update journal',()=>{
  expect(journal.closest('.hbar-primary')).toBeTruthy();
 });
 
-it('preserves all approved thirteen dawn pairs when centralising page themes',()=>{
- const expected=[['dashboard','#5b99f8','#e5d3a9'],['report','#f4c46b','#e6cda7'],['svod','#75bfd4','#e6d4ba'],['data','#75bfd4','#e6d4ba'],['unfunded','#efd195','#e5c39c'],['yearlong','#b7b6e2','#ded0bc'],['monitoring','#8dcce4','#e1d1b8'],['economy','#a0d8bc','#e5c5a2'],['competition','#a4dccc','#ddd6bc'],['discipline','#dfb294','#dfc1a6'],['quality','#de9d8c','#e1b78f'],['analytics','#b8a3e3','#dec4b4'],['settings','#b8c4d4','#ded2c2']] as const;
+it('does not leave an empty glass filter rail on the System page',()=>{
+ useStore.setState({page:'settings'});
+ const view=render(<Header/>);
+ expect(view.queryByRole('group',{name:'Фильтры закупок'})).toBeNull();
+ expect(view.getByRole('button',{name:'Включить светлую тему'})).toBeTruthy();
+});
+
+it('uses the thirteen planetary dawn pairs requested on 17 October',()=>{
+ const expected=[['dashboard', '#5b99f8', '#9d8150'], ['report', '#555378', '#805d29'], ['svod', '#35479b', '#62507a'], ['data', '#365a8c', '#46657b'], ['unfunded', '#655065', '#765d40'], ['yearlong', '#275c7a', '#3e6b5d'], ['monitoring', '#3e5f78', '#496373'], ['economy', '#286c69', '#496b56'], ['competition', '#62507c', '#905331'], ['discipline', '#59515f', '#715c40'], ['quality', '#613f59', '#8c4c3f'], ['analytics', '#514482', '#665b7e'], ['settings', '#4d515b', '#655e54']] as const;
  const view=render(<Header/>);const header=view.container.querySelector('header')!;
  for(const [page,sky,horizon] of expected){act(()=>useStore.setState({page}));expect(header.style.getPropertyValue('--hdr-sky')).toBe(sky);expect(header.style.getPropertyValue('--hdr-horizon')).toBe(horizon);}
 });

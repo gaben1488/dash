@@ -1052,19 +1052,21 @@
     overflow: hidden;
   }
   .np-drum-track {
+    position: relative;
     width: 100%;
-    padding-block: var(--np-row-height);
-    transform: translateY(calc(var(--np-center, 0) * var(--np-row-height) * -1));
-    transition: transform 220ms cubic-bezier(.23,1,.32,1);
+    height: calc(var(--np-row-height) * 3);
   }
   .np-group {
+    position: absolute;
+    inset: 0 0 auto;
+    translate: 0 calc((var(--np-slot) + 1) * var(--np-row-height));
     display: flex;
     align-items: center;
     gap: 6px;
     height: var(--np-row-height);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 180ms ease, transform 220ms cubic-bezier(.16,1,.3,1);
+    transition: transform 220ms cubic-bezier(.16,1,.3,1);
   }
   .np-group-center { opacity: 1; pointer-events: auto; }
   .np-group-top, .np-group-bottom { opacity: .82; pointer-events: auto; }
@@ -5029,14 +5031,14 @@
   pointer-events: none; z-index: -1;
   background:
     radial-gradient(ellipse at 62% -80%, transparent 62%, rgba(195,224,247,.22) 63%, transparent 65%),
-    radial-gradient(ellipse at 18% 100%, rgba(191,161,97,.15), transparent 68%);
+    radial-gradient(ellipse at 18% 100%, color-mix(in srgb,var(--hdr-horizon,#bfa161) 15%,transparent), transparent 68%);
   animation: hdr-dawn-drift 9s ease-in-out alternate infinite;
 }
 .hdr-liquid-surface::after {
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   pointer-events: none; z-index: -1;
   background: repeating-linear-gradient(97deg, rgba(255,255,255,.009) 0 1px, transparent 1px 3px);
-  box-shadow: inset 0 1px rgba(241,246,255,.3), inset 0 -1px rgba(191,161,97,.12);
+  box-shadow: inset 0 1px rgba(241,246,255,.3), inset 0 -1px color-mix(in srgb,var(--hdr-horizon,#bfa161) 12%,transparent);
 }
 @keyframes hdr-dawn-drift {
   from { transform: translate3d(0, -2px, 0); opacity: .65; }
@@ -5122,15 +5124,20 @@
   .hdr-liquid-surface::before, .hdr-liquid-surface::after { animation: none !important; transform: none !important; }
 }
 
+/* The selected material owns its foreground; environment accents remain
+   readable on neutral surfaces in both themes. */
+.header-glass,.page-context { --page-accent:var(--page-accent-light); }
+.dark :is(.header-glass,.page-context) { --page-accent:var(--page-accent-dark); }
+.header-glass .shield-icon { color:var(--hdr-ink,#1b170f);filter:none; }
 /* Page-family dawn lives in the selected object, not merely in its halo.
    OrgStrip and source warning states are outside this header-only surface. */
 .header-glass .hbar {
-  --lazur: var(--hdr-sky);
+  --lazur: var(--page-accent);
   --hdr-selected: linear-gradient(180deg, var(--hdr-sky, #5b99f8), var(--hdr-horizon, #e5d3a9));
 }
 .header-glass .hbar :is(.tg-month-active,.tg-year-full,.tg-quarter-tab-full,.wr-row-driving:not(.wr-row-future):not(.wr-row-empty),.vf-btn-active,.vf-cur-active,.np-btn-active .np-content) {
   background: var(--hdr-selected) !important;
-  color: #1b170f !important; text-shadow: none !important;
+  color: var(--hdr-ink, #1b170f) !important; text-shadow: none !important;
 }
 .header-glass .hbar :is(.tg-month-active,.vf-btn-active,.vf-cur-active,.np-btn-active .np-content):hover {
   filter: brightness(1.05);
@@ -5143,7 +5150,7 @@
 .dark .header-glass .hdr-liquid-surface {
   background:
     radial-gradient(ellipse at 78% 0%, color-mix(in srgb, var(--hdr-sky) 18%, transparent), transparent 65%),
-    linear-gradient(176deg, #181e30, color-mix(in srgb, var(--hdr-horizon) 13%, #26221d));
+    linear-gradient(176deg, #191919, color-mix(in srgb, var(--hdr-horizon) 13%, #232323));
 }
 .header-glass .hbar-drumline .nav-pills-wrap.hdr-liquid-surface { background: transparent; }
 .filter-instrument {
@@ -5152,7 +5159,7 @@
   color: var(--ink-muted); border: 1px solid transparent;
 }
 .filter-instrument-active {
-  background: linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9)); color:#1b170f;
+  background: linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9)); color:var(--hdr-ink,#1b170f);
   box-shadow: inset 0 1px rgba(255,255,255,.3), 0 2px 8px rgba(0,0,0,.12);
 }
 .fi-grid { display: grid; grid-template-columns: repeat(3,5px); grid-template-rows:repeat(4,5px);gap:2px; }
@@ -5169,7 +5176,7 @@
 .fi-panel p { font-size:11px;color:var(--ink-muted); }
 .fi-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 4px;font-size:11px;text-align:left;border-bottom:1px solid var(--border-subtle); }
 .fi-entry:hover { background:var(--surface-raised); }
-.fi-reset { margin-top:10px;padding:8px 12px;border-radius:8px;font-size:11px;background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:#1b170f; }
+.fi-reset { margin-top:10px;padding:8px 12px;border-radius:8px;font-size:11px;background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
 .fi-undo { position:fixed;z-index:90;bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;width:max-content;max-width:min(600px,calc(100vw - 16px));padding:12px 16px;border-radius:12px;background:var(--surface-overlay);color:var(--ink);box-shadow:0 10px 32px rgba(0,0,0,.25);font-size:11px; }
 .fi-undo > span { min-width:0;max-height:min(8rem,calc(100dvh - 80px));overflow:auto;overflow-wrap:anywhere; }
 .fi-undo button { flex-shrink:0;color:var(--ink-strong);font-weight:700; }
@@ -5179,9 +5186,9 @@
    canonical soft line; an unset custom property otherwise makes lines black. */
 .hbar-journal,.fi-panel,.change-journal { --border-subtle:var(--line-soft); }
 .pv-tabs button { padding:6px 10px;border-radius:8px;font-size:11px; }
-.pv-tabs [aria-selected=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:#1b170f; }
+.pv-tabs [aria-selected=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
 .change-journal .cj-frame { background:radial-gradient(ellipse at 80% 0%,color-mix(in srgb,var(--hdr-sky,#5b99f8) 10%,transparent),transparent 55%),var(--surface-overlay);box-shadow:inset 0 1px rgba(255,255,255,.2),0 20px 64px rgba(0,0,0,.35); }
-.change-journal button[aria-pressed=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:#1b170f; }
+.change-journal button[aria-pressed=true] { background:linear-gradient(180deg,var(--hdr-sky,#5b99f8),var(--hdr-horizon,#e5d3a9));color:var(--hdr-ink,#1b170f); }
 @media (max-width:640px) {
   .filter-instrument,.fi-entry,.fi-reset,.fi-undo button,.pv-tabs button,.change-journal button { min-height:44px;min-width:44px; }
 }
@@ -5260,7 +5267,7 @@
 .hbar-primary .hdr-ugol .uf-state { flex-basis:52px; }
 .hbar-secondary .hbar-filters { flex:1; }
 .hbar-secondary .hbar-filters > :last-child { margin-left:auto; }
-.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum) { color:#1b170f!important;text-shadow:none!important; }
+.header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum) { color:var(--hdr-ink,#1b170f)!important;text-shadow:none!important; }
 .header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) .wr-range { font-weight:700; }
 /* Theme is immediately left of the bottom-right dot filter. */
 .hbar-secondary .hdr-selection-tools { margin-left:auto; }
@@ -5282,7 +5289,7 @@
 }
 .header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty)::before {
  inset:-40% -20%;border:0;border-radius:inherit;box-shadow:none;
- background:radial-gradient(ellipse at 20% 0%,rgba(255,255,255,.45),transparent 55%),linear-gradient(135deg,transparent 30%,rgba(255,255,255,.25) 48%,transparent 65%);
+ background:radial-gradient(ellipse at 20% 0%,rgba(255,255,255,.025),transparent 55%),linear-gradient(135deg,transparent 30%,rgba(255,255,255,.02) 48%,transparent 65%);
  transform:translate3d(-3%,0,0);animation:hdr-week-reflection 9s ease-in-out alternate infinite;
 }
 .header-glass .hbar .wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-label,.wr-wnum) {position:relative;z-index:1;}
