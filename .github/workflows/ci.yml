@@ -2345,7 +2345,7 @@ jobs:
             if latest:
              window_end=datetime.now(timezone.utc).isoformat();window_start=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat()
             if incident:
-             window_start='2026-10-17T10:45:00Z';window_end='2026-10-17T10:50:00Z'
+             window_start='2026-10-17T10:46:30Z';window_end='2026-10-17T10:48:45Z'
              guard=json.loads(Path('/var/lib/aemr/runtime-guard.json').read_text())
              recoveries={key:value for key,value in guard.get('last_recovery',{}).items()
                  if key in {'server','web','caddy','report-worker'} and type(value) in {int,float} and 0<=value<=2**53-1}
@@ -2363,6 +2363,18 @@ jobs:
                   and re.fullmatch('[0-9]{1,20}',str(entry.get('__REALTIME_TIMESTAMP','')))):
                events.append({'service':event['service'],'event':event['event'],'at_microseconds':int(entry['__REALTIME_TIMESTAMP'])})
              print(json.dumps({'guard_incident_events':events}),flush=True)
+             program="import json\nnamespace={'__name__':'reviewed_case_diagnostic'}\nexec("+repr(body.decode())+",namespace)\nprint(json.dumps(namespace['reviewed_case_census']('/app/packages/server/data/aemr.db')))"
+             measured=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],
+                 '/opt/report-env/bin/python','-IB','-'],input=program,capture_output=True,text=True,timeout=15,check=False)
+             if measured.returncode==0 and len(measured.stdout)<=4096:
+              census=json.loads(measured.stdout)
+              assert set(census)=={'reviewed_cases','rule_cases','other_cases'}
+              assert all(type(value) is int and 0<=value<=2**53-1 for value in census.values())
+              print(json.dumps({'reviewed_case_census':census}),flush=True)
+             else:print(json.dumps({'reviewed_case_census':'BOUNDED_READ_FAILED'}),flush=True)
+             memory=Path('/proc/meminfo').read_text();assert len(memory)<=65536
+             totals={name+'_bytes':int(value)*1024 for name,value in re.findall(r'^(MemTotal|MemAvailable|SwapFree|SwapTotal):\s+([0-9]{1,15}) kB$',memory,re.MULTILINE)}
+             print(json.dumps({'host_memory_census':totals}),flush=True)
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 8d552262' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted 8d552262' && 'report' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1','report':'/api/report-releases?date=2026-10-17&year=2026&quarter=4'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             if resource=='journal':

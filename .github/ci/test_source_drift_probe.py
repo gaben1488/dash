@@ -110,6 +110,43 @@ class DriftProbeTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', str(result))
         self.assertEqual(len(self.module.runtime_stage_summary(records * 100)), 80)
 
+    def test_saved_case_census_distinguishes_rule_work_without_reading_snapshot_payload(self):
+        import json
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / 'cases.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript('''
+                    CREATE TABLE issues (id TEXT, status TEXT, comment TEXT, detected_by TEXT);
+                    CREATE TABLE issue_history (issue_id TEXT);
+                    CREATE TABLE audit_log (entity_id TEXT, action TEXT);
+                    INSERT INTO issues VALUES ('PRIVATE_A','false_positive',NULL,'rule:budget_sum_plan');
+                    INSERT INTO issues VALUES ('PRIVATE_B','open','PRIVATE','signal:overdue');
+                    INSERT INTO issues VALUES ('PRIVATE_C','open',NULL,'rule:formula');
+                    INSERT INTO issues VALUES ('PRIVATE_D','open',NULL,'signal:overdue');
+                    INSERT INTO issue_history VALUES ('PRIVATE_C'),('PRIVATE_C');
+                ''')
+            before = database.read_bytes()
+            result = self.module.reviewed_case_census(database)
+            self.assertEqual(result, {'reviewed_cases': 3, 'rule_cases': 2, 'other_cases': 1})
+            self.assertNotIn('PRIVATE', json.dumps(result))
+            self.assertEqual(database.read_bytes(), before)
+
+    def test_native_and_decision_requests_keep_fixed_stage_names_without_private_queries(self):
+        records = []
+        for index, path in enumerate(('/api/report-releases', '/api/trust', '/api/issues')):
+            records.extend([
+                {'time': index * 10 + 1, 'msg': 'incoming request', 'reqId': str(index),
+                 'req': {'url': path + '?PRIVATE'}},
+                {'time': index * 10 + 2, 'msg': 'request completed', 'reqId': str(index), 'responseTime': 10},
+            ])
+        result = self.module.runtime_stage_summary(records)
+        self.assertEqual([r['stage'] for r in result], ['report_status_begin', 'report_status_complete',
+                         'trust_begin', 'trust_complete', 'issues_begin', 'issues_complete'])
+        self.assertNotIn('PRIVATE', str(result))
+
     def test_runtime_stages_read_actual_ansi_multiline_pretty_format(self):
         raw = '''2026-10-16T07:22:39.123456789Z [07:22:01.123] \x1b[32mINFO\x1b[39m (123): \x1b[36mincoming request\x1b[39m
 2026-10-16T07:22:01.123456789Z     \x1b[35mreqId\x1b[39m: "PRIVATE_REQUEST"

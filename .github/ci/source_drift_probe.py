@@ -129,7 +129,9 @@ def runtime_stage_summary(records):
         if message == 'incoming request' and isinstance(request_id, str):
             request = record.get('req')
             if isinstance(request, dict) and isinstance(request.get('url'), str):
-                category = {'/api/dashboard': 'dashboard', '/api/change-story': 'journal'}.get(request['url'].split('?', 1)[0])
+                category = {'/api/dashboard': 'dashboard', '/api/change-story': 'journal',
+                            '/api/report-releases': 'report_status', '/api/trust': 'trust',
+                            '/api/issues': 'issues'}.get(request['url'].split('?', 1)[0])
                 if category:
                     requests[request_id] = category
                     stage = category + '_begin'
@@ -154,6 +156,26 @@ def runtime_stage_summary(records):
             if len(result) >= 80:
                 break
     return result
+
+
+def reviewed_case_census(database):
+    """No snapshot payload reads."""
+    import sqlite3
+    from contextlib import closing
+
+    deadline = time.monotonic() + 10
+    with closing(sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as connection:
+        connection.execute('PRAGMA query_only=ON')
+        connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+        total, rules = connection.execute('''SELECT COUNT(*),
+            coalesce(sum(CASE WHEN detected_by LIKE 'rule:%' THEN 1 ELSE 0 END),0)
+            FROM issues WHERE status <> 'open' OR length(trim(coalesce(comment,''))) > 0
+            OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id=issues.id)
+            OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id=issues.id
+                AND audit_log.action='issue_comment')''').fetchone()
+    if any(type(v) is not int or not 0 <= v <= 2**53-1 for v in (total, rules)) or rules > total:
+        raise ValueError('CASE_METADATA_INVALID')
+    return {'reviewed_cases': total, 'rule_cases': rules, 'other_cases': total-rules}
 
 
 def snapshot_stage_summary(database):
