@@ -89,6 +89,47 @@ try{
  report.navSource=navGeometry;
  if(navGeometry.rows!==4 || navGeometry.visible!==3 || navGeometry.fullList!==13)
    fail('Original 3-row cylinder not functioning: '+JSON.stringify(navGeometry));
+ // Browser gate for the real animated circular drum, not just a modulo helper.
+ const navGroups=['Обзор','Реестры','Разборы','Надзор'];
+ const centerLabel=async()=>(await page.locator('.dash-source-navigation .vkladki-stroka--centr .vkladki-imya-gruppy').innerText()).trim();
+ const initialGroup=await centerLabel();
+ const start=navGroups.indexOf(initialGroup);
+ if(start<0)fail('Unknown initial source navigation centre: '+initialGroup);
+ else{
+   const next=page.locator('.source-nav-keys button[aria-label="Следующие группы"]');
+   const previous=page.locator('.source-nav-keys button[aria-label="Предыдущие группы"]');
+   const loop=[];
+   for(let step=1;step<=4;step++){
+     await next.click();await delay(280);
+     const actual=await centerLabel(),expected=navGroups[(start+step)%4];
+     loop.push({direction:'down',actual,expected});
+     if(actual!==expected)fail('Drum forward wrap step '+step+': '+actual+' instead of '+expected);
+   }
+   for(let step=1;step<=4;step++){
+     await previous.click();await delay(280);
+     const actual=await centerLabel(),expected=navGroups[(start-step+4)%4];
+     loop.push({direction:'up',actual,expected});
+     if(actual!==expected)fail('Drum reverse wrap step '+step+': '+actual+' instead of '+expected);
+   }
+   const cylinder=page.locator('.dash-source-navigation .баран-навигации');
+   await cylinder.hover();await page.mouse.wheel(0,-90);await delay(280);
+   if(await centerLabel()!==navGroups[(start+3)%4])fail('Wheel did not wrap to previous group');
+   await cylinder.focus();await page.keyboard.press('ArrowDown');await delay(280);
+   if(await centerLabel()!==initialGroup)fail('Keyboard could not traverse the wheel boundary');
+   report.navLoop=loop;
+   const after=await page.evaluate(()=>{
+     const root=document.querySelector('.dash-source-navigation');
+     const radios=[...(root?.querySelectorAll('input[name="razdel"]')??[])];
+     return {rows:root?.querySelectorAll('.vkladki-stroka').length,
+       visible:root?.querySelectorAll('.vkladki-stroka[aria-hidden="false"]').length,
+       routes:radios.map(r=>r.dataset.route),
+       selected:radios.filter(r=>r.checked).map(r=>r.dataset.route)};
+   });
+   if(after.rows!==4 || after.visible!==3 || after.routes.length!==13 || new Set(after.routes).size!==13
+      || after.selected.length!==1 || after.selected[0]!==navGeometry.chosen[0])
+     fail('Drum wrap lost route/selection/accessibility identity: '+JSON.stringify(after));
+ }
+
  await page.screenshot({path:out+'/00-initial-desktop.png',fullPage:true});
  report.screenshots.push('00-initial-desktop.png');
  for(const [id,label]of routes){
