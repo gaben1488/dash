@@ -27,6 +27,17 @@ class ReleaseTransportProjectionTests(unittest.TestCase):
         self.assertEqual(proof['release_transport'][0]['elapsed_ms'], 30000)
         self.assertNotIn('PRIVATE', str(proof))
 
+    def test_native_network_stages_distinguish_queue_headers_and_body_without_private_fields(self):
+        request = SimpleNamespace(url=verifier.BASE + '/api/report-releases', method='GET',
+            timing={'startTime': 0, 'requestStart': 25000, 'responseStart': 27500,
+                    'responseEnd': 28000, 'private': 'SECRET'})
+        proof = {}
+        verifier.record_release_transport(request, 'finished', proof)
+        row = proof['release_transport'][0]
+        self.assertEqual([row[key] for key in ('request_start_ms','response_start_ms','response_end_ms')],
+                         [25000,27500,28000])
+        self.assertNotIn('SECRET', str(proof))
+
     def test_projects_request_lifetime_without_url_query_failure_or_headers(self):
         request = SimpleNamespace(url=verifier.BASE + '/api/report-releases?date=PRIVATE&token=SECRET',
                                   method='GET', timing={'startTime': 1000, 'responseEnd': -1},

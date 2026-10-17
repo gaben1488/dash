@@ -85,6 +85,11 @@ def record_release_transport(request, phase, proof, *, started_at=None):
                        else time.time() * 1000 - timing['startTime'])
         if type(elapsed) in {int, float} and math.isfinite(elapsed) and 0 <= elapsed <= 600_000:
             row['elapsed_ms'] = round(elapsed, 1)
+        for source, target in (('requestStart', 'request_start_ms'), ('responseStart', 'response_start_ms'),
+                               ('responseEnd', 'response_end_ms')):
+            value = timing.get(source)
+            if type(value) in {int, float} and math.isfinite(value) and 0 <= value <= 600_000:
+                row[target] = round(value, 1)
     except Exception:  # noqa: BLE001 - teardown can make native timing unavailable.
         row['timing_available'] = False
     rows.append(row)
