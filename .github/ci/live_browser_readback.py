@@ -261,11 +261,19 @@ async def verify_header_periods(page, profile, proof):
     corner = header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$'))
     await activate(corner, profile)
     dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+    reset_started = time.monotonic()
     await activate(dialog.get_by_role('button', name='Снять фильтры линейки', exact=True), profile)
     await expect(thousands).to_have_attribute('aria-pressed', 'true')
     await activate(corner, profile)
     await expect(dialog).to_be_hidden()
-    await activate(page.get_by_role('button', name=re.compile('^Вернуть фильтры: ')), profile)
+    undo = page.get_by_role('button', name=re.compile('^Вернуть фильтры: '))
+    undo_count = await undo.count()
+    proof['undo_before'] = {'elapsed_ms': round((time.monotonic()-reset_started)*1000, 1),
+                            'present': undo_count, 'disabled': await undo.is_disabled() if undo_count else None}
+    await activate(undo, profile)
+    proof['undo_after'] = {'elapsed_ms': round((time.monotonic()-reset_started)*1000, 1),
+        'millions_pressed': await millions.get_attribute('aria-pressed'),
+        'thousands_pressed': await thousands.get_attribute('aria-pressed')}
     await expect(millions).to_have_attribute('aria-pressed', 'true')
     await activate(thousands, profile)
     proof['header_periods_and_undo'] = 'PASS'
@@ -421,10 +429,10 @@ async def run():
             visited = []
 
             scenario = os.environ.get('BROWSER_SCENARIO', 'full')
-            if scenario not in {'full', 'navigation', 'word-readiness'}:
+            if scenario not in {'full', 'navigation', 'filters', 'word-readiness'}:
                 raise ValueError('BROWSER_SCENARIO_INVALID')
             proof['scenario'] = scenario
-            for label in (PAGES if scenario in {'full', 'navigation'} else ['Отчёт']):
+            for label in (PAGES if scenario in {'full', 'navigation'} else ['Реестр'] if scenario == 'filters' else ['Отчёт']):
                 proof['stage'] = 'page_' + str(len(visited) + 1)
                 proof['page_phase'] = 'select'
                 await select_page(page, nav, label, proof)
@@ -449,11 +457,17 @@ async def run():
                 await browser.close()
                 print(json.dumps(proof))
                 return 0
-            if scenario == 'full':
+            if scenario in {'full', 'filters'}:
                 proof['stage'] = 'header_controls'
                 await select_page(page, nav, 'Реестр', proof)
                 await verify_header_controls(page, profile, proof)
                 await verify_header_periods(page, profile, proof)
+            if scenario == 'filters':
+                assert not errors and not blocked
+                proof.update(result='PASS', stage='complete', scope='FILTERS_ONLY', page_errors=0, blocked_requests=0)
+                await browser.close()
+                print(json.dumps(proof))
+                return 0
             proof['stage'] = 'report_navigation'
             await select_page(page, nav, 'Отчёт', proof)
             await page.get_by_role('button', name='Отчёт в Word', exact=True).wait_for(timeout=30000)

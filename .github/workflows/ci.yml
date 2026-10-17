@@ -17,7 +17,7 @@ on:
         description: "Browser interaction profile; iphone uses emulated WebKit, not a physical Safari claim"
       browser_scenario:
         type: choice
-        options: [full, navigation]
+        options: [full, navigation, filters]
         default: full
         description: "Full acceptance or a bounded navigation-only diagnosis"
       browser_renderer:
@@ -1211,7 +1211,7 @@ jobs:
       BROWSER_PROFILE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'iphone' || 'desktop' }}
       BROWSER_ENGINE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'webkit' || 'chromium' }}
       BROWSER_HEADED: ${{ inputs.browser_renderer == 'headed' && '1' || '0' }}
-      BROWSER_SCENARIO: ${{ inputs.browser_scenario == 'navigation' && 'navigation' || startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
+      BROWSER_SCENARIO: ${{ inputs.browser_scenario == 'navigation' && 'navigation' || inputs.browser_scenario == 'filters' && 'filters' || startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
