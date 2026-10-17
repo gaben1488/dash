@@ -22,11 +22,16 @@ Keeper worker-39029386193/backup:21 063 718 219logicalB/3621entries,
 archive3 185 621 581B; manifestd3d8284f…/triald35ff48d…; оба restore
 110SQLite/263DOCX, native API/3Word/health/resume PASS. Точные хэши, образы,
 версионные границы и native parity — текущий раздел PLAN/#93.
-Observer39031123999 ещё идёт:71ba141d VERIFIED_WITH_WARNINGS,
-76011432 RUNNING12:44:16UTC. Не пересоздавать контейнеры во время приёмки.
-Desktop39033073610 отказал на Word readiness; iPhoneGTK39033074571 —
-на перекрытом нажатии Word после13страниц/фильтров/Undo. Native selectedGET200
-за2,595–3,718с не закрывает браузерный отказ. Полная приёмка пока не заявлена.
+Observer39031123999 SUCCESS:71ba141d и76011432 VERIFIED_WITH_WARNINGS,
+double host FLOCK/интервал≥900сек/native context/snapshot/3Word после каждого.
+1638sealed неизменны, schema history9v2/1absent/0invalid PASS. Metadata39034110032
+подтвердил атрибуции и неизменные StartedAt. Не повторять принятую worker проверку
+без смены её зависимостей. Первый retained INLINE8914636B, второй REFERENCE4083B
+с roundtrip; global4459296B совместим. Не объявлять все payload дедуплицированными.
+Desktop39033965684 полный сценарий PASS; предыдущий39033073610 отказал на
+Word readiness и остаётся свидетельством нестабильности. iPhoneGTK39033074571
+отказал на перекрытом нажатии Word после13страниц/фильтров/Undo. Native
+selectedGET200 за2,595–3,718с не закрывает этот отказ. Полная приёмка не заявлена.
 Новые Header35363516 и comment parser18b2ef3d проверены локально, не установлены.
 Не подменять установленную78d новым исходным HEAD при чтении старых receipts.
 

@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026, 12:48 UTC
+### Текущий выпуск — 17.10.2026, 12:50 UTC
 
 Установлен `78d293b217a8afe982583c73bc67aaccdb4d906c`:
 [release39029386193](https://github.com/gaben1488/dash/actions/runs/39029386193)
@@ -32,15 +32,23 @@ Legacy producer/null/неоднозначные исторические учр�
 проверку; небезопасный отбор только по текущему адресу отклонён тестом.
 
 [Observer39031123999](https://github.com/gaben1488/dash/actions/runs/39031123999)
-вооружён до активации. Первый новый71ba141d:12:18:30–12:28:41UTC,
-VERIFIED_WITH_WARNINGS. Второй76011432 начался12:44:16UTC и ещё наблюдается;
-не объявлять два цикла до terminal/native/FLOCK receipts. API StartedAt
-12:16:28 неизменен, OOM=false/restarts0 через readback39033749163. Три public
+вооружён12:05:09UTC до активации. Два самостоятельных цикла приняты:
+71ba141d12:18:30–12:28:41 и7601143212:44:16–12:47:43UTC, оба
+VERIFIED_WITH_WARNINGS/RUNNING/double host FLOCK; после каждого native
+context/snapshot/3Word PASS. История1638sealed неизменна, schema history9v2/
+1absent/0invalid PASS. [Metadata39034110032](https://github.com/gaben1488/dash/actions/runs/39034110032)
+подтвердил source/checkpoint/атрибуции. Первый retained status INLINE8914636B;
+второй REFERENCE4083logical/4096allocatedB с корректным roundtrip, global4459296B
+совместим. Это не перевод всех наблюдений на diff-хранение. API StartedAt
+12:16:28 неизменен, OOM=false/restarts0 через metadata12:50:29UTC. Три public
 health во время второго цикла:200/10loaded/0failed,761,8–1900,5ms из этого
 runner; это не cold benchmark и не измерение с VPS.
 
-Полная браузерная приёмка78d пока отказала. Desktop39033073610:
-13разделов/фильтры/Undo PASS, Word CHECKING timeout. iPhoneGTK39033074571:
+Desktop39033965684 прошёл полный сценарий13разделов/Header/периоды/Undo/
+3journal/3Word с native hashes, четыре operations значения по тому же GET,
+0page errors/blocked. Но первый Desktop39033073610 отказал на Word CHECKING;
+успешный повтор не доказывает устранение нестабильности. Последний selectedGET
+занял28235,4ms в браузере; internal GET измерялся отдельно. iPhoneGTK39033074571:
 13разделов/фильтры/Undo PASS, selectedGET200, но кнопку Word перекрывает другой
 элемент. Статус не повышен и лимиты не увеличены. Independent native selected
 GET39033307704:200/4 582 665B за2,595 и3,718с. Следующая ограниченная диагностика
