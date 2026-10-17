@@ -7,6 +7,46 @@ import time
 from pathlib import Path
 
 
+def checkpoint_content_summary(files):
+    """Bounded backup-manifest statistics, not a live hash check or deletion plan."""
+    if not isinstance(files, dict) or len(files) > 65536:
+        raise ValueError('CONTENT_INVENTORY_INVALID')
+    groups, classes = {}, {}
+    count = logical = 0
+    for name, item in files.items():
+        if not isinstance(name, str) or Path(name).is_absolute() or '..' in Path(name).parts or not isinstance(item, dict):
+            raise ValueError('CONTENT_INVENTORY_INVALID')
+        if item.get('kind') == 'directory':
+            continue
+        size, digest = item.get('bytes'), item.get('sha256')
+        if type(size) is not int or size < 0 or not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
+            raise ValueError('CONTENT_INVENTORY_INVALID')
+        if digest in groups and groups[digest][0] != size:
+            raise ValueError('CONTENT_INVENTORY_INVALID')
+        previous = groups.get(digest, (size, 0))
+        groups[digest] = (size, previous[1] + 1)
+        leaf = Path(name).name
+        category = ('source_payloads' if 'snapshot_bundle' in Path(name).parts or leaf == 'capture.json' else
+                    'report_models' if leaf == 'report_model.json' else 'receipts' if leaf == 'receipt.json' else
+                    'documents' if leaf.endswith('.docx') else
+                    'attempt_status' if leaf == 'status.json' and 'attempts' in Path(name).parts else
+                    'databases' if leaf.endswith(('.db', '.sqlite', '-wal')) else 'other')
+        values = classes.setdefault(category, {'files': 0, 'logical_bytes': 0, 'hashes': {}})
+        values['files'] += 1
+        values['logical_bytes'] += size
+        values['hashes'][digest] = size
+        count += 1
+        logical += size
+    unique = sum(size for size, _ in groups.values())
+    return {'files': count, 'logical_bytes': logical, 'unique_content_bytes': unique,
+            'duplicate_logical_bytes': logical - unique,
+            'duplicate_groups': sum(number > 1 for _, number in groups.values()),
+            'physical_bytes_measured': False, 'content_reverified': False, 'deletion_plan': False,
+            'classes': {key: {'files': value['files'], 'logical_bytes': value['logical_bytes'],
+                              'unique_content_bytes': sum(value['hashes'].values())}
+                        for key, value in sorted(classes.items())}}
+
+
 def retention_query_summary(database):
     """Compare query cost on one read transaction; no retention/deletion runs.
 

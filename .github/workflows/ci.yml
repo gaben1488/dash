@@ -1326,14 +1326,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
+      - uses: actions/checkout@v4
+      - name: Bind reviewed checkpoint content statistics
+        run: |
+          python - <<'PYCONTENT'
+          import ast,base64,hashlib,os
+          from pathlib import Path
+          source=Path('.github/ci/source_drift_probe.py').read_text()
+          node=next(node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name=='checkpoint_content_summary')
+          body=('import re\nfrom pathlib import Path\n'+ast.get_source_segment(source,node)).encode()
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('CONTENT_PROJECTOR='+base64.b64encode(body).decode()+'\n')
+              target.write('CONTENT_PROJECTOR_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+          PYCONTENT
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
           RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release 78d293b2 metadata') && 'yes' || 'no' }}
           RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for 78d293b2') && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
+          CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
+          CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
         with:
-          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY
+          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1341,7 +1356,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -1565,7 +1580,7 @@ jobs:
 
             def accepted_cycle_metadata():
              from datetime import datetime
-             base=Path('/var/lib/aemr/worker-quarantine/acceptance-39024988744-1')
+             base=Path('/var/lib/aemr/worker-quarantine/acceptance-39031123999-1')
              def read(name,limit=8*1024*1024):
               path=base/name
               assert not any(parent.is_symlink() for parent in (path,*path.parents))
@@ -1634,6 +1649,12 @@ jobs:
                result['sha256']=hashlib.sha256(body).hexdigest()
                if name=='fresh_backup':
                 result.update({key:value[key] for key in ('bytes','archive_bytes') if type(value.get(key)) is int});result['files']=len(value.get('files',{}))
+                import base64
+                code=base64.b64decode(os.environ['CONTENT_PROJECTOR'],validate=True)
+                assert len(code)<=16384 and hashlib.sha256(code).hexdigest()==os.environ['CONTENT_PROJECTOR_SHA']
+                namespace={'__name__':'checkpoint_content_projector'}
+                exec(compile(code,'<reviewed-checkpoint-projector>','exec'),namespace)
+                print(json.dumps({'checkpoint_content_storage':namespace['checkpoint_content_summary'](value['files'])}),flush=True)
                 # Planning scalars only; this live inventory is not an atomic backup or release admission.
                 import shutil
                 source=Path('/var/lib/docker/volumes/aemr_server_data/_data')

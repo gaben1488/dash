@@ -7,6 +7,38 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_checkpoint_inventory_counts_equal_content_without_merging_entities_or_leaking_paths(self):
+        import json
+
+        files = {
+            'PRIVATE/': {'kind': 'directory', 'bytes': 0},
+            'reports/attempts/PRIVATE/capture.json': {'bytes': 100, 'sha256': 'a' * 64},
+            'reports/published/releases/PRIVATE/capture.json': {'bytes': 100, 'sha256': 'a' * 64},
+            'reports/published/releases/PRIVATE/report_model.json': {'bytes': 60, 'sha256': 'b' * 64},
+        }
+        before = json.dumps(files, sort_keys=True)
+        result = self.module.checkpoint_content_summary(files)
+        self.assertEqual(result['files'], 3)
+        self.assertEqual(result['logical_bytes'], 260)
+        self.assertEqual(result['unique_content_bytes'], 160)
+        self.assertEqual(result['duplicate_logical_bytes'], 100)
+        self.assertEqual(result['duplicate_groups'], 1)
+        self.assertIs(result['physical_bytes_measured'], False)
+        self.assertIs(result['content_reverified'], False)
+        self.assertIs(result['deletion_plan'], False)
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        self.assertNotIn('a' * 64, json.dumps(result))
+        self.assertEqual(json.dumps(files, sort_keys=True), before)
+
+    def test_checkpoint_inventory_rejects_invalid_evidence_instead_of_claiming_savings(self):
+        for item in ({'bytes': -1, 'sha256': 'a' * 64}, {'bytes': True, 'sha256': 'a' * 64},
+                     {'bytes': 20, 'sha256': 'INVALID'}):
+            with self.assertRaises(ValueError):
+                self.module.checkpoint_content_summary({'file': item})
+        with self.assertRaises(ValueError):
+            self.module.checkpoint_content_summary({'one': {'bytes': 10, 'sha256': 'a' * 64},
+                                                  'two': {'bytes': 20, 'sha256': 'a' * 64}})
+
     def test_incident_projection_reports_failure_classes_without_private_log_text(self):
         import json
 
