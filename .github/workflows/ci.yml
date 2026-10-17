@@ -1564,7 +1564,7 @@ jobs:
 
             def accepted_cycle_metadata():
              from datetime import datetime
-             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38984598658-1')
+             base=Path('/var/lib/aemr/worker-quarantine/acceptance-39019013301-1')
              def read(name,limit=8*1024*1024):
               path=base/name
               assert not any(parent.is_symlink() for parent in (path,*path.parents))
