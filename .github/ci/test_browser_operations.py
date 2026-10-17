@@ -9,7 +9,8 @@ from playwright.async_api import async_playwright
 
 
 class OperationsBrowserTests(unittest.IsolatedAsyncioTestCase):
-    async def scenario(self, *, age='1 мин 1 с', duration='2 мин 5 с', observed=True):
+    async def scenario(self, *, age='1 мин 1 с', duration='2 мин 5 с', observed=True,
+                       failure_at=None, failure_text='В доступной диагностике отказ не записан'):
         async with async_playwright() as driver:
             browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
             try:
@@ -18,11 +19,11 @@ class OperationsBrowserTests(unittest.IsolatedAsyncioTestCase):
                     <dl><div><dt>Доступность API при последнем чтении</dt><dd>Ответ получен</dd></div>
                     <div><dt>Возраст последней успешной проверки</dt><dd>{age}</dd></div>
                     <div><dt>Длительность последнего завершённого цикла</dt><dd>{duration}</dd></div>
-                    <div><dt>Последний зафиксированный отказ</dt><dd>В доступной диагностике отказ не записан</dd></div></dl>
+                    <div><dt>Последний зафиксированный отказ</dt><dd>{failure_text}</dd></div></dl>
                     <time datetime="2026-10-16T23:00:00+00:00">17.10.2026</time></details>''')
                 value = {'checked_at': '2026-10-16T23:00:00+00:00',
                          'last_success_age_seconds': 61, 'last_cycle_duration_seconds': 125,
-                         'last_failure_at': None, 'last_failure_code': None, 'check_stale': False}
+                         'last_failure_at': failure_at, 'last_failure_code': None, 'check_stale': False}
                 proof = {}
                 await verifier.verify_operations_status(page, 'desktop', proof,
                     {value['checked_at']: value} if observed else {})
@@ -45,6 +46,13 @@ class OperationsBrowserTests(unittest.IsolatedAsyncioTestCase):
     async def test_unobserved_timestamp_cannot_pass(self):
         with self.assertRaises(AssertionError):
             await self.scenario(observed=False)
+
+    async def test_failure_time_is_the_actual_observed_instant_in_kamchatka(self):
+        await self.scenario(failure_at='2026-10-15T12:00:00+00:00', failure_text='16.10.2026, 00:00:00')
+
+    async def test_other_failure_date_cannot_pass(self):
+        with self.assertRaises(AssertionError):
+            await self.scenario(failure_at='2026-10-15T12:00:00+00:00', failure_text='17.10.2026, 00:00:00')
 
 
 class OperationsObservationTests(unittest.IsolatedAsyncioTestCase):

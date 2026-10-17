@@ -9,8 +9,10 @@ import re
 import tempfile
 import time
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from playwright.async_api import async_playwright, expect
 
@@ -161,6 +163,13 @@ async def verify_operations_status(page, profile, proof, observed):
         assert failure == 'В доступной диагностике отказ не записан'
     else:
         assert failure != 'В доступной диагностике отказ не записан'
+        instant = datetime.fromisoformat(value['last_failure_at'])
+        assert instant.tzinfo is not None
+        expected = instant.astimezone(ZoneInfo('Asia/Kamchatka'))
+        parts = [int(number) for number in re.findall(r'[0-9]+', failure)]
+        assert len(parts) == 6 and parts[:2] == [expected.day, expected.month]
+        assert parts[2] in (expected.year, expected.year % 100)
+        assert parts[3:] == [expected.hour, expected.minute, expected.second]
         if value['last_failure_code']:
             assert await box.locator('code').inner_text() == value['last_failure_code']
     assert await box.get_by_text('Свежая успешная проверка не подтверждена.', exact=True).count() == int(value['check_stale'])
