@@ -38,6 +38,7 @@ class AcceptanceTargetBinding(unittest.TestCase):
         self.assertTrue("observer='" + TARGET + "'" in job(source, 'worker-observe'), 'worker observer target differs')
         self.assertTrue("sha='" + TARGET + "'" in job(source, 'browser-readback'), 'browser target differs')
         self.assertTrue('EXPECTED_SOURCE_SHA: ' + TARGET in job(source, 'browser-readback'), 'browser verifier target differs')
+        self.assertTrue('PRIMARY_SOURCE_SHA: ' + TARGET in job(source, 'observe'), 'checkpoint planner source differs')
         self.assertTrue("['org.opencontainers.image.revision']=='" + TARGET + "'" in job(source, 'api-timing'), 'timing target differs')
 
     def test_failed_local_binding_cannot_start_schema_ssh(self):

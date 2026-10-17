@@ -1343,14 +1343,21 @@ jobs:
         id: target-binding
         run: python3 .github/ci/test_acceptance_target_binding.py
       - name: Bind reviewed checkpoint content statistics
+        env:
+          PRIMARY_SOURCE_SHA: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
         run: |
+          git fetch --quiet --no-tags origin "$PRIMARY_SOURCE_SHA"
           python - <<'PYCONTENT'
-          import ast,base64,hashlib,os
+          import ast,base64,hashlib,os,subprocess
           from pathlib import Path
           source=Path('.github/ci/source_drift_probe.py').read_text()
-          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'checkpoint_content_summary','image_storage_summary'}]
-          assert len(nodes)==2
-          body=('import re\nfrom pathlib import Path\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in nodes)).encode()
+          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'checkpoint_content_summary','image_storage_summary','immutable_sharing_summary'}]
+          assert len(nodes)==3
+          dedup=subprocess.check_output(['git','show',os.environ['PRIMARY_SOURCE_SHA']+':.github/ci/publication_dedup.py'],text=True)
+          checked=[node for node in ast.parse(dedup).body if isinstance(node,ast.FunctionDef) and node.name in {'_checked_file','plan_dedup'}]
+          assert len(checked)==2
+          body=('import hashlib,json,os,re,stat\nfrom pathlib import Path\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in nodes)
+                +'\n\n'+'\n\n'.join(ast.get_source_segment(dedup,node) for node in checked)).encode()
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('CONTENT_PROJECTOR='+base64.b64encode(body).decode()+'\n')
               target.write('CONTENT_PROJECTOR_SHA='+hashlib.sha256(body).hexdigest()+'\n')
@@ -1705,6 +1712,11 @@ jobs:
                 # Planning scalars only; this live inventory is not an atomic backup or release admission.
                 import shutil
                 source=Path('/var/lib/docker/volumes/aemr_server_data/_data')
+                catalog_reader="import json,sqlite3\nfrom contextlib import closing\nfrom pathlib import Path\nfrom procurement_engine.publication_store import PublicationStore\nstore=PublicationStore(Path('/app/packages/server/data/reports/published'),readonly=True)\nwith store.reader_lease(),closing(sqlite3.connect(store.database_path.as_uri()+'?mode=ro',uri=True)) as db:\n db.execute('PRAGMA query_only=ON');catalog={};size=0\n for rid,files in db.execute('SELECT release_id,files FROM publications LIMIT 257'):\n  assert len(catalog)<256 and len(files)<=1024*1024\n  size+=len(files);assert size<=4*1024*1024\n  catalog[rid]=json.loads(files)\n print(json.dumps(catalog))\n"
+                catalog_body=subprocess.check_output(['docker','exec','--user','1000:1000','aemr-server-1','/opt/report-env/bin/python','-IB','-c',catalog_reader],timeout=45)
+                assert len(catalog_body)<=4*1024*1024
+                sharing=namespace['immutable_sharing_summary'](source,value['files'],json.loads(catalog_body),namespace['plan_dedup'])
+                print(json.dumps({'immutable_publication_sharing_inventory':sharing}),flush=True)
                 device=source.stat().st_dev;reclaimable=0
                 for relative in value['files']:
                  assert not relative.startswith('/') and '..' not in Path(relative).parts

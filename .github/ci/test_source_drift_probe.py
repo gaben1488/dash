@@ -7,6 +7,23 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_immutable_sharing_inventory_counts_inodes_without_touching_bytes(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);one=root/'one';two=root/'two'
+            one.write_bytes(b'a'*8192);two.write_bytes(one.read_bytes())
+            group=[{'relative':'one'},{'relative':'two'}]
+            planner=lambda *args:[group]
+            result=self.module.immutable_sharing_summary(root,{}, {},planner)
+            self.assertEqual(result['allocated_reclaimable_upper_bound_bytes'],two.stat().st_blocks*512)
+            self.assertFalse(result['applied'])
+            self.assertEqual(two.read_bytes(),one.read_bytes())
+            two.unlink();os.link(one,two)
+            result=self.module.immutable_sharing_summary(root,{}, {},planner)
+            self.assertEqual(result['allocated_reclaimable_upper_bound_bytes'],0)
+
     def test_image_inventory_projects_only_release_metadata_and_references(self):
         import json
 

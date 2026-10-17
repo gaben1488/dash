@@ -72,6 +72,21 @@ def image_storage_summary(images, referenced):
             'physical_shared_layers_measured':False,'deletion_plan':False,'images':rows}
 
 
+def immutable_sharing_summary(source, files, catalog, planner):
+    """Reuse the hash/catalog/closed-alias planner; no replacement or object removal."""
+    groups=planner(source,files,catalog)
+    reclaimable=0
+    for group in groups:
+        inodes={}
+        for item in group:
+            info=(source/item['relative']).stat()
+            inodes[(info.st_dev,info.st_ino)]=info.st_blocks*512
+        canonical=(source/group[0]['relative']).stat()
+        reclaimable+=sum(inodes.values())-inodes[(canonical.st_dev,canonical.st_ino)]
+    return {'groups':len(groups),'files':sum(map(len,groups)),
+            'allocated_reclaimable_upper_bound_bytes':reclaimable,'applied':False}
+
+
 def retention_query_summary(database):
     """Compare query cost on one read transaction; no retention/deletion runs.
 
