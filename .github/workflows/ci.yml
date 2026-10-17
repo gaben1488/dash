@@ -2732,12 +2732,12 @@ jobs:
             print(json.dumps(value))
             PYWEEK
 
-  snapshot-scope-index-probe:
+  decision-readback-profile:
     if: >-
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Prove retention snapshot index before candidate rollout'
+      github.event.head_commit.message == 'Profile decision readback on native snapshot copy'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
@@ -2757,7 +2757,7 @@ jobs:
            target.write('INDEX_DDL='+base64.b64encode(ddl).decode()+'\n')
            target.write('INDEX_SHA='+hashlib.sha256(ddl).hexdigest()+'\n')
           PY
-      - name: Copy one SQLite consistently and compare native queries on isolated scratch
+      - name: Profile the actual installed decision reader on one isolated SQLite copy
         uses: appleboy/ssh-action@v1.2.0
         env:
           INDEX_DDL: ${{ env.INDEX_DDL }}
@@ -2783,7 +2783,7 @@ jobs:
              assert 0<len(ddl)<=2048 and hashlib.sha256(ddl).hexdigest()==os.environ['INDEX_SHA']
              assert re.fullmatch('[a-f0-9]{40}',os.environ['SCOPE_SOURCE_SHA'])
              record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
-             assert record['Image']=='sha256:e214a60112f3e527d1cbb05caf6b08ccec37371ffd9b55c26579ca0b7b0e22ae' and record['State']['Running']
+             assert record['Image']=='sha256:cba048d9637b20afdcf9f9505cb076ca975cf8722bb33c0144b0a81c5d499f0e' and record['State']['Running']
              mount=next(item for item in record['Mounts'] if item['Destination']=='/app/packages/server/data')
              source=Path(mount['Source'])/'aemr.db';assert source.is_file() and not source.is_symlink()
              parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
@@ -2802,35 +2802,32 @@ jobs:
                with closing(sqlite3.connect(database)) as dst:src.backup(dst,pages=256,progress=progress,sleep=.01)
                copied=round(time.monotonic()-start,3)
               code=r'''
-            const {createRequire}=await import('node:module');const {statSync}=await import('node:fs');
-            const Database=createRequire('/app/packages/server/package.json')('better-sqlite3');
-            const db=new Database('/probe/aemr.db');db.pragma('cache_size=-32768');db.pragma('temp_store=FILE');
-            const version=db.prepare('SELECT sqlite_version() AS version').get().version;
-            const beforeSize=statSync('/probe/aemr.db');const rows=db.prepare('SELECT COUNT(*) AS n FROM snapshots').get().n;
-            const fields=`id,created_at,spreadsheet_id,CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END AS year_type,CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END AS year_value,instr(data, '\"rowsByDept\"') > 0 AS has_rows,instr(data, '\"weeklyTableContext\"') > 0 AS has_weekly`;
-            const query=indexed=>`SELECT ${fields} FROM snapshots ${indexed?'INDEXED BY idx_snapshots_retention_metadata WHERE id IS id':'NOT INDEXED'} ORDER BY rowid`;
-            const run=indexed=>{const start=performance.now();const values=db.prepare(query(indexed)).all();return{values,ms:Math.round((performance.now()-start)*1000)/1000}};
-            const prior=run(false);
-            const start=performance.now();db.exec(Buffer.from(process.env.INDEX_DDL,'base64').toString('utf8'));const indexMs=performance.now()-start;
-            const current=run(true),warmControl=run(false),repeat=run(true);
-            const legacy=db.prepare(`SELECT ${fields} FROM snapshots`).all();
-            if([current.values,warmControl.values,repeat.values,legacy].some(values=>JSON.stringify(values)!==JSON.stringify(prior.values)))throw Error('RETENTION_METADATA_CHANGED');
-            db.pragma('wal_checkpoint(TRUNCATE)');db.close();const afterSize=statSync('/probe/aemr.db');
-            console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,query:'retention_candidate_metadata',before_ms:prior.ms,after_ms:current.ms,warm_control_ms:warmControl.ms,repeat_after_ms:repeat.ms,legacy_reader_results_equal:true,matches:current.values.length,results_equal:true}));
+            const {createHash}=await import('node:crypto');
+            const {db}=await import('./src/db/index.ts');
+            const {overlayPersistedStatus}=await import('./src/services/issue-decisions.ts');
+            db.$client.pragma('cache_size=-32768');db.$client.pragma('temp_store=FILE');
+            const stored=db.$client.prepare('SELECT data FROM snapshots ORDER BY created_at DESC LIMIT 1').get();
+            if(!stored||typeof stored.data!=='string'||stored.data.length>64*1024*1024)throw Error('PROFILE_SNAPSHOT_BUDGET');
+            const snapshot=JSON.parse(stored.data),ids=new Set(snapshot.issues.map(i=>i.id));
+            const cases=db.$client.prepare(`SELECT id FROM issues WHERE status<>'open' OR length(trim(coalesce(comment,'')))>0 OR EXISTS(SELECT 1 FROM issue_history WHERE issue_id=issues.id) OR EXISTS(SELECT 1 FROM audit_log WHERE entity_id=issues.id AND action='issue_comment')`).all();
+            let queries=0;const original=db.$client.prepare;
+            db.$client.prepare=function(sql,...args){if(sql.includes('instr(')&&sql.includes('snapshots')){queries++;console.log(JSON.stringify({phase:'HISTORICAL_LOOKUP',query:queries}));}return original.call(this,sql,...args)};
+            console.log(JSON.stringify({phase:'DECISION_PROFILE_BEGIN',saved_cases:cases.length,missing_saved_cases:cases.filter(c=>!ids.has(c.id)).length,current_issue_count:snapshot.issues.length,snapshot_scope:snapshot.metadata.targetYear??null}));
+            const start=performance.now(),cpu=process.cpuUsage();
+            const result=overlayPersistedStatus(snapshot.issues,snapshot),used=process.cpuUsage(cpu);
+            console.log(JSON.stringify({phase:'DECISION_PROFILE_COMPLETE',elapsed_ms:Math.round(performance.now()-start),cpu_ms:Math.round((used.user+used.system)/1000),history_queries:queries,result_count:result.length,result_sha256:createHash('sha256').update(JSON.stringify(result.map(i=>[i.id,i.status]))).digest('hex')}));
+            db.$client.close();
             '''
-              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','INDEX_DDL='+os.environ['INDEX_DDL'],'-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
+              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','SQLITE_PATH=/probe/aemr.db','-e','NODE_ENV=test','-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
               (work/'native.stdout').write_text(result.stdout[:16384])
-              assert result.returncode==0 and len(result.stdout)<=4096
-              value=json.loads(result.stdout)
-              assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',value['sqlite_version'])
-              assert value['results_equal'] is True and value['query']=='retention_candidate_metadata'
-              assert set(value)=={'snapshot_count','sqlite_version','index_build_ms','index_logical_growth_bytes','index_physical_growth_bytes','query','before_ms','after_ms','warm_control_ms','repeat_after_ms','legacy_reader_results_equal','matches','results_equal'}
+              assert len(result.stdout)<=8192
+              rows=[json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"phase":')]
+              assert all(set(row)<={'phase','saved_cases','missing_saved_cases','current_issue_count','snapshot_scope','query','elapsed_ms','cpu_ms','history_queries','result_count','result_sha256'} for row in rows)
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
-              value.update(source_sha=os.environ['SCOPE_SOURCE_SHA'],index_ddl_sha256=os.environ['INDEX_SHA'],consistent_copy_bytes=size,copy_seconds=copied,production_index_created=False)
-              (work/'result.json').write_text(json.dumps(value))
-              print(json.dumps({'isolated_snapshot_retention_index':value}))
+              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'source_sha':os.environ['SCOPE_SOURCE_SHA'],'records':rows}}),flush=True)
+              (work/'result.json').write_text(json.dumps({'exit_code':result.returncode,'records':rows}))
              finally:
               running=subprocess.run(['docker','inspect',probe_name],capture_output=True,text=True,timeout=10,check=False)
               if running.returncode==0:
