@@ -92,6 +92,13 @@ try{
  // Browser gate for the real animated circular drum, not just a modulo helper.
  const navGroups=['Обзор','Реестры','Разборы','Надзор'];
  const centerLabel=async()=>(await page.locator('.dash-source-navigation .vkladki-stroka--centr .vkladki-imya-gruppy').textContent()??'').trim();
+ const awaitCenter=async(expected)=>{
+   try{
+     await page.waitForFunction(name=>document.querySelector('.dash-source-navigation .vkladki-stroka--centr .vkladki-imya-gruppy')?.textContent?.trim()===name,
+       expected,{timeout:3000,polling:50});
+     return true;
+   }catch{return false;}
+ };
  const initialGroup=await centerLabel();
  const start=navGroups.indexOf(initialGroup);
  if(start<0)fail('Unknown initial source navigation centre: '+initialGroup);
@@ -100,22 +107,24 @@ try{
    const previous=page.locator('.source-nav-keys button[aria-label="Предыдущие группы"]');
    const loop=[];
    for(let step=1;step<=4;step++){
-     await next.click();await delay(280);
-     const actual=await centerLabel(),expected=navGroups[(start+step)%4];
+     const expected=navGroups[(start+step)%4];
+     await next.click();const settled=await awaitCenter(expected);
+     const actual=await centerLabel();
      loop.push({direction:'down',actual,expected});
-     if(actual!==expected)fail('Drum forward wrap step '+step+': '+actual+' instead of '+expected);
+     if(!settled || actual!==expected)fail('Drum forward wrap step '+step+': '+actual+' instead of '+expected);
    }
    for(let step=1;step<=4;step++){
-     await previous.click();await delay(280);
-     const actual=await centerLabel(),expected=navGroups[(start-step+4)%4];
+     const expected=navGroups[(start-step+4)%4];
+     await previous.click();const settled=await awaitCenter(expected);
+     const actual=await centerLabel();
      loop.push({direction:'up',actual,expected});
-     if(actual!==expected)fail('Drum reverse wrap step '+step+': '+actual+' instead of '+expected);
+     if(!settled || actual!==expected)fail('Drum reverse wrap step '+step+': '+actual+' instead of '+expected);
    }
    const cylinder=page.locator('.dash-source-navigation .баран-навигации');
-   await cylinder.hover();await page.mouse.wheel(0,-90);await delay(280);
-   if(await centerLabel()!==navGroups[(start+3)%4])fail('Wheel did not wrap to previous group');
-   await cylinder.focus();await page.keyboard.press('ArrowDown');await delay(280);
-   if(await centerLabel()!==initialGroup)fail('Keyboard could not traverse the wheel boundary');
+   await cylinder.hover();await page.mouse.wheel(0,-90);
+   if(!await awaitCenter(navGroups[(start+3)%4]))fail('Wheel did not wrap to previous group');
+   await cylinder.focus();await page.keyboard.press('ArrowDown');
+   if(!await awaitCenter(initialGroup))fail('Keyboard could not traverse the wheel boundary');
    report.navLoop=loop;
    const after=await page.evaluate(()=>{
      const root=document.querySelector('.dash-source-navigation');
