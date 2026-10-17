@@ -2362,6 +2362,32 @@ jobs:
                   and re.fullmatch('[0-9]{1,20}',str(entry.get('__REALTIME_TIMESTAMP','')))):
                events.append({'service':event['service'],'event':event['event'],'at_microseconds':int(entry['__REALTIME_TIMESTAMP'])})
              print(json.dumps({'guard_incident_events':events}),flush=True)
+             volume=next(m['Name'] for m in record['Mounts'] if m.get('Type')=='volume' and m.get('Destination')=='/app/packages/server/data')
+             profile="""
+            const Database=require('better-sqlite3');
+            const db=new Database('/app/packages/server/data/aemr.db',{readonly:true,fileMustExist:true,timeout:500});
+            db.pragma('query_only=ON');
+            const base=\"SELECT id,created_at,spreadsheet_id FROM snapshots\";
+            const metadata=\"SELECT id,created_at,spreadsheet_id,CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END AS year_type,CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END AS year_value,instr(data, '\\\"rowsByDept\\\"') > 0 AS has_rows,instr(data, '\\\"weeklyTableContext\\\"') > 0 AS has_weekly FROM snapshots\";
+            const result={};
+            for(const [name,sql] of [['scalar',base],['retention_metadata',metadata]]){
+              const plan=db.prepare('EXPLAIN QUERY PLAN '+sql).all();
+              const cpu=process.cpuUsage(),start=performance.now(),rows=db.prepare(sql).all();
+              if(rows.length>256)throw new Error('PROFILE_ROW_BUDGET');
+              const used=process.cpuUsage(cpu);
+              result[name]={rows:rows.length,elapsed_ms:Math.round(performance.now()-start),cpu_ms:Math.round((used.user+used.system)/1000),table_scan:plan.some(r=>/SCAN snapshots$/.test(r.detail)),indexed:plan.some(r=>/USING.*INDEX/.test(r.detail))};
+            }
+            db.close();console.log(JSON.stringify({retention_metadata_query:result}));
+             """
+             measured=subprocess.run(['docker','run','--rm','-i','--read-only','--network','none',
+                 '--cpus=0.5','--memory=512m','--memory-swap=512m','--pids-limit=32','--user=1000:1000',
+                 '--mount','type=volume,src='+volume+',dst=/app/packages/server/data,readonly',
+                 '--entrypoint','timeout',record['Image'],'-k','5s','50s','node','-'],
+                 input=profile,capture_output=True,text=True,timeout=65,check=False)
+             if measured.returncode==0 and len(measured.stdout)<=4096:
+              value=json.loads(measured.stdout);assert set(value)=={'retention_metadata_query'}
+              print(json.dumps(value),flush=True)
+             else:print(json.dumps({'retention_metadata_query':'BOUNDED_PROFILE_FAILED','exit_code':measured.returncode}),flush=True)
             resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted 283a2b0e' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted 283a2b0e' && 'report' || 'dashboard' }}"
             code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':'/api/dashboard?year=2026','journal':'/api/change-story?limit=1','report':'/api/report-releases?date=2026-10-17&year=2026&quarter=4'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3)\n print(json.dumps(result),flush=True)\n"
             if resource=='journal':
