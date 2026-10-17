@@ -2750,11 +2750,11 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Prove weekly snapshot index before candidate rollout'
+      github.event.head_commit.message == 'Prove retention snapshot index before candidate rollout'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      SCOPE_SOURCE_SHA: 8418146414b8e2135d1ae6ca3f83b5aad9d7ca5e
+      SCOPE_SOURCE_SHA: 7c2e2e11d6f878196b59291c2a65fca8cb8756ba
     steps:
       - uses: actions/checkout@v4
       - name: Bind only the reviewed metadata index DDL
@@ -2764,7 +2764,7 @@ jobs:
           sha=os.environ['SCOPE_SOURCE_SHA'];assert re.fullmatch('[a-f0-9]{40}',sha)
           subprocess.run(['git','fetch','--quiet','origin',sha],check=True,capture_output=True)
           source=subprocess.check_output(['git','show',sha+':packages/server/src/db/ddl.ts'],text=True)
-          ddl=re.search(r'CREATE INDEX IF NOT EXISTS idx_snapshots_weekly_evidence ON snapshots\([\s\S]*?;',source).group().encode()
+          ddl=re.search(r'CREATE INDEX IF NOT EXISTS idx_snapshots_retention_metadata ON snapshots\([\s\S]*?;',source).group().encode()
           assert 0<len(ddl)<=2048
           with open(os.environ['GITHUB_ENV'],'a') as target:
            target.write('INDEX_DDL='+base64.b64encode(ddl).decode()+'\n')
@@ -2796,7 +2796,7 @@ jobs:
              assert 0<len(ddl)<=2048 and hashlib.sha256(ddl).hexdigest()==os.environ['INDEX_SHA']
              assert re.fullmatch('[a-f0-9]{40}',os.environ['SCOPE_SOURCE_SHA'])
              record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
-             assert record['Image']=='sha256:a848c1146ea5c746c17595fb801abaa48d7e1ebfbd7428e6245c181dd3e7c0d1' and record['State']['Running']
+             assert record['Image']=='sha256:e214a60112f3e527d1cbb05caf6b08ccec37371ffd9b55c26579ca0b7b0e22ae' and record['State']['Running']
              mount=next(item for item in record['Mounts'] if item['Destination']=='/app/packages/server/data')
              source=Path(mount['Source'])/'aemr.db';assert source.is_file() and not source.is_symlink()
              parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
@@ -2820,14 +2820,15 @@ jobs:
             const db=new Database('/probe/aemr.db');db.pragma('cache_size=-32768');db.pragma('temp_store=FILE');
             const version=db.prepare('SELECT sqlite_version() AS version').get().version;
             const beforeSize=statSync('/probe/aemr.db');const rows=db.prepare('SELECT COUNT(*) AS n FROM snapshots').get().n;
-            const query=`SELECT id,created_at FROM snapshots WHERE instr(data, '\"weeklyTableContext\"') > 0 ORDER BY created_at DESC,id DESC`;
-            const run=()=>{const start=performance.now();const values=db.prepare(query).all();return{values,ms:Math.round((performance.now()-start)*1000)/1000}};
-            const prior=run();
+            const fields=`id,created_at,spreadsheet_id,CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END AS year_type,CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END AS year_value,instr(data, '\"rowsByDept\"') > 0 AS has_rows,instr(data, '\"weeklyTableContext\"') > 0 AS has_weekly`;
+            const query=indexed=>`SELECT ${fields} FROM snapshots ${indexed?'INDEXED BY idx_snapshots_retention_metadata':'NOT INDEXED'} ORDER BY rowid`;
+            const run=indexed=>{const start=performance.now();const values=db.prepare(query(indexed)).all();return{values,ms:Math.round((performance.now()-start)*1000)/1000}};
+            const prior=run(false);
             const start=performance.now();db.exec(Buffer.from(process.env.INDEX_DDL,'base64').toString('utf8'));const indexMs=performance.now()-start;
-            const current=run();
-            if(JSON.stringify(current.values)!==JSON.stringify(prior.values))throw Error('WEEKLY_CANDIDATES_CHANGED');
+            const current=run(true);
+            if(JSON.stringify(current.values)!==JSON.stringify(prior.values))throw Error('RETENTION_METADATA_CHANGED');
             db.pragma('wal_checkpoint(TRUNCATE)');db.close();const afterSize=statSync('/probe/aemr.db');
-            console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,query:'weekly_candidate_metadata',before_ms:prior.ms,after_ms:current.ms,matches:current.values.length,results_equal:true}));
+            console.log(JSON.stringify({snapshot_count:rows,sqlite_version:version,index_build_ms:Math.round(indexMs*1000)/1000,index_logical_growth_bytes:afterSize.size-beforeSize.size,index_physical_growth_bytes:afterSize.blocks*512-beforeSize.blocks*512,query:'retention_candidate_metadata',before_ms:prior.ms,after_ms:current.ms,matches:current.values.length,results_equal:true}));
             '''
               result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-e','INDEX_DDL='+os.environ['INDEX_DDL'],'-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
@@ -2835,13 +2836,13 @@ jobs:
               assert result.returncode==0 and len(result.stdout)<=4096
               value=json.loads(result.stdout)
               assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',value['sqlite_version'])
-              assert value['results_equal'] is True and value['query']=='weekly_candidate_metadata'
+              assert value['results_equal'] is True and value['query']=='retention_candidate_metadata'
               assert set(value)=={'snapshot_count','sqlite_version','index_build_ms','index_logical_growth_bytes','index_physical_growth_bytes','query','before_ms','after_ms','matches','results_equal'}
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
               value.update(source_sha=os.environ['SCOPE_SOURCE_SHA'],index_ddl_sha256=os.environ['INDEX_SHA'],consistent_copy_bytes=size,copy_seconds=copied,production_index_created=False)
               (work/'result.json').write_text(json.dumps(value))
-              print(json.dumps({'isolated_snapshot_weekly_index':value}))
+              print(json.dumps({'isolated_snapshot_retention_index':value}))
              finally:
               running=subprocess.run(['docker','inspect',probe_name],capture_output=True,text=True,timeout=10,check=False)
               if running.returncode==0:
