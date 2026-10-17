@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe]
+        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe, image-archive]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       browser_profile:
@@ -47,6 +47,140 @@ permissions:
   contents: read
   actions: read
 jobs:
+  image-archive:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'image-archive' &&
+      inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    env:
+      PENDING_SOURCE: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
+      VPS_USER: ${{ secrets.DEPLOY_USER }}
+      VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require exact candidate CI and isolated root archive contracts
+        run: |
+          set -euo pipefail
+          umask 077
+          private="$RUNNER_TEMP/image-archive"
+          mkdir -m 700 "$private"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$PENDING_SOURCE"
+          git fetch --quiet --no-tags origin "$PENDING_SOURCE"
+          git show "$PENDING_SOURCE:deploy/release_recovery.py" > "$private/release_recovery.py"
+          git show "$PENDING_SOURCE:.github/ci/source_ci_gate.py" > "$private/source_ci_gate.py"
+          ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$PENDING_SOURCE&event=pull_request" \
+            --jq '.workflow_runs | map(select(.name == "CI")) | first | .id')
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$private/run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$private/jobs.json"
+          python3 - <<'PY' | python3 "$private/source_ci_gate.py" "$PENDING_SOURCE"
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-archive'
+          print(json.dumps({'run':json.loads((root/'run.json').read_text()),
+                           'jobs':json.loads((root/'jobs.json').read_text())['jobs']}))
+          PY
+          sudo env IMAGE_ARCHIVE_RECOVERY_SOURCE="$private/release_recovery.py" \
+            python3 -m unittest discover -s .github/ci -p 'test_image_archive.py' -v
+      - name: Prepare private SSH transport
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          private="$RUNNER_TEMP/image-archive"
+          printf '%s\n' "$VPS_KEY" > "$private/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$private/known_hosts" 2>/dev/null
+          test -s "$private/known_hosts"
+          cat > "$private/ssh.sh" <<'SH'
+          remote() {
+            timeout --kill-after=5s 360s ssh -i "$RUNNER_TEMP/image-archive/key" \
+              -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -o UserKnownHostsFile="$RUNNER_TEMP/image-archive/known_hosts" -o StrictHostKeyChecking=yes \
+              "$VPS_USER@193.233.91.162" "$@"
+          }
+          SH
+      - name: Archive the exact unused image under maintenance EX without removing it
+        run: |
+          set -euo pipefail
+          umask 077
+          . "$RUNNER_TEMP/image-archive/ssh.sh"
+          private="$RUNNER_TEMP/image-archive"
+          if ! remote sudo -n python3 -IB - --prepare < .github/ci/image_archive.py > "$private/prepare.json"; then
+            python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          for line in (Path(os.environ['RUNNER_TEMP'])/'image-archive/prepare.json').read_text().splitlines():
+           try:value=json.loads(line)
+           except ValueError:continue
+           if value.get('state')=='FAILED':print(json.dumps(value))
+          PY
+            exit 2
+          fi
+          root=/root/codex-fixes/image-retirement/43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+          remote sudo -n cat "$root/ready.json" > "$private/ready.json"
+          remote sudo -n cat "$root/image-metadata.json" > "$private/original-image.json"
+          remote sudo -n cat "$root/image.tar.gz" > "$private/image.tar.gz"
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-archive';ready=json.loads((root/'ready.json').read_text())
+          archive=root/'image.tar.gz'
+          assert 0<archive.stat().st_size==ready['archive_bytes']<=512*1024**2
+          with archive.open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==ready['archive_sha256']
+          assert hashlib.sha256((root/'original-image.json').read_bytes()).hexdigest()==ready['image_metadata_sha256']
+          PY
+      - name: Match the production image store for independent loading
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4
+        with:
+          version: v29.1.3
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Load and compare the archived image on the independent daemon
+        run: |
+          set -euo pipefail
+          umask 077
+          private="$RUNNER_TEMP/image-archive"
+          test "$(docker version --format '{{.Server.Version}}')" = 29.1.3
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys;assert ["driver-type","io.containerd.snapshotter.v1"] in json.load(sys.stdin)'
+          test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -gt 4294967296
+          timeout --kill-after=5s 180s bash -o pipefail -c 'gzip -dc "$1" | docker image load' \
+            load-image "$private/image.tar.gz" > "$private/load.log" 2>&1
+          docker image inspect aemr-server:release-43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa > "$private/loaded-image.json"
+          python3 - <<'PY'
+          import importlib.util,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-archive'
+          spec=importlib.util.spec_from_file_location('archive_operator',Path('.github/ci/image_archive.py'))
+          module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+          module.verify_loaded_image(json.loads((root/'original-image.json').read_text()),
+                                     json.loads((root/'loaded-image.json').read_text())[0])
+          receipt={**json.loads((root/'ready.json').read_text()),'state':'IMAGE_ARCHIVE_ROUNDTRIP_VERIFIED',
+                   'runner_engine_version':'29.1.3','run_id':os.environ['GITHUB_RUN_ID'],
+                   'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'ops_sha':os.environ['GITHUB_SHA']}
+          module.check_receipt(json.loads((root/'ready.json').read_text()),receipt)
+          (root/'roundtrip.json').write_text(json.dumps(receipt,sort_keys=True))
+          PY
+      - name: Save the independently verified archive receipt privately on the host
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/image-archive/ssh.sh"
+          receipt=$(base64 -w0 "$RUNNER_TEMP/image-archive/roundtrip.json")
+          remote "sudo -n python3 -IB - --receipt '$receipt'" < .github/ci/image_archive.py
+      - name: Remove this runner's private transport files
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,shutil
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-archive'
+          assert root.name=='image-archive' and not root.is_symlink()
+          if root.exists():shutil.rmtree(root)
+          PY
   renderer-diagnostic:
     if: >-
       github.actor == github.repository_owner &&
