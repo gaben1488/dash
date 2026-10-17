@@ -1897,9 +1897,13 @@ jobs:
              # its explicit distinction between mount order and mount contents.
              probe=Path('/root/codex-fixes/release-39044388523/deploy/runtime-state-probe.py')
              assert not any(path.is_symlink() for path in (probe,*probe.parents))
-             assert hashlib.sha256(r.read_owned(probe,private=False)).hexdigest()=='8d812d56cd9da6d101565c6ca78797d5faa7e5f3126fd545d64f58f3962cbd48'
+             with os.fdopen(os.open(probe,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb') as stream:
+              info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_nlink==1 and info.st_size<=16384
+              body=stream.read(16385);assert len(body)<=16384
+             assert hashlib.sha256(body).hexdigest()=='8d812d56cd9da6d101565c6ca78797d5faa7e5f3126fd545d64f58f3962cbd48'
+             print(json.dumps({'pinned_probe_source':{'uid':info.st_uid,'mode':stat.S_IMODE(info.st_mode),'sha256_verified':True}}),flush=True)
              for sample in range(3):
-              value=json.loads(subprocess.check_output(['python3','-IB',str(probe)],timeout=45))
+              value=json.loads(subprocess.check_output(['python3','-IB','-c',body.decode()],timeout=45))
               print(json.dumps({'independent_image_retirement_runtime_sample':sample,'probe':value}),flush=True)
              identities=[row['Id'] for row in images]
              again=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30))
