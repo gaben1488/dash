@@ -10,7 +10,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import live_browser_readback as verifier
 from playwright.async_api import Error as PlaywrightError
@@ -18,6 +18,15 @@ from playwright.async_api import async_playwright
 
 
 class ReleaseTransportProjectionTests(unittest.TestCase):
+    def test_pending_request_without_native_start_time_uses_our_monotonic_clock(self):
+        request = SimpleNamespace(url=verifier.BASE + '/api/report-releases?date=PRIVATE',
+                                  method='GET', timing={'startTime': 0, 'responseEnd': -1})
+        proof = {}
+        with patch('time.monotonic', return_value=42):
+            verifier.record_release_transport(request, 'pending', proof, started_at=12)
+        self.assertEqual(proof['release_transport'][0]['elapsed_ms'], 30000)
+        self.assertNotIn('PRIVATE', str(proof))
+
     def test_projects_request_lifetime_without_url_query_failure_or_headers(self):
         request = SimpleNamespace(url=verifier.BASE + '/api/report-releases?date=PRIVATE&token=SECRET',
                                   method='GET', timing={'startTime': 1000, 'responseEnd': -1},
@@ -38,6 +47,27 @@ class ReleaseTransportProjectionTests(unittest.TestCase):
             verifier.record_release_transport(request, 'finished', proof)
         self.assertEqual(len(proof['release_transport']), 16)
         self.assertEqual(proof['release_transport'][1]['elapsed_ms'], 123.5)
+
+
+class SelectedTransportProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_probe_keeps_only_status_size_timing_and_hash(self):
+        response = SimpleNamespace(status=200, body=AsyncMock(return_value=b'{"private":"PRIVATE"}'),
+                                   dispose=AsyncMock())
+        context = SimpleNamespace(request=SimpleNamespace(get=AsyncMock(return_value=response)))
+        proof = await verifier.probe_selected_transport(context, verifier.BASE + '/api/report-releases?date=SECRET')
+        self.assertEqual(proof['status'], 200)
+        self.assertEqual(proof['bytes'], 21)
+        self.assertNotIn('PRIVATE', str(proof))
+        self.assertNotIn('SECRET', str(proof))
+        self.assertEqual(context.request.get.call_args.kwargs, {'max_redirects': 0, 'timeout': 10000})
+        response.dispose.assert_awaited_once()
+
+    async def test_foreign_origin_and_other_paths_are_rejected_before_transport(self):
+        context = SimpleNamespace(request=SimpleNamespace(get=AsyncMock()))
+        for url in ('https://foreign.invalid/api/report-releases', verifier.BASE + '/api/private'):
+            with self.assertRaises(ValueError):
+                await verifier.probe_selected_transport(context, url)
+        context.request.get.assert_not_awaited()
 
 
 class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):

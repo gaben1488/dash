@@ -63,7 +63,7 @@ def record_response(response, proof):
             statuses.append(response.status)
 
 
-def record_release_transport(request, phase, proof):
+def record_release_transport(request, phase, proof, *, started_at=None):
     """Fixed lifetime fields only; never copy URL values, headers or failure text."""
     parsed, base = urlsplit(request.url), urlsplit(BASE)
     if ((parsed.scheme, parsed.netloc) != (base.scheme, base.netloc)
@@ -81,13 +81,39 @@ def record_release_transport(request, phase, proof):
         timing = request.timing
         elapsed = timing.get('responseEnd', -1)
         if type(elapsed) not in {int, float} or elapsed < 0:
-            elapsed = time.time() * 1000 - timing['startTime']
+            elapsed = ((time.monotonic() - started_at) * 1000 if started_at is not None
+                       else time.time() * 1000 - timing['startTime'])
         if type(elapsed) in {int, float} and math.isfinite(elapsed) and 0 <= elapsed <= 600_000:
             row['elapsed_ms'] = round(elapsed, 1)
     except Exception:  # noqa: BLE001 - teardown can make native timing unavailable.
         row['timing_available'] = False
     rows.append(row)
     return True
+
+
+async def probe_selected_transport(context, url):
+    """One independent read after UI failure; the failed UI criterion stays failed."""
+    if not readonly_request(url, 'GET') or urlsplit(url).path != '/api/report-releases':
+        raise ValueError('SELECTED_TRANSPORT_ORIGIN_INVALID')
+    started = time.monotonic()
+    result = {}
+    response = None
+    try:
+        response = await context.request.get(url, max_redirects=0, timeout=10000)
+        result['status'] = response.status
+        body = await response.body()
+        result['bytes'] = len(body)
+        if len(body) <= 32 * 1024 * 1024:
+            result['sha256'] = hashlib.sha256(body).hexdigest()
+        else:
+            result['error_code'] = 'RESPONSE_TOO_LARGE'
+    except Exception:  # noqa: BLE001 - no native transport error text in public proof.
+        result['error_code'] = 'TRANSPORT_FAILED'
+    finally:
+        if response is not None:
+            await response.dispose()
+    result['elapsed_ms'] = round((time.monotonic() - started) * 1000, 1)
+    return result
 
 
 async def activate(locator, profile, *, timeout=5000):
@@ -411,9 +437,10 @@ async def run():
             operations_observed = {}
 
             def release_transport(request, phase):
-                if record_release_transport(request, phase, proof):
+                started = release_pending.get(id(request), (None, None))[1]
+                if record_release_transport(request, phase, proof, started_at=started):
                     if phase == 'started' and len(release_pending) < 16:
-                        release_pending[id(request)] = request
+                        release_pending[id(request)] = (request, time.monotonic())
                     elif phase != 'started':
                         release_pending.pop(id(request), None)
 
@@ -522,8 +549,8 @@ async def run():
                     await page.wait_for_function('label => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === label && !b.disabled)', arg=label, timeout=30000)
                 except Exception:
                     # Fixed product states only: never copy report text or source payload.
-                    for request in release_pending.values():
-                        record_release_transport(request, 'pending', proof)
+                    for request, started in release_pending.values():
+                        record_release_transport(request, 'pending', proof, started_at=started)
                     proof['word_disabled'] = await button.is_disabled()
                     proof['word_exact_text'] = await button.evaluate('(b,label)=>b.textContent.trim()===label', label)
                     proof['word_readiness'] = await page.locator('#report-word-status').evaluate('''e=>{
@@ -536,6 +563,9 @@ async def run():
                             if(s.startsWith(prefix))return code;
                         return 'OTHER';
                     }''')
+                    if release_pending:
+                        last_request = next(reversed(release_pending.values()))[0]
+                        proof['independent_selected_transport'] = await probe_selected_transport(context, last_request.url)
                     raise
                 before = len(word_requests)
                 async with page.expect_download(timeout=30000) as event:
