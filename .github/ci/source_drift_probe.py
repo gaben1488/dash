@@ -169,7 +169,7 @@ def reviewed_case_census(database):
         connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
         total, rules, signals = connection.execute('''SELECT COUNT(*),
             coalesce(sum(CASE WHEN detected_by LIKE 'rule:%' THEN 1 ELSE 0 END),0),
-            coalesce(sum(CASE WHEN detected_by LIKE 'signal:%' THEN 1 ELSE 0 END),0)
+            coalesce(sum(CASE WHEN detected_by LIKE 'pipeline:signal:%' OR detected_by LIKE 'signal:%' THEN 1 ELSE 0 END),0)
             FROM issues WHERE status <> 'open' OR length(trim(coalesce(comment,''))) > 0
             OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id=issues.id)
             OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id=issues.id

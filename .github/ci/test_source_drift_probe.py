@@ -123,7 +123,7 @@ class DriftProbeTests(unittest.TestCase):
                     CREATE TABLE issue_history (issue_id TEXT);
                     CREATE TABLE audit_log (entity_id TEXT, action TEXT);
                     INSERT INTO issues VALUES ('PRIVATE_A','false_positive',NULL,'rule:budget_sum_plan');
-                    INSERT INTO issues VALUES ('PRIVATE_B','open','PRIVATE','signal:overdue');
+                    INSERT INTO issues VALUES ('PRIVATE_B','open','PRIVATE','pipeline:signal:overdue');
                     INSERT INTO issues VALUES ('PRIVATE_C','open',NULL,'rule:formula');
                     INSERT INTO issues VALUES ('PRIVATE_D','open',NULL,'signal:overdue');
                     INSERT INTO issue_history VALUES ('PRIVATE_C'),('PRIVATE_C');
