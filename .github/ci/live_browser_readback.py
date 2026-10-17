@@ -341,7 +341,9 @@ async def run():
             response = await unauthenticated.get(BASE + '/api/report-releases', max_redirects=0)
             assert response.status == 401
             await unauthenticated.dispose()
-            browser = await getattr(driver, engine).launch(headless=True)
+            headed = os.environ.get('BROWSER_HEADED') == '1'
+            proof['browser_renderer'] = ('GTK' if headed else 'WPE') if engine == 'webkit' else 'CHROMIUM'
+            browser = await getattr(driver, engine).launch(headless=not headed)
             context = await browser.new_context(**options,
                 accept_downloads=True, http_credentials=browser_credentials(profile, metadata['username'], password))
             blocked = []

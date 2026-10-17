@@ -20,6 +20,11 @@ on:
         options: [full, navigation]
         default: full
         description: "Full acceptance or a bounded navigation-only diagnosis"
+      browser_renderer:
+        type: choice
+        options: [headless, headed]
+        default: headless
+        description: "Linux WebKit: WPE headless or GTK headed under Xvfb; identical product actions"
       release_sha:
         description: "Exact 40-character main SHA to release"
         type: string
@@ -1205,6 +1210,7 @@ jobs:
     env:
       BROWSER_PROFILE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'iphone' || 'desktop' }}
       BROWSER_ENGINE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'webkit' || 'chromium' }}
+      BROWSER_HEADED: ${{ inputs.browser_renderer == 'headed' && '1' || '0' }}
       BROWSER_SCENARIO: ${{ inputs.browser_scenario == 'navigation' && 'navigation' || startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
     steps:
       - uses: actions/checkout@v4
@@ -1295,7 +1301,12 @@ jobs:
           EXPECT_OPERATIONS_UI: "yes"
           BROWSER_AUTH_METADATA: ${{ runner.temp }}/browser-readback/auth.json
           BROWSER_PRIVATE_PROOF: ${{ runner.temp }}/browser-readback/proof.json
-        run: python .github/ci/live_browser_readback.py
+        run: |
+          if [ "$BROWSER_HEADED" = 1 ]; then
+            xvfb-run --auto-servernum python .github/ci/live_browser_readback.py
+          else
+            python .github/ci/live_browser_readback.py
+          fi
       - name: Remove private browser credentials and ephemeral downloads
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/browser-readback"
