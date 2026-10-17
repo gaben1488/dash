@@ -1547,7 +1547,8 @@ jobs:
               'possible_physical_bytes':possible,'hashes_reverified':False}),flush=True)
 
             def accepted_cycle_metadata():
-             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38978975046-1')
+             from datetime import datetime
+             base=Path('/var/lib/aemr/worker-quarantine/acceptance-38984598658-1')
              def read(name,limit=8*1024*1024):
               path=base/name
               assert not any(parent.is_symlink() for parent in (path,*path.parents))
@@ -1558,7 +1559,13 @@ jobs:
              result=read('result.json')
              assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='d40222eac54d7cf9df13b04c5cbb32925c0e1115'
              assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
-             print(json.dumps({'accepted_worker':True,'sealed_entries_verified':result['sealed_entries_verified']}),flush=True)
+             observer_start=datetime.fromisoformat(result['observation_since']);worker_start=datetime.fromisoformat(result['worker_started_at'])
+             cutoff=datetime.fromisoformat(result['eligibility_since'])
+             assert all(value.tzinfo is not None for value in (observer_start,worker_start,cutoff))
+             assert cutoff==max(observer_start,worker_start)
+             print(json.dumps({'accepted_worker':True,'sealed_entries_verified':result['sealed_entries_verified'],
+              'observer_armed_at':result['observation_since'],'worker_started_at':result['worker_started_at'],
+              'eligibility_since':result['eligibility_since']}),flush=True)
              # Cycle files retain complete publication evidence. Project the
              # small attribution receipts and file metadata, not those payloads.
              for index in (1,2):
@@ -1582,6 +1589,7 @@ jobs:
               proof=read('attribution-'+attempt+'.json')
               assert proof['double_host_flock'] is True and len(proof['samples'])==2 and all(item['held'] is True for item in proof['samples'])
               assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|\+00:00)',proof['started_at'])
+              assert datetime.fromisoformat(proof['started_at'])>=cutoff
               print(json.dumps({'accepted_attempt_id':attempt,'started_at':proof['started_at'],'double_host_flock':True}),flush=True)
               proof=read('attempt-proof-'+attempt+'.json',limit=4096)
               assert isinstance(proof,dict) and set(proof)=={'scope','format','coverage','proof_matches','global_compatible','retained_bytes','global_bytes'}

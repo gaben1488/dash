@@ -56,12 +56,16 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
             save('result.json', {'state': 'TWO_AUTONOMOUS_CYCLES_VERIFIED',
                 'source_sha': '0'*40 if defect == 'source' else 'd40222eac54d7cf9df13b04c5cbb32925c0e1115',
                 'native_word': 'PASS', 'sealed_entries_verified': 123, 'attempt_ids': ids,
+                'observation_since': '2026-10-16T21:59:00Z',
+                'worker_started_at': '2026-10-16T21:59:30Z',
+                'eligibility_since': '2026-10-16T21:58:00Z' if defect == 'cutoff' else '2026-10-16T21:59:30Z',
                 'attempt_proofs_verified': 2, 'reference_attempts_verified': (2 if observed else 0) if defect != 'count' else 1})
             for index, attempt in enumerate(ids, 1):
                 (base / ('cycle-'+str(index)+'.json')).write_text('PRIVATE_CYCLE_BODY_NOT_JSON')
                 (base / ('cycle-'+str(index)+'.json')).chmod(0o600)
                 save('attribution-'+attempt+'.json', {'double_host_flock': True,
-                    'samples': [{'held': True}, {'held': True}], 'started_at': '2026-10-16T22:00:00Z'})
+                    'samples': [{'held': True}, {'held': True}],
+                    'started_at': '2026-10-16T21:59:29Z' if defect == 'started_before_cutoff' else f'2026-10-16T22:{(index-1)*20:02d}:00Z'})
                 status = reports / 'attempts' / attempt / 'status.json'; status.parent.mkdir(parents=True)
                 status.write_bytes(b'PRIVATE_STATUS_BODY_NOT_JSON'); status.chmod(0o600)
                 info=status.stat();self.expected_retained_stats[index]=(info.st_size,info.st_blocks*512)
@@ -128,6 +132,11 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
 
     def test_rejects_wrong_scope_source_count_size_symlink_and_oversized_proof(self):
         for defect in ('scope', 'source', 'count', 'size', 'symlink', 'oversize'):
+            with self.subTest(defect=defect), self.assertRaises(AssertionError):
+                self.run_projection(defect=defect)
+
+    def test_rejects_backdated_cutoff_and_attempt_before_new_worker(self):
+        for defect in ('cutoff', 'started_before_cutoff'):
             with self.subTest(defect=defect), self.assertRaises(AssertionError):
                 self.run_projection(defect=defect)
 
