@@ -1657,6 +1657,17 @@ jobs:
                   'added_attempt_status_count':len(added),'added_attempt_status_bytes':added_bytes,
                   'other_net_logical_delta_bytes':delta-added_bytes,'matched_current_status_files':matched,
                   'current_status_allocated_blocks_bytes':blocks,'content_hashes_rechecked':False}),flush=True)
+                 retired=previous.parent/'superseded-retirement.json'
+                 if os.path.lexists(retired):
+                  assert not any(parent.is_symlink() for parent in (retired,*retired.parents))
+                  with os.fdopen(os.open(retired,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb') as stream:
+                   info=os.fstat(stream.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and 0<info.st_size<=16384
+                   retirement=json.loads(stream.read(16385))
+                  expected={'state':'SUPERSEDED_ARCHIVE_RETIRED','retained_backup':'worker-38982892729/backup',
+                   'retained_manifest_sha256':result['sha256'],'removed_bytes':prior['archive_bytes'],'removed_sha256':prior['archive_sha256']}
+                  assert retirement==expected and not os.path.lexists(previous.parent/'state.tar.gz')
+                  print(json.dumps({'superseded_backup_archive_retired':True,'removed_logical_bytes':retirement['removed_bytes'],
+                   'retained_backup':retirement['retained_backup'],'physical_bytes_independently_measured':False}),flush=True)
                else:
                 result['expected_source']=value.get('release_sha')=='d40222eac54d7cf9df13b04c5cbb32925c0e1115'
                 for kind in ('full_restore','in_place_restore'):
