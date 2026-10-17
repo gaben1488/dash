@@ -5,7 +5,53 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026, 09:51 UTC
+### Текущий выпуск — 17.10.2026, 11:22 UTC
+
+Установлен `8d5522620fc5fb916334bd0fa12986efc7db58a5`, но полная приёмка
+**отказала**. [Release39023590292](https://github.com/gaben1488/dash/actions/runs/39023590292)
+SUCCESS: свежий checkpoint21 063 685 503B/3613files, архив3 185 654 302B;
+manifest `7efb5460d863f0841facee1438148e0031e1c1a718e235efa9125e062ebe8a3c`,
+trial `cb06c456c6e667106d2c5bb6bf852738f32833ba0f5184131829d1dea9c54303`;
+оба restore110SQLite/263DOCX, API/3Word/health/resume. Keeper
+worker-39023590292/backup. API/workerimage cba048d9637b20afdcf9f9505cb076ca975cf8722bb33c0144b0a81c5d499f0e,
+webd733a05cc276a5f9c80711357aa3864e0e9b5bfd94c4669f5db19afafccb0157.
+
+Desktop39026164917:13разделов/Header/Undo/Pulse5scores+weights поinitialGET PASS,
+Wordstatus502. iPhoneGTK39026166036:dashboard502. Observer39024988744
+REJECTED/historyFAIL. Readback39026370780 и incident39026521985 подтвердили
+APIguardrestart10:48:30; workerStartedAt10:45:35 неизменен,095d7aa4
+10:46:35–10:49:42 VERIFIED_WITH_WARNINGS — не2принятыхцикла. SourceCIattempt1
+SUCCESS; postinstall browser-contractattempt2FAIL наREPORT_READ timeout,
+4Headercontracts/425periodnodes/0contradictions/77annualrecoveries PASS.
+Предыдущий CI не объявляется текущим зелёным полным прогоном.
+
+Partial retention index34ca прошёл nativecopy39022853632:478404608B/17снимков,
+10897→0.404ms/повтор15181→2.184ms, metadata/legacyreader равны, build5508ms,
+filegrowth0; это не устранение всех задержекAPI. Новая очередь сборок также
+не устранила синхронную работу внутри обычных GET.
+
+**Следующий конечный fix:** известные `pipeline:` дела не отправляются в
+rule-only перепривязку. Nativeprofile39027655565 на согласованной
+копии478420992B выполнил установленную функцию:17сохранённых дел, все отсутствуют
+в1320текущих замечаниях;6historyqueries,12671ms/5687CPUms при0.5CPU.
+Census39027341029 нашёл6pipeline-сигналов. Отсутствующий/неизвестный producer
+сохраняет полную историческую проверку. Real-DB RED на лишнем instr и
+проверка K4→K5 отвергли небезопасный отбор по нынешнему адресу; все версии
+с конфликтующим учреждением продолжают запрещать перенос. ADR0012 содержит
+контракт. Новый fix ещё не установлен. Полный локальный gate Node24.19 PASS:
+4tsc/743/1887(+1skip)/1040/2322/lint0errors302warnings/webbuild. Необходимы native
+comparison старого/нового результата на одной копии, exact-source CI, затем разрешённый
+контролируемый выпуск и отдельная эксплуатационная приёмка.
+
+Свободно7 808 462 848B в10:46 — точечный замер. Предыдущий архив
+3 181 544 574logicalB retired по receipt; физическое освобождение отдельно не
+измерено. Никакой очередной остановки/restore после отказа приёмки не делалось.
+Все56обязательств сохранены. K02scorer, общийinput/официальнаяэкономия,
+полный журнал/дела/права/mobile не закрыты. Negative prototype nativecomment
+collections/geometry сохранён отдельно как12RED/6PASS безproduction-кода;
+он не включается в текущую эксплуатационную правку.
+
+### История подготовки8d и работы283 — 17.10.2026, 09:51 UTC
 
 Установлен `283a2b0e389aeeef44359a290d02dd689c3deb5b`.
 [Release38993968988](https://github.com/gaben1488/dash/actions/runs/38993968988)

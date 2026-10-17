@@ -32,7 +32,10 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
   for (const savedIssue of saved) decisionIds.add(savedIssue.id);
   const cases: SavedRuleDecision[] = [];
   for (const savedIssue of saved) {
-    if (issues.some(issue => issue.id === savedIssue.id) || !savedIssue.snapshotId) continue;
+    // Pipeline diagnostics/signals cannot enter the rule-only rebind below.
+    // Missing or unknown producer metadata still requires the full legacy proof.
+    if (issues.some(issue => issue.id === savedIssue.id) || !savedIssue.snapshotId
+      || savedIssue.detectedBy?.startsWith('pipeline:')) continue;
     // The pre-fix hash omitted organization C. Latest snapshotId alone could
     // therefore attach an old decision to a later organization using that hash.
     // Check every available version of this case, one JSON blob at a time.

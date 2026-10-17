@@ -17,7 +17,23 @@ Expected endpoints:
 
 ## Verification
 
-Текущая установленная версия17.10.2026 — `283a2b0e`, полная приёмка открыта.
+Текущий runtime17.10.2026 — `8d552262`; release39023590292 SUCCESS,
+но fullacceptance FAIL: APIguardrestart10:48:30, desktopWordstatus502,
+iPhone dashboard502, observer39024988744 REJECTED/historyFAIL.
+Keeper worker-39023590292/backup:21 063 685 503B/3613files,
+archive3 185 654 302B; manifest7efb5460…; trialcb06c456…;
+два restore110SQLite/263DOCX/API3Word/resume PASS. Подробные полные хэши,
+images и границы — PLAN/#93. Нельзя повторять приёмку неизменного кода:
+сначала устранить оставшееся синхронное чтение исторических JSON в GET.
+Nativeprofile39027655565:6поисков/12671ms на копии0.5CPU; новый predicate
+для известныхpipeline producers пока не установлен и требует equivalence proof.
+Сохранённые legacyдела без producer, перемещения строк и конфликтующие версии
+не должны теряться ради ускорения. Текущий backup не заменяет постоянную
+резервную копию вне зоны отказаVPS.
+
+Исторические результаты283 (не приёмка8d):
+
+Установленная ранее версия17.10.2026 — `283a2b0e`; её полная приёмка отказала.
 Release38993968988 SUCCESS02:40UTC; keeper worker-38993968988/backup:
 21 019 313 886B/3559entries, архив3 181 544 574B;
 manifest28114ce0811fd863ff4822b693d5fd029f65a812b19dbc636759fe5508864f36,
