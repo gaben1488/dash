@@ -32,4 +32,19 @@ describe('bounded native reading', () => {
     expect(result.notes.scope).toHaveLength(2);
     expect(result.notes.records).toHaveLength(1);
   });
+
+  it('keeps proved notes from an incomplete batch without claiming completeness', async () => {
+    const result = await readNativeCommentWitnesses('УИО', 'file', { async get(_file, params) {
+      if (params.commentsViewMode) return { commentsViewMode: 'COMMENTS_VIEW_MODE_INCLUDED' };
+      if (!params.ranges) return { sheets: [{ properties: { sheetId: 17, title: 'УИО',
+        gridProperties: { rowCount: 100, columnCount: 34 } } }] };
+      return { sheets: [{ properties: { sheetId: 17, title: 'УИО' }, data: [
+        { rowData: [{ values: [{ note: 'Проверенная заметка' }] }] },
+        { startRow: '50', rowData: [{ values: [{ note: 'Адрес не доказан' }] }] },
+      ] }] };
+    } });
+    expect(result.notes.status).toBe('unavailable');
+    expect(result.notes.records).toMatchObject([{ cell: 'A1', content: 'Проверенная заметка' }]);
+    expect(result.notes.records).toHaveLength(1);
+  });
 });

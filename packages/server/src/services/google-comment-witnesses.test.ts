@@ -58,4 +58,64 @@ describe('native Google comment witnesses preserve evidence rather than guessing
     expect(parseCellNotes({ sheets: [] }, 'file', 'read').status).toBe('unavailable');
     expect(parseCellNotes({ sheets: [{ data: [{ rowData: [{ values: [{ note: 'Без адреса' }] }] }] }] }, 'file', 'read').status).toBe('unavailable');
   });
+
+  const native = (extra: Record<string, unknown>) => parseNativeComments({
+    commentsViewMode: 'COMMENTS_VIEW_MODE_INCLUDED', ...extra,
+  }, 'file', 'read');
+  const notes = (data: unknown) => parseCellNotes({ sheets: [{
+    properties: { sheetId: 17, title: 'ВСЕ' }, data,
+  }] }, 'file', 'read');
+
+  it.each([
+    ['comment list', () => native({ comments: { commentId: 'thread' } })],
+    ['sheet list', () => native({ sheets: {} })],
+    ['anchor list', () => native({ sheets: [{ commentAnchors: {} }] })],
+    ['reply list', () => native({ comments: [{ commentId: 'thread', replies: {} }] })],
+    ['note grids', () => notes({ rowData: [] })],
+    ['note rows', () => notes([{ rowData: {} }])],
+    ['note cells', () => notes([{ rowData: [{ values: {} }] }])],
+  ] as const)('rejects malformed %s instead of claiming a complete empty reading', (_name, read) => {
+    expect(read().status).toBe('unavailable');
+  });
+
+  it.each(['500', -1, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+    'does not assign a note to a cell using invalid grid offset %s', offset => {
+      for (const field of ['startRow', 'startColumn']) {
+        const result = notes([{ [field]: offset, rowData: [{ values: [{ note: 'Пояснение' }] }] }]);
+        expect(result.status).toBe('unavailable');
+        expect(result.records).toEqual([]);
+      }
+    },
+  );
+
+  it('does not turn an invalid native anchor offset into the first row', () => {
+    const result = native({ sheets: [{ properties: { sheetId: 17, title: 'ВСЕ' },
+      commentAnchors: [{ anchorId: 'a', range: { startRowIndex: '500', endRowIndex: 501,
+        startColumnIndex: 0, endColumnIndex: 1 } }],
+    }], comments: [{ commentId: 'thread', anchorId: 'a', headPost: { postId: 'p', content: 'Пояснение' } }] });
+    expect(result.status).toBe('unavailable');
+    expect(result.records).toEqual([]);
+  });
+
+  it('accepts omitted empty collections and preserves unrelated provider extensions', () => {
+    expect(notes(undefined)).toMatchObject({ status: 'read', records: [] });
+    const thread = { commentId: 'thread', headPost: { postId: 'p', content: 'Пояснение' },
+      newProviderAttribute: { revision: 7 } };
+    expect(native({ comments: [thread] })).toMatchObject({ status: 'read', records: [{ raw: thread }] });
+  });
+
+  it('retains proved earlier threads when a later thread is malformed', () => {
+    const result = native({ comments: [{ commentId: 'valid', headPost: { postId: 'p', content: 'Вопрос' } },
+      { commentId: 'invalid', replies: {} }] });
+    expect(result.status).toBe('unavailable');
+    expect(result.records.map(record => record.sourceId)).toEqual(['valid']);
+  });
+
+  it.each([null, 4, 'cell'])('rejects a malformed note cell %s', cell => {
+    expect(notes([{ rowData: [{ values: [cell] }] }]).status).toBe('unavailable');
+  });
+
+  it('rejects a malformed legacy reply list rather than saving an incomplete witness', () => {
+    expect(() => parseDriveCommentWitness({ id: 'thread', replies: {} }, 'file', 'read')).toThrow();
+  });
 });

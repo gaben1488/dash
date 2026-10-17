@@ -62,7 +62,7 @@ export async function readNativeCommentWitnesses(book: string, fileId: string,
         const data = await api.get(fileId, { ranges: [range],
           fields: 'spreadsheetId,sheets(properties(sheetId,title),data(startRow,startColumn,rowData(values(note))))' });
         const parsed = parseCellNotes(data, fileId, readAt);
-        if (parsed.status !== 'read') return unavailable(parsed.reason ?? 'Заметки не прочитаны.', scope, records);
+        if (parsed.status !== 'read') return unavailable(parsed.reason ?? 'Заметки не прочитаны.', scope, [...records, ...parsed.records]);
         records.push(...parsed.records);
       }
       return { status: 'read', reason: null, records, scope };
