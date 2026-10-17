@@ -5,7 +5,55 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026, 02:01 UTC
+### Текущий выпуск — 17.10.2026, 09:14 UTC
+
+Установлен `283a2b0e389aeeef44359a290d02dd689c3deb5b`.
+[Release38993968988](https://github.com/gaben1488/dash/actions/runs/38993968988)
+SUCCESS02:40UTC: три обязательных source jobs, два restore нового/предыдущего
+runtime, API/три Word и health. Общий CI38993309297 остаётся FAIL на cold
+journal установленного тогда d402; source jobs PASS не переименованы в полныйCI.
+[Readback39019779832](https://github.com/gaben1488/dash/actions/runs/39019779832):
+checkpoint21 019 313 886B/3559entries, архив3 181 544 574B, manifest
+`28114ce0811fd863ff4822b693d5fd029f65a812b19dbc636759fe5508864f36`, trial
+`701c508058fa3e216ef87529d8a2c0670242abaa12fcaacdc6dbf553708de1a2`;
+оба restore110SQLite/263DOCX. Keeper worker-38993968988/backup.
+
+Полная приёмка283 **не завершена**. Desktop39019229256 прошёл13разделов,
+Header/периоды/Undo/journal, затем timeout второго Word. iPhoneGTK39019272796
+получил502 dashboard/journal. Observer39019013301 завершён IO_FAILED и
+history readback FAIL. Worker6369f12c08:55:24–08:58:04 VERIFIED_WITH_WARNINGS,
+но это не два принятых attributed цикла. Старые d402 доказательства ниже
+остаются действительными только для своего runtime.
+
+[Incident39019902807](https://github.com/gaben1488/dash/actions/runs/39019902807)
+подтвердил restart API host guard08:58:57UTC; процесс worker не менялся.
+В09:05 API running/healthy. Фатальная ошибка Node в ограниченном окне не
+найдена, это не доказательство отсутствия иных ошибок. Перед restart
+сохранение/retention занимали длинные синхронные интервалы.
+[Read-only query39020098574](https://github.com/gaben1488/dash/actions/runs/39020098574):
+17строк scalar5ms/17CPUms, retention metadata3635ms/1837CPUms при0,5CPU.
+Повторный scan исторических JSON доказан; весь отказ этим ещё не объяснён.
+В7c2e2e11 реализован индекс точных scalar expressions, без смены retention
+policy, payload и хэшей; ADR-0012. RED на повторном instr и на смене победителя
+при равных timestamps; GREEN59focused, включая прежний rowid tie order.
+Полный локальный gate PASS на Node24.19: четыре tsc, shared743/core1887(+1skip)/
+server1031/web2322, lint0errors/302existing warnings, webbuild. До установки
+обязательны exact Node22 CI и измерение index build/до-после на копии.
+
+MemAvailable2 635 284 480B/free9 291 694 080B в09:05 — точечные замеры.
+Новые7attempt status28 581logical/28 672allocatedB; другой net checkpoint delta0.
+Старый d402 backup archive3 181 287 126logicalB retired после новых restore;
+физически освобождённые блоки не измерены. История и attempt payload сохранены.
+
+Pulse DTO wiring3273441e локально RED→8focused: оценки и веса берутся из components[],
+реальный0 сохраняется, переход к замечаниям проверен. Это не исправление
+K02scorer/покрытия, не новая принятая версия Пульса и пока не установка.
+Ближайший участок: закончить ограниченные исправления, полный CI/native parity,
+измерение копии, затем контролируемый выпуск и новая приёмка; не повторять
+браузер/observer вслепую. Все56результатов и архитектурные обязательства ниже
+сохранены; ближайшая поставка не объявляется завершением всей программы.
+
+### История d402 и подготовки283 — 17.10.2026, 02:01 UTC
 
 Установлен `d40222eac54d7cf9df13b04c5cbb32925c0e1115`,
 [release38982892729](https://github.com/gaben1488/dash/actions/runs/38982892729)
@@ -900,8 +948,10 @@ Workflow/тесты закоммичены в 92d68a30, PLAN/архитекту�
   сохранение решений, права, сложные таблицы и Undo ещё не приняты;
   не повышать timeout и не выдавать тёплый ответ за доказательство cold path.
 - **U04/C04/C06 — Пульс 2.0.** Новое прямое поручение разрешает брать в работу
-  прежний макет `docs/superpowers/mockups/pulse-2-0.html` и спутники концепции
-  `2026-08-22-pulse-2-0-concept.md`. Сначала связать каждую существующую
+  существующий основной `docs/superpowers/mockups/pulse.html`, его README и
+  поздние решения `2026-08-22-pulse-feedback-2.md` (§20/§21/§22).
+  Draft `2026-08-22-pulse-2-0-concept.md` — исторический материал; упомянутый
+  им `pulse-2-0.html` в текущем дереве отсутствует. Сначала связать каждую существующую
   карточку/очередь с каталогом показателей и общим делом; затем подключать
   готовые части ядра без копий расчётов. Августовские числа не выдавать за live.
 - **C08 — PostgreSQL и стек.** Миграция связана с теми же source observations,

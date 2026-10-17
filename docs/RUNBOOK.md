@@ -17,7 +17,26 @@ Expected endpoints:
 
 ## Verification
 
-Текущая установленная версия17.10.2026 — `d40222ea`.
+Текущая установленная версия17.10.2026 — `283a2b0e`, полная приёмка открыта.
+Release38993968988 SUCCESS02:40UTC; keeper worker-38993968988/backup:
+21 019 313 886B/3559entries, архив3 181 544 574B;
+manifest28114ce0811fd863ff4822b693d5fd029f65a812b19dbc636759fe5508864f36,
+trial701c508058fa3e216ef87529d8a2c0670242abaa12fcaacdc6dbf553708de1a2.
+Два restore по110SQLite/263DOCX/API/3Word/health/resume PASS.
+Metadata39019779832 подтверждает API/worker image
+e214a60112f3e527d1cbb05caf6b08ccec37371ffd9b55c26579ca0b7b0e22ae,
+web87876b6cdf0ec2094449006122d4bbce0d5d37d784adef583ed8c8d4ae4d257f.
+Desktop39019229256:13/Header/Undo/journal PASS, Word2timeout. iPhoneGTK39019272796:
+dashboard/journal502; observer39019013301 IO_FAILED/historyFAIL.
+Guard подтвердил restart API08:58:57, worker не перезапущен; API healthy09:05.
+Не повторять deploy/restore и тяжёлые browser gates до разбора причины.
+Read-only incident39019902807 и query39020098574, следующий ограниченный
+metadata-index fix/доказательства — PLAN/ADR0012. Приёмка прежних циклов ниже
+не переносится на283. Старый d402 архив retired по подтверждённому receipt;
+история/attempt payload не удалялись. Все реальные stop/restore/rollout остаются
+под одним maintenance flock и существующим контроллером выпуска.
+
+История d402,17.10.2026,00:42UTC:
 Release38982892729 SUCCESS; keeper `worker-38982892729/backup`:
 21 019 285 305B/3545entries, архив3 181 287 126B,
 manifest a41e37740b9afbe3dea8458cf3bb61c3383a75aaca149090a7caa70185b773bd,
