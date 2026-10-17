@@ -87,7 +87,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   writeCellValue.mockClear();
-  readCurrentDeptRow.mockClear();
+  readCurrentDeptRow.mockReset();
   readCurrentDeptRow.mockImplementation(async () => sheetValues()[3]);
   readCurrentDeptRowFormulas.mockReset();
   readCurrentDeptRowFormulas.mockImplementation(async () => dataRow(1));
@@ -131,6 +131,18 @@ describe('source row and actual formula protection', () => {
     expect(writeCellValue).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['PUT', 0], ['POST', 0], ['PUT', 6], ['POST', 6],
+  ] as const)('%s protects a formula-computed total in column index %s despite a stale legacy cache', async (method, column) => {
+    const total = dataRow(1); total[column] = 'ИТОГО по управлению';
+    const formulas = [...total]; formulas[column] = '="ИТОГО по управлению"';
+    readCurrentDeptRow.mockResolvedValueOnce(total);
+    readCurrentDeptRowFormulas.mockResolvedValueOnce(formulas);
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 403 : 207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
   it.each(['PUT', 'POST'] as const)('%s refuses an actual formula in an otherwise editable column', async (method) => {
     const formulas = dataRow(1); formulas[7] = '=SUM(H8:H10)';
     readCurrentDeptRowFormulas.mockResolvedValueOnce(formulas);
@@ -153,6 +165,13 @@ describe('source row and actual formula protection', () => {
 
   it.each(['PUT', 'POST'] as const)('%s does not treat a missing source row as proof of no formulas', async (method) => {
     readCurrentDeptRowFormulas.mockResolvedValueOnce([]);
+    const response = await save(method);
+    expect(response.statusCode).toBe(method === 'PUT' ? 409 : 207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it.each(['PUT', 'POST'] as const)('%s refuses a missing value row even if the later formula read is nonempty', async (method) => {
+    readCurrentDeptRow.mockResolvedValueOnce([]);
     const response = await save(method);
     expect(response.statusCode).toBe(method === 'PUT' ? 409 : 207);
     expect(writeCellValue).not.toHaveBeenCalled();

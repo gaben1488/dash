@@ -96,7 +96,7 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
 
 /** Live row evidence is required even for explicitly enabled legacy writes. */
 function sourceCellWriteError(row: readonly unknown[], formulas: readonly unknown[], field: string): { status: 403 | 409; error: string } | null {
-  if (formulas.length === 0) {
+  if (row.length === 0 || formulas.length === 0) {
     return { status: 409, error: 'Исходная строка исчезла или переместилась — обновите реестр; правка не выполнялась' };
   }
   if ([row[0], row[DEPT_COLUMNS.SUBJECT], formulas[0], formulas[DEPT_COLUMNS.SUBJECT]]
@@ -404,9 +404,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     return withRowWriteLock(`${spreadsheetId}:${idx}`, async () => {
       let originalRow: unknown[];
       try {
-        originalRow = expectedRevision
-          ? await readCurrentDeptRow(spreadsheetId, sheetName, idx)
-          : (getDeptSheetValues()[dept.nameShort]?.[idx - 1] ?? []);
+        originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, idx);
       } catch (readErr) {
         app.log.warn({ err: readErr }, 'field-update: source preflight failed');
         return reply.status(503).send({ error: 'Исходная строка не прочитана — правка не выполнялась' });
@@ -618,34 +616,29 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
       await withRowWriteLock(`${spreadsheetId}:${entry.rowIndex}`, async () => {
-        let sheetName: string | null = null;
+        let sheetName: string;
         let originalRow: unknown[];
-        if (expectedRevision) {
-          try {
-            sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
-            originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
-          } catch (readErr) {
-            app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
-            for (const [field] of validChanges) {
-              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-                success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
-            }
-            return;
+        try {
+          sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+          originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
           }
-          if (rowRevision(originalRow) !== expectedRevision) {
-            for (const [field] of validChanges) {
-              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-                success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
-            }
-            return;
+          return;
+        }
+        if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
           }
-        } else {
-          originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
+          return;
         }
 
         let formulas: unknown[];
         try {
-          sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           formulas = await readCurrentDeptRowFormulas(spreadsheetId, sheetName, entry.rowIndex);
         } catch (readErr) {
           app.log.warn({ err: readErr }, 'batch-save: source formula preflight failed');
@@ -722,7 +715,6 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         }
 
         try {
-          sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
           if (expectedRevision) {

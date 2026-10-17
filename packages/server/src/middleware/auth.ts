@@ -27,7 +27,7 @@ const PUBLIC_PATHS = new Set(['/api/health', '/api/webhook/drive']);
 
 /**
  * Register API key authentication hook.
- * - Production requires AEMR_API_KEY and fails closed if it is absent.
+ * - All runtimes except explicit development/test require AEMR_API_KEY.
  * - Development/test may run without AEMR_API_KEY, with a warning.
  * - If set → all /api/* routes require `Authorization: Bearer <key>`.
  * - /api/health is always public.
@@ -66,11 +66,12 @@ export function registerAuthHook(app: FastifyInstance): void {
 
   const apiKey = config.auth.apiKey;
 
-  if (!apiKey) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('AEMR_API_KEY is required when NODE_ENV=production');
+  if (!apiKey?.trim()) {
+    const mode = process.env.NODE_ENV;
+    if (mode !== 'development' && mode !== 'test') {
+      throw new Error('AEMR_API_KEY is required outside explicit development/test environments');
     }
-    app.log.warn('AEMR_API_KEY not set; API authentication disabled for non-production runtime');
+    app.log.warn('AEMR_API_KEY not set; API authentication disabled for explicit development/test runtime');
     return;
   }
 

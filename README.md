@@ -25,16 +25,21 @@ docs/       архитектура, эксплуатация, security/review
 ## Требования
 
 - Node.js 22+
-- pnpm 10.33.0
+- pnpm 10.33.0 через Corepack (версия закреплена в `packageManager`)
 - Google service account с доступом к нужным таблицам
 
 ## Быстрый старт
 
 ```bash
-pnpm install
+corepack pnpm --version # ожидается 10.33.0
+corepack pnpm install --frozen-lockfile
 cp .env.example .env
-pnpm dev
+corepack pnpm dev
 ```
+
+Если глобальный `pnpm` другой версии, используйте `corepack pnpm` и для
+проверок/сборки. Не пересоздавайте lockfile или настройки overrides/patches
+ради запуска чужой версии менеджера пакетов.
 
 Откройте:
 

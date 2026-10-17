@@ -5,10 +5,17 @@
 ## Local Development
 
 ```bash
-pnpm install
+corepack pnpm --version # packageManager:10.33.0
+corepack pnpm install --frozen-lockfile
 cp .env.example .env
-pnpm dev
+corepack pnpm dev
 ```
+
+Менеджер берётся из `packageManager`, а не из случайного глобального PATH.
+Для команд ниже при несовпадении глобальной версии используйте `corepack pnpm`.
+В защищённом режиме API незаданная/неизвестная `NODE_ENV` требует непустого `AEMR_API_KEY`; без ключа
+разрешены только явно названные `development` и `test` (guard в кандидате,
+статус установки проверяется отдельно по #69/#93).
 
 Expected endpoints:
 
