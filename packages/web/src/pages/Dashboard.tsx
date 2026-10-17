@@ -1,4 +1,4 @@
-import { subordinateNameMatchKey } from '@aemr/shared';
+import { subordinateNameMatchKey, type TrustScore } from '@aemr/shared';
 import { countNodeIssues } from '../lib/selectors/issues-filtering';
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, type Page, type PeriodScope } from '../store';
@@ -1019,7 +1019,7 @@ function KPIExpandPanel({
   kpi: HeroKPI;
   depts: any[];
   periodKey: string;
-  trust: any;
+  trust: TrustScore | null;
   formatMoney: (v: number) => string;
   toggleDepartment: (id: string) => void;
   navigateTo: (page: Page, params?: any) => void;
@@ -1201,12 +1201,15 @@ function KPIExpandPanel({
       {showTrust && (trust ? (
         <TrustComponents
           components={[
-            { label: 'Качество данных', score: trust.dataQuality ?? trust.data_quality ?? 0, weight: '30 %', metricKey: 'trust_data_quality', componentId: 'data_quality' },
-            { label: 'Целостность формул', score: trust.formulaIntegrity ?? trust.formula_integrity ?? 0, weight: '25 %', metricKey: 'trust_formula_integrity', componentId: 'formula_integrity' },
-            { label: 'Соответствие правилам', score: trust.ruleCompliance ?? trust.rule_compliance ?? 0, weight: '20 %', metricKey: 'trust_rule_compliance', componentId: 'rule_compliance' },
-            { label: 'Согласованность сопоставлений', score: trust.mappingConsistency ?? trust.mapping_consistency ?? 0, weight: '15 %', metricKey: 'trust_mapping_consistency', componentId: 'mapping_consistency' },
-            { label: 'Операционные риски', score: trust.operationalRisk ?? trust.operational_risk ?? 0, weight: '10 %', metricKey: 'trust_operational_risk', componentId: 'operational_risk' },
-          ]}
+            { label: 'Качество данных', metricKey: 'trust_data_quality', componentId: 'data_quality' },
+            { label: 'Целостность формул', metricKey: 'trust_formula_integrity', componentId: 'formula_integrity' },
+            { label: 'Соответствие правилам', metricKey: 'trust_rule_compliance', componentId: 'rule_compliance' },
+            { label: 'Согласованность сопоставлений', metricKey: 'trust_mapping_consistency', componentId: 'mapping_consistency' },
+            { label: 'Операционные риски', metricKey: 'trust_operational_risk', componentId: 'operational_risk' },
+          ].flatMap(definition => {
+            const component = trust.components.find(c => c.name === definition.componentId);
+            return component ? [{ ...definition, score: component.score, weight: `${component.weight} %` }] : [];
+          })}
           // Дверь к строкам-основаниям: слагаемое ведёт в «Контроль» с отбором
           // тех проверок, из которых оно сложено (поле trustComponent реестра
           // проверок). Без двери балл нельзя проверить — карточка остаётся
