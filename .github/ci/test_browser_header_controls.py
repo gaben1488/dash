@@ -110,22 +110,27 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
         async with async_playwright() as driver:
             browser = await launch_browser(driver)
             try:
-                _, options = verifier.browser_settings('iphone', driver.devices)
-                options['viewport'] = {'width': 320, 'height': 844}
-                page = await browser.new_page(**options)
-                await open_current_header(page, artifact.as_uri())
-                await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
-                header = page.locator('header[data-page-skin]')
-                await header.get_by_role('textbox', name='Поиск по реестру закупок', exact=True).fill('123456789012345678901234567890123456')
-                await header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$')).tap()
-                dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
-                await dialog.get_by_role('button', name='Снять фильтры линейки', exact=True).tap()
-                for button in await page.locator('.fi-undo button').all():
-                    bounds = await button.bounding_box()
-                    self.assertIsNotNone(bounds)
-                    self.assertGreaterEqual(bounds['x'], 0)
-                    self.assertLessEqual(bounds['x']+bounds['width'], 320)
-                await page.get_by_role('button', name='Закрыть отмену сброса фильтров', exact=True).tap()
+                for length in (36, 256, 2048):
+                    with self.subTest(search_length=length):
+                        _, options = verifier.browser_settings('iphone', driver.devices)
+                        options['viewport'] = {'width': 320, 'height': 568}
+                        page = await browser.new_page(**options)
+                        await open_current_header(page, artifact.as_uri())
+                        await page.locator('.qa-palettes').get_by_role('button', name='Реестр', exact=True).tap()
+                        header = page.locator('header[data-page-skin]')
+                        await header.get_by_role('textbox', name='Поиск по реестру закупок', exact=True).fill('1' * length)
+                        await header.get_by_role('button', name=re.compile(r'^Фильтры линейки: \d+\. Открыть настройки$')).tap()
+                        dialog = page.get_by_role('dialog', name='Фильтры линейки', exact=True)
+                        await dialog.get_by_role('button', name='Снять фильтры линейки', exact=True).tap()
+                        for button in await page.locator('.fi-undo button').all():
+                            bounds = await button.bounding_box()
+                            self.assertIsNotNone(bounds)
+                            self.assertGreaterEqual(bounds['x'], 0)
+                            self.assertLessEqual(bounds['x']+bounds['width'], 320)
+                            self.assertGreaterEqual(bounds['y'], 0)
+                            self.assertLessEqual(bounds['y']+bounds['height'], 568)
+                        await page.get_by_role('button', name='Закрыть отмену сброса фильтров', exact=True).tap()
+                        await page.close()
             finally:
                 await browser.close()
 
