@@ -103,7 +103,7 @@ def failure_location(error):
     while frame is not None:
         code = frame.tb_frame.f_code
         if (Path(code.co_filename).name == Path(__file__).name
-                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods', 'verify_operations_status'}):
+                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods', 'verify_operations_status', 'verify_pulse_trust'}):
             location = {'function': code.co_name, 'line': frame.tb_lineno}
         frame = frame.tb_next
     return location
@@ -115,6 +115,42 @@ def actionability_flags(error):
         ('unstable', 'element is not stable'), ('disabled', 'element is not enabled'),
         ('outside_viewport', 'outside of the viewport'), ('covered', 'intercepts pointer events'),
         ('detached', 'detached from the DOM'))}
+
+
+async def verify_pulse_trust(page, profile, proof, observed):
+    """Compare visible scores/weights with the initial real GET, never calculate them."""
+    labels = {'data_quality': 'Качество данных', 'formula_integrity': 'Целостность формул',
+              'rule_compliance': 'Соответствие правилам',
+              'mapping_consistency': 'Согласованность сопоставлений',
+              'operational_risk': 'Операционные риски'}
+    assert isinstance(observed, dict) and isinstance(observed.get('components'), list)
+    components = observed['components']
+    assert len(components) == 5 and {item['name'] for item in components} == set(labels)
+    card = page.get_by_role('button', name=re.compile('^Доверие к данным'))
+    assert await card.count() == 1
+    panel = page.get_by_role('region', name='Подробности показателя «Доверие к данным»', exact=True)
+    opened = not await panel.is_visible()
+    if opened:
+        await activate(card, profile)
+    await panel.wait_for(timeout=5000)
+    for item in components:
+        label = labels[item['name']]
+        button = panel.get_by_role('button', name=re.compile('^' + re.escape(label) + ': '))
+        assert await button.count() == 1
+        aria = await button.get_attribute('aria-label')
+        score = re.fullmatch(re.escape(label) + r': ([0-9\s,.]+) из 100\. Открыть замечания этого слагаемого', aria or '')
+        assert score and float(re.sub(r'\s', '', score[1]).replace(',', '.')) == item['score']
+        text = await button.inner_text()
+        visible_score = re.search(r'([0-9]+(?:[.,][0-9]+)?)\s*$', text)
+        visible_weight = re.search(r'\(([0-9]+(?:[.,][0-9]+)?) %\)', text)
+        title_weight = re.search(r', вес ([0-9]+(?:[.,][0-9]+)?) %\.', await button.get_attribute('title') or '')
+        assert visible_score and float(visible_score[1].replace(',', '.')) == item['score']
+        assert visible_weight and title_weight
+        assert float(visible_weight[1].replace(',', '.')) == float(title_weight[1].replace(',', '.')) == item['weight']
+    if opened:
+        await activate(card, profile)
+        await expect(panel).to_be_hidden()
+    proof['pulse_trust_ui'] = {'result': 'PASS', 'components_verified': 5, 'source': 'INITIAL_DASHBOARD_GET'}
 
 
 async def observe_operations_response(response, observed):
@@ -422,7 +458,9 @@ async def run():
                             await diagnostic.close()
                 assert response.status == 200
                 proof['stage'] = 'dashboard_response'
-            await (await dashboard.value).finished()
+            dashboard_response = await dashboard.value
+            await dashboard_response.finished()
+            initial_trust = (await dashboard_response.json()).get('trust') if os.environ.get('EXPECT_PULSE_TRUST_UI') == 'yes' else None
             proof['stage'] = 'initial_render'
             nav = page.get_by_role('navigation', name='Навигация', exact=True)
             await nav.wait_for(timeout=30000)
@@ -448,6 +486,9 @@ async def run():
                 assert await page.get_by_text('Приложение не отрисовалось — числа на экране показать не удалось', exact=True).count() == 0
                 assert len((await main.inner_text()).strip()) > 10
                 assert not errors
+                if label == 'Пульс' and scenario == 'full' and os.environ.get('EXPECT_PULSE_TRUST_UI') == 'yes':
+                    proof['stage'] = 'pulse_trust'
+                    await verify_pulse_trust(page, profile, proof, initial_trust)
                 visited.append(label)
                 proof['pages_visited'] = len(visited)
             proof['pages_visited'] = len(visited)

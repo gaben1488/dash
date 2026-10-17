@@ -78,5 +78,52 @@ class OperationsObservationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('PRIVATE', str(observed))
 
 
+class PulseTrustBrowserTests(unittest.IsolatedAsyncioTestCase):
+    async def scenario(self, defect=None):
+        labels = [('data_quality', 'Качество данных', 95, 31),
+                  ('formula_integrity', 'Целостность формул', 80, 25),
+                  ('rule_compliance', 'Соответствие правилам', 70, 20),
+                  ('mapping_consistency', 'Согласованность сопоставлений', 60, 14),
+                  ('operational_risk', 'Операционные риски', 0, 10)]
+        observed = {'components': [{'name': name, 'score': score, 'weight': weight}
+                                   for name, _, score, weight in labels]}
+        async with async_playwright() as driver:
+            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
+            try:
+                page = await browser.new_page()
+                buttons = []
+                for index, (_, label, score, weight) in enumerate(labels):
+                    if defect == 'missing' and index == 0:
+                        continue
+                    score = 0 if defect == 'zero' and index == 0 else score
+                    weight = 30 if defect == 'weight' and index == 0 else weight
+                    buttons.append(f'<button aria-label="{label}: {score} из 100. Открыть замечания этого слагаемого" '
+                                   f'title="{label}: {score} из 100, вес {weight} %. Открыть замечания">{label}({weight} %)<span>{score}</span></button>')
+                await page.set_content('<button onclick="const p=document.querySelector(\'section\');p.hidden=!p.hidden">Доверие к данным</button>'
+                    '<section role="region" aria-label="Подробности показателя «Доверие к данным»" hidden>'
+                    + ''.join(buttons) + '</section>')
+                proof = {}
+                await verifier.verify_pulse_trust(page, 'desktop', proof, observed)
+                self.assertEqual(proof['pulse_trust_ui'], {'result': 'PASS', 'components_verified': 5,
+                                                          'source': 'INITIAL_DASHBOARD_GET'})
+            finally:
+                await browser.close()
+
+    async def test_observed_component_values_and_a_real_zero_pass(self):
+        await self.scenario()
+
+    async def test_fabricated_zero_cannot_replace_api_value(self):
+        with self.assertRaises(AssertionError):
+            await self.scenario('zero')
+
+    async def test_hardcoded_weight_cannot_replace_api_weight(self):
+        with self.assertRaises(AssertionError):
+            await self.scenario('weight')
+
+    async def test_missing_component_is_not_a_complete_check(self):
+        with self.assertRaises(AssertionError):
+            await self.scenario('missing')
+
+
 if __name__ == '__main__':
     unittest.main()
