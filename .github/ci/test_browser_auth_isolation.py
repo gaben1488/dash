@@ -84,7 +84,7 @@ class SelectedTransportProbeTests(unittest.IsolatedAsyncioTestCase):
 class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_hit_geometry_identifies_cover_without_copying_dom_text(self):
         async with async_playwright() as driver:
-            browser = await driver.chromium.launch()
+            browser = await getattr(driver, os.environ.get('BROWSER_ENGINE', 'chromium')).launch()
             try:
                 page = await browser.new_page()
                 await page.set_content('<button style="position:fixed;top:40px;left:40px">PRIVATE</button>'
