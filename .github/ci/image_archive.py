@@ -1,4 +1,4 @@
-"""Archive one exact unused historical image; this phase never removes images."""
+"""Archive one exact unused historical image before its guarded retirement."""
 import gzip
 import hashlib
 import json
@@ -27,6 +27,8 @@ MAX_RAW=2*1024**3
 MAX_ARCHIVE=512*1024**2
 RESERVE=1024**3
 RECOVERY_SHA256='7442ffc75007a44bc9c00e6bdb93cb8c32954890d461e27b1a628f8ecfbcf2b6'
+ROUNDTRIP_RUN='39050662769'
+ROUNDTRIP_OPS='2e41bc489f27b797e9f0d211d28ab97d347f4c50'
 
 
 def admit_image(image,containers,protected):
@@ -128,7 +130,7 @@ def load_recovery(path):
     return module
 
 
-def current_context(r,command):
+def runtime_context(r,command):
     for directory in (r.STATE_DIR,r.RUNTIME_DIR,r.BACKUP_BASE):
         if any(value.is_symlink() for value in (directory,*directory.parents)):
             raise ValueError('IMAGE_ARCHIVE_UNSAFE_PATH')
@@ -146,9 +148,6 @@ def current_context(r,command):
     if len(raw)>4*1024**2:raise ValueError('IMAGE_ARCHIVE_RUNTIME_REJECTED')
     containers=json.loads(raw)
     protected=admit_runtime(*(json.loads(bodies[name]) for name in ('plan','marker','stage')),containers)
-    images=json.loads(command(['image','inspect',IMAGE],timeout=30))
-    if not isinstance(images,list) or len(images)!=1:raise ValueError('IMAGE_ARCHIVE_TARGET_REJECTED')
-    image=images[0];admit_image(image,containers,protected)
     # Ignore changing health timestamps/counters and child PIDs. Container
     # identity, settings, mounts, top-level PID and health must remain stable.
     stable={value['Id']:{**{key:value.get(key) for key in ('Id','Image','Name','Config','HostConfig','Mounts','RestartCount')},
@@ -156,6 +155,14 @@ def current_context(r,command):
             'health':value.get('State',{}).get('Health',{}).get('Status')} for value in containers}
     frame={key:hashlib.sha256(value).hexdigest() for key,value in bodies.items()}
     frame['containers_sha256']=hashlib.sha256(json.dumps(stable,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    return frame,containers,protected
+
+
+def current_context(r,command):
+    frame,containers,protected=runtime_context(r,command)
+    images=json.loads(command(['image','inspect',IMAGE],timeout=30))
+    if not isinstance(images,list) or len(images)!=1:raise ValueError('IMAGE_ARCHIVE_TARGET_REJECTED')
+    image=images[0];admit_image(image,containers,protected)
     return frame,image
 
 
@@ -243,13 +250,82 @@ def save_receipt(r,base,receipt,lock_fd):
     else:r.atomic_json(path,receipt)
 
 
+def admit_retirement_proof(ready,proof,image):
+    check_receipt(ready,proof)
+    if (proof['run_id']!=ROUNDTRIP_RUN or proof['run_attempt']!='1' or proof['ops_sha']!=ROUNDTRIP_OPS):
+        raise ValueError('IMAGE_ARCHIVE_ROUNDTRIP_NOT_ACCEPTED')
+    # Docker save/load proves the image ID and sole tag, but registry digest
+    # references are outside that roundtrip. Keep such images locally.
+    if image.get('RepoDigests') not in (None,[]):raise ValueError('IMAGE_ARCHIVE_REGISTRY_REFERENCE_PRESENT')
+
+
+def image_inventory(command):
+    identities=sorted(set(command(['image','ls','--all','--quiet','--no-trunc'],timeout=30).split()))
+    if not 1<=len(identities)<=256 or any(not re.fullmatch('sha256:[a-f0-9]{64}',value) for value in identities):
+        raise ValueError('IMAGE_ARCHIVE_INVENTORY_REJECTED')
+    body=command(['image','inspect',*identities],timeout=30)
+    if len(body)>4*1024**2:raise ValueError('IMAGE_ARCHIVE_INVENTORY_REJECTED')
+    values=json.loads(body)
+    if not isinstance(values,list) or sorted(row.get('Id','') for row in values)!=identities:
+        raise ValueError('IMAGE_ARCHIVE_INVENTORY_REJECTED')
+    return {row['Id']:{key:row.get(key) for key in ('Id','Config','RootFS','Os','Architecture','RepoTags','RepoDigests')}
+            for row in values}
+
+
+def native_smoke(command):
+    result=json.loads(command(['exec','aemr-server-1','/opt/report-env/bin/python','-m',
+                              'procurement_engine.deployment_smoke'],timeout=180))
+    keys=('context','snapshot','main','supplement','operational')
+    if not isinstance(result,dict) or any(result.get(key)!='PASS' for key in keys):
+        raise ValueError('IMAGE_ARCHIVE_NATIVE_SMOKE_FAILED')
+    return {key:'PASS' for key in keys}
+
+
+def retire_image(r,command,base,lock_fd):
+    r.require_lock(lock_fd);r.private_directory(base)
+    if any(value.is_symlink() for value in (base,*base.parents)):raise ValueError('IMAGE_ARCHIVE_UNSAFE_PATH')
+    journal=base/'retirement.json'
+    if os.path.lexists(journal):raise ValueError('IMAGE_ARCHIVE_RETIREMENT_ALREADY_RECORDED')
+    ready,archived=checked_archive(r,base)
+    proof=json.loads(r.read_owned(base/('roundtrip-'+ROUNDTRIP_RUN+'-1.json'),limit=16384))
+    admit_retirement_proof(ready,proof,archived)
+    before,image=current_context(r,command);verify_loaded_image(archived,image)
+    images=image_inventory(command)
+    before_smoke=native_smoke(command)
+    confirmed,current=current_context(r,command)
+    if before!=confirmed or images!=image_inventory(command):raise ValueError('IMAGE_ARCHIVE_RUNTIME_CHANGED')
+    verify_loaded_image(archived,current);admit_retirement_proof(ready,proof,current);r.require_lock(lock_fd)
+    intent={'state':'IMAGE_RETIREMENT_INTENT',**ready,'roundtrip_run_id':ROUNDTRIP_RUN,
+            'runtime_context':before,'image_count_before':len(images),'native_before':before_smoke,
+            'free_bytes_before':shutil.disk_usage(base).free,
+            'reload_argv':['/usr/bin/docker','image','load','--input',str(base/'image.tar.gz')]}
+    r.atomic_json(journal,intent)
+    # Exact immutable ID, no force and no parent pruning: Docker rejects a
+    # concurrent container reference. Archive and all checkpoints stay intact.
+    command(['image','rm','--no-prune',IMAGE],timeout=120,lock_fd=lock_fd)
+    after,_,_=runtime_context(r,command)
+    remaining=image_inventory(command)
+    if before!=after or remaining!={key:value for key,value in images.items() if key!=IMAGE}:
+        raise ValueError('IMAGE_ARCHIVE_RETIREMENT_READBACK_FAILED')
+    after_smoke=native_smoke(command)
+    if runtime_context(r,command)[0]!=before:raise ValueError('IMAGE_ARCHIVE_RUNTIME_CHANGED')
+    checked_archive(r,base);r.require_lock(lock_fd)
+    result={**intent,'state':'IMAGE_RETIRED_RECOVERABLY','native_after':after_smoke,
+            'image_count_after':len(remaining),'free_bytes_after':shutil.disk_usage(base).free}
+    result['measured_free_delta_bytes']=result['free_bytes_after']-result['free_bytes_before']
+    r.atomic_json(journal,result)
+    return {key:result[key] for key in ('state','image_id','archive_bytes','archive_sha256',
+            'image_count_before','image_count_after','free_bytes_before','free_bytes_after','measured_free_delta_bytes',
+            'native_before','native_after')}
+
+
 def main():
     import base64
     import fcntl
     import sys
 
     if os.geteuid()!=0:raise ValueError('IMAGE_ARCHIVE_ROOT_REQUIRED')
-    if not (sys.argv[1:]==['--prepare'] or len(sys.argv)==3 and sys.argv[1]=='--receipt'):
+    if not (sys.argv[1:] in (['--prepare'],['--retire']) or len(sys.argv)==3 and sys.argv[1]=='--receipt'):
         raise ValueError('IMAGE_ARCHIVE_ARGUMENT_INVALID')
     os.umask(0o077);os.nice(10)
     r=load_recovery('/usr/local/libexec/aemr/release_recovery.py')
@@ -270,6 +346,8 @@ def main():
         if sys.argv[1]=='--prepare':
             result=prepare(r,r.docker,BASE,lock.fileno())
             print(json.dumps({'state':'IMAGE_ARCHIVE_READY',**result}),flush=True)
+        elif sys.argv[1]=='--retire':
+            print(json.dumps(retire_image(r,r.docker,BASE,lock.fileno())),flush=True)
         else:
             if len(sys.argv[2])>16384:raise ValueError('IMAGE_ARCHIVE_RECEIPT_REJECTED')
             current_context(r,r.docker)

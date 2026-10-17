@@ -135,6 +135,18 @@ class ImageArchiveTests(unittest.TestCase):
             self.assertTrue(raw.exists())
             self.assertFalse((base/'ready.json').exists(),'READY must not precede raw scratch cleanup')
 
+    def test_retirement_requires_the_specific_independent_roundtrip_not_an_arbitrary_receipt(self):
+        ready={'image_id':self.m.IMAGE,'source_sha':self.m.SOURCE,'tag':self.m.TAG,
+               'archive_bytes':100,'archive_sha256':'a'*64,'image_metadata_sha256':'b'*64}
+        receipt={**ready,'state':'IMAGE_ARCHIVE_ROUNDTRIP_VERIFIED','runner_engine_version':'29.1.3',
+                 'run_id':'39050662769','run_attempt':'1','ops_sha':'2e41bc489f27b797e9f0d211d28ab97d347f4c50'}
+        self.m.admit_retirement_proof(ready,receipt,self.image)
+        with self.assertRaisesRegex(ValueError,'REGISTRY_REFERENCE'):
+            self.m.admit_retirement_proof(ready,receipt,{**self.image,'RepoDigests':['registry/private@sha256:'+'d'*64]})
+        for changed in ({'ops_sha':'f'*40},{'run_id':'9999'},{'run_attempt':'2'},{'archive_sha256':'f'*64}):
+            with self.subTest(changed=changed),self.assertRaises(ValueError):
+                self.m.admit_retirement_proof(ready,{**receipt,**changed},self.image)
+
 
 @unittest.skipUnless(os.geteuid()==0,'Actual root ownership is required; mandatory on the isolated Actions runner')
 class PrivilegedImageArchiveTests(unittest.TestCase):
@@ -231,6 +243,67 @@ class PrivilegedImageArchiveTests(unittest.TestCase):
                  'run_id':'123','run_attempt':'1','ops_sha':'c'*40}
         with self.assertRaisesRegex(ValueError,'PENDING_INSPECTION'):
             self.m.save_receipt(self.r,self.base,receipt,self.lock.fileno())
+
+    def retirement_fixture(self):
+        ready=self.m.prepare(self.r,self.command,self.base,self.lock.fileno())
+        proof={**ready,'state':'IMAGE_ARCHIVE_ROUNDTRIP_VERIFIED','runner_engine_version':'29.1.3',
+               'run_id':self.m.ROUNDTRIP_RUN,'run_attempt':'1','ops_sha':self.m.ROUNDTRIP_OPS}
+        self.m.save_receipt(self.r,self.base,proof,self.lock.fileno())
+        present={self.m.IMAGE,*self.m.CURRENT_IMAGES.values(),*self.plan['images'].values(),*self.stage['candidate_images'].values()}
+        other={identity:{'Id':identity,'RepoTags':[], 'RepoDigests':[]} for identity in present if identity!=self.m.IMAGE}
+        commands=[];original=self.command
+        def command(args,**kwargs):
+            commands.append(args)
+            if args==['image','ls','--all','--quiet','--no-trunc']:return '\n'.join(sorted(present))
+            if args[:2]==['image','inspect']:
+                if any(identity not in present for identity in args[2:]):raise RuntimeError('isolated image absent')
+                return json.dumps([self.image if identity==self.m.IMAGE else other[identity] for identity in args[2:]])
+            if args==['image','rm','--no-prune',self.m.IMAGE]:present.remove(self.m.IMAGE);return 'removed'
+            if args[:3]==['exec','aemr-server-1','/opt/report-env/bin/python']:
+                return json.dumps(dict.fromkeys(('context','snapshot','main','supplement','operational'),'PASS'))
+            return original(args,**kwargs)
+        return ready,present,commands,command
+
+    def test_retirement_removes_only_the_archived_image_and_keeps_all_recovery_material(self):
+        ready,present,calls,command=self.retirement_fixture()
+        result=self.m.retire_image(self.r,command,self.base,self.lock.fileno())
+        self.assertEqual(result['state'],'IMAGE_RETIRED_RECOVERABLY')
+        self.assertNotIn(self.m.IMAGE,present)
+        self.assertEqual([call for call in calls if call[:2]==['image','rm']],
+                         [['image','rm','--no-prune',self.m.IMAGE]])
+        self.assertEqual(result['archive_sha256'],ready['archive_sha256'])
+        self.assertEqual(json.loads(self.r.read_owned(self.base/'retirement.json'))['state'],result['state'])
+        self.m.checked_archive(self.r,self.base)
+        self.assertTrue((self.base/('roundtrip-'+self.m.ROUNDTRIP_RUN+'-1.json')).exists())
+        with self.assertRaisesRegex(ValueError,'RETIREMENT_ALREADY_RECORDED'):
+            self.m.retire_image(self.r,command,self.base,self.lock.fileno())
+
+    def test_missing_roundtrip_or_failed_native_smoke_never_removes_an_image(self):
+        _,present,calls,command=self.retirement_fixture()
+        proof=self.base/('roundtrip-'+self.m.ROUNDTRIP_RUN+'-1.json');saved=proof.read_bytes();proof.unlink()
+        with self.assertRaises(FileNotFoundError):self.m.retire_image(self.r,command,self.base,self.lock.fileno())
+        proof.write_bytes(saved);proof.chmod(0o600)
+        def failed_smoke(args,**kwargs):
+            if args[:1]==['exec']:return json.dumps({'context':'FAIL'})
+            return command(args,**kwargs)
+        with self.assertRaisesRegex(ValueError,'NATIVE_SMOKE_FAILED'):
+            self.m.retire_image(self.r,failed_smoke,self.base,self.lock.fileno())
+        self.assertIn(self.m.IMAGE,present)
+        self.assertFalse(any(call[:2]==['image','rm'] for call in calls))
+        self.assertFalse((self.base/'retirement.json').exists())
+
+    def test_failed_docker_remove_preserves_the_archive_and_intention_without_blind_retry(self):
+        _,present,calls,command=self.retirement_fixture()
+        def refuse_remove(args,**kwargs):
+            if args[:2]==['image','rm']:raise RuntimeError('isolated Docker conflict')
+            return command(args,**kwargs)
+        with self.assertRaises(RuntimeError):self.m.retire_image(self.r,refuse_remove,self.base,self.lock.fileno())
+        self.assertIn(self.m.IMAGE,present)
+        self.assertEqual(json.loads(self.r.read_owned(self.base/'retirement.json'))['state'],'IMAGE_RETIREMENT_INTENT')
+        self.m.checked_archive(self.r,self.base)
+        with self.assertRaisesRegex(ValueError,'RETIREMENT_ALREADY_RECORDED'):
+            self.m.retire_image(self.r,command,self.base,self.lock.fileno())
+        self.assertFalse(any(call[:2]==['image','rm'] for call in calls))
 
 
 if __name__=='__main__':unittest.main()

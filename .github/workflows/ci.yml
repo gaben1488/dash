@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe, image-archive]
+        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe, image-archive, image-retire]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       browser_profile:
@@ -47,6 +47,69 @@ permissions:
   contents: read
   actions: read
 jobs:
+  image-retire:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'image-retire' &&
+      inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    env:
+      PENDING_SOURCE: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
+      VPS_USER: ${{ secrets.DEPLOY_USER }}
+      VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify independent roundtrip and root retirement contracts before SSH
+        run: |
+          set -euo pipefail
+          umask 077
+          private="$RUNNER_TEMP/image-retire"
+          mkdir -m 700 "$private"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$PENDING_SOURCE"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39050662769" > "$private/archive-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39050662769/jobs?per_page=100" > "$private/archive-jobs.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-retire'
+          run=json.loads((root/'archive-run.json').read_text())
+          assert run['id']==39050662769 and run['head_sha']=='2e41bc489f27b797e9f0d211d28ab97d347f4c50'
+          assert run['conclusion']=='success' and run['status']=='completed' and run['event']=='workflow_dispatch'
+          jobs=[job for job in json.loads((root/'archive-jobs.json').read_text())['jobs'] if job['name']=='image-archive']
+          assert len(jobs)==1 and jobs[0]['conclusion']=='success'
+          PY
+          git fetch --quiet --no-tags origin "$PENDING_SOURCE"
+          git show "$PENDING_SOURCE:deploy/release_recovery.py" > "$private/release_recovery.py"
+          sudo env IMAGE_ARCHIVE_RECOVERY_SOURCE="$private/release_recovery.py" \
+            python3 -m unittest discover -s .github/ci -p 'test_image_archive.py' -v
+      - name: Retire only the archived exact image while preserving running services
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          private="$RUNNER_TEMP/image-retire"
+          printf '%s\n' "$VPS_KEY" > "$private/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$private/known_hosts" 2>/dev/null
+          test -s "$private/known_hosts"
+          timeout --kill-after=5s 720s ssh -i "$private/key" \
+            -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o UserKnownHostsFile="$private/known_hosts" -o StrictHostKeyChecking=yes \
+            "$VPS_USER@193.233.91.162" 'sudo -n python3 -IB - --retire' < .github/ci/image_archive.py
+      - name: Remove this runner's private transport files
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,shutil
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'image-retire'
+          assert root.name=='image-retire' and not root.is_symlink()
+          if root.exists():shutil.rmtree(root)
+          PY
   image-archive:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
