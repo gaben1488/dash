@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026, 09:14 UTC
+### Текущий выпуск — 17.10.2026, 09:51 UTC
 
 Установлен `283a2b0e389aeeef44359a290d02dd689c3deb5b`.
 [Release38993968988](https://github.com/gaben1488/dash/actions/runs/38993968988)
@@ -44,6 +44,15 @@ query3116,005→4,132ms, results_equal=true; build3299,373ms,
 logical/physical file growth0B. Это измерение файла копии, не освобождение
 места на VPS. DDL pinbb33a416237bc11de97f36d1aa8b8c71382ab4c1542f9a38db109a7b47fe776f;
 production_index_created=false. Перед установкой нужен exact Node22 CI.
+
+**Уточнение совместимости:** этот замер относится к обычному covering index.
+Старый unhinted reader на новой схеме выбирал его и менял tie order.7b794913
+не устанавливается: controller39021770421 отменён на CI admission до любых
+application writes/stop/recreate. Новый partial `WHERE id IS id` включает все
+строки, включая NULL legacy ID; только новый selector повторяет predicate.
+Frozen legacy SQL RED→GREEN62focused, полный gate Node24.19 PASS743/1887(+1skip)/
+1034/2322/4tsc/lint0errors302warnings/build. Нужен отдельный native copy proof
+нового DDL; результат bb33 не переносится на него. Public health200/ok09:50.
 
 Следующий ограниченный fix закрывает конкуренцию полных сборок разных лет:
 на исходном коде пять периметров начинали пять импортов одновременно.

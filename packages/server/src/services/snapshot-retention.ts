@@ -107,6 +107,8 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
         hasWeeklyContext: HAS_WEEKLY_CONTEXT_SQL,
       })
       .from(sql`${schema.snapshots} INDEXED BY idx_snapshots_retention_metadata`)
+      // Tautology matches the partial index while preserving NULL legacy IDs.
+      .where(sql`${schema.snapshots.id} IS ${schema.snapshots.id}`)
       // Preserve the former table scan's tie order; sort only scalar index entries.
       .orderBy(sql`${schema.snapshots}.rowid`)
       .all()

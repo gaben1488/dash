@@ -212,6 +212,9 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
       ['text-year', '{"metadata":{"targetYear":"2026"}}']]) db.insert(schema.snapshots).values({
       id, spreadsheetId: 'book', createdAt: new Date(THU * 86400000).toISOString(), data,
     }).run();
+    // SQLite's historical TEXT PRIMARY KEY permits NULL; the index must not hide it.
+    db.$client.prepare('INSERT INTO snapshots(id,spreadsheet_id,created_at,data) VALUES(NULL,?,?,?)')
+      .run('book', new Date(THU * 86400000).toISOString(), '{}');
     const before = db.select().from(schema.snapshots).all();
     if (!indexed) db.$client.exec('DROP INDEX IF EXISTS idx_snapshots_retention_metadata');
     const inspectPayload = vi.fn((text: string, needle: string) => text.indexOf(needle) + 1);
@@ -232,6 +235,22 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     }).run();
     expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(1);
     expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots).all()).toEqual([{ id: 'z-first' }]);
+  });
+
+  it('keeps the old unhinted reader in its original order on a database with the new index', async () => {
+    const { db, schema } = await import('../db/index.js');
+    for (const id of ['z-first', 'a-second']) db.insert(schema.snapshots).values({
+      id, spreadsheetId: 'book', createdAt: new Date(THU * 86400000).toISOString(),
+      data: '{"metadata":{"targetYear":null},"rowsByDept":{},"weeklyTableContext":{}}',
+    }).run();
+    // Frozen pre-index query: rollback must not change its tie winner either.
+    const legacy = `SELECT id,created_at,spreadsheet_id,
+      CASE WHEN json_valid(data) THEN json_type(data, '$.metadata.targetYear') END,
+      CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.targetYear') END,
+      instr(data, '"rowsByDept"') > 0,instr(data, '"weeklyTableContext"') > 0 FROM snapshots`;
+    expect(db.$client.prepare(legacy + ' NOT INDEXED').all().map(row => (row as { id: string }).id))
+      .toEqual(['z-first', 'a-second']);
+    expect(db.$client.prepare(legacy).all()).toEqual(db.$client.prepare(legacy + ' NOT INDEXED').all());
   });
 
   it('does not rescan case history when every snapshot is already retained', async () => {

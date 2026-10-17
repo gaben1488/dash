@@ -43,6 +43,7 @@ function rememberSnapshot(key: number, snapshot: PipelineSnapshot, timestamp: nu
  */
 const inFlightLoads = new Map<number, Promise<PipelineSnapshot>>();
 // Different years share one CPU/memory budget; queued readers keep their saved scope.
+// ponytail: one materializer per API process; use one bounded worker before multi-process scaling.
 let materializationTail: Promise<void> = Promise.resolve();
 
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
