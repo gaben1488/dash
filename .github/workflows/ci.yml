@@ -1351,11 +1351,14 @@ jobs:
           import ast,base64,hashlib,os,subprocess
           from pathlib import Path
           source=Path('.github/ci/source_drift_probe.py').read_text()
-          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'checkpoint_content_summary','image_storage_summary','immutable_sharing_summary'}]
-          assert len(nodes)==3
-          dedup=subprocess.check_output(['git','show',os.environ['PRIMARY_SOURCE_SHA']+':.github/ci/publication_dedup.py'],text=True)
+          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'checkpoint_content_summary','image_storage_summary','immutable_sharing_summary','terminal_attempt_keys'}]
+          assert len(nodes)==4
+          baseline=subprocess.check_output(['git','show',os.environ['PRIMARY_SOURCE_SHA']+':.github/ci/publication_dedup.py'],text=True)
+          dedup=Path('.github/ci/publication_dedup.py').read_text()
           checked=[node for node in ast.parse(dedup).body if isinstance(node,ast.FunctionDef) and node.name in {'_checked_file','plan_dedup'}]
           assert len(checked)==2
+          original=next(node for node in ast.parse(baseline).body if isinstance(node,ast.FunctionDef) and node.name=='_checked_file')
+          assert ast.get_source_segment(baseline,original)==ast.get_source_segment(dedup,next(node for node in checked if node.name=='_checked_file'))
           body=('import hashlib,json,os,re,stat\nfrom pathlib import Path\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in nodes)
                 +'\n\n'+'\n\n'.join(ast.get_source_segment(dedup,node) for node in checked)).encode()
           with open(os.environ['GITHUB_ENV'],'a') as target:
@@ -1717,6 +1720,11 @@ jobs:
                 assert len(catalog_body)<=4*1024*1024
                 sharing=namespace['immutable_sharing_summary'](source,value['files'],json.loads(catalog_body),namespace['plan_dedup'])
                 print(json.dumps({'immutable_publication_sharing_inventory':sharing}),flush=True)
+                frozen=namespace['terminal_attempt_keys'](source,value['files'],namespace['_checked_file'])
+                attempt_keys=frozen.pop('attempt_ids')
+                expanded=lambda root,files,catalog:namespace['plan_dedup'](root,files,catalog,frozen_attempts=attempt_keys)
+                sharing=namespace['immutable_sharing_summary'](source,value['files'],json.loads(catalog_body),expanded)
+                print(json.dumps({'immutable_finished_capture_inventory':{'proved_attempts':len(attempt_keys),**frozen,**sharing}}),flush=True)
                 device=source.stat().st_dev;reclaimable=0
                 for relative in value['files']:
                  assert not relative.startswith('/') and '..' not in Path(relative).parts

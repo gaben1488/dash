@@ -72,6 +72,58 @@ def image_storage_summary(images, referenced):
             'physical_shared_layers_measured':False,'deletion_plan':False,'images':rows}
 
 
+def terminal_attempt_keys(source, files, checker):
+    """Read only terminal scalars from checksum-bound statuses, without decoding their heavy payloads."""
+    import hashlib
+    import sqlite3
+    import time
+    from datetime import datetime
+
+    selected=[(name,item,match[1]) for name,item in files.items()
+              if (match:=re.fullmatch(r'reports/attempts/([a-f0-9]{32})/status\.json',name))]
+    if len(selected)>4096 or sum(item['bytes'] for _,item,_ in selected)>4*1024**3:
+        raise ValueError('ATTEMPT_METADATA_BUDGET_EXCEEDED')
+    result={'attempt_ids':set(),'status_files':len(selected),'bytes_read':0,'changed':0,'ineligible':0,'oversized':0}
+    fingerprint=lambda info:tuple(getattr(info,key) for key in
+        ('st_dev','st_ino','st_size','st_mode','st_uid','st_gid','st_mtime_ns','st_ctime_ns'))
+    start=time.monotonic()
+    db=sqlite3.connect(':memory:')
+    try:
+        for name,expected,attempt in selected:
+            if time.monotonic()-start>90:
+                raise ValueError('ATTEMPT_METADATA_BUDGET_EXCEEDED')
+            if expected['bytes']>32*1024**2:
+                result['oversized']+=1;continue
+            try:
+                checked=checker(source,name,expected)
+            except ValueError as error:
+                if str(error) not in {'DEDUP_CONTENT_CHANGED','DEDUP_METADATA_CHANGED'}:raise
+                result['changed']+=1;continue
+            with os.fdopen(os.open(source/name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb') as stream:
+                before=os.fstat(stream.fileno());body=stream.read(32*1024**2+1);after=os.fstat(stream.fileno())
+            result['bytes_read']+=len(body)
+            if (fingerprint(checked)!=fingerprint(before) or fingerprint(before)!=fingerprint(after)
+                    or len(body)!=expected['bytes'] or hashlib.sha256(body).hexdigest()!=expected['sha256']):
+                result['changed']+=1;continue
+            try:
+                # JSON1 selects the three top-level scalars in C. No Python tree
+                # or temporary-table sort of multi-megabyte source proof occurs.
+                rows=db.execute("SELECT key,type,CASE WHEN type='text' THEN value END FROM json_each(CAST(? AS TEXT)) "
+                    "WHERE key IN ('status','attempt_id','finished_at') LIMIT 4",(body,)).fetchall()
+                if len(rows)!=3 or len({key for key,_,_ in rows})!=3 or any(kind!='text' or len(value)>128 for _,kind,value in rows):
+                    raise ValueError('ATTEMPT_METADATA_INVALID')
+                metadata={key:value for key,_,value in rows}
+                instant=datetime.fromisoformat(metadata['finished_at'])
+                if (metadata['attempt_id']!=attempt or metadata['status'] not in {'VERIFIED','VERIFIED_WITH_WARNINGS','NOT_ISSUED'}
+                        or instant.tzinfo is None):raise ValueError('ATTEMPT_METADATA_INVALID')
+            except (sqlite3.Error,ValueError):
+                result['ineligible']+=1;continue
+            result['attempt_ids'].add(attempt)
+        return result
+    finally:
+        db.close()
+
+
 def immutable_sharing_summary(source, files, catalog, planner):
     """Reuse the hash/catalog/closed-alias planner; no replacement or object removal."""
     groups=planner(source,files,catalog)

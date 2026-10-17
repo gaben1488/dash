@@ -7,6 +7,31 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_finished_attempt_inventory_extracts_only_bound_scalar_metadata(self):
+        import hashlib
+        import json
+        import tempfile
+
+        attempt='a'*32
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);name=f'reports/attempts/{attempt}/status.json';path=root/name;path.parent.mkdir(parents=True)
+            value={'attempt_id':attempt,'status':'VERIFIED_WITH_WARNINGS','finished_at':'2026-10-17T15:00:00Z',
+                   'private_payload':{'subject':'PRIVATE_VALUE','status':'RUNNING'}}
+            def save(body):
+                path.write_bytes(body)
+                return {name:{'bytes':len(body),'sha256':hashlib.sha256(body).hexdigest()}}
+            files=save(json.dumps(value).encode())
+            checker=lambda source,relative,expected:(source/relative).stat()
+            result=self.module.terminal_attempt_keys(root,files,checker)
+            self.assertEqual(result['attempt_ids'],{attempt})
+            self.assertNotIn('PRIVATE',str(result))
+            for body in (b'not json',json.dumps({**value,'status':'RUNNING'}).encode(),
+                         (json.dumps(value)[:-1]+',"status":"RUNNING"}').encode()):
+                files=save(body)
+                self.assertEqual(self.module.terminal_attempt_keys(root,files,checker)['attempt_ids'],set())
+            files=save(json.dumps(value).encode());path.write_bytes(b'changed')
+            self.assertEqual(self.module.terminal_attempt_keys(root,files,checker)['attempt_ids'],set())
+
     def test_immutable_sharing_inventory_counts_inodes_without_touching_bytes(self):
         import os
         import tempfile
