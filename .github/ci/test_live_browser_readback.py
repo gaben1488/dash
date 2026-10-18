@@ -214,6 +214,20 @@ class BrowserAdmissionTests(unittest.TestCase):
                 context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/codex/release-observe-20261015',event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode='metadata',release_sha=TARGET)}
                 self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
 
+    def test_explicit_phone_push_can_use_the_same_headed_engine_as_accepted_baseline(self):
+        workflow = (ROOT/'.github/workflows/ci.yml').read_text()
+        expression = workflow.split('      BROWSER_HEADED: ${{', 1)[1].split('}}', 1)[0].strip()
+        expression = expression.replace('&&', 'and').replace('||', 'or')
+        for event, message, renderer, expected in (
+            ('push', f'Verify iPhone browser for accepted {TARGET[:8]} headed', '', '1'),
+            ('push', f'Verify iPhone browser for accepted {TARGET[:8]}', '', '0'),
+            ('push', 'arbitrary headed text', '', '0'),
+            ('workflow_dispatch', '', 'headed', '1'),
+            ('workflow_dispatch', '', 'headless', '0')):
+            scope = {'github': SimpleNamespace(event_name=event, event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),
+                     'inputs': SimpleNamespace(browser_renderer=renderer)}
+            self.assertEqual(eval(expression, {'__builtins__': {}}, scope), expected)
+
     def test_only_explicit_owner_browser_request_can_run_on_push(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  browser-readback:\n',1)[1].split('  observe:\n',1)[0]
