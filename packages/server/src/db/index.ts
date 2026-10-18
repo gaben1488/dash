@@ -1,5 +1,5 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { openDatabase } from './connection.js';
+export { SQLITE_PRAGMAS } from './connection.js';
 import * as schema from './schema.js';
 import { config } from '../config.js';
 import { SCHEMA_DDL, COLUMN_MIGRATIONS, POST_MIGRATION_DDL } from './ddl.js';
@@ -14,39 +14,8 @@ if (!existsSync(dir)) {
   mkdirSync(dir, { recursive: true });
 }
 
-const sqlite = new Database(dbPath);
-
-/**
- * Настройки базы. WAL стоял и раньше — читатели не ждут писателя. Двух вещей
- * не хватало, и обе видны только под нагрузкой:
- *
- * • `busy_timeout` — сколько ждать, если база занята. Без него SQLite бросает
- *   SQLITE_BUSY МГНОВЕННО, и запись, наложившаяся на четверговый срез или на
- *   чистку старых снимков, падает вместо того, чтобы подождать сотую долю
- *   секунды. Читатель видит «внутренняя ошибка сервера» на ровном месте.
- *   При WAL параллельная запись всё равно одна, так что ожидание короткое.
- *
- * • `synchronous = NORMAL` — рекомендованный режим именно для WAL: fsync на
- *   каждую запись не делается, но контрольная точка защищена. Риск сводится к
- *   потере последних сделок при внезапном пропадании питания хоста; поломки
- *   файла базы этот режим не допускает. Для журнала правок и снимков цена
- *   приемлемая, а полный fsync на каждую вставку — это десятки миллисекунд на
- *   строку при заливке недельного среза.
- */
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('busy_timeout = 5000');
-sqlite.pragma('synchronous = NORMAL');
-sqlite.pragma('foreign_keys = ON');
-
-/** Настройки соединения — наружу для проверки в тестах. */
-export const SQLITE_PRAGMAS = {
-  journalMode: 'wal',
-  busyTimeoutMs: 5000,
-  synchronous: 1,
-  foreignKeys: 1,
-} as const;
-
-export const db = drizzle(sqlite, { schema });
+export const db = openDatabase(dbPath);
+const sqlite = db.$client;
 
 // Схема пустой базы живёт в db/ddl.ts — там же объяснено, почему отдельно
 // (страж ddl.test.ts проверяет её на пустой базе, не заводя рабочей).

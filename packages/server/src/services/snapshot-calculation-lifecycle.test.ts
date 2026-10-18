@@ -96,3 +96,18 @@ it('не открывает новый слот при отказе terminate д
   state.workers[1].emit('message', { ok: true, snapshot: { id: 'after-exit' } });
   expect(await next).toEqual({ id: 'after-exit' });
 });
+
+
+it('расчёт и сохранение делят один ограниченный слот', async () => {
+  const { runSnapshotCalculation, runSnapshotStorage } = await import('./snapshot-calculation.js');
+  const storage = { path: '/synthetic/state.sqlite', snapshot: { id: 'synthetic' },
+    offset: 12, today: new Date(), operation: 'insert' } as Parameters<typeof runSnapshotStorage>[0];
+  const first = runSnapshotCalculation(source());
+  await expect(runSnapshotStorage(storage)).rejects.toThrow('SNAPSHOT_STORAGE_BUSY');
+  state.workers[0].emit('message', { ok: true, snapshot: { id: 'done' } });
+  await first;
+  const saved = runSnapshotStorage(storage);
+  expect(state.workers).toHaveLength(2);
+  state.workers[1].emit('message', { ok: true, saved: true });
+  expect(await saved).toBe(true);
+});

@@ -149,10 +149,10 @@ export interface RowDto {
  * @param idx  индекс в массиве ПОСЛЕ slice(DEPT_HEADER_ROWS): idx=0 → строка листа 4
  * @param opts deptId — id управления для поля dept
  */
-export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string }): RowDto {
+export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string; today?: Date }): RowDto {
   const cells = buildCellDict(row);
 
-  const signalsObj = detectSignals(cells);
+  const signalsObj = detectSignals(cells, opts.today);
   const state = classifyRowState(signalsObj);
   const badges = getSignalBadges(signalsObj, { dept: opts.deptId, id: cells.A, subject: cells.G,
     method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: toNumber(cells.Y), epReason: cells.M, amountBasis: 'position-total' as const, planYear: toNumber(cells.P),

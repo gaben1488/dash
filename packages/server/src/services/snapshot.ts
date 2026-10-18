@@ -1,23 +1,23 @@
 import { MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
-import type { DataSnapshot, Issue, NormalizedMetric, SHDYUDeptData } from '@aemr/shared';
-import { buildRowDto, isDataRow } from './rows-dto.js';
+import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
+import type { DataSnapshot, Issue, SHDYUDeptData } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { recordSnapshotRead, snapshotReadContext } from './snapshot-read-context.js';
 import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
-import { and, eq, desc, getTableColumns, lt, sql, isNull } from 'drizzle-orm';
+import { and, eq, desc, lt, sql, isNull } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
-import { pruneSnapshotsByRetention } from './snapshot-retention.js';
+import { saveSnapshotRowsToDb, saveSnapshotToDb, pruneSnapshotsInDb } from './snapshot-storage.js';
+import { resolve } from 'node:path';
 import type { DeptSheetResult } from './google-sheets.js';
 import { publishLiveEvent } from './event-bus.js';
 import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 import { setImmediate as yieldToReads } from 'node:timers/promises';
-import { runSnapshotCalculation, type SnapshotCalculationInput } from './snapshot-calculation.js';
+import { runSnapshotCalculation, runSnapshotStorage, type SnapshotCalculationInput } from './snapshot-calculation.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
@@ -216,7 +216,16 @@ export interface WeeklyMonitoringEvidenceInput {
  * здесь к тому же id добавляются только недостающие исторические входы.
  * Никакого чтения live-данных внутри функции нет.
  */
-export async function sealWeeklyTableContext(
+export function sealWeeklyTableContext(
+  snapshotId: string,
+  monitoring: WeeklyMonitoringEvidenceInput,
+): Promise<boolean> {
+  const sealing = materializationTail.then(() => sealWeeklyTableContextNow(snapshotId, monitoring));
+  materializationTail = sealing.then(() => undefined, () => undefined);
+  return sealing;
+}
+
+async function sealWeeklyTableContextNow(
   snapshotId: string,
   monitoring: WeeklyMonitoringEvidenceInput,
 ): Promise<boolean> {
@@ -268,15 +277,7 @@ export async function sealWeeklyTableContext(
     // только data JSON ровно одной существующей строки. Retention запускается
     // после UPDATE и уже видит признак complete-week.
     await yieldToReads();
-    db.transaction(() => {
-      const updated = db.update(schema.snapshots)
-        .set({ data: JSON.stringify(snapshot) })
-        .where(eq(schema.snapshots.id, snapshotId))
-        .run();
-      if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
-    });
-    await yieldToReads();
-    pruneSnapshotsByRetention();
+    await persistSnapshot(snapshot, 'weekly');
     return true;
   } catch (error) {
     logSourceProblem('Недельный контекст таблиц не сохранён', {
@@ -798,233 +799,43 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   return null;
 }
 
-/**
- * Тип закупки по способу из колонки L. ЕП — единственный поставщик, ЭА/ЭК/ЭЗК —
- * конкурентная процедура (канон семейств METHOD_FAMILY_MAP). Мусор оператора в
- * L типом не притворяется: null честнее догадки, а SQL-фильтр по типу тогда
- * честно не находит такую строку, вместо того чтобы приписать её к семейству.
- */
-function procurementTypeOf(method: string): 'competitive' | 'single_provider' | null {
-  const code = method.trim().toUpperCase();
-  if ((METHOD_FAMILY_MAP.EP as readonly string[]).includes(code)) return 'single_provider';
-  if ((METHOD_FAMILY_MAP.COMPETITIVE as readonly string[]).includes(code)) return 'competitive';
-  return null;
-}
+export { buildProcurementRowValues } from './snapshot-storage.js';
 
-/**
- * Процент экономии одной строки. Нулевого (или нечислового) плана нет как
- * знаменателя — отношение не существует и выдаётся как null, а не как ноль:
- * ноль здесь читался бы «экономии не было», хотя её просто не от чего считать.
- */
-function economyPercentOf(economy: number, plan: number): number | null {
-  if (!Number.isFinite(plan) || plan === 0) return null;
-  return (economy / plan) * 100;
-}
-
-/** Полностью пустая строка листа — добивка диапазона, а не атом. */
-function isBlankRow(row: unknown[]): boolean {
-  return row.every((cell) => String(cell ?? '').trim() === '');
-}
-
-/**
- * Атом-запись `procurement_rows` для каждой строки книг ГРБС снимка.
- *
- * Семантика строки (сигналы, состояние, суммы, способ) берётся из
- * ЕДИНСТВЕННОГО билдера `buildRowDto` — того же, которым живёт реестр
- * `/api/rows`. Вторая семантика атома завела бы расхождение «SQL против
- * реестра» на ровном месте (пирамида §4: одна свёртка — одно место).
- *
- * Служебные строки листа (итоги, разделы, шапки) не выбрасываются, а
- * помечаются состоянием `non-data`: популяция таблицы остаётся точной копией
- * листа, а потребитель отсекает служебное явным условием, а не догадкой о том,
- * какие строки мы по дороге потеряли.
- */
-export function buildProcurementRowValues(
-  snapshot: DataSnapshot,
-): Array<typeof schema.procurementRows.$inferInsert> {
-  const out: Array<typeof schema.procurementRows.$inferInsert> = [];
-  for (const [sheetName, rows] of Object.entries(snapshot.rowsByDept ?? {})) {
-    // Ось ГРБС в SQL — латинский id (как у issues.department_id): один язык
-    // ключа на всю базу. Лист, которого реестр ГРБС не знает, не выдумываем —
-    // кладём имя как есть, чтобы строки не пропали молча.
-    const departmentId = findDept(sheetName)?.latinId ?? sheetName;
-    rows.forEach((row, idx) => {
-      if (!Array.isArray(row) || isBlankRow(row)) return;
-      const dto = buildRowDto(row, idx, { deptId: departmentId });
-      const isData = isDataRow(dto);
-      out.push({
-        snapshotId: snapshot.id,
-        departmentId,
-        // 1-based номер строки листа (шапка в DEPT_HEADER_ROWS строк уже срезана
-        // в rowsByDept) — адрес, по которому правку видно в самой книге.
-        rowIndex: dto.rowIndex,
-        cellsJson: JSON.stringify(buildCellDict(row)),
-        // Активные сигналы строки; ложные не пишем — они восстановимы по канону
-        // сигналов, а в тысячах строк удваивали бы объём ничем.
-        signalsJson: JSON.stringify(dto.signals),
-        rowState: isData ? dto.state : 'non-data',
-        procurementType: isData ? procurementTypeOf(dto.method) : null,
-        subject: String(dto.subject ?? '').trim(),
-        planAmount: dto.planSum,
-        factAmount: dto.factSum,
-        economy: dto.economy,
-        economyPercent: economyPercentOf(dto.economy, dto.planSum),
-        createdAt: snapshot.createdAt,
-      });
-    });
-  }
-  return out;
-}
-
-/**
- * Потолок связываемых параметров одного SQL-запроса. SQLite современных сборок
- * держит 32 766, но исторический предел — 999; считаем по нижнему, чтобы размер
- * пакета не стал сюрпризом на чужой сборке. Число колонок берётся из самой
- * схемы, а не переписывается сюда руками: блок Е п.21 добавит колонки осей, и
- * пакет ужмётся сам, вместо того чтобы разъехаться с таблицей.
- */
-const MAX_BIND_PARAMS = 900;
-const ATOM_ROWS_PER_BATCH = Math.floor(
-  MAX_BIND_PARAMS / Object.keys(getTableColumns(schema.procurementRows)).length,
-);
-
-/**
- * Кладёт строки-атомы снимка в `procurement_rows` — ОДНОЙ транзакцией
- * пакетами: снимок несёт тысячи строк, и построчная вставка вне транзакции
- * означала бы тысячи отдельных фиксаций на диск.
- *
- * Идемпотентна: сначала сносит уже записанные строки этого снимка. Своего
- * бизнес-ключа у атома нет (пирамида §1: строка живёт без идентификатора,
- * только с позицией на листе), поэтому единственный честный способ не удвоить
- * популяцию при повторной записи — переписать её целиком.
- *
- * Возвращает число записанных строк. Снимок без `rowsByDept` (формат до
- * 24.07.2026) даёт 0 и не падает.
- */
 export function saveSnapshotRows(snapshot: DataSnapshot): number {
-  const values = buildProcurementRowValues(snapshot);
-  db.transaction((tx) => {
-    tx.delete(schema.procurementRows)
-      .where(eq(schema.procurementRows.snapshotId, snapshot.id))
-      .run();
-    for (let i = 0; i < values.length; i += ATOM_ROWS_PER_BATCH) {
-      tx.insert(schema.procurementRows).values(values.slice(i, i + ATOM_ROWS_PER_BATCH)).run();
-    }
-  });
-  return values.length;
+  return saveSnapshotRowsToDb(snapshot, db);
 }
 
-/**
- * Сохраняет снимок в БД. Возвращает true, если снимок ЗАПИСАН, и false при
- * сбое: ошибка логируется, но не бросается (сохранение — побочный путь
- * createSnapshot и не должен ронять отдачу данных). Вызыватели, которым важен
- * факт записи (бэкфилл-скрипт: честный счётчик «сохранено N»), обязаны
- * проверять результат; остальные могут игнорировать — поведение additive.
- *
- * БАГ #8 (2026-08-08, docs/superpowers/audits/2026-08-08-bug-hunt-register.md):
- * id замечания намеренно стабилен между прогонами (issue-identity.ts, чтобы
- * статусы не орфанились), а issues.id — PRIMARY KEY БЕЗ snapshot_id в составе
- * (schema.ts). Второй снимок с тем же замечанием раньше падал на UNIQUE
- * ПОСЛЕ того, как snapshots и metric_history уже были записаны вне
- * транзакции — а всё, что шло следом (строки-атомы saveSnapshotRows,
- * ретеншен pruneSnapshotsByRetention), не выполнялось вообще, и внешний catch
- * глушил ошибку молча. Итог в проде: procurement_rows пуст навсегда после
- * первого снимка, ретеншен выключен навсегда, issues не растут. Фикс —
- * вставка issues идемпотентна по id (onConflictDoNothing: совпавший id значит
- * то же замечание, апдейт дублирующей строки бессмыслен — соседний паттерн у
- * routes/changes.ts:110), а вся цепочка snapshots → metric_history → issues →
- * saveSnapshotRows — ОДНА better-sqlite3-транзакция:
- * частичная запись теперь невозможна в принципе, либо коммитится всё, либо
- * ничего. Retention выполняется после коммита в собственной транзакции;
- * ожидающий HTTP получает ход между записью и обслуживанием (ADR-001).
- * Вложенная db.transaction() внутри saveSnapshotRows безопасна: better-sqlite3 переключается на
- * SAVEPOINT/RELEASE, когда db.inTransaction уже true (node_modules/better-sqlite3/
- * lib/methods/transaction.js) — своей вложенной транзакции достаточно.
- */
+async function persistSnapshot(snapshot: DataSnapshot, operation: 'insert' | 'weekly'): Promise<void> {
+  const today = new Date();
+  if (operation === 'insert' && db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+    .where(eq(schema.snapshots.id, snapshot.id)).get()) throw new Error('SNAPSHOT_ALREADY_EXISTS');
+  if (db.$client.name === ':memory:' || db.$client.name === '') {
+    if (operation === 'weekly') {
+      const updated = db.update(schema.snapshots).set({ data: JSON.stringify(snapshot) })
+        .where(eq(schema.snapshots.id, snapshot.id)).run();
+      if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
+    } else saveSnapshotToDb(snapshot, db, today);
+    await yieldToReads();
+    pruneSnapshotsInDb(db, config.weeklySnapshot.utcOffsetHours, today);
+    return;
+  }
+  try {
+    await runSnapshotStorage({ snapshot, operation, today, path: resolve(db.$client.name),
+      offset: config.weeklySnapshot.utcOffsetHours });
+  } catch (error) {
+    // A lost worker/receipt cannot turn an already committed write into failure.
+    // Exact payload equality also prevents accepting an older row with this ID.
+    const saved = db.select({ data: schema.snapshots.data }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, snapshot.id)).get();
+    if (saved?.data !== JSON.stringify(snapshot)) throw error;
+    logSourceProblem('Снимок записан; фоновое обслуживание не подтверждено', { snapshotId: snapshot.id });
+  }
+}
+
 export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
-    // ponytail: one synchronous stage still bounds HTTP latency; split/offload
-    // that stage if measured latency exceeds its budget (ADR-001, 18.10.2026).
     await yieldToReads();
-    const dataJson = JSON.stringify(snapshot);
-    // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
-    // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
-    const mb = (n: number): string => (n / 1048576).toFixed(2);
-    const atomsBytes = Buffer.byteLength(
-      JSON.stringify({ rowsByDept: snapshot.rowsByDept, svodGrid: snapshot.svodGrid }),
-      'utf8',
-    );
-    logSnapshotChange(
-      `Снимок сохраняется: данные ${mb(Buffer.byteLength(dataJson, 'utf8'))} МБ`
-      + ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ), строк ${snapshot.rowCount},`
-      + ` замечаний ${snapshot.issues.length}`,
-      {
-        snapshotId: snapshot.id,
-        bytes: Buffer.byteLength(dataJson, 'utf8'),
-        atomBytes: atomsBytes,
-        rows: snapshot.rowCount,
-        issues: snapshot.issues.length,
-      },
-    );
-
-    db.transaction((tx) => {
-      tx.insert(schema.snapshots).values({
-        id: snapshot.id,
-        spreadsheetId: snapshot.spreadsheetId,
-        createdAt: snapshot.createdAt,
-        trustOverall: snapshot.trust.overall,
-        trustGrade: snapshot.trust.grade,
-        issueCount: snapshot.issues.length,
-        criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
-        metricsCount: Object.keys(snapshot.officialMetrics).length,
-        rowCount: snapshot.rowCount,
-        readDurationMs: snapshot.metadata.readDurationMs,
-        pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
-        data: dataJson,
-      }).run();
-
-      for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
-        tx.insert(schema.metricHistory).values({
-          snapshotId: snapshot.id,
-          metricKey: key,
-          numericValue: metric.numericValue,
-          displayValue: metric.displayValue,
-          confidence: metric.confidence,
-          origin: metric.origin,
-          createdAt: snapshot.createdAt,
-        }).run();
-      }
-
-      for (const issue of snapshot.issues) {
-        // Совпавший id — то же замечание в новом снимке: перевешиваем ТОЛЬКО
-        // snapshot_id на свежий снимок. Прочие поля не трогаем (статус/комментарий
-        // ставит человек через PUT — затирать их снимком нельзя). Без перевешивания
-        // строка оставалась приписанной к ПЕРВОМУ снимку, ретеншен его прунил и
-        // каскадом удалял живое замечание (страж: snapshot-rows.test.ts, БАГ #8).
-        tx.insert(schema.issues).values({
-          ...issue,
-          snapshotId: snapshot.id,
-        }).onConflictDoUpdate({
-          target: schema.issues.id,
-          set: { snapshotId: snapshot.id },
-        }).run();
-      }
-
-      // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только
-      // JSON-блобом внутри snapshots.data: ни колонки, ни индекса, ни группировки.
-      // Теперь часть единой транзакции снимка (см. БАГ #8 выше) — сбой здесь
-      // откатывает всё, а не оставляет снимок без строк.
-      const savedRows = saveSnapshotRows(snapshot);
-      if (savedRows > 0) {
-        logSnapshotChange(`Строки-атомы снимка записаны: ${savedRows}`, { snapshotId: snapshot.id, rows: savedRows });
-      }
-    });
-
-    // Snapshot + rows are committed together before readers resume. Retention
-    // owns its transaction and catches failures; it cannot invalidate that commit.
-    await yieldToReads();
-    pruneSnapshotsByRetention();
-
+    await persistSnapshot(snapshot, 'insert');
     return true;
   } catch (error) {
     logSourceProblem('Снимок не сохранён в базу', {

@@ -3,6 +3,9 @@ import { findDept, getActiveRules, SVOD_SHEET_NAME, type DataSnapshot, type Svod
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { setImmediate as yieldToReads } from 'node:timers/promises';
+import { logSnapshotChange, logSourceProblem } from './source-log.js';
+import type { SnapshotStorageInput } from './snapshot-storage.js';
 
 export type SnapshotCalculationInput = Omit<PipelineInput, 'rules'>;
 
@@ -39,8 +42,10 @@ const CALCULATION_BOOTSTRAP = `
   const { parentPort, workerData } = require('node:worker_threads');
   (async () => {
     const { tsImport } = await import(workerData.loader);
-    const { calculateSnapshot } = await tsImport(workerData.module, workerData.module);
-    parentPort.postMessage({ ok: true, snapshot: calculateSnapshot(workerData.input) });
+    const task = await tsImport(workerData.module, workerData.module);
+    if (workerData.operation === 'calculation')
+      parentPort.postMessage({ ok: true, snapshot: task.calculateSnapshot(workerData.input) });
+    else parentPort.postMessage({ ok: true, saved: await task.persistSnapshotInWorker(workerData.input) });
   })().catch(() => parentPort.postMessage({ ok: false }));
 `;
 
@@ -49,9 +54,18 @@ const CALCULATION_BOOTSTRAP = `
 let activeWorker: Worker | null = null;
 
 export function runSnapshotCalculation(input: SnapshotCalculationInput): Promise<PipelineSnapshot> {
+  return runSnapshotTask({ ...input, asOf: input.asOf === undefined ? new Date() : input.asOf }, 'calculation') as Promise<PipelineSnapshot>;
+}
+
+export function runSnapshotStorage(input: SnapshotStorageInput): Promise<true> {
+  return runSnapshotTask(input, 'storage') as Promise<true>;
+}
+
+function runSnapshotTask(input: SnapshotCalculationInput | SnapshotStorageInput, operation: 'calculation' | 'storage'): Promise<PipelineSnapshot | true> {
+  const prefix = operation === 'calculation' ? 'SNAPSHOT_CALCULATION' : 'SNAPSHOT_STORAGE';
   return new Promise((resolve, reject) => {
     if (activeWorker !== null) {
-      reject(new Error('SNAPSHOT_CALCULATION_BUSY'));
+      reject(new Error(prefix + '_BUSY'));
       return;
     }
     let worker: Worker;
@@ -64,18 +78,18 @@ export function runSnapshotCalculation(input: SnapshotCalculationInput): Promise
         resourceLimits: { maxOldGenerationSizeMb: 512 },
         stdout: true,
         stderr: true,
-        workerData: { loader: pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href, module: import.meta.url,
-          input: { ...input, asOf: input.asOf === undefined ? new Date() : input.asOf } },
+        workerData: { loader: pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href, module: operation === 'calculation' ? import.meta.url : new URL(import.meta.url.endsWith('.ts') ? './snapshot-storage.ts' : './snapshot-storage.js', import.meta.url).href,
+          input, operation },
       });
       activeWorker = worker;
     } catch {
-      reject(new Error('SNAPSHOT_CALCULATION_FAILED'));
+      reject(new Error(prefix + '_FAILED'));
       return;
     }
     worker.stdout?.resume();
     worker.stderr?.resume();
     let finished = false;
-    const finish = (error?: Error, snapshot?: PipelineSnapshot): void => {
+    const finish = (error?: Error, snapshot?: PipelineSnapshot | true): void => {
       if (finished) return;
       finished = true;
       clearTimeout(deadline);
@@ -85,19 +99,34 @@ export function runSnapshotCalculation(input: SnapshotCalculationInput): Promise
         if (activeWorker === worker) activeWorker = null;
         if (error) reject(error);
         else resolve(snapshot!);
-      }, () => reject(new Error('SNAPSHOT_CALCULATION_TERMINATION_FAILED')));
+      }, () => reject(new Error(prefix + '_TERMINATION_FAILED')));
     };
-    const deadline = setTimeout(() => finish(new Error('SNAPSHOT_CALCULATION_TIMED_OUT')), 120_000);
+    const deadline = setTimeout(() => finish(new Error(prefix + '_TIMED_OUT')), 120_000);
     deadline.unref();
-    worker.once('message', (message: { ok?: boolean; snapshot?: PipelineSnapshot }) => {
-      if (message?.ok === true && typeof message.snapshot?.id === 'string') finish(undefined, message.snapshot);
-      else finish(new Error('SNAPSHOT_CALCULATION_FAILED'));
+    worker.on('message', (message: { ok?: boolean; snapshot?: PipelineSnapshot; saved?: boolean;
+      committed?: boolean; log?: string; fields?: Record<string, unknown>; msg?: string }) => {
+      if (finished) return;
+      if (operation === 'storage' && message?.log && message.fields && typeof message.msg === 'string') {
+        if (message.log === 'error') logSourceProblem(message.msg, message.fields);
+        else logSnapshotChange(message.msg, message.fields);
+        return;
+      }
+      if (operation === 'storage' && message?.committed === true) {
+        void yieldToReads().then(() => {
+          if (!finished) worker.postMessage({ resume: true });
+        }).catch(() => finish(new Error(prefix + '_FAILED')));
+        return;
+      }
+      if (operation === 'calculation' && message?.ok === true && typeof message.snapshot?.id === 'string')
+        finish(undefined, message.snapshot);
+      else if (operation === 'storage' && message?.ok === true && message.saved === true) finish(undefined, true);
+      else finish(new Error(prefix + '_FAILED'));
     });
-    worker.once('error', () => finish(new Error('SNAPSHOT_CALCULATION_FAILED')));
-    worker.once('messageerror', () => finish(new Error('SNAPSHOT_CALCULATION_FAILED')));
+    worker.once('error', () => finish(new Error(prefix + '_FAILED')));
+    worker.once('messageerror', () => finish(new Error(prefix + '_FAILED')));
     worker.once('exit', () => {
       if (activeWorker === worker) activeWorker = null;
-      finish(new Error('SNAPSHOT_CALCULATION_EXITED_WITHOUT_RESULT'));
+      finish(new Error(prefix + '_EXITED_WITHOUT_RESULT'));
     });
   });
 }
