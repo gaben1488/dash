@@ -75,6 +75,9 @@ class ImageRetentionTests(unittest.TestCase):
                 return json.dumps(images)
             m.command = command
             before = m.observe(); self.assertEqual(before['selected'], sorted(targets))
+            diagnostic = m.observe(diagnostics=True)
+            self.assertTrue(all(row['exact_metadata'] for row in diagnostic.pop('capacity_eligibility').values()))
+            self.assertEqual(diagnostic, before)
             archive = m.BACKUPS/'worker-0'/'backup'/'state.tar.gz'
             archive.parent.mkdir(); archive.write_bytes(b'archive')
             protected = m.observe()

@@ -121,7 +121,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def observe():
+def observe(*, diagnostics=False):
     global PHASE
     PHASE = 'REFERENCE_FILES'
     require(not any(os.path.lexists(STATE / name) for name in ('pending-release.json', 'release-recovery-progress.json')))
@@ -139,6 +139,7 @@ def observe():
         | set(BACKUPS.glob('*/plan-prepared.json')))
     require(0 < len(paths) <= 256)
     protected, stamps, total = set(), {}, 0
+    protection = {identity: set() for identity in CAPACITY_TARGETS}
     for path in paths:
         body = owned(path, reference_only=True)
         total += len(body)
@@ -146,7 +147,12 @@ def observe():
         is_capsule = path.is_relative_to(BACKUPS)
         retained_archive = is_capsule and capsule_has_state_archive(path.parent)
         if not CAPACITY_MODE or not is_capsule or retained_archive:
-            protected |= references(json.loads(body))
+            observed = references(json.loads(body))
+            protected |= observed
+            if CAPACITY_MODE:
+                kind = 'retained_backup_capsule' if is_capsule else path.name
+                for identity in set(CAPACITY_TARGETS) & observed:
+                    protection[identity].add(kind)
         stamps[str(path)] = hashlib.sha256(body).hexdigest()
         if CAPACITY_MODE and is_capsule:
             stamps[str(path) + ':state_archive_present'] = retained_archive
@@ -190,7 +196,12 @@ def observe():
     return {'selected': selected,
             'protected_selected_ids': sorted(set(EXPECTED) & (protected | {row['Image'] for row in containers})),
             'reference_digest': digest(stamps), 'runtime_digest': digest(core),
-            'operator_sha256': SOURCE_SHA256}
+            'operator_sha256': SOURCE_SHA256,
+            **({'capacity_protection': {key: sorted(value) for key, value in protection.items()}} if CAPACITY_MODE else {}),
+            **({'capacity_eligibility': {identity: {
+                    'present': any(row['Id'] == identity for row in images),
+                    'exact_metadata': bool(select_capacity_images([row for row in images if row['Id'] == identity], [], set()))}
+                    for identity in CAPACITY_TARGETS}} if CAPACITY_MODE and diagnostics else {})}
 
 
 def atomic_json(path, value):
@@ -238,9 +249,13 @@ def main():
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
             return
         if sys.argv[1] in ('plan', 'capacity-plan'):
-            plan = observe()
+            plan = observe(diagnostics=CAPACITY_MODE)
             if CAPACITY_MODE:
+                print(json.dumps({'status': 'CAPACITY_IMAGE_PLAN', 'selected_ids': plan['selected'],
+                                  'protected_selected_ids': plan['protected_selected_ids'],
+                                  **{key: plan[key] for key in ('capacity_protection', 'capacity_eligibility')}}), flush=True)
                 require(plan['selected'] == EXPECTED and not plan['protected_selected_ids'])
+                plan.pop('capacity_eligibility')
             atomic_json(root / 'plan.json', plan)
             print(json.dumps({'status': 'UNREFERENCED_IMAGES_DRY_RUN', 'selected_ids': plan['selected'],
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
