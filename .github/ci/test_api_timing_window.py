@@ -16,6 +16,62 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TimingWindowTests(unittest.TestCase):
+    def run_window(self, fail_one=False):
+        source = ast.literal_eval(re.search(r'^            code=(.*)$',
+            (ROOT / '.github/workflows/ci.yml').read_text().split('  api-timing:', 1)[1], re.MULTILINE)[1])
+        calls = []
+        def reply(*args, **kwargs):
+            calls.append(kwargs['timeout'])
+            if fail_one and len(calls) == 2:
+                raise TimeoutError
+            stream = io.BytesIO(b'PRIVATE_SYNTHETIC_BODY')
+            stream.status = 200
+            stream.headers = {'x-aemr-data-state': 'ready'}
+            return stream
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['probe', 'dashboard', 'window']), \
+                patch.dict(os.environ, {'AEMR_API_KEY': 'SYNTHETIC_SECRET'}), \
+                patch('urllib.request.urlopen', side_effect=reply), patch('time.sleep'), \
+                contextlib.redirect_stdout(output):
+            exec(compile(source, '<reviewed-api-timing-window>', 'exec'), {})  # noqa: S102
+        rows = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertNotIn('PRIVATE_SYNTHETIC_BODY', output.getvalue())
+        self.assertNotIn('SYNTHETIC_SECRET', output.getvalue())
+        self.assertTrue(all(0 < value <= 5 for value in calls))
+        return rows
+
+    def test_latency_window_counts_twenty_reads_and_declares_sample_method(self):
+        rows = self.run_window()
+        self.assertEqual(len(rows), 21)
+        summary = rows[-1]
+        self.assertEqual(summary['attempted'], 20)
+        self.assertEqual(summary['successful'], 20)
+        self.assertEqual(summary['failed'], 0)
+        self.assertEqual(summary['quantile_method'], 'nearest_rank')
+        self.assertIsInstance(summary['p95_within_sample_seconds'], float)
+        self.assertFalse(summary['production_slo_accepted'])
+
+    def test_failed_window_sample_is_kept_and_cannot_get_a_success_only_p95(self):
+        rows = self.run_window(fail_one=True)
+        self.assertEqual(rows[-1]['attempted'], 20)
+        self.assertEqual(rows[-1]['successful'], 19)
+        self.assertEqual(rows[-1]['failed'], 1)
+        self.assertIsNone(rows[-1]['p95_within_sample_seconds'])
+        self.assertEqual(sum(rows[-1]['data_states'].values()), 20)
+
+    def test_window_deadline_stops_before_another_read_and_has_no_quantile(self):
+        source = ast.literal_eval(re.search(r'^            code=(.*)$',
+            (ROOT / '.github/workflows/ci.yml').read_text().split('  api-timing:', 1)[1], re.MULTILINE)[1])
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['probe', 'dashboard', 'window']), \
+                patch('time.monotonic', side_effect=[0, 61, 61]), \
+                patch('urllib.request.urlopen') as request, contextlib.redirect_stdout(output):
+            exec(compile(source, '<reviewed-api-timing-deadline>', 'exec'), {})  # noqa: S102
+        request.assert_not_called()
+        summary = json.loads(output.getvalue())
+        self.assertEqual(summary['attempted'], 0)
+        self.assertIsNone(summary['p95_within_sample_seconds'])
+
     def run_client(self, fail=False):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         section = workflow.split('  api-timing:', 1)[1]
