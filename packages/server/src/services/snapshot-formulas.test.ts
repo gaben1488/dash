@@ -13,7 +13,7 @@
  *     объект в переписке читался бы как «формулы читали, и они чисты».
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PipelineInput } from '@aemr/core';
+import type { SnapshotCalculationInput } from './snapshot-calculation.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -32,15 +32,15 @@ vi.mock('./google-sheets.js', () => ({
   fetchSHDYUSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'monthly' })),
 }));
 
-const seenInputs: PipelineInput[] = [];
+const seenInputs: SnapshotCalculationInput[] = [];
 
-vi.mock('@aemr/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@aemr/core')>();
+vi.mock('./snapshot-calculation.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./snapshot-calculation.js')>();
   return {
     ...actual,
-    runPipeline: (input: PipelineInput) => {
+    runSnapshotCalculation: (input: SnapshotCalculationInput) => {
       seenInputs.push(input);
-      return actual.runPipeline(input);
+      return actual.runSnapshotCalculation(input);
     },
   };
 });

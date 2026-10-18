@@ -14,6 +14,9 @@
 /** Причина отказа источника русской фразой из закрытого списка. */
 export function classifySourceFailure(raw: string): string {
   const text = raw.toLowerCase();
+  if (/^snapshot_calculation_(failed|busy|timed_out|termination_failed|exited_without_result)$/.test(text)) {
+    return 'расчёт снимка не завершён';
+  }
   if (/не ответил|таймаут|timeout|timedout|etimedout|deadline/.test(text)) {
     return 'источник не ответил вовремя';
   }

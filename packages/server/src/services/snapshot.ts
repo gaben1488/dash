@@ -1,6 +1,6 @@
-import { MONITORING_DATA_SHEETS, runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
-import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
+import { MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
+import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
+import type { DataSnapshot, Issue, NormalizedMetric, SHDYUDeptData } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
@@ -17,6 +17,7 @@ import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 import { setImmediate as yieldToReads } from 'node:timers/promises';
+import { runSnapshotCalculation, type SnapshotCalculationInput } from './snapshot-calculation.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
@@ -371,26 +372,7 @@ export function setSHDYUCache(data: Record<string, SHDYUDeptData>): void {
   cachedSHDYUData = data;
 }
 
-export function attachUnifiedGrid(
-  snapshot: DataSnapshot,
-  sheetRows: Record<string, unknown[][]>,
-  targetYear?: number,
-): void {
-  const deptRowsById: Record<string, unknown[][]> = {};
-  for (const [sheetName, rows] of Object.entries(sheetRows)) {
-    if (sheetName === SVOD_SHEET_NAME) continue;
-    // Канон резолва ГРБС: findDept (принимает id ИЛИ латиницу) → latinId. Не-ГРБС
-    // лист (ШДЮ, служебный) findDept не знает → пропускаем, а НЕ кладём мусорный
-    // lowercase-ключ (свеп консолидации: иначе downstream не сматчит → тихий дроп блока).
-    const dept = findDept(sheetName);
-    if (!dept) continue;
-    deptRowsById[dept.latinId] = rows;
-  }
-
-  const grid = computeUnifiedGrid(deptRowsById, targetYear);
-  snapshot.unifiedGrid = grid;
-  snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
-}
+export { attachUnifiedGrid } from './snapshot-calculation.js';
 
 /**
  * База сравнения замечаний прошлой сборки — по ключу кэша (год или «все
@@ -696,7 +678,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       );
     }
 
-    const pipelineInput: PipelineInput = {
+    const pipelineInput: SnapshotCalculationInput = {
       batchGetData,
       sheetRows,
       // Ключ ставится только при непустой карте: пустой объект и отсутствие
@@ -704,7 +686,6 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       // как «формулы читали, и они чисты».
       ...(Object.keys(sheetFormulas).length > 0 ? { sheetFormulas } : {}),
       reportMap: REPORT_MAP,
-      rules: getActiveRules(),
       spreadsheetId: config.google.spreadsheetId,
       targetYear,
       // Год официального листа (Д21): без него сверка вычитала многолетний
@@ -712,8 +693,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       officialYear: getSHDYUOfficialYear() ?? undefined,
     };
 
-    await yieldToReads();
-    const snapshot = runPipeline(pipelineInput);
+    const shdyuData = cachedSHDYUData;
+    const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
@@ -744,11 +725,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       snapshot.issues.push(issue);
     }
 
-    if (cachedSHDYUData) {
-      snapshot.shdyuData = cachedSHDYUData;
+    if (shdyuData) {
+      snapshot.shdyuData = shdyuData;
     }
-
-    attachUnifiedGrid(snapshot, sheetRows, targetYear);
     if (!(await saveSnapshot(snapshot))) {
       throw new Error('SNAPSHOT_PERSIST_FAILED');
     }

@@ -234,6 +234,14 @@ jobs:
             /candidate/.github/ci/test_release_controller.py \
             ControllerTests.test_real_backup_writer_meets_release_reader_contract_with_container_umask \
             ControllerTests.test_base_plan_cli_without_guardian_fd_uses_only_readonly_docker_rpc
+      - name: Verify real Node snapshot calculation without blocking HTTP
+        run: |
+          set -euo pipefail
+          timeout --kill-after=5s 45s docker run --rm --interactive --network none --read-only \
+            --memory 1g --memory-swap 1g --cpus 1 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=64m --env NODE_OPTIONS=--max-old-space-size=7168 \
+            --entrypoint node aemr-server:ci --import tsx --input-type=module \
+            < .github/ci/native_snapshot_calculation.mjs
       - name: Verify installed publication reader
         run: |
           docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \
