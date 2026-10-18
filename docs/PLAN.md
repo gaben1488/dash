@@ -50,23 +50,52 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 Владелец поручил заранее называть десять задач, выполнять их и выпускать
 обновление. Состав ниже объявлен до реализации; он не заменяет полный реестр.
 Исходная интеграция95e69e03: CI39095343451 и rehearsal39095343434 SUCCESS;
-установлен и принят по-прежнемуed3e4589. Старые принятые проверки не считаются
-новыми результатами этой десятки. Полные критерии и зависимости — в карточках
+следующая установкаaf5b2335 выполнена18.10 в07:58UTC, приёмка десятки открыта.
+Старые принятые проверки не считаются новыми результатами этой десятки.
+Полные критерии и зависимости — в карточках
 с теми же ID ниже. Необходимые обеспечивающие изменения входят в этот участок,
 но не означают закрытия всех родительских задач.
 
 | № | ID | Конечный результат участка | Стадия |
 |---|---|---|---|
-| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Код7f03b007;6089PASS/1skip; не установлен |
-| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Код проверен:6122TS+1206PythonPASS; не установлен |
-| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Код проверен:6126TS PASS/1skip; не установлен |
-| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Код8e32afea; native baseline39100209392; итоговая приёмка после установки |
-| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Код проверен:6128TS/1209PythonPASS; не установлен |
-| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Код проверен:6137TS PASS/1skip; native замер кандидата впереди |
-| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Общий scope/abort/version код проверен;6137TS PASS/1skip; не установлен |
-| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Код проверен:6148TS/1210PythonPASS; не установлен |
-| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Код проверен:6155TS PASS/1skip; не установлен |
-| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Код/контракты проверены;6156TS/1210Python/66release gates; CI и установка впереди |
+| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Установленaf5b; exact release/source/API readback PASS, общий release acceptance открыт |
+| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Установленaf5b; CI6156TS/1210Python PASS, native3Word PASS |
+| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Установленaf5b;13страниц desktop PASS, полная filter/oracle приёмка отдельно |
+| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Установленaf5b; измерены HTTP/stages/startup/worker, p95/cold acceptance открыт |
+| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Установленaf5b; schema history PASS, whole-bundle GET исправляется |
+| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Установленaf5b; status26s и startup Dashboard13.6s не приняты; scoped artifact read в ветке |
+| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Установленaf5b; desktop navigation/periods PASS, WebKit повторная приёмка открыта |
+| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Установленaf5b; desktop39110967996 Back/reload/exact Word pin PASS |
+| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Установленaf5b; queue contract CI PASS, общий worker acceptance открыт |
+| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | af5b CI39105151600/release39107628324 SUCCESS;2restore/passport/resume PASS; browser/worker acceptance частичный |
+
+Release39107628324 принят контроллером: CI binaries fetched/verified/loaded без
+повторной сборки приложения, свежий backup и полные независимые candidate/previous
+restore, API/3Word, actual passport `a00b5d8c8967826c66b13027c9316d961ad69f6278795166b71d648f707cff05`,
+health/resume PASS. Первый отказ39106213701 BACKUP_SPACE_BUDGET_INSUFFICIENT
+сохранён. Exact retirement двух доказанно неиспользуемых image cache39107531414
+изменил free4 088 438 784→7 002 103 808B (+2 913 665 024B), без удаления
+закупочной истории и без смены контейнеров. Старый checkpoint blob выводится
+единственным существующим контроллером только после принятого замещения.
+
+Desktop39110967996 SUCCESS:13страниц/Header/periods/Undo/Pulse/journal/3Word,
+Back/reload/exact pin. Selected status25 977ms, exact pin17 403ms — скорость
+не принята. Первые desktop39109728594 (status timeout), WebKit39109729820
+(tap actionability) и observer39108638900 (RUNNING, generic rejection) FAILED
+сохраняются. Первый автономныйaf5b attempt15c13669 завершился07:59:39–08:09:54UTC
+VERIFIED_WITH_WARNINGS; это один цикл, не принятые два. Повторный observer39110966645
+ещё выполняется. Admission39110613056 и history1absent/10v2/0invalid PASS.
+
+Dashboard39109726397 при работающем worker:1.418/0.958s,12 310 482B; startup
+39109874650: первый Dashboard13.618s/eventloop11.502s. Это отдельные замеры,
+не p95 и не контролируемый OS-cold. Подтверждён whole-bundle hashing при
+status/download; scoped исправление в ветке с прежней полной publish/audit
+проверкой. Синхронный Node pipeline остаётся отдельной причиной задержек;
+добавление второго worker не объявляется её решением. Существующий report-worker
+сохраняется; общий source capture и admission — прежние R05.01/C08.02/R08.01.
+
+История реализации до установкиaf5b (следующие прежние «не установлен»/
+«впереди» описывают свой срез, текущий статус — в таблице выше):
 
 Кандидатeb0f8536: CI39104545819 остановился в test_frozen_trial_replay,
 где прежний контракт ожидал2fd0 JSON writers. Добавленный installed passport
@@ -1055,7 +1084,7 @@ independent review PASS. Повторный полный прогон текущ
 |---|---|---|---|---|
 | R05.01 | А/P1 | Единый каталог source profiles: fileId/sheetId, роль/master, именованные поля, типы/единицы/обязательность, алиасы, зависимости и права. | 19/32/34 и исторические схемы читаются адаптерами; optional alias локален, смена обязательного смысла отвергнута. | — |
 | R05.02 | А/P1 | Достроить manifest чтения: before/after, completeness, formulas/values/format, dependencies и пределы согласованности. | Частичное чтение и недоказанный IMPORTRANGE не становятся полным выпуском; последовательное чтение не называется атомарным. | R05.01 |
-| R05.03 | Т+А/P1 | Кандидат7f03b007: primary raw/snapshot, общий fallback/coverage и передача до всех consumers;6089PASS/1skip, не установлен. | Mirror/обрыв/отказ не маскируются нулём; известная пустая книга остаётся в coverage. Native acceptance — в выпуске десятки; schema/channel/consistency отдельно R05.01/02. | R05.01 |
+| R05.03 | Т+А/P1 | Установленaf5b: primary raw/snapshot, общий fallback/coverage и передача до consumers; CI6156TS/1210Python, exact release/source/API readback PASS. | Mirror/обрыв/отказ не маскируются нулём; известная пустая книга остаётся в coverage. Общая приёмка десятки открыта; schema/channel/consistency отдельно R05.01/02. | R05.01 |
 | R05.04 | А/P2 | Объединять Google-чтения и лимитировать общую нагрузку TS/worker/probes; обновлять изменившийся source set. | Один изменённый лист не запускает лишний полный цикл; quota/retry измерены, freshness не подделана. | C08.01,R08.02 |
 | S06.01 | В/P1 | Проверить оставшийся граф формул, named ranges, validations/списков и псевдонимов после миграций; запретить устаревший Settings-генератор. | Синтетический negative ловит старую ссылку; read-only graph всех master/dependencies и consumers после согласованной правки. | R05.01 |
 | S07.01 | А/P1 | Завершить инвентарь Apps Script/триггеров/владельцев доступа и _ChangeLog; адаптировать их к текущим листам. | Изолированный change→delivery→duplicate→recovery→readback; исходные авторы/события сохранены. Живые записи требуют существующего точного допуска. | S06.01 |
