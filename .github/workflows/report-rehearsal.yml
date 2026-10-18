@@ -16,9 +16,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  scope:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    outputs:
+      native_required: ${{ steps.classify.outputs.native_required }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+      - name: Classify incremental native proof dependencies
+        id: classify
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/ci/deploy_scope.py --rehearsal
   worker-diagnostics:
     name: Read-only report-worker state and rollback prerequisites
+    needs: scope
     if: >-
+      needs.scope.outputs.native_required == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'codex/dash-audit-integrated-20261010'
     runs-on: ubuntu-latest
@@ -207,7 +227,9 @@ jobs:
             echo '=== End report browser-path preflight ==='
             echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
   source-schema:
+    needs: scope
     if: >-
+      needs.scope.outputs.native_required == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
        github.head_ref == 'codex/dash-audit-integrated-20261010')
@@ -376,7 +398,9 @@ jobs:
             PYREAD
   frozen-replay:
     needs: source-schema
+    needs: scope
     if: >-
+      needs.scope.outputs.native_required == 'true' &&
       !cancelled() && github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
        github.head_ref == 'codex/dash-audit-integrated-20261010')

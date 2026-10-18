@@ -1,7 +1,77 @@
 """The production gate must never mistake real code for documentation."""
 import unittest
 
-from deploy_scope import is_non_runtime, runtime_changed
+from deploy_scope import is_non_runtime, rehearsal_required, runtime_changed
+
+
+class RehearsalScopeTests(unittest.TestCase):
+    def test_native_jobs_share_the_incremental_scope_and_keep_the_owner_boundary(self):
+        from pathlib import Path
+        workflow = (Path(__file__).parents[1]/'workflows/report-rehearsal.yml').read_text()
+        self.assertIn('BEFORE_SHA: ${{ github.event.before }}', workflow)
+        self.assertIn('HEAD_SHA: ${{ github.event.pull_request.head.sha }}', workflow)
+        self.assertIn('run: python3 .github/ci/deploy_scope.py --rehearsal', workflow)
+        for job in ('worker-diagnostics', 'source-schema', 'frozen-replay'):
+            section = workflow.split('  '+job+':\n', 1)[1].split('    runs-on:', 1)[0]
+            self.assertIn('    needs: scope', section)
+            self.assertIn("needs.scope.outputs.native_required == 'true'", section)
+            self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', section)
+            self.assertIn("github.head_ref == 'codex/dash-audit-integrated-20261010'", section)
+
+    def test_document_sync_skips_native_work_but_code_tools_and_inputs_require_it(self):
+        self.assertFalse(rehearsal_required(['docs/PLAN.md', 'docs/ARCHITECTURE.md', 'AGENTS.md']))
+        for path in ('packages/report-engine/README.md', 'packages/shared/src/types.ts',
+                     '.github/ci/deploy_scope.py', '.github/workflows/report-rehearsal.yml',
+                     'docs/templates/report.docx', 'unknown.input'):
+            with self.subTest(path=path): self.assertTrue(rehearsal_required([path]))
+        self.assertTrue(rehearsal_required(['packages/report-engine/source.py', 'docs/renamed.md']))
+
+    def test_unknown_before_requests_native_work_without_admitting_legacy_deploy(self):
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        script = Path(__file__).with_name('deploy_scope.py').resolve()
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)/'out'
+            env = {**os.environ, 'BEFORE_SHA': '', 'HEAD_SHA': 'a'*40, 'GITHUB_OUTPUT': str(output)}
+            native = subprocess.run([sys.executable, str(script), '--rehearsal'], env=env,
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(native.returncode, 0, native.stderr)
+            self.assertEqual(output.read_text(), 'native_required=true\n')
+            output.unlink()
+            deploy = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, check=False)
+            self.assertNotEqual(deploy.returncode, 0)
+            self.assertFalse(output.exists())
+
+    def test_real_incremental_diff_includes_runtime_deletions_after_rename(self):
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        script = Path(__file__).with_name('deploy_scope.py').resolve()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', folder, *args], text=True).strip()
+            git('init', '-q'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.invalid')
+            (root/'source.py').write_text('data = 1\n'); git('add', '.'); git('commit', '-qm', 'base')
+            before = git('rev-parse', 'HEAD')
+            (root/'docs').mkdir(); (root/'docs/PLAN.md').write_text('updated\n')
+            git('add', '.'); git('commit', '-qm', 'docs')
+            def check(old, expected):
+                output = root/'output'
+                env = {**os.environ, 'BEFORE_SHA': old, 'HEAD_SHA': git('rev-parse', 'HEAD'), 'GITHUB_OUTPUT': str(output)}
+                output.unlink(missing_ok=True)
+                result = subprocess.run([sys.executable, str(script), '--rehearsal'], cwd=folder, env=env,
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text(), 'native_required='+expected+'\n')
+            check(before, 'false')
+            before = git('rev-parse', 'HEAD'); git('mv', 'source.py', 'docs/renamed.md')
+            git('commit', '-qm', 'move runtime input'); check(before, 'true')
 
 
 class DeploymentScopeTests(unittest.TestCase):
