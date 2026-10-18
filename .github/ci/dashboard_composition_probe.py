@@ -79,9 +79,9 @@ def main():
     assert set(node_result) == {'node', 'types', 'size', 'valid', 'error'}
     assert node_result['types'] in (['object:true'], ['string:false'], [])
     assert node_result['error'] in {None, 'TypeError', 'SyntaxError', 'OTHER'}
-    print(json.dumps({'kind': 'live_envelope_boundary', 'bytes': len(envelope),
+    envelope_summary = {'kind': 'live_envelope_boundary', 'bytes': len(envelope),
         'sha256': hashlib.sha256(envelope).hexdigest(), 'strict_json_valid': valid_json,
-        'encoding': encoding if encoding in {'identity', 'gzip', 'br'} else 'OTHER', 'node_stream': node_result}), flush=True)
+        'encoding': encoding if encoding in {'identity', 'gzip', 'br'} else 'OTHER', 'node_stream': node_result}
     path = Path(os.environ.get('SQLITE_PATH', '/app/packages/server/data/aemr.db')).resolve(strict=True)
     connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)
     connection.execute('PRAGMA query_only=ON')
@@ -110,6 +110,7 @@ def main():
     finally:
         connection.close()
     print(json.dumps({'kind': 'dashboard_composition_readback', 'data_state': state,
+        'envelope_boundary': envelope_summary,
         'response_bytes': len(body), 'response_sha256': hashlib.sha256(body).hexdigest(),
         'http': summarize(current), 'stored': None if stored is None else summarize(stored),
         'saved_atoms_table_count': table_count, 'pre_cutover_same_year': history,
