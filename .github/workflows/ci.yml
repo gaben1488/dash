@@ -2826,7 +2826,7 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
         inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted af5b2335'))
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Observe controlled release worker for accepted af5b2335' || github.event.head_commit.message == 'Inspect worker observer admission af5b2335')))
     runs-on: ubuntu-latest
     timeout-minutes: 70
     concurrency:
@@ -2908,7 +2908,8 @@ jobs:
                 def git(*args):return subprocess.check_output(['runuser','-u','aemr','--','git','-C','/home/aemr/dash',*args],timeout=30)
                 waiter=types.ModuleType('worker_release_wait');waiter.__file__=str(tools/'worker-release-wait-source.py')
                 exec(compile(git('show','${{ github.sha }}:.github/ci/worker_release_wait.py'),waiter.__file__,'exec'),waiter.__dict__)
-                plan=waiter.wait_for_release(sys.argv[1],r)
+                activation_wait_limit=${{ github.event.head_commit.message == 'Inspect worker observer admission af5b2335' && '20' || '1200' }}
+                plan=waiter.wait_for_release(sys.argv[1],r,timeout_seconds=activation_wait_limit)
                 accepted=json.loads(r.read_owned(r.STATE_DIR/'release-accepted.json'))
                 assert accepted=={'plan_sha256':r.digest(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()),'acceptance':r.ReleaseRecovery._acceptance(plan)}
                 sha=plan['release_sha']
@@ -2989,8 +2990,14 @@ jobs:
                     finally:
                         permitted_proofs.discard(tuple(command))
                 save('observation.json',{'worker_started_at':since,'observation_since':observation_since,
-                    'eligibility_since':eligibility_since,'activation_wait_limit_seconds':1200,'source_sha':sha,
+                    'eligibility_since':eligibility_since,'activation_wait_limit_seconds':activation_wait_limit,'source_sha':sha,
                     'start_provenance':'CONTROLLED_RELEASE_ACCEPTANCE'})
+                if ${{ github.event.head_commit.message == 'Inspect worker observer admission af5b2335' && 'True' || 'False' }}:
+                    check()
+                    status=read_status()
+                    print(json.dumps({'worker_admission':'PASS','status':status.get('status') if status.get('status') in {'RUNNING','VERIFIED','VERIFIED_WITH_WARNINGS','NOT_ISSUED','FAILED'} else 'OTHER',
+                        'run_lock_held':holds_lock(),'source_sha':sha}),flush=True)
+                    raise SystemExit(0)
                 result=observe();check()
                 manifest_body=r.read_owned(r.BACKUP_BASE/plan['backup_reference']/'manifest.json',limit=64*1024*1024)
                 assert r.digest(manifest_body)==plan['manifest_sha256']
@@ -3022,6 +3029,13 @@ jobs:
                 if (isinstance(error,getattr(globals().get('waiter'),'WorkerReleaseWaitError',()))
                     and str(error) in {'WORKER_RELEASE_WAIT_TIMED_OUT','WORKER_RELEASE_ACCEPTANCE_INVALID'}):code=str(error)
                 if globals().get('session_created'):save('pending.json',{'state':'NOT_ACCEPTED','reason':code})
+                trace=error.__traceback__;frames=[]
+                while trace is not None:
+                    name=trace.tb_frame.f_code.co_name
+                    if name in {'observe','check','read_status','holds_lock','native_smoke','native_attempt_proof','wait_for_release','_records','_volume','<module>'}:
+                        frames.append({'function':'observer' if name=='<module>' else name,'line':trace.tb_lineno})
+                    trace=trace.tb_next
+                print(json.dumps({'worker_observer_failure':True,'error_class':type(error).__name__ if type(error).__name__ in {'AssertionError','ValueError','KeyError','TypeError','FileNotFoundError','PermissionError','OSError','TimeoutExpired','JSONDecodeError'} else 'OTHER','frames':frames[-4:]}),flush=True)
                 print(code);raise SystemExit(3 if code in {'WORKER_TWO_CYCLES_TIMED_OUT','WORKER_RELEASE_WAIT_TIMED_OUT'} else 2) from None
             PYACCEPTCURRENT
       - name: Check actual historical schemas independently of timer acceptance
@@ -3051,9 +3065,9 @@ jobs:
                 repo=Path('/home/aemr/dash')
                 def public_source(name,sha=candidate):
                     return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
-                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts')
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts','packages/shared/src/source-coverage.ts')
                 assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
-                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1])})
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),'coverage':public_source(names[2])})
                 program=public_source('.github/ci/report-schema-probe.cjs')
                 program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
                 schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',

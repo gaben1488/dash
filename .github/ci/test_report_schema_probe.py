@@ -73,6 +73,18 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
                 self.assertEqual(json.loads(result.stdout)['accepted'], accepted)
                 self.assertNotIn(common['meaning'], result.stdout)
 
+    def test_every_actual_worker_packet_supplies_the_imported_coverage_module(self):
+        import ast
+        import textwrap
+        source = (ROOT/'.github/workflows/ci.yml').read_text()
+        program = textwrap.dedent(source.split("<<'PYSCHEMA'\n", 1)[1].split('\n            PYSCHEMA', 1)[0])
+        assignments = [node for node in ast.walk(ast.parse(program)) if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id in {'names', 'payload'} for target in node.targets)]
+        scope = {'json': json, 'public_source': lambda name: name}
+        exec(compile(ast.Module(body=assignments, type_ignores=[]), '<actual-worker-schema-packet>', 'exec'), scope)  # noqa: S102 - fixed public packet producer.
+        self.assertEqual(json.loads(scope['payload']), {'schemas': 'packages/shared/src/schemas.ts',
+            'registry': 'packages/shared/src/department-registry.ts', 'coverage': 'packages/shared/src/source-coverage.ts'})
+
     def test_candidate_can_import_explicit_coverage_but_missing_module_fails_closed(self):
         envelope = {'schemas': "import { SourceCoverageSchema } from './source-coverage.js'; export const X = SourceCoverageSchema;",
                     'registry': 'export const empty = 0;',
