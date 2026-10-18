@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { requestStage } from '../plugins/request-timing.js';
 
 type View = 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
 const execute = promisify(execFile);
@@ -150,7 +151,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         reply.raw.once('close', responseClosed);
         if (request.raw.aborted || reply.raw.destroyed) abortRead();
         try {
-          const data = await read(view, id, context, controller.signal);
+          const data = await requestStage(request, 'reader', () => read(view, id, context, controller.signal));
           if (view === 'main' || view === 'supplement' || view === 'operational') {
             reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);

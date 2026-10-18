@@ -55,6 +55,7 @@ import { registerDemoMarker } from './plugins/demo-marker.js';
 import { registerErrorShape, sendNotFound } from './plugins/error-shape.js';
 import { registerHttpCache } from './plugins/http-cache.js';
 import { registerCompression } from './plugins/compression.js';
+import { registerRequestTiming } from './plugins/request-timing.js';
 import {
   installGracefulShutdown,
   registerShutdownGuard,
@@ -219,6 +220,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // разные подписи одного и того же содержимого. Сжатие идёт следом и дописывает
   // к подписи название кодировки — так же, как это делает nginx.
   registerHttpCache(app);
+  registerRequestTiming(app);
   registerCompression(app);
 
   await app.register(dashboardRoutes);

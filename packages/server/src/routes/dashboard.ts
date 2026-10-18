@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { requestStage } from '../plugins/request-timing.js';
 import { getSnapshot, invalidateCache, setSvodGridCache, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
@@ -127,7 +128,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
     let snapshot;
     try {
-      snapshot = await getSnapshot(force, targetYear);
+      snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear));
     } catch (err) {
       app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
