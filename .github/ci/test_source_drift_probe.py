@@ -7,6 +7,34 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_selected_acceptance_progress_reads_receipts_without_bulk_census(self):
+        import ast
+        import contextlib
+        import io
+        import json
+        import textwrap
+
+        source = (Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml').read_text()
+        body = []
+        for line in source.split('            def main():\n', 1)[1].splitlines():
+            if line.strip() and len(line) - len(line.lstrip()) <= 12:
+                break
+            body.append(line)
+        module = ast.parse(textwrap.dedent('            def main():\n' + '\n'.join(body)))
+        for selected in ('acceptance-123-1', ''):
+            calls = []
+            scope = {'os': SimpleNamespace(environ={'RELEASE_PROGRESS_ONLY': 'yes', 'WORKER_ACCEPTANCE': selected}),
+                     'json': json,
+                     'worker_operational_metadata': lambda calls=calls, **kwargs: calls.append(('worker', kwargs)),
+                     'accepted_cycle_metadata': lambda calls=calls: calls.append(('receipts', {})),
+                     'checkpoint_metadata': lambda calls=calls: calls.append(('bulk_checkpoint_census', {})),
+                     'snapshot': lambda run, calls=calls: calls.append(('runtime', {})) or []}
+            exec(compile(module, '<actual-observer-main>', 'exec'), scope)  # noqa: S102 - trusted workflow function
+            with contextlib.redirect_stdout(io.StringIO()):
+                scope['main']()
+            expected = 'receipts' if selected else 'bulk_checkpoint_census'
+            self.assertEqual(calls, [('worker', {'include_saved': False}), (expected, {}), ('runtime', {})])
+
     def test_timing_transport_contains_only_bounded_runtime_projectors(self):
         import ast
         import base64

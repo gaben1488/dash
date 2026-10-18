@@ -2303,7 +2303,10 @@ jobs:
             def main():
              if os.environ.get('RELEASE_PROGRESS_ONLY')=='yes':
               worker_operational_metadata(include_saved=False)
-              checkpoint_metadata()
+              if os.environ.get('WORKER_ACCEPTANCE',''):
+               accepted_cycle_metadata()
+              else:
+               checkpoint_metadata()
               print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
               return
              if os.environ.get('RELEASE_ONLY')=='yes':
