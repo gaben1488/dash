@@ -117,6 +117,9 @@ class ImageRetentionTests(unittest.TestCase):
         m = self.module
         with tempfile.TemporaryDirectory() as folder:
             m.STATE = Path(folder)/'state'; m.BACKUPS = Path(folder)/'backups'
+            # Two fixture images exercise independent protected/unprotected roots
+            # even when the sampled production allowlist contains only one.
+            m.CAPACITY_TARGETS = dict(m.CAPACITY_TARGETS) | {'sha256:'+'e'*64: 'f'*40}
             m.CAPACITY_MODE = True; m.SHA = m.CAPACITY_SOURCE; m.EXPECTED = sorted(m.CAPACITY_TARGETS)
             core = dict(zip(('server', 'report-worker', 'web', 'caddy'), self.ids, strict=True))
             plan = {'release_sha': m.SHA, 'candidate_images': core, 'manifest_sha256': 'f'*64}

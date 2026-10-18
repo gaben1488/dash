@@ -22,12 +22,13 @@ SOURCE_SHA256 = os.environ.get('IMAGE_RETENTION_SHA', '')
 LOCK_FD = None
 PHASE = 'ADMISSION'
 CAPACITY_MODE = False
-CAPACITY_SOURCE = 'a5a0398b4dec42de2c071cc2271aba3af7d8e02b'
+CAPACITY_SOURCE = 'b24a6a5dead4295f7bc61938a704554c8c9eef72'
 CAPACITY_CANDIDATE = 'b24a6a5dead4295f7bc61938a704554c8c9eef72'
+# Keep the preceding B24 cleanup receipt immutable; this operation owns a new root.
+CAPACITY_PLAN = '701231369a214dae36eaa8b83caa6b0e0dea29e3'
 # Exact sampled deployment caches only. Business data and backup archives are never removed.
 CAPACITY_TARGETS = {
-    'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57': 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d',
-    'sha256:8e81e27ee31262a9f145f3a5927c1bc05d0cbe19a0413e7c074700dc9bebadfb': '78d293b217a8afe982583c73bc67aaccdb4d906c',
+    'sha256:084554aaf05ab541bb95cc9ff756246d9ba4c454061945e419dcbe39c2a658e6': 'd40222eac54d7cf9df13b04c5cbb32925c0e1115',
 }
 
 
@@ -350,7 +351,8 @@ def main():
                               **inventory_layer_estimates(read_image_layers(), result['image_inventory'])}))
             print(json.dumps({'status': 'READ_ONLY_BACKUP_CAPACITY_FORECAST', **read_capacity_forecast()}))
             return
-        root = STATE / ('image-retention-capacity-'+CAPACITY_CANDIDATE if CAPACITY_MODE else 'image-retention')
+        require(not CAPACITY_MODE or re.fullmatch('[a-f0-9]{40}', CAPACITY_PLAN))
+        root = STATE / ('image-retention-capacity-'+CAPACITY_PLAN if CAPACITY_MODE else 'image-retention')
         require(not root.is_symlink())
         root.mkdir(mode=0o700, exist_ok=True)
         require(root.stat().st_uid == 0 and stat.S_IMODE(root.stat().st_mode) == 0o700)
