@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-TARGET = 'a5a0398b4dec42de2c071cc2271aba3af7d8e02b'
+TARGET = 'b24a6a5dead4295f7bc61938a704554c8c9eef72'
 HISTORICAL_REUSE_TARGET = 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
 MANAGED = ('browser-readback', 'observe', 'api-timing', 'worker-observe')
 
