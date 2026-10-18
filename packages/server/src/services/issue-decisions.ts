@@ -19,10 +19,13 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
   const statusById = new Map(rows.map((r) => [r.id, r.status]));
   const resolveAnchor = createRuleRowAnchorResolver();
   const current = issues.map((issue) => {
+    const persisted = statusById.get(issue.id);
+    // Both unique and duplicate rows keep an already open persisted status.
+    // Every other status still requires the full identity check below.
+    if (persisted === 'open') return { ...issue, status: 'open' as const };
     // Occurrence numbers distinguish duplicates for transport, not ownership.
     // Inserting an identical row can hand occurrence zero to a different row.
     if (snapshot && (resolveAnchor(snapshot, issue)?.occurrences ?? 0) > 1) return { ...issue, status: 'open' as const };
-    const persisted = statusById.get(issue.id);
     return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
   });
   if (!snapshot?.rowsByDept) return current;

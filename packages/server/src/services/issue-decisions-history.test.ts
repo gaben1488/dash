@@ -35,6 +35,31 @@ function store(value: DataSnapshot): void {
     createdAt: value.createdAt, data: JSON.stringify(value) }).run();
 }
 
+it('does not reread raw identities when every persisted status is already open', () => {
+  const issue = rule(row());
+  db.insert(schema.issues).values({ ...issue, status: 'open' }).run();
+  let rawReads = 0;
+  const current = snapshot('current', [issue]);
+  const rows = current.rowsByDept!['УКСиМП'];
+  current.rowsByDept!['УКСиМП'] = new Proxy(rows, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) rawReads++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  expect(overlayPersistedStatus(current.issues, current)).toEqual([issue]);
+  expect(rawReads).toBe(0);
+});
+
+it('still rejects a persisted closed status when the current raw identity is duplicated', () => {
+  const issue = rule(row());
+  db.insert(schema.issues).values({ ...issue, status: 'false_positive' }).run();
+  const current = snapshot('current', [issue]);
+  current.rowsByDept!['УКСиМП'].push(row());
+  expect(overlayPersistedStatus(current.issues, current)[0].status).toBe('open');
+  expect(db.select().from(schema.issues).get()?.status).toBe('false_positive');
+});
+
 it('does not scan historical payloads for a saved signal that cannot match a current rule', () => {
   const signal: Issue = { ...rule(row()), id: issueIdentity(['signal', 'data_quality', 'synthetic', 0]),
     detectedBy: 'pipeline:signal:dataQuality', origin: 'bi_heuristic', category: 'signal:dataQuality' };
