@@ -686,9 +686,25 @@ A5/AF/B24 и все сохраняемые restore roots защищены.
 метаданные/счётчики: source22 241 546 393B, прогноз checkpoint3 860 572 130B,
 required с прежними резервами5 320 371 167B, free5 964 816 384B. Новых удалений
 не было. На этом положительном свежем замере запрошен attempt3, job117681900388;
-capacity admission PASS, начата свежая полная резервная копия. Это ещё не
-установка и не эксплуатационная приёмка B24. Точное финальное состояние
-будет подтверждено паспортом/реальными API/Word и новыми автономными циклами.
+capacity admission PASS. Попытка3 завершилась SUCCESS: свежая полная копия,
+два независимых full restore candidate/previous PASS13:29:54UTC,
+EXACT_SHA_CANDIDATE_ACCEPTED13:32:56UTC, API/3nativeWord/public health/resume PASS.
+Паспорт13:33:10UTC:7ab07faf9106509b5594ad2607e557775b4166e1b5834609bfa15472673726dc.
+Это установка B24, а не полная эксплуатационная приёмка десятки.
+Server/worker0797e0f182cadb628717962f3fb7976d19decc8a3de9bd53242654ed81ad70e3;
+webdd88865f09edcf7154bb70beba2d7d180bdb9604bdb94d70fbd1fb02d28daa6c.
+Прежние desktop/observer отказы A5 не переносятся на новый runtime как PASS.
+Новый observer39130754413/job117685235329 вооружён до переключения и ожидает
+два автономных цикла. B24 browser/readback/скорость пока открыты. При проверке
+выбранной даты учитывается наступление19.10 в Asia/Kamchatka; доступность старого
+Word и готовность нового дневного комплекта — разные проверки.
+
+В OPS добавлено ограниченное окно20обычных GET/60s: ошибки/незавершённые
+наблюдения остаются в базе, при неполной выборке p50/p95 не выдаются.
+Метод nearest-rank назван, доли состояний и фактические времена видимы;
+это p95 внутри выборки, не принятый production SLO. RED→GREEN клиента и
+реального внешнего receipt validator,6tests+7target-binding/ruff/YAML PASS.
+Реальный запуск39132082774 начат после установки; результата ещё нет.
 
 OPS-дополнение:20image-retention tests+7target-binding PASS, Ruff0.16.9 PASS;
 22 012B≤24 576B, census не создаёт план и не удаляет образы. Whole OPS529
@@ -701,7 +717,7 @@ OPS-дополнение:20image-retention tests+7target-binding PASS, Ruff0.16.
 Владелец поручил заранее называть десять задач, выполнять их и выпускать
 обновление. Состав ниже объявлен до реализации; он не заменяет полный реестр.
 Исходная интеграция95e69e03: CI39095343451 и rehearsal39095343434 SUCCESS;
-последняя установкаa5a0398b выполнена18.10 в11:03UTC, приёмка десятки открыта.
+последняя установкаb24a6a5d выполнена18.10 в13:33UTC, приёмка десятки открыта.
 Старые принятые проверки не считаются новыми результатами этой десятки.
 Полные критерии и зависимости — в карточках
 с теми же ID ниже. Необходимые обеспечивающие изменения входят в этот участок,
@@ -709,16 +725,16 @@ OPS-дополнение:20image-retention tests+7target-binding PASS, Ruff0.16.
 
 | № | ID | Конечный результат участка | Стадия |
 |---|---|---|---|
-| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | УстановленA5; source/API425/77 и report contract PASS; общая приёмка открыта |
-| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | УстановленA5;6160TS/1244Python и native3Word PASS; методическая приёмка отдельно |
-| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | УстановленA5; нейтральный K/Y basis/подписи,10GET tests; WebKit13страниц PASS, полный filter/oracle открыт |
-| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | УстановленA5; точные startup/request/stage окна; два guard-restart, p95 не принят |
-| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | УстановленA5; indexed summaries/scoped GET; повторная history-приёмка отказала при смене процесса |
-| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | УстановленA5; scoped hashing, но синхронный участок16,376s не принят; offload в ветке |
-| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | УстановленA5; WebKit navigation/periods PASS; полный lifecycle/desktop acceptance открыт |
-| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | УстановленA5; WebKit Back/reload/exact Word pin PASS, desktop exact pin TIMEOUT |
-| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | УстановленA5;1автоцикл VERIFIED_WITH_WARNINGS;2принятых цикла новой версии ещё нет |
-| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | A5controller/2restore/API/3Word/passport/resume PASS; desktop/2cycles/скорость не приняты |
+| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | УстановленB24; source6172TS/1244Python,3nativeWord PASS; новый API425/77/readback открыт |
+| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | УстановленB24;6172TS/1244Python и native3Word PASS; методическая приёмка отдельно |
+| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | УстановленB24; нейтральный K/Y basis/подписи,10GET tests; новый browser и полный filter/oracle открыты |
+| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | УстановленB24; CPU offload; новое20read окно запущено; три режима/p95 открыты |
+| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | УстановленB24; indexed summaries/scoped GET; новая history-приёмка открыта, прежний A5FAIL сохранён |
+| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | УстановленB24; чистый расчёт в Node isolate; SQL/retention остаются в API, фактический бюджет ещё не принят |
+| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | УстановленB24; новые browser/lifecycle acceptance открыты, прежний A5WebKitPASS не переносится |
+| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | УстановленB24; новые Back/reload/exact Word pin открыты; прежние A5результаты сохранены |
+| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | УстановленB24; observer39130754413 вооружён до переключения;2принятых циклов ещё нет |
+| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | B24controller39127357021/2restore/API/3Word/passport/resume PASS; browser/2cycles/скорость не приняты |
 
 Release39107628324 принят контроллером: CI binaries fetched/verified/loaded без
 повторной сборки приложения, свежий backup и полные независимые candidate/previous
