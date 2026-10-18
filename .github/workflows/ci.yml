@@ -47,51 +47,63 @@ permissions:
   contents: read
   actions: read
 jobs:
-  cancel-queued-duplicate-replay:
+  cancel-duplicate-frozen-replay:
     if: >-
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Cancel queued duplicate replay for 2579f36c'
+      github.event.head_commit.message == 'Cancel duplicate frozen replay for 06cad6a2'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
       contents: read
       actions: write
     steps:
-      - name: Validate the accepted proof, unchanged runtime and pending-only target
+      - name: Reuse successful unchanged report code while keeping fresh schema and image checks
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = gaben1488/dash
-          gh api repos/$GITHUB_REPOSITORY/actions/runs/39136164006 > "$RUNNER_TEMP/replay-baseline.json"
-          gh api repos/$GITHUB_REPOSITORY/actions/runs/39138684393 > "$RUNNER_TEMP/replay-pending.json"
-          gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39138684393/jobs?per_page=100' > "$RUNNER_TEMP/replay-pending-jobs.json"
-          gh api repos/$GITHUB_REPOSITORY/compare/4cb45eef7fc927f25506678d6f8883166dfbafb8...2579f36c958d1787a04b9a209446f05dd4e3c391 > "$RUNNER_TEMP/replay-dependencies.json"
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/39145439755 > "$RUNNER_TEMP/replay-baseline.json"
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/39147300916 > "$RUNNER_TEMP/replay-pending.json"
+          gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39147300916/jobs?per_page=100' > "$RUNNER_TEMP/replay-pending-jobs.json"
+          gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39147300915/jobs?per_page=100' > "$RUNNER_TEMP/source-jobs.json"
+          gh api repos/$GITHUB_REPOSITORY/compare/4cf90bc6370ebcb6fb3d482f451d0000d646d759...06cad6a2ee352b265aadb610cb7d7ac47f9122bb > "$RUNNER_TEMP/replay-dependencies.json"
           python3 - <<'PYCANCEL'
           import json,os
           from pathlib import Path
-          root=Path(os.environ['RUNNER_TEMP'])
-          load=lambda name:json.loads((root/name).read_text())
+          root=Path(os.environ['RUNNER_TEMP']);load=lambda name:json.loads((root/name).read_text())
           baseline=load('replay-baseline.json');pending=load('replay-pending.json')
-          for run,sha in ((baseline,'4cb45eef7fc927f25506678d6f8883166dfbafb8'),(pending,'2579f36c958d1787a04b9a209446f05dd4e3c391')):
+          for run,sha in ((baseline,'4cf90bc6370ebcb6fb3d482f451d0000d646d759'),(pending,'06cad6a2ee352b265aadb610cb7d7ac47f9122bb')):
               assert run['head_sha']==sha and run['path']=='.github/workflows/report-rehearsal.yml'
               assert run['event']=='pull_request' and run['head_branch']=='codex/dash-audit-integrated-20261010'
               assert run['head_repository']['full_name']=='gaben1488/dash'
-          assert baseline['id']==39136164006 and baseline['status']=='completed' and baseline['conclusion']=='success'
-          assert pending['id']==39138684393 and pending['status'] in {'pending','queued','waiting'}
-          assert load('replay-pending-jobs.json')['total_count']==0
+          assert baseline['id']==39145439755 and baseline['status']=='completed' and baseline['conclusion']=='success'
+          assert pending['id']==39147300916 and pending['status'] in {'in_progress','pending','queued','waiting'}
+          jobs=load('replay-pending-jobs.json')['jobs']
+          assert {j['name'] for j in jobs}=={'scope','source-schema','Read-only report-worker state and rollback prerequisites','frozen-replay'}
+          assert all(j['status']=='completed' and j['conclusion']=='success' for j in jobs if j['name']!='frozen-replay')
+          replay=next(j for j in jobs if j['name']=='frozen-replay')
+          assert replay['status'] in {'in_progress','queued','pending','waiting'} and replay['conclusion'] is None
+          source={j['name']:j for j in load('source-jobs.json')['jobs']}
+          for name in ('Production image with report runtime','Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime'):
+              assert source[name]['status']=='completed' and source[name]['conclusion']=='success'
           diff=load('replay-dependencies.json')
           assert diff['base_commit']['sha']==baseline['head_sha'] and diff['merge_base_commit']['sha']==baseline['head_sha']
-          assert diff['status']=='ahead' and diff['behind_by']==0 and diff['total_commits']==2
+          assert diff['status']=='ahead' and diff['behind_by']==0 and diff['total_commits']==1
           assert diff['commits'][-1]['sha']==pending['head_sha']
-          assert {row['filename'] for row in diff['files']}=={'.github/ci/browser_boundary_reuse.py','.github/ci/test_browser_boundary_reuse.py','.github/workflows/ci.yml','docs/PLAN.md'}
-          assert all(row['status'] in {'added','modified'} and 'previous_filename' not in row for row in diff['files'])
-          print('QUEUED_REPLAY_RUNTIME_DEPENDENCIES_UNCHANGED')
+          assert len(diff['files'])==1
+          changed=diff['files'][0]
+          assert changed['filename']=='deploy/Dockerfile.server' and changed['status']=='modified'
+          assert changed['additions']==3 and changed['deletions']==3 and 'previous_filename' not in changed
+          # This workflow uses the installed image, not Dockerfile.server. Its
+          # Python/core/shared/workflow inputs are identical. Fresh candidate
+          # image smoke and actual controlled-release restores remain required.
+          print('FROZEN_REPLAY_CODE_UNCHANGED_FRESH_SCHEMA_AND_IMAGE_PASS')
           PYCANCEL
-          gh api --method POST repos/$GITHUB_REPOSITORY/actions/runs/39138684393/cancel > /dev/null
-          echo QUEUED_DUPLICATE_REPLAY_CANCEL_REQUESTED
+          gh api --method POST repos/$GITHUB_REPOSITORY/actions/runs/39147300916/cancel > /dev/null
+          echo DUPLICATE_FROZEN_REPLAY_CANCEL_REQUESTED_NOT_A_PASS
   image-retire:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
