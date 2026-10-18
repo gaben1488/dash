@@ -2349,7 +2349,7 @@ jobs:
              def capture(args):
               child=None
               try:
-               child=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+               child=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
                bounded=subprocess.run(['head','--bytes=1048577'],stdin=child.stdout,capture_output=True,timeout=25,check=False)
                child.stdout.close();code=child.wait(timeout=2)
                return bounded.stdout.decode('utf-8') if code==0 and bounded.returncode==0 and len(bounded.stdout)<=1024*1024 else None
@@ -2365,7 +2365,8 @@ jobs:
              lifecycle=scope['project_lifecycle'](state,journal,events,policy_raw)
              record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
              stages=[]
-             if 'TZ=UTC' in record.get('Config',{}).get('Env',[]):
+             clock=capture(['docker','exec','--user','1000:1000',record['Id'],'node','-e','process.stdout.write(String(new Date().getTimezoneOffset()))'])
+             if clock=='0':
               logs=capture(['docker','logs','--timestamps','--since='+begin.isoformat(),'--until='+end.isoformat(),'--tail=3000','aemr-server-1'])
               if logs:
                try:stages=scope['runtime_log_stages'](logs,logger_utc=True)
