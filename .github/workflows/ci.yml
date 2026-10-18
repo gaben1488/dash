@@ -1462,8 +1462,8 @@ jobs:
     env:
       BROWSER_PROFILE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'iphone' || 'desktop' }}
       BROWSER_ENGINE: ${{ (inputs.browser_profile == 'iphone' || contains(github.event.head_commit.message, 'iPhone')) && 'webkit' || 'chromium' }}
-      BROWSER_HEADED: ${{ (inputs.browser_renderer == 'headed' || (github.event_name == 'push' && github.event.head_commit.message == 'Verify iPhone browser for accepted b24a6a5d headed')) && '1' || '0' }}
-      BROWSER_SCENARIO: ${{ inputs.browser_scenario == 'navigation' && 'navigation' || inputs.browser_scenario == 'filters' && 'filters' || startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
+      BROWSER_HEADED: ${{ (inputs.browser_renderer == 'headed' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted b24a6a5d headed'))) && '1' || '0' }}
+      BROWSER_SCENARIO: ${{ (inputs.browser_scenario == 'navigation' || contains(github.event.head_commit.message, ' headed navigation')) && 'navigation' || inputs.browser_scenario == 'filters' && 'filters' || startsWith(github.event.head_commit.message, 'Diagnose iPhone Word readiness') && 'word-readiness' || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - name: Check the reviewed application target binding

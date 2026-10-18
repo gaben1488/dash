@@ -422,7 +422,32 @@ async def select_page(page, nav, label, proof=None):
                 covered_by_dialog:!!hit?.closest('[role="dialog"]')};
         }''')
     phase('click_button')
-    await activate(button, profile)
+    try:
+        await activate(button, profile)
+    except Exception:
+        # Fixed geometry only: diagnose native scrolling/focus without page text,
+        # forced clicks, changed timeouts, or altering the failed action.
+        if proof is not None:
+            try:
+                proof['navigation_failure_geometry'] = await button.evaluate('''e => {
+                    const nav=e.closest('nav'),drum=e.closest('.np-drum-window'),r=e.getBoundingClientRect();
+                    const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                    const row=e.closest('[data-nav-group]'),buttons=e.closest('.np-group-btns');
+                    return {window_scroll_y:scrollY,drum_scroll_top:drum?.scrollTop??null,
+                        target_group:Number(row.dataset.navGroup),center_group:Number(nav.querySelector('.np-group-center').dataset.navGroup),
+                        button_scroll_left:buttons?.scrollLeft??null,button_area_width:buttons?.clientWidth??null,
+                        target:{x:r.x,y:r.y,width:r.width,height:r.height},
+                        hit_group:hit?.closest('[data-nav-group]')?Number(hit.closest('[data-nav-group]').dataset.navGroup):null,
+                        receives_pointer:hit===e||e.contains(hit),target_focused:document.activeElement===e,
+                        groups:[...nav.querySelectorAll('[data-nav-group]')].map(g=>{
+                            const r=g.getBoundingClientRect();return {index:Number(g.dataset.navGroup),x:r.x,y:r.y,
+                                width:r.width,height:r.height,animations:g.getAnimations().length,
+                                focused:g.contains(document.activeElement)};
+                        })};
+                }''')
+            except Exception:  # noqa: BLE001 — preserve the original failed action.
+                proof['navigation_geometry_unavailable'] = True
+        raise
     phase('confirm_selection')
     assert await button.get_attribute('aria-current') == 'page'
 
