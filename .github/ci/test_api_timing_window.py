@@ -40,8 +40,10 @@ class TimingWindowTests(unittest.TestCase):
         source = ast.literal_eval(re.search(r'^            code=(.*)$',
             (ROOT / '.github/workflows/ci.yml').read_text().split('  api-timing:', 1)[1], re.MULTILINE)[1])
         calls = []
+        urls = []
         def reply(*args, **kwargs):
             calls.append(kwargs['timeout'])
+            urls.append(args[0].full_url)
             if fail_one and len(calls) == 2:
                 raise TimeoutError
             stream = io.BytesIO(b'PRIVATE_SYNTHETIC_BODY')
@@ -57,6 +59,7 @@ class TimingWindowTests(unittest.TestCase):
         rows = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertNotIn('PRIVATE_SYNTHETIC_BODY', output.getvalue())
         self.assertNotIn('SYNTHETIC_SECRET', output.getvalue())
+        self.assertTrue(all('compact=1' in url for url in urls))
         self.assertTrue(all(0 < value <= 5 for value in calls))
         self.assertTrue(all(0 <= call.args[0] <= 1 for call in pause.call_args_list))
         return rows
