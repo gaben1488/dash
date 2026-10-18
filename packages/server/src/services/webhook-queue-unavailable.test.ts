@@ -28,16 +28,16 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('очередь уведомлений без базы', () => {
-  it('снимок очереди отвечает unavailable: true, а не нулями-ложью', () => {
+  it('снимок очереди отвечает unavailable: true и неизвестными счётчиками', () => {
     const stats = queue.queueStats();
     expect(stats.unavailable).toBe(true);
-    // Счётчики при этом не претендуют на правду — они нулевые заглушки.
-    expect(stats.pending).toBe(0);
-    expect(stats.processed).toBe(0);
+    // Неизвестное значение не выдаётся за пустую очередь.
+    expect(stats.pending).toBeNull();
+    expect(stats.processed).toBeNull();
     expect(stats.oldestPendingAt).toBeNull();
   });
 
-  it('вклад, выборка и чистка не роняют процесс: null, пусто, ноль', () => {
+  it('отказ выборки явный; best-effort вклад и чистка сохраняют прежний контракт', () => {
     expect(
       queue.enqueueNotification({
         book: 'УО',
@@ -47,7 +47,7 @@ describe('очередь уведомлений без базы', () => {
         resourceState: 'update',
       }),
     ).toBeNull();
-    expect(queue.pendingNotifications()).toEqual([]);
+    expect(() => queue.pendingNotifications()).toThrow('WEBHOOK_QUEUE_UNAVAILABLE');
     expect(queue.pruneProcessedNotifications()).toBe(0);
   });
 });

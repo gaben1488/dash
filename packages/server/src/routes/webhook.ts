@@ -49,6 +49,7 @@ import {
 } from '../services/refresh-targets.js';
 import {
   cycleCoversFile,
+  canRetryNotification,
   enqueueNotification,
   noteAttemptFailed,
   pendingNotifications,
@@ -57,6 +58,7 @@ import {
   settleMonitoring,
   type QueueEntry,
 } from '../services/webhook-queue.js';
+import { isTransientSourceFailure } from '../services/source-failure.js';
 import { refreshCommentsForBooks } from '../services/drive-comments.js';
 
 interface RouteLog {
@@ -86,7 +88,7 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
       // «Не читали, потому что не менялась» — успех, а не отказ: цель записи
       // очереди достигнута тем, что состояние сверено с Drive.
       if (Object.keys(r.failed ?? {}).length > 0) {
-        settleMonitoring(claimed, false, `Не прочитаны листы: ${Object.keys(r.failed!).join(', ')}`);
+        settleMonitoring(claimed, false, 'MONITORING_READ_FAILED', new Date(), Object.values(r.failed ?? {}).every(isTransientSourceFailure));
         scheduleQueueRetry(log);
         log.warn(`Вебхук: неполное чтение мониторинга; повтор поставлен в очередь`);
         return;
@@ -111,7 +113,7 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
     .catch((err: unknown) => {
       // Упавшее чтение НЕ помечается выполненным: запись остаётся в очереди
       // и будет повторена (проект службы §2.3).
-      settleMonitoring(claimed, false, (err as Error).message);
+      settleMonitoring(claimed, false, (err as Error).message, new Date(), isTransientSourceFailure(err));
       scheduleQueueRetry(log);
       log.warn(`Вебхук: книга мониторинга не прочитана: ${(err as Error).message}`);
     });
@@ -148,6 +150,21 @@ export const QUEUE_RETRY_MS = 60_000;
 
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+let queueReadFailures = 0;
+function queueReadFailed(log: RouteLog, error: unknown): void {
+  queueReadFailures += 1;
+  let cause = error;
+  let transient = false;
+  // Drizzle wraps the SQLite error; inspect only a bounded cause chain, never message substrings.
+  for (let depth = 0; depth < 4 && cause && typeof cause === 'object'; depth += 1) {
+    const value = cause as { code?: unknown; cause?: unknown };
+    if (['SQLITE_BUSY', 'SQLITE_LOCKED'].includes(String(value.code))) { transient = true; break; }
+    cause = value.cause;
+  }
+  log.warn('Вебхук: WEBHOOK_QUEUE_UNAVAILABLE; очередь не прочитана, требуется проверка');
+  if (transient && queueReadFailures < 3) scheduleQueueRetry(log);
+}
+
 /**
  * Назначить повтор по невыполненным записям очереди. Один таймер на все:
  * пять упавших книг — один повторный цикл, а не пять. Повтор строит цель
@@ -158,13 +175,14 @@ function scheduleQueueRetry(log: RouteLog): void {
   retryTimer = setTimeout(() => {
     retryTimer = null;
     try {
-      const entries = pendingNotifications();
-      if (entries.length === 0) return;
+      const entries = pendingNotifications().filter(canRetryNotification);
+      queueReadFailures = 0;
+      if (entries.length === 0 && !pendingPlan.full && !pendingPlan.monitoring && !pendingPlan.svod && pendingPlan.books.length === 0) return;
       for (const entry of entries) noteTarget(entry.fileId);
       log.info(`Вебхук: повтор по очереди — невыполненных записей ${entries.length}`);
       scheduleRefresh(log);
     } catch (err) {
-      log.warn(`Вебхук: повтор по очереди не назначен: ${(err as Error).message}`);
+      queueReadFailed(log, err);
     }
   }, QUEUE_RETRY_MS);
   retryTimer.unref?.();
@@ -175,13 +193,16 @@ function scheduleQueueRetry(log: RouteLog): void {
  * прежней жизнью процесса и не дочитанное, обязано дочитаться, а не ждать
  * планового опроса. Вызывается при старте сервера (app.ts).
  */
-export function recoverWebhookQueue(log: RouteLog): number {
-  const entries = pendingNotifications();
-  if (entries.length === 0) return 0;
-  for (const entry of entries) noteTarget(entry.fileId);
-  log.info(`Вебхук: в очереди ${entries.length} недочитанных уведомлений прежней жизни — перечитка взведена`);
-  scheduleRefresh(log);
-  return entries.length;
+export function recoverWebhookQueue(log: RouteLog): number | null {
+  try {
+    const entries = pendingNotifications().filter(canRetryNotification);
+    queueReadFailures = 0;
+    if (entries.length === 0) return 0;
+    for (const entry of entries) noteTarget(entry.fileId);
+    log.info(`Вебхук: восстановлено невыполненных уведомлений ${entries.length}`);
+    scheduleRefresh(log);
+    return entries.length;
+  } catch (error) { queueReadFailed(log, error); return null; }
 }
 
 /**
@@ -216,7 +237,13 @@ function scheduleRefresh(log: RouteLog): void {
     // Записи очереди, судьбу которых решает ЭТОТ цикл. Снимок берётся на
     // старте: уведомление, пришедшее во время цикла, взведёт свой таймер и
     // будет решено своим циклом — чужой результат ему не ответ.
-    const claimed = pendingNotifications();
+    let claimed: QueueEntry[];
+    try { claimed = pendingNotifications(); queueReadFailures = 0; }
+    catch (error) {
+      pendingPlan = mergePlans([plan, pendingPlan]);
+      queueReadFailed(log, error);
+      return;
+    }
     // Тело таймера обёрнуто целиком: исключение, вылетевшее ЗДЕСЬ, некому
     // поймать — обработчик запроса давно ответил, и необработанный отказ в
     // колбэке таймера уносит весь процесс. Одна не перечитанная книга не имеет
@@ -266,7 +293,7 @@ function scheduleRefresh(log: RouteLog): void {
           // упала — остаются и повторяются (проект службы §2.3). Судит только
           // план ЭТОГО цикла: запись книги, которую цикл не читал, исходом
           // цикла не решается — остаётся ждать своего чтения.
-          const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk }, plan);
+          const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk, retryableFailures: r.retryableFailures, svodRetryable: r.svodRetryable }, plan);
           if (settled.kept.length > 0 || settled.skipped.length > 0) scheduleQueueRetry(log);
           // Комментарии-облачка задетых книг — вместе с перечиткой (§17.2).
           refreshCommentsForPlan(plan, log);
@@ -312,6 +339,7 @@ export function cancelPendingWebhookRefresh(): void {
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
   pendingPlan = EMPTY_PLAN;
+  queueReadFailures = 0;
 }
 
 /** Человеческое объяснение решения — для журнала сервера. */

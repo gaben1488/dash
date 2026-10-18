@@ -65,8 +65,19 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Код проверен:6137TS PASS/1skip; native замер кандидата впереди |
 | 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Общий scope/abort/version код проверен;6137TS PASS/1skip; не установлен |
 | 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Код проверен:6148TS/1210PythonPASS; не установлен |
-| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Ожидает8 |
+| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Код проверен:6155TS PASS/1skip; не установлен |
 | 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Ожидает9 |
+
+R08.03: отказ pendingNotifications теперь явный, unavailable counters=null;
+старт и callback таймера сохраняют план при недоступной очереди. Автоматические
+source retries требуют transient evidence и ограничены3попытками в durable
+записи. Неизвестные/schema/access отказы и исчерпанный лимит остаются pending
+с requiresAttention, не исчезают и не объявляются выполненными. Busy/locked
+SQLite (включая Drizzle cause) получает до3лёгких повторов без падения API.
+RED5основных отказов и nested-cause воспроизведён; общий прогон6155TS PASS/
+1skip,4tsc/lint0errors/299warnings; Python1210 прежнего неизменного участка.
+Новый lease/fencing контур и все исходящие подтверждения — оставшийся R08.01,
+не объявлены реализованными этим исправлением. Native fault injection впереди.
 
 U06.03: URL восстанавливает страницу/подвкладку, год/месяцы/неделю,
 организации/применимые отборы и независимый report context. Back/Forward

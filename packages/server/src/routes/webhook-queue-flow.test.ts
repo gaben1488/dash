@@ -15,6 +15,7 @@ const ORIGINAL_ENV = { ...process.env };
 const refreshAllSources = vi.fn(async () => ({
   loaded: ['УО'],
   failed: [] as string[],
+  retryableFailures: [] as string[],
   svodOk: true,
   at: 'x',
   changedBooks: ['УО'],
@@ -79,6 +80,7 @@ afterEach(async () => {
   refreshAllSources.mockResolvedValue({
     loaded: ['УО'],
     failed: [],
+    retryableFailures: [],
     svodOk: true,
     at: 'x',
     changedBooks: ['УО'],
@@ -86,6 +88,7 @@ afterEach(async () => {
     booksRead: 1,
     skipped: [],
   });
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -136,6 +139,7 @@ describe('очередь уведомлений — сквозная дорог�
     refreshAllSources.mockResolvedValueOnce({
       loaded: [],
       failed: ['УО'],
+      retryableFailures: ['УО'],
       svodOk: true,
       at: 'x',
       changedBooks: [],
@@ -240,4 +244,60 @@ describe('очередь уведомлений — сквозная дорог�
     expect(state.queue.pending).toBe(0);
     expect(state.queue.processed).toBe(1);
   });
+});
+
+describe('bounded queue recovery', () => {
+  it('retains a transient failure but stops automatic source reads after three attempts', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('ETIMEDOUT'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000 + 10 * 75_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(3);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    expect(queue.queueStats()).toMatchObject({ pending: 1, requiresAttention: 1 });
+  });
+  it('does not repeatedly rebuild the same invalid source schema', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('SOURCE_SCHEMA_MISMATCH'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000 + 5 * 75_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.queueStats()).toMatchObject({ pending: 1, requiresAttention: 1 });
+  });
+  it('starts degraded on a busy queue and recovers without losing its pending notification', async () => {
+    vi.useFakeTimers();
+    queue.enqueueNotification({ book: 'УО', fileId: 'file-uo', messageNumber: 1, channelId: 'c', resourceState: 'update' });
+    vi.spyOn(queue, 'pendingNotifications').mockImplementationOnce(() => { throw new Error('queue failed', { cause: new Error('query failed', { cause: Object.assign(new Error('queue busy'), { code: 'SQLITE_BUSY' }) }) }); });
+    const { recoverWebhookQueue } = await import('./webhook.js');
+    const log = { info: vi.fn(), warn: vi.fn() };
+    expect(recoverWebhookQueue(log)).toBeNull();
+    expect(log.warn).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+  });
+});
+
+it('preserves the scheduled source plan when claiming notifications fails inside the timer', async () => {
+  vi.useFakeTimers();
+  await post(notification());
+  vi.spyOn(queue, 'pendingNotifications').mockImplementationOnce(() => { throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' }); });
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(refreshAllSources).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+  expect(refreshAllSources).toHaveBeenCalledTimes(1);
+  expect(queue.pendingNotifications()).toHaveLength(0);
+});
+
+it('bounds queue-lock recovery itself and retains evidence for a later manual retry', async () => {
+  vi.useFakeTimers();
+  queue.enqueueNotification({ book: 'УО', fileId: 'file-uo', messageNumber: 1, channelId: 'c', resourceState: 'update' });
+  const read = vi.spyOn(queue, 'pendingNotifications').mockImplementation(() => { throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' }); });
+  const { recoverWebhookQueue } = await import('./webhook.js');
+  expect(recoverWebhookQueue({ info() {}, warn() {} })).toBeNull();
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(read).toHaveBeenCalledTimes(3);
+  expect(refreshAllSources).not.toHaveBeenCalled();
+  read.mockRestore();
+  expect(queue.pendingNotifications()).toHaveLength(1);
 });

@@ -226,6 +226,7 @@ describe('перечитка источников одним циклом', () =
     const r = await refreshAllSources(log);
 
     expect(r.failed).toEqual(['УКСиМП']);
+    expect(r.retryableFailures).toEqual(['УКСиМП']);
     expect(setDeptSheetCache).toHaveBeenCalledWith(expect.anything(), ['УКСиМП']);
   });
 
@@ -459,4 +460,14 @@ describe('водяной знак (§2.4) и правило полноты (§2.
     expect(noteHonestGap).not.toHaveBeenCalled();
     resetSourcePrints();
   });
+});
+
+it('keeps source permission/schema failures out of the automatic retry set', async () => {
+  fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {}, errors: { 'УО': '403 permission denied', 'УКСиМП': 'SOURCE_SCHEMA_MISMATCH' } });
+  getSheetData.mockRejectedValueOnce(Object.assign(new Error('permission'), { code: 403 }));
+  const { refreshAllSources } = await import('./source-refresh.js');
+  const result = await refreshAllSources(log);
+  expect(result.failed).toEqual(['УО', 'УКСиМП']);
+  expect(result.retryableFailures).toEqual([]);
+  expect(result.svodRetryable).toBe(false);
 });

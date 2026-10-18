@@ -32,12 +32,14 @@ import {
 import { SVOD_SHEET_NAME } from '@aemr/shared';
 import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
 import { diffBook, isSilent } from './live-diff.js';
-import { classifySourceFailure } from './source-failure.js';
+import { classifySourceFailure, isTransientSourceFailure } from './source-failure.js';
 import { logSnapshotChange } from './source-log.js';
 
 export interface SourceRefreshResult {
   loaded: string[];
   failed: string[];
+  retryableFailures?: string[];
+  svodRetryable?: boolean;
   svodOk: boolean;
   at: string;
   /**
@@ -518,7 +520,7 @@ export function refreshAllSources(log?: {
               // «читали и не смогли» от «ещё не читали».
               setSvodLoadFailure(reason);
               log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
-              return { ok: false, changed: false, first: false };
+              return { ok: false, changed: false, first: false, retryable: isTransientSourceFailure(err) };
             })
         : // Лист СВОД не входил в цель — про него в этом цикле сказать нечего.
           // «Не читали» честнее выдаётся прошлым состоянием, а не ложным «ок».
@@ -646,6 +648,8 @@ export function refreshAllSources(log?: {
     return {
       loaded: Object.keys(data),
       failed: Object.keys(errors),
+      retryableFailures: Object.entries(errors).filter(([, error]) => isTransientSourceFailure(error)).map(([name]) => name),
+      svodRetryable: 'retryable' in svodResult && svodResult.retryable === true,
       svodOk,
       at,
       changedBooks,
