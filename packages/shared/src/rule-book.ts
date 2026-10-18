@@ -10,6 +10,7 @@ import {
 import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
 import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
+import { parseSheetNumber } from './editable-amount.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
 import {
@@ -36,14 +37,7 @@ import {
  * новые места обязаны звать его, не переизобретать.
  */
 export function toNumber(val: unknown): number | null {
-  if (val === null || val === undefined || val === '') return null;
-  if (typeof val === 'number' && !isNaN(val)) return val;
-  if (typeof val === 'string') {
-    const cleaned = val.replace(/\s/g, '').replace(/,/g, '.');
-    const n = parseFloat(cleaned);
-    if (!isNaN(n)) return n;
-  }
-  return null;
+  return parseSheetNumber(val);
 }
 
 function hasData(val: unknown): boolean {

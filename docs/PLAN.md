@@ -58,7 +58,7 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | № | ID | Конечный результат участка | Стадия |
 |---|---|---|---|
 | 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Код7f03b007;6089PASS/1skip; не установлен |
-| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Реализация |
+| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Код проверен:6122TS+1206PythonPASS; не установлен |
 | 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Ожидает2 |
 | 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Ожидает3 |
 | 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Ожидает4 |
@@ -67,6 +67,17 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Ожидает7 |
 | 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Ожидает8 |
 | 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Ожидает9 |
+
+C04.02: полный конечный numeric parser общий для shared/SVOD/timeline/DTO/
+analytics; явный fraction/points, канонические тыс.руб. с независимым display
+scale, календарная валидация DTO/core/web. Синтетический общий TS/Python
+контракт сохраняет null/0/sign. RED воспроизведены numeric prefix/Infinity,
+31.02, процентная эвристика и подпись масштаба. Полный прогон:771shared+
+1895core+1112server+2344web=6122PASS/1skip;1206PythonPASS;4tsc/lint0errors,
+ruffPASS. Это не новая native приёмка и не C08.19 decimal migration.
+В R05.03 найден и исправлен отдельный CI consumer: candidate-schema probe
+теперь явно компилирует source-coverage, неизвестные imports по-прежнему
+запрещены. Синтетический probe3PASS; CI7ae FAILED сохранён, rehearsalPASS.
 
 Завершение: diff/отрицательные проверки → общий lint/typecheck/tests/CI →
 review → разрешённый controller release с действительными ресурсными,

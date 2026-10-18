@@ -1,3 +1,4 @@
+import { parseSheetNumber } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
@@ -122,8 +123,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         })).filter((r: any) => normalizeMethod(r.method) !== undefined);
@@ -185,7 +186,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = body.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
           factTotal: 0,
           economy: 0,
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
@@ -199,7 +200,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           body.map((row: any) => ({
             method: row?.[DEPT_COLUMNS.METHOD],
             reason: row?.[DEPT_COLUMNS.EP_REASON],
-            planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
             quarter: epPlanQuarter(row?.[DEPT_COLUMNS.PLAN_QUARTER]),
           })),
         );
@@ -234,8 +235,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
@@ -277,8 +278,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
@@ -381,7 +382,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         if (!rows || rows.length === 0) continue;
 
         const amounts = rows.slice(DEPT_HEADER_ROWS)
-          .map((row: any) => parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0)
+          .map((row: any) => (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0))
           .filter((v: number) => v > 0);
 
         benfordResults[dept.id] = benfordAnalysis(amounts);
@@ -461,7 +462,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = rows.slice(DEPT_HEADER_ROWS)
           .map((row: any) => ({
             subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-            planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
           }))
           .filter((r: any) => r.subject.length > 0);
 
@@ -493,7 +494,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           allRows.push({
             grbsId: dept.id,
             subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-            planTotal: parseFloat(String(row[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            planTotal: (parseSheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
             method,
           });
         }

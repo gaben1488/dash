@@ -70,9 +70,10 @@ def parse_date(value) -> str | None:
     return None
 
 
-def to_decimal(value) -> Decimal:
+def parse_decimal(value) -> Decimal | None:
+    """Read a full finite scalar; preserve absence separately from monetary zero."""
     if value is None or clean_text(value) == "":
-        return Decimal(0)
+        return None
     if isinstance(value, bool):
         raise ValueError('Boolean is not money')  # noqa: TRY004 — public validation contract uses ValueError.
     if isinstance(value, (int, float, Decimal)):
@@ -80,7 +81,11 @@ def to_decimal(value) -> Decimal:
         if not result.is_finite():
             raise ValueError('Non-finite money')
         return result
-    text = clean_text(value).replace(" ", "").replace(",", ".")
+    if not isinstance(value, str) or not re.fullmatch(
+        r'[+-]?(?:[0-9]+|[0-9]{1,3}(?:[ \u00a0\u202f][0-9]{3})+)(?:[.,][0-9]+)?', value.strip()
+    ):
+        raise ValueError('Invalid numeric format')
+    text = re.sub(r'[ \u00a0\u202f]', '', value.strip()).replace(",", ".")
     try:
         result = Decimal(text)
         if not result.is_finite():
@@ -88,6 +93,12 @@ def to_decimal(value) -> Decimal:
         return result
     except InvalidOperation as exc:
         raise ValueError(f"Not a numeric value: {value!r}") from exc
+
+
+def to_decimal(value) -> Decimal:
+    """Compatibility for optional monetary components; callers separately track missing fields."""
+    parsed = parse_decimal(value)
+    return Decimal(0) if parsed is None else parsed
 
 
 def meaningful(value) -> bool:

@@ -50,7 +50,7 @@ def test_decimal_sign_saving_and_unknown_money_are_explicit():
 def test_boolean_dates_are_invalid(value):
     assert parse_date(value) is None
 
-@pytest.mark.parametrize('value',[True,float('nan'),float('inf'),'NaN','-Infinity'])
+@pytest.mark.parametrize('value',[True,float('nan'),float('inf'),'NaN','-Infinity','1 23','1,2,3','123abc'])
 def test_nonfinite_and_boolean_money_are_rejected(value):
     with pytest.raises(ValueError):to_decimal(value)
 

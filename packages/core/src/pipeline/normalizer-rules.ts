@@ -1,3 +1,4 @@
+import { parsePercentage } from '@aemr/shared';
 /**
  * Движок нормализации входных данных.
  *
@@ -247,7 +248,7 @@ export function normalizeNumber(value: unknown): NormalizationResult {
     return { original, normalized: null, changed: false, rule: null, fieldType: 'number' };
   }
 
-  if (typeof value === 'number') {
+  if (typeof value === 'number' && Number.isFinite(value)) {
     return { original, normalized: value, changed: false, rule: null, fieldType: 'number' };
   }
 
@@ -259,9 +260,9 @@ export function normalizeNumber(value: unknown): NormalizationResult {
 
   // Handle percentage
   if (str.includes('%')) {
-    const num = parseFloat(str.replace('%', '').replace(/,/g, '.').trim());
-    if (!isNaN(num)) {
-      return { original, normalized: num / 100, changed: true, rule: 'percent_to_decimal', fieldType: 'percent' };
+    const parsed = parsePercentage(str, 'points');
+    if (parsed.ok && parsed.value !== null) {
+      return { original, normalized: parsed.value, changed: true, rule: 'percent_to_decimal', fieldType: 'percent' };
     }
   }
 

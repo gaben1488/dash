@@ -331,6 +331,8 @@ export interface ReportMapEntry {
   period: PeriodScope;
   valueType: ValueType;
   sourceUnit: UnitType;
+  /** Numeric Sheets percent cells are fractions; other source profiles explicitly opt into points. */
+  percentEncoding?: import('./editable-amount.js').PercentEncoding;
   displayUnit: UnitType;
   sourceSheet: string;
   sourceCell: string;

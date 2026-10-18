@@ -24,6 +24,7 @@
  */
 
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import { parseSheetNumber } from './editable-amount.js';
 import { SVOD_SWITCH_VALUES, type SvodSwitchValue } from './svod-sheet-names.js';
 
 /** 0-based индексы колонок строки-периода. */
@@ -101,14 +102,11 @@ export interface SvodGridBlock {
 const pctOrNull = (v: unknown): number | null => {
   const s = String(v ?? '').trim();
   if (s === '' || s === '-' || s.startsWith('#')) return null;
-  return num(v);
+  return parseSheetNumber(v);
 };
 
 const num = (v: unknown): number => {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  if (v === null || v === undefined || v === '') return 0;
-  const parsed = Number.parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(v) ?? 0;
 };
 
 const C = SVOD_GRID_COLS;

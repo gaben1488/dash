@@ -18,16 +18,34 @@ This document is the contract from Google Sheet cells to dashboard numbers. If c
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
 - Procurement method buckets use the shared classifier, not raw string equality.
 
+## Source value boundary (18.10.2026)
+
+`parseEditableAmount` / `parseSheetNumber` is the common strict numeric parser.
+It consumes the whole finite value: `1 234,56` and negative amounts are valid;
+`123abc`, `Infinity`, booleans and malformed grouping (`1 23`) are invalid.
+Missing input remains null at this boundary. Legacy optional budget components
+may explicitly use zero after parsing; that is not proof that a required cell
+was read successfully. Currency normalization stores thousands of rubles;
+source and display units are declared and converted independently. Exact
+minor-unit/decimal aggregation is separate work (C08.19).
+
+Percentages use declared `fraction` or `points` encoding, never a magnitude
+heuristic. Google UNFORMATTED_VALUE percentages are fractions; a literal `%`
+is explicit points. `1.5` as a fraction is 150%, `1.5` as points is 1.5%.
+Calendar dates require a real full day, or a supported Sheets serial. A bare
+`2026` or `31.02.2026` does not establish a plan/fact date or period.
+TS/Python boundary examples share `packages/shared/fixtures/source-value-cases.json`.
+
 ## Source Column Map
 
 Production row-level calculations use department workbooks. The same layout is mirrored in the department tabs of `СВОД_ДЛЯ_GOOGLE`.
 
 | File | Sheet | Column | Semantic field | Ingest mapping | Core metric key | API DTO | UI label |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Row number / source ID | `DEPT_COLUMNS.ID` | row identity | `rows[].rowIndex` | `№` |
+| Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Source position label (text, not physical row) | `DEPT_COLUMNS.ID` | source alias | `rows[].id` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
-| Department workbook | same | `D` | Description / PM name | `DEPT_COLUMNS.DESCRIPTION` | row context | `rows[].description` | Subject/detail |
-| Department workbook | same | `E` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | activity classifier input | `byActivity.*` | Activity filter |
+| Department workbook | same | `D` | Program / PM name | `DEPT_COLUMNS.PROGRAM_NAME` | program context for activity | `rows[].description` | Subject/detail |
+| Department workbook | same | `E` | Subprogram name | `DEPT_COLUMNS.SUBPROGRAM` | subprogram context | `byActivity.*` | Activity filter |
 | Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
@@ -69,9 +87,9 @@ Production row-level calculations use department workbooks. The same layout is m
 | `ЕП`, `еп`, `Ед. поставщик`, `ЭЕП`, `ЕП (ст.93)` | `ep` |
 | `ЭА`, `ЭК`, `ЭЗК` and aliases normalized by `normalizeMethod` | `competitive` |
 | empty method | `competitive`, for legacy compatibility with the official `L<>"ЕП"` SVOD formulas |
-| unknown non-empty method | no method bucket; the row still contributes to all-row plan/fact metrics if it passes row classification |
+| unknown non-empty method | `competitive` only for the official non-EP SVOD partition; not proof of a competitive procedure |
 
-Unknown non-empty methods must surface through validation/data quality, not be silently counted as competitive.
+Unknown methods must surface through validation/data quality. Procedure-specific analytics must distinguish a known competitive method from the official non-EP partition. Current source identity uses physical row separately from the text label in A. TD-PM program context is D, not E.
 
 ## Activity Classification
 

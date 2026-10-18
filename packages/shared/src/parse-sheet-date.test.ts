@@ -31,11 +31,9 @@ describe('parseSheetDate — единый парсер даты из ячейк�
     expect(parseSheetDate(undefined)).toBeNull();
   });
 
-  it('число вне serial-диапазона (год 2026) НЕ трактуется как serial', () => {
-    // 2026 < 40000 → не serial; new Date('2026') = год 2026 (не serial-конверсия)
-    const d = parseSheetDate('2026');
-    expect(d).not.toBeNull();
-    expect(d!.getUTCFullYear()).toBe(2026);
+  it('год без месяца и дня не является датой планирования или факта', () => {
+    expect(parseSheetDate('2026')).toBeNull();
+    expect(dayNumberOf('2026')).toBeNull();
   });
 
   it('несуществующие календарные даты не превращаются в март', () => {
@@ -47,6 +45,8 @@ describe('parseSheetDate — единый парсер даты из ячейк�
 
   it('мусор → null', () => {
     expect(parseSheetDate('не дата')).toBeNull();
+    expect(parseSheetDate('2026-01-01TNOT_A_TIME')).toBeNull();
+    expect(dayNumberOf('2026-01-01TNOT_A_TIME')).toBeNull();
   });
 });
 

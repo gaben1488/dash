@@ -1,3 +1,4 @@
+import { parseSheetNumber } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
@@ -36,10 +37,7 @@ function parseTargetYear(query: Record<string, string | undefined>): number | un
 }
 
 function n(value: unknown): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (value == null) return 0;
-  const parsed = Number.parseFloat(String(value).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(value) ?? 0;
 }
 
 function metricValue(metrics: DataSnapshot['officialMetrics'] | DataSnapshot['calculatedMetrics'], key: string): number | undefined {

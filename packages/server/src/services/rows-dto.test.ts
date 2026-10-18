@@ -18,6 +18,11 @@ function makeRow(cells: Record<string, unknown>): unknown[] {
 }
 
 describe('sheetDateToIso — дата-канон DTO', () => {
+  it('не превращает невозможный день или неполную дату в календарный факт', () => {
+    for (const value of ['31.02.2026', '29.02.2026', '2026', '2026-01-01TNOT_A_TIME']) {
+      expect(sheetDateToIso(value), value).toBeNull();
+    }
+  });
   it('«дд.мм.гггг» → ISO без сдвига дня (строковые операции, не Date)', () => {
     expect(sheetDateToIso('15.03.2026')).toBe('2026-03-15');
     expect(sheetDateToIso('1.3.2026')).toBe('2026-03-01');

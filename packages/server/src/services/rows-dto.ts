@@ -6,7 +6,9 @@
 import {
   buildCellDict,
   isMetaRow,
-  parseSheetDate,
+  dayNumberOf,
+  isoOfDayNumber,
+  parseSheetNumber,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   METHOD_FAMILY_MAP,
@@ -27,26 +29,13 @@ type SignalBadge = ReturnType<typeof getSignalBadges>[number];
  * вводом/сырьём и НЕ читают конвертированное поле — формат листа не меняется.
  */
 export function sheetDateToIso(val: unknown): string | null {
-  // «дд.мм.гггг» — строковыми операциями, без Date: локальная полночь через
-  // toISOString() сдвинула бы день в часовых поясах западнее Гринвича.
-  const ru = String(val ?? '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (ru) return `${ru[3]}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
-  // Serial и ISO parseSheetDate даёт как UTC-полночь → срез ISO-строки безопасен.
-  const d = parseSheetDate(val);
-  return d ? d.toISOString().slice(0, 10) : null;
+  const day = dayNumberOf(val);
+  return day === null ? null : isoOfDayNumber(day);
 }
 
-/**
- * Число из ячейки листа: пробелы-разделители тысяч и запятая-десятичная —
- * реальный формат операторов («1 234,56»). parseFloat рвался на пробеле.
- * Канон совпадает с core/pipeline/signals.toNumber (локальная копия: toNumber
- * из core не экспортирован, тащить весь core ради хелпера — раздувание).
- */
+/** Optional budget components retain their legacy zero default after strict parsing. */
 function toNumber(val: unknown): number {
-  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
-  if (val === null || val === undefined || val === '') return 0;
-  const parsed = parseFloat(String(val).replace(/\s/g, '').replace(/,/g, '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(val) ?? 0;
 }
 
 /**

@@ -10,6 +10,12 @@ import {
   type FieldType,
 } from './normalizer-rules.js';
 
+it('never normalizes a non-finite number to a usable metric', () => {
+  for (const value of [Infinity, -Infinity, NaN]) {
+    expect(normalizeNumber(value).normalized).toBeNull();
+  }
+});
+
 // ────────────────────────────────────────────────────────────
 // detectFieldType
 // ────────────────────────────────────────────────────────────

@@ -8,7 +8,8 @@
  * на 6 из 8 ГРБС-листов (столбцы N/Q там хранятся как serial-число).
  *
  * Поддержка: Date-объект, «дд.мм.гггг», Google/Excel-serial (число дней от
- * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), ISO/прочие строки new Date().
+ * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), полная ISO-дата/ISO timestamp.
+ * Один год без месяца и дня не является датой события.
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
 /** Reject impossible calendar days rather than relying on Date rollover. */
@@ -47,6 +48,7 @@ export function parseSheetDate(val: unknown): Date | null {
 
   // ISO yyyy-mm-dd or full ISO timestamp, with real calendar day validation.
   const isoDay = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (!isoDay) return null;
   if (isoDay && !validCalendarDate(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]))) return null;
   const iso = new Date(s);
   return isNaN(iso.getTime()) ? null : iso;
@@ -109,6 +111,7 @@ export function dayNumberOf(val: unknown): number | null {
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
+    if (s.length > 10 && !Number.isFinite(Date.parse(s))) return null;
     return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
   }
 
