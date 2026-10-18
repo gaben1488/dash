@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
 import urllib.request
 from pathlib import Path
 
@@ -59,6 +60,28 @@ def main():
         state = response.headers.get('x-aemr-data-state')
     current = api['snapshot']
     assert same_scope(current, YEAR)
+    envelope_request = urllib.request.Request('http://127.0.0.1:3000/api/report-releases',
+        headers={'Authorization': 'Bearer ' + os.environ['AEMR_API_KEY']})
+    with urllib.request.urlopen(envelope_request, timeout=25) as response:
+        envelope = response.read(LIMIT + 1)
+        assert len(envelope) <= LIMIT
+        encoding = response.headers.get('Content-Encoding', 'identity')
+    valid_json = True
+    try:
+        json.loads(envelope.decode('utf-8'), parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+    except (ValueError, UnicodeError):
+        valid_json = False
+    program = """(async()=>{const parts=[],types=new Set();let size=0;for await(const part of process.stdin){size+=part.length;types.add(typeof part+':'+Buffer.isBuffer(part));parts.push(part);}let valid=true,error=null;try{JSON.parse(Buffer.concat(parts).toString('utf8'));}catch(e){valid=false;error=['TypeError','SyntaxError'].includes(e.name)?e.name:'OTHER';}console.log(JSON.stringify({node:process.version,types:[...types],size,valid,error}));})().catch(()=>process.exitCode=2);"""
+    node = subprocess.run(['node', '--import', 'tsx', '--eval', program], input=envelope,
+        capture_output=True, timeout=20, check=False)
+    assert node.returncode == 0 and len(node.stdout) <= 2048
+    node_result = json.loads(node.stdout)
+    assert set(node_result) == {'node', 'types', 'size', 'valid', 'error'}
+    assert node_result['types'] in (['object:true'], ['string:false'], [])
+    assert node_result['error'] in {None, 'TypeError', 'SyntaxError', 'OTHER'}
+    print(json.dumps({'kind': 'live_envelope_boundary', 'bytes': len(envelope),
+        'sha256': hashlib.sha256(envelope).hexdigest(), 'strict_json_valid': valid_json,
+        'encoding': encoding if encoding in {'identity', 'gzip', 'br'} else 'OTHER', 'node_stream': node_result}), flush=True)
     path = Path(os.environ.get('SQLITE_PATH', '/app/packages/server/data/aemr.db')).resolve(strict=True)
     connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)
     connection.execute('PRAGMA query_only=ON')
