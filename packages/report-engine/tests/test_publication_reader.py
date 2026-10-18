@@ -4,9 +4,94 @@ import sqlite3
 from copy import deepcopy
 
 import pytest
+from docx import Document
+from procurement_engine.docx_renderer import _save_with_manifest
 from procurement_engine.publication_reader import read_publication
 from procurement_engine.publication_store import PublicationError, PublicationStore
 from test_publication_store import candidate, revisions
+
+
+def three_document_candidate(path):
+    bundle = candidate(path)
+    document = Document()
+    document.add_paragraph('Synthetic operational report')
+    _save_with_manifest(document, json.loads((bundle / 'report_model.json').read_text()),
+                        bundle / 'operational_report.docx', view='operational', narrative_mode='GENERIC_TEMPLATE')
+    return bundle
+
+
+@pytest.mark.parametrize('context', ['latest', 'selected', 'pinned'])
+def test_status_hashes_only_published_documents(tmp_path, monkeypatch, context):
+    from procurement_engine import publication_store
+
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    release = store.publish(three_document_candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    hashed = []
+    original = publication_store._hash
+
+    def document_hash(path):
+        assert path.suffix == '.docx', 'status must not read source payloads, models or frozen databases'
+        hashed.append(path.name)
+        return original(path)
+
+    monkeypatch.setattr(publication_store, '_hash', document_hash)
+    kwargs = {'selection': ('2026-09-30', 2026, 3)} if context == 'selected' else {}
+    if context == 'pinned':
+        kwargs['release_id'] = release['release_id']
+    result = json.loads(read_publication(state, 'status', **kwargs))
+    assert result['latest' if context == 'latest' else 'selected']['release_id'] == release['release_id']
+    assert sorted(hashed) == ['main_report.docx', 'management_report.docx', 'operational_report.docx']
+
+
+@pytest.mark.parametrize('view', ['main', 'supplement', 'operational', 'dashboard'])
+def test_artifact_read_does_not_hash_unrequested_files(tmp_path, monkeypatch, view):
+    from procurement_engine import publication_store
+
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    bundle = three_document_candidate(tmp_path / 'candidate')
+    release = store.publish(bundle, read_revisions=revisions)
+
+    def forbidden(path):
+        raise AssertionError('a download must hash its returned bytes, not reopen the bundle')
+
+    monkeypatch.setattr(publication_store, '_hash', forbidden)
+    name = {'main': 'main_report.docx', 'supplement': 'management_report.docx',
+            'operational': 'operational_report.docx', 'dashboard': 'dashboard.json'}[view]
+    assert read_publication(state, view, release['release_id']) == (bundle / name).read_bytes()
+
+
+def test_unrequested_payload_corruption_does_not_block_documents_but_full_audit_rejects_it(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    bundle = candidate(tmp_path / 'candidate')
+    release = store.publish(bundle, read_revisions=revisions)
+    payload = next((store.releases / release['release_id'] / 'snapshot_bundle' / 'payloads').glob('*.json'))
+    payload.write_bytes(b'x' * payload.stat().st_size)
+    assert json.loads(read_publication(state, 'status'))['latest']['release_id'] == release['release_id']
+    assert read_publication(state, 'main', release['release_id']) == (bundle / 'main_report.docx').read_bytes()
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        store.latest()
+
+
+@pytest.mark.parametrize('damage', ['missing', 'extra', 'symlink'])
+def test_document_scope_still_rejects_unsafe_or_changed_file_inventory(tmp_path, damage):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    release = store.publish(candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    root = store.releases / release['release_id']
+    payload = next((root / 'snapshot_bundle' / 'payloads').glob('*.json'))
+    if damage == 'missing':
+        payload.unlink()
+    elif damage == 'extra':
+        (root / 'unexpected.json').write_text('{}')
+    else:
+        payload.unlink()
+        payload.symlink_to(root / 'main_report.docx')
+    for view in ['status', 'main']:
+        with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT|BUNDLE_UNSAFE_FILE'):
+            read_publication(state, view, release['release_id'])
 
 
 def test_selected_status_verifies_the_same_immutable_bundle_once_per_read(tmp_path, monkeypatch):
@@ -18,9 +103,9 @@ def test_selected_status_verifies_the_same_immutable_bundle_once_per_read(tmp_pa
     checked = []
     original = publication_store._files
 
-    def counted(root):
+    def counted(root, **kwargs):
         checked.append(root)
-        return original(root)
+        return original(root, **kwargs)
 
     monkeypatch.setattr(publication_store, '_files', counted)
     assert json.loads(read_publication(state, 'status'))['latest']['release_id'] == release['release_id']
@@ -68,8 +153,8 @@ def test_selected_read_checks_a_new_live_release_committed_between_selectors(tmp
     published = []
     original = PublicationStore._checked
 
-    def checked(self, row):
-        receipt = original(self, row)
+    def checked(self, row, **kwargs):
+        receipt = original(self, row, **kwargs)
         if receipt and receipt['release_id'] == first['release_id'] and not published:
             published.append(store.publish(new_bundle, read_revisions=revisions))
         return receipt
@@ -89,8 +174,8 @@ def test_selected_read_does_not_reuse_verification_for_changed_catalog_payload(t
     original = PublicationStore._checked
     checked_rows = []
 
-    def checked(self, row):
-        receipt = original(self, row)
+    def checked(self, row, **kwargs):
+        receipt = original(self, row, **kwargs)
         checked_rows.append(row)
         if len(checked_rows) == 1:
             with sqlite3.connect(store.database_path) as db:
@@ -124,8 +209,8 @@ def test_status_sends_large_assurance_once_without_rewriting_the_receipt_or_atte
         'report_date': '16.10.2026', 'cutoff_at': '2026-10-16T01:00:00+00:00',
         'status': 'VERIFIED', 'report_year': 2026, 'quarter': 4, 'automation_assurance': assurance}
     original = deepcopy(receipt)
-    monkeypatch.setattr(PublicationStore, 'select_status', lambda *_: {'selected': receipt, 'latest_matching': deepcopy(receipt)})
-    monkeypatch.setattr(PublicationStore, 'latest', lambda *_: receipt)
+    monkeypatch.setattr(PublicationStore, 'select_status', lambda *_, **kwargs: {'selected': receipt, 'latest_matching': deepcopy(receipt)})
+    monkeypatch.setattr(PublicationStore, 'latest', lambda *_, **kwargs: receipt)
     attempt = {'status': 'VERIFIED', 'started_at': '2026-10-16T01:00:00+00:00',
         'finished_at': '2026-10-16T01:01:00+00:00', 'snapshot_id': receipt['snapshot_id'],
         'publication': receipt, 'automation_assurance': assurance}
@@ -159,7 +244,7 @@ def test_status_does_not_merge_distinct_attempt_evidence_or_publications(tmp_pat
         'status': 'VERIFIED', 'automation_assurance': {'meaning': 'Prior evidence'}}
     later = {**prior, 'release_id': prior['release_id'] if same_id else 'REL-' + '2' * 64,
         'automation_assurance': {'meaning': 'Conflicting evidence'} if same_id else prior['automation_assurance']}
-    monkeypatch.setattr(PublicationStore, 'select_status', lambda *_: {'selected': prior, 'latest_matching': later})
+    monkeypatch.setattr(PublicationStore, 'select_status', lambda *_, **kwargs: {'selected': prior, 'latest_matching': later})
     attempt = {'status': 'NOT_ISSUED', 'started_at': '2026-10-16T01:00:00+00:00',
         'automation_assurance': {'meaning': 'New failed-attempt evidence'}}
     (state / 'status.json').write_text(json.dumps(attempt))

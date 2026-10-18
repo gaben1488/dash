@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .publication_store import PublicationError, PublicationStore
 
+_STATUS_DOCUMENTS = ('main_report.docx', 'management_report.docx', 'operational_report.docx')
+
 
 def _same_release_assurance(receipt, reference):
     return (isinstance(receipt, dict) and isinstance(reference, dict)
@@ -85,9 +87,9 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
         if release_id is not None:
             if store is None:
                 raise PublicationError('PUBLICATION_NOT_FOUND')
-            result = {'selected': store.receipt(release_id), 'attempt': None}
+            result = {'selected': store.receipt(release_id, artifacts=_STATUS_DOCUMENTS), 'attempt': None}
         elif selection is not None:
-            result = {**(store.select_status(*selection) if store else {'selected': None, 'latest_matching': None}),
+            result = {**(store.select_status(*selection, artifacts=_STATUS_DOCUMENTS) if store else {'selected': None, 'latest_matching': None}),
                       'attempt': attempt}
             # GET remains read-only. Archive job status never overwrites the live worker status.
             from .archive_runtime import MESSAGES, selection_key
@@ -113,7 +115,7 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
                                     fcntl.flock(lock, fcntl.LOCK_UN)
 
         else:
-            result = {'latest': store.latest() if store else None, 'attempt': attempt}
+            result = {'latest': store.latest(artifacts=_STATUS_DOCUMENTS) if store else None, 'attempt': attempt}
         from .report_health import report_health
         result['operations'] = report_health(state, attempt, result.get('selected') or result.get('latest') or result.get('latest_matching'))
         return json.dumps(_status_projection(result), ensure_ascii=False, allow_nan=False).encode()

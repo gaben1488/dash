@@ -97,13 +97,15 @@ def _hash(path):
         return hashlib.file_digest(file, 'sha256').hexdigest()
 
 
-def _files(root):
+def _files(root, *, hash_names=None):
+    """Always check the complete safe inventory; hash only the requested scope."""
     result = {}
     for path in sorted(root.rglob('*')):
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise PublicationError('BUNDLE_UNSAFE_FILE')
         if path.is_file():
-            result[str(path.relative_to(root))] = _hash(path)
+            name = str(path.relative_to(root))
+            result[name] = _hash(path) if hash_names is None or name in hash_names else None
     return result
 
 
@@ -411,7 +413,7 @@ class PublicationStore:
             db.execute('''CREATE INDEX IF NOT EXISTS idx_publication_catalog_date
                 ON publications(report_date DESC, cutoff_at DESC, release_id DESC)''')
 
-    def _checked(self, row, *, expected_release_id=None):
+    def _checked(self, row, *, expected_release_id=None, artifacts=None):
         if row is None:
             return None
         receipt, files = row
@@ -419,7 +421,10 @@ class PublicationStore:
         if expected_release_id is not None and (not isinstance(record, dict) or record.get('release_id') != expected_release_id):
             raise PublicationError('ATTEMPT_PROOF_INVALID')
         root = self.releases / record['release_id']
-        if not root.is_dir() or root.is_symlink() or _files(root) != json.loads(files):
+        expected = json.loads(files)
+        if artifacts is not None:
+            expected = {name: digest if name in artifacts else None for name, digest in expected.items()}
+        if not root.is_dir() or root.is_symlink() or _files(root, hash_names=artifacts) != expected:
             raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
         return record
 
@@ -480,7 +485,7 @@ class PublicationStore:
         restored = {key: value for key, value in publication.items() if key != 'automation_assurance_ref'}
         return {**status, 'publication': {**restored, 'automation_assurance': record['automation_assurance']}}
 
-    def _first_live(self, rows):
+    def _first_live(self, rows, *, artifacts=None):
         """Archive recomputation never replaces the live worker's baseline.
 
         History/context selectors still expose archives explicitly. Presence of
@@ -490,26 +495,26 @@ class PublicationStore:
             payload = row[-2:]
             receipt = json.loads(payload[0])
             if 'archive_origin' not in receipt and receipt.get('replay_available') is not False:
-                return self._checked(payload)
+                return self._checked(payload, artifacts=artifacts)
         return None
 
     @_leased_read
-    def receipt(self, release_id):
+    def receipt(self, release_id, *, artifacts=None):
         """Exact committed receipt; missing IDs never fall through to latest."""
         if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
             raise PublicationError('PUBLICATION_ID_INVALID')
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
-            receipt = self._checked(row, expected_release_id=release_id)
+            receipt = self._checked(row, expected_release_id=release_id, artifacts=artifacts)
             if receipt is None:
                 raise PublicationError('PUBLICATION_NOT_FOUND')
             year, quarter = self._context(db, receipt)
             return {**receipt, 'report_year': year, 'quarter': quarter}
 
     @_leased_read
-    def latest(self):
+    def latest(self, *, artifacts=None):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            return self._first_live(_ordered_publication_rows(db))
+            return self._first_live(_ordered_publication_rows(db), artifacts=artifacts)
 
     @_leased_read
     def history(self):
@@ -605,14 +610,14 @@ class PublicationStore:
         return None
 
     @_leased_read
-    def select_status(self, report_date, report_year, quarter):
+    def select_status(self, report_date, report_year, quarter, *, artifacts=None):
         """Keep both selectors, reusing one unchanged bundle proof in this read only."""
         last_payload = last_receipt = None
 
         def checked(payload):
             nonlocal last_payload, last_receipt
             if payload != last_payload:
-                receipt = self._checked(payload)
+                receipt = self._checked(payload, artifacts=artifacts)
                 last_payload, last_receipt = payload, receipt
             return last_receipt
 
@@ -657,7 +662,10 @@ class PublicationStore:
             raise PublicationError('PUBLICATION_VIEW_INVALID')
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
-            if self._checked(row) is None:
+            # The publication was fully checked on commit. Here check the safe
+            # inventory, then hash the bytes actually returned below. Frozen
+            # databases and raw inputs belong to full audit, not every download.
+            if self._checked(row, expected_release_id=release_id, artifacts=()) is None:
                 raise PublicationError('PUBLICATION_NOT_FOUND')
             if name not in json.loads(row[1]):
                 raise PublicationError('PUBLICATION_VIEW_NOT_AVAILABLE')
