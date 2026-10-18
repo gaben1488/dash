@@ -696,7 +696,8 @@ export interface LimitComparisonResponse {
   unreadDepartments: Array<{ department: string; reason: string }>;
   coverage: import('./source-coverage.js').SourceCoverage;
   truncated: boolean; pointLimit: number; asOf: string;
-  basis: 'plan_limit_K_vs_contract_Y'; unit: 'thousand_rubles';
+  // Legacy keys remain readable; their names do not establish LBO/NMCK/contract semantics.
+  basis: 'plan_K_vs_recorded_fact_Y' | 'plan_limit_K_vs_contract_Y'; unit: 'thousand_rubles';
   excluded: { invalidAmount: number; invalidDate: number; futureFact: number; unknownMethod: number };
   summary: { count: number; limitTotal: number; contractTotal: number; approvedEconomy: number; limitReductionPercent: number | null };
 }

@@ -998,7 +998,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ subjects: entries, unreadDepartments, coverage });
   });
 
-  /** Live limit/contract comparison. K is a plan limit, never NMCK or AD economy. */
+  /** Recorded K/Y comparison. Financial meaning is source-defined, not inferred from columns. */
   app.get('/api/rows/scatter', async (request, reply) => {
     const query = request.query as Record<string, string>;
     if (query.snapshot_id !== undefined && (typeof query.snapshot_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,160}$/.test(query.snapshot_id))) {
@@ -1087,7 +1087,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     });
     return reply.send({ points, total: count, sourceSnapshotId: frozen?.id ?? null, departments: departments.map(d => d.id), unreadDepartments, coverage,
       truncated: count > POINT_LIMIT, pointLimit: POINT_LIMIT, excluded, asOf,
-      basis: 'plan_limit_K_vs_contract_Y', unit: 'thousand_rubles',
+      basis: 'plan_K_vs_recorded_fact_Y', unit: 'thousand_rubles',
       summary: { count, limitTotal, contractTotal, approvedEconomy: economyTotal,
         limitReductionPercent: limitTotal > 0 ? (1 - contractTotal / limitTotal) * 100 : null },
     });

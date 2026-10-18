@@ -1,4 +1,4 @@
-// Scenario on K/Y for completed known competitive purchases. K is not NMCK.
+// Scenario on recorded K/Y positions. Financial semantics are source-defined.
 // Approved economy is a separate AD-gated fact, never inferred from this ratio.
 
 import { useMemo, useState } from 'react';
@@ -117,7 +117,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const caveats: string[] = [];
   if (resp && resp.unreadDepartments.length > 0) {
     caveats.push(
-      `Не прочитаны книги: ${resp.unreadDepartments.map((u) => u.department).join(', ')} — торги этих управлений в среднем не участвуют.`,
+      `Не прочитаны книги: ${resp.unreadDepartments.map((u) => u.department).join(', ')} — позиции этих управлений в расчёте не участвуют.`,
     );
   }
   if (resp?.truncated) {
@@ -135,7 +135,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
       // Заголовок-существительное и ровно тот, каким метрика названа в базе
       // знаний («Цена отказа от конкурса»): одно имя у числа на всех экранах.
       title="Цена отказа от конкурса"
-      subtitle="Условная оценка по разнице планового лимита и цены заключённых конкурентных закупок. Лимит K не является НМЦК; результат не доказывает потери от выбора ЕП."
+      subtitle="Условная оценка по разнице плана и отражённого факта конкурентных позиций. Смысл K и Y определяется источником. Эти колонки не устанавливают НМЦК или ЛБО автоматически; результат не доказывает потери от выбора ЕП."
       icon={Scale}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.refusal_cost}
@@ -143,14 +143,14 @@ export function CostOfRefusal({ epPlan, epHasData }: {
       {loading ? (
         <div className="flex items-center gap-2 py-8 justify-center text-xs text-zinc-500 dark:text-zinc-400">
           <Loader2 size={14} className="animate-spin text-zinc-400" aria-hidden="true" />
-          Читаем заключённые контракты конкурентных процедур…
+          Читаем конкурентные позиции с отражённым фактом…
         </div>
       ) : error ? (
         <EmptyState
           tone="problem"
           size="compact"
-          title="Статистика торгов не получена"
-          description="Без строк заключённых контрактов среднее снижение посчитать не из чего. Повторите запрос; если ошибка вернётся — проверьте сервер на странице «Система»."
+          title="Сравнение плана и факта не получено"
+          description="Без позиций с отражённым фактом разницу с планом посчитать не из чего. Повторите запрос; если ошибка вернётся — проверьте сервер на странице «Система»."
           detail={error}
           action={{ label: 'Повторить запрос', onClick: retry }}
         />
@@ -165,19 +165,19 @@ export function CostOfRefusal({ epPlan, epHasData }: {
             tone="problem"
             size="compact"
             title="Книги, по которым считается снижение, не прочитаны"
-            description={`Строк торгов нет ни одной, а книги не прочитаны у: ${resp?.unreadDepartments.map((u) => u.department).join(', ')}. Запустите обновление на странице «Система» — до этого среднее снижение считать не из чего.`}
+            description={`Подходящих позиций нет ни одной, а книги не прочитаны у: ${resp?.unreadDepartments.map((u) => u.department).join(', ')}. Запустите обновление на странице «Система» — до этого среднее снижение считать не из чего.`}
           />
         ) : (resp?.points.length ?? 0) > 0 ? (
           <EmptyState
             size="compact"
-            title="За выбранный период состоявшихся торгов нет"
-            description={`Заключённые контракты по конкурентным процедурам в книгах есть (${resp?.points.length}), но ни один не попал в выбранный период. Расширьте период до года в шапке — числа вернутся.`}
+            title="За выбранный период позиций с отражённым фактом нет"
+            description={`Конкурентные позиции с отражённым фактом в книгах есть (${resp?.points.length}), но ни одна не попала в выбранный период. Расширьте период до года в шапке — числа вернутся.`}
           />
         ) : (
           <EmptyState
             size="compact"
-            title="Состоявшихся конкурентных торгов нет"
-            description="В книгах выбранных управлений нет ни одного заключённого контракта по конкурентной процедуре — считать среднее снижение не из чего. Снимите отбор управлений в шапке, чтобы посмотреть по району целиком."
+            title="Конкурентных позиций с отражённым фактом нет"
+            description="В книгах выбранных управлений нет конкурентных позиций с отражённым фактом — считать среднее снижение не из чего. Снимите отбор управлений в шапке, чтобы посмотреть по району целиком."
           />
         )
       ) : (
@@ -186,13 +186,13 @@ export function CostOfRefusal({ epPlan, epHasData }: {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className={clsx(TILE, 'px-3 py-2.5')}>
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Снижение от планового лимита
+                Разница плана и факта
               </p>
               <p className="text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5">
                 {stats.reductionPct !== null ? fmtPct(stats.reductionPct) : '—'}
               </p>
               <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                по {resp?.total ?? rows.length} {procWord(resp?.total ?? rows.length)} с заключённым контрактом
+                {resp?.total ?? rows.length} {procWord(resp?.total ?? rows.length)} с отражённым фактом
               </p>
             </div>
             <div className={clsx(TILE, 'px-3 py-2.5')}>
@@ -227,10 +227,10 @@ export function CostOfRefusal({ epPlan, epHasData }: {
 
           {/* Методика — прямо на карточке (канон п. 53: карточка диагноста). */}
           <p className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400 mt-3">
-            Методика: взвешенное снижение от лимита = 1 − Σ цена контракта / Σ лимит по заключённым
-            конкурентным процедурам периметра ({rows.length} {procWord(rows.length)};
-            лимиты {formatMoney(stats.sumPlan)}, контракты {formatMoney(stats.sumFact)}).
-            Сценарная оценка = плановый объём ЕП × это снижение. Это условный перенос разницы лимита и цены на объём ЕП, без доказанной причинной связи. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
+            Методика: взвешенная разница = 1 − Σ факт Y / Σ план K по конкурентным
+            позициям с отражённым фактом в выбранном периметре ({rows.length} {procWord(rows.length)};
+            план {formatMoney(stats.sumPlan)}, факт {formatMoney(stats.sumFact)}).
+            Сценарная оценка = плановый объём ЕП × это снижение. Это условный перенос разницы плана и факта на объём ЕП, без доказанной причинной связи. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
           </p>
 
           <div className="mt-3 flex items-center gap-3 flex-wrap">
@@ -269,8 +269,8 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                   <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
-                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">Лимит, тыс. ₽</th>
-                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">Контракт, тыс. ₽</th>
+                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">План, тыс. ₽</th>
+                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">Отражённый факт, тыс. ₽</th>
                     <th scope="col" className="py-1.5 text-right font-medium">Снижение</th>
                   </tr>
                 </thead>

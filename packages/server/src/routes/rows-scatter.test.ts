@@ -147,6 +147,12 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     expect(body.excluded.unknownMethod).toBe(1);
   });
 
+  it('declares observed plan and fact columns without assigning legal financial categories', async () => {
+    const response = await app.inject('/api/rows/scatter?dept=uer&type=competitive');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().basis).toBe('plan_K_vs_recorded_fact_Y');
+  });
+
   it('computes a weighted total over every eligible row beyond the display cap', async () => {
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const rows = Array.from({ length: 2501 }, (_, index) =>

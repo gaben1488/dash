@@ -38,6 +38,34 @@ TS/Python boundary examples share `packages/shared/fixtures/source-value-cases.j
 
 ## Source Column Map
 
+### Financial meaning and observation grain (18.10.2026)
+
+Column K is the recorded plan amount and Y the recorded fact amount. Their
+financial meaning must be established by the source profile and evidence;
+the column letter or planning stage does not establish LBO, NMCK or a unique
+contract price. The scatter response declares `plan_K_vs_recorded_fact_Y`.
+Legacy names `limitTotal`, `contractTotal`, `limitReductionPercent` and the
+older basis remain readable for compatibility, without granting those meanings.
+Its ratio is descriptive `1 − ΣY/ΣK` over eligible plan positions. It does not
+establish price reduction at auction, approved economy or an anti-dumping case.
+
+LBO/appropriations, procurement financing by year, justified initial price,
+contract price and amendments, accepted performance, monetary obligations and
+payments are separate facts with their own entity, period, evidence and units.
+Do not add NMCK and contract price as independent expenditure, or call the
+unpaid contract amount free funds. A plan position, supplier-selection attempt,
+contract, acceptance and payment have different counting grains. Several item
+names do not prove several lots; electronic form does not prove competition.
+The source's applicable regime determines official plan and contract terminology.
+
+The ordinary price ≤ initial price ≤ financing relationship is not a universal
+validation rule: comparable scope, units, years, price version and known quantity
+must be established; multiannual and uncertain-quantity cases need their own
+profile. AD approval remains a separate recorded decision and does not prove
+the economic cause of the difference. These domain profiles are planned under
+C02.03/C04.05/C08.19; this update corrects the scatter's declared interpretation,
+without inventing new financial facts or modifying source workbooks.
+
 Production row-level calculations use department workbooks. The same layout is mirrored in the department tabs of `СВОД_ДЛЯ_GOOGLE`.
 
 | File | Sheet | Column | Semantic field | Ingest mapping | Core metric key | API DTO | UI label |

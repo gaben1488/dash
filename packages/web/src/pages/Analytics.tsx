@@ -1315,10 +1315,10 @@ export function Analytics() {
         </AnalyticsCard>
       )}
 
-      {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title={limitReduction !== null ? `Взвешенное снижение от лимита ${limitReduction.toFixed(1)}%` : 'Лимит и цена заключённых закупок'} icon={TrendingUp} source="calculated">
+      {/* Recorded plan/fact comparison; financial semantics come from the source. */}
+      <AnalyticsCard title={limitReduction !== null ? `Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%` : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
         <SourceCoverageNotice coverage={scatterCoverage} />
-        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y; лимит не является НМЦК. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают снижение без правовой оценки.</p>
+        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают снижение без правовой оценки.</p>
         {scatterTruncated && <p className="text-xs text-[var(--ink-muted)]">Показаны первые {scatterData.length} из {scatterSummary?.count} позиций; взвешенный итог учитывает все позиции.</p>}
         {scatterLoading ? (
           <div
@@ -1326,22 +1326,22 @@ export function Analytics() {
             aria-live="polite"
             className="flex animate-pulse items-center justify-center py-12 text-sm text-[var(--ink-faint)]"
           >
-            Собираем заключённые закупки: лимит строки против цены контракта…
+            Читаем позиции с отражённым фактом: плановая и фактическая суммы…
           </div>
         ) : scatterError ? (
           <p role="alert" className="py-4 text-sm text-[var(--data-warn)]">Облако закупок не прочитано. {scatterError}</p>
         ) : scatterData.length === 0 ? (
           <CardEmpty
-              title="Заключённых закупок под текущий отбор нет"
-              description="На диаграмму попадают только строки с датой заключения и ценой контракта. Снимите фильтры шапки или обновите данные."
+              title="Позиций с отражённым фактом под текущий отбор нет"
+              description="На диаграмму попадают позиции с действительной фактической датой и положительной суммой факта. Снимите фильтры шапки или обновите данные."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
         ) : (
           <>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-3">
-              Каждая точка — одна ЗАКЛЮЧЁННАЯ закупка (есть дата заключения и цена).
-              Обе оси — в тысячах рублей, как в книгах. Диагональ = нулевая экономия. Цвет по % снижения (44-ФЗ ст.37).
-              <span className="ml-2 font-medium text-zinc-500">{scatterData.length} закупок</span>
+              Каждая точка — одна позиция плана с отражённой датой и суммой факта.
+              Обе оси — в тысячах рублей, как в книгах. Диагональ — равенство плана и факта. Цвет показывает диапазон разницы, без правовой оценки.
+              <span className="ml-2 font-medium text-zinc-500">позиций: {scatterData.length}</span>
             </p>
             <div style={{ width: '100%', height: 380 }}>
               <ResponsiveContainer>
@@ -1351,15 +1351,15 @@ export function Analytics() {
                       подписаны одной единицей (скрин-разбор №5: «руб.» против
                       «тыс. руб.» на осях одного графика — запрещено). */}
                   <XAxis
-                    type="number" dataKey="planTotal" name="Лимит строки плана"
+                    type="number" dataKey="planTotal" name="Плановая сумма"
                     tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
-                    label={{ value: 'Лимит строки плана (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    label={{ value: 'Плановая сумма (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <YAxis
-                    type="number" dataKey="factTotal" name="Цена контракта"
+                    type="number" dataKey="factTotal" name="Отражённая сумма факта"
                     tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
-                    label={{ value: 'Цена контракта (тыс. руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    label={{ value: 'Отражённая сумма факта (тыс. руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <ZAxis range={[30, 80]} />
@@ -1378,11 +1378,11 @@ export function Analytics() {
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
                             {/* Единица — та же, что в книге: тысячи рублей. «7 000 ₽»
                                 на деле было 7 млн руб. (скрин-разбор №5). */}
-                            <span className="text-zinc-400">Лимит:</span>
+                            <span className="text-zinc-400">План:</span>
                             <span className="text-right font-medium">{d.planTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
-                            <span className="text-zinc-400">Цена:</span>
+                            <span className="text-zinc-400">Факт:</span>
                             <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
-                            <span className="text-zinc-400">Снижение от лимита:</span>
+                            <span className="text-zinc-400">Разница с планом:</span>
                             <span className={`text-right font-bold ${d.limitReductionPercent > 25 ? 'text-red-500' : d.limitReductionPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
                               {d.limitReductionPercent?.toFixed(1)}%
                             </span>
@@ -1391,13 +1391,13 @@ export function Analytics() {
                       );
                     }}
                   />
-                  <Scatter name="Снижение 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
-                  <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
                       высокую экономию» — из тона претензии в информационный. */}
-                  <Scatter name="Снижение свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Цена выше лимита (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
@@ -1405,9 +1405,9 @@ export function Analytics() {
             <div className="flex gap-4 mt-3 text-[10px] flex-wrap">
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — снижение</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15–25 % — заметная</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — низкое снижение</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — снижение от лимита</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — цена выше лимита</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — разница с планом</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — разница с планом</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — факт выше плана</span>
             </div>
           </>
         )}
