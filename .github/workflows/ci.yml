@@ -1675,7 +1675,7 @@ jobs:
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
           CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
           CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
-          WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance }}
+          WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance || (github.event.head_commit.message == 'Inspect accepted release 2579f36c metadata' && 'acceptance-39144658127-1' || '') }}
           LIFECYCLE_PROBE: ${{ env.LIFECYCLE_PROBE }}
           LIFECYCLE_PROBE_SHA: ${{ env.LIFECYCLE_PROBE_SHA }}
         with:
