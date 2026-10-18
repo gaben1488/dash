@@ -51,13 +51,14 @@ class TimingWindowTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(sys, 'argv', ['probe', 'dashboard', 'window']), \
                 patch.dict(os.environ, {'AEMR_API_KEY': 'SYNTHETIC_SECRET'}), \
-                patch('urllib.request.urlopen', side_effect=reply), patch('time.sleep'), \
+                patch('urllib.request.urlopen', side_effect=reply), patch('time.sleep') as pause, \
                 contextlib.redirect_stdout(output):
             exec(compile(source, '<reviewed-api-timing-window>', 'exec'), {})  # noqa: S102
         rows = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertNotIn('PRIVATE_SYNTHETIC_BODY', output.getvalue())
         self.assertNotIn('SYNTHETIC_SECRET', output.getvalue())
         self.assertTrue(all(0 < value <= 5 for value in calls))
+        self.assertTrue(all(0 <= call.args[0] <= 1 for call in pause.call_args_list))
         return rows
 
     def test_latency_window_counts_twenty_reads_and_declares_sample_method(self):
