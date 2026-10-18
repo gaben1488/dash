@@ -60,9 +60,9 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Код7f03b007;6089PASS/1skip; не установлен |
 | 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Код проверен:6122TS+1206PythonPASS; не установлен |
 | 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Код проверен:6126TS PASS/1skip; не установлен |
-| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Реализация измерений фактического окна запроса |
-| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Ожидает4 |
-| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Ожидает4–5 |
+| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Код8e32afea; native baseline39100209392; итоговая приёмка после установки |
+| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Код проверен:6128TS/1209PythonPASS; не установлен |
+| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Реализация compact workspace read |
 | 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Ожидает6 |
 | 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Ожидает7 |
 | 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Ожидает8 |
@@ -88,6 +88,24 @@ future Q/invalid amount/unknown method в конкурентной базе ис
 общей оценки.771shared+1895core+1115server+2345web=6126PASS/1skip;
 4tsc/lint0errors/300warnings. Native readback ещё не выполнен; общий релиз
 десятки и согласованность с выбранным data_release ещё впереди.
+
+C05.11:8e32afea добавляет actual request window, Server-Timing app/serialize/
+model/reader и явно inclusive process CPU. OPSb4b26bc0 исправляет boot-window
+на окно двух HTTP reads; синтетические2+target7+native-profile7PASS.
+[39100209392](https://github.com/gaben1488/dash/actions/runs/39100209392)/job117594760647
+PASS05:20UTC на неизменённомed3: selected report HTTP2.221/2.285s,4 582 629B;
+native1.573s включает2model_json0.919s, bundle inventory0.234s, SQL iteration0.028s.
+Это inclusive, не складывать; response hash меняется вместе с dynamic health.
+Холодный/worker-concurrent и браузер кандидата принимаются после выпуска,
+новые измерения не наследуют старый PASS и не увеличивают бюджет.
+
+C08.15: новые публикации записывают малую indexed context projection в одной
+транзакции с receipt. Summary list с устойчивым cursor не читает модели/
+assurance; новый current selector не разбирает модель, legacy читает её один
+раз за status operation. GET/read-only не мигрирует архив. Старые bundle guards
+сохранены; full1209Python и6128TS PASS/1skip,4tsc/ruff/lint0errors. API
+`GET /api/report-releases/history` отделён от selected detail. T0/общий CAS и
+полная PostgreSQL migration этим не заявлены.
 
 Завершение: diff/отрицательные проверки → общий lint/typecheck/tests/CI →
 review → разрешённый controller release с действительными ресурсными,
@@ -999,8 +1017,8 @@ independent review PASS. Повторный полный прогон текущ
 | Подзадача | Основание / приоритет | Проблема → конкретная работа | Условие приёмки | Зависимости |
 |---|---|---|---|---|
 | C04.01 | А/P1 | Первая общая вертикаль — официальная экономия AD=да, signed Z+AA+AB, общий input/rules/calendar, без plan−fact. | Независимый пересчёт исходных строк; future/today/invalid Q, no N и граница дня Камчатки проверены; API/BI/Word согласованы. | C08.02,R05.02 |
-| C04.02 | А/P1 | Общие money/date/percent/method типы: полное чтение значения, явный масштаб, формат процентов, реальный календарь и D для ТД-ПМ. | 123abc/Infinity/1 234,56, 1,5% vs доля, отрицательные суммы и 20 000 тыс. проходят независимые контрпримеры. | R05.01 |
-| C04.03 | Д/P1 | Scatter: отделить снижение цены от лимита K от официальной AD-экономии и снижения от НМЦК; исправить parser/method/activity/period во всех consumers, включая CostOfRefusal. | Одна точка сверена с исходной строкой; недоказанный способ не считается доказанными торгами, будущая Q/AD=нет не дают ложный сигнал экономии. Тотальный КП/ЕП учёт СВОДа не ломается: unknownMethodRows и coverage объясняют иную базу cloud. | C04.01,C04.02 |
+| C04.02 | Т+А/P1 | Общие money/date/percent/method типы: полное чтение значения, явный масштаб, формат процентов, реальный календарь и D для ТД-ПМ. | 123abc/Infinity/1 234,56, 1,5% vs доля, отрицательные суммы и 20 000 тыс. проходят независимые контрпримеры. | R05.01 |
+| C04.03 | Т+А/P1 | Scatter: отделить снижение цены от лимита K от официальной AD-экономии и снижения от НМЦК; исправить parser/method/activity/period во всех consumers, включая CostOfRefusal. | Одна точка сверена с исходной строкой; недоказанный способ не считается доказанными торгами, будущая Q/AD=нет не дают ложный сигнал экономии. Тотальный КП/ЕП учёт СВОДа не ломается: unknownMethodRows и coverage объясняют иную базу cloud. | C04.01,C04.02 |
 | C03.01 | А/P1 | Все сочетания activity/method/budget/org/period — общий селектор и контекст, месяцы/кварталы/год производны плановой N. | Суммы частей=целое, количества/доли/примечания не обнуляются; legacy readers восстанавливают обязательные поля. | C04.02,C08.05 |
 | C05.01 | А/P1 | Исполняемый каталог показателей: значение, grain, numerator/denominator, scope, units, dependencies, provenance, версия правила. | Карточка/таблица/график/Word получают один результат; у каждого числа раскрытие к тем же строкам. | C03.01 |
 | C05.02 | А/P1 | Пропавшее обязательное поле — инженерный дефект тракта, не универсальное «неизвестно»; реальный ноль/нет знаменателя/неполный источник различимы. | Удаление поля DTO обнаруживается тестом; ограничения источника объяснены и не маскируют полузаглушку. | C05.01,C08.05 |

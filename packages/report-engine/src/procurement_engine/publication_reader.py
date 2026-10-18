@@ -75,6 +75,10 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
     root = state / 'published'
     exists = (root / 'publications.sqlite').is_file()
     store = PublicationStore(root, readonly=True) if exists else None
+    if view == 'history':
+        rows = store.history_summaries(limit=51, before=release_id) if store else []
+        return json.dumps({'releases': rows[:50], 'next': rows[49]['release_id'] if len(rows) > 50 else None},
+                          ensure_ascii=False, allow_nan=False).encode()
     if view == 'status':
         attempt_path = state / 'status.json'
         attempt = json.loads(attempt_path.read_text(encoding='utf-8')) if attempt_path.exists() else None

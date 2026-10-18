@@ -402,6 +402,14 @@ class PublicationStore:
                 release_id TEXT PRIMARY KEY, report_date TEXT NOT NULL,
                 cutoff_at TEXT NOT NULL, receipt TEXT NOT NULL, files TEXT NOT NULL
             )''')
+            db.execute('''CREATE TABLE IF NOT EXISTS publication_contexts (
+                release_id TEXT PRIMARY KEY, report_date TEXT NOT NULL, cutoff_at TEXT NOT NULL,
+                report_year INTEGER NOT NULL, quarter INTEGER NOT NULL
+            )''')
+            db.execute('''CREATE INDEX IF NOT EXISTS idx_publication_context_period
+                ON publication_contexts(report_year, quarter, report_date DESC, cutoff_at DESC, release_id DESC)''')
+            db.execute('''CREATE INDEX IF NOT EXISTS idx_publication_catalog_date
+                ON publications(report_date DESC, cutoff_at DESC, release_id DESC)''')
 
     def _checked(self, row, *, expected_release_id=None):
         if row is None:
@@ -496,22 +504,61 @@ class PublicationStore:
             return [json.loads(row[-2]) for row in _ordered_publication_rows(db)]
 
     @_leased_read
+    def history_summaries(self, *, limit=50, before=None):
+        """Bounded metadata only; old rows remain visible with an unknown period."""
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise PublicationError('PUBLICATION_CONTEXT_INVALID')
+        if before is not None and not re.fullmatch(r'REL-[a-f0-9]{64}', before):
+            raise PublicationError('PUBLICATION_ID_INVALID')
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            has_context = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publication_contexts'").fetchone()
+            join = 'LEFT JOIN publication_contexts c ON c.release_id=p.release_id' if has_context else ''
+            period = 'c.report_year,c.quarter' if has_context else 'NULL,NULL'
+            where, parameters = '', []
+            if before is not None:
+                anchor = db.execute('SELECT report_date,cutoff_at,release_id FROM publications WHERE release_id=?', (before,)).fetchone()
+                if anchor is None:
+                    raise PublicationError('PUBLICATION_NOT_FOUND')
+                where = 'WHERE (p.report_date,p.cutoff_at,p.release_id) < (?,?,?)'
+                parameters.extend(anchor)
+            rows = db.execute(f'SELECT p.release_id,p.report_date,p.cutoff_at,{period} FROM publications p {join} {where} '
+                              'ORDER BY p.report_date DESC,p.cutoff_at DESC,p.release_id DESC LIMIT ?', (*parameters,limit))
+            return [dict(zip(('release_id','report_date','cutoff_at','report_year','quarter'), row, strict=True)) for row in rows]
+
+    def _period_filter(self, db, year, quarter):
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publication_contexts'").fetchone():
+            return '', ()
+        # Filter small indexed IDs before fetching any large receipt/evidence JSON.
+        return ((" AND (release_id NOT IN (SELECT release_id FROM publication_contexts) OR release_id IN "
+                 "(SELECT release_id FROM publication_contexts WHERE report_year=? AND quarter=?))"), (year,quarter))
+
+    def _context(self, db, receipt):
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publication_contexts'").fetchone():
+            result = db.execute('SELECT report_year,quarter FROM publication_contexts WHERE release_id=?', (receipt['release_id'],)).fetchone()
+            if result is not None:
+                return tuple(result)
+        if receipt.get('replay_available') is False:
+            return receipt.get('report_year'), receipt.get('quarter')
+        model = _json(self.releases / receipt['release_id'] / 'report_model.json')
+        return (model.get('snapshot') or {}).get('report_year'), (model.get('headline') or {}).get('current_quarter')
+
+    @_leased_read
     def select(self, report_date, report_year, quarter):
         """Exact context only; a nearby date is not an historical release."""
         return self._select(report_date, report_year, quarter, self._checked)
 
-    def _select(self, report_date, report_year, quarter, checked):
+    def _select(self, report_date, report_year, quarter, checked, contexts=None):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = _ordered_publication_rows(db,'WHERE report_date = ?', (report_date,),cutoff_only=True)
+            period_filter, values = self._period_filter(db, report_year, quarter)
+            rows = _ordered_publication_rows(db,'WHERE report_date = ?'+period_filter, (report_date,*values),cutoff_only=True)
             for row in rows:
-                receipt = checked(row[-2:])
-                if receipt.get('replay_available') is False:
-                    year, selected_quarter = receipt.get('report_year'), receipt.get('quarter')
-                else:
-                    model = _json(self.releases / receipt['release_id'] / 'report_model.json')
-                    year = (model.get('snapshot') or {}).get('report_year')
-                    selected_quarter = (model.get('headline') or {}).get('current_quarter')
+                receipt = json.loads(row[-2])
+                cache = contexts if contexts is not None else {}
+                if receipt['release_id'] not in cache:
+                    cache[receipt['release_id']] = self._context(db, receipt)
+                year, selected_quarter = cache[receipt['release_id']]
                 if year == report_year and selected_quarter == quarter:
+                    receipt = checked(row[-2:])
                     return {**receipt, 'report_year': year, 'quarter': selected_quarter}
         return None
 
@@ -526,19 +573,18 @@ class PublicationStore:
         """
         return self._latest_for_period(report_date, report_year, quarter, self._checked)
 
-    def _latest_for_period(self, report_date, report_year, quarter, checked):
+    def _latest_for_period(self, report_date, report_year, quarter, checked, contexts=None):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            rows = _ordered_publication_rows(db,'WHERE report_date <= ?', (report_date,))
+            period_filter, values = self._period_filter(db, report_year, quarter)
+            rows = _ordered_publication_rows(db,'WHERE report_date <= ?'+period_filter, (report_date,*values))
             for row in rows:
                 receipt = json.loads(row[-2])
                 if 'archive_origin' in receipt:
                     continue
-                if receipt.get('replay_available') is False:
-                    year, selected_quarter = receipt.get('report_year'), receipt.get('quarter')
-                else:
-                    model = _json(self.releases / receipt['release_id'] / 'report_model.json')
-                    year = (model.get('snapshot') or {}).get('report_year')
-                    selected_quarter = (model.get('headline') or {}).get('current_quarter')
+                cache = contexts if contexts is not None else {}
+                if receipt['release_id'] not in cache:
+                    cache[receipt['release_id']] = self._context(db, receipt)
+                year, selected_quarter = cache[receipt['release_id']]
                 if year != report_year or selected_quarter != quarter:
                     continue
                 verified = checked(row[-2:])
@@ -557,8 +603,9 @@ class PublicationStore:
                 last_payload, last_receipt = payload, receipt
             return last_receipt
 
-        return {'selected': self._select(report_date, report_year, quarter, checked),
-                'latest_matching': self._latest_for_period(report_date, report_year, quarter, checked)}
+        contexts = {}
+        return {'selected': self._select(report_date, report_year, quarter, checked, contexts),
+                'latest_matching': self._latest_for_period(report_date, report_year, quarter, checked, contexts)}
 
     @_leased_read
     def previous_model(self, report_date):
@@ -692,6 +739,8 @@ class PublicationStore:
                         record['weekly_summary'] = public_weekly_summary(model['weekly_evidence'])
                     db.execute('INSERT INTO publications VALUES (?, ?, ?, ?, ?)',
                         (release_id, report_date, cutoff, json.dumps(record, ensure_ascii=False), json.dumps(files)))
+                    db.execute('INSERT INTO publication_contexts VALUES (?, ?, ?, ?, ?)',
+                        (release_id, report_date, cutoff, model['snapshot']['report_year'], model['headline']['current_quarter']))
                 _sync_directory(self.root)
                 return record
             finally:

@@ -478,6 +478,11 @@ export const api = {
   getSubjects: () =>
     fetchJSON<any>('/rows/subjects'),
 
+  getReportReleaseHistory: (before?: string) => fetchJSON<{
+    releases: Array<{ release_id: string; report_date: string; cutoff_at: string; report_year: number | null; quarter: number | null }>;
+    next: string | null;
+  }>(`/report-releases/history${before ? '?before=' + encodeURIComponent(before) : ''}`),
+
   // Scatter data for Economy page
   getScatterData: (params?: Record<string, string>) => {
     const search = params ? new URLSearchParams(params).toString() : '';

@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requestStage } from '../plugins/request-timing.js';
 
-type View = 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
+type View = 'history' | 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
 const execute = promisify(execFile);
 const ContextSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
@@ -125,17 +125,19 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         message: 'Архивный комплект сейчас не сформирован. Это задача сопровождения; текущие данные вместо архива не использованы.' });
     }
   });
-  for (const [suffix, view] of [['', 'status'], ['/dashboard', 'dashboard'],
+  for (const [suffix, view] of [['', 'status'], ['/history', 'history'], ['/dashboard', 'dashboard'],
     ['/main.docx', 'main'], ['/supplement.docx', 'supplement'], ['/operational.docx', 'operational']] as const) {
-    app.get<{ Params: { releaseId?: string } }>(`/api/report-releases${suffix ? '/:releaseId' + suffix : ''}`,
+    app.get<{ Params: { releaseId?: string } }>(`/api/report-releases${view === 'history' ? '/history' : suffix ? '/:releaseId' + suffix : ''}`,
       async (request, reply) => {
-        const id = request.params.releaseId;
+        const history = view === 'history' ? z.object({ before: z.string().regex(/^REL-[a-f0-9]{64}$/).optional() }).strict().safeParse(request.query) : null;
+        if (history && !history.success) return reply.code(400).send({ code: 'PUBLICATION_CONTEXT_INVALID', message: 'Некорректный курсор истории.' });
+        const id = history?.success ? history.data.before : request.params.releaseId;
         reply.header('Cache-Control', 'private, no-store');
-        if (view !== 'status' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
+        if (view !== 'status' && view !== 'history' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
           return reply.code(400).send({ code: 'PUBLICATION_ID_INVALID', message: 'Некорректный идентификатор выпуска.' });
         }
         let context: Context | undefined;
-        if (Object.keys(request.query as object).length > 0) {
+        if (view !== 'history' && Object.keys(request.query as object).length > 0) {
           const parsed = ContextSchema.safeParse(request.query);
           if (view !== 'status' || !parsed.success) {
             return reply.code(400).send({ code: 'PUBLICATION_CONTEXT_INVALID', message: 'Укажите дату среза, год и квартал отчёта.' });

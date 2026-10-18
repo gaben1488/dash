@@ -1,3 +1,5 @@
+from pathlib import Path
+
 """Synthetic acceptance cases; no live source records belong in this repository."""
 import hashlib
 import json
@@ -1447,3 +1449,52 @@ def test_explicit_bootstrap_rejects_unsafe_existing_lease_without_replacement(tm
         native.initialize_publication_readers(store.root.parent)
     assert lease.is_symlink()
     assert foreign.read_text() == 'do not change'
+
+
+def test_light_history_and_current_context_do_not_hydrate_unselected_evidence(tmp_path, monkeypatch):
+    from procurement_engine import publication_store as module
+    store = PublicationStore(tmp_path / 'published')
+    receipt = store.publish(candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    original = module._json
+    reads = []
+    def observed(path):
+        if Path(path).name == 'report_model.json':
+            reads.append(path)
+        return original(path)
+    monkeypatch.setattr(module, '_json', observed)
+    history = store.history_summaries(limit=1)
+    assert history == [{'release_id': receipt['release_id'], 'report_date': '2026-09-30',
+                        'cutoff_at': receipt['cutoff_at'], 'report_year': 2026, 'quarter': 3}]
+    assert store.select_status('2026-09-30', 2026, 3)['selected']['release_id'] == receipt['release_id']
+    assert reads == [], 'List and current selection must not parse the full frozen model'
+
+
+def test_legacy_selection_reads_context_once_and_keeps_read_only_catalog(tmp_path, monkeypatch):
+    from procurement_engine import publication_store as module
+    store = PublicationStore(tmp_path / 'published')
+    receipt = store.publish(candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    with sqlite3.connect(store.database_path) as db:
+        db.execute('DROP TABLE publication_contexts')
+    before = store.database_path.read_bytes()
+    original = module._json
+    models = []
+    def observed(path):
+        if Path(path).name == 'report_model.json':
+            models.append(path)
+        return original(path)
+    monkeypatch.setattr(module, '_json', observed)
+    reader = PublicationStore(store.root, readonly=True)
+    result = reader.select_status('2026-09-30', 2026, 3)
+    assert result['selected']['release_id'] == result['latest_matching']['release_id'] == receipt['release_id']
+    assert len(models) == 1
+    assert reader.history_summaries()[0]['report_year'] is None
+    assert store.database_path.read_bytes() == before
+
+
+def test_history_cursor_remains_stable_when_a_newer_publication_is_added(tmp_path):
+    store = PublicationStore(tmp_path / 'published')
+    first = store.publish(candidate(tmp_path / 'first'), read_revisions=revisions)
+    second = store.publish(candidate(tmp_path / 'second', date='01.10.2026', cutoff='2026-09-30T15:00:00Z', quarter=4), read_revisions=revisions)
+    assert store.history_summaries(limit=1)[0]['release_id'] == second['release_id']
+    store.publish(candidate(tmp_path / 'third', date='02.10.2026', cutoff='2026-10-01T15:00:00Z', quarter=4), read_revisions=revisions)
+    assert [row['release_id'] for row in store.history_summaries(limit=1, before=second['release_id'])] == [first['release_id']]

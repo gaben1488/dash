@@ -2,6 +2,17 @@ import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
 import { reportReleaseRoutes } from './report-releases.js';
 
+it('reads a bounded history page separately from the selected release detail', async () => {
+  const app = Fastify();
+  const read = vi.fn(async () => Buffer.from('{"releases":[],"next":null}'));
+  await app.register(reportReleaseRoutes, { read });
+  const before = `REL-${'a'.repeat(64)}`;
+  expect((await app.inject('/api/report-releases/history?before=' + before)).statusCode).toBe(200);
+  expect(read).toHaveBeenCalledWith('history', before, undefined, expect.any(AbortSignal));
+  expect((await app.inject('/api/report-releases/history?before=../private')).statusCode).toBe(400);
+  await app.close();
+});
+
 it('returns the stored projection and pinned documents without recalculating live data', async () => {
   const app = Fastify();
   const read = vi.fn(async (view: string) => Buffer.from(view === 'main' ? 'DOCX' : '{"snapshot_id":"frozen"}'));
