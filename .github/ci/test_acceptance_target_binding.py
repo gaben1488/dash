@@ -115,7 +115,7 @@ class AcceptanceTargetBinding(unittest.TestCase):
 
     def checkpoint_binding(self, *, corrupt=False):
         source = (Path(__file__).resolve().parents[1] / 'workflows/ci.yml').read_text()
-        prefix = source.split('            def checkpoint_metadata():\n',1)[1].split('                result.update(',1)[0]
+        prefix = source.split('            def checkpoint_metadata(storage_only=False):\n',1)[1].split('                result.update(',1)[0]
         code = textwrap.dedent(prefix)
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); backup=root/'worker-999999'/'backup'; runtime=root/'runtime'

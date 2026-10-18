@@ -7,6 +7,45 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_storage_census_is_metadata_only_and_never_discloses_paths(self):
+        files = {
+            'reports/published/releases/PRIVATE_RELEASE/snapshot.json': {'bytes': 9000, 'sha256': 'a' * 64},
+            'reports/published/releases/PRIVATE_RELEASE/retained_evidence/payloads/PRIVATE_SOURCE.json': {'bytes': 7000, 'sha256': 'b' * 64},
+            'reports/attempts/PRIVATE_ATTEMPT/bundle/identity.sqlite3': {'bytes': 6000, 'sha256': 'c' * 64},
+            'reports/attempts/PRIVATE_ATTEMPT/bundle/snapshot.json': {'bytes': 9000, 'sha256': 'a' * 64},
+        }
+        result = self.module.checkpoint_content_summary(files)
+        self.assertEqual(result['families']['snapshot.json'], {'files': 2, 'logical_bytes': 18000, 'unique_content_bytes': 9000})
+        self.assertEqual(result['families']['retained_source_payloads']['logical_bytes'], 7000)
+        self.assertEqual(result['families']['databases']['logical_bytes'], 6000)
+        self.assertEqual(sum(item['logical_bytes'] for item in result['areas'].values()), result['logical_bytes'])
+        self.assertEqual(result['families']['snapshot.json']['logical_bytes'],
+                         sum(item['logical_bytes'] for item in result['area_families'].values() if item['family'] == 'snapshot.json'))
+        import json
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_storage_mode_does_not_read_attempt_bodies_or_run_recovery(self):
+        import ast
+        import contextlib
+        import io
+        import json
+        import textwrap
+        source = (Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml').read_text()
+        body = []
+        for line in source.split('            def main():\n', 1)[1].splitlines():
+            if line.strip() and len(line) - len(line.lstrip()) <= 12:
+                break
+            body.append(line)
+        module = ast.parse(textwrap.dedent('            def main():\n' + '\n'.join(body)))
+        calls = []
+        scope = {'os': SimpleNamespace(environ={'STORAGE_CENSUS_ONLY': 'yes'}), 'json': json,
+                 'checkpoint_metadata': lambda **kwargs: calls.append(('checkpoint', kwargs)),
+                 'snapshot': lambda run: calls.append(('runtime', {})) or []}
+        exec(compile(module, '<actual-observer-main>', 'exec'), scope)  # noqa: S102 - trusted workflow function
+        with contextlib.redirect_stdout(io.StringIO()):
+            scope['main']()
+        self.assertEqual(calls, [('checkpoint', {'storage_only': True}), ('runtime', {})])
+
     def test_selected_acceptance_progress_reads_receipts_without_bulk_census(self):
         import ast
         import contextlib

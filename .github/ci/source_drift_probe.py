@@ -11,7 +11,7 @@ def checkpoint_content_summary(files):
     """Bounded backup-manifest statistics, not a live hash check or deletion plan."""
     if not isinstance(files, dict) or len(files) > 65536:
         raise ValueError('CONTENT_INVENTORY_INVALID')
-    groups, classes = {}, {}
+    groups, classes, families, areas, area_families = {}, {}, {}, {}, {}
     count = logical = 0
     for name, item in files.items():
         if not isinstance(name, str) or Path(name).is_absolute() or '..' in Path(name).parts or not isinstance(item, dict):
@@ -26,6 +26,25 @@ def checkpoint_content_summary(files):
         previous = groups.get(digest, (size, 0))
         groups[digest] = (size, previous[1] + 1)
         leaf = Path(name).name
+        parts = Path(name).parts
+        area = next((key for key in ('attempts', 'published', 'archives', 'inputs') if key in parts), 'other')
+        if len(parts) == 1:
+            area = 'root'
+        known = {'snapshot.json', 'manifest.json', 'source_manifest.json', 'dashboard.json',
+                 'diagnostic_protocol.json', 'recommendation_review.json', 'monthly.json', 'report_model.json',
+                 'qa.json', 'reconciliation.json', 'release_status.json', 'independent_audit.json',
+                 'closed_procedure_quality.json', 'identity_observations.json', 'procedure_lifecycle.json',
+                 'receipt.json', 'status.json'}
+        family = ('retained_source_payloads' if 'retained_evidence' in parts and 'payloads' in parts else
+                  'source_payloads' if 'payloads' in parts or leaf == 'capture.json' else
+                  'databases' if leaf.endswith(('.db', '.sqlite', '.sqlite3', '-wal', '-shm')) else
+                  'documents' if leaf.endswith('.docx') else leaf if leaf in known else
+                  'other_json' if leaf.endswith('.json') else 'other_files')
+        for group, key in ((families, family), (areas, area), (area_families, area + '/' + family)):
+            stats = group.setdefault(key, {'files': 0, 'logical_bytes': 0, 'hashes': {}})
+            stats['files'] += 1
+            stats['logical_bytes'] += size
+            stats['hashes'][digest] = size
         category = ('source_payloads' if 'snapshot_bundle' in Path(name).parts or leaf == 'capture.json' else
                     'report_models' if leaf == 'report_model.json' else 'receipts' if leaf == 'receipt.json' else
                     'documents' if leaf.endswith('.docx') else
@@ -42,6 +61,12 @@ def checkpoint_content_summary(files):
             'duplicate_logical_bytes': logical - unique,
             'duplicate_groups': sum(number > 1 for _, number in groups.values()),
             'physical_bytes_measured': False, 'content_reverified': False, 'deletion_plan': False,
+            'families': {key: {'files': value['files'], 'logical_bytes': value['logical_bytes'],
+                               'unique_content_bytes': sum(value['hashes'].values())} for key, value in sorted(families.items())},
+            'areas': {key: {'files': value['files'], 'logical_bytes': value['logical_bytes']} for key, value in sorted(areas.items())},
+            'area_families': {key: {'area': key.split('/')[0], 'family': key.split('/')[1],
+                                   'files': value['files'], 'logical_bytes': value['logical_bytes'],
+                                   'unique_content_bytes': sum(value['hashes'].values())} for key, value in sorted(area_families.items())},
             'classes': {key: {'files': value['files'], 'logical_bytes': value['logical_bytes'],
                               'unique_content_bytes': sum(value['hashes'].values())}
                         for key, value in sorted(classes.items())}}

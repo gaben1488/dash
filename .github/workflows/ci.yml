@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [metadata, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe, image-archive, image-retire]
+        options: [metadata, storage-census, release-progress, browser, proof-recovery, transport-probe, continue-check, continue-release, fresh-release, weekly-stage, monitoring-preview, registry-proof, registry-apply, api-timing, worker-observe, image-archive, image-retire]
         default: metadata
         description: "Read-only operational metadata or authenticated real-domain browser"
       browser_profile:
@@ -1570,6 +1570,8 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
         inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'storage-census' &&
+        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'release-progress' &&
         inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
        (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release ed3e4589 metadata' ||
@@ -1610,13 +1612,14 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release ed3e4589 metadata') && 'yes' || 'no' }}
+          STORAGE_CENSUS_ONLY: ${{ inputs.mode == 'storage-census' && 'yes' || 'no' }}
           RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for ed3e4589') && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
           CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
           CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
           WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance }}
         with:
-          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE
+          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1624,7 +1627,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -1959,7 +1962,7 @@ jobs:
                flags[key]+=a!=b and sorted(a)==sorted(b)
              print(json.dumps({'image_reference_order_only_changes':flags}),flush=True)
 
-            def checkpoint_metadata():
+            def checkpoint_metadata(storage_only=False):
              r,plan=current_release_plan()
              backup=r.BACKUP_BASE/plan['backup_reference']
              for name,path in [('fresh_backup',backup/'manifest.json'),('independent_trial',r.RUNTIME_DIR/'trial-proof.json')]:
@@ -1979,6 +1982,10 @@ jobs:
                 namespace={'__name__':'checkpoint_content_projector'}
                 exec(compile(code,'<reviewed-checkpoint-projector>','exec'),namespace)
                 print(json.dumps({'checkpoint_content_storage':namespace['checkpoint_content_summary'](value['files'])}),flush=True)
+                if storage_only:
+                 usage=os.statvfs('/var/lib/docker/volumes/aemr_server_data/_data')
+                 print(json.dumps({'checkpoint_metadata':result,'filesystem_free_bytes':usage.f_bavail*usage.f_frsize}),flush=True)
+                 continue
                 identities=sorted(set(subprocess.check_output(['docker','image','ls','--all','--quiet','--no-trunc'],text=True,timeout=20).split()))
                 assert len(identities)<=256 and all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for identity in identities)
                 images=json.loads(subprocess.check_output(['docker','image','inspect',*identities],text=True,timeout=30)) if identities else []
@@ -2301,6 +2308,10 @@ jobs:
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
             def main():
+             if os.environ.get('STORAGE_CENSUS_ONLY')=='yes':
+              checkpoint_metadata(storage_only=True)
+              print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
+              return
              if os.environ.get('RELEASE_PROGRESS_ONLY')=='yes':
               worker_operational_metadata(include_saved=False)
               if os.environ.get('WORKER_ACCEPTANCE',''):
