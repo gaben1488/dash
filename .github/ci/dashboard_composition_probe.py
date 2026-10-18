@@ -75,6 +75,11 @@ def main():
             if value is not None and same_scope(value, YEAR):
                 history.append(summarize(value))
                 break
+        initial = connection.execute('SELECT id FROM snapshots WHERE created_at=? LIMIT 2',
+                                     ('2026-10-18T15:59:37.937Z',)).fetchall()
+        initial_summaries = [summarize(value) for (identifier,) in initial if (value := load(identifier)) is not None]
+        catalog = connection.execute('SELECT created_at,row_count,metrics_count,length(data) FROM snapshots '
+            'ORDER BY created_at DESC LIMIT 12').fetchall()
         table_count = connection.execute('SELECT count(*) FROM procurement_rows WHERE snapshot_id=?',
                                          (current['id'],)).fetchone()[0]
     finally:
@@ -83,6 +88,7 @@ def main():
         'response_bytes': len(body), 'response_sha256': hashlib.sha256(body).hexdigest(),
         'http': summarize(current), 'stored': None if stored is None else summarize(stored),
         'saved_atoms_table_count': table_count, 'pre_cutover_same_year': history,
+        'initial_window_snapshot': initial_summaries, 'recent_catalog_counts': catalog,
         'history_comparison_available': bool(history), 'performance_accepted': False}, sort_keys=True))
 
 
