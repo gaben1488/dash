@@ -21,6 +21,14 @@ SHA = '78d293b217a8afe982583c73bc67aaccdb4d906c'
 SOURCE_SHA256 = os.environ.get('IMAGE_RETENTION_SHA', '')
 LOCK_FD = None
 PHASE = 'ADMISSION'
+CAPACITY_MODE = False
+CAPACITY_SOURCE = 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+CAPACITY_CANDIDATE = 'af5b233502f30b36a0c049765e1ffdbec2877145'
+# Exact sampled deployment caches only. Business data and backup archives are never removed.
+CAPACITY_TARGETS = {
+    'sha256:d2f366681cceb21233202cf45165c1fc2049fc2c4d4b1ba62b3e996fd8d7ae14': 'bfd625fcb7d66ab504de9fe8827a225ba95a7082',
+    'sha256:694f6553c4d8135a9b5344eb98982f2844173b9e75b04f4a5d8a701c47bcc580': 'bae73c20c94b866540e61e63e9d764e41b3ff8a6',
+}
 
 
 def require(value):
@@ -43,6 +51,24 @@ def select_images(images, containers, protected, expected):
     used = protected | {record['Image'] for record in containers}
     return sorted(record['Id'] for record in images if record['Id'] in expected
                   and record['Id'] not in used and not record.get('RepoTags') and not record.get('RepoDigests'))
+
+
+def select_capacity_images(images, containers, protected):
+    admitted = []
+    for record in images:
+        source = CAPACITY_TARGETS.get(record.get('Id'))
+        if (source and record.get('RepoTags') == ['aemr-server:release-' + source]
+                and not record.get('RepoDigests')
+                and (record.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.revision') == source):
+            admitted.append({**record, 'RepoTags': []})
+    return select_images(admitted, containers, protected, list(CAPACITY_TARGETS))
+
+
+def capsule_has_state_archive(capsule):
+    # A deleted predecessor archive is no longer a restore root. Its metadata
+    # remains in the ledger; every extant (even dangling) archive still protects
+    # its images. Current plan, stage and accepted state are always separate roots.
+    return any(os.path.lexists(path) for path in capsule.glob('*/state.tar.gz'))
 
 
 def retire(plan, observe, remove):
@@ -117,11 +143,24 @@ def observe():
         body = owned(path, reference_only=True)
         total += len(body)
         require(total <= 16 * 1024**2)
-        protected |= references(json.loads(body))
+        is_capsule = path.is_relative_to(BACKUPS)
+        retained_archive = is_capsule and capsule_has_state_archive(path.parent)
+        if not CAPACITY_MODE or not is_capsule or retained_archive:
+            protected |= references(json.loads(body))
         stamps[str(path)] = hashlib.sha256(body).hexdigest()
+        if CAPACITY_MODE and is_capsule:
+            stamps[str(path) + ':state_archive_present'] = retained_archive
+    if CAPACITY_MODE:
+        stage = json.loads(owned(STATE / 'release-runtime/stage.json'))
+        require(stage.get('release_sha') == CAPACITY_CANDIDATE)
     PHASE = 'ACCEPTED_RELEASE'
     plan = json.loads(owned(STATE / 'release-runtime/trial-plan.json'))
-    accepted = json.loads(owned(STATE / 'release-accepted.json'))['acceptance']
+    marker = json.loads(owned(STATE / 'release-accepted.json'))
+    accepted = marker['acceptance']
+    if CAPACITY_MODE:
+        require(marker.get('plan_sha256') == digest(plan)
+                and accepted.get('state') == 'RELEASE_CANDIDATE_ACCEPTED'
+                and accepted.get('manifest_sha256') == plan.get('manifest_sha256'))
     require(plan['release_sha'] == accepted['release_sha'] == SHA
             and plan['candidate_images'] == accepted['candidate_images'])
     PHASE = 'RUNTIME'
@@ -146,7 +185,9 @@ def observe():
     identifiers = sorted(set(command(['image', 'ls', '--all', '--quiet', '--no-trunc']).split()))
     require(0 < len(identifiers) <= 64 and all(re.fullmatch('sha256:[a-f0-9]{64}', value) for value in identifiers))
     images = json.loads(command(['image', 'inspect', *identifiers]))
-    return {'selected': select_images(images, containers, protected, EXPECTED),
+    selected = (select_capacity_images(images, containers, protected) if CAPACITY_MODE
+                else select_images(images, containers, protected, EXPECTED))
+    return {'selected': selected,
             'protected_selected_ids': sorted(set(EXPECTED) & (protected | {row['Image'] for row in containers})),
             'reference_digest': digest(stamps), 'runtime_digest': digest(core),
             'operator_sha256': SOURCE_SHA256}
@@ -171,8 +212,12 @@ def atomic_json(path, value):
 
 
 def main():
-    global LOCK_FD
-    require(os.geteuid() == 0 and sys.argv[1:] in (['plan'], ['apply'], ['verify-completed'])
+    global LOCK_FD, CAPACITY_MODE, EXPECTED, SHA
+    if sys.argv[1:] in (['capacity-plan'], ['capacity-apply']):
+        CAPACITY_MODE = True
+        EXPECTED = sorted(CAPACITY_TARGETS)
+        SHA = CAPACITY_SOURCE
+    require(os.geteuid() == 0 and sys.argv[1:] in (['plan'], ['apply'], ['verify-completed'], ['capacity-plan'], ['capacity-apply'])
             and re.fullmatch('[a-f0-9]{64}', SOURCE_SHA256))
     os.umask(0o077)
     lock_path = Path('/run/lock/aemr-maintenance.lock')
@@ -182,7 +227,7 @@ def main():
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1)
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         LOCK_FD = lock.fileno()
-        root = STATE / 'image-retention'
+        root = STATE / ('image-retention-capacity' if CAPACITY_MODE else 'image-retention')
         require(not root.is_symlink())
         root.mkdir(mode=0o700, exist_ok=True)
         require(root.stat().st_uid == 0 and stat.S_IMODE(root.stat().st_mode) == 0o700)
@@ -192,8 +237,10 @@ def main():
             print(json.dumps({'status': 'PREVIOUS_IMAGE_RETIREMENT_VERIFIED', 'removed': result['removed'],
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
             return
-        if sys.argv[1] == 'plan':
+        if sys.argv[1] in ('plan', 'capacity-plan'):
             plan = observe()
+            if CAPACITY_MODE:
+                require(plan['selected'] == EXPECTED and not plan['protected_selected_ids'])
             atomic_json(root / 'plan.json', plan)
             print(json.dumps({'status': 'UNREFERENCED_IMAGES_DRY_RUN', 'selected_ids': plan['selected'],
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))

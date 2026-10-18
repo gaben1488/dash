@@ -20,6 +20,70 @@ class ImageRetentionTests(unittest.TestCase):
         self.ids=['sha256:'+letter*64 for letter in 'abcd']
         self.images=[{'Id':value,'RepoTags':None,'RepoDigests':None} for value in self.ids]
 
+    def test_capacity_targets_require_exact_source_and_sole_tag(self):
+        identity, source = next(iter(self.module.CAPACITY_TARGETS.items()))
+        image = {'Id': identity, 'RepoTags': ['aemr-server:release-' + source], 'RepoDigests': [],
+                 'Config': {'Labels': {'org.opencontainers.image.revision': source}}}
+        select = self.module.select_capacity_images
+        self.assertEqual(select([image], [], set()), [identity])
+        self.assertEqual(select([image], [{'Image': identity}], set()), [])
+        self.assertEqual(select([image], [], {identity}), [])
+        for change in ({'RepoTags': []}, {'RepoTags': image['RepoTags'] + ['OTHER']},
+                       {'RepoDigests': ['sha256:' + 'a'*64]}, {'Config': {'Labels': {}}},
+                       {'Id': self.ids[0]}):
+            with self.subTest(change=change):
+                self.assertEqual(select([{**image, **change}], [], set()), [])
+
+    def test_capacity_retains_every_capsule_that_still_has_a_state_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capsule = Path(temporary)
+            backup = capsule/'backup'; backup.mkdir()
+            self.assertFalse(self.module.capsule_has_state_archive(capsule))
+            archive = backup/'state.tar.gz'; archive.write_bytes(b'backup')
+            self.assertTrue(self.module.capsule_has_state_archive(capsule))
+            archive.unlink(); archive.symlink_to('missing')
+            self.assertTrue(self.module.capsule_has_state_archive(capsule))
+
+    def test_capacity_protection_uses_current_roots_and_extant_archives(self):
+        m = self.module
+        with tempfile.TemporaryDirectory() as folder:
+            m.STATE = Path(folder)/'state'; m.BACKUPS = Path(folder)/'backups'
+            m.CAPACITY_MODE = True; m.SHA = m.CAPACITY_SOURCE; m.EXPECTED = sorted(m.CAPACITY_TARGETS)
+            core = dict(zip(('server', 'report-worker', 'web', 'caddy'), self.ids, strict=True))
+            plan = {'release_sha': m.SHA, 'candidate_images': core, 'manifest_sha256': 'f'*64}
+            marker = {'plan_sha256': m.digest(plan), 'acceptance': {**plan, 'state': 'RELEASE_CANDIDATE_ACCEPTED'}}
+            documents = {m.STATE/'release-runtime/trial-plan.json': plan,
+                         m.STATE/'release-accepted.json': marker,
+                         m.STATE/'release-runtime/stage.json': {'release_sha': m.CAPACITY_CANDIDATE}}
+            targets = list(m.CAPACITY_TARGETS)
+            for index, identity in enumerate(targets):
+                documents[m.BACKUPS/('worker-'+str(index))/'runtime.json'] = {'image': identity}
+            for path, body in documents.items():
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(body))
+            m.owned = lambda path, **kwargs: path.read_bytes()
+            containers = [{'Id': str(index)*64, 'Name': '/aemr-'+role+'-1', 'Image': identity,
+                           'Config': {'Labels': {'com.docker.compose.project': 'aemr', 'com.docker.compose.service': role}},
+                           'State': {'Status': 'running', 'OOMKilled': False, 'Health': {'Status': 'healthy'}},
+                           'Mounts': [], 'RestartCount': 0} for index, (role, identity) in enumerate(core.items(), 1)]
+            images = [{'Id': identity, 'RepoTags': ['aemr-server:release-'+source], 'RepoDigests': [],
+                       'Config': {'Labels': {'org.opencontainers.image.revision': source}}}
+                      for identity, source in m.CAPACITY_TARGETS.items()]
+            def command(arguments):
+                if arguments[:2] == ['ps', '--all']: return '\n'.join(row['Id'] for row in containers)
+                if arguments[0] == 'inspect': return json.dumps(containers)
+                if arguments[:2] == ['image', 'ls']: return '\n'.join(targets)
+                return json.dumps(images)
+            m.command = command
+            before = m.observe(); self.assertEqual(before['selected'], sorted(targets))
+            archive = m.BACKUPS/'worker-0'/'backup'/'state.tar.gz'
+            archive.parent.mkdir(); archive.write_bytes(b'archive')
+            protected = m.observe()
+            self.assertEqual(protected['selected'], [targets[1]])
+            self.assertEqual(protected['protected_selected_ids'], [targets[0]])
+            self.assertNotEqual(before['reference_digest'], protected['reference_digest'])
+            (m.STATE/'release-runtime/stage.json').write_text(json.dumps({'release_sha': '0'*40}))
+            with self.assertRaises(ValueError): m.observe()
+
     def test_active_stopped_rollback_and_tagged_images_are_preserved(self):
         containers=[{'Image':self.ids[0],'State':{'Status':'exited'}}]
         protected=self.module.references({'previous':{'image':self.ids[1]},'private':'PRIVATE_SECRET'})

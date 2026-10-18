@@ -458,7 +458,9 @@ jobs:
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
       (github.event.head_commit.message == 'Plan unused image retirement for accepted 43f10742' ||
-       github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742')
+       github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' ||
+       github.event.head_commit.message == 'Plan runtime image capacity for af5b2335' ||
+       github.event.head_commit.message == 'Apply runtime image capacity for af5b2335')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     concurrency:
@@ -468,6 +470,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Bind reviewed image retention code
         run: |
+          python3 .github/ci/test_unused_image_retention.py
           python3 - <<'PY'
           import base64,hashlib,os
           from pathlib import Path
@@ -494,7 +497,7 @@ jobs:
             import base64,hashlib,os,sys
             body=base64.b64decode(os.environ['IMAGE_RETENTION_CODE'],validate=True)
             assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['IMAGE_RETENTION_SHA']
-            sys.argv=['-', '${{ github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' && 'apply' || 'plan' }}']
+            sys.argv=['-', '${{ github.event.head_commit.message == 'Apply runtime image capacity for af5b2335' && 'capacity-apply' || github.event.head_commit.message == 'Plan runtime image capacity for af5b2335' && 'capacity-plan' || github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' && 'apply' || 'plan' }}']
             exec(compile(body,'<reviewed-image-retention>','exec'),{'__name__':'__main__'})
             PY
   source-drift:
