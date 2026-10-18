@@ -32,13 +32,14 @@ archive3 228 754 890B; manifest4eb324382ee31ec7…/trialff524a8fb42a25fe…;
 оба actual restores111SQLite/266DOCX. Полные хэши/images — текущий PLAN.
 Desktop39093548595 и WebKitGTK39093550073 full13/Header/Undo/journal3/3Word
 PASS. Это не физический iPhone/Safari и не все права/правки. Observer39093234709
-ещё IN_PROGRESS: установка не равна полной приёмке.
-Metadata39093724973:4running/OOMfalse/restarts0; API03:23:30,
-worker03:24:14UTC, свободно5 603 995 648B в этом чтении. Контейнеры и
-штатный900sпослеfinish таймер сохранять до terminal observer proof.
-Early observer390919 истёк до активации; history follow-upFAIL в maintenance
-не переносится на историю принятого приложения. Не запускать новый generation
-в ответ на настоящий отказ цикла без разбора его evidence.
+SUCCESS: b424ff72(03:24:53–03:27:52) и fcece7f1(03:43:12–03:45:16UTC),
+оба VERIFIED_WITH_WARNINGS/RUNNING/doubleFLOCK, интервал920,315716s≥900;
+context/snapshot/3Word после каждого PASS. History9v2/1absent/0invalid,
+1684sealed неизменны. Readback39094933058 подтвердил атрибуции,4running/
+StartedAt/OOMfalse/restarts0 и два reference attempts4083B с roundtrip.
+Не повторять принятую приёмку без изменения зависимостей. Early observer390919
+истёк до активации; history follow-upFAIL в maintenance сохранён отдельно.
+При настоящем отказе следующего цикла читать его evidence, не stop/restore API.
 
 OPS c91b57b0 повторно использует проверенные exact-source образы; нет новой
 сборки, съедающей подготовленный capacity floor. Reference-aware cleanup
@@ -48,7 +49,9 @@ OPS c91b57b0 повторно использует проверенные exact-
 Не переносить целиком OPS ci.yml в приложение: downstream release/recovery
 выполнялись из exacted3, операторская ветка отдельно. Прежний checkpoint
 и historical source proofs не подменять доказательствами нового выпуска.
-Кандидат3a249ede (master/scorer) пока отдельно, не установлен.
+OPS ca98b824/e259e244 исправили bounded projector и чтение выбранных receipts
+без bulk census;27+7scoped/ruff и native readback PASS. Полная OPS suite
+не объявляется зелёной. Кандидат3a249ede (master/scorer) пока отдельно, не установлен.
 
 История78d (следующая запись не является текущим runtime):
 

@@ -5,7 +5,7 @@
 
 ---
 
-### Текущий выпуск — 18.10.2026, 03:35 UTC; установленed3, приёмка worker продолжается
+### Текущий выпуск — 18.10.2026, 03:49 UTC; ed3 установлен и принят в сценариях выпуска
 
 Установлен прикладной `ed3e4589a33a4b5bed3f4cab684ef1d519d0290d`:
 [release39091352612](https://github.com/gaben1488/dash/actions/runs/39091352612)
@@ -47,6 +47,33 @@ readback. Только два unreferenced untagged образа первой н
 старых workflow/SHA fixtures и локальных зависимостей; baseline воспроизводит
 выборку отказов. Он не объявлен зелёным и не смешан с прикладным source CI.
 
+Read-only timing39094274446 отказал до HTTP: передавался весь29799B
+source_drift_probe вместо нужного log projector при bound24576B. OPS
+`ca98b824b20cda6b117a2ae18d367f814097c690` передаёт только два исходных
+AST-function definitions4531B; SHA/прежний bound/правила приватности сохранены.
+RED29799>24576→GREEN, рост несвязанного source не меняет пакет;26projector и
+7target tests/ruff/YAML PASS. Native timing повторяется после изменения
+причины; это не новый runtime и не доказательство устранения API latency.
+
+[Timing39094482216](https://github.com/gaben1488/dash/actions/runs/39094482216)
+прочитал dashboard дважды: HTTP200,12 310 820B/одинаковый hash,
+0,970/0,811s, container CPU1,249/0,974s. Это warm чтение `refreshing` с
+captured_at03:32:57.940UTC, не cold/полностью свежая сборка и не selected Word
+GET. Runtime stage window этого режима — первые3мин после старта API,
+не время этих двух запросов; причинная корреляция с desktop17,5s не доказана.
+R01.05/C05.11 должны связать clock/window/endpoint, а C08.15 разделить
+summary/detail без потери обязательных чисел/полей. Нельзя объявить весь тракт
+быстрым по этому ограниченному измерению.
+
+Конкретная следующая проверка C05.11: paired selected-report GET с текущим
+request window/CPU и bounded field-size census dashboard, только фиксированные
+имена/байты/счётчики без значений. В dashboard.ts:420 уже есть явный HTTP
+projection без raw atoms/recalc tables: не писать ещё один такой же слой.
+Проверить объём snapshot.issues/recentIssues/officialMetrics/metadata/
+datasetAnalyses и всех web consumers до переноса detail; пока это гипотезы
+вклада в12,3МБ, не установленная причина17,5с. Scope/version/access и все
+обязательные числители сохраняются.
+
 Инвентарь нового checkpoint по сохранённым hashes, без повторного rehash:
 2583regular files/21 357 882 917logicalB/20 163 102 567unique-contentB,
 1 194 780 350duplicate-logicalB/134groups. Source payload441files/
@@ -67,13 +94,32 @@ PASS: те же13разделов/Header/touch/периоды/Undo/Pulse5/operat
 3289,1/2875,1ms; это иной запрос/условия, не объяснение desktop17,5с.
 Физический iPhone/Safari, все права и рабочие сценарии редактора не приняты.
 [Observer39093234709](https://github.com/gaben1488/dash/actions/runs/39093234709)
-ещё IN_PROGRESS. Metadata видит b424ff72,03:24:53–03:27:52UTC,
-VERIFIED_WITH_WARNINGS; без terminal observer proof это не два принятых цикла.
+SUCCESS: `TWO_AUTONOMOUS_CYCLES_VERIFIED`. Циклы
+`b424ff7237d44685ab1009aafff10674`,03:24:53.172697–03:27:52.497392UTC;
+`fcece7f19aa84330aac681e4a0a9b61f`,03:43:12.813108–03:45:16.282094UTC.
+Оба VERIFIED_WITH_WARNINGS/RUNNING/double host FLOCK, интервал
+920.315716s после finish≥900; после каждого context/snapshot/main/supplement/
+operational PASS.1684sealed entries сохранены; schema history9v2/1absent/
+0invalid, selected/current HTTP200 PASS. Это автоматическая эксплуатационная
+приёмка согласованного выпуска, не полная приёмка всех142работ и не два
+обязательно новых бизнес-выпуска.
+
+[Readback39094933058](https://github.com/gaben1488/dash/actions/runs/39094933058)
+подтвердил cutoff=max(реально вооружён03:20:09.640494, workerStartedAt03:24:14),
+оба attribution/proof и прежние4StartedAt/OOMfalse/restarts0. Оба retained
+attempts — REFERENCE4083logical/4096allocatedB, proof roundtrip/global4459296B
+совместим; это не перенос всех старых snapshots/provenance на diff storage.
+OPS `e259e244afb19024b38c58c96ad89356f5f90a17` при выбранном acceptance
+читает уже существующие small receipts и lstat, без повторного bulk census
+checkpoint/1,84ГБ terminal statuses. RED на неверном маршруте→GREEN,
+27source/projection tests+7target/ruff/YAML PASS, live selected readback PASS.
+Полная inventory по-прежнему доступна отдельно; proof-проверки не ослаблены.
 Первый observer39091952684 истёк до активации приложения; его history follow-up
 отказал в maintenance-окне. Эти результаты сохранены, не названы отказом
-реального нового worker либо доказательством повреждения истории. Повторный
-observer вооружён до активации с прежними конечными условиями; контейнеры
-до окончания приёмки не пересоздавать, таймер не ускорять.
+реального нового worker либо повреждением истории. Успешный observer был
+вооружён до активации с прежними конечными условиями; таймер не ускорялся,
+контейнеры во время приёмки не пересоздавались. Повторять принятую проверку
+не нужно без изменения её зависимостей.
 
 Следующий отдельный кандидат `3a249ede75857a595f1fbc420dbcdf9479c99c17`
 **не интегрирован и не установлен**: R05.03/master priority (`282d7ddf`)
@@ -84,10 +130,11 @@ applicability scorer остаются открытыми. C01.02/live formula/me
 C01.06/env fail-closed уже входят в установленныйed3; isolated negative
 checks не объявляются проверкой всех живых правок и персональных полномочий.
 
-Конечный остаток R09.01: два attributed автономных цикла и schema/history
-readback нового runtime, затем одна фиксация результата в PLAN/#69/#93.
-Все56результатов/142задачи/18групп/D01–D16/T001–T158/330сопоставлений
-сохраняются. Отдельный успешный выпуск не закрывает общую программу.
+R09.01 прошёл согласованные install/restore/API/UI/3Word/worker/history
+сценарии на ed3. Остаточная performance диагностика C05.11/C05.04, полный
+редактор/права/журнал, общие input/метрики/identity/diff storage и все13продуктовых
+сценариев остаются своими задачами. Все56результатов/142работы/18групп/D01–D16/
+T001–T158/330сопоставлений сохранены; эта поставка не закрывает общую программу.
 
 ### История выпуска78d — 17.10.2026; приёмка12:50UTC, кандидат bb207 CI13:35UTC
 
@@ -798,7 +845,7 @@ overrides/patches. Проверены версия10.33 и существующ�
 |---|---|---|---|---|
 | C04.01 | А/P1 | Первая общая вертикаль — официальная экономия AD=да, signed Z+AA+AB, общий input/rules/calendar, без plan−fact. | Независимый пересчёт исходных строк; future/today/invalid Q, no N и граница дня Камчатки проверены; API/BI/Word согласованы. | C08.02,R05.02 |
 | C04.02 | А/P1 | Общие money/date/percent/method типы: полное чтение значения, явный масштаб, формат процентов, реальный календарь и D для ТД-ПМ. | 123abc/Infinity/1 234,56, 1,5% vs доля, отрицательные суммы и 20 000 тыс. проходят независимые контрпримеры. | R05.01 |
-| C04.03 | Д/P1 | Scatter: убрать название официальной экономии у plan−price; определить отдельное снижение либо подключить AD-gated metric, исправить parser/method/activity/period. | Одна точка проверяется по исходной строке; unknown method не конкурентный, будущая Q и AD=нет не дают ложный сигнал экономии. | C04.01,C04.02 |
+| C04.03 | Д/P1 | Scatter: отделить снижение цены от лимита K от официальной AD-экономии и снижения от НМЦК; исправить parser/method/activity/period во всех consumers, включая CostOfRefusal. | Одна точка сверена с исходной строкой; недоказанный способ не считается доказанными торгами, будущая Q/AD=нет не дают ложный сигнал экономии. Тотальный КП/ЕП учёт СВОДа не ломается: unknownMethodRows и coverage объясняют иную базу cloud. | C04.01,C04.02 |
 | C03.01 | А/P1 | Все сочетания activity/method/budget/org/period — общий селектор и контекст, месяцы/кварталы/год производны плановой N. | Суммы частей=целое, количества/доли/примечания не обнуляются; legacy readers восстанавливают обязательные поля. | C04.02,C08.05 |
 | C05.01 | А/P1 | Исполняемый каталог показателей: значение, grain, numerator/denominator, scope, units, dependencies, provenance, версия правила. | Карточка/таблица/график/Word получают один результат; у каждого числа раскрытие к тем же строкам. | C03.01 |
 | C05.02 | А/P1 | Пропавшее обязательное поле — инженерный дефект тракта, не универсальное «неизвестно»; реальный ноль/нет знаменателя/неполный источник различимы. | Удаление поля DTO обнаруживается тестом; ограничения источника объяснены и не маскируют полузаглушку. | C05.01,C08.05 |
