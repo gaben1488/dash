@@ -47,6 +47,51 @@ permissions:
   contents: read
   actions: read
 jobs:
+  cancel-queued-duplicate-replay:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Cancel queued duplicate replay for 2579f36c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Validate the accepted proof, unchanged runtime and pending-only target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = gaben1488/dash
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/39136164006 > "$RUNNER_TEMP/replay-baseline.json"
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/39138684393 > "$RUNNER_TEMP/replay-pending.json"
+          gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39138684393/jobs?per_page=100' > "$RUNNER_TEMP/replay-pending-jobs.json"
+          gh api repos/$GITHUB_REPOSITORY/compare/4cb45eef7fc927f25506678d6f8883166dfbafb8...2579f36c958d1787a04b9a209446f05dd4e3c391 > "$RUNNER_TEMP/replay-dependencies.json"
+          python3 - <<'PYCANCEL'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          load=lambda name:json.loads((root/name).read_text())
+          baseline=load('replay-baseline.json');pending=load('replay-pending.json')
+          for run,sha in ((baseline,'4cb45eef7fc927f25506678d6f8883166dfbafb8'),(pending,'2579f36c958d1787a04b9a209446f05dd4e3c391')):
+              assert run['head_sha']==sha and run['path']=='.github/workflows/report-rehearsal.yml'
+              assert run['event']=='pull_request' and run['head_branch']=='codex/dash-audit-integrated-20261010'
+              assert run['head_repository']['full_name']=='gaben1488/dash'
+          assert baseline['id']==39136164006 and baseline['status']=='completed' and baseline['conclusion']=='success'
+          assert pending['id']==39138684393 and pending['status'] in {'pending','queued','waiting'}
+          assert load('replay-pending-jobs.json')['total_count']==0
+          diff=load('replay-dependencies.json')
+          assert diff['base_commit']['sha']==baseline['head_sha'] and diff['merge_base_commit']['sha']==baseline['head_sha']
+          assert diff['status']=='ahead' and diff['behind_by']==0 and diff['total_commits']==2
+          assert diff['commits'][-1]['sha']==pending['head_sha']
+          assert {row['filename'] for row in diff['files']}=={'.github/ci/browser_boundary_reuse.py','.github/ci/test_browser_boundary_reuse.py','.github/workflows/ci.yml','docs/PLAN.md'}
+          assert all(row['status'] in {'added','modified'} and 'previous_filename' not in row for row in diff['files'])
+          print('QUEUED_REPLAY_RUNTIME_DEPENDENCIES_UNCHANGED')
+          PYCANCEL
+          gh api --method POST repos/$GITHUB_REPOSITORY/actions/runs/39138684393/cancel > /dev/null
+          echo QUEUED_DUPLICATE_REPLAY_CANCEL_REQUESTED
   image-retire:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
