@@ -71,8 +71,9 @@ class DriftProbeTests(unittest.TestCase):
             exec(compile(module, '<actual-observer-main>', 'exec'), scope)  # noqa: S102 - trusted workflow function
             with contextlib.redirect_stdout(io.StringIO()):
                 scope['main']()
-            expected = 'receipts' if selected else 'bulk_checkpoint_census'
-            self.assertEqual(calls, [('worker', {'include_saved': False}), (expected, {}), ('runtime', {})])
+            expected = [('worker', {'include_saved': False})]
+            if selected: expected.append(('receipts', {}))
+            self.assertEqual(calls, [*expected, ('runtime', {})])
 
     def test_timing_transport_contains_only_bounded_runtime_projectors(self):
         import ast
