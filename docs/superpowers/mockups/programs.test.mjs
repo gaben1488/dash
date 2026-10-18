@@ -67,6 +67,15 @@ test('ТД с программой остаётся в ней; подведом�
   assert.equal(m.run('cohort().length'), 2);
 });
 
+test('Вид деятельности на экране подписан русскими ПМ/ТД, внутренние ключи не показываются', () => {
+  const m = setup();
+  const table = m.run('table(cohort())');
+  assert.match(table, /<small>ТД<\/small>/);
+  assert.match(table, /<small>ПМ<\/small>/);
+  assert.doesNotMatch(table, /<small>(?:TD|PM)<\/small>/);
+  assert.doesNotMatch(m.run('changes(cohort())'), /\bbaseline\b/);
+});
+
 test('Общий договор считается один раз, распределённые деньги не удваиваются', () => {
   const m = setup();
   assert.equal(m.run('linkedContracts(cohort()).length'), 5);
