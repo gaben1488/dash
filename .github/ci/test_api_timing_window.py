@@ -7,15 +7,35 @@ import json
 import os
 import re
 import sys
+import textwrap
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class TimingWindowTests(unittest.TestCase):
+    def validate_window(self, rows):
+        source = (ROOT / '.github/workflows/ci.yml').read_text().split('  api-timing:', 1)[1]
+        block = source[source.index('             rows=[json.loads'):source.index("            if resource=='report' and not latest:")]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(textwrap.dedent(block), '<actual-window-envelope>', 'exec'), {  # noqa: S102
+                'result': SimpleNamespace(stdout='\n'.join(json.dumps(row) for row in rows)),
+                'window': True, 'resource': 'dashboard', 'json': json, 're': re, 'datetime': datetime,
+            })
+        return [json.loads(line) for line in output.getvalue().splitlines()]
+
+    def test_actual_operator_accepts_window_envelope_and_rejects_private_summary_fields(self):
+        rows = self.run_window()
+        self.assertEqual(self.validate_window(rows), rows)
+        rows[-1]['PRIVATE'] = 'SECRET'
+        with self.assertRaises(AssertionError):
+            self.validate_window(rows)
+
     def run_window(self, fail_one=False):
         source = ast.literal_eval(re.search(r'^            code=(.*)$',
             (ROOT / '.github/workflows/ci.yml').read_text().split('  api-timing:', 1)[1], re.MULTILINE)[1])
@@ -49,6 +69,9 @@ class TimingWindowTests(unittest.TestCase):
         self.assertEqual(summary['failed'], 0)
         self.assertEqual(summary['quantile_method'], 'nearest_rank')
         self.assertIsInstance(summary['p95_within_sample_seconds'], float)
+        durations = sorted(row['elapsed_seconds'] for row in rows[:-1])
+        self.assertEqual(summary['p95_within_sample_seconds'], durations[18])
+        self.assertEqual(summary['p50_within_sample_seconds'], durations[9])
         self.assertFalse(summary['production_slo_accepted'])
 
     def test_failed_window_sample_is_kept_and_cannot_get_a_success_only_p95(self):
