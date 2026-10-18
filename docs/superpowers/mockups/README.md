@@ -15,7 +15,7 @@ runtime Header. Лента раскрывает исходные свидете�
 
 | Файл | Роль | Статус | Несёт § канона |
 |---|---|---|---|
-| `programs.html` | исследование нового раздела: список программ, состав, участники, положение дел, календарь и закупки; автономный интерактивный макет на учебных данных | предложение18.10.2026; проверены синтаксис и арифметика/отбор, visual/browser/a11y/mobile не приняты; Header13 не менялся | [DESIGN](../../../DESIGN.md#programs-concept-20261018), полный DoD карточки |
+| `programs.html` | новый раздел: широкий портфель, календарь/изменения, досье «Обзор / Закупки / Следующий год», все участники и закупки; автономный макет на учебных данных | предложение18.10.2026; 11смысловых Node-проверок PASS; visual/browser/a11y/mobile и полный DoD не приняты; Header13 не менялся | [DESIGN](../../../DESIGN.md#programs-concept-20261018), полный DoD карточки |
 | `pulse.html` | живой мега-макет Пульса (правит сосед — здесь не трогался) | живой | вся спека целиком |
 | `zarya-arheologiya.html` | археология рецепта зари по гиту (эпоха 853548a), доказательная база | живой, исторический документ | §20, §20.0, §20.1 — рецепт канонизирован |
 | `otdelki.html` | галерея шести машинных отделок на утверждённых цветах; источник §3 матрицы | живой | §21 п.2, §21.1 п.6 + §3 матрицы (порядок внедрения) |
@@ -209,3 +209,6 @@ Run `node --test scripts/build-navigation-qa.test.mjs` and, with Playwright
 Chromium installed, `python3 packages/web/scripts/navigation-qa-browser.py`.
 This verifies component behavior offline; it does not attest production data,
 source availability, financial calculations, authentication or release readiness.
+
+Проверка логики «Программ»: `node --test docs/superpowers/mockups/programs.test.mjs`.
+Она исполняет код учебного макета, не подтверждает браузерную доступность.
