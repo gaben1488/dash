@@ -237,9 +237,12 @@ jobs:
       - name: Verify real Node snapshot calculation without blocking HTTP
         run: |
           set -euo pipefail
+          # Combined 4000-row calculation + real SQLite persistence: measured
+          # 120344624B DB/WAL peak and 1093164KiB RSS locally. The former 64MiB
+          # scratch was for calculation only; production limits are unchanged.
           timeout --kill-after=5s 45s docker run --rm --interactive --network none --read-only \
-            --memory 1g --memory-swap 1g --cpus 1 --pids-limit 128 \
-            --tmpfs /tmp:rw,nosuid,size=64m --env NODE_OPTIONS=--max-old-space-size=7168 \
+            --memory 1536m --memory-swap 1536m --cpus 1 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=256m --env NODE_OPTIONS=--max-old-space-size=7168 \
             --entrypoint node aemr-server:ci --import tsx --input-type=module \
             < .github/ci/native_snapshot_calculation.mjs
       - name: Verify installed publication reader
