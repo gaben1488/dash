@@ -57,9 +57,9 @@ RUN corepack enable
 
 # Копируем всё дерево из builder. Это самый надёжный путь:
 # pnpm-структура с symlinks сохраняется как есть.
-COPY --from=builder /app /app
+COPY --from=builder --chown=node:node /app /app
 
-COPY packages/report-engine /app/packages/report-engine
+COPY --chown=node:node packages/report-engine /app/packages/report-engine
 # Reuse the reviewed Header API contract during closed-ingress release checks.
 COPY .github/ci/header_api_probe.mjs /opt/aemr/header_api_probe.mjs
 RUN python3 -m venv /opt/report-env \
@@ -70,7 +70,7 @@ RUN python3 -m venv /opt/report-env \
 RUN command -v flock >/dev/null
 
 # data/ — volume для SQLite
-RUN mkdir -p /app/packages/server/data && chown -R node:node /app
+RUN mkdir -p /app/packages/server/data && chown node:node /app/packages/server/data
 USER node
 
 ENV NODE_ENV=production
