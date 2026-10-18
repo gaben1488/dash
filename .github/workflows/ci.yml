@@ -3361,17 +3361,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      SCOPE_SOURCE_SHA: 78d293b217a8afe982583c73bc67aaccdb4d906c
+      SCOPE_SOURCE_SHA: 4cf90bc6370ebcb6fb3d482f451d0000d646d759
     steps:
       - uses: actions/checkout@v4
-      - name: Bind the exact read-only candidate module against installed 8d
+      - name: Bind the exact read-only candidate module against installed 257
         run: |
           python3 - <<'PY'
           import base64,hashlib,os,re,subprocess
           sha=os.environ['SCOPE_SOURCE_SHA'];assert re.fullmatch('[a-f0-9]{40}',sha)
           subprocess.run(['git','fetch','--quiet','origin',sha],check=True,capture_output=True)
           module='packages/server/src/services/issue-decisions.ts'
-          changed=subprocess.check_output(['git','diff','--name-only','8d5522620fc5fb916334bd0fa12986efc7db58a5',sha],text=True).splitlines()
+          changed=subprocess.check_output(['git','diff','--name-only','2579f36c958d1787a04b9a209446f05dd4e3c391',sha],text=True).splitlines()
           allowed={module,'packages/server/src/services/issue-decisions-history.test.ts','docs/PLAN.md','docs/RUNBOOK.md','docs/decisions/0012-bounded-dashboard-read-model.md','.mulch/expertise/aemr-server.jsonl'}
           assert set(changed)<=allowed and module in changed
           body=subprocess.check_output(['git','show',sha+':'+module])
@@ -3405,7 +3405,7 @@ jobs:
              assert 0<len(candidate_source)<=32768 and hashlib.sha256(candidate_source).hexdigest()==os.environ['CASE_SHA']
              assert re.fullmatch('[a-f0-9]{40}',os.environ['SCOPE_SOURCE_SHA'])
              record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
-             assert record['Image']=='sha256:cba048d9637b20afdcf9f9505cb076ca975cf8722bb33c0144b0a81c5d499f0e' and record['State']['Running']
+             assert record['Image']=='sha256:dbdd0d449c15cb91303305a9477104bf4716dab50d2101502e1d1093959db88e' and record['State']['Running']
              mount=next(item for item in record['Mounts'] if item['Destination']=='/app/packages/server/data')
              source=Path(mount['Source'])/'aemr.db';assert source.is_file() and not source.is_symlink()
              parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
@@ -3441,7 +3441,8 @@ jobs:
             const result=read(snapshot.issues,snapshot),used=process.cpuUsage(cpu),serialized=JSON.stringify(result);
             console.log(JSON.stringify({phase:'DECISION_PROFILE_COMPLETE',implementation,elapsed_ms:Math.round(performance.now()-start),cpu_ms:Math.round((used.user+used.system)/1000),history_queries:queries,result_count:result.length,result_sha256:createHash('sha256').update(serialized).digest('hex')}));return serialized;}
             const before=run(overlayPersistedStatus,'BASELINE'),after=run(candidateRead,'CANDIDATE');
-            if(before!==after)throw Error('DECISION_RESULTS_CHANGED');
+            const warmedBefore=run(overlayPersistedStatus,'BASELINE_WARM'),warmedAfter=run(candidateRead,'CANDIDATE_WARM');
+            if(before!==after||before!==warmedBefore||before!==warmedAfter)throw Error('DECISION_RESULTS_CHANGED');
             console.log(JSON.stringify({phase:'DECISION_PROFILE_EQUIVALENCE',results_equal:true}));
             db.$client.close();
             '''
@@ -3453,10 +3454,10 @@ jobs:
               assert all(set(row)<={'phase','implementation','results_equal','saved_cases','missing_saved_cases','current_issue_count','snapshot_scope','query','elapsed_ms','cpu_ms','history_queries','result_count','result_sha256'} for row in rows)
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
-              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'candidate_source_sha':os.environ['SCOPE_SOURCE_SHA'],'candidate_module_sha256':os.environ['CASE_SHA'],'base_source_sha':'8d5522620fc5fb916334bd0fa12986efc7db58a5','records':rows}}),flush=True)
+              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'candidate_source_sha':os.environ['SCOPE_SOURCE_SHA'],'candidate_module_sha256':os.environ['CASE_SHA'],'base_source_sha':'2579f36c958d1787a04b9a209446f05dd4e3c391','records':rows}}),flush=True)
               (work/'result.json').write_text(json.dumps({'exit_code':result.returncode,'records':rows}))
               assert result.returncode==0
-              assert len([row for row in rows if row['phase']=='DECISION_PROFILE_COMPLETE'])==2
+              assert len([row for row in rows if row['phase']=='DECISION_PROFILE_COMPLETE'])==4
               assert rows[-1]=={'phase':'DECISION_PROFILE_EQUIVALENCE','results_equal':True}
              finally:
               running=subprocess.run(['docker','inspect',probe_name],capture_output=True,text=True,timeout=10,check=False)
