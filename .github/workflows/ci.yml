@@ -3379,7 +3379,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as target:
            target.write('CASE_SOURCE='+base64.b64encode(body).decode()+'\n')
            target.write('CASE_SHA='+hashlib.sha256(body).hexdigest()+'\n')
-      - name: Profile the actual installed decision reader on one isolated SQLite copy
+      - name: Compare pure decision readers on one read-only SQLite transaction
         uses: appleboy/ssh-action@v1.2.0
         env:
           CASE_SOURCE: ${{ env.CASE_SOURCE }}
@@ -3395,9 +3395,8 @@ jobs:
           script: |
             set -euo pipefail
             sudo -n --preserve-env=CASE_SOURCE,CASE_SHA,SCOPE_SOURCE_SHA python3 -IB - <<'PYSCOPE'
-            import base64,hashlib,json,os,re,shutil,sqlite3,subprocess,tempfile,time
+            import base64,hashlib,json,os,re,subprocess,tempfile,time
             from pathlib import Path
-            from contextlib import closing
             def probe():
              os.umask(0o077);os.nice(15)
              deadline=time.monotonic()+360
@@ -3409,27 +3408,23 @@ jobs:
              mount=next(item for item in record['Mounts'] if item['Destination']=='/app/packages/server/data')
              source=Path(mount['Source'])/'aemr.db';assert source.is_file() and not source.is_symlink()
              parent=Path('/root/codex-fixes');parent.mkdir(mode=0o700,exist_ok=True)
-             work=Path(tempfile.mkdtemp(prefix='snapshot-index-',dir=parent));database=work/'aemr.db'
+             work=Path(tempfile.mkdtemp(prefix='decision-readonly-',dir=parent))
              probe_name='aemr-'+work.name
              (work/'candidate.ts').write_bytes(candidate_source)
+             # Substitute only connection acquisition in the disposable process:
+             # native queries/schema and both real readers remain unchanged.
+             (work/'readonly-db.ts').write_text("import Database from 'better-sqlite3';\nimport {drizzle} from 'drizzle-orm/better-sqlite3';\nimport * as schema from './schema.ts';\nexport {schema};\nexport const db=drizzle(new Database('/source/aemr.db',{readonly:true,fileMustExist:true}),{schema});\n")
              try:
-              with closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as src:
-               src.execute('PRAGMA query_only=ON')
-               size=src.execute('PRAGMA page_count').fetchone()[0]*src.execute('PRAGMA page_size').fetchone()[0]
-               free=shutil.disk_usage(work).free
-               print(json.dumps({'scope_probe_capacity':{'copy_bytes':size,'free_bytes':free,'floor_bytes':5*1024**3,'allowed':size>0 and free>size+5*1024**3}}),flush=True)
-               assert size>0 and free>size+5*1024**3
-               def progress(*args):
-                if time.monotonic()>deadline:raise TimeoutError()
-               start=time.monotonic()
-               with closing(sqlite3.connect(database)) as dst:src.backup(dst,pages=256,progress=progress,sleep=.01)
-               copied=round(time.monotonic()-start,3)
               code=r'''
             const {createHash}=await import('node:crypto');
             const {db}=await import('./src/db/index.ts');
             const {overlayPersistedStatus}=await import('./src/services/issue-decisions.ts');
             const {overlayPersistedStatus: candidateRead}=await import('./src/services/issue-decisions-candidate.ts');
             db.$client.pragma('cache_size=-32768');db.$client.pragma('temp_store=FILE');db.$client.pragma('query_only=ON');
+            if(!db.$client.readonly)throw Error('READONLY_CONNECTION_REQUIRED');
+            let writeBlocked=false;try{db.$client.prepare('DELETE FROM issues WHERE 0').run();}catch(error){writeBlocked=error.code==='SQLITE_READONLY';}
+            if(!writeBlocked)throw Error('READONLY_ENFORCEMENT_FAILED');
+            db.$client.exec('BEGIN');
             const stored=db.$client.prepare('SELECT data FROM snapshots ORDER BY created_at DESC LIMIT 1').get();
             if(!stored||typeof stored.data!=='string'||stored.data.length>64*1024*1024)throw Error('PROFILE_SNAPSHOT_BUDGET');
             const snapshot=JSON.parse(stored.data),ids=new Set(snapshot.issues.map(i=>i.id));
@@ -3446,7 +3441,7 @@ jobs:
             console.log(JSON.stringify({phase:'DECISION_PROFILE_EQUIVALENCE',results_equal:true}));
             db.$client.close();
             '''
-              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','-v',str(work)+':/probe:rw','-v',str(work/'candidate.ts')+':/app/packages/server/src/services/issue-decisions-candidate.ts:ro','-e','SQLITE_PATH=/probe/aemr.db','-e','NODE_ENV=test','-e','TMPDIR=/probe','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
+              result=subprocess.run(['docker','run','-i','--rm','--name',probe_name,'--label','aemr.scope-probe='+work.name,'--network','none','--read-only','--memory','512m','--cpus','0.5','--pids-limit','64','--user','0','--tmpfs','/tmp:rw,nosuid,size=64m','-v',str(source.parent)+':/source:ro','-v',str(work/'readonly-db.ts')+':/app/packages/server/src/db/index.ts:ro','-v',str(work/'candidate.ts')+':/app/packages/server/src/services/issue-decisions-candidate.ts:ro','-e','NODE_ENV=test','-e','TMPDIR=/tmp','--entrypoint','/usr/bin/timeout',record['Image'],'-k','5s','180s','node','--import','tsx','--input-type=module','-'],input=code,capture_output=True,text=True,timeout=max(1,deadline-time.monotonic()),check=False)
               (work/'native.stderr').write_text(result.stderr[-65536:])
               (work/'native.stdout').write_text(result.stdout[:16384])
               assert len(result.stdout)<=8192
@@ -3454,7 +3449,7 @@ jobs:
               assert all(set(row)<={'phase','implementation','results_equal','saved_cases','missing_saved_cases','current_issue_count','snapshot_scope','query','elapsed_ms','cpu_ms','history_queries','result_count','result_sha256'} for row in rows)
               after=json.loads(subprocess.check_output(['docker','inspect',record['Id']],text=True,timeout=15))[0]
               assert after['State']['Running'] and after['State']['StartedAt']==record['State']['StartedAt']
-              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'consistent_copy_bytes':size,'copy_seconds':copied,'candidate_source_sha':os.environ['SCOPE_SOURCE_SHA'],'candidate_module_sha256':os.environ['CASE_SHA'],'base_source_sha':'2579f36c958d1787a04b9a209446f05dd4e3c391','records':rows}}),flush=True)
+              print(json.dumps({'isolated_decision_profile':{'exit_code':result.returncode,'scope':'LIVE_READONLY_TRANSACTION','database_copy_bytes':0,'candidate_source_sha':os.environ['SCOPE_SOURCE_SHA'],'candidate_module_sha256':os.environ['CASE_SHA'],'base_source_sha':'2579f36c958d1787a04b9a209446f05dd4e3c391','records':rows}}),flush=True)
               (work/'result.json').write_text(json.dumps({'exit_code':result.returncode,'records':rows}))
               assert result.returncode==0
               assert len([row for row in rows if row['phase']=='DECISION_PROFILE_COMPLETE'])==4
