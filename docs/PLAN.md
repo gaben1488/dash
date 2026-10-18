@@ -18,8 +18,9 @@ C02.01–03/C07.01–04/C08.06/C08.14/C08.20/K06–K10/R06/R07, без втор�
 8листов,31направление/139групп/547рубрик,80осей,457draft+59legacy значений,
 30process rules,50QA,4618observations/9sources. Независимые подсчёты сошлись
 со сводкой; повторов кодов рубрик/observation IDs и отсутствующих назначенных
-рубрик нет. Это целостность кандидата, не точность классификации. Полные raw
-matrices/формулы и воспроизводящий ZIP не приложены; нужны holdout и проверка
+рубрик нет. Это целостность кандидата, не точность классификации. На момент первой сверки полные raw
+matrices/формулы и воспроизводящий ZIP ещё не были приложены; ZIP получен
+позднее18.10 (см. приём материалов ниже). Нужны holdout и проверка
 отрицаний/назначения/состава. Приватные extraction/verification сохранены в reports.
 
 Read-only [storage39097142056](https://github.com/gaben1488/dash/actions/runs/39097142056),
@@ -162,7 +163,7 @@ CostOfRefusal/их KB и явный API basis `plan_K_vs_recorded_fact_Y`. Чи�
 старых названий/правовых сигналов остаются в существующих задачах.
 
 Четвёртый отчёт владельца («Анализ мониторинга закупок2026», передан текстом;
-сам13-страничный DOCX и исходные20PDF здесь не приложены) уточняет приёмку
+на том шаге DOCX/20PDF отсутствовали; DOCX получен позднее18.10) уточняет приёмку
 C05.01/C06.01/C06.02/K01/K06/C04.01/C04.05. Организационная польза и отдельные
 ценовые результаты не доказывают совокупную дополнительную экономию мониторинга.
 Для чистого эффекта нужны сопоставимая база без вмешательства, затраты времени/
@@ -193,7 +194,8 @@ C05.01/C06.01/C06.02/K01/K06/C04.01/C04.05. Организационная по�
   действующее правило AD=да/signed Z+AA+AB общим вычитанием плана и факта.
 
 Пятый экономический отчёт владельца передан текстом; файл
-`Dash_economic_review_2026-10-18.md` отдельно не приложен. Авторский аудит
+`Dash_economic_review_2026-10-18.md` на том шаге отдельно не был приложен;
+полный файл получен позднее18.10 и включён в приём материалов. Авторский аудит
 относится кed3e4589/чтению книг18.10, а не к установленному сейчасaf5b или
 новому70613dc0. Его числа — контрольные случаи для независимой сверки, не
 повторно подтверждённое этой сессией текущее состояние книг.
@@ -240,7 +242,8 @@ C05.01/C06.01/C06.02/K01/K06/C04.01/C04.05. Организационная по�
 Это документальное дополнение к70613dc0; состав объявленной десятки не
 расширяется скрыто всем экономическим аудитом.
 
-Шестое дополнение — текст backend-атласа поbe8e1513. HTML отдельно не приложен;
+Шестое дополнение — текст backend-атласа поbe8e1513. HTML на том шаге ещё
+отсутствовал; полный файл получен позднее18.10 (см. приём материалов).
 заявленные каталоги24+10/98/728/53+22/38/31/96/305 остаются результатами
 автора атласа, не повторной инвентаризацией текущего HEAD. Синтетическое
 воспроизведение не устанавливает частоту дефекта в живых книгах.
@@ -272,13 +275,302 @@ raw-cells/Fraction, без вызова production metric_block. Изменен�
 TS-код после70613dc0 не менялся; его6160PASS/4tsc/lint сохранены.
 Остальные разрывы атласа остаются открытыми по прежним ID. Новый точный
 кандидат должен пройти CI/native replay/установку, эти стадии ещё не приняты.
+Read-only09:59:16UTC через Drive:8репозиторных default master-книг,
+4144возвращённых строки N:P,0 PLAN_YEAR_DATE_MISMATCH при распознанной N.
+Три книги имеют основной лист УДТХ/УФБП/УИО, остальные — ВСЕ. Это отдельные
+наблюдения трёх колонок без общей revision barrier, не полный QA/расчёт и не
+доказательство отсутствия дефекта во всех прошлых состояниях. Private capture
+SHA256 `b8059967772f46a5920373ed771012906d04eac88193726d28cc4383914760f2`.
+
+Седьмое дополнение — текст frontend-атласа поbe8e1513. Заявленные13разделов/
+29поверхностей/1024элемента/635записей типа метрика/75действий и59наблюдений
+(40code-confirmed/19risk) — авторский охват атласа. Это не1024уникальные метрики
+и не59подтверждённых production-сбоев. При первом получении текста файлы ещё
+отсутствовали; поиск library/Pages/Drive не нашёл их, владелец получил список.
+Позднее18.10 все пять запрошенных файлов предоставлены в составе17вложений.
+Эта прежняя граница доступности больше не является блокером.
+
+Приёмка C03.01/C04.01–03/C05.01/C05.03/K02.01/U01.01–15/U06.01/U06.03
+дополняется следующими конкретными случаями, без новой параллельной программы:
+
+* Числитель и знаменатель доли экономии используют один scope способа/
+  деятельности/бюджета/периода; drilldown и CSV воспроизводят тот же состав.
+  Строковая сумма при бюджетном отборе явно отличается от суммы выбранного бюджета.
+* Плановая стоимость незавершённого, K−Y, AD-экономия, строковые компоненты и
+  снижение к НМЦК различимы. Сортировка Свода «по экономии» не должна подменять
+  согласованное определение вычитанием. Условие Q и его валидность явны;
+  неизвестный текст/будущая дата не называются подтверждённым заключением.
+* Определения «не обеспеченные» Реестра и Доклада имеют собственные паспорта;
+  сравнение требует одинакового состава. Платежи/выплаты годовой корзины имеют
+  подтверждённую природу операции, не только стартовый номер строки.
+* В сезонном снижении НМЦК и итоговые цены относятся к одной завершённой
+  совокупности. «Без снижения» имеет общий порог/unknown и одинаковый drilldown.
+* applicable=false внутренней сверки показывает неприменимость, а не PASS.
+  Верхние totals/подписи показывают фактический scope/год; районный Отчёт имеет
+  собственный контекст, выбранный ГРБС не создаёт ложного впечатления его сужения.
+* Выбор процедуры по physical row работает при дублированном деловом коде;
+  метаданные из редактора действительно открывают карточку; черновик/возврат
+  сохраняются. Разрывные месяцы журнала не становятся сплошным интервалом.
+* Фиксированные суммы EconomyDisposalMock не принимаются за live-распоряжение
+  средствами; действие требует настоящего разрешённого workflow. Обе стороны
+  дельты и знак названы одинаково в числе, доказательстве и выгрузке.
+* Для каждого блока проверяются применимость общих/локальных фильтров,
+  source/snapshot/release и разные моменты свежести. Наличие кнопки, состояния
+  React или каталога не доказывает запись/readback или готовый пользовательский путь.
+
+Это документальное WIP после фиксацииa5a0398b; новые положения не объявлены
+исправленными и не изменяют его неизменяемый CI-образ.
+
+### Harness² — разбор предложенного владельцем источника, 18.10.2026
+
+Изучен [google-research/harness2](https://github.com/google-research/harness2/tree/1cfe254e8d25b15f37048c3730134686abe60335),
+закреплённый commit1cfe254e8d25b15f37048c3730134686abe60335, Apache2.0.
+Прочитаны README/EXPERIMENTS и относящиеся к выводу участки core/spec,
+recursion, ledger, library, selection, judge, runmark, Codex substrate и тестов.
+13файлов сохранены с SHA256 в private source-manifest; это выбранный срез,
+не аудит безопасности всего репозитория. Чужие scripts/установщики не выполнялись.
+
+Применимые приёмы уточняют R01.01/R01.02/R01.04/R01.05/C05.11, без нового ID:
+
+* Контрастная проверка: исходный и изменённый способ решают одну задачу на
+  одинаковом входе/критерии; фиксируются разные исполнения и причина выбора.
+  Вариант может быть отвергнут в пользу исходного. При отсутствии сопоставимого
+  входа изменение не называется доказанным улучшением.
+* Завершённость и конфигурация: наличие файла не доказывает законченный запуск;
+  повторное использование допускается по фактическому receipt и совпадающим
+  code/data/rules/schema/tool/config inputs. Исследовательский короткий SHA1
+  fingerprint Harness² не заменяет действующие SHA256/immutable proofs Dash.
+* Память опыта: сохраняются ситуация, вывод, конкретная evidence и граница
+  применимости; новые задачи читают только уже полученное знание. Пересказ
+  и рассуждение без evidence не становятся новым обязательным правилом.
+* Ограниченный эксперимент: заранее заданы попытки/время/ресурсы и условие
+  остановки. У самого Harness² учёт R=4k/P=3k относится к его rollout/editor
+  стадиям; это не обещание экономии токенов или числа наших CI-запусков.
+* Независимая оценка остаётся отдельной: в Harness² подбор поведения идёт без
+  ground-truth feedback, judge вызывается после выбора. Для Dash этого мало
+  для денег/identity/записи/выпуска — нужны frozen oracle и фактический readback.
+  Неоценённое остаётся неизвестным с покрытием; исключение failed judge из
+  среднего не превращает неполную карточку/приёмку в100%готовности.
+
+В текущем участке принцип контраста реализуется прежними RED→GREEN и native
+replay/A5 readback с точным входом; старый AF timeout сохранён как исходное
+свидетельство. Новое сравнение задержки будет приниматься только на установленном
+A5 с реальными request windows, без переноса старого PASS. Это применение
+методики, а не исполнение самого Harness² и не доказанный прирост от него.
+Codex executor upstream запускается с bypass approvals/sandbox/hook trust;
+этот режим не переносится в Dash. Автоматическое изменение наших разрешений,
+release gates или действующего полного определения готовности не допускается.
+Модели/платные benchmark API/зависимости/новый оркестратор не установлены;
+текущая десятка и единственный controller сохраняются.
+
+### Дизайнерская сверка владельца — 18.10.2026
+
+Переданные zarya-vystavka.html/index.css/package.json побайтно совпали с
+текущими tracked файлами. Всего принято20вложений/25 337 945B; исходная партия
+17остаётся отдельной исторической записью ниже. Независимый разбор a5a0398b,
+назначение материалов, типографика, библиотеки и границы проверки записаны в
+[существующем DESIGN](../DESIGN.md#design-review-20261018), без нового плана.
+Дизайнерский отчёт по70613dc и старому превью — основание проверки, не новая
+production-приёмка. Локальный Chromium отклонил HTML до загрузки
+(ERR_BLOCKED_BY_ADMINISTRATOR); новых экранных свидетельств не получено.
+Разрешение владельца на read-only просмотр сохраняется; повтор не запрашивается.
+
+| Уточнение | Существующие задачи | Условие следующего участка |
+|---|---|---|
+| Правдивые заголовки Экономии; равенство/нулевые периоды/signed значения | C05.01,C04.01,U01.09 | Заголовок следует данным; нулевой квартал не исчезает как отсутствие, отрицательные вклады не маскируются; independent oracle |
+| Читаемый вторичный текст, роли материалов/цветов и типографика | U02.01,U07.02,U04.01 | Обе темы, итоговый контраст и200%scale; старый Button-рецепт не распространяется до сверки с поздней Зарёй |
+| Раздельное раскрытие и отбор; видимое имя выбранного управления | U01.02,U03.01,C03.01,U06.03,U07.02 | Изменение поведения предъявляется владельцу до применения; общий отбор/возврат доказаны, скрытое имя не названо потерей фильтра |
+| ChartFrame/DataTable и доступное доказательство числа | U07.02,U01.05,U01.12,U04.01 | Интерактивность не скрыта aria-hidden; клавиатура/фокус/точные значения и те же строки; доступный scroll уже сохраняется |
+| Реестр→досье→возврат; число→источник; замечание→решение→readback | U01.01,U01.05,U01.13,U06.01–03,K01.01–03,K06.01–06,C06.01 | Каждый сценарий проходит весь критерий готовности карточки; сохранены scope/version/черновики и один дом сигнала |
+| Принятие существующих библиотек и общих компонентов | U04.01,U01.15,U06.04 | Сначала доказанный пробел/пилот; массовая замена таблиц, новые лицензии или обновление major не разрешены одним аудитом |
+
+Это предложения и подтверждённые локальные участки кода, не выполненный
+редизайн всех13страниц. Состав текущей десятки сохраняется. Следующая десятка
+объявляется до реализации; дизайнерский отчёт не становится скрытым вторым
+backlog и не отменяет первый BI-приоритет после выпуска.
+
+### Приём полного комплекта материалов — 18.10.2026
+
+Все17вложений получены и проверены по SHA256; недостающих из запрошенных пяти
+нет. Первичные книги/корпус классификатора сохраняются приватно вне Git.
+Навык library недоступен; переданные файлы прочитаны напрямую без запуска
+приложенных HTML/JS/Python. Приём материалов не меняет установленный runtime.
+
+| Материал | Установленный состав и версия | Предел проверки |
+|---|---|---|
+| Front MD+JSON | be8e1513;13разделов/29поверхностей/1024элемента,75действий,59наблюдений | JSON независимо разобран;3130ссылок/299файлов проверены по pinned Git,0ошибок.40code-confirmed/19code-risk — статусы автора, не production-приёмка.635метрических записей — агрегат census, не уникальные KPI. |
+| Backend HTML | be8e1513;98паспортов/728REPORT_MAP/53checks/22rules/38signals/96API | Встроенный application/json извлечён без исполнения JS; три synthetic proof сохранены. Это не наблюдение частоты дефектов в живых книгах. |
+| Economic review MD | ed3e4589;8мастеров+процедуры, датировано18.10 | Привязки/формулы/материальные неопределённости доступны; выводы старой версии не переносятся автоматически наA5. |
+| Roadmap MD | 7ae0ea54, установленный в том документеed3e4589 | Все142карточкиID совпадают с текущими142;56родителей присутствуют, T158 и330сопоставлений совпадают с каноном. Старые статусы остаются историческими. |
+| Анализ мониторинга DOCX |20срезов08.05–25.09 и поздние материалы до02.10 | Извлечены125абзацев/6таблиц/60hyperlinks;2изображения. Вёрстка/13страниц и все первичные архивные отчёты повторно не проверялись. Причинный ROI и воронка151→65→14 не доказаны. |
+| Classifier ZIP+MD+XLSX |34ZIPmembers, CRC PASS,31manifest hashes PASS; отдельныеMD/XLSX побайтно равныoutputsZIP; baseline0f3b92d6 |4618candidate/enriched observations,9sources;0accepted classifications. Доступен полный исследовательский корпус;50developmentQA/7scopequestions не заменяют holdout/precision/recall. |
+| Два storage census .py | Побайтно одинаковы, SHAfb8a61a6… | Код прочитан статически: обход metadata/lstat/scandir, без хеширования содержимого. Не запускался наVPS и не доказывает текущие занятые/свободные байты. |
+| Три HTML-макета Dash/navigation |43f10742, общий source-digest732d87f4… | Исходные прототипы/синтетический review; отличаются байтами. Не screenshot и не production browser proof. |
+| Anthropic navigator HTML+MD+JSON |catalog2026-10-16.2, preview-fix | Справочный учебный материал; не версия Dash, не поручение установить зависимости/модели. |
+
+Ниже сохранены **все59исходных ID наблюдений**, со связью с прежними задачами.
+Кодовый статус относится кbe8, слово risk сохраняет неопределённость.
+Наблюдение scatter-copy уже адресовано в веткеA5, эксплуатационная приёмка
+ещё открыта. Остальные строки не объявляются ни новыми задачами, ни заново
+подтверждёнными дефектами текущего приложения; R01.03 требует сверки callers и
+воспроизведения перед изменением.
+
+<details>
+<summary>59 наблюдений frontend-атласа → существующие исполнительные ID</summary>
+
+| Исходный ID | Статус автора наbe8 | Задачи |
+|---|---|---|
+| `control_shell-quality-filter-scope` | code-confirmed | C03.01,U01.13 |
+| `control_shell-trust-hardcoded-year` | code-confirmed | C03.01,U01.13 |
+| `control_shell-integrity-global-totals` | code-confirmed | C03.01,U01.13 |
+| `control_shell-integrity-deletion-copy` | code-confirmed | C02.01,K05.01,U01.13 |
+| `control_shell-validation-summary-unperformed` | code-risk | R05.03,K02.01,U01.14 |
+| `control_shell-settings-refresh-separate` | code-risk | U06.01,U01.14 |
+| `control_shell-journal-multiyear-scope` | code-confirmed | K06.01,C03.01,U01.13 |
+| `control_shell-journal-pagination-dept` | code-risk | U06.01,U01.13 |
+| `control_shell-issues-global-clear-local` | code-confirmed | C03.01,U06.03,U01.13 |
+| `control_shell-issues-reset-trust-filter` | code-risk | C03.01,U01.13 |
+| `control_shell-recon-export-scope` | code-confirmed | C03.01,R10.01,U01.13 |
+| `control_shell-calendar-coverage-stale` | code-risk | U06.01,C05.08 |
+| `control_shell-week-label-versus-base` | code-confirmed | C03.01,U01.02 |
+| `control_shell-annotations-stale-empty-copy` | code-confirmed | K06.02,U01.13 |
+| `control_shell-row-cleared-order` | code-confirmed | K06.01,U01.13 |
+| `control_shell-server-key-placeholder-export` | code-risk | C01.06,U01.14 |
+| `control_shell-modal-feed-limit` | code-confirmed | K06.01,C05.04,U01.13 |
+| `business-economy-filter-basis` | code-confirmed | C04.01,C03.01,U01.09,U01.12 |
+| `business-svod-economy-sort` | code-confirmed | C04.01,U01.04 |
+| `business-economy-sub-period` | code-confirmed | C03.01,U01.09 |
+| `business-analytics-hardcoded-ep-norm` | code-confirmed | C06.02,K02.01,U01.12 |
+| `business-analytics-scatter-stale-copy` | code-confirmed | C04.03,U01.12 |
+| `business-org-self-drill-widens` | code-risk | C03.01,U06.03 |
+| `business-analytics-activity-drill-narrows` | code-confirmed | C03.01,U06.03 |
+| `business-analytics-quarter-drill-drops-period` | code-confirmed | C03.01,U06.03 |
+| `business-analytics-unknowns-zero` | code-confirmed | C05.02,K02.01,U01.12 |
+| `business-forecast-total-projection-mismatch` | code-confirmed | C04.04,U01.12 |
+| `business-forecast-scope-stale` | code-risk | C04.04,C03.01,U01.12 |
+| `business-svod-recon-cause-inferred` | code-confirmed | C05.01,U01.04 |
+| `business-economy-reachable-mock` | code-confirmed | C04.05,U01.09 |
+| `business-analytics-kpi-fallback-scope` | code-risk | C03.01,U06.01,U01.12 |
+| `business-signals-zero-coverage` | code-risk | K02.01,U01.02 |
+| `business-svod-read-moment-source` | code-risk | C08.02,U01.04 |
+| `business-svod-kb-shares` | code-confirmed | C05.01,U01.04 |
+| `business-analytics-centralization-overlap` | code-confirmed | C02.03,C03.01,U01.12,U01.10 |
+| `business-anomaly-dual-benford` | code-confirmed | C05.01,K02.01,U01.12 |
+| `business-svod-zero-count-money-hidden` | code-risk | C05.02,U01.04 |
+| `registry_monitoring-editor-note-card-unmounted` | code-confirmed | U01.05,K06.02 |
+| `registry_monitoring-editor-empty-stale` | code-risk | U06.01,U01.05 |
+| `registry_monitoring-editor-browse-after-save` | code-risk | C01.03,U06.01,U01.05 |
+| `registry_monitoring-unfunded-not-identical` | code-confirmed | C05.01,U01.06,U01.03 |
+| `registry_monitoring-registry-severity-preset` | code-risk | C06.01,U01.05 |
+| `registry_monitoring-season-denominator` | code-confirmed | C05.01,C04.02,U01.08 |
+| `registry_monitoring-zero-inconsistent` | code-confirmed | C05.01,C03.01,U01.08 |
+| `registry_monitoring-analytics-scope-label` | code-confirmed | C03.01,U01.08 |
+| `registry_monitoring-match-canonical-clean` | code-confirmed | K02.01,U01.08 |
+| `registry_monitoring-match-no-comparison-clean` | code-risk | K02.01,U01.08 |
+| `registry_monitoring-legacy-ancestors-unreachable` | code-confirmed | U01.08,R01.03 |
+| `registry_monitoring-scopes-diagnostic-lists` | code-confirmed | C03.01,U01.08 |
+| `registry_monitoring-fates-query-drill` | code-risk | U06.03,U01.08 |
+| `registry_monitoring-zero-group-drill` | code-confirmed | C03.01,U06.03,U01.08 |
+| `registry_monitoring-legacy-copy` | code-confirmed | C05.01,U01.08 |
+| `registry_monitoring-supplier-causal-copy` | code-confirmed | C05.01,K02.01,U01.08 |
+| `registry_monitoring-drawer-duplicate-blocked` | code-confirmed | C02.01,U01.08 |
+| `registry_monitoring-drawer-local-share-context` | code-risk | C02.03,C03.01,U01.08 |
+| `registry_monitoring-scoped-split-null-semantics` | code-risk | C04.02,C05.02,U01.08 |
+| `report_core-hidden-signed-economy` | code-confirmed | C04.01,U01.03 |
+| `report_core-unfunded-causal-caption` | code-confirmed | C05.01,U01.03 |
+| `report_core-refresh-analytic-independent` | code-confirmed | C08.02,U06.01,U01.03 |
+
+</details>
+
+### Подтверждение полного критерия карточки — 18.10.2026
+
+Владелец повторно передал полный текст существующего
+[определения готовности карточки](superpowers/specs/2026-08-21-card-done-definition.md).
+Файл уже содержит все семь разделов дословно по смыслу; второй checklist не
+создаётся. «Карточка доведена» — только весь список и приёмка владельцем;
+частичный код/CI/установленный компонент остаются отдельными стадиями работы.
+Для C03.01/C05.01/C05.02/U01.01–15/U06/U07 обязательны все применимые оси и
+явная неприменимость остальных, паспорт из фактического среза, источник/время/
+БЗ2.0, точный переход к основаниям, различение пустот/неоценённого, один дом
+сигнала, обе темы/ролевые цвета/общие пороги и смысловой тест каждого обещания.
+Перед решением, меняющим смысл карточки, владельцу предъявляются экран,
+действующие оси, источник числа и результат клика. Проверки Header/navigation
+или отдельных исправлений не закрывают эту приёмку всех карточек.
+
+### Установка A5 и открытая приёмка — 18.10.2026, 11:03UTC
+
+Установлен a5a0398b4dec42de2c071cc2271aba3af7d8e02b:
+[controller39119335350](https://github.com/gaben1488/dash/actions/runs/39119335350)
+SUCCESS; CI artifact fetched/verified/loaded без сборки приложения при promotion,
+свежая полная копия и два независимых restore candidate/previous PASS.
+EXACT_SHA_CANDIDATE_ACCEPTED11:02:36UTC, public health/3nativeWord/resume PASS.
+Паспорт234cd76e323a12830e4231427cc767cdf2a7c954dd774324c89d6d4d4bba91d8 PASS.
+Images: server/worker1e6be3b2d8f748041458e78f6deaf640974b730d3e11a7d264417b1159c700ba;
+web561b6411cf9d62a1a4ac2de9e0443f853df9d4e92f392d4347f1dee054ed984e;
+Caddy4c6e91c6… прежний. Backup07:11 и independent restore18:27 — длительности
+шагов10:32:32–10:39:43 и10:39:43–10:58:10, не обещание downtime следующего выпуска.
+
+CI39116541174 attempt1 сохранил journal FETCH timeout15046ms на старом AF.
+После фактической установкиA5 повторены только failed jobs: attempt2 SUCCESS;
+journal/sources/buckets/comments contracts,425metric nodes/0contradictions/
+77annual recoveries и report contract PASS. Остальные source jobs не подменены
+новым runtime. Native39116541167 SUCCESS; историческая #REF-неделя остаётся
+UNCHANGED_FROZEN_SOURCE_REFUSAL, не принятой исторической публикацией.
+
+WebKit39121739239/job117658551263 SUCCESS11:10:13разделов/Header/периоды/Undo/
+журнал/4operations/3Word с native hashes/Back/reload/exact pin. Selected8,212s,
+exact return22,043s — скорость не принята; это GTK, не физический iPhone/Safari.
+Desktop39121736689/job117658544243 FAILED на Word CHECKING/transport;
+13разделов/шапка/периоды пройдены. Изолированный desktop39122779082/job117661587376
+FAILED на exact pin: selected24,454s, триWord HTTP200. Ни один не назван PASS.
+
+Observers39120862001/job117656013589 и39122776525/job117661579624 FAILED на
+stable runtime assertion; последующие schema readback тоже недоступны в этих
+попытках, повреждение схем этим не доказано. Server.StartedAt11:00:13 →11:06:43
+→11:22:14UTC при прежнем image/OOMfalse/restarts0. Прочие3StartedAt прежние:
+worker11:02:26, web11:00:13, Caddy11:02:29. Read-only lifecycle39122586224/
+39122956900 подтвердили два события guard server/restart и Docker SIGTERM/
+exit143/start; policy3failed probes/cooldown300s. Это доказанный инициатор
+смены процесса A5. Точная причина каждой failed probe не установлена;
+AF08:02 по аналогии не переатрибутируется. Первый автономный A5c33a08d0:
+11:03:57–11:14:54 VERIFIED_WITH_WARNINGS; сам по себе не два принятых цикла.
+
+Startup39121681507: первые3мин API, OS cache uncontrolled; status0,626–1,654s,
+Dashboard1,269–2,236s; journal6,177/2,830s. Отдельное окно перед вторым restart:
+perimeter→save_begin16,376s, save4,323s, retention3,708s; Dashboard17,025s/
+event-loop9,606s, journal14,859s/event-loop8,418s. Inclusive окна не складывать;
+это не p95 и не доказанная точная причина всех задержек. Верхние yield A5
+оказались недостаточны для приёмки. В прежнем C05.04/C05.11, после ADR0012,
+готовится ограниченный offload чистого расчёта в один Node worker_thread,
+без второго report-worker/изменения формул/SQL-транзакции. Он ещё не установлен.
+
+Offload-кандидат послеA5: RED настоящего ожидающего HTTP → GREEN при расчёте
+в отдельном isolate; чистый runPipeline/attachUnifiedGrid не дублируются,
+правила берутся из того же build, clock/SHDYU фиксируются до async границы.
+Один расчёт, V8 old-generation512MiB/deadline120s, failure/exit/termination/
+таймаут не оставляют второй isolate. Фиксированные отказы имеют объяснение
+«расчёт снимка не завершён», без transport retry/подмены непрочитанной книгой.
+Полный локальный итог:771shared+1895core+1145server+2361web=6172PASS/1skip,
+4tsc PASS, lint0errors/299прежних warnings. Source classifier RED→GREEN,
+11worker lifecycle/HTTP/parity tests PASS. Synthetic4000/Node24:1,983s,
+max-child RSS429348KiB, HTTP обслужен до завершения; это не production/p95.
+В production-image CI добавлен настоящий Node22/tsx HTTP+4000rows smoke в
+network-none/read-only/1CPU/1GiB до sealing immutable artifact; его PASS ещё
+впереди. Это тот же C05.04/C05.11 текущей десятки, не новая UI-перестановка.
+
+OPS1a0298b0/28f30a5b добавили только bounded read-only lifecycle projection:
+20мин/200journal lines/3000Docker log lines/1MiB transport, фиксированные
+service/event/time/CPU/stage; no primary values.7privacy/capture+29projector+
+7binding/ruff/YAML PASS; первый YAML indentation regression исправлен до push.
+Транспорт10847B≤24576B, UTC проверяется настоящим Node offset. Whole OPS529
+по-прежнему не объявлен зелёным. Private receipts/исходные FAIL сохранены.
 
 ### Текущая десятка — поручение владельца18.10.2026
 
 Владелец поручил заранее называть десять задач, выполнять их и выпускать
 обновление. Состав ниже объявлен до реализации; он не заменяет полный реестр.
 Исходная интеграция95e69e03: CI39095343451 и rehearsal39095343434 SUCCESS;
-следующая установкаaf5b2335 выполнена18.10 в07:58UTC, приёмка десятки открыта.
+последняя установкаa5a0398b выполнена18.10 в11:03UTC, приёмка десятки открыта.
 Старые принятые проверки не считаются новыми результатами этой десятки.
 Полные критерии и зависимости — в карточках
 с теми же ID ниже. Необходимые обеспечивающие изменения входят в этот участок,
@@ -286,16 +578,16 @@ TS-код после70613dc0 не менялся; его6160PASS/4tsc/lint со�
 
 | № | ID | Конечный результат участка | Стадия |
 |---|---|---|---|
-| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Установленaf5b; exact release/source/API readback PASS, общий release acceptance открыт |
-| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Установленaf5b; CI6156TS/1210Python PASS, native3Word PASS |
-| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Установленaf5b;13страниц desktop PASS, полная filter/oracle приёмка отдельно |
-| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Установленaf5b; измерены HTTP/stages/startup/worker, p95/cold acceptance открыт |
-| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Установленaf5b; schema history PASS, whole-bundle GET исправляется |
-| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Установленaf5b; status26s и startup Dashboard13.6s не приняты; scoped artifact read в ветке |
-| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Установленaf5b; desktop navigation/periods PASS, WebKit повторная приёмка открыта |
-| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Установленaf5b; desktop39110967996 Back/reload/exact Word pin PASS |
-| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Установленaf5b; queue contract и два автономных цикла39110966645 PASS; новая версия требует своей приёмки |
-| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | af5b CI39105151600/release39107628324 SUCCESS;2restore/passport/resume/desktop/2cycles PASS; WebKit/скорость открыты |
+| 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | УстановленA5; source/API425/77 и report contract PASS; общая приёмка открыта |
+| 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | УстановленA5;6160TS/1244Python и native3Word PASS; методическая приёмка отдельно |
+| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | УстановленA5; нейтральный K/Y basis/подписи,10GET tests; WebKit13страниц PASS, полный filter/oracle открыт |
+| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | УстановленA5; точные startup/request/stage окна; два guard-restart, p95 не принят |
+| 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | УстановленA5; indexed summaries/scoped GET; повторная history-приёмка отказала при смене процесса |
+| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | УстановленA5; scoped hashing, но синхронный участок16,376s не принят; offload в ветке |
+| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | УстановленA5; WebKit navigation/periods PASS; полный lifecycle/desktop acceptance открыт |
+| 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | УстановленA5; WebKit Back/reload/exact Word pin PASS, desktop exact pin TIMEOUT |
+| 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | УстановленA5;1автоцикл VERIFIED_WITH_WARNINGS;2принятых цикла новой версии ещё нет |
+| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | A5controller/2restore/API/3Word/passport/resume PASS; desktop/2cycles/скорость не приняты |
 
 Release39107628324 принят контроллером: CI binaries fetched/verified/loaded без
 повторной сборки приложения, свежий backup и полные независимые candidate/previous
@@ -472,7 +764,7 @@ restore/rollback и применимыми API/UI/Word/worker доказател
 версия не объявляется установленной по push/CI; принятыйed3 не пересоздаётся
 во время разработки. Подробные тестовые логи — private reports, не новый план.
 
-### Текущий выпуск — 18.10.2026, 03:49 UTC; ed3 установлен и принят в сценариях выпуска
+### История выпускаed3 — 18.10.2026, 03:49 UTC; принят в сценариях своего среза
 
 Установлен прикладной `ed3e4589a33a4b5bed3f4cab684ef1d519d0290d`:
 [release39091352612](https://github.com/gaben1488/dash/actions/runs/39091352612)
@@ -1055,8 +1347,9 @@ T067/T069/T082/T084/T105/T116/T143. Старые190code-debt и18review findings
 #### Уточнение синтеза владельца18.10 — порядок и приёмка
 
 Синтез Dash-roadmap, переданный текстом, объясняет существующую программу;
-исполнительные статусы остаются здесь и в#69. Указанный файл отдельно не
-приложен. Завершаем объявленную десятку, затем первую общую вертикаль
+исполнительные статусы остаются здесь и в#69. На том шаге файл отдельно не
+был приложен; полный MD получен позднее18.10 и сверён при приёме материалов.
+Завершаем объявленную десятку, затем первую общую вертикаль
 официальной AD-экономии, устойчивую карточку/запись, дела/решения/историю,
 законченные сценарии13страниц и повторяемую эксплуатацию. DB-кандидаты
 сравниваются экспериментом; технологическая замена не является условием

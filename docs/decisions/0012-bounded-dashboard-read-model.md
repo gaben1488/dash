@@ -250,3 +250,60 @@ Different fallback releases or changed catalog payloads are verified normally;
 ordinary standalone store reads retain their original checks. This removes a
 reproduced duplicate full hash traversal, not the remaining model JSON reads or
 a proved cause of the production browser's intermittent timeout.
+
+
+## 18.10.2026 — изоляция чистого расчёта после двух guard-restart A5
+
+До кода: A5 установлен39119335350; desktop39121736689 и39122779082 отказали,
+обе попытки observer39120862001/39122776525 отклонили смену server.StartedAt.
+Read-only39122586224/39122956900 подтвердили journald event server/restart,
+Docker SIGTERM/exit143/start11:06:43 и11:22:14UTC, policy threshold3/cooldown300.
+Это инициатор смены процесса A5, не доказательство причины старого AF08:02.
+Перед вторым restart: perimeter→save_begin16,376s, запись4,323s, retention3,708s;
+Dashboard17,025s/event-loop9,606s, journal14,859s/event-loop8,418s. Значения
+inclusive, не складываются. Исходный setImmediate между верхними стадиями
+не ограничил отдельный синхронный участок. Увеличение timeout/лимитов или
+отключение guard не устраняет это основание.
+
+Решение следующего bounded diff C05.04/C05.11: чистые runPipeline и
+attachUnifiedGrid исполняются одним Node worker_thread на материализацию.
+Это не второй Python report-worker и не новый сервис/брокер/зависимость.
+Node22 worker_threads и установленный tsx/esm/api tsImport проверены по
+официальной документации. Рабочий поток получает structured-clone входа,
+фиксированный asOf и тот же REPORT_MAP; исполняемые правила берёт из того же
+immutable build getActiveRules (они содержат функции и не сериализуются).
+Google-креды/БД/очереди/история ему не передаются. Ограничения: один расчёт по
+прежней materializationTail, V8 old-generation512MiB (не общая RSS), deadline120s фоновой операции;
+execArgv не наследуются, NODE_OPTIONS не переопределяет этот лимит. Никакого
+синхронного fallback при отказе потока: прежний same-scope stale/error путь.
+Отказ/выход/таймаут завершают поток до следующей материализации.
+
+Один чистый helper сохраняет прежнее тело attachUnifiedGrid и старый export
+snapshot.ts. Единственный runPipeline остаётся ядром; формулы/сигналы/identity/
+AD-правило/доли не меняются. SHDYU/officialYear фиксируются до async границы,
+чтобы новая версия кэша не смешалась с уже приобретённым входом. Запись snapshot,
+metrics/issues/rows остаётся в прежней одной транзакции основного потока;
+retention и защищённые корни не меняются. Её длительность ещё не принята.
+
+Приёмка до установки: RED настоящего ожидающего HTTP при синхронном расчёте;
+GREEN при offload, полная semantic parity с прежним расчётом на одном входе,
+формулы/состав/неизвестные значения/явный clock, отказ без записи/нулевого
+результата, строгая жизнь потока и source gate. После — frozen native parity,
+реальные heap/CPU/clock окна, controller/изменившиеся restore зависимости,
+новые browser и два новых автономных цикла. Наличие thread не доказывает
+скорость или стабильность всего тракта; прежние FAIL сохраняются.
+
+Проверки реализации: локальный Node24 — RED настоящего HTTP до окончания
+синхронного расчёта, GREEN offload; parity полного результата кроме явных
+measurement timestamps/случайного snapshot ID, неизменность исходного входа.
+Worker error/exit/messageerror/constructor/таймаут/termination и запрет второго
+потока проверены; busy/failed не становятся source/transient failure.
+Production-image CI отдельно запускает настоящий helper на Node22 в
+network-none/read-only/1CPU/1GiB с ограниченным scratch, до sealing того же
+immutable artifact. Это ещё не native замер production и не p95 PASS.
+
+Локальный полный source итог6172TS/1skip,4tsc,lint0errors/299warnings;
+Node24 synthetic4000:1,983s и max-child RSS429348KiB, HTTP before completion.
+Размер отражает дочерний процесс локального запуска, не гарантированный общий
+RSS контейнера. Оба прежних A5 desktop/observer FAIL сохранены; ни локальный
+smoke, ни WebKit PASS не заменяют новую эксплуатационную приёмку кандидата.
