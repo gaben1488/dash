@@ -124,6 +124,39 @@ def read_image_layers():
         connection.close()
 
 
+def inventory_layer_estimates(usage, inventory):
+    selected = [row['image'] for row in inventory if not row['protected']
+                and row['tag_count'] == 1 and row['release_tags']
+                and row['local_self_digests_only'] and row['source_sha']]
+    return layer_estimates(usage, selected)
+
+
+def read_capacity_forecast():
+    # Repeat the existing release preflight read-only; do not create its
+    # previous-checkpoint.json or read any business payload files.
+    sys.path.insert(0, '/usr/local/libexec/aemr')
+    import release_recovery as recovery
+    recovery.require_lock(LOCK_FD)
+    stage = json.loads(recovery.read_owned(STATE / 'release-runtime/stage.json'))
+    source = recovery.ReleaseRecovery(lock_fd=LOCK_FD)._volume(stage)
+    size = int(subprocess.check_output(
+        ['du', '--summarize', '--bytes', '--count-links', '--', str(source)],
+        text=True, timeout=90, pass_fds=(LOCK_FD,)).split()[0])
+    plan = recovery.validate_plan(json.loads(recovery.read_owned(recovery.RUNTIME_DIR / 'trial-plan.json')))
+    manifest = recovery.BACKUP_BASE / plan['backup_reference'] / 'manifest.json'
+    require(not any(path.is_symlink() for path in (manifest, *manifest.parents)))
+    body = recovery.read_owned(manifest, limit=16*1024**2)
+    require(hashlib.sha256(body).hexdigest() == plan['manifest_sha256'])
+    previous = json.loads(body)
+    require(previous.get('format') == 2 and all(type(previous.get(key)) is int and previous[key] > 0
+            for key in ('archive_bytes', 'bytes')) and size > 0)
+    estimate = previous['archive_bytes'] + max(0, size-previous['bytes'])
+    required = estimate + max(256*1024**2, (estimate+9)//10) + 1024**3
+    return {'source_bytes': size, 'archive_estimate_bytes': estimate,
+            'vps_backup_required_bytes': max(4*1024**3, required),
+            'vps_backup_free_bytes': shutil.disk_usage(BACKUPS).free}
+
+
 def capsule_has_state_archive(capsule):
     # A deleted predecessor archive is no longer a restore root. Its metadata
     # remains in the ledger; every extant (even dangling) archive still protects
@@ -313,6 +346,9 @@ def main():
             result = observe(inventory=True)
             print(json.dumps({'status': 'READ_ONLY_IMAGE_CAPACITY_CENSUS', **result,
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
+            print(json.dumps({'status': 'READ_ONLY_IMAGE_LAYER_ESTIMATES',
+                              **inventory_layer_estimates(read_image_layers(), result['image_inventory'])}))
+            print(json.dumps({'status': 'READ_ONLY_BACKUP_CAPACITY_FORECAST', **read_capacity_forecast()}))
             return
         root = STATE / ('image-retention-capacity-'+CAPACITY_CANDIDATE if CAPACITY_MODE else 'image-retention')
         require(not root.is_symlink())

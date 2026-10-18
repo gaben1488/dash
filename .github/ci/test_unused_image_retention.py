@@ -61,6 +61,9 @@ class ImageRetentionTests(unittest.TestCase):
             m.STATE = Path(folder)/'nonexistent-state'
             m.SOURCE_SHA256 = 'f'*64
             m.observe = lambda **kwargs: {'image_inventory': ['read-only']} if kwargs == {'inventory': True} else None
+            m.read_image_layers = dict
+            m.inventory_layer_estimates = lambda usage, rows: {'images': []}
+            m.read_capacity_forecast = lambda: {'source_bytes': 123}
             m.atomic_json = m.remove_image = lambda *args: self.fail('Inventory mutated host')
             def owner(fd):
                 fields = list(original(fd)); fields[4] = 0
@@ -71,7 +74,9 @@ class ImageRetentionTests(unittest.TestCase):
                  patch.object(sys, 'argv', ['tool', 'capacity-census', 'a'*40, 'b'*40]), contextlib.redirect_stdout(output):
                 m.main()
             self.assertFalse(m.STATE.exists())
-            self.assertEqual(json.loads(output.getvalue())['image_inventory'], ['read-only'])
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(records[0]['image_inventory'], ['read-only'])
+            self.assertEqual(records[-1]['source_bytes'], 123)
 
     def test_layer_dry_run_is_an_engine_estimate_and_never_counts_a_used_image(self):
         usage = {'Images': [{'Id': self.ids[0], 'Size': 100, 'SharedSize': 30, 'Containers': 0}]}
@@ -83,6 +88,20 @@ class ImageRetentionTests(unittest.TestCase):
                 self.module.layer_estimates({'Images': [{**usage['Images'][0], **change}]}, [self.ids[0]])
         with self.assertRaises(ValueError):
             self.module.layer_estimates(usage, [self.ids[1]])
+
+    def test_census_estimates_only_unprotected_exact_release_caches(self):
+        inventory = [{'image': identity, 'protected': index == 0,
+                      'release_tags': ['aemr-server:release-'+'a'*40], 'tag_count': 1,
+                      'local_self_digests_only': True, 'source_sha': 'a'*40}
+                     for index, identity in enumerate(self.ids)]
+        inventory[2]['source_sha'] = None
+        inventory[3]['tag_count'] = 2
+        usage = {'Images': [{'Id': identity, 'Size': 100, 'SharedSize': 30, 'Containers': 0}
+                            for identity in self.ids]}
+        result = self.module.inventory_layer_estimates(usage, inventory)
+        self.assertEqual([row['image'] for row in result['images']], [self.ids[1]])
+        self.assertEqual(result['engine_reported_unique_bytes'], 70)
+        self.assertFalse(result['physical_reclaimed_bytes_measured'])
 
     def test_capacity_retains_every_capsule_that_still_has_a_state_archive(self):
         with tempfile.TemporaryDirectory() as temporary:
