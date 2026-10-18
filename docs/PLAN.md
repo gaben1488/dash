@@ -68,6 +68,16 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Код проверен:6155TS PASS/1skip; не установлен |
 | 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Код/контракты проверены;6156TS/1210Python/66release gates; CI и установка впереди |
 
+Кандидатeb0f8536: CI39104545819 остановился в test_frozen_trial_replay,
+где прежний контракт ожидал2fd0 JSON writers. Добавленный installed passport
+создал третий. Исправленный тест проверяет все3канала, точную границу64KiB
+для passport/8MiB для proof/replay и отказ oversized valid JSON без записи.
+Production-image job117607483248 SUCCESS, artifact12127981134/319 850 523B;
+это проверка CI-бинарников, не общий CI PASS и не установка. Workspace proxy
+не позволил загрузить ZIP из artifact storage; локальная проверка полного
+реального ZIP не заявляется. Новый CI/consumer должен проверить его digest.
+Прежний installeded3 не менялся; отказы и scopes сохранены.
+
 R09.02: CI теперь отдаёт неизменяемые server/worker+web binaries, manifest,
 image IDs, SHA/CI/producer attempt/platform/versions/source+ops fingerprints.
 CI retry переиспользует существующий artifact того же run; promotion получает

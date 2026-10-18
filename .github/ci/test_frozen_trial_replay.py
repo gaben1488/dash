@@ -214,14 +214,23 @@ class FrozenTrialReplayTests(unittest.TestCase):
                          'Live SSH repro: install accepts a new target but fails to replace an existing proof')
         commands = re.findall(r"remote \"sudo -n python3 -IB -c '([^']+)'\"", source)
         programs = [body.replace('\\"', '"') for body in commands if 'r.atomic_json(' in body and 'sys.stdin.buffer.read(' in body]
-        self.assertEqual(len(programs), 2, 'Both trial proof and private replay evidence must use the same fd0 atomic writer')
+        self.assertEqual(len(programs), 3, 'Trial, replay evidence and installed passport must all use the fd0 atomic writer')
+        self.assertEqual(sum('installed-passport.json' in program for program in programs), 1)
         for program in programs:
-            for body in (b'{"state":"synthetic"}', b'not-json', b'x' * 8388609):
+            if 'installed-passport.json' in program:
+                limit = 64 * 1024
+            else:
+                self.assertTrue('trial-proof.json' in program or 'replay-$GITHUB_RUN_ID.json' in program)
+                limit = 8 * 1024 * 1024
+            valid = b'{"state":"synthetic"}'
+            boundary = valid + b' ' * (limit - len(valid))
+            for body, accepted in ((valid, True), (boundary, True), (b'not-json', False), (boundary + b' ', False)):
+
                 writes = []
                 module = SimpleNamespace(Path=Path, RUNTIME_DIR=Path('/var/lib/aemr/release-runtime'),
                                          atomic_json=lambda path, value, seen=writes: seen.append((path, value)))
-                with self.subTest(program=program[-80:], valid=body.startswith(b'{')), patch.dict(sys.modules, {'release_recovery':module}), patch.object(sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(body))), patch.object(sys, 'path', sys.path.copy()):
-                    if body.startswith(b'{'):
+                with self.subTest(program=program[-80:], valid=accepted, size=len(body)), patch.dict(sys.modules, {'release_recovery':module}), patch.object(sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(body))), patch.object(sys, 'path', sys.path.copy()):
+                    if accepted:
                         exec(compile(program, '<actual-private-json-transfer>', 'exec'), {})  # noqa: S102 - actual reviewed workflow
                         self.assertEqual(len(writes), 1)
                         self.assertEqual(writes[0][1], {'state':'synthetic'})
