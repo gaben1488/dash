@@ -51,7 +51,8 @@ OPS c91b57b0 повторно использует проверенные exact-
 и historical source proofs не подменять доказательствами нового выпуска.
 OPS ca98b824/e259e244 исправили bounded projector и чтение выбранных receipts
 без bulk census;27+7scoped/ruff и native readback PASS. Полная OPS suite
-не объявляется зелёной. Кандидат3a249ede (master/scorer) пока отдельно, не установлен.
+не объявляется зелёной. Master/scorer интегрированы в #79 какa6c7d7be/0abf0c66,
+не установлены; приложение на сервере остаётсяed3.
 
 История78d (следующая запись не является текущим runtime):
 
