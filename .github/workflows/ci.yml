@@ -104,6 +104,79 @@ jobs:
           PYCANCEL
           gh api --method POST repos/$GITHUB_REPOSITORY/actions/runs/39147300916/cancel > /dev/null
           echo DUPLICATE_FROZEN_REPLAY_CANCEL_REQUESTED_NOT_A_PASS
+  cleanup-cancelled-replay:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/codex/release-observe-20261015' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Clean cancelled replay 39147300916 scratch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject production writers and non-scratch mounts
+        run: python3 .github/ci/test_release_observer.py ReleaseObserverTests.test_cleanup_only_admits_the_cancelled_readonly_rehearsal
+      - name: Admit only the cancelled read-only job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/39147300916 > "$RUNNER_TEMP/cancelled.json"
+          python3 - <<'PY'
+          import json,os
+          value=json.load(open(os.environ['RUNNER_TEMP']+'/cancelled.json'))
+          assert value['status']=='completed' and value['conclusion']=='cancelled'
+          assert value['head_sha']=='06cad6a2ee352b265aadb610cb7d7ac47f9122bb'
+          assert value['path']=='.github/workflows/report-rehearsal.yml' and value['event']=='pull_request'
+          assert value['head_repository']['full_name']=='gaben1488/dash'
+          PY
+      - name: Stop only owned auto-remove diagnostic containers
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -IB - <<'PY'
+            import json,os,re,subprocess
+            def read(*args):return json.loads(subprocess.check_output(['docker',*args],text=True,timeout=20))
+            def runtime():
+                rows=read('inspect','aemr-server-1','aemr-report-worker-1','aemr-web-1','aemr-caddy-1')
+                assert all(r['State']['Running'] and not r['State']['OOMKilled'] for r in rows)
+                return [(r['Id'],r['Image'],r['State']['StartedAt'],r['RestartCount']) for r in rows]
+            before=runtime();image=before[0][1]
+            assert image=='sha256:dbdd0d449c15cb91303305a9477104bf4716dab50d2101502e1d1093959db88e'
+            def admit_cancelled_replay(record,image):
+                labels=record['Config']['Labels'];host=record['HostConfig'];mounts=record['Mounts']
+                assert record['Image']==image and not labels.get('com.docker.compose.project')
+                assert labels.get('aemr.rehearsal-run')=='39147300916' and labels.get('aemr.rehearsal-attempt')=='1'
+                assert labels.get('aemr.rehearsal-job')=='frozen-replay'
+                assert host['ReadonlyRootfs'] is True and host['NetworkMode']=='none' and host['AutoRemove'] is True
+                assert {m['Destination'] for m in mounts}=={'/app/packages/server/data','/tmp','/candidate'}
+                primary=next(m for m in mounts if m['Destination']=='/app/packages/server/data')
+                scratch=next(m for m in mounts if m['Destination']=='/tmp')
+                assert primary['Type']=='volume' and primary['Name']=='aemr_server_data' and primary['RW'] is False
+                assert scratch['Type']=='volume' and re.fullmatch('[a-f0-9]{64}',scratch['Name']) and scratch['RW'] is True
+                assert all(m['RW'] is False for m in mounts if m['Destination']!='/tmp')
+            targets=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc',
+                '--filter','label=aemr.rehearsal-run=39147300916','--filter','label=aemr.rehearsal-attempt=1',
+                '--filter','label=aemr.rehearsal-job=frozen-replay'],text=True,timeout=15).splitlines()
+            assert len(targets)<=8 and all(re.fullmatch('[a-f0-9]{64}',v) for v in targets)
+            for record in read('inspect',*targets) if targets else []:admit_cancelled_replay(record,image)
+            free=lambda:os.statvfs('/').f_bavail*os.statvfs('/').f_frsize
+            available=free()
+            for identifier in targets:
+                subprocess.run(['docker','stop','--time','5',identifier],capture_output=True,timeout=20,check=False)
+            remaining=subprocess.check_output(['docker','ps','--all','--quiet','--filter',
+                'label=aemr.rehearsal-run=39147300916','--filter','label=aemr.rehearsal-attempt=1',
+                '--filter','label=aemr.rehearsal-job=frozen-replay'],text=True,timeout=15).splitlines()
+            assert not remaining and runtime()==before
+            print(json.dumps({'cancelled_replay_cleanup':True,'admitted_targets':len(targets),
+                'remaining_targets':0,'production_runtime_unchanged':True,'free_before':available,'free_after':free()}))
+            PY
+
   image-retire:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&

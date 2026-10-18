@@ -15,6 +15,35 @@ from test_acceptance_target_binding import TARGET
 
 
 class ReleaseObserverTests(unittest.TestCase):
+    def test_cleanup_only_admits_the_cancelled_readonly_rehearsal(self):
+        import copy
+        workflow = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()
+        match = re.findall(r'^            def admit_cancelled_replay\(record,image\):\n.*?(?=^            targets=)', workflow, re.MULTILINE | re.DOTALL)
+        self.assertEqual(len(match), 1, 'A guarded read-only rehearsal cleanup must exist')
+        namespace = {'re': re}
+        exec(compile(textwrap.dedent(match[0]), '<actual-rehearsal-admission>', 'exec'), namespace)  # noqa: S102
+        image = 'sha256:'+'d'*64
+        record = {'Image': image, 'Config': {'Labels': {'aemr.rehearsal-run': '39147300916',
+            'aemr.rehearsal-attempt': '1', 'aemr.rehearsal-job': 'frozen-replay'}},
+            'HostConfig': {'ReadonlyRootfs': True, 'NetworkMode': 'none', 'AutoRemove': True}, 'Mounts': [
+                {'Type': 'volume', 'Destination': '/app/packages/server/data', 'Name': 'aemr_server_data', 'RW': False},
+                {'Type': 'volume', 'Destination': '/tmp', 'Name': 'a'*64, 'RW': True},
+                {'Type': 'bind', 'Destination': '/candidate', 'RW': False}]}
+        namespace['admit_cancelled_replay'](record, image)
+        for defect in ('run', 'compose', 'primary_rw', 'named_scratch', 'bind_rw', 'image', 'network', 'rootfs', 'autoremove'):
+            value = copy.deepcopy(record)
+            if defect == 'run': value['Config']['Labels']['aemr.rehearsal-run'] = 'other'
+            if defect == 'compose': value['Config']['Labels']['com.docker.compose.project'] = 'aemr'
+            if defect == 'primary_rw': value['Mounts'][0]['RW'] = True
+            if defect == 'named_scratch': value['Mounts'][1]['Name'] = 'aemr_server_data'
+            if defect == 'bind_rw': value['Mounts'][2]['RW'] = True
+            if defect == 'image': value['Image'] = 'other'
+            if defect == 'network': value['HostConfig']['NetworkMode'] = 'bridge'
+            if defect == 'rootfs': value['HostConfig']['ReadonlyRootfs'] = False
+            if defect == 'autoremove': value['HostConfig']['AutoRemove'] = False
+            with self.subTest(defect=defect), self.assertRaises(AssertionError):
+                namespace['admit_cancelled_replay'](value, image)
+
     def test_native_failure_keeps_the_fixed_reason_without_leaking_stderr(self):
         workflow = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()
         source = workflow.split('                def readonly(args,*,timeout=45,**kwargs):', 1)[1].split('                executor=', 1)[0]
