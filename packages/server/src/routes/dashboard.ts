@@ -117,15 +117,12 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const query = request.query as Record<string, string>;
     const force = query.refresh === 'true';
     const yearParam = query.year; // e.g. '2026' or 'all'
-    // Strict validation: only 4-digit year in plausible range is accepted.
-    // 'all', missing, or invalid → undefined (snapshot aggregates all years).
-    let targetYear: number | undefined;
-    if (yearParam && yearParam !== 'all') {
-      const parsed = parseInt(yearParam, 10);
-      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
-        targetYear = parsed;
-      }
+    // Invalid scope must not silently select the all-years model.
+    if (yearParam !== undefined && (typeof yearParam !== 'string' ||
+        yearParam !== 'all' && (!/^\d{4}$/.test(yearParam) || Number(yearParam) < 2020 || Number(yearParam) > 2100))) {
+      return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Укажите год от 2020 до 2100 или all.' });
     }
+    const targetYear = yearParam && yearParam !== 'all' ? Number(yearParam) : undefined;
     let snapshot;
     try {
       snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear));

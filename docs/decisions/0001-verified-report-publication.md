@@ -540,6 +540,33 @@ reference-aware cleanup удаляет только доказанные неи�
 неиспользуемых артефактов отделено от удаления бизнес-данных; отсутствие image
 само по себе не является доказательством завершённого cleanup.
 
+Реализация общего R09.02: CI production-image job собирает server/worker
+(один образ) и web по одному разу, проверяет эти образы и отдаёт immutable
+artifact v4 с коротким сроком хранения. Манифест содержит source SHA,
+CI run/attempt, platform, image IDs, hashes/размеры двух сжатых архивов,
+фактические версии runtime/rules/renderer и fingerprints исходников схем/ops.
+Artifact ID связывается с тем же допущенным source-CI run; успешный producer
+из его ранней попытки допускается при частичном rerun, без пересборки.
+Запуск CI и номер попытки производителя различаются; другой SHA, чужой
+run, истёкший или неоднозначный artifact не допускается. Перед load проверяются
+все объекты, после load — IDs/revision/platform. Deployment retry загружает
+тот же проверенный artifact; fallback к docker build запрещён. Транспортный
+scratch canary остаётся отдельной проверкой, не сборкой приложения.
+
+Подтверждение GitHub: [upload-artifact v4 README](https://github.com/actions/upload-artifact/tree/v4)
+и Context7/actions/upload-artifact18.10: архив immutable; overwrite создаёт
+другой ID, поэтому overwrite не используется. Сжатые tar загружаются с
+compression-level0; retention7дней относится к CI-бинарникам, не к деловым
+данным. Если artifact уже недоступен, требуется новый явно проверенный вход;
+историю сервиса это не удаляет. Публичный CI-паспорт не содержит книг/секретов.
+
+Этот артефакт не является production acceptance. Прежние source/schema gates,
+закрытый native trial, backup/два restore/rollback/controller и последующие
+browser/2workercycles сохраняются. Установленный паспорт отдельно связывает
+CI-образы, реальные четыре runtime роли, фактические schema/data/rules и ops
+pins с моментом проверки. Build schema fingerprint не выдаётся за версию
+живой БД, TS snapshot ID не объявляется Python release ID.
+
 Следующий R09.03 должен связать применимость restore/rollback proof с реальными
 reader/schema/migration/config/tool inputs и сохранённым исходным состоянием.
 Только доказанная неизменность этих зависимостей допускает reuse применимой

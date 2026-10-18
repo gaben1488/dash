@@ -63,6 +63,11 @@ jobs:
       - name: Verify exact source-job maintenance admission (synthetic; no VPS)
         run: python3 .github/ci/test_source_ci_gate.py
 
+      - name: Verify immutable runtime artifact contract (synthetic; no VPS)
+        run: |
+          python3 .github/ci/test_runtime_artifact.py
+          python3 .github/ci/test_runtime_passport.py
+
       - name: Synthetic browser acceptance boundaries (no VPS or source data)
         run: |
           python3 -m pip install playwright==1.62.0
@@ -148,13 +153,78 @@ jobs:
   server-image:
     name: Production image with report runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Match the production Docker engine and image store
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
+        with:
+          version: v29.1.3
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Reuse this run's existing immutable artifact on retry
+        id: runtime_artifact
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 .github/ci/runtime_artifact.py fetch --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --allow-missing \
+            --selection "$RUNNER_TEMP/runtime-selection.json" --metadata "$RUNNER_TEMP/runtime-artifact-metadata.json"
+          reused=$(python3 -c 'import json,sys;print(str(json.load(open(sys.argv[1]))["present"]).lower())' "$RUNNER_TEMP/runtime-selection.json")
+          printf 'reused=%s\n' "$reused" >> "$GITHUB_OUTPUT"
+          if test "$reused" = true; then
+            producer_attempt=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["producer_attempt"])' "$RUNNER_TEMP/runtime-selection.json")
+            python3 .github/ci/runtime_artifact.py verify --root "$RUNNER_TEMP/runtime-candidate" \
+              --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$producer_attempt"
+            for role in server web; do docker load -i "$RUNNER_TEMP/runtime-candidate/$role.tar.gz"; done
+            docker tag "aemr-server:release-$SOURCE_SHA" aemr-server:ci
+            docker image inspect "aemr-server:release-$SOURCE_SHA" "aemr-web:release-$SOURCE_SHA" > "$RUNNER_TEMP/runtime-images.json"
+            python3 .github/ci/runtime_artifact.py loaded --root "$RUNNER_TEMP/runtime-candidate" \
+              --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$producer_attempt" --inspect "$RUNNER_TEMP/runtime-images.json"
+          fi
       - name: Build server and report engine image
-        run: docker build -f deploy/Dockerfile.server -t aemr-server:ci .
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -f deploy/Dockerfile.server -t "aemr-server:release-$SOURCE_SHA" -t aemr-server:ci .
+      - name: Build web image once
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -f deploy/Dockerfile.web -t "aemr-web:release-$SOURCE_SHA" .
+      - name: Verify built web HTTP shell and module
+        run: |
+          set -euo pipefail
+          container=$(docker run -d -p 127.0.0.1::80 "aemr-web:release-$SOURCE_SHA")
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          port=$(docker port "$container" 80/tcp | head -1 | cut -d: -f2)
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --max-time 5 "http://127.0.0.1:$port/" > "$RUNNER_TEMP/web-index.html"; then break; fi
+            sleep 1
+          done
+          module=$(python3 - <<'PY'
+          import re,os
+          from pathlib import Path
+          source=(Path(os.environ['RUNNER_TEMP'])/'web-index.html').read_text()
+          match=re.search(r'<script[^>]+src="(/assets/[^"/]+\.js)"',source)
+          assert match and '<div id="root">' in source
+          print(match.group(1))
+          PY
+          )
+          curl --fail --silent --max-time 10 "http://127.0.0.1:$port$module" > "$RUNNER_TEMP/web-module.js"
+          test -s "$RUNNER_TEMP/web-module.js"
       - name: Verify real container backup producer against strict release reader
         run: |
           docker run --rm --network none --read-only --user 0 --memory 256m \
@@ -175,6 +245,33 @@ jobs:
           assert value['operations']['worker_state'] == 'unknown'
           assert value['operations']['check_stale'] is True
           PY
+      - name: Seal the tested runtime artifact
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/runtime-candidate"
+          docker image inspect "aemr-server:release-$SOURCE_SHA" "aemr-web:release-$SOURCE_SHA" > "$RUNNER_TEMP/runtime-images.json"
+          docker run --rm --network none --read-only --entrypoint /opt/report-env/bin/python "aemr-server:release-$SOURCE_SHA" -I -c \
+            'import json,platform,subprocess; from procurement_engine.raw_pipeline import RAW_RULES_VERSION,RENDERER_VERSION; print(json.dumps({"node":subprocess.check_output(["node","--version"],text=True).strip(),"python":platform.python_version(),"rules":RAW_RULES_VERSION,"renderer":RENDERER_VERSION}))' > "$RUNNER_TEMP/runtime-versions.json"
+          for role in server web; do
+            docker save "aemr-$role:release-$SOURCE_SHA" | gzip -1 > "$RUNNER_TEMP/runtime-candidate/$role.tar.gz"
+          done
+          python3 .github/ci/runtime_artifact.py create --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --inspect "$RUNNER_TEMP/runtime-images.json" --versions "$RUNNER_TEMP/runtime-versions.json"
+          python3 .github/ci/runtime_artifact.py verify --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Retain exact checked images for promotion
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/runtime-candidate/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
 
   lint-biome:
     name: Biome lint (advisory)

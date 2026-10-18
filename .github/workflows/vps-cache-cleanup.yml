@@ -2718,6 +2718,15 @@ jobs:
             sleep 20
           done
           test "$ready" = true
+          printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          value=json.loads((root/'run.json').read_text())
+          assert type(value['run_attempt']) is int and value['run_attempt']>0
+          (root/'ci-run-attempt').write_text(str(value['run_attempt']))
+          PY
       - name: Match the production Docker engine and image store
         id: release-docker
         uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
@@ -2777,18 +2786,30 @@ jobs:
           remote sudo -n docker save "$actual" | docker load > "$RUNNER_TEMP/release/canary-return.log" 2>&1
           test "$(docker image inspect "$actual" --format '{{.Id}}')" = "$expected"
           echo IMAGE_TRANSPORT_ROUNDTRIP_PASS
-      - name: Build immutable candidate images while API remains online
+      - name: Prepare hosted-runner restore capacity
         run: |
           set -euo pipefail
-          # Disposable hosted-runner SDKs only. Never a VPS or business-state cleanup.
+          # Ephemeral runner SDKs only; production data and Docker state are untouched.
           test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          docker build --label "org.opencontainers.image.revision=$RECOVERY_SHA" \
-            -f deploy/Dockerfile.server -t "aemr-server:release-$RECOVERY_SHA" .
-          docker build --label "org.opencontainers.image.revision=$RECOVERY_SHA" \
-            -f deploy/Dockerfile.web -t "aemr-web:release-$RECOVERY_SHA" .
-          docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" \
-            > "$RUNNER_TEMP/release/candidate-images.json"
+      - name: Load exact CI runtime artifact
+        run: |
+          set -euo pipefail
+          umask 077
+          ci_run=$(cat "$RUNNER_TEMP/release/ci-run-id")
+          ci_attempt=$(cat "$RUNNER_TEMP/release/ci-run-attempt")
+          python3 .github/ci/runtime_artifact.py fetch --root "$RUNNER_TEMP/release/runtime-candidate" \
+            --sha "$RECOVERY_SHA" --run "$ci_run" --attempt "$ci_attempt" \
+            --selection "$RUNNER_TEMP/release/runtime-selection.json" --metadata "$RUNNER_TEMP/release/runtime-artifact-metadata.json"
+          producer_attempt=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["producer_attempt"])' "$RUNNER_TEMP/release/runtime-selection.json")
+          python3 .github/ci/runtime_artifact.py verify --root "$RUNNER_TEMP/release/runtime-candidate" \
+            --sha "$RECOVERY_SHA" --run "$ci_run" --attempt "$producer_attempt"
+          for role in server web; do
+            docker load -i "$RUNNER_TEMP/release/runtime-candidate/$role.tar.gz" > "$RUNNER_TEMP/release/$role-ci-load.log"
+          done
+          docker image inspect "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" > "$RUNNER_TEMP/release/candidate-images.json"
+          python3 .github/ci/runtime_artifact.py loaded --root "$RUNNER_TEMP/release/runtime-candidate" \
+            --sha "$RECOVERY_SHA" --run "$ci_run" --attempt "$producer_attempt" --inspect "$RUNNER_TEMP/release/candidate-images.json"
       - name: Check real latest Word envelope with candidate schemas before downtime
         run: |
           set -euo pipefail
@@ -3030,6 +3051,39 @@ jobs:
           from pathlib import Path
           assert json.loads((Path(os.environ['RUNNER_TEMP'])/'release/public-health.json').read_text())['status']=='ok'
           print('PUBLIC_HEALTH_PASS')
+          PY
+      - name: Seal the actual installed runtime passport
+        run: |
+          set -euo pipefail
+          umask 077
+          . "$RUNNER_TEMP/release/ssh.sh"
+          remote sudo -n docker inspect aemr-server-1 aemr-web-1 aemr-report-worker-1 aemr-caddy-1 > "$RUNNER_TEMP/release/installed-containers.json"
+          remote sudo -n docker exec -i aemr-server-1 /opt/report-env/bin/python -IB - --capture \
+            < .github/ci/runtime_passport.py > "$RUNNER_TEMP/release/installed-observed.json"
+          remote sudo -n python3 -IB - > "$RUNNER_TEMP/release/installed-ops.json" <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('/usr/local/libexec/aemr')
+          names=('release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py')
+          print(json.dumps({name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names}))
+          PY
+          python3 .github/ci/runtime_passport.py --artifact "$RUNNER_TEMP/release/runtime-candidate/manifest.json" \
+            --metadata "$RUNNER_TEMP/release/runtime-artifact-metadata.json" --stage "$RUNNER_TEMP/release/stage.json" \
+            --accepted "$RUNNER_TEMP/release/accepted.json" --containers "$RUNNER_TEMP/release/installed-containers.json" \
+            --ops "$RUNNER_TEMP/release/installed-ops.json" --observed "$RUNNER_TEMP/release/installed-observed.json" \
+            > "$RUNNER_TEMP/release/installed-passport.json"
+          remote "sudo -n python3 -IB -c 'import json,sys;sys.path.insert(0,\"/usr/local/libexec/aemr\");import release_recovery as r;body=sys.stdin.buffer.read(65537);assert len(body)<=65536;r.atomic_json(r.RUNTIME_DIR/\"installed-passport.json\",json.loads(body))'" \
+            < "$RUNNER_TEMP/release/installed-passport.json"
+          remote sudo -n cat /var/lib/aemr/release-runtime/installed-passport.json > "$RUNNER_TEMP/release/installed-passport-readback.json"
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          wanted=json.loads((root/'installed-passport.json').read_text())
+          actual=json.loads((root/'installed-passport-readback.json').read_text())
+          assert actual==wanted
+          print(json.dumps({'state':'INSTALLED_RUNTIME_PASSPORT_PASS','source_sha':actual['build']['source_sha'],
+            'passport_sha256':hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest()}))
           PY
       - name: Always request same-owner resume without reverting an accepted release
         if: always()

@@ -37,6 +37,12 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('rejects malformed or ambiguous year scope instead of serving an unintended dataset', async () => {
+    for (const query of ['year=2026junk', 'year=2026.5', 'year=2026&year=2025', 'year=1999', 'year=']) {
+      expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
+    }
+    expect((await app.inject('/api/dashboard?year=all')).statusCode).toBe(200);
+  });
   it('transmits the complete issue set once when the workspace opts into references', async () => {
     const response = await app.inject('/api/dashboard?year=2026&compact=1');
     expect(response.statusCode).toBe(200);

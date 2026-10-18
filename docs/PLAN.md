@@ -66,7 +66,26 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Общий scope/abort/version код проверен;6137TS PASS/1skip; не установлен |
 | 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Код проверен:6148TS/1210PythonPASS; не установлен |
 | 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Код проверен:6155TS PASS/1skip; не установлен |
-| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Ожидает9 |
+| 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Код/контракты проверены;6156TS/1210Python/66release gates; CI и установка впереди |
+
+R09.02: CI теперь отдаёт неизменяемые server/worker+web binaries, manifest,
+image IDs, SHA/CI/producer attempt/platform/versions/source+ops fingerprints.
+CI retry переиспользует существующий artifact того же run; promotion получает
+его по ID, проверяет GitHub ZIP digest, контекст, два объекта, source hashes
+и фактические loaded IDs. В установке нет docker build приложения; scratch
+canary и подготовка места из hosted-runner SDK сохранены. Artifact retention7d
+не относится к закупочным данным. Installed passport сверяет4реальные роли,
+root ops hashes, действительную DB schema и отдельные TS/Python data IDs.
+Транспорт/реальная сборка нового CI и installed passport ещё не приняты.
+
+Итоговое review участка нашло и исправило две связи: malformed/ambiguous
+Dashboard year теперь400 (RED→GREEN), а изменённый Python numeric parser
+получил rules suffix source-values-v2, чтобы не переиспользовать старый расчёт
+на прежнем RAW. Старые manifests/документы не переписаны. Проверки текущего
+кода:771shared+1895core+1129server+2361web=6156PASS/1skip;1210PythonPASS,
+4tsc/lint0errors/299warnings;66scoped release-contract tests/ruff/YAML/Bash/Python
+syntax PASS. Прежние остановленные/отказавшие прогоны сохранены; новые runtime,
+latency/browser/Word/restore/2cycles — отдельная следующая приёмка этой версии.
 
 R08.03: отказ pendingNotifications теперь явный, unavailable counters=null;
 старт и callback таймера сохраняют план при недоступной очереди. Автоматические
