@@ -59,8 +59,8 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 |---|---|---|---|
 | 1 | R05.03 | Master-путь и явная полнота у всех raw/aggregate consumers; отказ не становится нулём | Код7f03b007;6089PASS/1skip; не установлен |
 | 2 | C04.02 | Общие строгие money/date/percent/method границы и единицы | Код проверен:6122TS+1206PythonPASS; не установлен |
-| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Ожидает2 |
-| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Ожидает3 |
+| 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Код проверен:6126TS PASS/1skip; не установлен |
+| 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Реализация измерений фактического окна запроса |
 | 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Ожидает4 |
 | 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Ожидает4–5 |
 | 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Ожидает6 |
@@ -78,6 +78,16 @@ ruffPASS. Это не новая native приёмка и не C08.19 decimal mi
 В R05.03 найден и исправлен отдельный CI consumer: candidate-schema probe
 теперь явно компилирует source-coverage, неизвестные imports по-прежнему
 запрещены. Синтетический probe3PASS; CI7ae FAILED сохранён, rehearsalPASS.
+
+C04.03: K/Y переименован в limitReductionPercent; AD-экономия отдельным
+полем через core.approvedEconomy, НМЦК не подменяется лимитом. Общий query
+контекст Analytics/CostOfRefusal включает год/месяцы N/подвед/канон ТД–ПМ;
+future Q/invalid amount/unknown method в конкурентной базе исключены явно.
+Итог взвешен по всем подходящим строкам, а не первым2500. Карточка отказа
+обозначена условным сценарием без причинного вывода; неполный состав не даёт
+общей оценки.771shared+1895core+1115server+2345web=6126PASS/1skip;
+4tsc/lint0errors/300warnings. Native readback ещё не выполнен; общий релиз
+десятки и согласованность с выбранным data_release ещё впереди.
 
 Завершение: diff/отрицательные проверки → общий lint/typecheck/tests/CI →
 review → разрешённый controller release с действительными ресурсными,

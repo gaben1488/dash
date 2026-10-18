@@ -67,7 +67,7 @@ export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: 
  * (пусто / самоссылка X/Х/тире / плейсхолдеры «н/д», «нет» — единый канон оси C).
  * filterSubordinate уже trim + lower-case (как в исходном роуте).
  */
-export function applySubordinateFilter<T extends FilterableRow>(rows: T[], filterSubordinate: string): T[] {
+export function applySubordinateFilter<T extends Pick<FilterableRow, 'subordinate'>>(rows: T[], filterSubordinate: string): T[] {
   if (!filterSubordinate) return rows;
   const subs = filterSubordinate.split(',').map(s => subordinateNameMatchKey(s)).filter(Boolean);
   const wantsOrgItself = subs.includes(ORG_ITSELF_SENTINEL);

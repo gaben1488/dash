@@ -680,3 +680,20 @@ export interface AppConfig {
     utcOffsetHours: number;
   };
 }
+
+/** K/Y comparison of live master rows; independent of NMCK and approved AD economy. */
+export interface LimitComparisonPoint {
+  id: unknown; rowIndex: number; department: string; subject: string; subordinate: string;
+  planTotal: number; factTotal: number; limitReductionPercent: number; approvedEconomy: number;
+  activityType: string | null; procurementType: string;
+  planDate: string; factDate: string; planYear: number; month: number; quarter: number;
+}
+export interface LimitComparisonResponse {
+  points: LimitComparisonPoint[]; total: number; departments: string[];
+  unreadDepartments: Array<{ department: string; reason: string }>;
+  coverage: import('./source-coverage.js').SourceCoverage;
+  truncated: boolean; pointLimit: number; asOf: string;
+  basis: 'plan_limit_K_vs_contract_Y'; unit: 'thousand_rubles';
+  excluded: { invalidAmount: number; invalidDate: number; futureFact: number; unknownMethod: number };
+  summary: { count: number; limitTotal: number; contractTotal: number; approvedEconomy: number; limitReductionPercent: number | null };
+}

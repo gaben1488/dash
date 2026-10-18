@@ -103,6 +103,28 @@ UI filters use internal keys, not Russian labels:
 
 Navigation filters must synchronize both legacy single-value fields and the Set-based filters used by `useFilteredData`.
 
+## Limit comparison and refusal scenario (C04.03, 18.10.2026)
+
+`GET /api/rows/scatter` returns `basis=plan_limit_K_vs_contract_Y` and
+`unit=thousand_rubles`. Each point has `limitReductionPercent = 100×(1−Y/K)`;
+`approvedEconomy` separately uses the core AD-gated signed Z+AA+AB definition.
+K is not NMCK. Point ranges are descriptive, not an anti-dumping or savings
+alarm. Known competitive methods come from `normalizeMethod`; unknown methods
+are counted explicitly and cannot enter a competitive-only sample.
+
+Both N and Q must be real dates, Q must have arrived in Asia/Kamchatka, and K/Y
+must be complete finite positive numbers. Year/month/quarter derive from N;
+contradictory O/P cannot reassign the point. Departments, institutions, the
+canonical TD/PM activity scope, search and department-only mode narrow rows.
+The maximum 2500 displayed points does not truncate the aggregate: summary is
+weighted `100×(1−ΣY/ΣK)` over all eligible rows, with exclusions and source coverage.
+
+The existing refusal-cost card uses that same selected comparison as a
+**conditional scenario** `EP plan × limit reduction`, explicitly without a
+causal claim or NMCK substitution. A partial source perimeter does not yield
+an overall estimate. Actual tender reduction uses the monitoring registry's
+separate NMCK/auction-price contract; official economy uses AD/Z/AA/AB.
+
 ## Worked Example
 
 Three source rows:

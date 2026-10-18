@@ -1,4 +1,4 @@
-import type { DashboardData, SourceCoverage } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -481,7 +481,7 @@ export const api = {
   // Scatter data for Economy page
   getScatterData: (params?: Record<string, string>) => {
     const search = params ? new URLSearchParams(params).toString() : '';
-    return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
+    return fetchJSON<LimitComparisonResponse>(`/rows/scatter${search ? `?${search}` : ''}`);
   },
 
   // Один работающий RecommendationLedger. Новая запись УЭР является

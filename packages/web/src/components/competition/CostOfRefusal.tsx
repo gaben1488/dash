@@ -1,60 +1,27 @@
-// ────────────────────────────────────────────────────────────────
-// «Сколько стоит отказ от конкурса» — блок 1 вкладки «Конкуренция».
-//
-// Счёт по СОБСТВЕННЫМ торгам периметра, без внешних коэффициентов:
-//   снижение = 1 − Σ цена контракта / Σ НМЦК
-//     по состоявшимся конкурентным процедурам (заключённые контракты —
-//     гейт заключения /api/rows/scatter, пп. 38-39);
-//   цена отказа = плановый объём ЕП периметра × это снижение.
-//
-// Методика написана ПРЯМО на карточке: это оценка по своей статистике
-// торгов, а не обещание экономии. Клик раскрывает строки расчёта.
-// ────────────────────────────────────────────────────────────────
+// Scenario on K/Y for completed known competitive purchases. K is not NMCK.
+// Approved economy is a separate AD-gated fact, never inferred from this ratio.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Loader2, Scale } from 'lucide-react';
 import clsx from 'clsx';
 import { api, humanizeRequestError } from '../../api';
 import { useStore } from '../../store';
-import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
 import { buildDrill, type DrillFilters } from '../../lib/drill';
+import { scatterScope } from '../../lib/scatter-scope';
+import type { LimitComparisonPoint as ScatterPoint, LimitComparisonResponse as ScatterResponse } from '@aemr/shared';
 import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import {
-  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, SubScopeNote, TILE, fmtPct,
+  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, TILE, fmtPct,
 } from './primitives';
-
-interface ScatterPoint {
-  department: string;
-  subject: string;
-  planTotal: number;
-  factTotal: number;
-  economyPercent: number;
-  procurementType: string;
-  quarter: unknown;
-}
-
-interface ScatterResponse {
-  points: ScatterPoint[];
-  unreadDepartments: Array<{ department: string; reason: string }>;
-  truncated: boolean;
-  pointLimit: number;
-}
 
 /** Сколько строк расчёта показываем в раскрытии; остаток называется числом. */
 const ROWS_VISIBLE_LIMIT = 30;
 
-const rowsWord = (n: number) => pluralRu(n, 'строка', 'строки', 'строк');
-const procWord = (n: number) => pluralRu(n, 'процедура', 'процедуры', 'процедур');
-
-/** Номер квартала из ячейки листа («1», «1 кв», «I кв.») — или null. */
-function parseQuarter(raw: unknown): number | null {
-  const m = String(raw ?? '').match(/[1-4]/);
-  return m ? Number(m[0]) : null;
-}
+const procWord = (n: number) => pluralRu(n, 'позиция', 'позиции', 'позиций');
 
 /**
  * Строка расчёта — дверь в свои основания (канон п.119: по каждому числу видно,
@@ -70,7 +37,7 @@ function RowLink({ point, onNavigate }: {
   point: ScatterPoint;
   onNavigate: (page: 'data', filters: DrillFilters) => void;
 }) {
-  const quarter = parseQuarter(point.quarter);
+  const quarter = point.quarter;
   const target = buildDrill(
     {
       dept: point.department,
@@ -98,7 +65,7 @@ function RowLink({ point, onNavigate }: {
   );
 }
 
-export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
+export function CostOfRefusal({ epPlan, epHasData }: {
   /** Плановый объём ЕП за периметр шапки, тыс. ₽ (счёт — sumEpKp). */
   epPlan: number;
   epHasData: boolean;
@@ -109,7 +76,14 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const selectedSubordinates = useStore((s) => s.selectedSubordinates);
   const navigateTo = useStore((s) => s.navigateTo);
-  const fd = useFilteredData();
+  const year = useStore(s => s.year);
+  const period = useStore(s => s.period);
+  const periodMode = useStore(s => s.periodMode);
+  const activeMonths = useStore(s => s.activeMonths);
+  const activityFilter = useStore(s => s.activityFilter);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const deptOnlyMode = useStore(s => s.deptOnlyMode);
+  const searchQuery = useStore(s => s.searchQueryDebounced);
 
   const [resp, setResp] = useState<ScatterResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,17 +91,16 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
   const [open, setOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const deptParam = useMemo(
-    () => [...selectedDepartments].sort().join(','),
-    [selectedDepartments],
-  );
+  const scope = useMemo(() => scatterScope({ year, period, periodMode, activeMonths,
+    selectedDepartments, selectedSubordinates, activityFilter, selectedActivities, deptOnlyMode, searchQuery,
+    procurementFilter: 'competitive',
+  }), [year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates, activityFilter, selectedActivities, deptOnlyMode, searchQuery]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const params: Record<string, string> = { type: 'competitive' };
-    if (deptParam) params.dept = deptParam;
-    api.getScatterData(params)
+    setResp(null);
+    api.getScatterData(scope)
       .then((data: ScatterResponse) => {
         if (cancelled) return;
         setResp(data);
@@ -140,44 +113,15 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [deptParam, reloadKey]);
+  }, [scope, reloadKey]);
 
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
-  // ── Сужение облака торгов до выбранных кварталов ──
-  const hasActiveMonths = fd.periodResolution.hasActiveMonths;
-  const yearWide = fd.periodKey === 'year' && !hasActiveMonths;
-  const coveredQ = useMemo(() => {
-    if (yearWide) return null;
-    const qs = hasActiveMonths && fd.coveredQuarters.length > 0
-      ? fd.coveredQuarters
-      : [fd.periodKey];
-    return new Set(qs.map((q) => Number(q.replace('q', ''))));
-  }, [yearWide, hasActiveMonths, fd.coveredQuarters, fd.periodKey]);
-
-  const { rows, droppedNoQuarter } = useMemo(() => {
-    const all = resp?.points ?? [];
-    if (!coveredQ) return { rows: all, droppedNoQuarter: 0 };
-    let dropped = 0;
-    const kept = all.filter((p) => {
-      const q = parseQuarter(p.quarter);
-      if (q === null) { dropped++; return false; }
-      return coveredQ.has(q);
-    });
-    return { rows: kept, droppedNoQuarter: dropped };
-  }, [resp, coveredQ]);
-
-  const stats = useMemo(() => {
-    let sumPlan = 0;
-    let sumFact = 0;
-    for (const p of rows) { sumPlan += p.planTotal; sumFact += p.factTotal; }
-    const reductionPct = sumPlan > 0 ? (1 - sumFact / sumPlan) * 100 : null;
-    return { sumPlan, sumFact, reductionPct };
-  }, [rows]);
-
-  const refusalCost = stats.reductionPct !== null && epHasData
-    ? epPlan * (stats.reductionPct / 100)
-    : null;
+  const rows = resp?.points ?? [];
+  const stats = { sumPlan: resp?.summary.limitTotal ?? 0, sumFact: resp?.summary.contractTotal ?? 0,
+    reductionPct: resp?.summary.limitReductionPercent ?? null };
+  const refusalCost = stats.reductionPct !== null && epHasData && resp?.coverage.complete
+    ? epPlan * (stats.reductionPct / 100) : null;
 
   const sortedRows = useMemo(
     () => [...rows].sort((a, b) => b.planTotal - a.planTotal),
@@ -193,28 +137,11 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
   }
   if (resp?.truncated) {
     caveats.push(
-      `Выборка упёрлась в потолок ${resp.pointLimit} строк — среднее посчитано по показанной части, не по всем торгам.`,
+      `В раскрытии не больше ${resp.pointLimit} строк; итог рассчитан по всем ${resp.total} подходящим позициям.`,
     );
   }
-  if (droppedNoQuarter > 0) {
-    caveats.push(
-      `${droppedNoQuarter} ${rowsWord(droppedNoQuarter)} без определимого квартала в счёт выбранного периода не вошли.`,
-    );
-  }
-  if (coveredQ && fd.partialMonths.length > 0) {
-    caveats.push(
-      'Выбор месяцев сужает торги только до кварталов: точнее квартала строка торгов к месяцу не привязана.',
-    );
-  }
-  // Периметры двух множителей разошлись (канон п.58б): объём ЕП сужен отбором
-  // учреждений (fd.depts), а облако торгов — нет: запрос /api/rows/scatter
-  // принимает только адрес управления, колонки учреждения у строки торгов нет.
-  // Молчаливое произведение двух разных периметров и есть запрещённый случай.
-  if (selectedSubordinates.size > 0) {
-    caveats.push(
-      'Отбор учреждений сужает плановый объём ЕП, но не статистику торгов: строка торгов приходит с адресом управления — среднее снижение посчитано по управлению целиком.',
-    );
-  }
+  if (resp && resp.excluded.unknownMethod > 0) caveats.push(`${resp.excluded.unknownMethod} строк с неподтверждённым способом не входят в конкурентную базу.`);
+  if (resp && !resp.coverage.complete) caveats.push('Итоговая оценка не рассчитана: состав источников неполон.');
 
   const detailId = 'cost-of-refusal-rows';
 
@@ -223,7 +150,7 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
       // Заголовок-существительное и ровно тот, каким метрика названа в базе
       // знаний («Цена отказа от конкурса»): одно имя у числа на всех экранах.
       title="Цена отказа от конкурса"
-      subtitle="На состоявшихся торгах цена падает от НМЦК; у закупки у единственного поставщика снижение — ноль. Цена отказа — сколько снижения теряет объём ЕП при среднем проценте собственных торгов."
+      subtitle="Условная оценка по разнице планового лимита и цены заключённых конкурентных закупок. Лимит K не является НМЦК; результат не доказывает потери от выбора ЕП."
       icon={Scale}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.refusal_cost}
@@ -274,13 +201,13 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className={clsx(TILE, 'px-3 py-2.5')}>
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Среднее снижение на торгах
+                Снижение от планового лимита
               </p>
               <p className="text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5">
                 {stats.reductionPct !== null ? fmtPct(stats.reductionPct) : '—'}
               </p>
               <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                по {rows.length} {procWord(rows.length)} с заключённым контрактом
+                по {resp?.total ?? rows.length} {procWord(resp?.total ?? rows.length)} с заключённым контрактом
               </p>
             </div>
             <div className={clsx(TILE, 'px-3 py-2.5')}>
@@ -308,19 +235,17 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
               <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70 mt-0.5">
                 {refusalCost !== null
                   ? 'оценка, не обещание — методика ниже'
-                  : 'без объёма ЕП оценка не считается'}
+                  : epHasData ? 'состав источников неполон — оценка не рассчитана' : 'без объёма ЕП оценка не считается'}
               </p>
             </div>
           </div>
 
           {/* Методика — прямо на карточке (канон п. 53: карточка диагноста). */}
           <p className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400 mt-3">
-            Методика: среднее снижение = 1 − Σ цена контракта / Σ НМЦК по состоявшимся
+            Методика: взвешенное снижение от лимита = 1 − Σ цена контракта / Σ лимит по заключённым
             конкурентным процедурам периметра ({rows.length} {procWord(rows.length)};
-            НМЦК {formatMoney(stats.sumPlan)}, контракты {formatMoney(stats.sumFact)}).
-            Цена отказа = плановый объём ЕП × это снижение. Это оценка по собственной
-            статистике торгов района, а не обещанная экономия: реальное снижение зависит
-            от предмета и рынка.
+            лимиты {formatMoney(stats.sumPlan)}, контракты {formatMoney(stats.sumFact)}).
+            Сценарная оценка = плановый объём ЕП × это снижение. Это условный перенос разницы лимита и цены на объём ЕП, без доказанной причинной связи. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
           </p>
 
           <div className="mt-3 flex items-center gap-3 flex-wrap">
@@ -359,7 +284,7 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
                   <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
-                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">НМЦК, тыс. ₽</th>
+                    <th scope="col" className="py-1.5 pr-3 text-right font-medium">Лимит, тыс. ₽</th>
                     <th scope="col" className="py-1.5 pr-3 text-right font-medium">Контракт, тыс. ₽</th>
                     <th scope="col" className="py-1.5 text-right font-medium">Снижение</th>
                   </tr>
@@ -384,11 +309,11 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
                       </td>
                       <td className={clsx(
                         'py-1.5 text-right tabular-nums',
-                        p.economyPercent > 0
+                        p.limitReductionPercent > 0
                           ? 'text-emerald-700 dark:text-emerald-400'
                           : 'text-zinc-500 dark:text-zinc-400',
                       )}>
-                        {fmtPct(p.economyPercent)}
+                        {fmtPct(p.limitReductionPercent)}
                       </td>
                     </tr>
                   ))}
@@ -402,14 +327,7 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
             </div>
           )}
 
-          {/* Режим подведов: разбивки здесь нет — и это сказано словами вместе
-              с механизмом (приказ 20.08). Строка торгов приходит с адресом
-              управления; колонки учреждения у неё нет. */}
-          <SubScopeNote
-            mode={orgScope.mode}
-            deptLabel={orgScope.dept}
-            reason="строка торгов приходит с адресом управления, колонки учреждения у неё нет — разложить среднее снижение по учреждениям не из чего. Разбивка по учреждениям есть у доли закупок без торгов ниже."
-          />
+
         </>
       )}
     </CompetitionCard>

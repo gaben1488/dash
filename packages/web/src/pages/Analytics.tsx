@@ -1,3 +1,4 @@
+import { scatterScope } from '../lib/scatter-scope';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { productLabel, ORG_ITSELF_SENTINEL, type SourceCoverage } from '@aemr/shared';
 import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
@@ -384,7 +385,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 }
 
 export function Analytics() {
-  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths } = useStore();
+  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced } = useStore();
   const fd = useFilteredData();
   // Режим организаций (приказ владельца 20.08): «с подведомственными» —
   // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
@@ -409,6 +410,8 @@ export function Analytics() {
   const [scatterData, setScatterData] = useState<any[]>([]);
   const [scatterLoading, setScatterLoading] = useState(false);
   const [scatterCoverage, setScatterCoverage] = useState<SourceCoverage>();
+  const [scatterSummary, setScatterSummary] = useState<{ limitReductionPercent: number | null; count: number }>();
+  const [scatterTruncated, setScatterTruncated] = useState(false);
   const [scatterError, setScatterError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -417,21 +420,19 @@ export function Analytics() {
     setScatterError(null);
     setScatterData([]);
     setScatterCoverage(undefined);
-    const params: Record<string, string> = {};
-    if (procurementFilter !== 'all') params.type = procurementFilter === 'competitive' ? 'competitive' : 'single';
-    if (activityFilter !== 'all') params.activity = activityFilter;
-    if (selectedDepartments.size > 0) params.dept = [...selectedDepartments].join(',');
-    if (selectedSubordinates.size > 0) params.subordinate = [...selectedSubordinates].join(',');
-    if (period !== 'year') params.period = period;
-    if (activeMonths.size > 0) params.months = [...activeMonths].join(',');
+    setScatterSummary(undefined);
+    const params = scatterScope({ year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates,
+      procurementFilter, activityFilter, selectedActivities, deptOnlyMode, searchQuery: searchQueryDebounced });
     api.getScatterData(params).then((res: any) => {
       if (cancelled) return;
       setScatterData(res.points ?? []);
       setScatterCoverage(res.coverage);
+      setScatterSummary(res.summary);
+      setScatterTruncated(res.truncated);
     }).catch(err => { if (!cancelled) setScatterError(humanizeRequestError(err)); })
       .finally(() => { if (!cancelled) setScatterLoading(false); });
     return () => { cancelled = true; };
-  }, [procurementFilter, activityFilter, selectedDepartments, selectedSubordinates, period, activeMonths]);
+  }, [procurementFilter, activityFilter, selectedDepartments, selectedSubordinates, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced]);
 
   const filteredDepts = fd.depts;
   const hasDeptData = filteredDepts.length > 0;
@@ -707,10 +708,7 @@ export function Analytics() {
   const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
   const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
 
-  const avgEconomy = scatterData.length > 0
-    ? scatterData.reduce((s: number, d: any) => s + (d.economyPercent ?? 0), 0) / scatterData.length
-    : 0;
-  const suspiciousCount = scatterData.filter((d: any) => d.economyPercent < 2 || d.economyPercent > 25).length;
+  const limitReduction = scatterSummary?.limitReductionPercent ?? null;
 
   const avgExecHeatmap = heatmapData.length > 0
     ? heatmapData.reduce((s: number, d: any) => s + (d.execPct ?? 0), 0) / heatmapData.length
@@ -1334,8 +1332,10 @@ export function Analytics() {
       )}
 
       {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — у ${suspiciousCount} закупок экономия вне коридора 2–25 %` : ''}` : 'Экономия: лимит против цены по заключённым закупкам'} icon={TrendingUp} source="calculated">
+      <AnalyticsCard title={limitReduction !== null ? `Взвешенное снижение от лимита ${limitReduction.toFixed(1)}%` : 'Лимит и цена заключённых закупок'} icon={TrendingUp} source="calculated">
         <SourceCoverageNotice coverage={scatterCoverage} />
+        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y; лимит не является НМЦК. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают снижение без правовой оценки.</p>
+        {scatterTruncated && <p className="text-xs text-[var(--ink-muted)]">Показаны первые {scatterData.length} из {scatterSummary?.count} позиций; взвешенный итог учитывает все позиции.</p>}
         {scatterLoading ? (
           <div
             role="status"
@@ -1398,31 +1398,31 @@ export function Analytics() {
                             <span className="text-right font-medium">{d.planTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
                             <span className="text-zinc-400">Цена:</span>
                             <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
-                            <span className="text-zinc-400">Экономия:</span>
-                            <span className={`text-right font-bold ${d.economyPercent > 25 ? 'text-red-500' : d.economyPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                              {d.economyPercent?.toFixed(1)}%
+                            <span className="text-zinc-400">Снижение от лимита:</span>
+                            <span className={`text-right font-bold ${d.limitReductionPercent > 25 ? 'text-red-500' : d.limitReductionPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                              {d.limitReductionPercent?.toFixed(1)}%
                             </span>
                           </div>
                         </div>
                       );
                     }}
                   />
-                  <Scatter name="Норма (5-15%)" data={scatterData.filter((d: any) => d.economyPercent >= 5 && d.economyPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Снижение 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
-                  <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.economyPercent >= 0 && d.economyPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
                       высокую экономию» — из тона претензии в информационный. */}
-                  <Scatter name="Высокая экономия (свыше 25%)" data={scatterData.filter((d: any) => d.economyPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Цена выше лимита (меньше 0%)" data={scatterData.filter((d: any) => d.economyPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.economyPercent > 15 && d.economyPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Снижение свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Цена выше лимита (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-3 text-[10px] flex-wrap">
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — норма</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — снижение</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15–25 % — заметная</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — низкое снижение</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — высокая экономия по закупке (информационно)</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — снижение от лимита</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — цена выше лимита</span>
             </div>
           </>
