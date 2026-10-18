@@ -1,6 +1,7 @@
 # Metrics Contract
 
-Last verified: 2026-06-05.
+Исходная сверка:2026-06-05. Уточнения18.10.2026 ниже относятся к проверенным
+трактам и целевому программному разрезу; это не повторная приёмка всех метрик.
 
 This document is the contract from Google Sheet cells to dashboard numbers. If code, UI labels, or docs disagree with this file, the metric is not production-ready.
 
@@ -72,9 +73,9 @@ Production row-level calculations use department workbooks. The same layout is m
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Source position label (text, not physical row) | `DEPT_COLUMNS.ID` | source alias | `rows[].id` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
-| Department workbook | same | `D` | Program / PM name | `DEPT_COLUMNS.PROGRAM_NAME` | program context for activity | `rows[].description` | Subject/detail |
-| Department workbook | same | `E` | Subprogram name | `DEPT_COLUMNS.SUBPROGRAM` | subprogram context | `byActivity.*` | Activity filter |
-| Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
+| Department workbook | same | `D` | Название программы / исходное отнесение | `DEPT_COLUMNS.PROGRAM_NAME` | самостоятельный программный разрез ещё не подключён | `RowDto.programName` | Программный контекст |
+| Department workbook | same | `E` | Исходное описание подпрограммы/мероприятия; уровень требует проверки | `DEPT_COLUMNS.SUBPROGRAM` | будущий программный разрез, не `byActivity` | отдельное поле в `RowDto` пока отсутствует | Будущий состав программы |
+| Department workbook | same | `F` | Вид деятельности | `DEPT_COLUMNS.TYPE` + `classifyActivity` | `byActivity.*` | `RowDto.type` и общая ось активности | `ПМ`, `ТД`; все — без ограничения |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
 | Department workbook | same | `L` | Procurement method | `DEPT_COLUMNS.METHOD` + `classifyMethodGroup` | `competitive_count`, `ep_count`, method totals | `competitiveCount`, `soleCount`, `kpCount`, `epCount` | `КП`, `ЕП` |
@@ -117,23 +118,31 @@ Production row-level calculations use department workbooks. The same layout is m
 | empty method | `competitive`, for legacy compatibility with the official `L<>"ЕП"` SVOD formulas |
 | unknown non-empty method | `competitive` only for the official non-EP SVOD partition; not proof of a competitive procedure |
 
-Unknown methods must surface through validation/data quality. Procedure-specific analytics must distinguish a known competitive method from the official non-EP partition. Current source identity uses physical row separately from the text label in A. TD-PM program context is D, not E.
+Unknown methods must surface through validation/data quality. Procedure-specific analytics must distinguish a known competitive method from the official non-EP partition. Физическая строка хранится отдельно от текстового номера A. Прежняя формулировка
+«ТД-ПМ определяется по D» устарела: D/E — программная принадлежность, F — вид
+деятельности; заполненная D не исключает ТД из её состава.
 
 ## Activity Classification
 
-UI filters use internal keys, not Russian labels:
+Действующее правило канона п.30 от14.08.2026, повторно подтверждённое
+владельцем18.10: `matchesActivityScope` и `classifyActivity` используют F.
+D/E не делят текущую деятельность на отдельные пользовательские категории.
 
-| UI label | Internal key | Source values |
-| --- | --- | --- |
-| `ПМ` | `program` | `ПМ`, `Программное мероприятие` |
-| `ТД-ПМ` | `current_program` | current activity with a program context |
-| `ТД` | `current_non_program` | `ТД`, `Текущая деятельность` without program context |
+| Отбор | Ключ оси | Источник и результат |
+|---|---|---|
+| Все | `all` | Ограничение F не применяется; неизвестные значения остаются видимыми |
+| ПМ | `pm` | Распознанное «Программное мероприятие»; ключ движка `program` |
+| ТД | `td` | Распознанная «Текущая деятельность», включая заполненную D; ключ движка `current_non_program` |
 
-Navigation filters must synchronize both legacy single-value fields and the Set-based filters used by `useFilteredData`.
+`current_program`, «ТД-ПМ» и «ТД чистая» сохранены для чтения старых ссылок/
+снимков и нормализуются в ТД. Новый классификатор их не выдаёт. Нераспознанная
+F возвращает null, не зачисляется в ПМ или ТД по догадке. Прежняя таблица
+трёх категорий была описанием старой модели, а не текущим правилом интерфейса.
+Навигация синхронизирует legacy поля и Set-отборы `useFilteredData`.
 
 ## Limit comparison and refusal scenario (C04.03, 18.10.2026)
 
-`GET /api/rows/scatter` returns `basis=plan_limit_K_vs_contract_Y` and
+`GET /api/rows/scatter` returns `basis=plan_K_vs_recorded_fact_Y` and
 `unit=thousand_rubles`. Each point has `limitReductionPercent = 100×(1−Y/K)`;
 `approvedEconomy` separately uses the core AD-gated signed Z+AA+AB definition.
 K is not NMCK. Point ranges are descriptive, not an anti-dumping or savings
@@ -227,3 +236,54 @@ legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
 Один React-компонент `ReportOperationsStatus` использует существующий опрос;
 дополнительного GET, генерации, SQL-схемы и самостоятельного расчётного контура
 нет. Его локальные учебные browser-сценарии не являются production-приёмкой.
+
+
+<a id="program-metrics-20261018"></a>
+
+## Закупочная часть программ — целевой контракт18.10.2026
+
+Это определения для существующих C02.03/C03.01/C05.01/C08.06 и концепции
+[«Программы»](../DESIGN.md#programs-concept-20261018). Они ещё не объявлены
+исполняемыми метриками приложения. Учебный HTML показывает взаимодействие;
+его массивы и функции не становятся вторым финансовым ядром.
+
+Единица основного состава — плановая позиция с установленной идентичностью,
+источником, программной принадлежностью и плановым годом/неизвестным годом.
+Запись источника, потребность, попытка процедуры, договор и платёж различны.
+Программа/редакция и подпрограмма имеют собственные ключи; одинаковый текст
+в разных программах не объединяет их. Неоднозначные D/E сохраняют raw-основание
+и отдельную группу до подтверждённого соответствия. Самый крупный заказчик
+не назначается координатором. Роли из паспорта не выводятся из B/C.
+
+| Показатель | Состав и формула | Источник, ограничения и переход |
+|---|---|---|
+| Плановые позиции | Число уникальных позиций полного активного отбора | D/E и identity общего выпуска; не число строк на странице, процедур или договоров. Открывает тот же набор позиций. |
+| Суммы по планам | Сумма известных сопоставимых K; при выборе бюджета — соответствующие H/I/J по общему денежному правилу | Экономическая роль, единицы и год обязательны; неизвестные обязательные деньги не становятся0. Раскрываются включённые/исключённые позиции и покрытие. Не полный бюджет программы. |
+| Процедуры в работе | Число уникальных подтверждённо связанных попыток в объявленных активных состояниях | Из реестра процедур и доказанных связей; код или похожий предмет сами по себе не устанавливают связь. Счётчик открывает именно эти попытки. |
+| Договоры | Число уникальных подтверждённых договоров выбранного состава | Собственные идентификаторы/события договора. Q плановой строки не является идентификатором договора. При отсутствии такого источника допустима иная метрика «Позиции со сведениями о договоре» со своим grain и покрытием. |
+| Отнесённая стоимость договоров | Сумма подтверждённых распределений на выбранные позиции/программы/год | Полная цена общего договора не копируется в каждую программу. Нераспределённая часть видна; сумма частичных счётчиков договоров может пересекаться, общий счётчик — по объединению ID. |
+| Требуют внимания | Число уникальных позиций с применимыми действующими деловыми вопросами общего каталога сигналов | У причины есть доказательство, адресат, действие и проверка результата; несколько причин одной позиции не умножают счётчик. Транспортная ошибка — технический инцидент, не нарушение ГРБС. |
+| AD-экономия | Существующий `economy_total` в том же программном/календарном отборе и с его действующими gates | Signed Z+AA+AB при подтверждённом AD, не K−Y. Перераспределение не создаёт второй результат; основания открываются в общем досье. |
+
+Канонический расчёт возвращает значение **вместе с его составом** и паспортом:
+объект/формула/единицы, числитель/знаменатель (где применимы), as-of/период/
+календарная ось, источник/колонки/фактические времена чтений, rule/mapping/version,
+применённые/неприменимые оси, исключения/покрытие, основание порога и действие.
+Программный фильтр добавляется в общий selector, DTO, URL и выгрузку; фронт
+не пересчитывает официальный итог по загруженной странице строк. Периметр
+показателя, расшифровки, процедуры, карточки и документа согласован.
+
+Период N, управления B, организации C/«только управление», L, F и бюджеты
+сужают соответствующие данные одинаково; неприменимость называется явно.
+Плановая когорта и окно событий календаря раздельны. Неизвестная N не даёт
+дату/год по догадке и не становится просрочкой. Наличие Q не доказывает
+приёмку, оплату или исполнение всей программы. Для первоначального календаря
+сохраняется исходная дата, для текущей работы — согласованная; перенос не
+улучшает прежнюю когорту задним числом.
+
+Сравнение двух выпусков сохраняет обе точки и совместимость. Изменения D/E,
+состава знаменателя, сумм и новые результаты объясняются раздельно; неполное
+предыдущее чтение не создаёт исчезновение. Достоверный0, отсутствие данных,
+непрочитанная книга, отбор в0, неподключённый дополнительный источник и
+недоступное сравнение имеют разные состояния. Каждая производная метрика
+включается в исполняемый каталог с отрицательными проверками до её внедрения.
