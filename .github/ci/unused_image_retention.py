@@ -200,7 +200,12 @@ def observe(*, diagnostics=False):
             **({'capacity_protection': {key: sorted(value) for key, value in protection.items()}} if CAPACITY_MODE else {}),
             **({'capacity_eligibility': {identity: {
                     'present': any(row['Id'] == identity for row in images),
-                    'exact_metadata': bool(select_capacity_images([row for row in images if row['Id'] == identity], [], set()))}
+                    'exact_metadata': bool(select_capacity_images([row for row in images if row['Id'] == identity], [], set())),
+                    'tag_exact': any(row.get('RepoTags') == ['aemr-server:release-' + CAPACITY_TARGETS[identity]] for row in images if row['Id'] == identity),
+                    'source_exact': any((row.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.revision') == CAPACITY_TARGETS[identity] for row in images if row['Id'] == identity),
+                    'registry_digests': [ref.removeprefix('aemr-server@') if isinstance(ref, str) and re.fullmatch('aemr-server@sha256:[a-f0-9]{64}', ref) else 'UNRECOGNIZED'
+                        for row in images if row['Id'] == identity for ref in (row.get('RepoDigests') or [])][:8]}
+
                     for identity in CAPACITY_TARGETS}} if CAPACITY_MODE and diagnostics else {})}
 
 
