@@ -588,7 +588,6 @@ export function Dashboard() {
         })()}
         <RatingTableV2
           departments={ratingDepts}
-          showSubordinates={selectedDepartments.size > 0}
           onDeptClick={(deptId) => {
             // Идентификатор строки латинский, а фильтр в состоянии хранится по
             // краткому русскому имени — переводим здесь, иначе фильтр не сойдётся.

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { DashboardDataSchema, type TrustScore } from '@aemr/shared';
+import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { DashboardDataSchema, DepartmentSummarySchema, type TrustScore } from '@aemr/shared';
 import { api } from '../api';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { useStore } from '../store';
 import { Dashboard } from './Dashboard';
+import { useFilteredData } from '../hooks/useFilteredData';
 
 const initialState = useStore.getState();
 const trust: TrustScore = {
@@ -65,4 +66,46 @@ describe('Pulse trust expansion', () => {
       expect(useStore.getState().trustComponentSeed).toEqual({ id: component.name, label });
     }
   });
+});
+
+it('selects the Russian department filter from the rating and carries the same quarter to the registry', () => {
+  const departments = [['uo', 'УО', 1], ['uer', 'УЭР', 3]] as const;
+  const summaries = departments.map(([id, nameShort, scale]) => {
+    const q4 = { planTotal: 300_000 * scale, factTotal: 150_000 * scale,
+      planCount: 2 * scale, factCount: scale, kpCount: 2 * scale, epCount: 0,
+      kpPlanTotal: 300_000 * scale, kpFactTotal: 150_000 * scale,
+      epPlanTotal: 0, epFactTotal: 0, economyTotal: 0 };
+    const q1 = { ...q4, planTotal: 5_000_000 * scale, factTotal: 0 };
+    return DepartmentSummarySchema.parse({
+      department: { id, name: nameShort, nameShort, sheetName: nameShort,
+        svodRange: { startRow: 1, endRow: 2 }, controlCells: {} },
+      planTotal: q1.planTotal + q4.planTotal, factTotal: q4.factTotal,
+      executionPercent: 50, economyTotal: 0, competitiveCount: 2 * scale, soleCount: 0,
+      issueCount: 0, criticalIssueCount: 0, trustScore: 90, status: 'normal',
+      quarters: { q1, q4 }, subordinates: [],
+    });
+  });
+  const data = useStore.getState().dashboardData!;
+  useStore.setState({ year: 2026, period: 'q4', periodMode: 'explicit',
+    activeMonths: new Set(), monthsByYear: {},
+    dashboardData: { ...data, departmentSummaries: summaries },
+  });
+  const filtered = renderHook(() => useFilteredData());
+  render(<TooltipProvider><Dashboard /></TooltipProvider>);
+  expect(filtered.result.current.totalPlan).toBe(1_200_000);
+  fireEvent.click(screen.getByRole('button', { name: 'Состав управления УО' }));
+  expect(useStore.getState().selectedDepartments.size).toBe(0);
+  expect(filtered.result.current.totalPlan).toBe(1_200_000);
+  const rating = screen.getByRole('button', { name: 'Состав управления УО' }).closest('table')!;
+  fireEvent.click(within(rating).getByRole('button', { name: 'УО' }));
+  expect([...useStore.getState().selectedDepartments]).toEqual(['УО']);
+  expect(filtered.result.current.totalPlan).toBe(300_000);
+  expect(filtered.result.current.totalFact).toBe(150_000);
+  expect(filtered.result.current.totalPlanCount).toBe(2);
+  expect(screen.getByText('Активные фильтры:').parentElement?.textContent).toContain('УО');
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть реестр строк' }));
+  expect(useStore.getState().page).toBe('data');
+  expect([...useStore.getState().selectedDepartments]).toEqual(['УО']);
+  expect(useStore.getState().period).toBe('q4');
+  expect(useStore.getState().year).toBe(2026);
 });

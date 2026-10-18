@@ -198,7 +198,7 @@ export function SelectionTokens({compact = false, style}: {compact?: boolean; st
     ];
     tokens.push({
       key: 'orgs',
-      label: `орг · ${orgCount}`,
+      label: `орг · ${names.join(', ')}`,
       title: `Выбраны организации: ${names.join(', ')}. Нажмите ✕ — снять выбор организаций`,
       // selectAllDepartments снимает ось целиком: управления, подведы, deptOnly.
       onRemove: selectAllDepartments,

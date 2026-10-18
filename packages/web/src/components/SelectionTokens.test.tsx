@@ -23,6 +23,22 @@ import { getActiveFilterCount, isWeekShifted, useStore, type Page } from '../sto
 vi.stubGlobal('ResizeObserver',class {observe() {} unobserve() {} disconnect() {}});
 
 describe('compact filter instrument',()=>{
+ it('names the selected department visibly inside the filter list',()=>{
+  resetState();useStore.getState().toggleDepartment('УО');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  const entry=view.getByRole('button',{name:/Выбраны организации: УО\./});
+  expect(entry.textContent).toContain('УО');
+ });
+ it('shows every selected organization while counting them as one filter axis',()=>{
+  resetState();useStore.getState().toggleDepartment('УО');useStore.getState().toggleDepartment('УЭР');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  const entry=view.getByRole('button',{name:/Выбраны организации:/});
+  expect(entry.textContent).toContain('УО');expect(entry.textContent).toContain('УЭР');
+  fireEvent.click(entry);
+  expect(useStore.getState().selectedDepartments.size).toBe(0);
+ });
  it('keeps view reset undo available while the user reads unchanged filters',()=>{
   vi.useFakeTimers();
   try {
