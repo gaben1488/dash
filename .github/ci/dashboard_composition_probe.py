@@ -9,7 +9,7 @@ from pathlib import Path
 
 LIMIT = 64 * 1024 * 1024
 YEAR = 2026
-CUTOVER = '2026-10-18T15:29:26.000Z'
+CUTOVER = '2026-10-18T18:10:00.000Z'
 
 
 def encoded(value):

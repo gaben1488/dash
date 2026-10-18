@@ -2786,7 +2786,7 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Inspect dashboard composition for accepted 2579f36c'
+      github.event.head_commit.message == 'Inspect dashboard composition for accepted 06cad6a2'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -2824,7 +2824,7 @@ jobs:
             labels=record['Config']['Labels']
             assert labels['com.docker.compose.project']=='aemr' and labels['com.docker.compose.service']=='server'
             image=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
-            assert image['Config']['Labels']['org.opencontainers.image.revision']=='2579f36c958d1787a04b9a209446f05dd4e3c391'
+            assert image['Config']['Labels']['org.opencontainers.image.revision']=='06cad6a2ee352b265aadb610cb7d7ac47f9122bb'
             body=base64.b64decode(os.environ['COMPOSITION_PROBE'],validate=True)
             assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['COMPOSITION_PROBE_SHA']
             result=subprocess.run(['docker','exec','-i','--user','1000:1000',record['Id'],
