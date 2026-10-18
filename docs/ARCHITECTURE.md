@@ -402,6 +402,13 @@ referencing completed revisions in Asia/Kamchatka. A verified release references
 that revision, rules/renderer versions and one frozen model. Derived views use
 indexed current state or bounded caches; they do not retain new full source
 copies per release. Human decisions and their minimal exact proofs survive GC.
+The owner's 18 October clarification selects a new accepted baseline T0 as the
+preferred cutover instead of migrating the entire legacy archive. Carry current
+business state, active decisions and proven identities, not old attempts or model
+copies. Historical source dates remain valid; unavailable pre-T0 observations
+remain unavailable. The new startup/read/write/restore paths must work with the
+legacy store physically disconnected before its separately verified retirement.
+T0 is recorded at actual acceptance and does not create a parallel product.
 The current live head may be newer than the verified release; consumers expose
 both explicitly instead of silently changing historical document input.
 
