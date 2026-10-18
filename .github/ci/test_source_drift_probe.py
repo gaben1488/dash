@@ -64,6 +64,7 @@ class DriftProbeTests(unittest.TestCase):
             calls = []
             scope = {'os': SimpleNamespace(environ={'RELEASE_PROGRESS_ONLY': 'yes', 'WORKER_ACCEPTANCE': selected}),
                      'json': json,
+                     'runtime_lifecycle_metadata': lambda calls=calls: calls.append(('lifecycle', {})),
                      'worker_operational_metadata': lambda calls=calls, **kwargs: calls.append(('worker', kwargs)),
                      'accepted_cycle_metadata': lambda calls=calls: calls.append(('receipts', {})),
                      'checkpoint_metadata': lambda calls=calls: calls.append(('bulk_checkpoint_census', {})),
@@ -71,7 +72,7 @@ class DriftProbeTests(unittest.TestCase):
             exec(compile(module, '<actual-observer-main>', 'exec'), scope)  # noqa: S102 - trusted workflow function
             with contextlib.redirect_stdout(io.StringIO()):
                 scope['main']()
-            expected = [('worker', {'include_saved': False})]
+            expected = [('lifecycle', {}), ('worker', {'include_saved': False})]
             if selected: expected.append(('receipts', {}))
             self.assertEqual(calls, [*expected, ('runtime', {})])
 

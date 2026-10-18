@@ -1611,6 +1611,12 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('CONTENT_PROJECTOR='+base64.b64encode(body).decode()+'\n')
               target.write('CONTENT_PROJECTOR_SHA='+hashlib.sha256(body).hexdigest()+'\n')
+              timing=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in {'runtime_log_stages','runtime_stage_summary'}]
+              assert len(timing)==2
+              lifecycle=(Path('.github/ci/runtime_lifecycle_probe.py').read_text()+'\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in timing)).encode()
+              assert 0<len(lifecycle)<=24576
+              target.write('LIFECYCLE_PROBE='+base64.b64encode(lifecycle).decode()+'\n')
+              target.write('LIFECYCLE_PROBE_SHA='+hashlib.sha256(lifecycle).hexdigest()+'\n')
           PYCONTENT
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
@@ -1622,8 +1628,10 @@ jobs:
           CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
           CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
           WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance }}
+          LIFECYCLE_PROBE: ${{ env.LIFECYCLE_PROBE }}
+          LIFECYCLE_PROBE_SHA: ${{ env.LIFECYCLE_PROBE_SHA }}
         with:
-          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY
+          envs: WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY,LIFECYCLE_PROBE,LIFECYCLE_PROBE_SHA
           host: 193.233.91.162
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -1631,7 +1639,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY python3 -IB - <<'PY'
+            sudo -n --preserve-env=WEEKLY_ONLY,RELEASE_ONLY,RELEASE_PROGRESS_ONLY,CONTENT_PROJECTOR,CONTENT_PROJECTOR_SHA,WORKER_ACCEPTANCE,STORAGE_CENSUS_ONLY,LIFECYCLE_PROBE,LIFECYCLE_PROBE_SHA python3 -IB - <<'PY'
             import hashlib
             import json
             import os
@@ -2331,12 +2339,45 @@ jobs:
              lock=Path('/run/lock/aemr-maintenance.lock');info=lock.lstat()
              result['lock_uid']=info.st_uid;result['lock_mode']=stat.S_IMODE(info.st_mode);result['lock_nlink']=info.st_nlink
              print(json.dumps(result),flush=True)
+            def runtime_lifecycle_metadata():
+             import base64
+             from datetime import datetime,timedelta,timezone
+             body=base64.b64decode(os.environ['LIFECYCLE_PROBE'],validate=True)
+             assert 0<len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['LIFECYCLE_PROBE_SHA']
+             scope={'__name__':'lifecycle_projector'};exec(compile(body,'<reviewed-lifecycle-projector>','exec'),scope)
+             end=datetime.now(timezone.utc);begin=end-timedelta(minutes=20)
+             def capture(args):
+              child=None
+              try:
+               child=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+               bounded=subprocess.run(['head','--bytes=1048577'],stdin=child.stdout,capture_output=True,timeout=25,check=False)
+               child.stdout.close();code=child.wait(timeout=2)
+               return bounded.stdout.decode('utf-8') if code==0 and bounded.returncode==0 and len(bounded.stdout)<=1024*1024 else None
+              except (OSError,ValueError,subprocess.SubprocessError):return None
+              finally:
+               if child is not None and child.poll() is None:child.kill();child.wait()
+             guard=Path('/var/lib/aemr/runtime-guard.json');state=None
+             if guard.is_file() and not guard.is_symlink() and guard.stat().st_size<=65536:state=guard.read_text()
+             journal=capture(['journalctl','--unit=aemr-runtime-guard.service','--since='+begin.isoformat(),'--until='+end.isoformat(),'--lines=200','--no-pager','--output=json'])
+             events=capture(['docker','events','--since='+begin.isoformat(),'--until='+end.isoformat(),'--filter=container=aemr-server-1','--filter=type=container','--format={{json .}}'])
+             policy=Path('/etc/aemr/runtime-policy.json');policy_raw=None
+             if policy.is_file() and not policy.is_symlink() and policy.stat().st_size<=65536:policy_raw=policy.read_text()
+             lifecycle=scope['project_lifecycle'](state,journal,events,policy_raw)
+             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
+             stages=[]
+             if 'TZ=UTC' in record.get('Config',{}).get('Env',[]):
+              logs=capture(['docker','logs','--timestamps','--since='+begin.isoformat(),'--until='+end.isoformat(),'--tail=3000','aemr-server-1'])
+              if logs:
+               try:stages=scope['runtime_log_stages'](logs,logger_utc=True)
+               except ValueError:pass
+             print(json.dumps({'runtime_lifecycle':lifecycle,'window_start':begin.isoformat(),'window_end':end.isoformat(),'runtime_stages':stages,'runtime_stages_available':bool(stages)}),flush=True)
             def main():
              if os.environ.get('STORAGE_CENSUS_ONLY')=='yes':
               checkpoint_metadata(storage_only=True)
               print(json.dumps({'containers':snapshot(lambda args:subprocess.check_output(args,text=True,timeout=15))}),flush=True)
               return
              if os.environ.get('RELEASE_PROGRESS_ONLY')=='yes':
+              runtime_lifecycle_metadata()
               worker_operational_metadata(include_saved=False)
               if os.environ.get('WORKER_ACCEPTANCE',''):
                accepted_cycle_metadata()
