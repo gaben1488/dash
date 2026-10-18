@@ -24,6 +24,34 @@ Expected endpoints:
 
 ## Verification
 
+Runtime18.10.2026 — `ed3e4589`,
+[release39091352612](https://github.com/gaben1488/dash/actions/runs/39091352612)
+SUCCESS03:24:37UTC, controller ACCEPTED/API/3Word/health/resume PASS.
+Keeper `worker-39091352612/backup`:21 357 882 917logicalB/3767entries,
+archive3 228 754 890B; manifest4eb324382ee31ec7…/trialff524a8fb42a25fe…;
+оба actual restores111SQLite/266DOCX. Полные хэши/images — текущий PLAN.
+Desktop39093548595 и WebKitGTK39093550073 full13/Header/Undo/journal3/3Word
+PASS. Это не физический iPhone/Safari и не все права/правки. Observer39093234709
+ещё IN_PROGRESS: установка не равна полной приёмке.
+Metadata39093724973:4running/OOMfalse/restarts0; API03:23:30,
+worker03:24:14UTC, свободно5 603 995 648B в этом чтении. Контейнеры и
+штатный900sпослеfinish таймер сохранять до terminal observer proof.
+Early observer390919 истёк до активации; history follow-upFAIL в maintenance
+не переносится на историю принятого приложения. Не запускать новый generation
+в ответ на настоящий отказ цикла без разбора его evidence.
+
+OPS c91b57b0 повторно использует проверенные exact-source образы; нет новой
+сборки, съедающей подготовленный capacity floor. Reference-aware cleanup
+удалил только два доказанных unreferenced failed-build images; free delta
++1 464 008 704B измерен, данные/volumes/rollback images не удалялись.
+43actual-root checks PASS; весь legacy OPS suite зелёным не объявляется.
+Не переносить целиком OPS ci.yml в приложение: downstream release/recovery
+выполнялись из exacted3, операторская ветка отдельно. Прежний checkpoint
+и historical source proofs не подменять доказательствами нового выпуска.
+Кандидат3a249ede (master/scorer) пока отдельно, не установлен.
+
+История78d (следующая запись не является текущим runtime):
+
 Runtime17.10.2026 — `78d293b2`, release39029386193 SUCCESS12:17UTC.
 Keeper worker-39029386193/backup:21 063 718 219logicalB/3621entries,
 archive3 185 621 581B; manifestd3d8284f…/triald35ff48d…; оба restore

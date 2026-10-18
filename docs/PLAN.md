@@ -5,7 +5,91 @@
 
 ---
 
-### Текущий выпуск — 17.10.2026; приёмка78d12:50UTC, кандидат bb207 CI13:35UTC
+### Текущий выпуск — 18.10.2026, 03:35 UTC; установленed3, приёмка worker продолжается
+
+Установлен прикладной `ed3e4589a33a4b5bed3f4cab684ef1d519d0290d`:
+[release39091352612](https://github.com/gaben1488/dash/actions/runs/39091352612)
+SUCCESS03:24:37UTC, controller `EXACT_SHA_CANDIDATE_ACCEPTED`, native API/
+3Word/public health/resume PASS. Проверенный исходный
+[CI39042459900](https://github.com/gaben1488/dash/actions/runs/39042459900)
+относится к этому SHA. Последующие документы и OPS-коммиты не являются
+новой установленной версией приложения.
+
+Свежий checkpoint `worker-39091352612/backup`:21 357 882 917logicalB,
+3767entries, архив3 228 754 890B; manifest
+`4eb324382ee31ec77ab0dd908ebd184e18dc09f52efe14288672a838a9fdb392`,
+independent trial
+`ff524a8fb42a25fe02de7f2babc8c6c2b34c575d4fcbb658ab82e97b30aa77fb`.
+Оба настоящих восстановления нового/предыдущего приложения проверили
+111SQLite/266DOCX. Независимый этап02:57:28–03:22:33UTC; guardian install
+03:22:33–03:24:24UTC. Это принятые проверки восстановления данного выпуска,
+не доказательство резервирования вне зоны отказа VPS.
+
+Образы API/worker:
+`sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57`;
+web `sha256:5728022e239d7d03b4ecc914913088932af03f319e2d12c256f8c437e33b8c20`;
+caddy `sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d`.
+[Metadata39093724973](https://github.com/gaben1488/dash/actions/runs/39093724973)
+подтвердил4running/OOMfalse/restarts0; API StartedAt03:23:30.5267,
+worker03:24:14.8445UTC. Свободно5 603 995 648B в этом наблюдении,
+не гарантированный остаток следующих операций.
+
+Причина двух capacity-отказов39044388523/39052881493 доfreeze устранена
+в OPS `c91b57b0e7c883e416cc0d4c0edc8fa84db655f0`: тот же source SHA
+больше не собирается заново при повторе установки. Проверены staged source,
+root-owned configuration, source CI, OCI labels, точные image IDs и native
+readback. Только два unreferenced untagged образа первой неустановленной
+сборки удалены после полного reference/lock/runtime proof. Измеренный free
+4 204 732 416→5 668 741 120B (+1 464 008 704B); это разность наблюдений,
+не расчёт уникальных слоёв. Данные, история, volumes и откатные образы
+не удалялись.43/43 изменённых root-checks PASS на настоящем GHA executor.
+Полный OPS discovery529 остался FAILED:9failures/31errors/95skip из-за
+старых workflow/SHA fixtures и локальных зависимостей; baseline воспроизводит
+выборку отказов. Он не объявлен зелёным и не смешан с прикладным source CI.
+
+Инвентарь нового checkpoint по сохранённым hashes, без повторного rehash:
+2583regular files/21 357 882 917logicalB/20 163 102 567unique-contentB,
+1 194 780 350duplicate-logicalB/134groups. Source payload441files/
+2 679 464 199B, unique1 797 791 804B; status838files/1 842 902 081B
+уже различны по содержимому. Это обосновывает отдельные observations/diffs,
+а не удаление одинаково названных файлов. Physical lossless-sharing dry-run
+для immutable published files:70files/11groups/верхняя граница351 653 888B;
+с доказанными terminal captures85files/17groups/371 666 944B. Не применено;
+это не сумма к свободному месту, не полный GC и не завершение C07.
+
+[Desktop39093548595](https://github.com/gaben1488/dash/actions/runs/39093548595)
+PASS:13разделов, Header/периоды/Undo, Pulse5, operations4, journal3,
+3Word с native hashes, page errors0/blocked0. Selected request17 498,3ms,
+responseStart17 458,9ms: C05.11/C05.04 остаются открыты; это не cold benchmark.
+[WebKit39093550073](https://github.com/gaben1488/dash/actions/runs/39093550073)
+PASS: те же13разделов/Header/touch/периоды/Undo/Pulse5/operations4/journal3/
+3Word с теми же native hashes, page errors0/blocked0. Два selected GET
+3289,1/2875,1ms; это иной запрос/условия, не объяснение desktop17,5с.
+Физический iPhone/Safari, все права и рабочие сценарии редактора не приняты.
+[Observer39093234709](https://github.com/gaben1488/dash/actions/runs/39093234709)
+ещё IN_PROGRESS. Metadata видит b424ff72,03:24:53–03:27:52UTC,
+VERIFIED_WITH_WARNINGS; без terminal observer proof это не два принятых цикла.
+Первый observer39091952684 истёк до активации приложения; его history follow-up
+отказал в maintenance-окне. Эти результаты сохранены, не названы отказом
+реального нового worker либо доказательством повреждения истории. Повторный
+observer вооружён до активации с прежними конечными условиями; контейнеры
+до окончания приёмки не пересоздавать, таймер не ускорять.
+
+Следующий отдельный кандидат `3a249ede75857a595f1fbc420dbcdf9479c99c17`
+**не интегрирован и не установлен**: R05.03/master priority (`282d7ddf`)
+и узкий K02.01/scorer official0≠calculated±50 (RED100→GREEN50 при одном
+совпадении из двух). Shared743/core1889/server1102/web2340 =6074PASS/1skip,
+4tsc и independent review PASS. Полные source coverage и пустая база/
+applicability scorer остаются открытыми. C01.02/live formula/meta и
+C01.06/env fail-closed уже входят в установленныйed3; isolated negative
+checks не объявляются проверкой всех живых правок и персональных полномочий.
+
+Конечный остаток R09.01: два attributed автономных цикла и schema/history
+readback нового runtime, затем одна фиксация результата в PLAN/#69/#93.
+Все56результатов/142задачи/18групп/D01–D16/T001–T158/330сопоставлений
+сохраняются. Отдельный успешный выпуск не закрывает общую программу.
+
+### История выпуска78d — 17.10.2026; приёмка12:50UTC, кандидат bb207 CI13:35UTC
 
 Установлен `78d293b217a8afe982583c73bc67aaccdb4d906c`:
 [release39029386193](https://github.com/gaben1488/dash/actions/runs/39029386193)
@@ -538,7 +622,8 @@ contract. Полная внешняя гонка C01.01 остаётся отд�
 
 <a id="c0102-source-guard"></a>
 
-**Исправлено и проверено локально, ещё не установлено.** Исходный дефект
+**Исправлено; negative checks локально PASS, установлено в ed3 18.10.2026.**
+Это не приёмка всех живых записей и не Google CAS. Исходный дефект
 воспроизведён в настоящих Fastify write routes с изолированным Google transport:
 11новых негативных сценариев FAIL,29остальных PASS. Статический список
 формульных столбцов пропускал формулу в H, итоговую строку и запись при
@@ -839,10 +924,10 @@ Installed78d: release39029386193/observer39031123999/metadata39034110032; keeper
 | Подзадача | Основание / приоритет | Проблема → конкретная работа | Условие приёмки | Зависимости |
 |---|---|---|---|---|
 | R09.01 | Т/P1 | Ближайшая конечная поставка: Header/dawn35363516 + malformed comment18b2 + проверенная оснастка bb207; без скрытой большой миграции. | Exact source/image, сохранность installed hotfix, resource admission/backup/совместимый rollback, реальный UI/API/3Word и применимые worker gates. | R09.02,R07.01 |
-| R09.02 | А/P1 | Единый установленный паспорт SHA/image digests/schema/rules/data release/ops tools; согласовать controller pins. | Проверенный артефакт продвигается неизменным; исходники runtime доступны; main/PR/installed/OPS не подменяют друг друга. | — |
+| R09.02 | А/P1 | Единый установленный паспорт SHA/image digests/schema/rules/data release/ops tools; build once→promote, без новой сборки того же кандидата при retry; согласовать controller pins. | Проверенный артефакт продвигается неизменным; source/labels/config/CI и фактические IDs проверены, прерванный cleanup возобновляется только по проверенному receipt; main/PR/installed/OPS не подменяют друг друга. Узкий OPS c91 механизм уже применён к ed3; общий release path ещё не переключён. | — |
 | R06.04 | А/P1 | Согласованные backup с WAL/identity/ledger/publications и контролируемым scratch; восстановление конкретного кандидата/предыдущего читателя. | Восстановленный контур реально читает API/историю/3Word; архивный hash сам по себе не приёмка. Уже принятый78d не повторяется без причины. | R06.02 |
 | R07.01 | А/P1 | Rollback code+data и recovery после прерванной миграции/установки: один владелец, fencing, запись во время перехода явна. | Старый совместимый образ читает состояние; deploy failure не оставляет worker выключенным и не требует без причины stop API. | R09.02 |
-| R09.03 | В/P2 | Компонентный выпуск только при доказанной совместимости; уменьшить нынешние all4 recreate и тяжёлые повторы без обхода controller. | Web-only diff не перезапускает API/worker после отдельного доказательства правил; один runbook вместо разовых scripts. | R09.02,R07.01 |
+| R09.03 | В/P2 | Компонентный выпуск только при доказанной совместимости; ключ proof включает реальные reader/schema/migration/config/tool inputs; убрать повторный export уже проверенных images и ненужные all4 recreate. | Web-only diff не перезапускает API/worker при доказанно неизменных зависимостях; изменение reader требует соответствующего нового restore. Один runbook/controller, прежние негативные проверки сохраняются. Это следующий механизм, не ослабление gates текущего выпуска. | R09.02,R07.01 |
 | R06.05 | А/P1 | Защита от отказа VPS: пригодная внешняя копия в уже разрешённом ресурсе; ранее отменённые Drive/Telegram не возобновлять. | Назначение/доступ/стоимость согласованы; restore после потери host проверен. При отсутствии ресурса — конкретный блокер, не фиктивный offhost PASS. | R06.04 |
 | R09.04 | А/P2 | Штатные locks/boot recovery/maintenance/resource admission и мониторинг, сохраняющие API при отказе обслуживания. | Reboot/held lock/disabled worker/late owner проверены; logging/restart caps/readback сохранены. | R08.01,R06.03 |
 
@@ -856,7 +941,7 @@ Installed78d: release39029386193/observer39031123999/metadata39034110032; keeper
 | R01.02 | А/P1 | Frozen regression corpus + независимый эталон: деньги/identity/сигналы/правила/документы; примеры жалоб сохранены до изменения. | Ожидаемое не импортирует проверяемую функцию; намеренное нарушение критичного инварианта роняет тест. | C04.01 |
 | R01.03 | В/P1 | Пересверить исторические190/18 находок и требования августа по ID, code+entrypoints; inventory файла не приравнивать прочтению. | Каждая старая строка — current/open/fixed/not-applicable/unverified с основанием; снятые диагнозы не возвращены, exclusions явны. | — |
 | R01.04 | А/P1 | Матрица concurrency/fault/resource/legacy/browser negative: очередь, запись, late responses, диск, crash, права и восстановление. | Отказ проверяется изолированно; полный прогон не заменён удачным retry; бюджеты и критерии заданы до результата. | R01.02 |
-| R01.05 | А/P1 | Короткие законченные вертикали, один владелец интеграции и finite release; проверить конкурирующие PR/patch до изменения. | Нет двух активных truth paths/дублирующего rollout; в #69 сохранены SHA/evidence/следующий шаг, улучшение не становится блокером автоматически. | R01.01 |
+| R01.05 | А/P1 | Короткие законченные вертикали, один владелец интеграции и finite release; проверить конкурирующие PR/patch. Развести tests прикладного CI и OPS workflow; убрать устаревшие admission fixtures, сохранить реальные отказы. | Нет двух активных truth paths/дублирующего rollout; #69 хранит SHA/evidence/шаг. Scoped43root PASS не называется полным OPS PASS; baseline9failures/31errors discovery529 имеет отдельное завершение по причинам. Улучшение не становится блокером автоматически. | R01.01 |
 
 ### 18. Все 13 страниц — законченные продуктовые сценарии
 
