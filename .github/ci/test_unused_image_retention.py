@@ -37,6 +37,42 @@ class ImageRetentionTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(select([{**image, **change}], [], set()), [])
 
+    def test_inventory_preserves_all_references_and_redacts_unrelated_tags(self):
+        images = [{'Id': identity, 'Size': 123, 'RepoTags': ['PRIVATE_REGISTRY_TOKEN'],
+                   'RepoDigests': [], 'Config': {'Labels': {'PRIVATE': 'SECRET'}}}
+                  for identity in self.ids]
+        source = 'e'*40
+        images[2]['RepoTags'] = ['aemr-server:release-'+source]
+        images[2]['Config']['Labels']['org.opencontainers.image.revision'] = source
+        rows = self.module.inventory_images(images, [{'Image': self.ids[0]}], {self.ids[1]})
+        self.assertEqual([r['protected'] for r in rows], [True, True, False, False])
+        self.assertEqual(rows[2]['release_tags'], images[2]['RepoTags'])
+        self.assertEqual(rows[2]['source_sha'], source)
+        self.assertNotIn('PRIVATE', json.dumps(rows))
+        self.assertNotIn('SECRET', json.dumps(rows))
+
+    def test_inventory_mode_never_creates_a_plan_or_removes_an_image(self):
+        import contextlib
+        import io
+        m = self.module
+        real_path, original = Path, os.fstat
+        with tempfile.TemporaryDirectory() as folder:
+            lock = Path(folder)/'lock'; lock.touch()
+            m.STATE = Path(folder)/'nonexistent-state'
+            m.SOURCE_SHA256 = 'f'*64
+            m.observe = lambda **kwargs: {'image_inventory': ['read-only']} if kwargs == {'inventory': True} else None
+            m.atomic_json = m.remove_image = lambda *args: self.fail('Inventory mutated host')
+            def owner(fd):
+                fields = list(original(fd)); fields[4] = 0
+                return os.stat_result(fields)
+            output = io.StringIO()
+            with patch.object(m, 'Path', side_effect=lambda value: lock if value == '/run/lock/aemr-maintenance.lock' else real_path(value)), \
+                 patch.object(m.os, 'geteuid', return_value=0), patch.object(m.os, 'fstat', side_effect=owner), \
+                 patch.object(sys, 'argv', ['tool', 'capacity-census', 'a'*40, 'b'*40]), contextlib.redirect_stdout(output):
+                m.main()
+            self.assertFalse(m.STATE.exists())
+            self.assertEqual(json.loads(output.getvalue())['image_inventory'], ['read-only'])
+
     def test_capacity_retains_every_capsule_that_still_has_a_state_archive(self):
         with tempfile.TemporaryDirectory() as temporary:
             capsule = Path(temporary)

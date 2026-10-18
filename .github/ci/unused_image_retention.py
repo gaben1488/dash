@@ -53,6 +53,27 @@ def select_images(images, containers, protected, expected):
                   and record['Id'] not in used and not record.get('RepoTags') and not record.get('RepoDigests'))
 
 
+def inventory_images(images, containers, protected):
+    """Read-only census; it does not authorize any new image for retirement."""
+    require(len(images) <= 64)
+    used = protected | {record['Image'] for record in containers}
+    rows = []
+    for record in images:
+        identity, size = record['Id'], record.get('Size')
+        require(re.fullmatch('sha256:[a-f0-9]{64}', identity)
+                and type(size) is int and 0 <= size <= 2**63-1)
+        tags, digests = record.get('RepoTags') or [], record.get('RepoDigests') or []
+        require(isinstance(tags, list) and isinstance(digests, list) and max(len(tags), len(digests)) <= 64)
+        source = (record.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.revision')
+        rows.append({'image': identity, 'logical_bytes': size, 'protected': identity in used,
+            'referenced_by_container': any(row['Image'] == identity for row in containers),
+            'release_tags': [tag for tag in tags if re.fullmatch(r'aemr-(?:server|web):release-[a-f0-9]{40}', tag)],
+            'tag_count': len(tags), 'digest_count': len(digests),
+            'local_self_digests_only': all(value == 'aemr-server@'+identity or value == 'aemr-web@'+identity for value in digests),
+            'source_sha': source if isinstance(source, str) and re.fullmatch('[a-f0-9]{40}', source) else None})
+    return rows
+
+
 def select_capacity_images(images, containers, protected):
     admitted = []
     for record in images:
@@ -123,7 +144,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def observe(*, diagnostics=False):
+def observe(*, diagnostics=False, inventory=False):
     global PHASE
     PHASE = 'REFERENCE_FILES'
     require(not any(os.path.lexists(STATE / name) for name in ('pending-release.json', 'release-recovery-progress.json')))
@@ -199,6 +220,7 @@ def observe(*, diagnostics=False):
             'protected_selected_ids': sorted(set(EXPECTED) & (protected | {row['Image'] for row in containers})),
             'reference_digest': digest(stamps), 'runtime_digest': digest(core),
             'operator_sha256': SOURCE_SHA256,
+            **({'image_inventory': inventory_images(images, containers, protected)} if inventory else {}),
             **({'capacity_protection': {key: sorted(value) for key, value in protection.items()}} if CAPACITY_MODE else {}),
             **({'capacity_eligibility': {identity: {
                     'present': any(row['Id'] == identity for row in images),
@@ -230,12 +252,17 @@ def atomic_json(path, value):
 
 
 def main():
-    global LOCK_FD, CAPACITY_MODE, EXPECTED, SHA
+    global LOCK_FD, CAPACITY_MODE, EXPECTED, SHA, CAPACITY_CANDIDATE
+    census = len(sys.argv) == 4 and sys.argv[1] == 'capacity-census'
+    if census:
+        require(all(re.fullmatch('[a-f0-9]{40}', value) for value in sys.argv[2:]))
+        CAPACITY_MODE = True
+        SHA, CAPACITY_CANDIDATE = sys.argv[2:]
     if sys.argv[1:] in (['capacity-plan'], ['capacity-apply']):
         CAPACITY_MODE = True
         EXPECTED = sorted(CAPACITY_TARGETS)
         SHA = CAPACITY_SOURCE
-    require(os.geteuid() == 0 and sys.argv[1:] in (['plan'], ['apply'], ['verify-completed'], ['capacity-plan'], ['capacity-apply'])
+    require(os.geteuid() == 0 and (census or sys.argv[1:] in (['plan'], ['apply'], ['verify-completed'], ['capacity-plan'], ['capacity-apply']))
             and re.fullmatch('[a-f0-9]{64}', SOURCE_SHA256))
     os.umask(0o077)
     lock_path = Path('/run/lock/aemr-maintenance.lock')
@@ -245,6 +272,11 @@ def main():
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1)
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         LOCK_FD = lock.fileno()
+        if census:
+            result = observe(inventory=True)
+            print(json.dumps({'status': 'READ_ONLY_IMAGE_CAPACITY_CENSUS', **result,
+                              'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
+            return
         root = STATE / ('image-retention-capacity' if CAPACITY_MODE else 'image-retention')
         require(not root.is_symlink())
         root.mkdir(mode=0o700, exist_ok=True)
