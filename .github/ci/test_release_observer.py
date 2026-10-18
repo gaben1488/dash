@@ -15,6 +15,13 @@ from test_acceptance_target_binding import TARGET
 
 
 class ReleaseObserverTests(unittest.TestCase):
+    def test_default_receipt_matches_the_session_name_contract(self):
+        workflow = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()
+        defaults = re.findall(r"WORKER_ACCEPTANCE:.*?\|\| '([^']+)'", workflow)
+        self.assertLessEqual(len(defaults), 1)
+        for value in defaults:
+            self.assertRegex(value, r'^acceptance-[0-9]+-[0-9]+$')
+
     def test_cleanup_only_admits_the_cancelled_readonly_rehearsal(self):
         import copy
         workflow = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()

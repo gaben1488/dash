@@ -1721,7 +1721,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check the reviewed application target binding
         id: target-binding
-        run: python3 .github/ci/test_acceptance_target_binding.py
+        run: |
+          python3 .github/ci/test_acceptance_target_binding.py
+          python3 .github/ci/test_release_observer.py
       - name: Bind reviewed checkpoint content statistics
         env:
           PRIMARY_SOURCE_SHA: 06cad6a2ee352b265aadb610cb7d7ac47f9122bb
@@ -1760,7 +1762,7 @@ jobs:
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
           CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
           CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
-          WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance || '/var/lib/aemr/worker-quarantine/acceptance-39152233035-1/result.json' }}
+          WORKER_ACCEPTANCE: ${{ inputs.worker_acceptance || 'acceptance-39152233035-1' }}
           LIFECYCLE_PROBE: ${{ env.LIFECYCLE_PROBE }}
           LIFECYCLE_PROBE_SHA: ${{ env.LIFECYCLE_PROBE_SHA }}
         with:
