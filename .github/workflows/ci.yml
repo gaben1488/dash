@@ -459,8 +459,8 @@ jobs:
       github.event_name == 'push' &&
       (github.event.head_commit.message == 'Plan unused image retirement for accepted 43f10742' ||
        github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' ||
-       github.event.head_commit.message == 'Plan runtime image capacity for af5b2335' ||
-       github.event.head_commit.message == 'Apply runtime image capacity for af5b2335' ||
+       github.event.head_commit.message == 'Plan runtime image capacity for b24a6a5d' ||
+       github.event.head_commit.message == 'Apply runtime image capacity for b24a6a5d' ||
        github.event.head_commit.message == 'Inspect runtime image capacity for b24a6a5d')
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -498,7 +498,7 @@ jobs:
             import base64,hashlib,os,sys
             body=base64.b64decode(os.environ['IMAGE_RETENTION_CODE'],validate=True)
             assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['IMAGE_RETENTION_SHA']
-            sys.argv=['-', '${{ github.event.head_commit.message == 'Apply runtime image capacity for af5b2335' && 'capacity-apply' || github.event.head_commit.message == 'Plan runtime image capacity for af5b2335' && 'capacity-plan' || github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' && 'apply' || 'plan' }}']
+            sys.argv=['-', '${{ github.event.head_commit.message == 'Apply runtime image capacity for b24a6a5d' && 'capacity-apply' || github.event.head_commit.message == 'Plan runtime image capacity for b24a6a5d' && 'capacity-plan' || github.event.head_commit.message == 'Apply unused image retirement for accepted 43f10742' && 'apply' || 'plan' }}']
             if ${{ github.event.head_commit.message == 'Inspect runtime image capacity for b24a6a5d' && 'True' || 'False' }}:
              sys.argv=['-', 'capacity-census', 'a5a0398b4dec42de2c071cc2271aba3af7d8e02b', 'b24a6a5dead4295f7bc61938a704554c8c9eef72']
             exec(compile(body,'<reviewed-image-retention>','exec'),{'__name__':'__main__'})

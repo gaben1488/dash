@@ -73,6 +73,17 @@ class ImageRetentionTests(unittest.TestCase):
             self.assertFalse(m.STATE.exists())
             self.assertEqual(json.loads(output.getvalue())['image_inventory'], ['read-only'])
 
+    def test_layer_dry_run_is_an_engine_estimate_and_never_counts_a_used_image(self):
+        usage = {'Images': [{'Id': self.ids[0], 'Size': 100, 'SharedSize': 30, 'Containers': 0}]}
+        result = self.module.layer_estimates(usage, [self.ids[0]])
+        self.assertEqual(result['engine_reported_unique_bytes'], 70)
+        self.assertFalse(result['physical_reclaimed_bytes_measured'])
+        for change in ({'Containers': 1}, {'SharedSize': 101}, {'Size': -1}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.module.layer_estimates({'Images': [{**usage['Images'][0], **change}]}, [self.ids[0]])
+        with self.assertRaises(ValueError):
+            self.module.layer_estimates(usage, [self.ids[1]])
+
     def test_capacity_retains_every_capsule_that_still_has_a_state_archive(self):
         with tempfile.TemporaryDirectory() as temporary:
             capsule = Path(temporary)

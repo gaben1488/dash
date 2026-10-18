@@ -22,12 +22,12 @@ SOURCE_SHA256 = os.environ.get('IMAGE_RETENTION_SHA', '')
 LOCK_FD = None
 PHASE = 'ADMISSION'
 CAPACITY_MODE = False
-CAPACITY_SOURCE = 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
-CAPACITY_CANDIDATE = 'af5b233502f30b36a0c049765e1ffdbec2877145'
+CAPACITY_SOURCE = 'a5a0398b4dec42de2c071cc2271aba3af7d8e02b'
+CAPACITY_CANDIDATE = 'b24a6a5dead4295f7bc61938a704554c8c9eef72'
 # Exact sampled deployment caches only. Business data and backup archives are never removed.
 CAPACITY_TARGETS = {
-    'sha256:d2f366681cceb21233202cf45165c1fc2049fc2c4d4b1ba62b3e996fd8d7ae14': 'bfd625fcb7d66ab504de9fe8827a225ba95a7082',
-    'sha256:694f6553c4d8135a9b5344eb98982f2844173b9e75b04f4a5d8a701c47bcc580': 'bae73c20c94b866540e61e63e9d764e41b3ff8a6',
+    'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57': 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d',
+    'sha256:8e81e27ee31262a9f145f3a5927c1bc05d0cbe19a0413e7c074700dc9bebadfb': '78d293b217a8afe982583c73bc67aaccdb4d906c',
 }
 
 
@@ -85,6 +85,43 @@ def select_capacity_images(images, containers, protected):
             # A different digest or registry name remains ineligible.
             admitted.append({**record, 'RepoTags': [], 'RepoDigests': []})
     return select_images(admitted, containers, protected, list(CAPACITY_TARGETS))
+
+
+def layer_estimates(usage, selected):
+    require(isinstance(usage, dict) and isinstance(usage.get('Images'), list) and len(usage['Images']) <= 256)
+    images = {row['Id']: row for row in usage['Images']}
+    require(len(images) == len(usage['Images']))
+    rows = []
+    for identity in selected:
+        row = images.get(identity, {})
+        total, shared = row.get('Size'), row.get('SharedSize')
+        require(type(total) is int and type(shared) is int and 0 <= shared <= total <= 2**63-1
+                and type(row.get('Containers')) is int and row['Containers'] == 0)
+        rows.append({'image': identity, 'engine_reported_size_bytes': total,
+                     'engine_reported_shared_bytes': shared, 'engine_reported_unique_bytes': total-shared})
+    return {'images': rows, 'engine_reported_unique_bytes': sum(row['engine_reported_unique_bytes'] for row in rows),
+            'physical_reclaimed_bytes_measured': False}
+
+
+def read_image_layers():
+    import http.client
+    import socket
+    endpoint = Path('/run/docker.sock')
+    info = endpoint.lstat()
+    require(stat.S_ISSOCK(info.st_mode) and info.st_uid == 0)
+    connection = http.client.HTTPConnection('localhost', timeout=30)
+    try:
+        connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.sock.settimeout(30)
+        connection.sock.connect(str(endpoint))
+        connection.request('GET', '/v1.52/system/df?type=image')
+        response = connection.getresponse()
+        body = response.read(4*1024**2+1)
+        require(response.status == 200 and len(body) <= 4*1024**2
+                and endpoint.lstat().st_ino == info.st_ino)
+        return json.loads(body)
+    finally:
+        connection.close()
 
 
 def capsule_has_state_archive(capsule):
@@ -277,7 +314,7 @@ def main():
             print(json.dumps({'status': 'READ_ONLY_IMAGE_CAPACITY_CENSUS', **result,
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
             return
-        root = STATE / ('image-retention-capacity' if CAPACITY_MODE else 'image-retention')
+        root = STATE / ('image-retention-capacity-'+CAPACITY_CANDIDATE if CAPACITY_MODE else 'image-retention')
         require(not root.is_symlink())
         root.mkdir(mode=0o700, exist_ok=True)
         require(root.stat().st_uid == 0 and stat.S_IMODE(root.stat().st_mode) == 0o700)
@@ -295,6 +332,8 @@ def main():
                                   **{key: plan[key] for key in ('capacity_protection', 'capacity_eligibility')}}), flush=True)
                 require(plan['selected'] == EXPECTED and not plan['protected_selected_ids'])
                 plan.pop('capacity_eligibility')
+                print(json.dumps({'status': 'IMAGE_LAYER_DRY_RUN',
+                                  **layer_estimates(read_image_layers(), plan['selected'])}), flush=True)
             atomic_json(root / 'plan.json', plan)
             print(json.dumps({'status': 'UNREFERENCED_IMAGES_DRY_RUN', 'selected_ids': plan['selected'],
                               'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
