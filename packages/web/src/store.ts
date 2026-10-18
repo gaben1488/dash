@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
+import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
@@ -528,6 +528,8 @@ export interface AppState {
   // Подведомственные учреждения (из API)
   subordinatesMap: Record<string, string[]>;
   subordinatesLoading: boolean;
+  subordinatesCoverage: SourceCoverage | undefined;
+  subordinatesError: string | null;
   fetchSubordinates: () => Promise<void>;
 
   // Данные дашборда
@@ -1165,22 +1167,24 @@ export const useStore = create<AppState>((set, get) => ({
   // Подведы
   subordinatesMap: { ...SUBORDINATES_FALLBACK },
   subordinatesLoading: false,
+  subordinatesCoverage: undefined,
+  subordinatesError: null,
   fetchSubordinates: async () => {
     if (get().subordinatesLoading) return;
-    set({ subordinatesLoading: true });
+    set({ subordinatesLoading: true, subordinatesError: null });
     try {
-      const data = await api.getSubordinates();
+      const { subordinates: data, coverage } = await api.getSubordinates();
       if (data && Object.keys(data).length > 0) {
         // Объединение канона с живыми именами, НЕ замена: частично
         // прочитанная книга не должна вытеснять организации из фильтра
         // (баг «пропала часть организаций», см. lib/subordinates.ts).
         const merged = mergeSubordinates(SUBORDINATES_FALLBACK, data);
-        set({ subordinatesMap: merged, subordinatesLoading: false });
+        set({ subordinatesMap: merged, subordinatesCoverage: coverage, subordinatesLoading: false });
       } else {
-        set({ subordinatesLoading: false });
+        set({ subordinatesCoverage: coverage, subordinatesLoading: false });
       }
-    } catch {
-      set({ subordinatesLoading: false });
+    } catch (err) {
+      set({ subordinatesLoading: false, subordinatesCoverage: undefined, subordinatesError: humanizeRequestError(err) });
     }
   },
 

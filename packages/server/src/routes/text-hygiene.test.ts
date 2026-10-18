@@ -113,7 +113,8 @@ describe('GET /api/text-hygiene', () => {
       LOG_LEVEL: 'silent',
     };
 
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4, sheetName: 'ВСЕ' }, УИО: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 1, sheetName: 'УИО' } });
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       // УЭР: три рода дефектов + опечатка в M. Строки листа: шапка 3 → данные с 4-й.
@@ -299,6 +300,8 @@ describe('GET /api/text-hygiene', () => {
     // адрес обязан рождаться от номера строки листа на момент чтения.
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
+    const { setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УКСиМП: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 171, sheetName: 'ВСЕ' } });
     const filler = Array.from({ length: 170 }, (_, i) => sheetRow(String(i + 1), 'Х', 'Поставка воды'));
     setDeptSheetCache({
       'УКСиМП': {

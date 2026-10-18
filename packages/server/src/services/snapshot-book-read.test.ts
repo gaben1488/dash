@@ -52,6 +52,15 @@ afterEach(() => {
 });
 
 describe('сборка снимка: чтение листов сводной книги', () => {
+  it('неподтверждённое зеркало не подменяет отсутствующую основную книгу', async () => {
+    const values = [[], [], [], ['1', '', '', '', '', '', 'Закупка', 100, '', '', 100]];
+    batchGetSheetValues.mockResolvedValueOnce({ УЭР: values });
+    const { getSnapshot } = await import('./snapshot.js');
+    const result = await getSnapshot(true);
+    expect(result.rowsByDept?.['УЭР']).toBeUndefined();
+    expect(result.metadata.sourceCoverage?.readDepartments).toEqual([]);
+    expect(result.metadata.sourceCoverage?.complete).toBe(false);
+  }, 20000);
   it('берёт все листы ОДНИМ пакетом, а не по одному запросу на лист', async () => {
     const { getSnapshot } = await import('./snapshot.js');
     await getSnapshot(true);

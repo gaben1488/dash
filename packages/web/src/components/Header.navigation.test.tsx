@@ -4,11 +4,22 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react';
 import { Header, NAV_ITEMS } from './Header';
 import { useStore } from '../store';
+import { departmentCoverage } from '@aemr/shared';
 vi.mock('../hooks/useLiveEvents', () => ({ useLiveEvents: () => ({newIssues: 0, history: [], connected: false, books: [], recentRows: []}) }));
 vi.mock('../hooks/usePeriodCoverage', () => ({usePeriodCoverage: () => ({status: 'ready', index: {weeks: {}, months: {}, years: {}}})}));
 vi.mock('../lib/monitoring/analytics-contract', () => ({fetchMonitoringAnalytics: vi.fn(() => new Promise(() => {}))}));
 beforeEach(() => {useStore.getState().resetAllFilters(); useStore.setState({page: 'dashboard', error: null, isDemo: false, loading: false, bucketCounts: null});});
 afterEach(cleanup);
+it('labels a partial bucket count without claiming that all books were read', () => {
+ useStore.setState({ bucketCounts: { unfunded: 7, yearlong: 2, reading: {
+  unfunded: { rows: 7, planSum: 1 }, yearlong: { rows: 2, planSum: 1 },
+  asOf: '2026-10-10T12:00:00Z', source: 'live', coverage: departmentCoverage(['УО', 'УД'], ['УО']),
+ } } });
+ const view=render(<Header />);
+ const button=view.getByRole('button', { name: /Не обеспеченные.*7 строк в прочитанной части/ });
+ expect(button.textContent).toContain('≥7');
+ expect(button.title).toContain('общий итог не подтверждён');
+});
 it('changes the header dawn palette with the page without changing organisation filters', () => {
  const view=render(<Header />);const header=view.container.querySelector('header')!;
  const first=header.style.getPropertyValue('--hdr-sky');expect(first).not.toBe('');

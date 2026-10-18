@@ -78,6 +78,7 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
       /** Момент чтения книг — периметр счётчиков (канон п.58). */
       asOf: reading.asOf,
       source: reading.source,
+      coverage: reading.coverage,
       unfunded,
       yearlong,
     });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceCoverageSchema } from './source-coverage.js';
 import { ALL_DEPT_IDS } from './department-registry.js';
 
 // ============================================================
@@ -278,6 +279,7 @@ export const DataSnapshotSchema = z.object({
     pipelineDurationMs: z.number(),
     targetYear: z.number().int().nullable().optional(),
     readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
+    sourceCoverage: SourceCoverageSchema.optional(),
     perSheetRowCount: z.record(z.string(), z.number()).optional(),
   }),
 });

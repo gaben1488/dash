@@ -15,6 +15,7 @@ import {
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
 import { LiveUpdateBar, SnapshotFreshnessNotice } from './components/live/LiveUpdateBar';
+import { SourceCoverageNotice } from './components/SourceCoverageNotice';
 import { setKBRegistry } from './components/ui/kb-tooltip';
 import { STANDARD_METRICS } from './lib/metrics-registry';
 
@@ -213,6 +214,7 @@ export function App() {
             <main id="main-content" tabIndex={-1} data-page={page} style={pageDawnStyle(page)} className="page-context flex-1 min-w-0 overflow-y-auto">
               <div className="max-w-[1400px] mx-auto p-6">
                 {page !== 'report' && <SnapshotFreshnessNotice snapshot={dashboardData?.snapshot} />}
+                {page !== 'report' && <SourceCoverageNotice coverage={dashboardData?.snapshot.metadata.sourceCoverage} />}
                 <ErrorBoundary resetKey={page} scope="раздел">
                   {/* Пока файл раздела едет по сети, на его месте стоит скелет
                       той же формы — экран не прыгает, когда раздел появился. */}

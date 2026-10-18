@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
+  departmentCoverage,
   COL_LETTER_INDEX,
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
@@ -247,7 +248,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).send({ error: `Управление «${deptId}» не найдено` });
     }
 
-    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    // Чтение строк — cache-first в rows-read (кэш → основная книга управления).
     const read = await readDeptRows(dept);
     if (!read.ok) {
       if (read.reason === 'read-error') {
@@ -832,8 +833,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/rows/subordinates
    * Подведомственные учреждения из реальных данных (столбец C каждого листа).
    */
-  app.get('/api/rows/subordinates', async (_request, reply) => {
+  app.get('/api/rows/subordinates', async (request, reply) => {
     const result: Record<string, string[]> = {};
+    const readDepartments: string[] = [];
 
     for (const dept of DEPARTMENTS) {
       // Каскад чтения — rows-read; недоступный отдел пропускается (в отличие от 503 основных роутов)
@@ -847,6 +849,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
       const rawRows = read.values;
+
+      readDepartments.push(dept.nameShort);
 
       const subs = new Set<string>();
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
@@ -869,7 +873,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    return reply.send(result);
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), readDepartments);
+    if (readDepartments.length === 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги ГРБС не прочитаны. Справочник подведов не обновлён.', coverage,
+    });
+    // Boundary compatibility for already loaded clients; new consumers request the envelope.
+    return reply.send((request.query as Record<string, string>).coverage === '1' ? { subordinates: result, coverage } : result);
   });
 
   /**
@@ -975,7 +984,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Sort by count descending
     entries.sort((a, b) => b.count - a.count);
 
-    return reply.send({ subjects: entries, unreadDepartments });
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort),
+      DEPARTMENTS.map(dept => dept.nameShort).filter(name => !unreadDepartments.some(d => d.department === name)));
+    if (coverage.readDepartments.length === 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги ГРБС не прочитаны. Сверка предметов не выполнена.', coverage,
+    });
+    return reply.send({ subjects: entries, unreadDepartments, coverage });
   });
 
   /**
@@ -1122,11 +1136,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    const coverage = departmentCoverage(departments.map(dept => dept.nameShort),
+      departments.map(dept => dept.nameShort).filter(name => !unreadDepartments.some(d => d.department === name)));
+    if (coverage.readDepartments.length === 0 && departments.length > 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги выбранных управлений не прочитаны. Облако закупок не построено.', coverage,
+    });
     return reply.send({
       points: allPoints,
       total: allPoints.length,
       departments: departments.map(d => d.id),
       unreadDepartments,
+      coverage,
       /** Выборка упёрлась в потолок: показано не всё, среднее считать нельзя. */
       truncated: allPoints.length >= POINT_LIMIT,
       pointLimit: POINT_LIMIT,

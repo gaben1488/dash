@@ -1,4 +1,4 @@
-import type { DashboardData } from '@aemr/shared';
+import type { DashboardData, SourceCoverage } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -138,6 +138,8 @@ export interface MonitoringResponse {
 
 /** Ответ GET /api/timeline/upcoming — «близкие к плановой дате» (канон п.75б). */
 export interface UpcomingResponse {
+  coverage?: SourceCoverage;
+  readAt?: string | null;
   /** День расчёта (ISO) по календарю продукта. */
   asOf: string;
   /** Окно вперёд, дней. */
@@ -454,7 +456,7 @@ export const api = {
     fetchJSON<any>('/settings/env', { method: 'POST', body: JSON.stringify(form) }),
 
   getSubordinates: () =>
-    fetchJSON<Record<string, string[]>>('/rows/subordinates'),
+    fetchJSON<{ subordinates: Record<string, string[]>; coverage: SourceCoverage }>('/rows/subordinates?coverage=1'),
 
   // Mapping
   getMapping: () =>
@@ -558,6 +560,7 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
+      coverage?: SourceCoverage;
       rowsScanned: number;
       total: number;
       byKind: Record<string, number>;
@@ -572,6 +575,7 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
+      coverage?: SourceCoverage;
       unfunded: { rows: number; planSum: number; initiativeRows?: number };
       yearlong: { rows: number; planSum: number };
     }>('/registry/buckets'),

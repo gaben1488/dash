@@ -506,6 +506,7 @@ export interface DataSnapshot {
     targetYear?: number | null;
     /** HTTP-only read state; original captured time and stored evidence stay unchanged. */
     readModel?: { state: 'refreshing' | 'stale' };
+    sourceCoverage?: import('./source-coverage.js').SourceCoverage;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */
     perSheetRowCount?: Record<string, number>;
   };

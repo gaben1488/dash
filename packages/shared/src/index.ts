@@ -170,3 +170,4 @@ export * from './threshold-registry.js';
 // именами колонок. Модуль писался агентом, который погиб на середине;
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
+export * from './source-coverage.js';

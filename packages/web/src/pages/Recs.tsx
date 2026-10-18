@@ -8,6 +8,7 @@ import { resolveRecommendation, type RecommendationOrigin } from '../lib/selecto
 import { pluralRu } from '../lib/economy-copy';
 import { Lightbulb, ChevronDown, ChevronUp, AlertTriangle, Info, Inbox, Search } from 'lucide-react';
 import clsx from 'clsx';
+import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 
 /**
  * Серьёзность замечания — она же вес рекомендации.
@@ -318,6 +319,7 @@ function recordsWord(n: number): string {
 
 function NormalizationSection() {
   const [subjects, setSubjects] = useState<SubjectEntry[]>([]);
+  const [coverage, setCoverage] = useState<import('@aemr/shared').SourceCoverage>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -326,8 +328,8 @@ function NormalizationSection() {
     let cancelled = false;
     setLoading(true);
     api.getSubjects()
-      .then((data: { subjects: SubjectEntry[] }) => {
-        if (!cancelled) { setSubjects(data.subjects ?? []); setError(null); }
+      .then((data: { subjects: SubjectEntry[]; coverage?: import('@aemr/shared').SourceCoverage }) => {
+        if (!cancelled) { setSubjects(data.subjects ?? []); setCoverage(data.coverage); setError(null); }
       })
       .catch((err: unknown) => {
         // Текст движка («Failed to fetch») по-русски не бывает — переводим тем
@@ -372,7 +374,7 @@ function NormalizationSection() {
     );
   }
 
-  if (multiDept.length === 0 && similar.length === 0) return null;
+  if (multiDept.length === 0 && similar.length === 0 && coverage?.complete !== false) return null;
 
   return (
     <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent overflow-hidden">
@@ -396,6 +398,7 @@ function NormalizationSection() {
 
       {expanded && (
         <div id="normalization-panel" className="border-t border-zinc-100 dark:border-zinc-700/50 p-5 space-y-6">
+          <SourceCoverageNotice coverage={coverage} />
           {/* Multi-department subjects */}
           {multiDept.length > 0 && (
             <div>

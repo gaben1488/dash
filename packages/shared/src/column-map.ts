@@ -120,7 +120,8 @@ export function collectRowsByDept(
   const rowsByDept: Record<string, unknown[][]> = {};
   for (const [name, values] of Object.entries(sheetValues)) {
     if (!findDept(name)) continue;
-    if (values.length <= DEPT_HEADER_ROWS) continue;
+    // A fully read header-only master is a known empty book, not an absent source.
+    if (values.length < DEPT_HEADER_ROWS) continue;
     rowsByDept[name] = values.slice(DEPT_HEADER_ROWS);
   }
   return rowsByDept;

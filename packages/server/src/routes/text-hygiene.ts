@@ -1,3 +1,4 @@
+import { readDeptRowsById } from '../services/dept-rows.js';
 /**
  * /api/text-hygiene — полный перечень находок гигиены текста и орфографии
  * (канон п.122, приказ владельца 20.08.2026: «сделай более удобно и нормально,
@@ -30,7 +31,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPT_COLUMNS,
-  collectRowsByDept,
   collectWords,
   detectCellHygiene,
   detectSubordinateNameHygiene,
@@ -43,8 +43,6 @@ import {
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import {
   getDeptCacheFilledAt,
-  getDeptSheetValues,
-  getSnapshot,
   refreshSourcesNow,
 } from '../services/snapshot.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
@@ -108,6 +106,8 @@ export interface TextLanguageItemDto {
 export interface TextHygieneResponse {
   /** Момент чтения (ISO) — у каждого числа есть момент, канон п.58. */
   asOf: string;
+  readAt: string | null;
+  coverage: import('@aemr/shared').SourceCoverage;
   /** Откуда взяты строки книг: живой кэш, сохранённый снимок или ниоткуда. */
   rowsSource: 'live' | 'snapshot' | 'none';
   /** Книги, чьи строки прочитаны и проверены. */
@@ -127,58 +127,6 @@ export interface TextHygieneResponse {
   };
   /** Оговорки словами: откуда строки, чего не хватает. */
   notes: string[];
-}
-
-/**
- * Строки всех книг по идентификатору управления. Порядок источников тот же,
- * что у /api/workload и /api/provenance: живой кэш книг, затем сохранённый
- * снимок, затем честная пустота. Шапка листов уже срезана (collectRowsByDept
- * и rowsByDept снимка держат только строки-атомы).
- *
- * Момент чтения (asOf) — момент, когда строки БЫЛИ ПРОЧИТАНЫ из книг, а не
- * момент сборки ответа: для живого кэша это его последняя перечитка, для
- * снимка — его createdAt. Лист живёт (п.98б): адрес «G174» верен на момент
- * чтения, и подписывать его временем «сейчас» значило бы выдавать старую
- * позицию за свежую (прецедент 20.08.2026: владелец сверял адреса находок с
- * книгой, в которую только что вставили строку).
- */
-async function readRowsByDeptId(): Promise<{
-  rows: Record<string, unknown[][]>;
-  source: 'live' | 'snapshot' | 'none';
-  /** ISO-момент чтения строк; null — источники молчат. */
-  asOf: string | null;
-}> {
-  const byDeptId = (source: Record<string, unknown[][]>): Record<string, unknown[][]> => {
-    const out: Record<string, unknown[][]> = {};
-    for (const [name, values] of Object.entries(source)) {
-      const dept = findDept(name);
-      if (dept) out[dept.id] = values;
-    }
-    return out;
-  };
-
-  const live = byDeptId(collectRowsByDept(getDeptSheetValues()));
-  if (Object.keys(live).length > 0) {
-    const filledAt = getDeptCacheFilledAt();
-    return {
-      rows: live,
-      source: 'live',
-      asOf: new Date(filledAt > 0 ? filledAt : Date.now()).toISOString(),
-    };
-  }
-
-  try {
-    const snapshot = await getSnapshot();
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      const saved = byDeptId(snapshot.rowsByDept);
-      if (Object.keys(saved).length > 0) {
-        return { rows: saved, source: 'snapshot', asOf: snapshot.createdAt ?? null };
-      }
-    }
-  } catch {
-    // источники молчат — ответ скажет об этом словами, а не пустым экраном
-  }
-  return { rows: {}, source: 'none', asOf: null };
 }
 
 /** Радиус контекста вокруг слова-опечатки — тот же, что у вырезок гигиены. */
@@ -207,7 +155,7 @@ function isCheckableCell(value: unknown): value is string {
 export async function buildTextHygieneResponse(
   now: number = Date.now(),
 ): Promise<TextHygieneResponse> {
-  const { rows: rowsByDeptId, source: rowsSource, asOf: readAsOf } = await readRowsByDeptId();
+  const { rows: rowsByDeptId, source: rowsSource, asOf: readAsOf, coverage } = await readDeptRowsById();
 
   const booksChecked: string[] = [];
   const booksSilent: string[] = [];
@@ -222,7 +170,7 @@ export async function buildTextHygieneResponse(
     const dept = findDept(deptId);
     if (!dept) continue;
     const values = rowsByDeptId[dept.id];
-    if (!values || values.length === 0) {
+    if (!values) {
       booksSilent.push(deptId);
       continue;
     }
@@ -351,6 +299,8 @@ export async function buildTextHygieneResponse(
     // верны ровно на этот момент (п.58 + п.98б); «сейчас» — только когда
     // источники молчат и подписывать нечего.
     asOf: readAsOf ?? new Date(now).toISOString(),
+    readAt: readAsOf,
+    coverage,
     rowsSource,
     booksChecked,
     booksSilent,

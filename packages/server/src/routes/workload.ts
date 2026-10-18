@@ -42,9 +42,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPT_COLUMNS,
-  collectRowsByDept,
   findDept,
   subordinateKey,
+  sourceCoverageNote,
   type DepartmentEntry,
 } from '@aemr/shared';
 import {
@@ -57,7 +57,7 @@ import {
   type JournalObservability,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { readDeptRowsById } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 import { readAllBookJournals, type BookJournal } from '../services/provenance-journal.js';
 
@@ -103,6 +103,8 @@ export interface WorkloadBook {
 export interface WorkloadResponse {
   /** Момент чтения (ISO) — плашка периода данных, канон п.58. */
   asOf: string;
+  readAt: string | null;
+  coverage: import('@aemr/shared').SourceCoverage;
   /** Откуда взяты строки книг: живой кэш, сохранённый снимок или ниоткуда. */
   rowsSource: 'live' | 'snapshot' | 'none';
   booksTotal: number;
@@ -130,43 +132,6 @@ export interface WorkloadResponse {
 }
 
 /**
- * Строки всех книг, разложенные по идентификатору управления.
- *
- * Порядок источников тот же, что у /api/provenance и /api/timeline: живой кэш
- * книг, затем сохранённый снимок, и только потом честная пустота. Ключ
- * перекладывается на id управления: и кэш, и снимок ключуются ИМЕНЕМ КНИГИ, а
- * «ВСЕ» — это имя вкладки внутри книги, одинаковое у пяти управлений.
- */
-async function readRowsByDeptId(): Promise<{
-  rows: Record<string, unknown[][]>;
-  source: 'live' | 'snapshot' | 'none';
-}> {
-  const byDeptId = (source: Record<string, unknown[][]>): Record<string, unknown[][]> => {
-    const out: Record<string, unknown[][]> = {};
-    for (const [name, values] of Object.entries(source)) {
-      const dept = findDept(name);
-      if (dept) out[dept.id] = values;
-    }
-    return out;
-  };
-
-  const live = byDeptId(collectRowsByDept(getDeptSheetValues()));
-  if (Object.keys(live).length > 0) return { rows: live, source: 'live' };
-
-  try {
-    const snapshot = await getSnapshot();
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      // Строки снимка шапку уже не содержат — второй срез съел бы три закупки.
-      const saved = byDeptId(snapshot.rowsByDept);
-      if (Object.keys(saved).length > 0) return { rows: saved, source: 'snapshot' };
-    }
-  } catch {
-    // источники молчат — ответ скажет об этом словами, а не пустым экраном
-  }
-  return { rows: {}, source: 'none' };
-}
-
-/**
  * Строки-закупки и число учреждений одной книги. null — книги в прочитанном
  * нет (это «нечего смотреть», а не «книга пуста»).
  */
@@ -175,7 +140,7 @@ export function countBookRows(
   rowsByDeptId: Record<string, unknown[][]>,
 ): BookRows | null {
   const values = rowsByDeptId[dept.id];
-  if (!values || values.length === 0) return null;
+  if (!values) return null;
 
   const orgs = new Set<string>();
   let rows = 0;
@@ -255,7 +220,7 @@ export function resetWorkloadCache(): void {
 export async function buildWorkloadResponse(now: number = Date.now()): Promise<WorkloadResponse> {
   const journals = await readAllBookJournals(now);
   const journalByDept = new Map(journals.map((j) => [j.dept, j]));
-  const { rows: rowsByDeptId, source: rowsSource } = await readRowsByDeptId();
+  const { rows: rowsByDeptId, source: rowsSource, asOf: readAt, coverage } = await readDeptRowsById();
 
   /** Сырьё книг, у которых прочитано и то, и другое: только их меряет ядро. */
   const measurable: DeptWorkloadInput[] = [];
@@ -361,6 +326,8 @@ export async function buildWorkloadResponse(now: number = Date.now()): Promise<W
   const eventsNote = classifyJournalEvents([]).note;
 
   const notes: string[] = [];
+  const coverageNote = sourceCoverageNote(coverage);
+  if (coverageNote) notes.push(coverageNote);
   notes.push(
     'Нагрузка — измерение трудоёмкости, а не рейтинг вины: много правок означает живую ' +
     'работу с книгой, мало правок при живых закупках — чаще то, что журнал не ведётся.',
@@ -395,6 +362,8 @@ export async function buildWorkloadResponse(now: number = Date.now()): Promise<W
 
   return {
     asOf: new Date(now).toISOString(),
+    readAt,
+    coverage,
     rowsSource,
     booksTotal: books.length,
     booksMeasured: measured.length,

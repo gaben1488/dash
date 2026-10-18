@@ -112,4 +112,16 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     expect(latin.map(p => String(p.id))).toEqual(['1']);
     expect(cyrillic.map(p => String(p.id))).toEqual(['1']);
   }, 30_000);
+  it('непрочитанный выбранный периметр даёт 503, а не успешное пустое облако', async () => {
+    const res = await app.inject('/api/rows/scatter?dept=uo');
+    expect(res.statusCode).toBe(503);
+  });
+  it('частичный состав явно сопровождает точки и справочник подведов', async () => {
+    const scatter = (await app.inject('/api/rows/scatter')).json();
+    expect(scatter.coverage.complete).toBe(false);
+    expect(scatter.coverage.readDepartments).toEqual(['УЭР']);
+    const subs = (await app.inject('/api/rows/subordinates?coverage=1')).json();
+    expect(subs.coverage.readDepartments).toEqual(['УЭР']);
+    expect(subs.subordinates).toBeDefined();
+  });
 });

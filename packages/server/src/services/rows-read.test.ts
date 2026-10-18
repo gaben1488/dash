@@ -17,7 +17,7 @@ vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: { УО: 'ss-uo' } }));
 import { readDeptRows } from './rows-read.js';
 
 const dept = { nameShort: 'УО', sheetName: 'УО-лист' };
-const values = [['шапка'], ['1', 'РН-1']];
+const values = [['шапка 1'], ['шапка 2'], ['шапка 3'], ['1', 'РН-1']];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -90,5 +90,15 @@ describe('readDeptRows — каскад чтения', () => {
     readDeptSheet.mockResolvedValue({ values: headers });
     expect(await readDeptRows(dept)).toEqual({ ok: true, values: headers });
     expect(getSheetData).not.toHaveBeenCalled();
+  });
+  it('обрыв чтения master не выдаётся за успешный пустой реестр', async () => {
+    readDeptSheet.mockResolvedValue({ values: [['#REF!']] });
+    expect(await readDeptRows(dept)).toMatchObject({ ok: false, reason: 'read-error' });
+  });
+  it('обрывочный кэш не подменяет пригодное чтение master', async () => {
+    getDeptSheetValues.mockReturnValue({ УО: [['#REF!']] });
+    readDeptSheet.mockResolvedValue({ values });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+    expect(readDeptSheet).toHaveBeenCalled();
   });
 });

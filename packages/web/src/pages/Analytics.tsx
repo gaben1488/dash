@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
-import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
+import { productLabel, ORG_ITSELF_SENTINEL, type SourceCoverage } from '@aemr/shared';
+import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
@@ -31,7 +32,7 @@ import {
   LineChart, Line, Legend, Cell, AreaChart, Area,
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
-import { api } from '../api';
+import { api, humanizeRequestError } from '../api';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -407,9 +408,15 @@ export function Analytics() {
   // Scatter plot data (economy: limit vs fact per procurement)
   const [scatterData, setScatterData] = useState<any[]>([]);
   const [scatterLoading, setScatterLoading] = useState(false);
+  const [scatterCoverage, setScatterCoverage] = useState<SourceCoverage>();
+  const [scatterError, setScatterError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setScatterLoading(true);
+    setScatterError(null);
+    setScatterData([]);
+    setScatterCoverage(undefined);
     const params: Record<string, string> = {};
     if (procurementFilter !== 'all') params.type = procurementFilter === 'competitive' ? 'competitive' : 'single';
     if (activityFilter !== 'all') params.activity = activityFilter;
@@ -418,8 +425,12 @@ export function Analytics() {
     if (period !== 'year') params.period = period;
     if (activeMonths.size > 0) params.months = [...activeMonths].join(',');
     api.getScatterData(params).then((res: any) => {
+      if (cancelled) return;
       setScatterData(res.points ?? []);
-    }).catch(() => setScatterData([])).finally(() => setScatterLoading(false));
+      setScatterCoverage(res.coverage);
+    }).catch(err => { if (!cancelled) setScatterError(humanizeRequestError(err)); })
+      .finally(() => { if (!cancelled) setScatterLoading(false); });
+    return () => { cancelled = true; };
   }, [procurementFilter, activityFilter, selectedDepartments, selectedSubordinates, period, activeMonths]);
 
   const filteredDepts = fd.depts;
@@ -1324,6 +1335,7 @@ export function Analytics() {
 
       {/* Economy Scatter: Limit vs Fact */}
       <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — у ${suspiciousCount} закупок экономия вне коридора 2–25 %` : ''}` : 'Экономия: лимит против цены по заключённым закупкам'} icon={TrendingUp} source="calculated">
+        <SourceCoverageNotice coverage={scatterCoverage} />
         {scatterLoading ? (
           <div
             role="status"
@@ -1332,6 +1344,8 @@ export function Analytics() {
           >
             Собираем заключённые закупки: лимит строки против цены контракта…
           </div>
+        ) : scatterError ? (
+          <p role="alert" className="py-4 text-sm text-[var(--data-warn)]">Облако закупок не прочитано. {scatterError}</p>
         ) : scatterData.length === 0 ? (
           <CardEmpty
               title="Заключённых закупок под текущий отбор нет"

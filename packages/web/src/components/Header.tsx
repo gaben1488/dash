@@ -694,6 +694,7 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
   // что страницы-фильтры; null (нет ответа) — кнопка живёт БЕЗ числа, ноль
   // не выдумывается.
   const bucketCounts = useStore((s) => s.bucketCounts);
+  const partialBuckets = bucketCounts?.reading?.coverage?.complete === false;
   // Новые замечания, о которых сказал прямой эфир, но которых читатель ещё не
   // видел. Это НЕ счётчик всех замечаний (их сотни и на кнопке они бесполезны),
   // а прирост с последнего обновления данных: «пришло ещё три».
@@ -785,7 +786,7 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
         className={clsx('np-btn', isActive && 'np-btn-active')}
         style={{ '--np-color': item.color, '--np-color-light': item.colorLight } as React.CSSProperties}
         title={count !== null
-          ? `${item.title ?? item.label} — ${count} строк во всех книгах на сейчас`
+          ? `${item.title ?? item.label} — ${count} строк ${partialBuckets ? 'в прочитанной части книг; общий итог не подтверждён' : 'во всех прочитанных книгах'}`
           : (item.title ?? item.label)}
         aria-current={isActive ? 'page' : undefined}
       >
@@ -808,9 +809,9 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
           {count !== null && (
             <span
               className="np-count tabular-nums"
-              aria-label={`${count} строк`}
+              aria-label={`${count} строк${partialBuckets ? ' в прочитанной части книг' : ''}`}
             >
-              {count}
+              {partialBuckets ? '≥' : ''}{count}
             </span>
           )}
         </span>

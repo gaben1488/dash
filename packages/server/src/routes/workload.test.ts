@@ -131,7 +131,9 @@ describe('GET /api/workload', () => {
       PRODUCT_TZ_OFFSET_HOURS: '12',
     };
 
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4, sheetName: 'ВСЕ' },
+      УИО: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 2, sheetName: 'УИО' } });
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       // УЭР: 4 закупки на 2 учреждения, журнал прочитан → книга измерима.

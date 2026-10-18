@@ -1,5 +1,5 @@
 import { MONITORING_DATA_SHEETS, runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
 import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
@@ -181,8 +181,8 @@ const FORMULA_ERROR_RE = /^#(REF|N\/A|VALUE|NAME|NUM|DIV\/0|NULL|ERROR|GETTING_D
 /**
  * Ответ листа не несёт НИ ОДНОЙ содержательной строки. Два случая, и оба
  * означают «источник сломан», а не «данных нет»:
- *   • строк не больше, чем шапка (DEPT_HEADER_ROWS) — collectRowsByDept такой
- *     лист выбрасывает ЦЕЛИКОМ, и ГРБС молча исчезает из продукта;
+ *   • зеркалу одной шапки недостаточно, чтобы подтвердить полноту master;
+ *     у прочитанного master шапка без позиций, напротив, сохраняет известный ноль;
  *   • все непустые ячейки — ошибки формул (#REF! от упавшего IMPORTRANGE:
  *     зеркало ГРБС в сводной книге отдаёт одну строку-ошибку).
  *
@@ -636,7 +636,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // и ломаются («#REF!» у УКСиМП). Прежний порядок был обратным: снимок
     // предпочитал зеркала, а /api/report — книги, и один ряд недель опирался
     // на две популяции строк (УАГЗО +60 млн плана между источниками).
-    // Теперь кэш книги побеждает всегда; зеркало — только когда книги нет.
+    // Кэш master — источник строк; отсутствие master не разрешает непроверенное зеркало.
     // Сломанные зеркала по-прежнему оставляют след: «источник сломан»
     // не должен быть неотличим от «данных нет» (см. hasNoMeaningfulRows).
     const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
@@ -649,9 +649,15 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const sheetFormulas: Record<string, unknown[][]> = {};
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
+    for (const dept of DEPARTMENTS) {
+      if (!cachedDeptSheetData[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
+    }
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       const mirror = sheetRows[deptName];
-      if (deptResult.values.length === 0) continue;
+      if (deptResult.values.length < DEPT_HEADER_ROWS) {
+        Reflect.deleteProperty(sheetRows, deptName);
+        continue;
+      }
       if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
         brokenMirrors.push({ dept: deptName, got: mirror.length, used: deptResult.values.length });
         logSourceProblem(
@@ -704,6 +710,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     };
 
     const snapshot = runPipeline(pipelineInput);
+    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
     // сохраняется вместе со снимком и видно в продукте. Без него подстановка

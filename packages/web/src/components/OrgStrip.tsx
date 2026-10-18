@@ -4,6 +4,7 @@ import { isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
 import clsx from 'clsx';
 import { compactSubordinateLabel } from '../lib/subordinate-label';
 import { ChevronDown } from 'lucide-react';
+import { SourceCoverageNotice } from './SourceCoverageNotice';
 
 /* ═══════════════════════════════════════════════════════════════════
    ORG STRIP — Accordion + Chips (v3)
@@ -78,6 +79,8 @@ const COLLAPSED_SHOW = 4;
 export function OrgStrip() {
   const {
     subordinatesMap,
+    subordinatesCoverage,
+    subordinatesError,
     selectedDepartments,
     toggleDepartment,
     selectAllDepartments,
@@ -134,6 +137,8 @@ export function OrgStrip() {
 
   return (
     <aside className="ob-strip" aria-label="Организации" data-selective={!noFilter || undefined}>
+      <SourceCoverageNotice coverage={subordinatesCoverage} />
+      {subordinatesError && <p role="alert" className="text-xs text-[var(--data-warn)]">Живой справочник не обновлён. Сохранён прежний список организаций. {subordinatesError}</p>}
       {/* "Все" toggle */}
       <button
         type="button"

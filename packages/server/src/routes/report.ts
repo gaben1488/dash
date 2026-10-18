@@ -43,6 +43,9 @@ import {
   SVOD_SHEET_NAME,
   buildSheetUrl,
   collectRowsByDept,
+  DEPARTMENTS,
+  departmentCoverage,
+  sourceCoverageNote,
   isoOfDayNumber,
   parseSvodGrid,
   parseSvodExtras,
@@ -252,6 +255,8 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
      * показывает (канон «эфир по умолчанию», 27.07).
      */
     const baseInput = input;
+    const coverageNote = sourceCoverageNote(departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), Object.keys(baseInput.rowsByDept)));
+    if (coverageNote) sourceNotes.unshift(coverageNote);
     const buildSlice = (slice: PeriodSlice) => {
       const sliceInput = issuesByYear
         ? { ...baseInput, issues: issuesByYear.get(slice.year) ?? [] }

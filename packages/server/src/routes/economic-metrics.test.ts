@@ -208,6 +208,7 @@ describe('GET /api/analytics/economic — годовой разрез, зоны 
     // официальный лист её тоже уже показывает. Появись гейт — навес станет нулём.
     expect(deptOf(body, 'УО').metrics.december_overhang.numerator).toBe(388);
     expect(body.departments.map((d) => d.dept)).toEqual(['УИО', 'УО']);
+    expect(body.notes.some((n) => n.includes('Прочитано книг: 2 из 8'))).toBe(true);
   }, 30_000);
 
   it('декабрьский навес: доля денег с раскрытым отношением и красная зона', async () => {

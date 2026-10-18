@@ -50,9 +50,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPT_COLUMNS,
-  collectRowsByDept,
   findDept,
   readProcurementSequence,
+  sourceCoverageNote,
   type DepartmentEntry,
 } from '@aemr/shared';
 import {
@@ -63,7 +63,7 @@ import {
   type PlanRowInput,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { readDeptRowsById } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow, sheetDateToIso } from '../services/rows-dto.js';
 import {
   readAllBookJournals,
@@ -97,50 +97,6 @@ interface SheetRow {
 }
 
 /**
- * Строки ВСЕХ книг разом, разложенные ПО ИДЕНТИФИКАТОРУ УПРАВЛЕНИЯ.
- *
- * Источник — живой кэш книг (канонический периметр /api/report), при пустом
- * кэше — rowsByDept последнего сохранённого снимка. Тот же порядок, что у
- * /api/timeline: сначала свежее, потом сохранённое, и только потом отказ.
- *
- * КЛЮЧ ПЕРЕКЛАДЫВАЕТСЯ НАМЕРЕННО. И кэш, и снимок ключуются ИМЕНЕМ КНИГИ
- * («УЭР», «УКСиМП»), а поле sheetName реестра — это имя ВКЛАДКИ внутри книги, и
- * у пяти управлений из восьми оно одинаковое: «ВСЕ» (там, где есть подведы).
- * Брать строки по sheetName значит либо не найти ничего, либо выдать книгу
- * одного управления за книгу другого. Разрешаем имя через findDept — ровно так
- * же, как это делает /api/timeline.
- *
- * Читается один раз на запрос: сводка наблюдаемости обходит восемь книг, и
- * восемь отдельных обращений к снимку означали бы восемь полных сборок подряд
- * ради одних и тех же данных.
- */
-async function readRowsByDeptId(): Promise<Record<string, unknown[][]>> {
-  const byDeptId = (source: Record<string, unknown[][]>): Record<string, unknown[][]> => {
-    const out: Record<string, unknown[][]> = {};
-    for (const [name, rows] of Object.entries(source)) {
-      const dept = findDept(name);
-      if (dept) out[dept.id] = rows;
-    }
-    return out;
-  };
-
-  const live = byDeptId(collectRowsByDept(getDeptSheetValues()));
-  if (Object.keys(live).length > 0) return live;
-  try {
-    const snapshot = await getSnapshot();
-    // Строки снимка шапку УЖЕ не содержат (их так кладёт сборка снимка), поэтому
-    // здесь только перекладывается ключ — второй срез шапки съел бы три закупки.
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      const saved = byDeptId(snapshot.rowsByDept);
-      if (Object.keys(saved).length > 0) return saved;
-    }
-  } catch {
-    // источники молчат — честный пустой результат, роут ответит 503
-  }
-  return {};
-}
-
-/**
  * Строки-закупки одной книги. null — книги нет в прочитанном (не «книга пуста»,
  * а «нечего смотреть»): роут строки отвечает на это 503, сводка — честным null.
  */
@@ -149,7 +105,7 @@ function deptSheetRows(
   rowsByDeptId: Record<string, unknown[][]>,
 ): SheetRow[] | null {
   const rows = rowsByDeptId[dept.id];
-  if (!rows || rows.length === 0) return null;
+  if (!rows) return null;
 
   const out: SheetRow[] = [];
   rows.forEach((row, idx) => {
@@ -270,7 +226,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/provenance/health', async (_request, reply) => {
     const journals = await readAllBookJournals();
     const byDept = new Map(journals.map((j) => [j.dept, j]));
-    const rowsByDeptId = await readRowsByDeptId();
+    const { rows: rowsByDeptId, coverage } = await readDeptRowsById();
 
     const books: BookHealth[] = [];
     for (const [deptId, spreadsheetId] of Object.entries(DEPARTMENT_SPREADSHEETS)) {
@@ -339,6 +295,8 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
         : null;
 
     const notes: string[] = [];
+    const coverageNote = sourceCoverageNote(coverage);
+    if (coverageNote) notes.push(coverageNote);
     notes.push(
       `Прочитано книг: ${readable.length} из ${books.length}; записей журнала суммарно — ` +
       `${journalEntriesTotal}.`,
@@ -370,6 +328,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.send({
+      coverage,
       booksTotal: books.length,
       booksRead: readable.length,
       booksSilent: silent,
@@ -412,7 +371,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const sheetRows = deptSheetRows(dept, await readRowsByDeptId());
+      const sheetRows = deptSheetRows(dept, (await readDeptRowsById()).rows);
       if (sheetRows === null) {
         return reply.status(503).send({
           error: 'ServiceUnavailable',

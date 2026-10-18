@@ -17,6 +17,7 @@ import { KBTooltip } from '../components/ui/kb-tooltip';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { PlanSemanticsNote } from '../components/PlanSemanticsNote';
 import { AlertTriangle, Info } from 'lucide-react';
+import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 import {
   Cell, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   ComposedChart, Line, CartesianGrid,
@@ -1630,6 +1631,7 @@ function BlindSpotsWidget({
       <div className="mt-3 rounded-xl border border-zinc-500/15 px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-300">
         <p>{fundingStage?.text ?? 'Счёт состояния финансирования недоступен — отсутствие данных не означает ноль строк.'}</p>
         {buckets && <p className="mt-1">Все управления · все строки доступного источника · {buckets.source === 'live' ? 'чтение книг' : 'сохранённый снимок'} · {fmtReadAt(buckets.asOf)}</p>}
+        <SourceCoverageNotice coverage={buckets?.coverage} />
         <p className="mt-1">Активные замечания по финансированию в выбранных управлениях (период в шапке не применяется): {issueReadAt ? (signalCounts.planYearMissing ?? 0) : 'счёт недоступен'}. Снимок замечаний: {issueReadAt ? fmtReadAt(issueReadAt) : 'время не установлено'}. Это отдельный счёт проверок; инициативы и сохранённые решения меняют его состав. Разные моменты чтения нельзя сравнивать как одну контрольную пару.</p>
         {fundingStage?.hasRows && <button type="button" className="mt-1 underline focus-visible:ring-2" onClick={() => useStore.getState().navigateTo('unfunded')}>Открыть «Не обеспеченные»</button>}
       </div>

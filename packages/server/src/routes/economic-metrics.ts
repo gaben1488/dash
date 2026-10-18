@@ -50,7 +50,7 @@ import {
   type MetricZone,
   type RatioValue,
 } from '@aemr/core/src/metrics/economic.js';
-import { DEPARTMENTS, collectRowsByDept, floorToThursday, isoOfDayNumber } from '@aemr/shared';
+import { DEPARTMENTS, collectRowsByDept, floorToThursday, isoOfDayNumber, departmentCoverage, sourceCoverageNote } from '@aemr/shared';
 import { config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { getDeptSheetValues, getSnapshotAtOrBefore } from '../services/snapshot.js';
@@ -406,6 +406,8 @@ export async function economicMetricsRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
+    const coverageNote = sourceCoverageNote(departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), Object.keys(rowsByDept)));
+    if (coverageNote) notes.unshift(coverageNote);
     const year = period.slices[0].year;
     const years = [...new Set(period.slices.map((s) => s.year))];
     if (years.length > 1) {
@@ -433,7 +435,7 @@ export async function economicMetricsRoutes(app: FastifyInstance): Promise<void>
     const districtRows: RawRow[] = [];
     for (const dept of DEPARTMENTS) {
       const rows = rowsByDept[dept.nameShort] as RawRow[] | undefined;
-      if (!rows || rows.length === 0) continue;
+      if (!rows) continue;
       districtRows.push(...rows);
       departments.push({
         dept: dept.nameShort,

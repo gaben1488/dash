@@ -26,7 +26,6 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   buildCellDict,
-  collectRowsByDept,
   findDept,
   isoOfDayNumber,
   productCalendarDay,
@@ -41,7 +40,8 @@ import {
 } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getDeptSheetValues } from '../services/snapshot.js';
+import { readDeptRows } from '../services/dept-rows.js';
 import { getMonitoringBook } from '../services/monitoring.js';
 import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
@@ -118,25 +118,6 @@ export function timelineIdentityWarning(
   return null;
 }
 
-
-/**
- * Строки книг для сводных расчётов: живой кэш книг ГРБС (канонический
- * периметр /api/report), при пустом кэше — rowsByDept последнего снимка.
- * Ключи — кириллические имена листов.
- */
-async function readAllDeptRows(): Promise<Record<string, unknown[][]>> {
-  const live = collectRowsByDept(getDeptSheetValues());
-  if (Object.keys(live).length > 0) return live;
-  try {
-    const snapshot = await getSnapshot();
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      return snapshot.rowsByDept;
-    }
-  } catch {
-    // источники молчат — честный пустой результат, роут ответит 503
-  }
-  return {};
-}
 
 /**
  * Журнал правок книги из БД. Таблицу changelog_entries наполняет /api/changes
@@ -228,7 +209,7 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
       days = parsed;
     }
 
-    const rowsByDept = await readAllDeptRows();
+    const { rowsByDept, asOf: readAt, coverage } = await readDeptRows();
     if (Object.keys(rowsByDept).length === 0) {
       return reply.status(503).send({
         error: 'ServiceUnavailable',
@@ -267,6 +248,8 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
     const upcoming = buildUpcoming(inputRows, { asOfDay, days , monitoringStages: stages });
     return reply.send({
       asOf: isoOfDayNumber(asOfDay),
+      readAt,
+      coverage,
       days,
       total: upcoming.length,
       rows: upcoming,

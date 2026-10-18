@@ -38,6 +38,7 @@ import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolati
 import { useOrgScope } from '../../lib/selectors/org-scope';
 import { pluralRu } from '../../lib/economy-copy';
 import { Card, CardHeader } from '../ui/card';
+import { SourceCoverageNotice } from '../SourceCoverageNotice';
 import { DiagnosticCardList } from '../DiagnosticCards';
 import type { DiagnosticIssueLike } from '../../lib/diagnostics/mechanism-groups';
 
@@ -259,6 +260,7 @@ export function CommentAnnotationsSection() {
           </p>
         )}
 
+        {!loading && !error && <SourceCoverageNotice coverage={data?.coverage} />}
         {loading ? (
           <div
             role="status"
@@ -300,7 +302,7 @@ export function CommentAnnotationsSection() {
                 ? `По выбранным управлениям (${scopeLabel}) противоречий не найдено; ` +
                   `${data?.total} ${pluralRu(data?.total ?? 0, 'карточка других управлений', 'карточки других управлений', 'карточек других управлений')} ` +
                   'видны в срезе «все управления».'
-                : <>Противоречий не найдено: {data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
+                : <>{data?.coverage?.complete === false ? 'В прочитанной части противоречий не найдено: ' : 'Противоречий не найдено: '}{data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
                   прошли все три правила сверки. Появится противоречие — здесь встанет карточка с механизмом,
                   адресом ячейки и действием; чтобы пересверить прямо сейчас, обновите данные кнопкой в шапке.</>}
             </p>
