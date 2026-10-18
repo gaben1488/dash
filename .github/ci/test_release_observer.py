@@ -15,6 +15,25 @@ from test_acceptance_target_binding import TARGET
 
 
 class ReleaseObserverTests(unittest.TestCase):
+    def test_native_failure_keeps_the_fixed_reason_without_leaking_stderr(self):
+        workflow = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()
+        source = workflow.split('                def readonly(args,*,timeout=45,**kwargs):', 1)[1].split('                executor=', 1)[0]
+        source = 'def readonly(args,*,timeout=45,**kwargs):' + textwrap.dedent('\n' + source)
+        # Preserve the actual function body indent after taking it out of YAML.
+        source = 'def readonly(args,*,timeout=45,**kwargs):\n' + textwrap.indent(textwrap.dedent(source.split('\n', 1)[1]), '    ')
+        command = ['exec', 'aemr-server-1', '/opt/report-env/bin/python', '-m', 'procurement_engine.deployment_smoke']
+        for stderr, expected in [('REPORT_EXPORT_HTTP_503\n', 'REPORT_EXPORT_HTTP_503'),
+                                 ('PRIVATE ROW and credential\n', 'UNCLASSIFIED')]:
+            output = io.StringIO()
+            namespace = {'m': SimpleNamespace(RecoveryError=RuntimeError), 'json': json, 're': re,
+                'permitted_proofs': set(), 'subprocess': SimpleNamespace(run=lambda *args, stderr=stderr, **kwargs:
+                    SimpleNamespace(returncode=1, stderr=stderr, stdout='PRIVATE PAYLOAD'))}
+            exec(compile(source, '<actual-observer-command>', 'exec'), namespace)  # noqa: S102
+            with contextlib.redirect_stdout(output), self.assertRaisesRegex(RuntimeError, 'WORKER_OBSERVATION_IO_FAILED'):
+                namespace['readonly'](command)
+            self.assertEqual(json.loads(output.getvalue()), {'worker_native_failure': expected})
+            self.assertNotIn('PRIVATE', output.getvalue())
+
     def run_observer(self, target):
         workflow = (Path(__file__).resolve().parents[1] / 'workflows/ci.yml').read_text()
         function = re.search(

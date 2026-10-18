@@ -3131,7 +3131,14 @@ jobs:
                     allowed=allowed or tuple(args) in permitted_proofs
                     assert allowed,'READ_ONLY_COMMAND_REQUIRED'
                     result=subprocess.run(['docker',*args],capture_output=True,text=True,timeout=timeout,check=False)
-                    if result.returncode:raise m.RecoveryError('WORKER_OBSERVATION_IO_FAILED')
+                    if result.returncode:
+                        if args==['exec','aemr-server-1','/opt/report-env/bin/python','-m','procurement_engine.deployment_smoke']:
+                            code=result.stderr.strip()
+                            fixed={'REPORT_EXPORT_CONTEXT_MISSING','REPORT_EXPORT_SNAPSHOT_MISMATCH',
+                                'REPORT_EXPORT_DOCUMENT_INVALID','REPORT_EXPORT_RESPONSE_TOO_LARGE','REPORT_EXPORT_HTTP_CHECK_FAILED'}
+                            if code not in fixed and not re.fullmatch(r'REPORT_EXPORT_HTTP_(400|401|403|404|429|500|502|503|504)',code):code='UNCLASSIFIED'
+                            print(json.dumps({'worker_native_failure':code}),flush=True)
+                        raise m.RecoveryError('WORKER_OBSERVATION_IO_FAILED')
                     return result.stdout
                 executor=r.ReleaseRecovery(command=readonly)
                 baseline=executor._records(plan,candidate=True);volume=executor._volume(plan)
