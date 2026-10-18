@@ -68,7 +68,24 @@ jobs:
           python3 .github/ci/test_runtime_artifact.py
           python3 .github/ci/test_runtime_passport.py
 
+      - name: Reuse accepted synthetic browser proof only for identical inputs
+        id: browser-proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/test_browser_boundary_reuse.py
+          if git fetch --quiet origin b24a6a5dead4295f7bc61938a704554c8c9eef72 &&
+             gh api repos/$GITHUB_REPOSITORY/actions/runs/39125544933 > "$RUNNER_TEMP/browser-proof-run.json" &&
+             gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39125544933/jobs?per_page=100' > "$RUNNER_TEMP/browser-proof-jobs.json"; then
+            python3 .github/ci/browser_boundary_reuse.py --candidate "$CANDIDATE" \
+              --run "$RUNNER_TEMP/browser-proof-run.json" --jobs "$RUNNER_TEMP/browser-proof-jobs.json" --output "$GITHUB_OUTPUT"
+          else
+            echo run_browser=true >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Synthetic browser acceptance boundaries (no VPS or source data)
+        if: steps.browser-proof.outputs.run_browser != 'false'
         run: |
           python3 -m pip install playwright==1.62.0
           python3 -m playwright install --with-deps chromium webkit
@@ -90,7 +107,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Tests
-        run: pnpm -r test
+        run: pnpm -r --workspace-concurrency=1 test
 
       - name: Build
         run: pnpm build
