@@ -58,9 +58,11 @@ def select_capacity_images(images, containers, protected):
     for record in images:
         source = CAPACITY_TARGETS.get(record.get('Id'))
         if (source and record.get('RepoTags') == ['aemr-server:release-' + source]
-                and not record.get('RepoDigests')
+                and record.get('RepoDigests') in (None, [], ['aemr-server@' + record['Id']])
                 and (record.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.revision') == source):
-            admitted.append({**record, 'RepoTags': []})
+            # Docker29/containerd retains this exact local self-digest on load.
+            # A different digest or registry name remains ineligible.
+            admitted.append({**record, 'RepoTags': [], 'RepoDigests': []})
     return select_images(admitted, containers, protected, list(CAPACITY_TARGETS))
 
 

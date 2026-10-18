@@ -26,6 +26,9 @@ class ImageRetentionTests(unittest.TestCase):
                  'Config': {'Labels': {'org.opencontainers.image.revision': source}}}
         select = self.module.select_capacity_images
         self.assertEqual(select([image], [], set()), [identity])
+        local_alias = {**image, 'RepoDigests': ['aemr-server@' + identity]}
+        self.assertEqual(select([local_alias], [], set()), [identity])
+        self.assertEqual(select([{**image, 'RepoDigests': ['aemr-server@sha256:'+'f'*64]}], [], set()), [])
         self.assertEqual(select([image], [{'Image': identity}], set()), [])
         self.assertEqual(select([image], [], {identity}), [])
         for change in ({'RepoTags': []}, {'RepoTags': image['RepoTags'] + ['OTHER']},
