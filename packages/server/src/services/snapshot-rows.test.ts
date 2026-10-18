@@ -159,6 +159,59 @@ describe('строки-атомы снимка → procurement_rows (блок Е
     expect(rows).toHaveLength(3);
   }, 60000);
 
+  it('обслуживает ожидающее чтение до записи и после полного коммита, прежде чем удалять старый снимок', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { saveSnapshot } = await import('./snapshot.js');
+    const { eq } = await import('drizzle-orm');
+    await saveSnapshot(snap('yield-old', '2026-07-06T10:00:00.000Z', { УЭР: UER_ROWS }));
+
+    const read = () => ({
+      transaction: db.$client.inTransaction,
+      ids: db.select({ id: schema.snapshots.id }).from(schema.snapshots).all().map(row => row.id).sort(),
+      rows: db.select().from(schema.procurementRows)
+        .where(eq(schema.procurementRows.snapshotId, 'yield-new')).all().length,
+    });
+    let committedRead!: Promise<ReturnType<typeof read>>;
+    db.$client.function('queue_ready_read', () => {
+      committedRead = new Promise(resolve => setImmediate(() => resolve(read())));
+      return 0;
+    });
+    db.$client.exec(`CREATE TRIGGER queue_ready_read AFTER INSERT ON snapshots
+      WHEN NEW.id = 'yield-new' BEGIN SELECT queue_ready_read(); END`);
+    const queuedRead = new Promise<ReturnType<typeof read>>(resolve => setImmediate(() => resolve(read())));
+    const write = saveSnapshot(snap('yield-new', '2026-07-09T10:00:00.000Z', { УЭР: UER_ROWS }));
+
+    expect(await queuedRead).toEqual({ transaction: false, ids: ['yield-old'], rows: 0 });
+    expect(await write).toBe(true);
+    expect(await committedRead).toEqual({ transaction: false, ids: ['yield-new', 'yield-old'], rows: 3 });
+    expect(read()).toEqual({ transaction: false, ids: ['yield-new'], rows: 3 });
+  }, 60000);
+
+  it('сбой записи атомов откатывает новый снимок до того, как читатель увидит его', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { saveSnapshot } = await import('./snapshot.js');
+    await saveSnapshot(snap('atomic-old', '2026-07-06T10:00:00.000Z', { УЭР: UER_ROWS }));
+    db.$client.exec(`CREATE TRIGGER reject_new_atoms BEFORE INSERT ON procurement_rows
+      WHEN NEW.snapshot_id = 'atomic-new' BEGIN SELECT RAISE(ABORT, 'synthetic atom write failure'); END`);
+    expect(await saveSnapshot(snap('atomic-new', '2026-07-09T10:00:00.000Z', { УЭР: UER_ROWS }))).toBe(false);
+    expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots).all()).toEqual([{ id: 'atomic-old' }]);
+    expect(new Set(db.select().from(schema.procurementRows).all().map(row => row.snapshotId))).toEqual(new Set(['atomic-old']));
+    expect(db.$client.inTransaction).toBe(false);
+  }, 60000);
+
+  it('ошибка обслуживания оставляет полный новый снимок записанным и сохраняет старый', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { saveSnapshot } = await import('./snapshot.js');
+    await saveSnapshot(snap('prune-old', '2026-07-06T10:00:00.000Z', { УЭР: UER_ROWS }));
+    db.$client.exec(`CREATE TRIGGER reject_retention BEFORE DELETE ON snapshots
+      BEGIN SELECT RAISE(ABORT, 'synthetic retention failure'); END`);
+    expect(await saveSnapshot(snap('prune-new', '2026-07-09T10:00:00.000Z', { УЭР: UER_ROWS }))).toBe(true);
+    expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots).all().map(row => row.id).sort())
+      .toEqual(['prune-new', 'prune-old']);
+    expect(db.select().from(schema.procurementRows).all()).toHaveLength(6);
+    expect(db.$client.inTransaction).toBe(false);
+  }, 60000);
+
   it('снимок без строк (формат до 24.07.2026) не падает и ничего не пишет', async () => {
     const { db, schema } = await import('../db/index.js');
     const { saveSnapshot } = await import('./snapshot.js');

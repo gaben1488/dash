@@ -16,6 +16,7 @@ import { publishLiveEvent } from './event-bus.js';
 import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
+import { setImmediate as yieldToReads } from 'node:timers/promises';
 
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
@@ -265,15 +266,17 @@ export async function sealWeeklyTableContext(
     // Weekly context — дочернее доказательство того же среза, поэтому меняем
     // только data JSON ровно одной существующей строки. Retention запускается
     // после UPDATE и уже видит признак complete-week.
-    return db.transaction(() => {
+    await yieldToReads();
+    db.transaction(() => {
       const updated = db.update(schema.snapshots)
         .set({ data: JSON.stringify(snapshot) })
         .where(eq(schema.snapshots.id, snapshotId))
         .run();
       if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
-      pruneSnapshotsByRetention();
-      return true;
     });
+    await yieldToReads();
+    pruneSnapshotsByRetention();
+    return true;
   } catch (error) {
     logSourceProblem('Недельный контекст таблиц не сохранён', {
       snapshotId,
@@ -709,6 +712,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       officialYear: getSHDYUOfficialYear() ?? undefined,
     };
 
+    await yieldToReads();
     const snapshot = runPipeline(pipelineInput);
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
@@ -950,15 +954,19 @@ export function saveSnapshotRows(snapshot: DataSnapshot): number {
  * вставка issues идемпотентна по id (onConflictDoNothing: совпавший id значит
  * то же замечание, апдейт дублирующей строки бессмыслен — соседний паттерн у
  * routes/changes.ts:110), а вся цепочка snapshots → metric_history → issues →
- * saveSnapshotRows → pruneSnapshotsByRetention — ОДНА better-sqlite3-транзакция:
+ * saveSnapshotRows — ОДНА better-sqlite3-транзакция:
  * частичная запись теперь невозможна в принципе, либо коммитится всё, либо
- * ничего. Вложенные db.transaction() внутри saveSnapshotRows и
- * pruneSnapshotsByRetention безопасны: better-sqlite3 сам переключается на
+ * ничего. Retention выполняется после коммита в собственной транзакции;
+ * ожидающий HTTP получает ход между записью и обслуживанием (ADR-001).
+ * Вложенная db.transaction() внутри saveSnapshotRows безопасна: better-sqlite3 переключается на
  * SAVEPOINT/RELEASE, когда db.inTransaction уже true (node_modules/better-sqlite3/
  * lib/methods/transaction.js) — своей вложенной транзакции достаточно.
  */
 export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
+    // ponytail: one synchronous stage still bounds HTTP latency; split/offload
+    // that stage if measured latency exceeds its budget (ADR-001, 18.10.2026).
+    await yieldToReads();
     const dataJson = JSON.stringify(snapshot);
     // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
     // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
@@ -1031,15 +1039,12 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       if (savedRows > 0) {
         logSnapshotChange(`Строки-атомы снимка записаны: ${savedRows}`, { snapshotId: snapshot.id, rows: savedRows });
       }
-
-      // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
-      // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
-      // же, а не ручной чисткой раздутой БД. Каскад удаления снимает и
-      // строки-атомы (snapshot-retention.ts: procurement_rows в транзакции).
-      // pruneSnapshotsByRetention сама не бросает (ловит свои ошибки и логирует) —
-      // сбой ретеншена не откатывает уже собранный снимок.
-      pruneSnapshotsByRetention();
     });
+
+    // Snapshot + rows are committed together before readers resume. Retention
+    // owns its transaction and catches failures; it cannot invalidate that commit.
+    await yieldToReads();
+    pruneSnapshotsByRetention();
 
     return true;
   } catch (error) {
