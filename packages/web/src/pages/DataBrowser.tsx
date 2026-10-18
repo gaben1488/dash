@@ -17,6 +17,7 @@ import {
 import { YearlongBadge } from '../components/yearlong/YearlongBadge';
 import { useYearlongKinds } from '../components/yearlong/useYearlongKinds';
 import { useStore } from '../store';
+import { useRegistryPosition } from '../hooks/useRegistryPosition';
 import { api, humanizeRequestError } from '../api';
 import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
 import clsx from 'clsx';
@@ -379,14 +380,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     [],
   );
   const [viewMode, setViewMode] = useState<ViewMode>(storedPrefs.viewMode ?? 'browse');
-  const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(storedPrefs.pageSize ?? 25);
   const [sortKey, setSortKey] = useState<SortKey>(storedPrefs.sortKey ?? 'id');
   const [sortDir, setSortDir] = useState<SortDir>(storedPrefs.sortDir ?? 'asc');
   const [rows, setRows] = useState<any[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
-  const [selectedRow, setSelectedRow] = useState<any>(null);
+  const [hasLoadedRows, setHasLoadedRows] = useState(false);
+  const { pageNum, setPageNum, selectedRow, setSelectedRow, selectionUnavailable } = useRegistryPosition(bucket ?? 'data', rows, hasLoadedRows && !loadingRows);
+  const navigationVersion = useStore(state => state.urlNavigationVersion);
   const [selectedNoteColumn,setSelectedNoteColumn]=useState<string|undefined>(undefined);
   // Затравка признаков от «Дисциплины», «Пульта» и «Экономии»:
   // navigateTo('data', { signals }) кладёт ключи в store, Реестр забирает их
@@ -683,14 +685,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
         reason: humanizeRequestError(err),
       });
     }).finally(() => {
-      if (!cancelled) setLoadingRows(false);
+      if (!cancelled) { setLoadingRows(false); setHasLoadedRows(true); }
     });
 
     return () => { cancelled = true; };
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, outside44fzMode, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+  const lastFilterNavigation = useRef<number | null>(null);
+  useEffect(() => {
+    const changedByUser = lastFilterNavigation.current !== null && lastFilterNavigation.current === navigationVersion;
+    lastFilterNavigation.current = navigationVersion;
+    if (changedByUser) { setPageNum(1); setSelectedRow(null); }
+  }, [navigationVersion, searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, outside44fzMode, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus, setPageNum, setSelectedRow]);
 
   // Отбор по виду разметки живёт только на корзине «в течение года»: за её
   // пределами вид у большинства строк не определён, и оставленный отбор
@@ -854,8 +861,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // после смены числа строк) — пустая страница при непустой выборке была бы
   // ложной пустотой, поэтому номер прижимается к последней существующей.
   useEffect(() => {
-    if (pageNum > totalPages) setPageNum(totalPages);
-  }, [pageNum, totalPages]);
+    if (hasLoadedRows && !loadingRows && pageNum > totalPages) setPageNum(totalPages);
+  }, [pageNum, totalPages, hasLoadedRows, loadingRows, setPageNum]);
   const safePage = Math.min(pageNum, totalPages);
   // Память о срезе обязательна: он же кормит редактор, а новый массив на каждый
   // кадр перезапускал бы пересборку строк редактора без конца.
@@ -1044,7 +1051,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const goToPage = useCallback((page: number, land: 'first' | 'last') => {
     pendingCursorRef.current = land;
     setPageNum(page);
-  }, []);
+  }, [setPageNum]);
 
   // Клавиатура реестра. Слушатель на документе, а не на таблице: иначе стрелки
   // молчали бы, пока пользователь не щёлкнет по строке, — а «умею в Excel и
@@ -1110,7 +1117,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [viewMode, selectedRow, hotkeysOpen, cursor, cursorRow, paged.length, safePage, totalPages, copyCursorRow, focusSearchField, goToPage]);
+  }, [viewMode, selectedRow, hotkeysOpen, cursor, cursorRow, paged.length, safePage, totalPages, copyCursorRow, focusSearchField, goToPage, setSelectedRow]);
 
   const severity = useMemo(() => countBySeverity(filtered), [filtered]);
   const occurrences = useMemo(() => signalOccurrences(rows), [rows]);
@@ -2811,6 +2818,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       </div>
       )}
 
+      {selectionUnavailable && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
+        Ранее открытая запись не найдена в прочитанной выборке с прежней версией. Другая строка по её адресу не открыта.
+        <button type="button" className="ml-2 underline" onClick={() => setSelectedRow(null)}>Закрыть сообщение</button>
+      </p>}
       {selectedRow && <RowDetailCard row={selectedRow} noteColumn={selectedNoteColumn} onClose={() => {setSelectedRow(null);setSelectedNoteColumn(undefined);}} />}
       </>
       )}

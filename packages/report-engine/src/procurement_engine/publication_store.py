@@ -494,6 +494,19 @@ class PublicationStore:
         return None
 
     @_leased_read
+    def receipt(self, release_id):
+        """Exact committed receipt; missing IDs never fall through to latest."""
+        if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
+            raise PublicationError('PUBLICATION_ID_INVALID')
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
+            receipt = self._checked(row, expected_release_id=release_id)
+            if receipt is None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+            year, quarter = self._context(db, receipt)
+            return {**receipt, 'report_year': year, 'quarter': quarter}
+
+    @_leased_read
     def latest(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return self._first_live(_ordered_publication_rows(db))

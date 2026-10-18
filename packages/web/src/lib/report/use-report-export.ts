@@ -1,3 +1,4 @@
+import { useStore } from '../../store';
 import { useEffect, useRef, useState } from 'react';
 import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
 import { ApiContractError, ApiError, fetchBlob, fetchParsed } from '../../api';
@@ -39,6 +40,8 @@ export function useReportExport(context: ExportContext | null) {
   const query = context ? new URLSearchParams({ date: context.date, year: String(context.year), quarter: String(context.quarter) }).toString() : null;
   const key = context ? `${context.mode}/${query}` : null;
   const archiveMode = context?.mode === 'archive';
+  const savedPin = useStore(state => state.reportPinned);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string; apiReadFailed?: boolean } | null>(null);
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
@@ -65,20 +68,24 @@ export function useReportExport(context: ExportContext | null) {
         // Caddy may return a short-lived 502 while Fastify reloads. Retry one
         // idempotent GET; never re-run POST refresh, rebuild Word or hide a
         // sustained upstream failure behind a fabricated success.
+        const pin = useStore.getState().reportPinned;
+        const pinnedId = pin?.contextKey === key ? pin.id : null;
+        const endpoint = pinnedId ? `/report-releases/${pinnedId}/status` : `/report-releases?${query}`;
         let data: SelectedReportReleaseStatus;
         try {
-          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+          data = await fetchParsed(endpoint, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
         } catch (error) {
           if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status) ||
               requestController.signal.aborted) throw error;
           await new Promise<void>(resolve => setTimeout(resolve, 750));
           if (requestController.signal.aborted) return;
-          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+          data = await fetchParsed(endpoint, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
         }
         if (controller.signal.aborted) return;
+        if (pinnedId && data.selected?.release_id !== pinnedId) throw new ApiContractError(endpoint, 'pinned release mismatch');
         readCompleted = true;
         setState({ key: key!, data, error: '' });
-        if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
+        if (!pinnedId && archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
           preparationRequested = true;
           setState({ key: key!, data: { ...data, archive: { status: 'RUNNING', code: 'ARCHIVE_BUSY',
             message: 'Собираем Word из сохранённого среза. Текущие таблицы не используются.' } }, error: '' });
@@ -117,7 +124,7 @@ export function useReportExport(context: ExportContext | null) {
     void load();
     const timer = setInterval(() => void load(), 60_000);
     return () => { controller.abort(); downloadController.current?.abort(); clearInterval(timer); };
-  }, [key, query, archiveMode]);
+  }, [key, query, archiveMode, selectionEpoch]);
 
   const current = state?.key === key ? state : null;
   const exact = current?.data?.selected ?? null;
@@ -125,8 +132,8 @@ export function useReportExport(context: ExportContext | null) {
   // useful while a new release is blocked. Python proves its reporting period
   // from the frozen model. Archive mode NEVER uses this optional fallback.
   const previous = !archiveMode ? current?.data?.latest_matching ?? null : null;
-  const isPinned = pinned?.key === key;
-  const candidate = isPinned ? pinned.release : exact ?? previous;
+  const isPinned = pinned?.key === key || Boolean(key && savedPin?.contextKey === key);
+  const candidate = pinned?.key === key ? pinned.release : isPinned ? exact : exact ?? previous;
   const candidateDay = candidate?.report_date.split('.').reverse().join('-') ?? null;
   const isPriorLive = context?.mode === 'live' &&
     (isPinned || (exact === null && candidate === previous));
@@ -201,6 +208,7 @@ export function useReportExport(context: ExportContext | null) {
     const controller = new AbortController();
     downloadController.current = controller;
     setPinned({ key, release });
+    useStore.setState({ reportPinned: { contextKey: key, id: release.release_id } });
     setTransfer({ key, saving: kind, error: '' });
     try {
       const file = kind === 'main' ? 'main.docx' : kind === 'extra' ? 'supplement.docx' : 'operational.docx';
@@ -224,6 +232,7 @@ export function useReportExport(context: ExportContext | null) {
     // A user explicitly requesting new data releases the old download pair pin.
     // Background updates remain pinned until such an explicit action.
     setPinned(null);
+    useStore.setState({ reportPinned: null });
     setRefreshState({ key, busy: true, notice: 'Запрашиваем новый срез исходных таблиц…' });
     try {
       const data = await fetchParsed('/report-releases/refresh', ReportRefreshResponseSchema, {
@@ -245,6 +254,7 @@ export function useReportExport(context: ExportContext | null) {
     ? attempt.automation_assurance ?? null : null;
   const operations = current?.data?.operations ?? null;
   const apiState = current?.apiReadFailed ? 'unavailable' as const : current?.data ? 'available' as const : 'checking' as const;
-  return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance,
+  const unpin = () => { setPinned(null); useStore.setState({ reportPinned: null }); setSelectionEpoch(value => value + 1); };
+  return { release, isPinned, unpin, status, saving, downloadError, download, assurance, failedAttemptAssurance,
     operations, apiState, canRefresh, refreshing, refreshNotice, refresh };
 }

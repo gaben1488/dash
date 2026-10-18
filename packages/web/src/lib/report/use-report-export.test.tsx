@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { useStore } from '../../store';
 import { useReportExport, type ExportContext } from './use-report-export';
 
 const receipt = {
@@ -20,6 +21,7 @@ const request = vi.fn();
 let poll: () => void;
 const realSetInterval = globalThis.setInterval;
 beforeEach(() => {
+  useStore.setState({ reportPinned: null });
   vi.spyOn(globalThis, 'setInterval').mockImplementation((callback, delay, ...args) => {
     if (delay !== 60_000) return realSetInterval(callback, delay, ...args);
     poll = callback as () => void;
@@ -402,4 +404,19 @@ it('preserves compacted release downloads and names missing source replay', asyn
   await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
   expect(result.current.status).toContain('повторный расчёт');
   expect(result.current.status).toContain('недоступен');
+});
+
+it('keeps the downloaded release across leaving the page and reads that exact ID on return', async () => {
+  request.mockImplementation(async (url: string) => url.endsWith('.docx')
+    ? { ok: true, blob: async () => new Blob(['doc']) }
+    : response(receipt));
+  const first = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(first.result.current.release).not.toBeNull());
+  await act(async () => first.result.current.download('main'));
+  first.unmount();
+  request.mockClear();
+  const second = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(second.result.current.release).not.toBeNull());
+  expect(request.mock.calls[0][0]).toBe(`/api/report-releases/${receipt.release_id}/status`);
+  expect(second.result.current.release?.release_id).toBe(receipt.release_id);
 });

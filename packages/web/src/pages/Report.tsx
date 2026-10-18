@@ -684,21 +684,22 @@ export function ReportPage() {
   // Параметры запроса — чистым хелпером: год из контекста ('all' → последний
   // доступный), квартал — кнопки страницы поверх ctx.period, asOf — четверг
   // выбранной недели колеса (кламп к последнему четвергу — внутри хелпера)
-  const [localQuarter, setLocalQuarter] = useState<Quarter | null>(null);
+  const localQuarter = useStore(state => state.reportQuarter);
+  const setLocalQuarter = (quarter: Quarter | null) => useStore.setState({ reportQuarter: quarter });
   // Режим просмотра: эфир по умолчанию (канон 27.07). Переключатель в шапке —
   // единственный способ уйти в архив недели, поэтому состояние живёт здесь,
   // а не выводится из наличия недели в фильтрах (это и путало читателя).
-  const [mode, setMode] = useState<ReportMode>('live');
+  const mode = useStore(state => state.reportMode);
+  const setMode = (value: ReportMode) => useStore.setState({ reportMode: value });
+  const navigationVersion = useStore(state => state.urlNavigationVersion);
   // Колесо недель и переключатель — одно управление, а не два несвязанных.
   // Крутанул неделю — это явное намерение смотреть архив, поэтому режим
   // переключается сам. Без этого колесо в эфире молча ни на что не влияло.
-  const prevWeek = useRef<string | null>(ctx.weekStart);
+  const prevWeek = useRef({ week: ctx.weekStart, navigationVersion });
   useEffect(() => {
-    if (ctx.weekStart !== prevWeek.current) {
-      prevWeek.current = ctx.weekStart;
-      if (ctx.weekStart !== null) setMode('archive');
-    }
-  }, [ctx.weekStart]);
+    if (ctx.weekStart !== prevWeek.current.week && navigationVersion === prevWeek.current.navigationVersion && ctx.weekStart !== null) setMode('archive');
+    prevWeek.current = { week: ctx.weekStart, navigationVersion };
+  }, [ctx.weekStart, navigationVersion]);
   const request = useMemo(
     () => reportRequestParams(ctx, dayNumberOf(productTodayIso())!, localQuarter ?? undefined, mode),
     [ctx, localQuarter, mode],
@@ -1057,6 +1058,7 @@ export function ReportPage() {
           {word.refreshNotice}
         </p>
       )}
+      {word.isPinned && <button type="button" className="text-xs underline" onClick={word.unpin}>Снять фиксацию Word-выпуска</button>}
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
       <ReportOperationsStatus value={word.operations} apiState={word.apiState} />
       <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />

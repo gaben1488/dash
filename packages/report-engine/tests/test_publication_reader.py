@@ -281,3 +281,19 @@ def test_period_fallback_never_serves_corrupt_published_documents(tmp_path):
     with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
         read_publication(state, 'status', selection=('2026-10-11', 2026, 3))
 
+
+
+def test_exact_status_keeps_selected_release_and_never_substitutes_latest(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    first = store.publish(candidate(tmp_path / 'first'), read_revisions=revisions)
+    store.publish(candidate(tmp_path / 'second', date='01.10.2026', quarter=4), read_revisions=revisions)
+    selected = json.loads(read_publication(state, 'status', first['release_id']))
+    assert selected['selected']['release_id'] == first['release_id']
+    assert selected['selected']['report_year'] == 2026
+    assert selected['selected']['quarter'] == 3
+    assert selected.get('latest_matching') is None
+    with pytest.raises(PublicationError, match='PUBLICATION_NOT_FOUND'):
+        read_publication(state, 'status', 'REL-' + 'f' * 64)
+    with pytest.raises(PublicationError, match='PUBLICATION_ID_INVALID'):
+        read_publication(state, 'status', '../private')

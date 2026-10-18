@@ -176,3 +176,17 @@ it('bootstraps a legacy catalog before serving when the report worker is disable
     rmSync(state, { recursive: true, force: true });
   }
 });
+
+it('reads a pinned receipt by exact ID and rejects a context that could silently select another release', async () => {
+  const app = Fastify();
+  const read = vi.fn(async () => Buffer.from('{"selected":null}'));
+  await app.register(reportReleaseRoutes, { read });
+  const id = `REL-${'a'.repeat(64)}`;
+  expect((await app.inject(`/api/report-releases/${id}/status`)).statusCode).toBe(200);
+  expect(read).toHaveBeenCalledWith('status', id, undefined, expect.any(AbortSignal));
+  read.mockClear();
+  expect((await app.inject('/api/report-releases/bad/status')).statusCode).toBe(400);
+  expect((await app.inject(`/api/report-releases/${id}/status?date=2026-09-24&year=2026&quarter=3`)).statusCode).toBe(400);
+  expect(read).not.toHaveBeenCalled();
+  await app.close();
+});

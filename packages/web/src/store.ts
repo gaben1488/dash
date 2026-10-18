@@ -363,6 +363,10 @@ export function getMondayOfWeek(d: Date): Date {
 
 export interface AppState {
   // Навигация
+  urlNavigationVersion: number;
+  reportMode: 'live' | 'archive';
+  reportQuarter: 1 | 2 | 3 | 4 | null;
+  reportPinned: { contextKey: string; id: string } | null;
   page: Page;
   setPage: (page: Page) => void;
   /*
@@ -607,6 +611,7 @@ let liveStavkaInFlight = false;
 
 export const useStore = create<AppState>((set, get) => ({
   // Навигация
+  urlNavigationVersion: 0, reportMode: 'live', reportQuarter: null, reportPinned: null,
   page: 'dashboard',
   setPage: (page) => {
     if (page === 'journal') {

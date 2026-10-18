@@ -38,6 +38,7 @@ const request = vi.fn();
 let saved: string[];
 beforeEach(() => {
   backend.archiveUnavailable = false;
+  useStore.setState({ reportMode: 'live', reportQuarter: null, reportPinned: null });
   localStorage.clear();
   useStore.setState({ year: 2026, period: 'q3', periodMode: 'explicit', focusedWeekStart: new Date('2026-09-28T00:00:00Z') });
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
@@ -134,4 +135,19 @@ it('prepares and downloads the full frozen archive even when the old dashboard s
   fireEvent.click(main);
   await waitFor(() => expect(saved).toHaveLength(1));
   expect(screen.queryByText(/Запустите чтение текущих источников/)).toBeNull();
+});
+
+it('keeps the frozen download after leaving the section and returning', async () => {
+  request.mockImplementation(async (url: string) => ({ ok: true, json: async () => ({ selected: url.endsWith('/status') ? receipt : null, latest_matching: receipt, attempt: null }), blob: async () => new Blob(['docx']) }));
+  const first = render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  const main = await screen.findByRole('button', { name: 'Отчёт в Word' });
+  await waitFor(() => expect(main).toHaveProperty('disabled', false));
+  fireEvent.click(main);
+  await waitFor(() => expect(saved).toHaveLength(1));
+  first.unmount();
+  request.mockClear();
+  render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отчёт в Word' })).toHaveProperty('disabled', false));
+  expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/status`)).toBe(true);
+  expect(screen.getByRole('button', { name: 'Снять фиксацию Word-выпуска' })).toBeTruthy();
 });

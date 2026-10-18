@@ -82,7 +82,11 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
     if view == 'status':
         attempt_path = state / 'status.json'
         attempt = json.loads(attempt_path.read_text(encoding='utf-8')) if attempt_path.exists() else None
-        if selection is not None:
+        if release_id is not None:
+            if store is None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+            result = {'selected': store.receipt(release_id), 'attempt': None}
+        elif selection is not None:
             result = {**(store.select_status(*selection) if store else {'selected': None, 'latest_matching': None}),
                       'attempt': attempt}
             # GET remains read-only. Archive job status never overwrites the live worker status.

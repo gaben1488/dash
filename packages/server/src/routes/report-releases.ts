@@ -125,7 +125,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         message: 'Архивный комплект сейчас не сформирован. Это задача сопровождения; текущие данные вместо архива не использованы.' });
     }
   });
-  for (const [suffix, view] of [['', 'status'], ['/history', 'history'], ['/dashboard', 'dashboard'],
+  for (const [suffix, view] of [['', 'status'], ['/status', 'status'], ['/history', 'history'], ['/dashboard', 'dashboard'],
     ['/main.docx', 'main'], ['/supplement.docx', 'supplement'], ['/operational.docx', 'operational']] as const) {
     app.get<{ Params: { releaseId?: string } }>(`/api/report-releases${view === 'history' ? '/history' : suffix ? '/:releaseId' + suffix : ''}`,
       async (request, reply) => {
@@ -133,13 +133,13 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         if (history && !history.success) return reply.code(400).send({ code: 'PUBLICATION_CONTEXT_INVALID', message: 'Некорректный курсор истории.' });
         const id = history?.success ? history.data.before : request.params.releaseId;
         reply.header('Cache-Control', 'private, no-store');
-        if (view !== 'status' && view !== 'history' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
+        if ((view !== 'status' || id !== undefined) && view !== 'history' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
           return reply.code(400).send({ code: 'PUBLICATION_ID_INVALID', message: 'Некорректный идентификатор выпуска.' });
         }
         let context: Context | undefined;
         if (view !== 'history' && Object.keys(request.query as object).length > 0) {
           const parsed = ContextSchema.safeParse(request.query);
-          if (view !== 'status' || !parsed.success) {
+          if (view !== 'status' || id !== undefined || !parsed.success) {
             return reply.code(400).send({ code: 'PUBLICATION_CONTEXT_INVALID', message: 'Укажите дату среза, год и квартал отчёта.' });
           }
           context = parsed.data;
