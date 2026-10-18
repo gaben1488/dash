@@ -42,7 +42,8 @@ class ReportSchemaProbeTests(unittest.TestCase):
                    'report_year': 2026, 'quarter': 4, 'automation_assurance': assurance}
         envelope = {name: (ROOT / source).read_text() for name, source in (
             ('schemas', 'packages/shared/src/schemas.ts'),
-            ('registry', 'packages/shared/src/department-registry.ts'))}
+            ('registry', 'packages/shared/src/department-registry.ts'),
+            ('coverage', 'packages/shared/src/source-coverage.ts'))}
         program = """const fs=require('node:fs'),path=require('node:path');
 const originalRead=fs.readFileSync, originalDir=fs.readdirSync, originalStat=fs.lstatSync;
 const input=JSON.parse(originalRead(0,'utf8'));
@@ -85,7 +86,8 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
                  ({k: v for k, v in v2.items() if k != 'source_observations'}, False)]
         envelope = {name: (ROOT / path).read_text() for name, path in (
             ('schemas', 'packages/shared/src/schemas.ts'),
-            ('registry', 'packages/shared/src/department-registry.ts'))}
+            ('registry', 'packages/shared/src/department-registry.ts'),
+            ('coverage', 'packages/shared/src/source-coverage.ts'))}
         for assurance, accepted in cases:
             with self.subTest(assurance_version=assurance and assurance['contract'], accepted=accepted):
                 result = subprocess.run(['node', '-e',

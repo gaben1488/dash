@@ -21,7 +21,9 @@ function loadCandidate(input, packageFile) {
     return module.exports;
   };
   const registry = compile(input.registry, {});
-  return compile(input.schemas, { zod: installed('zod'), './department-registry.js': registry });
+  const zod = installed('zod');
+  const coverage = compile(input.coverage, { zod });
+  return compile(input.schemas, { zod, './department-registry.js': registry, './source-coverage.js': coverage });
 }
 
 const fields = new Set(['contract', 'user_action_count', 'engine_action_count', 'source_observations',

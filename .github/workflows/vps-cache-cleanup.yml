@@ -1344,9 +1344,9 @@ jobs:
                 repo=Path('/home/aemr/dash')
                 def public_source(name,sha=candidate):
                     return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
-                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts')
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts','packages/shared/src/source-coverage.ts')
                 assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
-                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1])})
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),'coverage':public_source(names[2])})
                 program=public_source('.github/ci/report-schema-probe.cjs')
                 program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
                 schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
