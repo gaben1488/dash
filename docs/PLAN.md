@@ -62,11 +62,22 @@ OPS29tests+7target binding/ruff/YAML/actual15377B projector≤16384B PASS;
 | 3 | C04.03 | Scatter/CostOfRefusal: отдельные определения limit reduction, NMCK и AD-экономии, настоящий контекст | Код проверен:6126TS PASS/1skip; не установлен |
 | 4 | C05.11 | Сопоставимые request windows/stages API/SQL/Python/browser, cold/warm/worker | Код8e32afea; native baseline39100209392; итоговая приёмка после установки |
 | 5 | C08.15 | Индексированные current/history summaries, payload только для выбранного detail | Код проверен:6128TS/1209PythonPASS; не установлен |
-| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Реализация compact workspace read |
-| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Ожидает6 |
+| 6 | C05.04 | Ограниченный GET готовой модели без ожидания импорта, измеренный в трёх режимах | Код проверен:6137TS PASS/1skip; native замер кандидата впереди |
+| 7 | U06.01 | Общий lifecycle чтения: scope/abort/error/version, поздний ответ не заменяет новый выбор | Общий scope/abort/version код проверен;6137TS PASS/1skip; не установлен |
 | 8 | U06.03 | URL/back/forward/reload/detail сохраняют раздел/период/организацию/выпуск | Ожидает7 |
 | 9 | R08.03 | Ошибка очереди отличается от пустоты; конечный retry только transient | Ожидает8 |
 | 10 | R09.02 | Один проверенный immutable build→promotion и фактический полный паспорт runtime | Ожидает9 |
+
+C05.04/U06.01: opt-in compact GET не передаёт issues дважды; прежний HTTP
+контракт сохранён. Dashboard/Analytics/CostOfRefusal отменяют заменённое чтение
+и игнорируют поздний ответ/ошибку старого года. POST-команды не отменяются
+при уходе со страницы. Scatter читает точный отображённый snapshot_id, без
+подстановки live при отсутствии; полнота старого снимка проверяется явно.
+Это минимальный участок C08.02, не общий TS/Python data_release. Полный прогон:
+771shared+1895core+1120server+2351web=6137PASS/1skip;4tsc/lint0errors/300warnings.
+C05.11 дополнен ограниченным измерением process-wide event-loop delay;
+это inclusive сигнал с шагом20ms, не эксклюзивное время запроса. Установка
+и сопоставимые native/browser замеры кандидата ещё впереди.
 
 C04.02: полный конечный numeric parser общий для shared/SVOD/timeline/DTO/
 analytics; явный fraction/points, канонические тыс.руб. с независимым display

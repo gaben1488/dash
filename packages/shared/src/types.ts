@@ -559,6 +559,8 @@ export interface DashboardData {
   departmentSummaries: DepartmentSummary[];
   summaryByPeriod: Record<string, DashboardPeriodSummary>;
   recentIssues: Issue[];
+  /** Compact HTTP opt-in: the complete collection is present once in snapshot.issues. */
+  recentIssuesRef?: 'snapshot.issues';
   signalCounts: Record<string, number>;
   issueSummary: DashboardIssueSummary;
   trust: TrustScore;
@@ -689,6 +691,7 @@ export interface LimitComparisonPoint {
   planDate: string; factDate: string; planYear: number; month: number; quarter: number;
 }
 export interface LimitComparisonResponse {
+  sourceSnapshotId?: string | null;
   points: LimitComparisonPoint[]; total: number; departments: string[];
   unreadDepartments: Array<{ department: string; reason: string }>;
   coverage: import('./source-coverage.js').SourceCoverage;

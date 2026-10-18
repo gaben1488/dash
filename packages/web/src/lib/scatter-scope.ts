@@ -1,11 +1,13 @@
 /** The live comparison uses plan-date months, never the auxiliary O/P cells. */
 export function scatterScope(input: {
+  snapshotId?: string;
   year: number | 'all'; period: string; periodMode: string; activeMonths: ReadonlySet<number>;
   selectedDepartments: ReadonlySet<string>; selectedSubordinates: ReadonlySet<string>;
   activityFilter?: string; selectedActivities?: ReadonlySet<string>; procurementFilter?: string;
   deptOnlyMode?: ReadonlySet<string>; searchQuery?: string;
 }): Record<string, string> {
   const params: Record<string, string> = { year: String(input.year) };
+  if (input.snapshotId) params.snapshot_id = input.snapshotId;
   if (input.selectedDepartments.size) params.dept = [...input.selectedDepartments].sort().join(',');
   if (input.selectedSubordinates.size) params.subordinate = [...input.selectedSubordinates].sort().join(',');
   if (input.deptOnlyMode?.size) params.deptOnly = [...input.deptOnlyMode].sort().join(',');

@@ -11,6 +11,14 @@ function fakeResponse(body: unknown = {}) {
   } as unknown as Response;
 }
 
+it('restores a compact dashboard alias without copying or losing issues', async () => {
+  const issues = [{ id: 'one' }];
+  vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({ snapshot: { issues }, recentIssues: [], recentIssuesRef: 'snapshot.issues' })));
+  const data = await api.getDashboard(false, 2026);
+  expect(data.recentIssues).toBe(data.snapshot.issues);
+  expect(data.recentIssues).toEqual(issues);
+});
+
 describe('скачивание опубликованного документа', () => {
   it('сохраняет авторизацию и возвращает байты, не пытаясь разобрать DOCX как JSON', async () => {
     vi.stubGlobal('localStorage', { getItem: () => 'test-token' });

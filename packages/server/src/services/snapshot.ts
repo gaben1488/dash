@@ -1062,6 +1062,20 @@ const MS_PER_HOUR = 3_600_000;
 const productDayEndIso = (day: number, utcOffsetHours: number): string =>
   new Date((day + 1) * MS_PER_DAY - utcOffsetHours * MS_PER_HOUR).toISOString();
 
+/** Exact immutable record; never substitute the latest state for a missing ID. */
+export function getStoredSnapshotById(id: string): PipelineSnapshot | null {
+  const row = db.select({ data: schema.snapshots.data }).from(schema.snapshots).where(eq(schema.snapshots.id, id)).get();
+  if (!row?.data) return null;
+  try {
+    const snapshot = JSON.parse(row.data) as PipelineSnapshot;
+    if (snapshot.id !== id || !snapshot.metadata || !snapshot.createdAt) throw new Error('invalid stored snapshot');
+    return snapshot;
+  } catch {
+    throw new Error('STORED_SNAPSHOT_INVALID');
+  }
+}
+
+
 /**
  * Последний снимок, созданный не позже календарного дня `day` (номер суток
  * dayNumberOf) И несущий строки-атомы rowsByDept — источник честного отчёта
@@ -1076,6 +1090,7 @@ const productDayEndIso = (day: number, utcOffsetHours: number): string =>
  * кандидатов не обрезает доступ к пригодному архиву. Разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
  * пустого объекта).
  */
+
 export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   const rows = db.select({ data: schema.snapshots.data })
     .from(schema.snapshots)

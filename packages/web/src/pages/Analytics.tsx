@@ -1,6 +1,7 @@
+import { useScopedQuery } from '../hooks/useScopedQuery';
 import { scatterScope } from '../lib/scatter-scope';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
-import { productLabel, ORG_ITSELF_SENTINEL, type SourceCoverage } from '@aemr/shared';
+import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
@@ -33,7 +34,7 @@ import {
   LineChart, Line, Legend, Cell, AreaChart, Area,
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
-import { api, humanizeRequestError } from '../api';
+import { api } from '../api';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -385,7 +386,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 }
 
 export function Analytics() {
-  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced } = useStore();
+  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced, dashboardData } = useStore();
   const fd = useFilteredData();
   // Режим организаций (приказ владельца 20.08): «с подведомственными» —
   // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
@@ -406,33 +407,16 @@ export function Analytics() {
   // Drill-down state
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
 
-  // Scatter plot data (economy: limit vs fact per procurement)
-  const [scatterData, setScatterData] = useState<any[]>([]);
-  const [scatterLoading, setScatterLoading] = useState(false);
-  const [scatterCoverage, setScatterCoverage] = useState<SourceCoverage>();
-  const [scatterSummary, setScatterSummary] = useState<{ limitReductionPercent: number | null; count: number }>();
-  const [scatterTruncated, setScatterTruncated] = useState(false);
-  const [scatterError, setScatterError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setScatterLoading(true);
-    setScatterError(null);
-    setScatterData([]);
-    setScatterCoverage(undefined);
-    setScatterSummary(undefined);
-    const params = scatterScope({ year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates,
-      procurementFilter, activityFilter, selectedActivities, deptOnlyMode, searchQuery: searchQueryDebounced });
-    api.getScatterData(params).then((res: any) => {
-      if (cancelled) return;
-      setScatterData(res.points ?? []);
-      setScatterCoverage(res.coverage);
-      setScatterSummary(res.summary);
-      setScatterTruncated(res.truncated);
-    }).catch(err => { if (!cancelled) setScatterError(humanizeRequestError(err)); })
-      .finally(() => { if (!cancelled) setScatterLoading(false); });
-    return () => { cancelled = true; };
-  }, [procurementFilter, activityFilter, selectedDepartments, selectedSubordinates, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced]);
+  const snapshotId = dashboardData?.snapshot.id;
+  const scatterParams = scatterScope({ snapshotId, year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates,
+    procurementFilter, activityFilter, selectedActivities, deptOnlyMode, searchQuery: searchQueryDebounced });
+  const scatterQuery = useScopedQuery(snapshotId ? JSON.stringify(scatterParams) : '', signal => api.getScatterData(scatterParams, signal));
+  const scatterData = scatterQuery.data?.points ?? [];
+  const scatterLoading = !snapshotId || scatterQuery.loading;
+  const scatterCoverage = scatterQuery.data?.coverage;
+  const scatterSummary = scatterQuery.data?.summary;
+  const scatterTruncated = scatterQuery.data?.truncated ?? false;
+  const scatterError = scatterQuery.error;
 
   const filteredDepts = fd.depts;
   const hasDeptData = filteredDepts.length > 0;

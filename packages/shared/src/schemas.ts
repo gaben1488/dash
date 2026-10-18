@@ -379,6 +379,7 @@ export const DashboardDataSchema = z.object({
   departmentSummaries: z.array(DepartmentSummarySchema),
   summaryByPeriod: z.record(z.string(), DashboardPeriodSummarySchema),
   recentIssues: z.array(IssueSchema),
+  recentIssuesRef: z.literal('snapshot.issues').optional(),
   signalCounts: z.record(z.string(), z.number()),
   issueSummary: DashboardIssueSummarySchema,
   trust: TrustScoreSchema,

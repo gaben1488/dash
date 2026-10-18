@@ -50,6 +50,28 @@ beforeEach(() => {
 });
 
 describe('fetchDashboard — гонка запросов (баг #6)', () => {
+  it('aborts the old read when a new scope starts', async () => {
+    const old = deferred<any>();
+    getDashboard.mockReturnValueOnce(old.promise).mockResolvedValueOnce(makeData(2026));
+    useStore.setState({ year: 2025 });
+    const first = useStore.getState().fetchDashboard();
+    const signal = getDashboard.mock.calls[0][2] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    useStore.setState({ year: 2026 });
+    await useStore.getState().fetchDashboard();
+    expect(signal.aborted).toBe(true);
+    old.resolve(makeData(2025)); await first;
+    expect(useStore.getState().dataYear).toBe(2026);
+  });
+
+  it('does not apply a response after the selected scope changed, even before the next fetch', async () => {
+    const old = deferred<any>(); getDashboard.mockReturnValueOnce(old.promise);
+    useStore.setState({ year: 2025 });
+    const pending = useStore.getState().fetchDashboard();
+    useStore.setState({ year: 2026 });
+    old.resolve(makeData(2025)); await pending;
+    expect(useStore.getState().dashboardData).toBeNull();
+  });
   it('смена года во время загрузки НЕ выбрасывается: побеждает последний запрос', async () => {
     const first = deferred<any>();
     const second = deferred<any>();

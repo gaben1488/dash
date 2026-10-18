@@ -296,12 +296,18 @@ export async function fetchParsed<T>(url: string, schema: ParseSchema<T>, init?:
 
 export const api = {
   // Dashboard
-  getDashboard: (refresh = false, year?: number | 'all') => {
-    const params = new URLSearchParams();
+  getDashboard: (refresh = false, year?: number | 'all', signal?: AbortSignal) => {
+    const params = new URLSearchParams({ compact: '1' });
     if (refresh) params.set('refresh', 'true');
     if (year !== undefined) params.set('year', String(year));
     const qs = params.toString();
-    return fetchJSON<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`);
+    return fetchJSON<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`, { signal }).then(data => {
+      if (data.recentIssuesRef === undefined) return data;
+      if (data.recentIssuesRef !== 'snapshot.issues' || !Array.isArray(data.snapshot?.issues)) {
+        throw new ApiContractError('/dashboard', 'invalid recentIssuesRef');
+      }
+      return { ...data, recentIssues: data.snapshot.issues };
+    });
   },
 
   refresh: (quick = false) =>
@@ -484,9 +490,12 @@ export const api = {
   }>(`/report-releases/history${before ? '?before=' + encodeURIComponent(before) : ''}`),
 
   // Scatter data for Economy page
-  getScatterData: (params?: Record<string, string>) => {
+  getScatterData: (params?: Record<string, string>, signal?: AbortSignal) => {
     const search = params ? new URLSearchParams(params).toString() : '';
-    return fetchJSON<LimitComparisonResponse>(`/rows/scatter${search ? `?${search}` : ''}`);
+    return fetchJSON<LimitComparisonResponse>(`/rows/scatter${search ? `?${search}` : ''}`, { signal }).then(data => {
+      if (params?.snapshot_id && data.sourceSnapshotId !== params.snapshot_id) throw new ApiContractError('/rows/scatter', 'snapshot mismatch');
+      return data;
+    });
   },
 
   // Один работающий RecommendationLedger. Новая запись УЭР является

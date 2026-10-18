@@ -12,3 +12,17 @@ it('measures the actual request and serialization window without exposing source
   expect(response.headers['server-timing']).not.toContain('PRIVATE');
   await app.close();
 });
+
+it('detects a synchronous event-loop block inside this request window', async () => {
+  const app = Fastify();
+  registerRequestTiming(app);
+  app.get('/blocked', async () => {
+    const end = performance.now() + 35;
+    while (performance.now() < end) { /* Deliberate bounded block for the diagnostic. */ }
+    return { ready: true };
+  });
+  const response = await app.inject('/blocked');
+  const timing = String(response.headers['server-timing']);
+  expect(Number(timing.match(/loop;dur=([\d.]+)/)?.[1])).toBeGreaterThan(10);
+  await app.close();
+});

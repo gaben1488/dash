@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createLatestRead } from './lib/latest-read';
 import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
@@ -596,9 +597,9 @@ function isDemoData(data: DashboardData): boolean {
  * каждый запрос получает номер, применяется только ответ последнего; устаревший
  * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
  */
-let dashboardRequestSeq = 0;
+const dashboardReads = createLatestRead();
 /** Версия обычного запроса: тихая подмена не должна обходить его защиту гонок. */
-export function dashboardRequestVersion(): number { return dashboardRequestSeq; }
+export function dashboardRequestVersion(): number { return dashboardReads.version; }
 let bucketRequestSeq = 0;
 
 /** Страж повторного запроса живого коэффициента (fetchLiveStavka). */
@@ -1198,13 +1199,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchDashboard: async (force = false) => {
     // Баг #6: НЕ выходим при get().loading — смена года во время загрузки
-    // обязана дойти до сервера. Гонку решает номер запроса (см. dashboardRequestSeq).
-    const seq = ++dashboardRequestSeq;
+    // обязана дойти до сервера. Гонку решает общий read slot с отменой устаревшего запроса.
+    const read = dashboardReads.begin();
+    const year = get().year;
     set({ loading: true, error: null });
     try {
-      const year = get().year;
-      const data = await api.getDashboard(force, year);
-      if (seq !== dashboardRequestSeq) return false; // ответ устарел — победил более поздний запрос
+      const data = await api.getDashboard(force, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return false; // ответ устарел — победил более поздний запрос
       // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
       // формула, время чтения каждой официальной строки СВОДа.
       setOfficialProvenance(
@@ -1221,7 +1222,7 @@ export const useStore = create<AppState>((set, get) => ({
       void get().fetchBucketCounts();
       return true;
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return false; // устаревшая ошибка не затирает свежие данные
+      if (!read.isCurrent() || get().year !== year) return false; // устаревшая ошибка не затирает свежие данные
       // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
       // Приставка через точку, а не через двоеточие: иначе в плашке шапки
       // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
@@ -1236,13 +1237,14 @@ export const useStore = create<AppState>((set, get) => ({
 
   refreshResult: null,
   refresh: async () => {
-    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
+    const read = dashboardReads.begin();
+    const year = get().year; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null, refreshResult: { sources: [], loading: true } });
     try {
-      const year = get().year;
       const result = await api.refresh();
-      const data = await api.getDashboard(false, year);
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
+      const data = await api.getDashboard(false, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return;
       setOfficialProvenance(
         (data as any).snapshot?.officialMetrics,
         (data as any).snapshot?.spreadsheetId,
@@ -1260,7 +1262,7 @@ export const useStore = create<AppState>((set, get) => ({
       });
       void get().fetchBucketCounts();
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,
@@ -1271,13 +1273,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   quickRefresh: async () => {
-    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
+    const read = dashboardReads.begin();
+    const year = get().year; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null });
     try {
-      const year = get().year;
       await api.refresh(true);
-      const data = await api.getDashboard(true, year);
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
+      const data = await api.getDashboard(true, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return;
       // Баг #12: без обновления провенанса «Первичка сейчас» в попапах БЗ
       // устаревала после автообновления — числа новые, доказательства старые.
       setOfficialProvenance(
@@ -1293,7 +1296,7 @@ export const useStore = create<AppState>((set, get) => ({
       });
       void get().fetchBucketCounts();
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,

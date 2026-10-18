@@ -37,6 +37,15 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('transmits the complete issue set once when the workspace opts into references', async () => {
+    const response = await app.inject('/api/dashboard?year=2026&compact=1');
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(data.recentIssuesRef).toBe('snapshot.issues');
+    expect(data.recentIssues).toEqual([]);
+    expect(data.snapshot.issues).toEqual(fixture.snapshot.issues);
+    expect(data.issueSummary.total).toBe(fixture.snapshot.issues.length);
+  });
   it('не передаёт внутренние таблицы и контексты истории при сохранении контракта экранов', async () => {
     const response = await app.inject('/api/dashboard?year=2026');
     expect(response.statusCode).toBe(200);

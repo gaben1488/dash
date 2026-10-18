@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
   departmentCoverage,
+  SourceCoverageSchema,
+  findDept,
   COL_LETTER_INDEX,
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
@@ -21,7 +23,7 @@ import {
 import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow, readCurrentDeptRowFormulas } from '../services/google-sheets.js';
 import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
 import { withRowWriteLock } from '../services/row-write-lock.js';
-import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptSheetCache, getStoredSnapshotById } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization, approvedEconomy } from '@aemr/core';
@@ -999,6 +1001,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   /** Live limit/contract comparison. K is a plan limit, never NMCK or AD economy. */
   app.get('/api/rows/scatter', async (request, reply) => {
     const query = request.query as Record<string, string>;
+    if (query.snapshot_id !== undefined && (typeof query.snapshot_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,160}$/.test(query.snapshot_id))) {
+      return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Некорректный идентификатор снимка.' });
+    }
+    const frozen = query.snapshot_id ? getStoredSnapshotById(query.snapshot_id) : null;
+    if (query.snapshot_id && !frozen) return reply.status(404).send({ code: 'SNAPSHOT_NOT_FOUND', message: 'Выбранный снимок больше недоступен. Текущее состояние вместо него не использовано.' });
+    const frozenCoverage = SourceCoverageSchema.safeParse(frozen?.metadata.sourceCoverage);
     const filterDepts = query.dept?.split(',').map(s => s.trim()).filter(Boolean) ?? [];
     const departments = filterDepts.length > 0
       ? DEPARTMENTS.filter(d => filterDepts.includes(d.id) || filterDepts.includes(d.nameShort)) : DEPARTMENTS;
@@ -1020,13 +1028,24 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const POINT_LIMIT = 2500;
     let count = 0, limitTotal = 0, contractTotal = 0, economyTotal = 0;
     for (const dept of departments) {
-      const read = await readDeptRows(dept);
-      if (!read.ok) {
-        unreadDepartments.push({ department: dept.nameShort, reason: sourceUnavailableMessage(dept.nameShort, read.reason) });
-        continue;
+      let values: unknown[][];
+      if (frozen) {
+        const entry = Object.entries(frozen.rowsByDept ?? {}).find(([name]) => findDept(name)?.latinId === dept.id);
+        if (!entry || !frozenCoverage.success || !frozenCoverage.data.readDepartments.includes(dept.nameShort)) {
+          unreadDepartments.push({ department: dept.nameShort, reason: 'Полнота книги в выбранном снимке не подтверждена.' });
+          continue;
+        }
+        values = [[], [], [], ...entry[1]];
+      } else {
+        const read = await readDeptRows(dept);
+        if (!read.ok) {
+          unreadDepartments.push({ department: dept.nameShort, reason: sourceUnavailableMessage(dept.nameShort, read.reason) });
+          continue;
+        }
+        values = read.values;
       }
-      for (let i = DEPT_HEADER_ROWS; i < read.values.length; i++) {
-        const row = read.values[i];
+      for (let i = DEPT_HEADER_ROWS; i < values.length; i++) {
+        const row = values[i];
         if (!row) continue;
         const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
         if (!subject || isMetaRow(subject)) continue;
@@ -1066,7 +1085,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     if (coverage.readDepartments.length === 0 && departments.length > 0) return reply.status(503).send({
       code: 'SERVICE_UNAVAILABLE', message: 'Книги выбранных управлений не прочитаны. Облако закупок не построено.', coverage,
     });
-    return reply.send({ points, total: count, departments: departments.map(d => d.id), unreadDepartments, coverage,
+    return reply.send({ points, total: count, sourceSnapshotId: frozen?.id ?? null, departments: departments.map(d => d.id), unreadDepartments, coverage,
       truncated: count > POINT_LIMIT, pointLimit: POINT_LIMIT, excluded, asOf,
       basis: 'plan_limit_K_vs_contract_Y', unit: 'thousand_rubles',
       summary: { count, limitTotal, contractTotal, approvedEconomy: economyTotal,

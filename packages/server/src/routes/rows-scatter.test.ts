@@ -164,4 +164,19 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       expect((await app.inject('/api/rows/scatter?' + query)).statusCode).toBe(400);
     }
   });
+
+  it('reads the exact displayed snapshot instead of combining it with newer live rows', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const row = sheetRow('frozen-position', 800, 46034, 46100, 700);
+    const snapshot = { id: 'frozen-scatter', createdAt: '2026-10-18T00:00:00Z',
+      rowsByDept: { 'УЭР': [row] }, metadata: { sourceCoverage: {
+        expectedDepartments: ['УЭР'], readDepartments: ['УЭР'], unreadDepartments: [], complete: true,
+      } } };
+    db.insert(schema.snapshots).values({ id: snapshot.id, spreadsheetId: 'synthetic', createdAt: snapshot.createdAt, data: JSON.stringify(snapshot) }).run();
+    const response = await app.inject('/api/rows/scatter?dept=uer&snapshot_id=frozen-scatter');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().points.map((point: ScatterPoint) => point.id)).toEqual(['frozen-position']);
+    expect(response.json().sourceSnapshotId).toBe(snapshot.id);
+    expect((await app.inject('/api/rows/scatter?dept=uer&snapshot_id=missing')).statusCode).toBe(404);
+  });
 });

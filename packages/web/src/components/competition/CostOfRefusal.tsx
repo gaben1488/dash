@@ -1,17 +1,18 @@
 // Scenario on K/Y for completed known competitive purchases. K is not NMCK.
 // Approved economy is a separate AD-gated fact, never inferred from this ratio.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Loader2, Scale } from 'lucide-react';
 import clsx from 'clsx';
-import { api, humanizeRequestError } from '../../api';
+import { api } from '../../api';
 import { useStore } from '../../store';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
 import { buildDrill, type DrillFilters } from '../../lib/drill';
+import { useScopedQuery } from '../../hooks/useScopedQuery';
 import { scatterScope } from '../../lib/scatter-scope';
-import type { LimitComparisonPoint as ScatterPoint, LimitComparisonResponse as ScatterResponse } from '@aemr/shared';
+import type { LimitComparisonPoint as ScatterPoint } from '@aemr/shared';
 import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import {
@@ -76,6 +77,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const selectedSubordinates = useStore((s) => s.selectedSubordinates);
   const navigateTo = useStore((s) => s.navigateTo);
+  const snapshotId = useStore(s => s.dashboardData?.snapshot.id);
+  const dashboardLoading = useStore(s => s.loading);
+  const dataYear = useStore(s => s.dataYear);
   const year = useStore(s => s.year);
   const period = useStore(s => s.period);
   const periodMode = useStore(s => s.periodMode);
@@ -85,42 +89,23 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const deptOnlyMode = useStore(s => s.deptOnlyMode);
   const searchQuery = useStore(s => s.searchQueryDebounced);
 
-  const [resp, setResp] = useState<ScatterResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
 
-  const scope = useMemo(() => scatterScope({ year, period, periodMode, activeMonths,
+  const scope = useMemo(() => scatterScope({ snapshotId, year, period, periodMode, activeMonths,
     selectedDepartments, selectedSubordinates, activityFilter, selectedActivities, deptOnlyMode, searchQuery,
     procurementFilter: 'competitive',
-  }), [year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates, activityFilter, selectedActivities, deptOnlyMode, searchQuery]);
+  }), [snapshotId, year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates, activityFilter, selectedActivities, deptOnlyMode, searchQuery]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setResp(null);
-    api.getScatterData(scope)
-      .then((data: ScatterResponse) => {
-        if (cancelled) return;
-        setResp(data);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(humanizeRequestError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [scope, reloadKey]);
-
-  const retry = useCallback(() => setReloadKey((k) => k + 1), []);
+  const query = useScopedQuery(snapshotId ? JSON.stringify(scope) : '', signal => api.getScatterData(scope, signal));
+  const resp = query.data ?? null;
+  const loading = !snapshotId || query.loading;
+  const error = query.error;
+  const retry = query.retry;
 
   const rows = resp?.points ?? [];
   const stats = { sumPlan: resp?.summary.limitTotal ?? 0, sumFact: resp?.summary.contractTotal ?? 0,
     reductionPct: resp?.summary.limitReductionPercent ?? null };
-  const refusalCost = stats.reductionPct !== null && epHasData && resp?.coverage.complete
+  const refusalCost = stats.reductionPct !== null && epHasData && resp?.coverage.complete && !dashboardLoading && (year === 'all' || year === dataYear)
     ? epPlan * (stats.reductionPct / 100) : null;
 
   const sortedRows = useMemo(
