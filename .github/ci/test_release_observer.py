@@ -101,8 +101,10 @@ class AcceptedAttemptMetadataTests(unittest.TestCase):
     """Actual inline projector; synthetic filesystem ownership is explicitly modelled."""
     def run_projection(self, *, observed=True, defect=None, receipt=True):
         workflow = (Path(__file__).resolve().parents[1] / 'workflows/ci.yml').read_text()
-        function = re.search(r'^            def accepted_cycle_metadata\(\):\n.*?(?=^            def checkpoint_metadata\(\):)',
-                             workflow, re.MULTILINE | re.DOTALL).group()
+        match = re.search(r'^            def accepted_cycle_metadata\(\):\n.*?(?=^            def \w+\(|\Z)',
+                          workflow, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(match, 'The actual accepted-cycle projector must exist')
+        function = match.group()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); base = root / 'acceptance-999999-1'; reports = root / 'reports'
             base.mkdir(); reports.mkdir()
