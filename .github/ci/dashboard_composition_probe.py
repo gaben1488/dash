@@ -44,6 +44,8 @@ def summarize(snapshot):
         'sections_bytes': {key: len(encoded(snapshot[key])) for key in (
             'officialMetrics', 'calculatedMetrics', 'issues', 'metadata', 'datasetAnalyses') if key in snapshot},
         'metrics_sha256': digest([snapshot.get('officialMetrics'), snapshot.get('calculatedMetrics')]),
+        'metric_values_sha256': digest({kind: {key: value.get('numericValue') for key, value in snapshot.get(kind, {}).items()}
+            for kind in ('officialMetrics', 'calculatedMetrics')}),
     }
 
 
