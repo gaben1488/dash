@@ -248,7 +248,7 @@ def runtime_log_stages(raw, *, logger_utc=False):
 
     if not raw.strip():
         raise ValueError('RUNTIME_STAGE_LOG_WINDOW_EMPTY')
-    records, current = [], None
+    records, current, stage_lines = [], None, None
     for line in raw.splitlines():
         stamp, _, text = re.sub(r'\x1b\[[0-9;]*m', '', line).partition(' ')
         try:
@@ -261,7 +261,7 @@ def runtime_log_stages(raw, *, logger_utc=False):
             decoded = None
         if isinstance(decoded, dict):
             records.append(decoded)
-            current = None
+            current, stage_lines = None, None
             continue
         header = re.fullmatch(r'\[(\d{2}:\d{2}:\d{2}\.\d+)\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\([^)]+\):\s*(.*)', text)
         if header:
@@ -275,9 +275,29 @@ def runtime_log_stages(raw, *, logger_utc=False):
             if not -1 <= (transported - logged).total_seconds() <= 3600:
                 raise ValueError('LOGGER_EVENT_TIME_NOT_PROVEN')
             current = {'time': int(logged.timestamp() * 1000), 'msg': header[2]}
+            stage_lines = None
             records.append(current)
         elif current is not None:
-            field = re.fullmatch(r'\s+(reqId|responseTime|ms):\s*(.+)', text)
+            window_field = None
+            if current['msg'] == 'Request timing':
+                window_field = re.fullmatch(r'\s+(kind|route|elapsedMs|processCpuMs|eventLoopProcessMaxDelayMs|eventLoopSampleIntervalMs|eventLoopSamplingComplete):\s*(.+)', text)
+                block = re.fullmatch(r'\s+stagesMs:\s*(\{.*)', text)
+                if block:
+                    stage_lines = [block[1]]
+                elif stage_lines is not None:
+                    stage_lines.append(text)
+                if stage_lines is not None:
+                    if len(stage_lines) > 16 or sum(map(len, stage_lines)) > 8192:
+                        stage_lines = None
+                    else:
+                        try:
+                            stages = json.loads('\n'.join(stage_lines))
+                            if isinstance(stages, dict):
+                                current['stagesMs'] = stages
+                            stage_lines = None
+                        except ValueError:
+                            pass
+            field = window_field or re.fullmatch(r'\s+(reqId|responseTime|ms):\s*(.+)', text)
             url = re.fullmatch(r'\s+"url":\s*(".*")\s*,?', text)
             try:
                 if field:
