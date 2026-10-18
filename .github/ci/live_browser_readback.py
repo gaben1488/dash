@@ -149,7 +149,7 @@ def failure_location(error):
     while frame is not None:
         code = frame.tb_frame.f_code
         if (Path(code.co_filename).name == Path(__file__).name
-                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods', 'verify_operations_status', 'verify_pulse_trust'}):
+                and code.co_name in {'run', 'select_page', 'verify_header_controls', 'verify_header_periods', 'verify_operations_status', 'verify_pulse_trust', 'verify_workspace_return'}):
             location = {'function': code.co_name, 'line': frame.tb_lineno}
         frame = frame.tb_next
     return location
@@ -412,6 +412,37 @@ async def select_page(page, nav, label, proof=None):
     assert await button.get_attribute('aria-current') == 'page'
 
 
+async def verify_workspace_return(page, nav, profile, proof, *, timeout=10000):
+    """Real Back/reload and pinned Word return; no filter values leave this check."""
+    scope_script = """() => { const p=new URL(location.href).searchParams;
+      return Object.fromEntries(['year','period','mode','week','months','depts','subs','deptOnly','method','activity',
+        'budget','q','unit','tab','reportMode','reportQuarter','word','word_ctx'].map(k=>[k,p.get(k)])); }"""
+    await page.wait_for_function("() => /^REL-[a-f0-9]{64}$/.test(new URL(location.href).searchParams.get('word')||'')", timeout=timeout)
+    await select_page(page, nav, 'Реестр', proof)
+    await page.wait_for_function("() => new URL(location.href).searchParams.get('page')==='data'", timeout=timeout)
+    initial = await page.evaluate(scope_script)
+    await select_page(page, nav, 'Аналитика', proof)
+    assert await page.evaluate(scope_script) == initial
+    await page.go_back(timeout=timeout)
+    selected = nav.locator('.np-btn[aria-current="page"]').filter(has=page.locator('.np-label', has_text=re.compile('^Реестр$')))
+    await selected.wait_for(state='attached', timeout=timeout)
+    assert await page.evaluate(scope_script) == initial
+    started = time.monotonic()
+    await page.reload(wait_until='domcontentloaded', timeout=30000)
+    await selected.wait_for(state='attached', timeout=timeout)
+    assert await page.evaluate(scope_script) == initial
+    reload_ms = round((time.monotonic() - started) * 1000, 1)
+    started = time.monotonic()
+    async with page.expect_response(lambda response: urlsplit(response.url).path == '/api/report-releases/' + initial['word'] + '/status', timeout=30000) as response:
+        await select_page(page, nav, 'Отчёт', proof)
+    result = await response.value
+    assert result.status == 200 and (await result.json())['selected']['release_id'] == initial['word']
+    await expect(page.get_by_role('button', name='Отчёт в Word', exact=True)).to_be_enabled(timeout=timeout)
+    await page.get_by_role('button', name='Снять фиксацию Word-выпуска', exact=True).wait_for(timeout=timeout)
+    proof['workspace_return'] = {'result': 'PASS', 'back': True, 'reload': True, 'exact_word': True,
+                                 'reload_header_ms': reload_ms, 'word_return_ms': round((time.monotonic() - started) * 1000, 1)}
+
+
 async def run():
     proof = {'kind': 'actual_domain_browser', 'source_sha': os.environ['EXPECTED_SOURCE_SHA'],
              'stage': 'credentials', 'result': 'FAILED'}
@@ -630,6 +661,8 @@ async def run():
             else:
                 await page.keyboard.press('Escape')
             await dialog.wait_for(state='hidden')
+            proof['stage'] = 'workspace_return'
+            await verify_workspace_return(page, nav, profile, proof)
             proof.update(result='PASS', stage='complete', basic_edge='PASS',
                          three_word_downloads=downloads, journal_tabs='PASS', page_errors=len(errors), blocked_requests=len(blocked))
             assert not errors and not blocked

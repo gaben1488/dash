@@ -12,7 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-TARGET = 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+TARGET = 'af5b233502f30b36a0c049765e1ffdbec2877145'
+HISTORICAL_REUSE_TARGET = 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
 MANAGED = ('browser-readback', 'observe', 'api-timing', 'worker-observe')
 
 
@@ -36,8 +37,8 @@ class AcceptanceTargetBinding(unittest.TestCase):
     def test_fresh_release_reuses_exact_candidate_and_preserves_application_checkout_and_gates(self):
         source=(Path(__file__).resolve().parents[1]/'workflows/ci.yml').read_text()
         body=job(source,'fresh-release')
-        self.assertEqual(set(re.findall(r"inputs\.release_sha == '([a-f0-9]{40})'",body)),{TARGET})
-        self.assertIn('ref: '+TARGET,body)
+        self.assertEqual(set(re.findall(r"inputs\.release_sha == '([a-f0-9]{40})'",body)),{HISTORICAL_REUSE_TARGET})
+        self.assertIn('ref: '+HISTORICAL_REUSE_TARGET,body)
         self.assertIn('Preserve reviewed reuse operator before application checkout',body)
         self.assertIn('--staged-candidates',body)
         self.assertNotIn('worker-38821521319',body)

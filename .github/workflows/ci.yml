@@ -1447,10 +1447,10 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted ed3e4589') ||
-       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted ed3e4589')) ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted ed3e4589'))
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Verify real browser for accepted af5b2335') ||
+       (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Verify iPhone browser for accepted af5b2335')) ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Diagnose iPhone Word readiness for accepted af5b2335'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -1476,6 +1476,7 @@ jobs:
           python .github/ci/test_browser_catalog_metadata.py
           python .github/ci/test_browser_header_controls.py
           python .github/ci/test_browser_operations.py
+          python .github/ci/test_browser_workspace_return.py
       - name: Bind browser credentials to the actual accepted runtime
         env:
           VPS_USER: ${{ secrets.DEPLOY_USER }}
@@ -1493,7 +1494,7 @@ jobs:
             "$VPS_USER@193.233.91.162" sudo -n python3 -IB - > "$private/auth.json" <<'PY'
           import hashlib,json,os,re,stat,subprocess,sys
           from pathlib import Path
-          sha='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+          sha='af5b233502f30b36a0c049765e1ffdbec2877145'
           def owned(path,private=True,limit=1024*1024):
               assert not any(p.is_symlink() for p in (path,*path.parents))
               with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as source:
@@ -1550,7 +1551,7 @@ jobs:
       - name: Real browser navigation, journal and three native Word downloads
         env:
           DASH_BROWSER_BASIC_PASSWORD: ${{ secrets.DASH_BROWSER_BASIC_PASSWORD }}
-          EXPECTED_SOURCE_SHA: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
+          EXPECTED_SOURCE_SHA: af5b233502f30b36a0c049765e1ffdbec2877145
           EXPECT_OPERATIONS_UI: "yes"
           EXPECT_PULSE_TRUST_UI: "yes"
           BROWSER_AUTH_METADATA: ${{ runner.temp }}/browser-readback/auth.json
@@ -1569,13 +1570,13 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'metadata' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'storage-census' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'release-progress' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
-       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release ed3e4589 metadata' ||
-        github.event.head_commit.message == 'Inspect installed release progress for ed3e4589' ||
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
+       (github.event_name == 'push' && (github.event.head_commit.message == 'Inspect accepted release af5b2335 metadata' ||
+        github.event.head_commit.message == 'Inspect installed release progress for af5b2335' ||
         github.event.head_commit.message == 'Inspect saved worker refusal for accepted 43f10742' ||
         github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742')))
     runs-on: ubuntu-latest
@@ -1587,7 +1588,7 @@ jobs:
         run: python3 .github/ci/test_acceptance_target_binding.py
       - name: Bind reviewed checkpoint content statistics
         env:
-          PRIMARY_SOURCE_SHA: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
+          PRIMARY_SOURCE_SHA: af5b233502f30b36a0c049765e1ffdbec2877145
         run: |
           git fetch --quiet --no-tags origin "$PRIMARY_SOURCE_SHA"
           python - <<'PYCONTENT'
@@ -1611,9 +1612,9 @@ jobs:
       - name: Read operational metadata only without lock or state changes
         uses: appleboy/ssh-action@v1.2.0
         env:
-          RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release ed3e4589 metadata') && 'yes' || 'no' }}
+          RELEASE_ONLY: ${{ (inputs.mode == 'metadata' || github.event.head_commit.message == 'Inspect accepted release af5b2335 metadata') && 'yes' || 'no' }}
           STORAGE_CENSUS_ONLY: ${{ inputs.mode == 'storage-census' && 'yes' || 'no' }}
-          RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for ed3e4589') && 'yes' || 'no' }}
+          RELEASE_PROGRESS_ONLY: ${{ (inputs.mode == 'release-progress' || github.event.head_commit.message == 'Inspect installed release progress for af5b2335') && 'yes' || 'no' }}
           WEEKLY_ONLY: ${{ github.event.head_commit.message == 'Inspect latest weekly preflight for accepted 43f10742' && 'yes' || 'no' }}
           CONTENT_PROJECTOR: ${{ env.CONTENT_PROJECTOR }}
           CONTENT_PROJECTOR_SHA: ${{ env.CONTENT_PROJECTOR_SHA }}
@@ -1867,7 +1868,7 @@ jobs:
               return
              assert re.fullmatch(r'acceptance-[0-9]+-[0-9]+',name)
              r,plan=current_release_plan(accepted=True)
-             assert plan['release_sha']=='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+             assert plan['release_sha']=='af5b233502f30b36a0c049765e1ffdbec2877145'
              base=Path('/var/lib/aemr/worker-quarantine')/name
              if not os.path.lexists(base/'result.json'):
               print(json.dumps({'accepted_worker':False,'state':'NOT_ACCEPTED','reason':'CURRENT_RECEIPT_MISSING'}),flush=True)
@@ -1880,7 +1881,7 @@ jobs:
                body=stream.read(limit+1);assert len(body)<=limit
                return json.loads(body)
              result=read('result.json')
-             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['source_sha']=='af5b233502f30b36a0c049765e1ffdbec2877145'
              assert result['native_word']=='PASS' and type(result['sealed_entries_verified']) is int
              observer_start=datetime.fromisoformat(result['observation_since']);worker_start=datetime.fromisoformat(result['worker_started_at'])
              cutoff=datetime.fromisoformat(result['eligibility_since'])
@@ -2648,12 +2649,12 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'api-timing' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
        (github.event_name == 'push' &&
-        (github.event.head_commit.message == 'Profile latest API stages for accepted ed3e4589' ||
-         github.event.head_commit.message == 'Profile journal read for accepted ed3e4589' ||
-         github.event.head_commit.message == 'Profile selected HTTP for accepted ed3e4589' ||
-         github.event.head_commit.message == 'Profile dashboard read for accepted ed3e4589')))
+        (github.event.head_commit.message == 'Profile latest API stages for accepted af5b2335' ||
+         github.event.head_commit.message == 'Profile journal read for accepted af5b2335' ||
+         github.event.head_commit.message == 'Profile selected HTTP for accepted af5b2335' ||
+         github.event.head_commit.message == 'Profile dashboard read for accepted af5b2335')))
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -2708,7 +2709,7 @@ jobs:
             record=json.loads(subprocess.check_output(['docker','inspect','aemr-server-1'],text=True,timeout=15))[0]
             assert record['State']['Running'] and record['Name']=='/aemr-server-1'
             installed=json.loads(subprocess.check_output(['docker','image','inspect',record['Image']],text=True,timeout=15))[0]
-            assert installed['Config']['Labels']['org.opencontainers.image.revision']=='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+            assert installed['Config']['Labels']['org.opencontainers.image.revision']=='af5b233502f30b36a0c049765e1ffdbec2877145'
             body=base64.b64decode(os.environ['DRIFT_PROBE'],validate=True)
             assert len(body)<=24576 and hashlib.sha256(body).hexdigest()==os.environ['DRIFT_PROBE_SHA']
             running=subprocess.check_output(['docker','ps','--quiet'],text=True,timeout=10).splitlines()
@@ -2739,14 +2740,14 @@ jobs:
                row[key]=int(value)
              except (OSError,StopIteration,AssertionError):pass
             print(json.dumps({'running_container_resources':census}),flush=True)
-            latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted ed3e4589' && 'True' || 'False' }}
+            latest=${{ github.event.head_commit.message == 'Profile latest API stages for accepted af5b2335' && 'True' || 'False' }}
             window_start=record['State']['StartedAt']
             assert re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',window_start)
             window_end=(datetime.fromisoformat(window_start)+timedelta(minutes=3)).isoformat()
             if latest:
              window_end=datetime.now(timezone.utc).isoformat();window_start=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat()
-            resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted ed3e4589' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted ed3e4589' && 'report' || 'dashboard' }}"
-            code="import hashlib,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nday=datetime.now(ZoneInfo('Asia/Kamchatka')).date()\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':f'/api/dashboard?year={day.year}','journal':'/api/change-story?limit=1','report':f'/api/report-releases?date={day.isoformat()}&year={day.year}&quarter={(day.month+2)//3}'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource,'started_at':datetime.now().astimezone().isoformat()}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3);result['ended_at']=datetime.now().astimezone().isoformat()\n print(json.dumps(result),flush=True)\n"
+            resource="${{ github.event_name == 'push' && github.event.head_commit.message == 'Profile journal read for accepted af5b2335' && 'journal' || github.event.head_commit.message == 'Profile selected HTTP for accepted af5b2335' && 'report' || 'dashboard' }}"
+            code="import hashlib,re,json,os,socket,sys,time,urllib.request\nfrom pathlib import Path\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nday=datetime.now(ZoneInfo('Asia/Kamchatka')).date()\nresource=sys.argv[1];assert resource in {'dashboard','journal','report'}\nendpoint={'dashboard':f'/api/dashboard?year={day.year}','journal':'/api/change-story?limit=1','report':f'/api/report-releases?date={day.isoformat()}&year={day.year}&quarter={(day.month+2)//3}'}[resource]\ndef cpu():\n try:\n  fields=dict(line.split() for line in Path('/sys/fs/cgroup/cpu.stat').read_text().splitlines())\n  return int(fields['usage_usec'])\n except (OSError,KeyError,ValueError):return None\nfor sequence in (1,2):\n start=time.monotonic();before=cpu();result={'api_timing':sequence,'endpoint':resource,'started_at':datetime.now().astimezone().isoformat()}\n try:\n  request=urllib.request.Request('http://127.0.0.1:3000'+endpoint,headers={'Authorization':'Bearer '+os.environ['AEMR_API_KEY']})\n  with urllib.request.urlopen(request,timeout=40) as response:\n   result['ttfb_seconds']=round(time.monotonic()-start,3);result['http_status']=response.status\n   result['data_state']=response.headers.get('x-aemr-data-state','absent');result['captured_at']=response.headers.get('x-aemr-data-captured-at')\n   timing={}\n   for part in response.headers.get('Server-Timing','').split(','):\n    matched=re.fullmatch(r'\\s*(app|serialize|reader|model|loop);dur=([0-9]+(?:\\.[0-9]+)?)\\s*',part)\n    if matched and 0<=float(matched[2])<=120000:timing[matched[1]]=float(matched[2])\n   result['server_timing_ms']=timing\n   digest=hashlib.sha256();total=0\n   while chunk:=response.read(65536):\n    total+=len(chunk)\n    if total>20*1024*1024:raise ValueError('BOUNDED_READ_LIMIT')\n    digest.update(chunk)\n  result.update(bytes=total,response_sha256=digest.hexdigest())\n except (TimeoutError,socket.timeout):result['error_code']='TIMEOUT_40S'\n except Exception:result['error_code']='READ_OR_PARSE_FAILED'\n after=cpu();available=type(before) is int and type(after) is int and after>=before\n result['cpu_available']=available\n if available:result['container_cpu_seconds']=round((after-before)/1000000,3)\n result['elapsed_seconds']=round(time.monotonic()-start,3);result['ended_at']=datetime.now().astimezone().isoformat()\n print(json.dumps(result),flush=True)\n"
             if resource=='journal':
              window_start=(datetime.now(timezone.utc)-timedelta(minutes=2)).isoformat()
              header=base64.b64decode(os.environ['HEADER_PROBE'],validate=True)
@@ -2768,10 +2769,13 @@ jobs:
              assert result.returncode==0
              rows=[json.loads(line) for line in result.stdout.splitlines()];assert len(rows)==2
              for value in rows:
-              assert set(value)<={'api_timing','endpoint','ttfb_seconds','http_status','bytes','response_sha256','error_code','elapsed_seconds','cpu_available','container_cpu_seconds','data_state','captured_at','started_at','ended_at'}
+              assert set(value)<={'api_timing','endpoint','ttfb_seconds','http_status','bytes','response_sha256','error_code','elapsed_seconds','cpu_available','container_cpu_seconds','data_state','captured_at','started_at','ended_at','server_timing_ms'}
               for key,number in value.items():
-               if key in {'response_sha256','error_code','endpoint','cpu_available','data_state','captured_at','started_at','ended_at'}:continue
+               if key in {'response_sha256','error_code','endpoint','cpu_available','data_state','captured_at','started_at','ended_at','server_timing_ms'}:continue
                assert type(number) in {int,float} and 0<=number<=30*1024*1024
+              timing=value.get('server_timing_ms',{})
+              assert isinstance(timing,dict) and set(timing)<={'app','serialize','reader','model','loop'}
+              assert all(type(v) in {int,float} and 0<=v<=120000 for v in timing.values())
               assert datetime.fromisoformat(value['started_at'])<=datetime.fromisoformat(value['ended_at'])
               assert value['endpoint']==resource and type(value['cpu_available']) is bool
               if 'http_status' in value:
@@ -2815,8 +2819,8 @@ jobs:
       github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode == 'worker-observe' &&
-        inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d') ||
-       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted ed3e4589'))
+        inputs.release_sha == 'af5b233502f30b36a0c049765e1ffdbec2877145') ||
+       (github.event_name == 'push' && github.event.head_commit.message == 'Observe controlled release worker for accepted af5b2335'))
     runs-on: ubuntu-latest
     timeout-minutes: 70
     concurrency:
@@ -2845,7 +2849,7 @@ jobs:
           command_timeout: 67m
           script: |
             set -euo pipefail
-            observer='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+            observer='af5b233502f30b36a0c049765e1ffdbec2877145'
             git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin "$observer"
             git -c gc.auto=0 -c maintenance.auto=false -C /home/aemr/dash fetch --quiet origin '${{ github.sha }}'
             sudo -n python3 -I - "$observer" '${{ github.run_id }}' '${{ github.run_attempt }}' <<'PYACCEPTCURRENT'
@@ -3025,7 +3029,7 @@ jobs:
           command_timeout: 4m
           script: |
             set -euo pipefail
-            sudo -n python3 -I - 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d' <<'PYSCHEMA'
+            sudo -n python3 -I - 'af5b233502f30b36a0c049765e1ffdbec2877145' <<'PYSCHEMA'
             import json,re,subprocess,sys
             from pathlib import Path
             try:

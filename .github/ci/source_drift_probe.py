@@ -297,17 +297,40 @@ def runtime_stage_summary(records):
     import math
 
     result, requests = [], {}
+    routes = {'/api/dashboard': 'dashboard', '/api/change-story': 'journal',
+              '/api/report-releases': 'report_status', '/api/trust': 'trust', '/api/issues': 'issues'}
     for record in records:
         if not isinstance(record, dict) or type(record.get('time')) is not int or not 0 <= record['time'] <= 2**53 - 1:
+            continue
+        if record.get('kind') == 'request_window':
+            category = routes.get(record.get('route'))
+            if not category:
+                continue
+            stages = record.get('stagesMs')
+            stages = stages if isinstance(stages, dict) else {}
+            for name, duration in (('app_window', record.get('elapsedMs')), ('reader', stages.get('reader')),
+                                   ('model', stages.get('model')), ('process_cpu', record.get('processCpuMs')),
+                                   ('event_loop_max', record.get('eventLoopProcessMaxDelayMs'))):
+                if type(duration) not in (int, float) or not math.isfinite(duration) or not 0 <= duration <= 2**53 - 1:
+                    continue
+                event = {'at_ms': record['time'], 'stage': category + '_' + name,
+                         'duration_ms': duration, 'inclusive_non_additive': True}
+                if name == 'event_loop_max':
+                    interval, complete = record.get('eventLoopSampleIntervalMs'), record.get('eventLoopSamplingComplete')
+                    if type(interval) is int and 0 < interval <= 1000:
+                        event['sample_interval_ms'] = interval
+                    if type(complete) is bool:
+                        event['sampling_complete'] = complete
+                result.append(event)
+                if len(result) >= 80:
+                    return result
             continue
         message, request_id = record.get('msg'), record.get('reqId')
         stage, duration = None, None
         if message == 'incoming request' and isinstance(request_id, str):
             request = record.get('req')
             if isinstance(request, dict) and isinstance(request.get('url'), str):
-                category = {'/api/dashboard': 'dashboard', '/api/change-story': 'journal',
-                            '/api/report-releases': 'report_status', '/api/trust': 'trust',
-                            '/api/issues': 'issues'}.get(request['url'].split('?', 1)[0])
+                category = routes.get(request['url'].split('?', 1)[0])
                 if category:
                     requests[request_id] = category
                     stage = category + '_begin'

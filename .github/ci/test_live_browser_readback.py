@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
+from test_acceptance_target_binding import TARGET
+
 ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('browser_release_recovery',ROOT/'deploy/release_recovery.py')
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -181,7 +183,7 @@ class BrowserAdmissionTests(unittest.TestCase):
 
     def test_readonly_worker_and_profile_pushes_are_explicit_and_owner_scoped(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
-        for job,marker,sha in [('worker-observe','Observe controlled release worker for accepted 78d293b2','78d293b217a8afe982583c73bc67aaccdb4d906c'),('api-timing','Profile journal read for accepted 78d293b2','78d293b217a8afe982583c73bc67aaccdb4d906c')]:
+        for job,marker,sha in [('worker-observe',f'Observe controlled release worker for accepted {TARGET[:8]}',TARGET),('api-timing',f'Profile journal read for accepted {TARGET[:8]}',TARGET)]:
             section=workflow.split('  '+job+':\n',1)[1]
             expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
             for event,actor,branch,message,mode,expected in [('push','owner','codex/release-observe-20261015',marker,'',True),('push','other','codex/release-observe-20261015',marker,'',False),('push','owner','main',marker,'',False),('push','owner','codex/release-observe-20261015','other','',False),('workflow_dispatch','owner','codex/release-observe-20261015','',job,True)]:
@@ -209,18 +211,18 @@ class BrowserAdmissionTests(unittest.TestCase):
         marker='Inspect saved worker refusal for accepted 43f10742'
         for event,actor,message,expected in [('push','owner',marker,True),('push','someone',marker,False),('push','owner','other',False),('workflow_dispatch','owner','',True)]:
             with self.subTest(event=event,actor=actor,message=message):
-                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/codex/release-observe-20261015',event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode='metadata',release_sha='78d293b217a8afe982583c73bc67aaccdb4d906c')}
+                context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/codex/release-observe-20261015',event=SimpleNamespace(head_commit=SimpleNamespace(message=message))),'inputs':SimpleNamespace(mode='metadata',release_sha=TARGET)}
                 self.assertEqual(bool(eval(expression,{'__builtins__':{}},context)),expected)
 
     def test_only_explicit_owner_browser_request_can_run_on_push(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         section=workflow.split('  browser-readback:\n',1)[1].split('  observe:\n',1)[0]
         expression=' '.join(section.split('if: >-\n',1)[1].split('runs-on:',1)[0].split()).replace('&&','and').replace('||','or')
-        marker='Verify real browser for accepted 78d293b2'
+        marker=f'Verify real browser for accepted {TARGET[:8]}'
         for name,event,actor,branch,message,mode,sha,expected in (
             ('explicit-push','push','owner','codex/release-observe-20261015',marker,'','',True),
-            ('iphone-body','push','owner','codex/release-observe-20261015','Verify iPhone browser for accepted 78d293b2\n\nReviewed touch fixture.','','',True),
-            ('foreign-iphone','push','someone','codex/release-observe-20261015','Verify iPhone browser for accepted 78d293b2','','',False),
+            ('iphone-body','push','owner','codex/release-observe-20261015',f'Verify iPhone browser for accepted {TARGET[:8]}\n\nReviewed touch fixture.','','',True),
+            ('foreign-iphone','push','someone','codex/release-observe-20261015',f'Verify iPhone browser for accepted {TARGET[:8]}','','',False),
             ('previous192-push','push','owner','codex/release-observe-20261015','Verify real browser for accepted 19289667','','',False),
             ('previous192-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'browser','19289667b0aca6f88ff6225c9a3a8c849a592c9d',False),
             ('old-push','push','owner','codex/release-observe-20261015','Verify real browser for accepted 43f10742','','',False),
@@ -230,8 +232,8 @@ class BrowserAdmissionTests(unittest.TestCase):
             ('ordinary-push','push','owner','codex/release-observe-20261015','other','','',False),
             ('foreign-push','push','someone','codex/release-observe-20261015',marker,'','',False),
             ('main-push','push','owner','main',marker,'','',False),
-            ('browser-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'browser','78d293b217a8afe982583c73bc67aaccdb4d906c',True),
-            ('metadata-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'metadata','78d293b217a8afe982583c73bc67aaccdb4d906c',False)):
+            ('browser-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'browser',TARGET,True),
+            ('metadata-dispatch','workflow_dispatch','owner','codex/release-observe-20261015','', 'metadata',TARGET,False)):
             with self.subTest(name=name):
                 context={'github':SimpleNamespace(event_name=event,actor=actor,repository_owner='owner',ref='refs/heads/'+branch,event=SimpleNamespace(head_commit=SimpleNamespace(message=message))), 'inputs':SimpleNamespace(mode=mode,release_sha=sha)}
                 context['startsWith'] = lambda value, prefix: value.lower().startswith(prefix.lower())

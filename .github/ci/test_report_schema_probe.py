@@ -10,19 +10,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ReportSchemaProbeTests(unittest.TestCase):
     def test_full_probe_checks_history_and_current_http_without_logging_payloads(self):
-        assurance = dict(contract='actionable-assurance-v2', fully_automated=False,
-                         user_action_count=0, engine_action_count=0, active_recommendations=159,
-                         link_status_counts={}, action_status_counts={}, actions=[],
-                         source_observations=[], nonprocurement_identity_observations=0,
-                         meaning='PRIVATE_SYNTHETIC_VALUE_DO_NOT_LOG')
-        receipt = dict(release_id='REL-' + 'a' * 64, snapshot_id='synthetic-snapshot',
-                       report_date='12.10.2026', cutoff_at='2026-10-11T22:00:00Z',
-                       published_at='2026-10-11T22:01:00Z', model_sha256='b' * 64,
-                       rules_version='synthetic', renderer_version='synthetic', status='VERIFIED',
-                       report_year=2026, quarter=4, automation_assurance=assurance)
+        assurance = {'contract': 'actionable-assurance-v2', 'fully_automated': False, 'user_action_count': 0, 'engine_action_count': 0, 'active_recommendations': 159, 'link_status_counts': {}, 'action_status_counts': {}, 'actions': [], 'source_observations': [], 'nonprocurement_identity_observations': 0, 'meaning': 'PRIVATE_SYNTHETIC_VALUE_DO_NOT_LOG'}
+        receipt = {'release_id': 'REL-' + 'a' * 64, 'snapshot_id': 'synthetic-snapshot', 'report_date': '12.10.2026', 'cutoff_at': '2026-10-11T22:00:00Z', 'published_at': '2026-10-11T22:01:00Z', 'model_sha256': 'b' * 64, 'rules_version': 'synthetic', 'renderer_version': 'synthetic', 'status': 'VERIFIED', 'report_year': 2026, 'quarter': 4, 'automation_assurance': assurance}
         envelope = {name: (ROOT / source).read_text() for name, source in (
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'))}
+        # These local fixtures predate coverage; the modern dependency is tested explicitly below.
+        envelope['coverage'] = ''
         program = """const fs=require('node:fs'),path=require('node:path');
 const originalRead=fs.readFileSync, originalDir=fs.readdirSync, originalStat=fs.lstatSync;
 const input=JSON.parse(originalRead(0,'utf8'));
@@ -40,11 +34,11 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
             folder = Path(tmp) / 'published/releases/REL-synthetic'
             folder.mkdir(parents=True)
             (Path(tmp) / 'archives').mkdir()
-            envelope.update(root=tmp, response=dict(selected=receipt, attempt=None))
+            envelope.update(root=tmp, response={'selected': receipt, 'attempt': None})
             for source, current, accepted in [(assurance, receipt, True),
                     (dict(assurance, source_observations=None), receipt, False),
                     (assurance, dict(receipt, automation_assurance=dict(assurance, contract='actionable-assurance-v3')), False)]:
-                (folder / 'report_model.json').write_text(json.dumps(dict(automation_assurance=source)))
+                (folder / 'report_model.json').write_text(json.dumps({'automation_assurance': source}))
                 envelope['response']['selected'] = current
                 result = subprocess.run(['node', '-e', program], cwd=ROOT, input=json.dumps(envelope),
                                         text=True, capture_output=True, timeout=15, check=False)
@@ -53,9 +47,7 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
                 self.assertNotIn(assurance['meaning'], result.stdout)
 
     def test_candidate_schema_preserves_historical_versions_and_fails_closed(self):
-        common = dict(fully_automated=False, user_action_count=0, engine_action_count=1,
-                      active_recommendations=159, link_status_counts={}, action_status_counts={},
-                      actions=[], meaning='PRIVATE_SYNTHETIC_VALUE_DO_NOT_LOG')
+        common = {'fully_automated': False, 'user_action_count': 0, 'engine_action_count': 1, 'active_recommendations': 159, 'link_status_counts': {}, 'action_status_counts': {}, 'actions': [], 'meaning': 'PRIVATE_SYNTHETIC_VALUE_DO_NOT_LOG'}
         v1 = dict(common, contract='actionable-assurance-v1')
         v2 = dict(common, contract='actionable-assurance-v2', source_observations=[],
                   nonprocurement_identity_observations=0)
@@ -66,18 +58,32 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
         envelope = {name: (ROOT / path).read_text() for name, path in (
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'))}
+        # These local fixtures predate coverage; the modern dependency is tested explicitly below.
+        envelope['coverage'] = ''
         for assurance, accepted in cases:
             with self.subTest(assurance_version=assurance and assurance['contract'], accepted=accepted):
                 result = subprocess.run(['node', '-e',
-                    "const p=require('./.github/ci/report-schema-probe.cjs');"
+                    ("const p=require('./.github/ci/report-schema-probe.cjs');"
                     "const x=JSON.parse(require('node:fs').readFileSync(0,'utf8'));"
                     "const s=p.loadCandidate(x,require('node:path').resolve('packages/shared/package.json'));"
-                    "console.log(JSON.stringify(p.checkAssurance(s.ReportAssuranceSchema,x.assurance)));"],
+                    "console.log(JSON.stringify(p.checkAssurance(s.ReportAssuranceSchema,x.assurance)));")],
                     cwd=ROOT, input=json.dumps(envelope if assurance is None else dict(envelope, assurance=assurance)),
                     text=True, capture_output=True, timeout=15, check=False)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)['accepted'], accepted)
                 self.assertNotIn(common['meaning'], result.stdout)
+
+    def test_candidate_can_import_explicit_coverage_but_missing_module_fails_closed(self):
+        envelope = {'schemas': "import { SourceCoverageSchema } from './source-coverage.js'; export const X = SourceCoverageSchema;",
+                    'registry': 'export const empty = 0;',
+                    'coverage': "import { z } from 'zod'; export const SourceCoverageSchema = z.object({state:z.literal('complete')});"}
+        program = "const p=require('./.github/ci/report-schema-probe.cjs');const x=JSON.parse(require('node:fs').readFileSync(0,'utf8'));const s=p.loadCandidate(x,require('node:path').resolve('packages/shared/package.json'));console.log(s.X.safeParse({state:'complete'}).success);"
+        result = subprocess.run(['node', '-e', program], cwd=ROOT, input=json.dumps(envelope), text=True, capture_output=True, timeout=15, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'true')
+        envelope.pop('coverage')
+        rejected = subprocess.run(['node', '-e', program], cwd=ROOT, input=json.dumps(envelope), text=True, capture_output=True, timeout=15, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
 
 
 if __name__ == '__main__':

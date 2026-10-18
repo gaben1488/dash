@@ -94,6 +94,7 @@ class DriftProbeTests(unittest.TestCase):
             path = work / '.github/ci/source_drift_probe.py'
             path.parent.mkdir(parents=True)
             (path.parent / 'header_api_probe.mjs').write_bytes((root / '.github/ci/header_api_probe.mjs').read_bytes())
+            (path.parent / 'native_selection_profile.py').write_bytes((root / '.github/ci/native_selection_profile.py').read_bytes())
             for suffix in ('', '\n' + '#' * 100_000 + '\ndef unrelated_private_probe():\n    raise RuntimeError("PRIVATE_CANARY")\n'):
                 path.write_text(source + suffix)
                 output = work / 'environment'

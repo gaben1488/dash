@@ -22,7 +22,7 @@ class TimingWindowTests(unittest.TestCase):
         source = ast.literal_eval(re.search(r'^            code=(.*)$', section, re.MULTILINE)[1])
         response = io.BytesIO(b'PRIVATE_SYNTHETIC_BODY')
         response.status = 200
-        response.headers = {'x-aemr-data-state': 'ready'}
+        response.headers = {'x-aemr-data-state': 'ready', 'Server-Timing': 'app;dur=120.5, reader;dur=90, loop;dur=4, private;dur=PRIVATE_SYNTHETIC_BODY'}
         output = io.StringIO()
         before = datetime.now(timezone.utc)
         with patch.object(sys, 'argv', ['probe', 'report']), patch.dict(os.environ, {'AEMR_API_KEY': 'SYNTHETIC_SECRET'}), \
@@ -56,6 +56,7 @@ class TimingWindowTests(unittest.TestCase):
         for row in self.run_client():
             self.assertEqual(row['response_sha256'], hashlib.sha256(b'PRIVATE_SYNTHETIC_BODY').hexdigest())
             self.assertEqual(row['bytes'], 22)
+            self.assertEqual(row['server_timing_ms'], {'app': 120.5, 'reader': 90.0, 'loop': 4.0})
 
     def test_timeouts_keep_a_measured_failed_window(self):
         for row in self.run_client(fail=True):
