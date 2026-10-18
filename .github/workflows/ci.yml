@@ -2650,9 +2650,14 @@ jobs:
       - name: Bind reviewed runtime log projector
         run: |
           python - <<'PYBIND'
-          import base64,hashlib,os
+          import ast,base64,hashlib,os
           from pathlib import Path
-          body=Path('.github/ci/source_drift_probe.py').read_bytes()
+          source=Path('.github/ci/source_drift_probe.py').read_text()
+          names={'runtime_log_stages','runtime_stage_summary'}
+          nodes=[node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name in names]
+          assert len(nodes)==len(names) and {node.name for node in nodes}==names
+          body=('import json,re\n'+'\n\n'.join(ast.get_source_segment(source,node) for node in nodes)).encode()
+          assert 0<len(body)<=24576
           with open(os.environ['GITHUB_ENV'],'a') as target:
               target.write('DRIFT_PROBE='+base64.b64encode(body).decode()+'\n')
               target.write('DRIFT_PROBE_SHA='+hashlib.sha256(body).hexdigest()+'\n')

@@ -7,6 +7,53 @@ from unittest.mock import patch
 
 
 class DriftProbeTests(unittest.TestCase):
+    def test_timing_transport_contains_only_bounded_runtime_projectors(self):
+        import ast
+        import base64
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        import textwrap
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/ci.yml').read_text()
+        section = workflow.split('      - name: Bind reviewed runtime log projector\n', 1)[1]
+        binder = textwrap.dedent(section.split("<<'PYBIND'\n", 1)[1].split('\n          PYBIND', 1)[0])
+        source = (root / '.github/ci/source_drift_probe.py').read_text()
+        bodies = []
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            path = work / '.github/ci/source_drift_probe.py'
+            path.parent.mkdir(parents=True)
+            (path.parent / 'header_api_probe.mjs').write_bytes((root / '.github/ci/header_api_probe.mjs').read_bytes())
+            for suffix in ('', '\n' + '#' * 100_000 + '\ndef unrelated_private_probe():\n    raise RuntimeError("PRIVATE_CANARY")\n'):
+                path.write_text(source + suffix)
+                output = work / 'environment'
+                output.write_text('')
+                result = subprocess.run([sys.executable, '-IB', '-c', binder], cwd=work,
+                                        env={**os.environ, 'GITHUB_ENV': str(output)},
+                                        capture_output=True, text=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                body = base64.b64decode(values['DRIFT_PROBE'], validate=True)
+                self.assertLessEqual(len(body), 24576)
+                self.assertEqual(__import__('hashlib').sha256(body).hexdigest(), values['DRIFT_PROBE_SHA'])
+                parsed = ast.parse(body)
+                self.assertEqual({node.name for node in parsed.body if isinstance(node, ast.FunctionDef)},
+                                 {'runtime_log_stages', 'runtime_stage_summary'})
+                self.assertNotIn(b'PRIVATE_CANARY', body)
+                bodies.append(body)
+        self.assertEqual(bodies[0], bodies[1])
+        namespace = {'__name__': 'isolated_runtime_projector'}
+        exec(compile(bodies[0], '<runtime-projector>', 'exec'), namespace)  # noqa: S102 - exact bounded workflow output
+        raw = ('2026-10-18T00:00:01Z {"time":1,"msg":"incoming request","reqId":"PRIVATE",'
+               '"req":{"url":"/api/dashboard?PRIVATE_QUERY"}}\n'
+               '2026-10-18T00:00:02Z {"time":2,"msg":"request completed","reqId":"PRIVATE","responseTime":5}')
+        self.assertEqual(namespace['runtime_log_stages'](raw, logger_utc=True),
+                         [{'at_ms': 1, 'stage': 'dashboard_begin'},
+                          {'at_ms': 2, 'stage': 'dashboard_complete', 'duration_ms': 5}])
+
     def test_finished_attempt_inventory_extracts_only_bound_scalar_metadata(self):
         import hashlib
         import json
