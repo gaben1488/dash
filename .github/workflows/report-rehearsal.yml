@@ -18,8 +18,7 @@ concurrency:
 jobs:
   scope:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'codex/dash-audit-integrated-20261010'
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       native_required: ${{ steps.classify.outputs.native_required }}
@@ -397,8 +396,7 @@ jobs:
                 print(json.dumps({"remote_contract": [{k: source[k] for k in keys if k in source} for source in remote["sources"]], "ledger_unchanged": json.loads((target / "ledger.json").read_text()) == json.loads((root / "inputs/ledger.json").read_text())}, ensure_ascii=False, sort_keys=True))
             PYREAD
   frozen-replay:
-    needs: source-schema
-    needs: scope
+    needs: [scope, source-schema]
     if: >-
       needs.scope.outputs.native_required == 'true' &&
       !cancelled() && github.event.pull_request.head.repo.full_name == github.repository &&

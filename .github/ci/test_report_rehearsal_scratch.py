@@ -26,6 +26,15 @@ def docker_commands(text):
 
 
 class ReportRehearsalScratchTests(unittest.TestCase):
+    def test_scope_keeps_existing_same_repository_rehearsal_branches_eligible(self):
+        scope = WORKFLOW.read_text().split('  scope:\n', 1)[1].split('    runs-on:', 1)[0]
+        expression = ' '.join(scope.split('    if: >-\n', 1)[1].split()).replace('&&', 'and')
+        for repository in ['owner/dash', 'foreign/dash']:
+            for branch in ['codex/report-example', 'codex/monitoring-workplace', 'codex/dash-audit-integrated-20261010']:
+                github = SimpleNamespace(repository='owner/dash', head_ref=branch,
+                    event=SimpleNamespace(pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=repository)))))
+                self.assertEqual(eval(expression, {'__builtins__': {}}, {'github': github}), repository == 'owner/dash')
+
     def test_frozen_candidate_replay_cannot_claim_installed_worker_cycle_acceptance(self):
         frozen = WORKFLOW.read_text().split('  frozen-replay:\n', 1)[1]
         self.assertNotIn('check_worker_cycle', frozen)
@@ -45,15 +54,18 @@ class ReportRehearsalScratchTests(unittest.TestCase):
 
     def test_replay_waits_for_schema_but_cancellation_cannot_start_more_work(self):
         part = WORKFLOW.read_text().split('  frozen-replay:\n', 1)[1]
-        self.assertIn('    needs: source-schema\n', part)
+        self.assertEqual(re.findall(r'^    needs:.*$', part, re.MULTILINE), ['    needs: [scope, source-schema]'])
         expression = ' '.join(part.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0].split())
         expression = expression.replace('!cancelled()', 'not cancelled()').replace('&&', 'and').replace('||', 'or')
-        for cancelled, repository, branch, expected in [(False, 'owner/dash', 'codex/dash-audit-integrated-20261010', True),
-                (True, 'owner/dash', 'codex/dash-audit-integrated-20261010', False),
-                (False, 'foreign/dash', 'codex/dash-audit-integrated-20261010', False)]:
+        for cancelled, repository, branch, native, expected in [(False, 'owner/dash', 'codex/dash-audit-integrated-20261010', 'true', True),
+                (True, 'owner/dash', 'codex/dash-audit-integrated-20261010', 'true', False),
+                (False, 'foreign/dash', 'codex/dash-audit-integrated-20261010', 'true', False),
+                (False, 'owner/dash', 'codex/dash-audit-integrated-20261010', 'false', False),
+                (False, 'owner/dash', 'codex/dash-audit-integrated-20261010', '', False)]:
             github = SimpleNamespace(repository='owner/dash', head_ref=branch,
                 event=SimpleNamespace(pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=repository)))))
-            result = eval(expression, {'__builtins__': {}}, {'github': github,
+            needs = SimpleNamespace(scope=SimpleNamespace(outputs=SimpleNamespace(native_required=native)))
+            result = eval(expression, {'__builtins__': {}}, {'github': github, 'needs': needs,
                 'cancelled': lambda value=cancelled: value, 'startsWith': lambda value, prefix: value.startswith(prefix)})
             self.assertEqual(result, expected)
 

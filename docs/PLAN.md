@@ -94,6 +94,13 @@ status/download; scoped исправление в ветке с прежней �
 добавление второго worker не объявляется её решением. Существующий report-worker
 сохраняется; общий source capture и admission — прежние R05.01/C08.02/R08.01.
 
+Scoped GET исправлениеdb70402f: RED7→GREEN, полный Python1221PASS/ruff и
+7instrumentation tests PASS. Кандидатbe8e1513 CI39112238838 отказал в regression
+оснастки: новая scope-зависимость была отдельным повторным YAML `needs`, а
+старый expression fixture не знал `needs.scope`. Исправлены единый список
+`[scope, source-schema]`, единственность ключа и матрица true/false/unknown/
+cancelled/foreign. Отказ сохранён; обычный source CI и native replay повторяются.
+
 История реализации до установкиaf5b (следующие прежние «не установлен»/
 «впереди» описывают свой срез, текущий статус — в таблице выше):
 

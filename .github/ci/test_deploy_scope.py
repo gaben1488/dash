@@ -1,4 +1,5 @@
 """The production gate must never mistake real code for documentation."""
+import re
 import unittest
 
 from deploy_scope import is_non_runtime, rehearsal_required, runtime_changed
@@ -13,7 +14,8 @@ class RehearsalScopeTests(unittest.TestCase):
         self.assertIn('run: python3 .github/ci/deploy_scope.py --rehearsal', workflow)
         for job in ('worker-diagnostics', 'source-schema', 'frozen-replay'):
             section = workflow.split('  '+job+':\n', 1)[1].split('    runs-on:', 1)[0]
-            self.assertIn('    needs: scope', section)
+            dependency = '    needs: [scope, source-schema]' if job == 'frozen-replay' else '    needs: scope'
+            self.assertEqual(re.findall(r'^    needs:.*$', section, re.MULTILINE), [dependency])
             self.assertIn("needs.scope.outputs.native_required == 'true'", section)
             self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', section)
             self.assertIn("github.head_ref == 'codex/dash-audit-integrated-20261010'", section)
