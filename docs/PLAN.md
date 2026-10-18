@@ -641,8 +641,15 @@ Offload-кандидат послеA5: RED настоящего ожидающе
 11worker lifecycle/HTTP/parity tests PASS. Synthetic4000/Node24:1,983s,
 max-child RSS429348KiB, HTTP обслужен до завершения; это не production/p95.
 В production-image CI добавлен настоящий Node22/tsx HTTP+4000rows smoke в
-network-none/read-only/1CPU/1GiB до sealing immutable artifact; его PASS ещё
-впереди. Это тот же C05.04/C05.11 текущей десятки, не новая UI-перестановка.
+network-none/read-only/1CPU/1GiB до sealing immutable artifact. На b24a6a5d
+этот native HTTP gate PASS в CI39125544933/job117669784694; весь CI SUCCESS.
+Python1244PASS,4tsc/lint PASS. Artifact12136176807, ZIP SHA256
+8f00f827f1cc56060d0f2b74635061054264e1f144578cf384064fdf09239dbb,
+production images не пересобираются при promotion. Rehearsal39125544891
+SUCCESS: source-schema/frozen replay/independent audit, два DOCX и headline
+сохранены. Старая #REF-неделя осталась UNCHANGED_FROZEN_SOURCE_REFUSAL,
+historical_replay_verified=false; историческая публикация не принята.
+Это тот же C05.04/C05.11 текущей десятки, не новая UI-перестановка.
 
 OPS1a0298b0/28f30a5b добавили только bounded read-only lifecycle projection:
 20мин/200journal lines/3000Docker log lines/1MiB transport, фиксированные
@@ -650,6 +657,37 @@ service/event/time/CPU/stage; no primary values.7privacy/capture+29projector+
 7binding/ruff/YAML PASS; первый YAML indentation regression исправлен до push.
 Транспорт10847B≤24576B, UTC проверяется настоящим Node offset. Whole OPS529
 по-прежнему не объявлен зелёным. Private receipts/исходные FAIL сохранены.
+
+### B24: допуск ёмкости и контролируемая установка — 18.10.2026
+
+Кандидат b24a6a5dead4295f7bc61938a704554c8c9eef72, tree
+4cf2ae1b6dd4f561b6243cc90e9dc55abb77a6cb. Controller39127357021 attempts1–2
+отказал BACKUP_SPACE_BUDGET_INSUFFICIENT до API freeze/backup/restore/activation;
+same-owner resume PASS. Установленная A5 ими не заменена. Повтор без изменения
+условий не считался исправлением. Оба отказа и private evidence сохранены.
+
+Read-only census39128080202 и точный dry-run39128326472 подтвердили отсутствие
+контейнерных/действующих runtime/сохраняемых restore-ссылок у двух конкретных
+obsolete server image caches78d/ed3. Apply39128466501 удалил ровно их через
+`docker image rm --no-prune`, без force/prune и без удаления business data,
+архивов, документов или volume. Free2 715 955 200→5 630 058 496B:
+физическое изменение+2 914 103 296B; engine estimate3 073 479 629B не выдана
+за физическую экономию. Runtime/reference digests не изменились.
+A5/AF/B24 и все сохраняемые restore roots защищены.
+
+Повторный read-only census39129513671/job117681620014 прочитал только
+метаданные/счётчики: source22 241 546 393B, прогноз checkpoint3 860 572 130B,
+required с прежними резервами5 320 371 167B, free5 964 816 384B. Новых удалений
+не было. На этом положительном свежем замере запрошен attempt3, job117681900388;
+capacity admission PASS, начата свежая полная резервная копия. Это ещё не
+установка и не эксплуатационная приёмка B24. Точное финальное состояние
+будет подтверждено паспортом/реальными API/Word и новыми автономными циклами.
+
+OPS-дополнение:20image-retention tests+7target-binding PASS, Ruff0.16.9 PASS;
+22 012B≤24 576B, census не создаёт план и не удаляет образы. Whole OPS529
+по-прежнему не объявлен зелёным. Program prototype и прочие документальные
+уточнения держатся после B24 отдельно; текущий exact-head release их не выдаёт
+за изменение или приёмку production.
 
 ### Текущая десятка — поручение владельца18.10.2026
 
