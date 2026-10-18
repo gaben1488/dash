@@ -211,7 +211,9 @@ function computeMappingConsistency(
   // Graduated scoring: full credit ≤1%, partial credit 1-5%, no credit >5%
   let totalCredit = 0;
   for (const d of comparable) {
-    const absPct = d.deltaPercent !== null ? Math.abs(d.deltaPercent) : 0;
+    // A zero official baseline can have a known absolute mismatch without a
+    // relative percentage. Missing percentage alone earns no agreement credit.
+    const absPct = d.deltaPercent !== null ? Math.abs(d.deltaPercent) : Number.POSITIVE_INFINITY;
     if (d.withinTolerance || absPct <= 1) {
       totalCredit += 1.0;
     } else if (absPct <= 5) {

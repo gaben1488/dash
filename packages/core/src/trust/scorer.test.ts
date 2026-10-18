@@ -51,6 +51,23 @@ describe('computeTrustScore', () => {
     expect(result.grade).toBe('A');
   });
 
+  it.each([50, -50])('does not credit an official zero versus recalculated %s as agreement', calculatedValue => {
+    const metrics = new Map([['zero', makeMetric('zero', 0)], ['equal', makeMetric('equal', 100)]]);
+    const deltas: DeltaResult[] = [
+      { metricKey: 'zero', label: 'zero', officialValue: 0, calculatedValue,
+        delta: calculatedValue, deltaPercent: null, withinTolerance: false, explanation: '' },
+      { metricKey: 'equal', label: 'equal', officialValue: 100, calculatedValue: 100,
+        delta: 0, deltaPercent: 0, withinTolerance: true, explanation: '' },
+    ];
+    // One proven match out of two comparisons: no relative baseline does not
+    // erase the known nonzero absolute discrepancy of the other comparison.
+    const component = computeTrustScore(metrics, [], deltas, 'zero-reference').components
+      .find(value => value.name === 'mapping_consistency')!;
+    expect(component.score).toBe(50);
+    expect(component.issues).toBe(1);
+    expect(component.details).toBe('1 из 2 совпадают');
+  });
+
   it('returns 73 with empty metrics (data_quality floor=10, others=100)', () => {
     const metrics = new Map<string, NormalizedMetric>();
     const result = computeTrustScore(metrics, [], [], 'snap-1');
