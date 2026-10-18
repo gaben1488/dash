@@ -16,6 +16,12 @@ IMAGE='sha256:e5d8535fd30b9624cf0b3791cab447e326effe16fb847300837bc2e21024ec0d'
 TAG='aemr-server:release-'+SOURCE
 ACCEPTED_SOURCE='78d293b217a8afe982583c73bc67aaccdb4d906c'
 PENDING_SOURCE='ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
+STAGED_IMAGES={
+    'server':'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57',
+    'report-worker':'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57',
+    'web':'sha256:5728022e239d7d03b4ecc914913088932af03f319e2d12c256f8c437e33b8c20',
+    'caddy':'sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d',
+}
 CURRENT_IMAGES={
     'server':'sha256:8e81e27ee31262a9f145f3a5927c1bc05d0cbe19a0413e7c074700dc9bebadfb',
     'report-worker':'sha256:8e81e27ee31262a9f145f3a5927c1bc05d0cbe19a0413e7c074700dc9bebadfb',
@@ -175,6 +181,48 @@ def current_context(r,command):
     if not isinstance(images,list) or len(images)!=1:raise ValueError('IMAGE_ARCHIVE_TARGET_REJECTED')
     image=images[0];admit_image(image,containers,protected)
     return frame,image
+
+
+def staged_candidates(r,command,lock_fd):
+    """Read the existing candidate without rebuilding or needing historical43."""
+    r.require_lock(lock_fd)
+    before,_,_=runtime_context(r,command)
+    body=r.read_owned(r.RUNTIME_DIR/'stage.json',limit=65536)
+    stage=json.loads(body)
+    if (hashlib.sha256(body).hexdigest()!=before['stage']
+            or stage.get('format')!='aemr-release-stage-v1' or stage.get('release_sha')!=PENDING_SOURCE
+            or stage.get('candidate_images')!=STAGED_IMAGES or stage.get('images')!=CURRENT_IMAGES
+            or set(stage.get('config_sha256',{}))!=set(r.CONFIG_FILES)):
+        raise ValueError('IMAGE_ARCHIVE_CANDIDATE_REJECTED')
+    for name in r.CONFIG_FILES:
+        if hashlib.sha256(r.read_owned(r.RUNTIME_DIR/name)).hexdigest()!=stage['config_sha256'][name]:
+            raise ValueError('IMAGE_ARCHIVE_CANDIDATE_CONFIG_CHANGED')
+    ci_body=r.read_owned(r.RUNTIME_DIR/'source-ci.json',limit=262144)
+    ci=json.loads(ci_body)
+    if (hashlib.sha256(ci_body).hexdigest()!=stage.get('source_ci_sha256')
+            or set(ci)!={'run','jobs','candidate_image_binding'}
+            or ci['candidate_image_binding']!={'source_sha':PENDING_SOURCE,'images':STAGED_IMAGES}):
+        raise ValueError('IMAGE_ARCHIVE_CANDIDATE_CI_REJECTED')
+    gate_path=Path('/usr/local/libexec/aemr/source_ci_gate.py')
+    code=r.read_owned(gate_path,private=False)
+    if hashlib.sha256(code).hexdigest()!='f9394cad1c9915b351c8859489613b07fd3f8ab59a93213d82fdb6dc37008df3':
+        raise ValueError('IMAGE_ARCHIVE_CANDIDATE_GATE_CHANGED')
+    gate=types.ModuleType('pinned_reuse_source_gate')
+    exec(compile(code,str(gate_path),'exec'),gate.__dict__)  # noqa: S102 - exact-SHA root-owned source gate
+    if not gate.source_ci_passed(ci['run'],ci['jobs'],PENDING_SOURCE):
+        raise ValueError('IMAGE_ARCHIVE_CANDIDATE_CI_REJECTED')
+    identities=list(dict.fromkeys(STAGED_IMAGES[role] for role in ('server','web')))
+    raw=command(['image','inspect',*identities],timeout=30)
+    if len(raw)>4*1024**2:raise ValueError('IMAGE_ARCHIVE_CANDIDATE_REJECTED')
+    images=json.loads(raw)
+    if (not isinstance(images,list) or [value.get('Id') for value in images]!=identities
+            or any((value.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision')!=PENDING_SOURCE
+                   for value in images)):
+        raise ValueError('IMAGE_ARCHIVE_CANDIDATE_REJECTED')
+    if runtime_context(r,command)[0]!=before:raise ValueError('IMAGE_ARCHIVE_RUNTIME_CHANGED')
+    r.require_lock(lock_fd)
+    return {'source_sha':PENDING_SOURCE,'stage_sha256':before['stage'],
+            'images':CURRENT_IMAGES,'candidate_images':STAGED_IMAGES}
 
 
 def checked_archive(r,base):
@@ -337,7 +385,7 @@ def main():
     import sys
 
     if os.geteuid()!=0:raise ValueError('IMAGE_ARCHIVE_ROOT_REQUIRED')
-    if not (sys.argv[1:] in (['--prepare'],['--retire']) or len(sys.argv)==3 and sys.argv[1]=='--receipt'):
+    if not (sys.argv[1:] in (['--prepare'],['--retire'],['--staged-candidates']) or len(sys.argv)==3 and sys.argv[1]=='--receipt'):
         raise ValueError('IMAGE_ARCHIVE_ARGUMENT_INVALID')
     os.umask(0o077);os.nice(10)
     r=load_recovery('/usr/local/libexec/aemr/release_recovery.py')
@@ -349,6 +397,13 @@ def main():
                 if time.monotonic()>deadline:raise ValueError('IMAGE_ARCHIVE_MAINTENANCE_BUSY') from None
                 time.sleep(0.2)
         r.require_lock(lock.fileno())
+        if sys.argv[1]=='--staged-candidates':
+            result=staged_candidates(r,r.docker,lock.fileno())
+            native_smoke(r.docker)
+            if staged_candidates(r,r.docker,lock.fileno())!=result:
+                raise ValueError('IMAGE_ARCHIVE_RUNTIME_CHANGED')
+            print(json.dumps(result),flush=True)
+            return
         for path in (BASE.parent.parent,*BASE.parent.parent.parents):
             info=path.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:

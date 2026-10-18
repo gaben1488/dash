@@ -12,33 +12,12 @@ import tempfile
 from pathlib import Path
 
 EXPECTED = [
-    "sha256:0e4d68b3ccdf223ba96bed15e0e25e244b6623e8bbfae973e4669978c82d04bb",
-    "sha256:243f0d34c33772e67448588d98060aed9a0393957ba3ea9ac2d166cc9e42cee3",
-    "sha256:25cc26392c6384e8f4ca4de2473b9a17e480cbadad44dad54261c1214ae1f04b",
-    "sha256:28c26577fee50213f76a4398d735b274c82ab4e7c92808962883998597c7de77",
-    "sha256:2d422cf76551d1fc605c845157ac5b0abffa4a42b6ef202de27ab8d36e0b820a",
-    "sha256:3795ee3ef6160c488af7a4d7843654028d328a1e413bf95b57779f6ec2ec0e5f",
-    "sha256:42f79cb333fc82a58e84194ed5583feda42fcec1fccc1e87a71f6e5c609b8458",
-    "sha256:61b03fd46298d6dc714340c477edb9af01f123237d7b8bf128a387b65ab644ce",
-    "sha256:63044e548ee9086828bbc43e41b03c991016350a390c1896dc76b81fc4763388",
-    "sha256:75c2e61386b2964c3939fbdc8b1092aec45f1b9c8a893b3b3c91cc500ec4593c",
-    "sha256:9c9d45fb2493a4ab850aa41ed536ac0504c156523c64237c609e4b428a4f6ac8",
-    "sha256:b0ca408d8242e968d35bfe28477b582d8340b67372d002a3db09d8fb0edb8d68",
-    "sha256:b1cc489768c1a84764e0bcc26f96d5a4d6840b8261056a07e358cf3be46516ae",
-    "sha256:b622746065c37fe17ecfb31ee0ba47f4a9f7dbdf610f8f5080e110d1e9adb92f",
-    "sha256:b658fff92905891496321e4c27f56c2f1219020d43c8be27f129ec1b99e39b94",
-    "sha256:ba912e9b24917ff24788a66e17c72ca5189c07c36b6d0c5d23f668ce3a38fa59",
-    "sha256:bba933c670d5af1cfdb69b4731e588fea723a6de7c7c9288a74ef5127a8e4bb0",
-    "sha256:cf9ef22a06483be5b70ff01a03d7df1beabcd3c662f225a0cd052e64895a79ea",
-    "sha256:d2c59635e49971885f9ca30324cb50fddbb9d84a5f9b81ff99a56c069108657f",
-    "sha256:d7f124a6ab8724e0bdb0237dce7d1338c0a57b45dc0fbb1a545e39a531a8c5db",
-    "sha256:ec2b08d2b5fb69a0df02bb638e1161075b495273470ffb193c085e6884db3687",
-    "sha256:f837f850b3929299292ca687c3addd96f7361171f2f343421ec6a44882203a72",
-    "sha256:fb1870ef2fd8a93979e1c34b5fa25cd99aebbdaa598698817ef8fa1fdcf8101d"
+    'sha256:496aaab4a99a9f861e1c2a930d28db8d0dd2d7bbe3832e5acbbfd8d4716d32aa',
+    'sha256:dad30bd43487e748d44170e21f86a02d10d9426c22144d35676a20a38e649390',
 ]
 STATE = Path('/var/lib/aemr')
 BACKUPS = Path('/home/aemr/.dash-private-backups')
-SHA = '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+SHA = '78d293b217a8afe982583c73bc67aaccdb4d906c'
 SOURCE_SHA256 = os.environ.get('IMAGE_RETENTION_SHA', '')
 LOCK_FD = None
 PHASE = 'ADMISSION'
@@ -74,6 +53,13 @@ def retire(plan, observe, remove):
         remove(identity)
         remaining.remove(identity)
     require(observe() == {**plan, 'selected': []})
+
+
+def verify_completed(result, current):
+    require(result.get('status') == 'UNREFERENCED_IMAGES_RETIRED_RUNTIME_UNCHANGED'
+            and result.get('removed') == len(EXPECTED) and result.get('selected_ids') == EXPECTED
+            and result.get('source_sha') == SHA and result.get('operator_sha256') == SOURCE_SHA256
+            and current.get('selected') == [] and current.get('protected_selected_ids') == [])
 
 
 def remove_image(identity):
@@ -161,6 +147,7 @@ def observe():
     require(0 < len(identifiers) <= 64 and all(re.fullmatch('sha256:[a-f0-9]{64}', value) for value in identifiers))
     images = json.loads(command(['image', 'inspect', *identifiers]))
     return {'selected': select_images(images, containers, protected, EXPECTED),
+            'protected_selected_ids': sorted(set(EXPECTED) & (protected | {row['Image'] for row in containers})),
             'reference_digest': digest(stamps), 'runtime_digest': digest(core),
             'operator_sha256': SOURCE_SHA256}
 
@@ -173,6 +160,11 @@ def atomic_json(path, value):
             stream.flush()
             os.fsync(stream.fileno())
             os.replace(temporary, path)
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
             if temporary.exists():
                 temporary.unlink()
@@ -180,7 +172,7 @@ def atomic_json(path, value):
 
 def main():
     global LOCK_FD
-    require(os.geteuid() == 0 and sys.argv[1:] in (['plan'], ['apply'])
+    require(os.geteuid() == 0 and sys.argv[1:] in (['plan'], ['apply'], ['verify-completed'])
             and re.fullmatch('[a-f0-9]{64}', SOURCE_SHA256))
     os.umask(0o077)
     lock_path = Path('/run/lock/aemr-maintenance.lock')
@@ -194,6 +186,12 @@ def main():
         require(not root.is_symlink())
         root.mkdir(mode=0o700, exist_ok=True)
         require(root.stat().st_uid == 0 and stat.S_IMODE(root.stat().st_mode) == 0o700)
+        if sys.argv[1] == 'verify-completed':
+            result = json.loads(owned(root / 'result.json'))
+            verify_completed(result, observe())
+            print(json.dumps({'status': 'PREVIOUS_IMAGE_RETIREMENT_VERIFIED', 'removed': result['removed'],
+                              'free_bytes': shutil.disk_usage('/var/lib/docker').free}))
+            return
         if sys.argv[1] == 'plan':
             plan = observe()
             atomic_json(root / 'plan.json', plan)
@@ -204,6 +202,8 @@ def main():
         before = shutil.disk_usage('/var/lib/docker').free
         retire(plan, observe, remove_image)
         result = {'status': 'UNREFERENCED_IMAGES_RETIRED_RUNTIME_UNCHANGED', 'removed': len(plan['selected']),
+                  'selected_ids': plan['selected'], 'operator_sha256': SOURCE_SHA256, 'source_sha': SHA,
+                  'reference_digest': plan['reference_digest'], 'runtime_digest': plan['runtime_digest'],
                   'free_before_bytes': before, 'free_after_bytes': shutil.disk_usage('/var/lib/docker').free}
         atomic_json(root / 'result.json', result)
         print(json.dumps(result))

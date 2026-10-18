@@ -33,6 +33,19 @@ class AcceptanceTargetBinding(unittest.TestCase):
                 self.assertEqual(set(admitted), {TARGET})
                 self.assertNotIn('78d293b217a8afe982583c73bc67aaccdb4d906c', body)
 
+    def test_fresh_release_reuses_exact_candidate_and_preserves_application_checkout_and_gates(self):
+        source=(Path(__file__).resolve().parents[1]/'workflows/ci.yml').read_text()
+        body=job(source,'fresh-release')
+        self.assertEqual(set(re.findall(r"inputs\.release_sha == '([a-f0-9]{40})'",body)),{TARGET})
+        self.assertIn('ref: '+TARGET,body)
+        self.assertIn('Preserve reviewed reuse operator before application checkout',body)
+        self.assertIn('--staged-candidates',body)
+        self.assertNotIn('worker-38821521319',body)
+        self.assertNotRegex(body,r'\bdocker\s+(?:build(?:\s|$)|buildx\s+build)')
+        for gate in ('source_ci_gate.py','LIVE_LATEST_REPORT_SCHEMA_PASS','RELEASE_NATIVE_ENVIRONMENT_ADMISSION_PASS',
+                     'BACKUP_SPACE_BUDGET_INSUFFICIENT','Freeze writers once','Independent one-clone candidate and previous runtime with actual complete restore'):
+            self.assertIn(gate,body)
+
     def test_native_worker_and_browser_readback_use_the_same_target(self):
         source = (Path(__file__).resolve().parents[1] / 'workflows' / 'ci.yml').read_text()
         self.assertTrue("observer='" + TARGET + "'" in job(source, 'worker-observe'), 'worker observer target differs')

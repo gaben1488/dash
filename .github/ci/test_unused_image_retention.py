@@ -26,6 +26,14 @@ class ImageRetentionTests(unittest.TestCase):
         self.images[2]['RepoTags']=['PRIVATE_TAG']
         self.assertEqual(self.module.select_images(self.images,containers,protected,self.ids),[self.ids[3]])
 
+    def test_failed_build_selection_preserves_current_candidate_and_all_historical_images(self):
+        failed=['sha256:496aaab4a99a9f861e1c2a930d28db8d0dd2d7bbe3832e5acbbfd8d4716d32aa',
+                'sha256:dad30bd43487e748d44170e21f86a02d10d9426c22144d35676a20a38e649390']
+        images=[{'Id':identity,'RepoTags':[],'RepoDigests':[]} for identity in failed+self.ids]
+        selected=self.module.select_images(images,[],set(),self.module.EXPECTED)
+        self.assertEqual(selected,sorted(failed))
+        self.assertEqual(self.module.select_images(images,[{'Image':failed[0]}],{failed[1]},self.module.EXPECTED),[])
+
     def test_registry_digest_or_unselected_image_is_not_retired(self):
         self.images[0]['RepoDigests']=['PRIVATE_DIGEST']
         self.assertEqual(self.module.select_images(self.images,[],set(),self.ids[:2]),[self.ids[1]])
@@ -66,6 +74,33 @@ class ImageRetentionTests(unittest.TestCase):
             with patch.object(self.module.os,'fstat',side_effect=legacy_owner),contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(ValueError):self.module.owned(path)
                 self.assertEqual(self.module.references(json.loads(self.module.owned(path,reference_only=True))),{self.ids[0]})
+
+    def test_completed_cleanup_can_resume_only_with_the_exact_durable_receipt_and_no_new_reference(self):
+        self.assertTrue(callable(getattr(self.module,'verify_completed',None)),'Completed cleanup needs an exact receipt admission')
+        self.module.SOURCE_SHA256='f'*64
+        result={'status':'UNREFERENCED_IMAGES_RETIRED_RUNTIME_UNCHANGED','removed':2,
+                'selected_ids':self.module.EXPECTED,'operator_sha256':'f'*64,'source_sha':self.module.SHA}
+        current={'selected':[],'protected_selected_ids':[]}
+        self.module.verify_completed(result,current)
+        for change in ({'operator_sha256':'e'*64},{'source_sha':'0'*40},{'removed':1},
+                       {'selected_ids':self.module.EXPECTED[:1]},{'status':'INTENT'}):
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                self.module.verify_completed({**result,**change},current)
+        for change in ({'selected':self.module.EXPECTED[:1]},{'protected_selected_ids':self.module.EXPECTED[:1]}):
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                self.module.verify_completed(result,{**current,**change})
+
+    def test_receipt_commit_syncs_the_parent_directory_after_atomic_replace(self):
+        import stat
+        calls=[];original=os.fsync
+        def sync(fd):
+            calls.append(stat.S_ISDIR(os.fstat(fd).st_mode));return original(fd)
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'result.json'
+            with patch.object(self.module.os,'fsync',side_effect=sync):
+                self.module.atomic_json(target,{'result':'verified'})
+            self.assertEqual(json.loads(target.read_text()),{'result':'verified'})
+        self.assertEqual(calls,[False,True],'Receipt needs both file and directory fsync')
 
     def test_invalid_or_duplicate_identifiers_fail_closed(self):
         for selected in ([self.ids[0],self.ids[0]],['PRIVATE_ID']):

@@ -147,6 +147,69 @@ class ImageArchiveTests(unittest.TestCase):
             containers[0]['HostConfig']={'Memory':123456}
             self.assertNotEqual(self.m.runtime_context(r,command)[0],before)
 
+    def staged_fixture(self):
+        plan,marker,stage,_containers=self.runtime_fixture()
+        stage['format']='aemr-release-stage-v1'
+        stage['candidate_images']={
+            'server':'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57',
+            'report-worker':'sha256:f5b6e96262e81176a4752857a1a209121322b6b1c3113ca4fbb7a69d1f030d57',
+            'web':'sha256:5728022e239d7d03b4ecc914913088932af03f319e2d12c256f8c437e33b8c20',
+            'caddy':self.m.CURRENT_IMAGES['caddy']}
+        source=Path(__file__).resolve().parent/'source_ci_gate.py'
+        ci={'run':{'head_sha':self.m.PENDING_SOURCE,'name':'CI','event':'pull_request',
+                   'path':'.github/workflows/ci.yml','head_repository':{'full_name':'gaben1488/dash'}},
+            'jobs':[{'name':name,'status':'completed','conclusion':'success'} for name in (
+                'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime',
+                'Production image with report runtime')],
+            'candidate_image_binding':{'source_sha':self.m.PENDING_SOURCE,'images':stage['candidate_images']}}
+        gate=Path('/usr/local/libexec/aemr/source_ci_gate.py')
+        def encode(value):return json.dumps(value,sort_keys=True,allow_nan=False).encode()
+        stage['source_ci_sha256']=hashlib.sha256(encode(ci)).hexdigest()
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder);runtime=base/'runtime'
+            files={runtime/'trial-plan.json':encode(plan),base/'state/release-accepted.json':encode(marker),
+                   runtime/'source-ci.json':encode(ci),gate:source.read_bytes()}
+            config_names=('compose.json','.env.production','Caddyfile','candidate-compose.json','candidate-Caddyfile')
+            for name in config_names:files[runtime/name]=b'private configuration '+name.encode()
+            stage['config_sha256']={name:hashlib.sha256(files[runtime/name]).hexdigest() for name in config_names}
+            files[runtime/'stage.json']=encode(stage)
+            images=[{'Id':identity,'Config':{'Labels':{'org.opencontainers.image.revision':self.m.PENDING_SOURCE}}}
+                    for identity in dict.fromkeys(stage['candidate_images'][role] for role in ('server','web'))]
+            r=SimpleNamespace(RUNTIME_DIR=runtime,CONFIG_FILES=config_names,
+                              require_lock=lambda fd:None,read_owned=lambda path,**kwargs:files[path])
+            frame={'stage':hashlib.sha256(files[runtime/'stage.json']).hexdigest(),'stable':'runtime'}
+            def command(args,**kwargs):
+                self.assertEqual(args,['image','inspect',*dict.fromkeys(stage['candidate_images'][role] for role in ('server','web'))])
+                return json.dumps(images)
+            yield r,stage,ci,files,images,frame,command,encode
+
+    def test_existing_candidate_binds_actual_images_source_ci_and_every_configuration_file(self):
+        for r,stage,ci,files,images,frame,command,encode in self.staged_fixture():
+            # No lookup or reload of the retired historical43 image is permitted.
+            with patch.object(self.m,'runtime_context',return_value=(frame,[],set())):
+                result=self.m.staged_candidates(r,command,9)
+            self.assertEqual(result['candidate_images'],stage['candidate_images'])
+            self.assertEqual(result['images'],self.m.CURRENT_IMAGES)
+            self.assertEqual(result['source_sha'],self.m.PENDING_SOURCE)
+            self.assertNotIn('private configuration',json.dumps(result))
+
+    def test_existing_candidate_rejects_old_source_ci_binding_labels_config_and_stage_drift(self):
+        for defect in ('old_source','ci','binding','label','config','stage_drift','gate'):
+            for r,stage,ci,files,images,frame,command,encode in self.staged_fixture():
+                if defect=='old_source':stage['release_sha']=self.m.SOURCE
+                elif defect=='ci':ci['jobs'][0]['conclusion']='failure'
+                elif defect=='binding':ci['candidate_image_binding']['images']={**stage['candidate_images'],'web':self.m.IMAGE}
+                elif defect=='label':images[0]['Config']['Labels']['org.opencontainers.image.revision']=self.m.SOURCE
+                elif defect=='config':files[r.RUNTIME_DIR/'compose.json']=b'changed'
+                elif defect=='gate':files[Path('/usr/local/libexec/aemr/source_ci_gate.py')]=b'unsafe code'
+                files[r.RUNTIME_DIR/'source-ci.json']=encode(ci)
+                stage['source_ci_sha256']=hashlib.sha256(encode(ci)).hexdigest()
+                files[r.RUNTIME_DIR/'stage.json']=encode(stage)
+                frame['stage']=hashlib.sha256(files[r.RUNTIME_DIR/'stage.json']).hexdigest()
+                contexts=[(frame,[],set()),({**frame,'stable':'changed'} if defect=='stage_drift' else frame,[],set())]
+                with self.subTest(defect=defect),patch.object(self.m,'runtime_context',side_effect=contexts),self.assertRaises(ValueError):
+                    self.m.staged_candidates(r,command,9)
+
     def test_image_reference_permutation_is_equivalent_but_reference_changes_are_detected(self):
         image={**self.image,'RepoTags':[self.m.TAG,'other:tag'],
                'RepoDigests':['one@sha256:'+'a'*64,'two@sha256:'+'b'*64]}
@@ -256,6 +319,43 @@ class PrivilegedImageArchiveTests(unittest.TestCase):
         def export(path,lock_fd):
             self.r.require_lock(lock_fd);self.exports+=1;path.write_bytes(b'isolated immutable Docker export fixture'*1000)
         patcher=patch.object(self.m,'export_image',export);patcher.start();self.addCleanup(patcher.stop)
+
+    def test_staged_candidate_reads_real_private_files_and_never_needs_the_retired_image(self):
+        self.stage['format']='aemr-release-stage-v1'
+        self.stage['candidate_images']=dict(self.m.STAGED_IMAGES)
+        ci={'run':{'head_sha':self.m.PENDING_SOURCE,'name':'CI','event':'pull_request',
+                   'path':'.github/workflows/ci.yml','head_repository':{'full_name':'gaben1488/dash'}},
+            'jobs':[{'name':name,'status':'completed','conclusion':'success'} for name in (
+                'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime',
+                'Production image with report runtime')],
+            'candidate_image_binding':{'source_sha':self.m.PENDING_SOURCE,'images':self.stage['candidate_images']}}
+        self.r.atomic_json(self.r.RUNTIME_DIR/'source-ci.json',ci)
+        self.stage['source_ci_sha256']=hashlib.sha256((self.r.RUNTIME_DIR/'source-ci.json').read_bytes()).hexdigest()
+        self.stage['config_sha256']={}
+        for name in self.r.CONFIG_FILES:
+            body=b'private config '+name.encode();self.r.atomic_bytes(self.r.RUNTIME_DIR/name,body)
+            self.stage['config_sha256'][name]=hashlib.sha256(body).hexdigest()
+        self.r.atomic_json(self.r.RUNTIME_DIR/'stage.json',self.stage)
+        gate=Path('/usr/local/libexec/aemr/source_ci_gate.py')
+        original=self.r.read_owned
+        def owned(path,**kwargs):
+            if path==gate:return Path(__file__).with_name('source_ci_gate.py').read_bytes()
+            return original(path,**kwargs)
+        command0=self.command
+        def command(args,**kwargs):
+            if args[:2]==['image','inspect']:
+                self.assertNotIn(self.m.IMAGE,args)
+                return json.dumps([{'Id':identity,'Config':{'Labels':{'org.opencontainers.image.revision':self.m.PENDING_SOURCE}}}
+                                   for identity in args[2:]])
+            return command0(args,**kwargs)
+        with patch.object(self.r,'read_owned',side_effect=owned):
+            result=self.m.staged_candidates(self.r,command,self.lock.fileno())
+            self.assertEqual(result['candidate_images'],self.m.STAGED_IMAGES)
+            self.r.atomic_bytes(self.r.RUNTIME_DIR/'.env.production',b'changed')
+            with self.assertRaisesRegex(ValueError,'CONFIG_CHANGED'):
+                self.m.staged_candidates(self.r,command,self.lock.fileno())
+        self.assertFalse((self.base/'ready.json').exists())
+        self.assertFalse(any(call[:2]==['image','rm'] for call in self.calls))
 
     def test_prepare_is_reusable_and_receipt_is_durable_without_image_or_data_mutation(self):
         before=dict(self.containers[0])

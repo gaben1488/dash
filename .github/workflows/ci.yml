@@ -798,22 +798,37 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner &&
       github.ref == 'refs/heads/codex/release-observe-20261015' && inputs.mode == 'fresh-release' &&
-      inputs.release_sha == '43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
+      inputs.release_sha == 'ed3e4589a33a4b5bed3f4cab684ef1d519d0290d'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     env:
-      RECOVERY_SHA: 43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+      RECOVERY_SHA: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
       RECOVERY_RUN: ${{ github.run_id }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Preserve reviewed reuse operator before application checkout
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/reuse-operator/.github/workflows"
+          cp -R .github/ci "$RUNNER_TEMP/reuse-operator/.github/ci"
+          cp .github/workflows/ci.yml "$RUNNER_TEMP/reuse-operator/.github/workflows/ci.yml"
+      - uses: actions/checkout@v4
         with:
-          ref: 43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa
+          ref: ed3e4589a33a4b5bed3f4cab684ef1d519d0290d
+      - name: Prove exact target and reuse guards with actual isolated root ownership
+        run: |
+          set -euo pipefail
+          for suite in test_image_archive.py test_unused_image_retention.py test_acceptance_target_binding.py; do
+            sudo env IMAGE_ARCHIVE_RECOVERY_SOURCE="$PWD/deploy/release_recovery.py" \
+              python3 -m unittest discover -s "$RUNNER_TEMP/reuse-operator/.github/ci" -p "$suite" -v
+          done
       - name: Admit exact current candidate before any maintenance
         run: |
           set -euo pipefail
@@ -908,30 +923,49 @@ jobs:
           . "$RUNNER_TEMP/release/ssh.sh"
           test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          remote sudo -n python3 -EsB - <<'PYIMAGESET' > "$RUNNER_TEMP/release/existing-images.json"
-          import hashlib,json,os,re,stat,sys
+          # Both builds failed before the freeze gate. Their historical artifacts
+          # are disposable only if current custody and every reference still agree.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39044388523" > "$RUNNER_TEMP/release/failed-build.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117430109905" > "$RUNNER_TEMP/release/failed-build-job.json"
+          python3 - <<'PYFAILEDBUILD'
+          import json,os
           from pathlib import Path
-          tools=Path('/usr/local/libexec/aemr')
-          window_path=Path('/home/aemr/.dash-private-backups/worker-38821521319/release-window.json')
-          assert not any(p.is_symlink() for p in (window_path,*window_path.parents,tools,*tools.parents))
-          with os.fdopen(os.open(window_path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
-           info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and stat.S_IMODE(info.st_mode)==0o600 and info.st_size<=1048576
-           window=json.load(file)
-          assert window['candidate']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
-          for name,pin in window['module_sha256'].items():
-           assert name in {'release-controller.py','release_recovery.py','release_trial.py','stateful_backup.py','source_ci_gate.py'}
-           path=tools/name
-           with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as file:
-            info=os.fstat(file.fileno());assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and not info.st_mode&0o022
-            assert hashlib.sha256(file.read(1048577)).hexdigest()==pin
-          assert len(window['module_sha256'])==5
-          sys.path.insert(0,str(tools));import release_recovery as r
-          stage=json.loads(r.read_owned(r.RUNTIME_DIR/'stage.json'))
-          assert stage['release_sha']=='43f10742c274777dc5b8e0ac5b7c97d0a78cf6fa'
-          result={key:stage[key] for key in ('images','candidate_images')}
-          assert all(re.fullmatch('sha256:[a-f0-9]{64}',identity) for item in result.values() for identity in item.values())
-          print(json.dumps(result))
-          PYIMAGESET
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          run=json.loads((root/'failed-build.json').read_text());job=json.loads((root/'failed-build-job.json').read_text())
+          assert run['head_sha']==os.environ['RECOVERY_SHA'] and run['conclusion']=='failure'
+          assert job['run_id']==run['id'] and job['conclusion']=='failure'
+          steps={value['name']:value['conclusion'] for value in job['steps']}
+          assert steps['Build immutable candidate images while API remains online']=='success'
+          assert steps['Install reviewed recovery tools and stage actual unchanged runtime']=='success'
+          assert steps['Admit independent full-restore capacity before production downtime']=='failure'
+          assert all(steps[name]=='skipped' for name in (
+            'Freeze writers once and create fresh full private backup',
+            'Independent one-clone candidate and previous runtime with actual complete restore',
+            'Same guardian exact-SHA release with closed-ingress API and Word acceptance'))
+          PYFAILEDBUILD
+          reuse="$RUNNER_TEMP/reuse-operator/.github/ci/image_archive.py"
+          retention="$RUNNER_TEMP/reuse-operator/.github/ci/unused_image_retention.py"
+          remote sudo -n python3 -IB - --staged-candidates < "$reuse" > "$RUNNER_TEMP/release/existing-images.json"
+          retention_sha=$(sha256sum "$retention" | cut -d' ' -f1)
+          remote sudo -n env IMAGE_RETENTION_SHA="$retention_sha" python3 -IB - plan < "$retention" > "$RUNNER_TEMP/release/image-plan.json"
+          python3 - <<'PYRETENTION'
+          import json,os
+          from pathlib import Path
+          value=json.loads((Path(os.environ['RUNNER_TEMP'])/'release/image-plan.json').read_text())
+          assert value['status']=='UNREFERENCED_IMAGES_DRY_RUN'
+          selected=set(value['selected_ids'])
+          expected={
+            'sha256:496aaab4a99a9f861e1c2a930d28db8d0dd2d7bbe3832e5acbbfd8d4716d32aa',
+            'sha256:dad30bd43487e748d44170e21f86a02d10d9426c22144d35676a20a38e649390'}
+          assert selected in (set(),expected)
+          (Path(os.environ['RUNNER_TEMP'])/'release/retention-mode').write_text('apply' if selected else 'verify-completed')
+          PYRETENTION
+          retention_mode=$(cat "$RUNNER_TEMP/release/retention-mode")
+          case "$retention_mode" in apply|verify-completed) ;; *) exit 2 ;; esac
+          remote sudo -n env IMAGE_RETENTION_SHA="$retention_sha" python3 -IB - "$retention_mode" < "$retention"
+          remote sudo -n python3 -IB - --staged-candidates < "$reuse" > "$RUNNER_TEMP/release/reused-images-after-retention.json"
+          cmp "$RUNNER_TEMP/release/existing-images.json" "$RUNNER_TEMP/release/reused-images-after-retention.json"
+          echo EXACT_STAGED_CANDIDATE_AND_NATIVE_READBACK_PRESERVED
           python3 - <<'PYIMAGEIDS' > "$RUNNER_TEMP/release/images.txt"
           import json,os
           from pathlib import Path
@@ -1020,6 +1054,16 @@ jobs:
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
             < "$RUNNER_TEMP/release/stage-request.json" > "$RUNNER_TEMP/release/stage.log" 2>&1 || { echo RELEASE_RUNTIME_STAGE_FAILED; exit 2; }
           remote sudo -n cat /var/lib/aemr/release-runtime/stage.json > "$RUNNER_TEMP/release/stage.json"
+          python3 - <<'PYSTAGEBINDING'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'release'
+          original=json.loads((root/'existing-images.json').read_text())
+          stage=json.loads((root/'stage.json').read_text())
+          assert stage['release_sha']==original['source_sha']==os.environ['RECOVERY_SHA']
+          assert all(stage[key]==original[key] for key in ('images','candidate_images'))
+          print('EXACT_EXISTING_CANDIDATE_RESTAGED_WITHOUT_REBUILD')
+          PYSTAGEBINDING
           # Private exact previous images are loaded on runner before downtime.
           previous=$(python3 - <<'PY'
           import json,os
@@ -1243,7 +1287,7 @@ jobs:
       - name: Remove private runner state and credentials
         if: always()
         run: |
-          sudo rm -rf "$RUNNER_TEMP/release" /var/lib/aemr/release-trial-clone \
+          sudo rm -rf "$RUNNER_TEMP/release" "$RUNNER_TEMP/reuse-operator" /var/lib/aemr/release-trial-clone \
             /var/lib/aemr/release-runtime "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN"
   continue-release:
     if: >-
