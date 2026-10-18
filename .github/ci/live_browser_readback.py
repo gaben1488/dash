@@ -9,9 +9,9 @@ import re
 import tempfile
 import time
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 from playwright.async_api import async_playwright, expect
@@ -64,7 +64,7 @@ def record_response(response, proof):
 
 
 def record_release_transport(request, phase, proof, *, started_at=None):
-    """Fixed lifetime fields only; never copy URL values, headers or failure text."""
+    """Fixed lifetime and validated calendar only; no other URL values, headers or failure text."""
     parsed, base = urlsplit(request.url), urlsplit(BASE)
     if ((parsed.scheme, parsed.netloc) != (base.scheme, base.netloc)
             or parsed.path != '/api/report-releases'):
@@ -77,6 +77,21 @@ def record_release_transport(request, phase, proof, *, started_at=None):
         return True
     row = {'phase': phase, 'selected_context': bool(parsed.query),
            'method': request.method if request.method in {'GET', 'POST'} else 'OTHER'}
+    calendar = {}
+    try:
+        params = parse_qs(parsed.query, max_num_fields=16) if len(parsed.query) <= 2048 else {}
+        for name in ('date', 'year', 'quarter'):
+            values = params.get(name, [])
+            if len(values) != 1: continue
+            value = values[0]
+            if name == 'date' and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', value):
+                if date.fromisoformat(value).isoformat() == value: calendar[name] = value
+            elif ((name == 'year' and re.fullmatch(r'[0-9]{4}', value) and 1900 <= int(value) <= 9999)
+                  or (name == 'quarter' and value in {'1', '2', '3', '4'})):
+                calendar[name] = int(value)
+    except ValueError:
+        pass
+    if calendar: row['calendar'] = calendar
     try:
         timing = request.timing
         elapsed = timing.get('responseEnd', -1)

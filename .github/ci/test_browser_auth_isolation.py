@@ -18,6 +18,17 @@ from playwright.async_api import async_playwright
 
 
 class ReleaseTransportProjectionTests(unittest.TestCase):
+    def test_only_valid_calendar_selection_can_be_reported_without_private_query_values(self):
+        request = SimpleNamespace(url=verifier.BASE+'/api/report-releases?date=2026-10-18&year=2026&quarter=4&token=PRIVATE_SENTINEL',
+                                  method='GET', timing={'responseEnd': 1})
+        proof = {}; verifier.record_release_transport(request, 'started', proof)
+        self.assertEqual(proof['release_transport'][0]['calendar'], {'date': '2026-10-18', 'year': 2026, 'quarter': 4})
+        self.assertNotIn('PRIVATE_SENTINEL', str(proof))
+        request.url = verifier.BASE+'/api/report-releases?date=PRIVATE_SENTINEL&year=2026&year=2027&quarter=99'
+        proof = {}; verifier.record_release_transport(request, 'started', proof)
+        self.assertNotIn('calendar', proof['release_transport'][0])
+        self.assertNotIn('PRIVATE_SENTINEL', str(proof))
+
     def test_pending_request_without_native_start_time_uses_our_monotonic_clock(self):
         request = SimpleNamespace(url=verifier.BASE + '/api/report-releases?date=PRIVATE',
                                   method='GET', timing={'startTime': 0, 'responseEnd': -1})
