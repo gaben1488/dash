@@ -23,7 +23,7 @@ import {
 import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow, readCurrentDeptRowFormulas } from '../services/google-sheets.js';
 import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
 import { withRowWriteLock } from '../services/row-write-lock.js';
-import { getDeptSheetValues, getDeptSheetCache, getStoredSnapshotById } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptSheetCache, getStoredSnapshotById, patchDeptSheetCacheCell } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization, approvedEconomy } from '@aemr/core';
@@ -130,8 +130,8 @@ function sourceCellWriteError(row: readonly unknown[], formulas: readonly unknow
  * продукт начинал считать все восемь книг свежими и откладывал настоящую
  * перечитку на целое окно свежести, а момент чтения (канон п.58) врал.
  *
- * Правка одной ячейки и должна быть правкой одной ячейки: значения книги живут
- * в кэше по ссылке, поэтому достаточно записать новое значение на место старого.
+ * Правка заменяет только текущую строку/книгу, сохраняя остальные источники и
+ * время полного чтения. Уже выбранные входы расчёта остаются неизменными.
  * Возвращает false, если строки в прочитанных значениях нет (правка ушла в
  * книгу, но показать её до перечитки неоткуда).
  */
@@ -142,8 +142,7 @@ function reflectEditInCache(deptShortName: string, rowIndex: number, field: stri
   const row = deptResult.values[rowIndex - 1];
   if (colIdx === undefined || !row) return false;
   if (expectedRow && !writtenRowMatches(expectedRow, row, [13, 16])) return false;
-  (row as unknown[])[colIdx] = value;
-  return true;
+  return patchDeptSheetCacheCell(deptShortName, rowIndex, colIdx, value);
 }
 
 /**

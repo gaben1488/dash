@@ -446,6 +446,16 @@ describe('признак показательных данных доходит 
 });
 
 describe('правка ячейки и прочитанные книги (п.14)', () => {
+  it.each(['PUT', 'POST'] as const)('%s preserves previously selected source rows while reflecting a saved edit', async (method) => {
+    const previous = getDeptSheetValues()['УО'];
+    const response = method === 'PUT'
+      ? await app.inject({ method, url: '/api/rows/УО/4/field', payload: { field: 'G', value: 'После' } })
+      : await app.inject({ method, url: '/api/data/rows', payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'После' } }] } });
+    expect(response.statusCode).toBe(200);
+    expect(getDeptSheetValues()['УО']?.[3]?.[6]).toBe('После');
+    expect(previous?.[3]?.[6]).toBe('Закупка 1');
+  });
+
   it('сохранённое значение видно в значениях книги', async () => {
     await app.inject({
       method: 'POST',
@@ -493,7 +503,8 @@ describe('правка ячейки и прочитанные книги (п.14)
     });
 
     const values = getDeptSheetValues()['УО'];
-    expect(values).toBe(freshValues);
+    expect(values?.[3]?.[6]).toBe('Свежее чтение');
+    expect(freshValues[3][7]).toBe('');
     expect(values?.[3]?.[7]).toBe(42);
   });
 });

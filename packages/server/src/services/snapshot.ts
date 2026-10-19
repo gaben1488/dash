@@ -117,6 +117,19 @@ export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
 }
 
+/** Reflect one confirmed edit without mutating already selected inputs or their read time. */
+export function patchDeptSheetCacheCell(deptName: string, rowIndex: number, column: number, value: unknown): boolean {
+  const source = cachedDeptSheetData[deptName];
+  const row = source?.values[rowIndex - 1];
+  if (!Number.isInteger(rowIndex) || rowIndex < 1 || !Number.isInteger(column) || column < 0 || !row) return false;
+  const values = source.values.slice();
+  values[rowIndex - 1] = row.slice();
+  values[rowIndex - 1][column] = value;
+  cachedDeptSheetData = { ...cachedDeptSheetData, [deptName]: { ...source, values } };
+  invalidateCache();
+  return true;
+}
+
 /**
  * Перечитать источники ПРЯМО СЕЙЧАС — по требованию читателя (кнопка
  * «перечитать» раздела), а не по возрасту кэша. Возвращает true, если
@@ -503,14 +516,13 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
  * запрос. Поэтому на отказе пакета остаётся прежний путь по одному листу:
  * частичный снимок честнее пустого, а имя не прочитанного листа едет в журнал.
  */
-async function readMainBookSheets(): Promise<Record<string, unknown[][]>> {
+async function readMainBookSheets(svod: typeof cachedSvodGrid): Promise<Record<string, unknown[][]>> {
   // Лист СВОД уже прочитан циклом источников — тем же самым вызовом, с теми же
   // настройками (services/source-refresh.ts). Читать его ещё раз значит платить
   // за самый большой лист книги дважды И развести стороны сверки во времени,
   // ровно против канона п.66. Берём из кэша, пока он свеж по тому же сроку,
   // по которому цикл считает книги свежими.
   const maxAgeMs = config.cache.sourceFreshnessSeconds * 1000;
-  const svod = cachedSvodGrid;
   const svodFresh = svod !== null
     && svod.values.length > 0
     && Date.now() - Date.parse(svod.loadedAt) <= maxAgeMs;
@@ -557,6 +569,12 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // Один момент для обеих сторон сверки: официальные ячейки читаются здесь и
     // сейчас, поэтому устаревшие книги обновляются ДО чтения, а не после.
     await ensureSourcesFresh();
+    // Select the source generation before any more I/O. Refresh/edit paths
+    // replace cache entries, so later arrivals cannot change this calculation.
+    const deptSources = cachedDeptSheetData;
+    const svodSource = cachedSvodGrid;
+    let monthlyData = cachedSHDYUData;
+    let monthlyYear = cachedSHDYUOfficialYear;
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulas] = await Promise.all([
       batchGetCells(cellAddresses),
@@ -570,7 +588,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }));
 
     const sheetRows: Record<string, unknown[][]> = {};
-    const sheetsPromise = readMainBookSheets().then((rows) => {
+    const sheetsPromise = readMainBookSheets(svodSource).then((rows) => {
       Object.assign(sheetRows, rows);
     });
 
@@ -580,11 +598,13 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       cachedSHDYUCheckedAt = new Date().toISOString();
       if (result.values.length > 0) {
         const parsed = parseSHDYUSheet(result.values, result.formulas);
+        monthlyData = parsed;
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
         // AO4 (строка 4, колонка AO=41-я) — глобальный год листа (см. getSHDYUOfficialYear).
         const ao4 = Number(result.values[3]?.[40]);
         cachedSHDYUOfficialYear = Number.isInteger(ao4) && ao4 >= 2020 && ao4 <= 2100 ? ao4 : null;
+        monthlyYear = cachedSHDYUOfficialYear;
         cachedSHDYULoadError = null;
         cachedSHDYULoadedAt = cachedSHDYUCheckedAt;
         logSnapshotChange(
@@ -636,9 +656,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
     for (const dept of DEPARTMENTS) {
-      if (!cachedDeptSheetData[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
+      if (!deptSources[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
     }
-    for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
+    for (const [deptName, deptResult] of Object.entries(deptSources)) {
       const mirror = sheetRows[deptName];
       if (deptResult.values.length < DEPT_HEADER_ROWS) {
         Reflect.deleteProperty(sheetRows, deptName);
@@ -691,10 +711,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       targetYear,
       // Год официального листа (Д21): без него сверка вычитала многолетний
       // расчёт из одногодичного официала и звала это расхождением.
-      officialYear: getSHDYUOfficialYear() ?? undefined,
+      officialYear: monthlyYear ?? undefined,
     };
 
-    const shdyuData = cachedSHDYUData;
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
@@ -726,8 +745,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       snapshot.issues.push(issue);
     }
 
-    if (shdyuData) {
-      snapshot.shdyuData = shdyuData;
+    if (monthlyData) {
+      snapshot.shdyuData = monthlyData;
     }
     if (!(await saveSnapshot(snapshot))) {
       throw new Error('SNAPSHOT_PERSIST_FAILED');
