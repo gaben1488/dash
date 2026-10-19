@@ -141,7 +141,7 @@ export function interpretWeeklySnapshotJson(raw: string | null | undefined):
  * атом выдаст ложную «новую закупку»/ложную тишину. Неполный weekly context
  * с маркером в JSON не является подтверждённой контрольной точкой.
  */
-export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
+function validateBaselineRows(baseline: WeeklySnapshotRef):
   { rows: Map<string, SnapshotRow[]>; error: string | null } {
   const stored = db.select({ data: schema.snapshots.data })
     .from(schema.snapshots).where(eq(schema.snapshots.id, baseline.id)).get();
@@ -206,4 +206,30 @@ export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
     }
   }
   return { rows: atomsToSnapshotRows(normalizedAtoms), error: null };
+}
+
+let verifiedCache: { id: string; version: string; rows: Map<string, SnapshotRow[]> } | undefined;
+
+function databaseVersion(): string {
+  return JSON.stringify(db.$client.prepare(`
+    SELECT data_version, schema_version, total_changes() AS changes
+    FROM pragma_data_version(), pragma_schema_version()
+  `).get());
+}
+
+/** Reuse only a successfully verified, unchanged database state. */
+export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
+  { rows: Map<string, SnapshotRow[]>; error: string | null } {
+  if (db.$client.inTransaction) return validateBaselineRows(baseline);
+  const version = databaseVersion();
+  if (verifiedCache?.id === baseline.id && verifiedCache.version === version) {
+    return { rows: structuredClone(verifiedCache.rows), error: null };
+  }
+  const result = validateBaselineRows(baseline);
+  // ponytail: one baseline, invalidated by any DB write; use per-snapshot revisions
+  // only if unrelated writes demonstrably prevent useful reuse.
+  verifiedCache = result.error === null && databaseVersion() === version
+    ? { id: baseline.id, version, rows: structuredClone(result.rows) }
+    : undefined;
+  return result;
 }

@@ -6,6 +6,12 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const databaseDir = mkdtempSync(join(tmpdir(), 'weekly-validation-'));
+const databasePath = join(databaseDir, 'test.db');
 
 const ENV = { ...process.env };
 const CONTROL_AT = '2026-10-08T06:00:00.000Z';
@@ -32,7 +38,7 @@ describe('контрольная сверка с действующими кни
     process.env = {
       ...ENV,
       NODE_ENV: 'test',
-      SQLITE_PATH: ':memory:',
+      SQLITE_PATH: databasePath,
       PRODUCT_TZ_OFFSET_HOURS: '12',
       LOG_LEVEL: 'silent',
     };
@@ -115,8 +121,49 @@ describe('контрольная сверка с действующими кни
   });
 
   afterAll(() => {
+    dbModule.db.$client.close();
+    rmSync(databaseDir, { recursive: true, force: true });
     process.env = ENV;
     vi.resetModules();
+  });
+
+  it('reuses verified baseline reads without sharing mutable results', () => {
+    const ref = { id: 'control-latest', createdAt: CONTROL_AT };
+    const select = vi.spyOn(dbModule.db, 'select');
+    try {
+      const first = integrity.verifiedBaselineRows(ref);
+      expect(first.error).toBeNull();
+      const expected = structuredClone(first.rows);
+      const reads = select.mock.calls.length;
+      const row = [...first.rows.values()].flat()[0];
+      expect(row).toBeDefined();
+      row!.subject = 'caller mutation';
+      first.rows.clear();
+      expect(integrity.verifiedBaselineRows(ref).rows).toEqual(expected);
+      expect(select).toHaveBeenCalledTimes(reads);
+    } finally { select.mockRestore(); }
+  });
+
+  it('revalidates a baseline after external writes and does not retain rolled-back validation', () => {
+    const ref = { id: 'control-latest', createdAt: CONTROL_AT };
+    expect(integrity.verifiedBaselineRows(ref).error).toBeNull();
+    const external = new Database(databasePath);
+    const original = external.prepare('SELECT data FROM snapshots WHERE id=?').pluck().get(ref.id) as string;
+    try {
+      external.prepare('UPDATE snapshots SET data=? WHERE id=?').run('{}', ref.id);
+      expect(integrity.verifiedBaselineRows(ref).error).not.toBeNull();
+    } finally {
+      external.prepare('UPDATE snapshots SET data=? WHERE id=?').run(original, ref.id);
+      external.close();
+    }
+    expect(integrity.verifiedBaselineRows(ref).error).toBeNull();
+    const connection = dbModule.db.$client;
+    connection.exec('BEGIN');
+    try {
+      connection.prepare('UPDATE snapshots SET data=? WHERE id=?').run('{}', ref.id);
+      expect(integrity.verifiedBaselineRows(ref).error).not.toBeNull();
+    } finally { connection.exec('ROLLBACK'); }
+    expect(integrity.verifiedBaselineRows(ref).error).toBeNull();
   });
 
   it('сопоставляет текущее чтение с последним sealed-контролем, не с вчерашним SQL-снимком', () => {
