@@ -70,6 +70,8 @@ def main(argv=None):
     command = sub.add_parser("read-report-command", help="Read a bounded durable command receipt")
     command.add_argument("--state", required=True)
     command.add_argument("--attempt-id", required=True)
+    recovery = sub.add_parser("recover-report-commands", help="Recover orphaned commands without capturing sources")
+    recovery.add_argument("--state", required=True)
     bootstrap = sub.add_parser("bootstrap-google", help="Install private runtime inputs using the existing service account")
     bootstrap.add_argument("--inputs", required=True)
     migration = sub.add_parser("migrate-google-schema", help="Apply reviewed private reference header migrations")
@@ -196,6 +198,10 @@ def main(argv=None):
     if args.cmd == "enqueue-report":
         from .runtime import enqueue_report
         dump(enqueue_report(args.registry, args.ledger, args.state))
+        return 0
+    if args.cmd == "recover-report-commands":
+        from .runtime import recover_report_commands
+        dump(recover_report_commands(args.state))
         return 0
     if args.cmd == "read-report-command":
         from .runtime import read_report_command

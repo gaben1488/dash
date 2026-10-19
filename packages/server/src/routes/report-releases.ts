@@ -73,10 +73,39 @@ async function refreshStoredReport(): Promise<unknown> {
   return JSON.parse(result.stdout);
 }
 
-async function wakeStoredReports(): Promise<void> {
-  await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
-    ['worker', '--queued-only', ...reportInputArguments()],
-    { encoding: 'buffer', timeout: 600_000, maxBuffer: 64 * 1024, shell: false, killSignal: 'SIGKILL' });
+const CommandRecoverySchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('BUSY') }).strict(),
+  z.object({ status: z.literal('RECOVERED'), recovered: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative() }).strict(),
+]);
+
+export async function wakeStoredReports(
+  run: (file: string, args: string[], options: { encoding: 'utf8'; timeout: number; maxBuffer: number;
+    shell: false; killSignal: 'SIGKILL' }) => Promise<{ stdout: string }> = execute,
+): Promise<void> {
+  const binary = process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report';
+  for (;;) {
+    try {
+      await run(binary, ['worker', '--queued-only', ...reportInputArguments()],
+        { encoding: 'utf8', timeout: 600_000, maxBuffer: 64 * 1024, shell: false, killSignal: 'SIGKILL' });
+      return;
+    } catch {
+      // execFile settles after child exit. The shared flock still fences a
+      // different live executor; recovery must not infer death from elapsed time.
+      let recovery: z.infer<typeof CommandRecoverySchema>;
+      let waitedForOwner = false;
+      for (;;) {
+        const result = await run(binary, ['recover-report-commands', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports')],
+          { encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, shell: false, killSignal: 'SIGKILL' });
+        recovery = CommandRecoverySchema.parse(JSON.parse(result.stdout));
+        if (recovery.status !== 'BUSY') break;
+        waitedForOwner = true;
+        await new Promise(resolveWait => setTimeout(resolveWait, 5_000));
+      }
+      if (recovery.pending === 0) return;
+      if (recovery.recovered === 0 && !waitedForOwner) throw new Error('REPORT_EXECUTOR_NO_PROGRESS');
+    }
+  }
 }
 
 async function readStoredCommand(id: string): Promise<unknown> {

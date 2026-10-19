@@ -2,6 +2,45 @@ import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
 import { reportReleaseRoutes } from './report-releases.js';
 
+it('recovers a terminated executor before draining remaining commands', async () => {
+  const { wakeStoredReports } = await import('./report-releases.js');
+  const run = vi.fn().mockRejectedValueOnce(Object.assign(new Error('private timeout'), { killed: true, signal: 'SIGKILL' }))
+    .mockResolvedValueOnce({ stdout: JSON.stringify({ status: 'RECOVERED', recovered: 1, pending: 1 }) })
+    .mockResolvedValueOnce({ stdout: '' });
+  await wakeStoredReports(run);
+  expect(run.mock.calls.map(([, args]) => args[0])).toEqual(['worker', 'recover-report-commands', 'worker']);
+  expect(run.mock.calls[0][1]).toContain('--queued-only');
+});
+
+it('does not loop on an executor failure without durable recovery progress', async () => {
+  const { wakeStoredReports } = await import('./report-releases.js');
+  const run = vi.fn().mockRejectedValueOnce(new Error('private launch failure'))
+    .mockResolvedValueOnce({ stdout: JSON.stringify({ status: 'RECOVERED', recovered: 0, pending: 1 }) });
+  await expect(wakeStoredReports(run)).rejects.toThrow('REPORT_EXECUTOR_NO_PROGRESS');
+  expect(run).toHaveBeenCalledTimes(2);
+});
+
+it('waits for a confirmed live owner without repeatedly launching competing workers', async () => {
+  const { wakeStoredReports } = await import('./report-releases.js');
+  vi.useFakeTimers();
+  try {
+    const run = vi.fn().mockRejectedValueOnce(new Error('child stopped'))
+      .mockResolvedValueOnce({ stdout: '{"status":"BUSY"}' })
+      .mockResolvedValueOnce({ stdout: '{"status":"RECOVERED","recovered":0,"pending":1}' })
+      .mockResolvedValueOnce({ stdout: '' });
+    const task = wakeStoredReports(run);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await task;
+    expect(run.mock.calls.map(([, args]) => args[0])).toEqual([
+      'worker', 'recover-report-commands', 'recover-report-commands', 'worker',
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('does not acknowledge a refresh when durable admission fails', async () => {
   const app = Fastify();
   await app.register(reportReleaseRoutes, { refresh: async () => { throw new Error('private disk failure'); } });

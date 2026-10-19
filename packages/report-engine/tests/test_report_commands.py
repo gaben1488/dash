@@ -177,3 +177,88 @@ def test_separate_cli_processes_resume_an_accepted_command_without_a_periodic_wo
     assert receipt['status'] == 'NOT_ISSUED'
     assert receipt['error_code'] == 'INPUT_REGISTRY_INVALID'
     assert len(observed.stdout) < 2048
+
+
+def test_killed_executor_is_recovered_without_executing_the_next_accepted_command(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    first = runtime.enqueue_report(registry, ledger, state)
+    marker = tmp_path / 'reading'
+    source = '''
+import sys, time
+from pathlib import Path
+sys.path.insert(0, 'tests')
+from test_runtime import Google
+from procurement_engine.runtime import run_once
+class Waiting(Google):
+    def revision(self, provider):
+        Path(sys.argv[4]).write_text('reading')
+        time.sleep(60)
+        return super().revision(provider)
+run_once(sys.argv[1], sys.argv[2], sys.argv[3], client=Waiting(), queued_only=True)
+'''
+    process = subprocess.Popen([sys.executable, '-c', source, str(registry), str(ledger), str(state), str(marker)])
+    try:
+        deadline = time.monotonic() + 15
+        while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert marker.exists(), 'executor never reached acquisition'
+        second = runtime.enqueue_report(registry, ledger, state)
+        assert second['attempt_id'] != first['attempt_id']
+        os.kill(process.pid, signal.SIGKILL)
+        assert process.wait(timeout=10) == -signal.SIGKILL
+        recovery = subprocess.run([sys.executable, '-c',
+            'from procurement_engine.cli import main; raise SystemExit(main())',
+            'recover-report-commands', '--state', str(state)], capture_output=True, text=True,
+            check=True, timeout=20)
+        result = json.loads(recovery.stdout)
+        assert result == {'status': 'RECOVERED', 'recovered': 1, 'pending': 1}
+        failed = runtime.read_report_command(state, first['attempt_id'])
+        assert failed['status'] == 'NOT_ISSUED'
+        assert failed['error_code'] == 'REPORT_ATTEMPT_INTERRUPTED'
+        assert failed['finished_at'] is None
+        assert runtime.read_report_command(state, second['attempt_id'])['status'] == 'QUEUED'
+        assert runtime.run_once(registry, ledger, state, client=Google(), queued_only=True)['attempt_id'] == second['attempt_id']
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+
+
+def test_recovery_respects_a_live_owner_and_does_not_start_pending_commands(tmp_path):
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    command = runtime.enqueue_report(registry, ledger, state)
+    with (state / 'run.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert runtime.recover_report_commands(state) == {'status': 'BUSY'}
+    assert runtime.recover_report_commands(state) == {'status': 'RECOVERED', 'recovered': 0, 'pending': 1}
+    assert runtime.read_report_command(state, command['attempt_id']) == command
+
+
+def test_recovery_keeps_a_committed_release_when_the_executor_lost_its_response(tmp_path, monkeypatch):
+    from procurement_engine.publication_store import PublicationStore
+    from test_weekly_archive import FormulaGoogle
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    command = runtime.enqueue_report(registry, ledger, state)
+    publish = PublicationStore.publish
+    committed = []
+    def lose_response(self, *args, **kwargs):
+        committed.append(publish(self, *args, **kwargs))
+        raise KeyboardInterrupt('publication persisted; response lost')
+    with monkeypatch.context() as patch:
+        patch.setattr(PublicationStore, 'publish', lose_response)
+        with pytest.raises(KeyboardInterrupt):
+            runtime.run_once(registry, ledger, state, client=FormulaGoogle(), queued_only=True)
+    assert runtime.recover_report_commands(state) == {'status': 'RECOVERED', 'recovered': 1, 'pending': 0}
+    receipt = runtime.read_report_command(state, command['attempt_id'])
+    assert receipt['status'] == committed[0]['status']
+    assert receipt['release_id'] == committed[0]['release_id']
+    assert receipt['finished_at'] == committed[0]['published_at']
+    assert runtime.recover_report_commands(state) == {'status': 'RECOVERED', 'recovered': 0, 'pending': 0}

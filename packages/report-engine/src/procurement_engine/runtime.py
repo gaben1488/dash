@@ -219,6 +219,25 @@ def _recover_interrupted_attempts(state):
         _finish_attempt(state, path.parent, status)
 
 
+def recover_report_commands(state_dir):
+    """Close orphaned commands from durable evidence, never acquire new sources."""
+    state = Path(state_dir)
+    if not state.exists():
+        return {'status': 'RECOVERED', 'recovered': 0, 'pending': 0}
+    with (state / 'run.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {'status': 'BUSY'}
+        with _admission(state):
+            before = {path.name for path in (state / 'commands').glob('*.json')}
+        _recover_interrupted_attempts(state)
+        with _admission(state):
+            pending = list(_pending_commands(state))
+            after = {path.name for path in (state / 'commands').glob('*.json')}
+        return {'status': 'RECOVERED', 'recovered': len(before - after), 'pending': len(pending)}
+
+
 def run_once(registry_path, ledger_path, state_dir, *, client=None, queued_only=False):
     """Return VERIFIED, VERIFIED_WITH_WARNINGS, NOT_ISSUED, or ALREADY_RUNNING.
 
