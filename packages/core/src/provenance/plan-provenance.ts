@@ -970,7 +970,7 @@ export function buildPlanProvenance(
     const deduped = [...seen.values()];
     for (const event of deduped) {
       event.sources = [...(event.sources ?? [])].sort((a, b) =>
-        a.spreadsheetId.localeCompare(b.spreadsheetId) || a.readAt - b.readAt || a.journalRow - b.journalRow);
+        compareWitnessText(a.spreadsheetId, b.spreadsheetId) || a.readAt - b.readAt || a.journalRow - b.journalRow);
     }
 
     const observabilityBase = {
@@ -1009,10 +1009,15 @@ function sourceAddressKey(source: PlanEventSource): string {
   return JSON.stringify([source.spreadsheetId, source.journalSheet, source.journalRow, source.readAt]);
 }
 
+function compareWitnessText(a: string, b: string): number {
+  // Evidence ordering must not change with the host locale or ICU collation data.
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function comparePlanWitnesses(a: PlanEvent, b: PlanEvent): number {
-  return a.at.localeCompare(b.at) || (a.sheet ?? '').localeCompare(b.sheet ?? '')
-    || a.cell.localeCompare(b.cell) || a.author.localeCompare(b.author)
-    || a.kind.localeCompare(b.kind) || planWitnessKey(a).localeCompare(planWitnessKey(b));
+  return compareWitnessText(a.at, b.at) || compareWitnessText(a.sheet ?? '', b.sheet ?? '')
+    || compareWitnessText(a.cell, b.cell) || compareWitnessText(a.author, b.author)
+    || compareWitnessText(a.kind, b.kind) || compareWitnessText(planWitnessKey(a), planWitnessKey(b));
 }
 
 function hasUnprovenMultiplicity(event: PlanEvent): boolean {

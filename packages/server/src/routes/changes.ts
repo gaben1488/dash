@@ -5,8 +5,8 @@
  * среза». Источник — вкладка «_ChangeLog» каждой книги (журнал Apps Script
  * с автором, временем и адресом); разбор — services/changelog.ts.
  *
- * ?since=YYYY-MM-DD — момент среза; без параметра — последний прошедший
- * четверг (канон недельного среза). Кэш пять минут: журналы суммарно
+ * ?since=YYYY-MM-DD — явная дата; без параметра — четверг предыдущей
+ * календарной недели в 18:00 по Камчатке. Кэш пять минут: журналы суммарно
  * ~37 тыс. строк, дёргать девять книг на каждый рендер страницы незачем.
  *
  * Прочитанное оседает в таблице changelog_entries и оттуда же отдаётся
@@ -16,11 +16,10 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
-import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
+import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
-import { productCalendarDay } from '../services/product-calendar.js';
 import { readChangelogRows } from '../services/changelog-source.js';
 import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
 
@@ -203,6 +202,7 @@ function announceDbFailure(error: unknown): void {
 export async function changesRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { since?: string } }>('/api/changes', async (request, reply) => {
     let sinceDay: number | null;
+    let sinceMs: number;
     if (request.query.since !== undefined) {
       sinceDay = dayNumberOf(request.query.since);
       // Формат мало проверить: Date.UTC переваливает «2026-06-31» в 1 июля
@@ -215,14 +215,12 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
           code: 'BAD_REQUEST',
         });
       }
+      sinceMs = sinceDay * 86400000;
     } else {
-      // Календарь ПРОДУКТА (+12), не машины: прод живёт в UTC, и в окне
-      // среда 12:00 — четверг 00:00 UTC дефолт уезжал на неделю назад.
-      // Та же ось недели, что у /api/report (currentProductThursday).
-      sinceDay = floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
+      sinceDay = liveBaselineDay(new Date(), config.weeklySnapshot.utcOffsetHours);
+      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours);
     }
 
-    const sinceMs = sinceDay * 86400000;
     const { records: all, failedDepts, fresh } = await readAllChangeLogs();
 
     // Прочитанное кладём в БД и оттуда же отвечаем. Смысл не в скорости:

@@ -367,6 +367,24 @@ export function preloadData(app: FastifyInstance): void {
     }, 'request');
   });
 
+  // Formula deliveries can arrive as soon as the recovered queue starts.
+  connectFormulaSink({ warn: (m) => app.log.warn(m) });
+
+  // Recover push independently of Google preload. The shared refresh queue
+  // serializes notifications arriving during the initial source read.
+  startWebhookChannels({
+    info: (m) => app.log.info(m),
+    warn: (m) => app.log.warn(m),
+  });
+  try {
+    recoverWebhookQueue({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
+  } catch (err) {
+    app.log.warn(`Очередь уведомлений не поднята: ${(err as Error).message}`);
+  }
+
   void (async () => {
     try {
       app.log.info('Loading department spreadsheets...');
@@ -402,28 +420,5 @@ export function preloadData(app: FastifyInstance): void {
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
-
-    // Приёмник формул: разбор целостности идёт и тогда, когда снимок не
-    // пересобирается (правка формулы значений строк не меняет).
-    connectFormulaSink({ warn: (m) => app.log.warn(m) });
-
-    // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
-    // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
-    startWebhookChannels({
-      info: (m) => app.log.info(m),
-      warn: (m) => app.log.warn(m),
-    });
-
-    // Очередь уведомлений (проект службы §2.3): недочитанное прежней жизнью
-    // процесса дочитывается, а не ждёт планового опроса.
-    try {
-      recoverWebhookQueue({
-        info: (m) => app.log.info(m),
-        warn: (m) => app.log.warn(m),
-      });
-    } catch (err) {
-      app.log.warn(`Очередь уведомлений не поднята: ${(err as Error).message}`);
-    }
-
   })();
 }

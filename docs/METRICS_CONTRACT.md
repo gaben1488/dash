@@ -19,6 +19,19 @@ This document is the contract from Google Sheet cells to dashboard numbers. If c
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
 - Procurement method buckets use the shared classifier, not raw string equality.
 
+### Filtered money and counts (20.10.2026)
+
+Department and subordinate money, budget components and approved economy use
+the same selected activity × procurement method × period source partition.
+Execution percentages divide selected sums, not unfiltered annual sums.
+A budget selection narrows amounts without changing position counts.
+The existing global plan/fact position-count KPI remains across both methods
+under a method-only selection; an activity selection also narrows these counts.
+Method counters themselves always describe the selected methods.
+Missing historical method-economy fields remain unknown, not fabricated zero.
+The candidate uses the existing row cross-index; full legacy scope disclosure
+and validation of every metric remain tracked in PLAN.
+
 ## Source value boundary (18.10.2026)
 
 `parseEditableAmount` / `parseSheetNumber` is the common strict numeric parser.

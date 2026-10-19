@@ -130,6 +130,22 @@ beforeEach(() => {
 const refresh = (qs = '') => app.inject({ method: 'POST', url: `/api/refresh${qs}` });
 
 describe('POST /api/refresh — полный цикл', () => {
+  it('ручная проверка формул явно требует чтения независимо от версии Drive', async () => {
+    const sources = await import('../services/source-refresh.js');
+    const cycle = vi.spyOn(sources, 'refreshAllSources');
+    try {
+      const response = await refresh('?formulas=true');
+      expect(response.statusCode).toBe(200);
+      expect(cycle).toHaveBeenCalledWith(expect.anything(), 'request', {
+        withFormulas: true, fresh: true, askDrive: false,
+      });
+      expect(fetchDepartmentSpreadsheets).toHaveBeenCalledWith(expect.anything(),
+        expect.objectContaining({ withFormulas: true }));
+    } finally {
+      cycle.mockRestore();
+    }
+  });
+
   it('книги и лист СВОД читаются ПАРАЛЛЕЛЬНО, а не одно за другим', async () => {
     const res = await refresh();
     expect(res.statusCode).toBe(200);

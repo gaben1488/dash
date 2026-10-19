@@ -9,8 +9,8 @@ import { eq } from 'drizzle-orm';
 
 const ENV = { ...process.env };
 const CONTROL_AT = '2026-10-08T06:00:00.000Z';
-const CURRENT_AT = '2026-10-11T08:00:00.000Z';
-const NOW = Date.parse('2026-10-11T08:30:00.000Z');
+const CURRENT_AT = '2026-10-12T08:00:00.000Z';
+const NOW = Date.parse('2026-10-12T08:30:00.000Z');
 
 describe('контрольная сверка с действующими книгами', () => {
   let snapshot: typeof import('../services/snapshot.js');
@@ -133,6 +133,27 @@ describe('контрольная сверка с действующими кни
     expect(uo?.identityCandidates).toEqual([
       expect.objectContaining({ beforeRowSeq: '10', afterRowSeq: '15', status: 'needs-review' }),
     ]);
+  });
+
+  it('HTTP-кэш переключает недельную базу на границе понедельника без ожидания TTL', async () => {
+    snapshot.setDeptLoadMeta(Object.fromEntries(departmentNames.map((name) => [
+      name, { loadedAt: '2026-10-11T11:59:58Z', sheetName: 'ВСЕ', rowCount: 4 },
+    ])));
+    const app = (await import('fastify')).default({ logger: false });
+    await app.register(integrity.integrityRoutes);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-11T11:59:59Z'));
+    try {
+      const sunday = await app.inject({ url: '/api/integrity' });
+      expect(sunday.statusCode).toBe(200);
+      expect(sunday.json().comparison).toBeNull();
+      clock.mockReturnValue(Date.parse('2026-10-11T12:00:00Z'));
+      const monday = await app.inject({ url: '/api/integrity' });
+      expect(monday.statusCode).toBe(200);
+      expect(monday.json().comparison?.baselineId).toBe('control-latest');
+    } finally {
+      clock.mockRestore();
+      await app.close();
+    }
   });
 
   it('незавершённая новая попытка не заслоняет последний полностью проверенный контроль', () => {

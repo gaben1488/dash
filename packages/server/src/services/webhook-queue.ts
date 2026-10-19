@@ -13,9 +13,8 @@
  * запись считать выполненной»; сами таймеры и перечитка живут в
  * routes/webhook.ts, потому что цикл чтения — его зона.
  *
- * База может быть недоступна (стражи без базы, поломка файла) — каждый вызов
- * ловит свой отказ: очередь — страховка полноты, а не условие приёма
- * уведомления. Отказ очереди не имеет права стоить ответа Google.
+ * При отказе чтения или фиксации завершения обработчик получает явную ошибку.
+ * Отказ приёма возвращает null; HTTP-обработчик обязан отклонить подтверждение.
  */
 import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
@@ -36,6 +35,7 @@ export const MAX_QUEUE_ATTEMPTS = 3;
 const TRANSIENT_REFRESH = 'SOURCE_REFRESH_TRANSIENT';
 export function canRetryNotification(entry: Pick<QueueEntry, 'attempts' | 'lastError'>): boolean {
   return entry.attempts < MAX_QUEUE_ATTEMPTS && (entry.attempts === 0 ||
+    entry.lastError === 'WEBHOOK_QUEUE_WRITE_FAILED' ||
     entry.lastError === TRANSIENT_REFRESH || isTransientSourceFailure(entry.lastError));
 }
 
@@ -50,8 +50,7 @@ export interface EnqueueInput {
 
 /**
  * Положить уведомление в очередь. Возвращает идентификатор записи;
- * `null` — база не далась (уведомление всё равно принято, страховкой
- * остаётся опрос по расписанию).
+ * `null` — запись не сохранена; подтверждать приём уведомления нельзя.
  */
 export function enqueueNotification(input: EnqueueInput, now: Date = new Date()): number | null {
   try {
@@ -102,9 +101,9 @@ export function markProcessed(ids: readonly number[], now: Date = new Date()): v
       .set({ state: 'done', doneAt: now.toISOString() })
       .where(inArray(schema.webhookQueue.id, [...ids]))
       .run();
-  } catch {
-    // Чтение состоялось, а пометка не далась: запись останется невыполненной
-    // и будет перечитана ещё раз — лишнее чтение дешевле потерянной правки.
+  } catch (cause) {
+    // Запись остаётся pending; вызывающий должен сообщить отказ и назначить повтор.
+    throw new Error('WEBHOOK_QUEUE_WRITE_FAILED', { cause });
   }
 }
 
@@ -230,7 +229,7 @@ export function noteAttemptFailed(ids: readonly number[], error: string): void {
         .run();
     }
   } catch {
-    /* см. markProcessed */
+    // Запись остаётся pending. Исходный отказ сообщает обработчик цикла.
   }
 }
 

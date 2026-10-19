@@ -3,7 +3,7 @@ process.env.NODE_ENV = 'test'; process.env.SQLITE_PATH = ':memory:';
 process.env.AEMR_API_KEY = ''; process.env.LOG_LEVEL = 'silent';
 const startup = vi.hoisted(() => ({ refresh: vi.fn(async () => ({ loaded: [], failed: [] })),
   snapshot: vi.fn(async () => ({ officialMetrics: {}, calculatedMetrics: {}, issues: [], deltas: [] })) }));
-const watch = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), legacy: vi.fn() }));
+const watch = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), legacy: vi.fn(), recover: vi.fn(), formulas: vi.fn() }));
 vi.mock('./services/webhook-channel.js', async original => ({ ...await original<typeof import('./services/webhook-channel.js')>(),
   startWebhookChannels: watch.start, stopWebhookChannels: watch.stop }));
 vi.mock('./services/drive-watch.js', () => ({ startDriveWatch: watch.legacy }));
@@ -11,8 +11,8 @@ vi.mock('./services/source-refresh.js', async original => ({ ...await original<t
   refreshAllSources: startup.refresh, startSourceAutoRefresh: vi.fn() }));
 vi.mock('./services/snapshot.js', async original => ({ ...await original<typeof import('./services/snapshot.js')>(),
   getSnapshot: startup.snapshot }));
-vi.mock('./services/formula-sink.js', () => ({ connectFormulaSink: vi.fn() }));
-vi.mock('./routes/webhook.js', async original => ({ ...await original<typeof import('./routes/webhook.js')>(), recoverWebhookQueue: vi.fn() }));
+vi.mock('./services/formula-sink.js', () => ({ connectFormulaSink: watch.formulas }));
+vi.mock('./routes/webhook.js', async original => ({ ...await original<typeof import('./routes/webhook.js')>(), recoverWebhookQueue: watch.recover }));
 const { createApp, preloadData } = await import('./app.js');
 const app = await createApp({ logger: false });
 afterAll(() => app.close());
@@ -23,18 +23,28 @@ it('запускает единый постоянный контур канал
  await app.close(); expect(watch.stop).toHaveBeenCalledTimes(1);
 });
 
-it('не оживляет push после закрытия во время первоначального чтения', async () => {
+it('поднимает push и очередь до завершения Google и не оживляет их после закрытия', async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   startup.refresh.mockImplementationOnce(async () => { await gate; return { loaded: [], failed: [] }; });
   const closed = await createApp({ logger: false });
   const calls = watch.start.mock.calls.length;
+  const recoveries = watch.recover.mock.calls.length;
+  const formulas = watch.formulas.mock.calls.length;
   const snapshots = startup.snapshot.mock.calls.length;
   preloadData(closed);
-  await closed.close();
-  release();
+  try {
+    expect(watch.start).toHaveBeenCalledTimes(calls + 1);
+    expect(watch.recover).toHaveBeenCalledTimes(recoveries + 1);
+    expect(watch.formulas).toHaveBeenCalledTimes(formulas + 1);
+    expect(watch.formulas.mock.invocationCallOrder.at(-1)).toBeLessThan(watch.start.mock.invocationCallOrder.at(-1)!);
+  } finally {
+    await closed.close();
+    release();
+  }
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(watch.start).toHaveBeenCalledTimes(calls);
+  expect(watch.start).toHaveBeenCalledTimes(calls + 1);
+  expect(watch.recover).toHaveBeenCalledTimes(recoveries + 1);
   expect(startup.snapshot).toHaveBeenCalledTimes(snapshots);
 });
 

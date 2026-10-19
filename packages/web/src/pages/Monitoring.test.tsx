@@ -157,7 +157,7 @@ describe('ежедневный сценарий канонического ре�
     expect(within(card).getByRole('region', { name: 'Участники совместной закупки' })).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: 'Закрыть' }));
     expect(screen.getByRole('table', { name: 'Процедуры в работе' })).toBeTruthy();
-  });
+  }, 15_000); // Full page → dialog → queue on the CPU-limited integration runner.
 
   it('сохраняет успешную очередь во время обновления и после отказа', async () => {
     serve(canonical());

@@ -75,7 +75,7 @@ describe('C07 — сохранённые legacy-попытки не закрыв
 
   it('cron не объявляет неполную попытку завершённым контролем и находит старший проверенный день', async () => {
     const f = current;
-    f.control('verified', '2026-10-08T00:00:00.000Z');
+    f.control('verified', '2026-10-08T06:00:00.000Z');
     f.fillers(500, '2026-10-15T01:00:00Z', true);
     const { collectSnapshotDays } = await import('./weekly-snapshot-cron.js');
     const { productCalendarDay } = await import('./product-calendar.js');

@@ -243,6 +243,9 @@ export function computeFilteredData(input: FilterInputs) {
   // страницы нужен один и тот же обход всех управлений. fullQuarters/partialMonths
   // включают месячную ветвь (баг #10: экономия месяца бралась за весь квартал).
   const totalEconomy = getFilteredEconomyTotal({
+    periodResolution: resolution,
+    nodeAggregateOpts: { showKP, showEP, activeMonths, hasMonthData },
+    selectedActivities,
     depts, periodKey, coveredQuarters,
     fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
     hasMonthData, selectedBudgets,

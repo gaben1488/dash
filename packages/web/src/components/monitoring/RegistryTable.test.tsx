@@ -58,4 +58,4 @@ it('порция ограничивает только показ и позво�
   expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(52);
   fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Открыть процедуру ЭА150-26' }));
   expect(onOpen).toHaveBeenCalledWith(rows[50]);
-});
+}, 15_000); // Real 51-row rendering and accessible queries on the bounded runner.

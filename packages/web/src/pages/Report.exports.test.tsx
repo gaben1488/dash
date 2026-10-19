@@ -77,7 +77,7 @@ it('keeps three native Word actions on one frozen release instead of the browser
   await waitFor(() => expect(saved).toHaveLength(3));
   expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/operational.docx`)).toBe(true);
   expect(saved[2]).toContain('Оперативный');
-});
+}, 15_000); // Three full-page export interactions on the CPU-limited integration runner.
 
 it('changing quarter clears the previous download and explains a missing matching bundle', async () => {
   render(<TooltipProvider><ReportPage /></TooltipProvider>);
@@ -96,7 +96,7 @@ it('changing quarter clears the previous download and explains a missing matchin
   { timeout: 10_000 });
   fireEvent.click(main);
   expect(saved).toHaveLength(0);
-});
+}, 30_000); // Two explicit 10 s effect waits must fit inside the outer test deadline.
 
 it('an archive selection never downloads the current release', async () => {
   render(<TooltipProvider><ReportPage /></TooltipProvider>);

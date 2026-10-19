@@ -374,6 +374,7 @@ export function noteNotification(
   n: DriveNotification,
   alreadyArmed: boolean,
   now: Date = new Date(),
+  persist?: () => void,
 ): NotificationDecision {
   const at = now.toISOString();
   counters.received += 1;
@@ -387,14 +388,11 @@ export function noteNotification(
       const key = `${n.channelId}#${n.messageNumber}`;
       if (seenMessages.has(key)) return 'duplicate';
       const seenMax = maxMessageByChannel.get(n.channelId);
-      remember(key);
       if (seenMax !== undefined && n.messageNumber < seenMax) return 'late';
-      maxMessageByChannel.set(n.channelId, Math.max(seenMax ?? 0, n.messageNumber));
     }
 
     if (n.resourceState === 'sync') return 'sync';
     if (GONE_STATES.has(n.resourceState)) {
-      counters.gone += 1;
       // Книга ушла из-под наблюдения — перечитать всё равно надо: продукт обязан
       // честно показать источник непрочитанным, а не держать вчерашние строки.
       return alreadyArmed ? 'coalesced' : 'refresh';
@@ -407,6 +405,15 @@ export function noteNotification(
   };
 
   const decision = decide();
+  // Сначала durable-приём: отказ записи не должен подавить повтор доставки.
+  if (decision === 'refresh' || decision === 'coalesced') persist?.();
+  if (n.messageNumber !== null && decision !== 'duplicate' && !seenMessages.has(`cancelled:${n.channelId}`)) {
+    remember(`${n.channelId}#${n.messageNumber}`);
+    if (decision !== 'late') {
+      maxMessageByChannel.set(n.channelId, Math.max(maxMessageByChannel.get(n.channelId) ?? 0, n.messageNumber));
+    }
+  }
+  if ((decision === 'refresh' || decision === 'coalesced') && GONE_STATES.has(n.resourceState)) counters.gone += 1;
   counters[decision] += 1;
   lastDecision = decision;
   return decision;

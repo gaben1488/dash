@@ -34,6 +34,11 @@ const dept = {
 };
 
 describe('разрез деятельности × способа закупки', () => {
+  it('объединение старых подведов не выдумывает отсутствующую экономию способа', () => {
+    const merged = mergeSubordinateActivityPeriods([{ activityByPeriod: dept.byActivity }]);
+    expect(merged.q1.program.byMethod.competitive.economyTotal).toBeUndefined();
+    expect(merged.q1.program.byMethod.competitive.planSum).toBe(50);
+  });
   it('пустой выбор означает все виды деятельности', () => {
     expect(resolveActivityKeys(new Set())).toBe(ALL_ACTIVITY_KEYS);
     expect(resolveActivityKeys(new Set(['program']))).toEqual(['program']);

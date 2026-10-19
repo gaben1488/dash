@@ -168,25 +168,38 @@ describe('единая классификация строк для истори
 describe('текущие книги против последнего контрольного четверга', () => {
   const snap = (id: string, createdAt: string) => ({ id, createdAt });
 
-  it('берёт последний контроль, не предыдущий четверг и не суточный снимок', () => {
+  it('в воскресенье сохраняет базу предыдущей календарной недели', () => {
     const latest = pickLatestControlSnapshot([
       snap('daily', '2026-10-10T09:00:00Z'),
       snap('control', '2026-10-08T06:00:00Z'),
       snap('older-control', '2026-10-01T06:00:00Z'),
     ], Date.parse('2026-10-11T10:00:00Z'), 12);
-    expect(latest?.id).toBe('control');
+    expect(latest?.id).toBe('older-control');
   });
 
-  it('не требует двух последовательных контрольных снимков', () => {
+  it('не подменяет пропущенную базовую неделю более старой', () => {
     expect(pickLatestControlSnapshot([
       snap('old-control', '2026-09-24T06:00:00Z'),
-    ], Date.parse('2026-10-11T09:00:00Z'), 12)?.id).toBe('old-control');
+    ], Date.parse('2026-10-11T09:00:00Z'), 12)).toBeNull();
   });
 
   it('четверг Камчатки ещё в среду UTC и не пропускается', () => {
     expect(pickLatestControlSnapshot([
       snap('kamchatka-thursday', '2026-07-22T17:00:00Z'),
-    ], Date.parse('2026-07-23T07:00:00Z'), 12)?.id).toBe('kamchatka-thursday');
+    ], Date.parse('2026-07-26T12:00:00Z'), 12)?.id).toBe('kamchatka-thursday');
+  });
+
+  it.each([
+    ['2026-10-22T05:59:59Z', 'previous'],
+    ['2026-10-22T06:00:00Z', 'previous'],
+    ['2026-10-23T00:00:00Z', 'previous'],
+    ['2026-10-25T11:59:59Z', 'previous'],
+    ['2026-10-25T12:00:00Z', 'current'],
+  ])('сдвигает LIVE-базу только в понедельник Камчатки: %s', (now, expected) => {
+    expect(pickLatestControlSnapshot([
+      snap('previous', '2026-10-15T06:00:00Z'),
+      snap('current', '2026-10-22T06:00:00Z'),
+    ], Date.parse(now), 12)?.id).toBe(expected);
   });
 
   it('будущий, недатированный или недатированный контроль не подставляется', () => {

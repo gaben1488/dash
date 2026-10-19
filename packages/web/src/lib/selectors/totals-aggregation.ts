@@ -1,4 +1,5 @@
 import type { PeriodResolution } from './period-resolution';
+import { ALL_ACTIVITY_KEYS, activityPeriodKeys, selectActivityMethods } from './activity-aggregation';
 
 /**
  * Агрегация тоталов (КП/ЕП, план/факт, счётчики, бюджет, экономия) со смешанной
@@ -46,6 +47,7 @@ export interface AggregatedTotals {
 }
 
 export interface AggregateOpts {
+  activityKeys?: string[];
   /** Способ (КП/ЕП): пустой selectedMethods = показывать оба */
   showKP: boolean;
   showEP: boolean;
@@ -129,6 +131,42 @@ export function aggregateNodeTotals(
   resolution: PeriodResolution,
   opts: AggregateOpts,
 ): NodeTotals {
+  const base = aggregatePeriodTotals(node, resolution, opts);
+  if (!node?.activityByPeriod && !node?.byActivity) return base;
+  const selected = selectActivityMethods([{ ...node, byActivity: node.activityByPeriod ?? node.byActivity }], {
+    actKeys: opts.activityKeys?.length ? opts.activityKeys : ALL_ACTIVITY_KEYS,
+    periodKeys: activityPeriodKeys(resolution, opts.hasMonthData),
+    showKP: opts.showKP, showEP: opts.showEP,
+  });
+  // Legacy data without the full cross-index cannot establish this breakdown.
+  // Preserve known period totals; do not manufacture missing budget/economy values.
+  const fields = ['economyTotal', 'economyFB', 'economyKB', 'economyMB'] as const;
+  if (!selected.complete || selected.entries.some(({ value }) =>
+    fields.some(key => typeof value[key] !== 'number' || !Number.isFinite(value[key])))) return base;
+  const result = emptyTotals();
+  for (const { method, value } of selected.entries) {
+    result[method === 'competitive' ? 'kp' : 'ep'] += value.plan;
+    result.planCount += value.plan;
+    result.factCount += value.fact;
+    result.planTotal += value.planSum;
+    result.factTotal += value.factSum;
+    result.economyTotal += value.economyTotal!;
+    addBudget(result.budget, value);
+  }
+  // Method selection narrows money and method counters; the declared overall
+  // position-count KPI narrows only when an activity filter is also present.
+  if (!opts.activityKeys?.length) {
+    result.planCount = base.planCount;
+    result.factCount = base.factCount;
+  }
+  return result;
+}
+
+function aggregatePeriodTotals(
+  node: any,
+  resolution: PeriodResolution,
+  opts: AggregateOpts,
+): NodeTotals {
   const { periodKey, coveredQuarters, fullQuarters, partialMonths, useMonthLevel, hasActiveMonths } = resolution;
   const { showKP, showEP, activeMonths, hasMonthData } = opts;
   const t = emptyTotals();
@@ -170,7 +208,7 @@ export function aggregateNodeTotals(
       quarters: stripMethodFields(node.quarters),
       months: stripMethodFields(node.months),
     };
-    const st = aggregateNodeTotals(sanitized, resolution, opts);
+    const st = aggregatePeriodTotals(sanitized, resolution, opts);
     // КП/ЕП: поквартальной/помесячной разбивки по способу у подведов в данных
     // НЕТ — единственная существующая база годовая (competitiveCount/soleCount
     // узла = сумма выбранных подведов за год). Показываем её, а не ноль:

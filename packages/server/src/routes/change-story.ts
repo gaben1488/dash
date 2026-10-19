@@ -37,7 +37,7 @@ import {
   type ChangeKind,
   type ChangeStoryInput,
 } from '@aemr/core';
-import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
+import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { readAllBookJournals } from '../services/provenance-journal.js';
@@ -162,8 +162,8 @@ export function changeStoryDefaultWindow(
   }
   // Это лишь доступное окно журнала: comparison=null и gaps явно сохраняют
   // отсутствие контроля, не объявляя окно завершённой недельной сверкой.
-  const sinceDay = floorToThursday(productCalendarDay(now, offsetHours));
-  return { sinceDay, sinceMs: sinceDay * 86400000 };
+  const sinceDay = liveBaselineDay(now, offsetHours);
+  return { sinceDay, sinceMs: weeklyCutoffMs(sinceDay, offsetHours) };
 }
 
 interface Query {

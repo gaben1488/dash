@@ -6,6 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DataSnapshot, Issue } from '@aemr/shared';
 
 vi.mock('./google-sheets.js', () => ({ getSheetDataFromSpreadsheet: vi.fn(async () => []) }));
+// Real TS worker startup plus SQLite transactions exceeded Vitest's 5s default
+// on the bounded release runner. Keep the concurrency/atomicity assertions intact.
+vi.setConfig({ testTimeout: 30_000 });
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'snapshot-storage-'));
@@ -63,7 +66,7 @@ it('реальный HTTP читает прежний полный срез, п�
     setSourceLogger(null);
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
-}, 15000);
+}, 30000);
 
 it('file-worker сохраняет атомы, метрики и решения вместе; сбой атомов откатывает весь новый снимок', async () => {
   const { db, schema } = await import('../db/index.js');

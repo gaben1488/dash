@@ -32,6 +32,7 @@ const {
   assessSourceFreshness,
   describeSourceFreshness,
   tickWeeklySnapshot,
+  startWeeklySnapshotCron,
 } = await import('./weekly-snapshot-cron.js');
 const { dayNumberOf } = await import('@aemr/shared');
 const { saveSnapshot } = await import('./snapshot.js');
@@ -40,6 +41,23 @@ const { MONITORING_DATA_SHEETS } = await import('@aemr/core');
 
 /** Четверг-фикстура 23.07.2026; сверка % 7 === 0 — в первом тесте. */
 const THURSDAY_ISO = '2026-07-23';
+
+it('таймер выравнивает следующий тик по часу и снимается при остановке', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-07-22T05:30:00Z'));
+  const timer = vi.spyOn(globalThis, 'setTimeout');
+  let stop: (() => void) | undefined;
+  try {
+    stop = startWeeklySnapshotCron({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
+    expect(timer).toHaveBeenCalledWith(expect.any(Function), 30 * 60 * 1000);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    stop?.();
+    timer.mockRestore();
+    vi.useRealTimers();
+  }
+});
 
 describe('shouldTakeWeeklySnapshot — правило четверга', () => {
   it('четверг без снимка этого дня → снимать', async () => {
@@ -105,11 +123,13 @@ describe('collectSnapshotDays — дни существующих снимков
     };
   }
 
-  it('createdAt хранится в UTC, но день снимка считается по Камчатке — дедуп через UTC-полночь работает', async () => {
+  it('утренний четверговый снимок не заменяет контроль после 18:00', async () => {
     const thursday = dayNumberOf(THURSDAY_ISO)!;
     // Снимок снят в четверг 04:30 Камчатки = среда 16:30 UTC: по UTC-календарю
     // это ещё среда, но день снимка обязан совпасть с четвергом продукта.
     await saveSnapshot(snap('thu-early', '2026-07-22T16:30:00.000Z'));
+    expect(await collectSnapshotDays(thursday, 12)).not.toContain(thursday);
+    await saveSnapshot(snap('thu-evening', '2026-07-23T06:00:00.000Z'));
     // Древний снимок за горизонтом ~10 недель — в дедуп-окно не попадает.
     await saveSnapshot(snap('ancient', '2025-01-09T00:00:00.000Z'));
 
@@ -197,11 +217,11 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   const kamchatkaThursdayMorning = new Date('2026-07-22T20:00:00Z'); // четверг 08:00 Камчатки
   const kamchatkaThursdayEvening = new Date('2026-07-23T06:00:00Z'); // четверг 18:00 Камчатки
 
-  /** Свежий источник по умолчанию: книги прочитаны за час до тика. */
+  /** Успешное принудительное чтение у границы вечернего среза. */
   function freshMeta(now: Date) {
     return {
       'УЭР': {
-        loadedAt: new Date(now.getTime() - 3_600_000).toISOString(),
+        loadedAt: now.toISOString(),
         rowCount: 100,
         sheetName: 'УЭР',
       },
@@ -221,21 +241,21 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
 
   function makeDeps(overrides: Record<string, unknown> = {}) {
     return {
-      now: () => kamchatkaThursdayMorning,
+      now: () => kamchatkaThursdayEvening,
       utcOffsetHours: 12,
       listSnapshotDays: vi.fn(() => [] as number[]),
       prepareSources: vi.fn(async () => ({
         loaded: ['УЭР'], failed: [], svodOk: true, formulaBooks: ['УЭР'], expectedBooks: 1,
       })),
       prepareMonitoring: vi.fn(async () => ({
-        readAt: kamchatkaThursdayMorning.toISOString(), version: 1,
+        readAt: kamchatkaThursdayEvening.toISOString(), version: 1,
         sheets: { '1. УЭР': [['ok']] }, failed: {}, expectedSheets: 1,
       })),
       refresh: vi.fn(async () => ({
-        id: 'snap-fresh', createdAt: '2026-07-22T20:01:00.000Z',
+        id: 'snap-fresh', createdAt: '2026-07-23T06:01:00.000Z',
       })),
       sealContext: vi.fn(async () => true),
-      sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayMorning)),
+      sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayEvening)),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       ...overrides,
     };
@@ -250,6 +270,33 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     expect(deps.refresh).toHaveBeenCalledTimes(1);
     expect(deps.sealContext).toHaveBeenCalledWith('snap-fresh', expect.objectContaining({ version: 1 }));
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining('Еженедельный снимок четверга снят'));
+  });
+
+  it('до 18:00 не читает ни архив, ни Google ради недельного среза', async () => {
+    const deps = makeDeps({ now: () => new Date('2026-07-23T05:59:59Z') });
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('skipped');
+    expect(deps.listSnapshotDays).not.toHaveBeenCalled();
+    expect(deps.prepareSources).not.toHaveBeenCalled();
+    expect(deps.refresh).not.toHaveBeenCalled();
+  });
+
+  it('после 18:00 не принимает утренний fallback за вечерний срез', async () => {
+    const deps = makeDeps({ refresh: vi.fn(async () => ({
+      id: 'morning-fallback', createdAt: kamchatkaThursdayMorning.toISOString(),
+    })) });
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.sealContext).not.toHaveBeenCalled();
+  });
+
+  it.each(['masters', 'monitoring'])('не принимает утренний кэш %s за вечернее чтение', async (source) => {
+    const deps = makeDeps(source === 'masters'
+      ? { sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayMorning)) }
+      : { prepareMonitoring: vi.fn(async () => ({
+        readAt: kamchatkaThursdayMorning.toISOString(), version: 1,
+        sheets: { '1. УЭР': [['ok']] }, failed: {}, expectedSheets: 1,
+      })) });
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).not.toHaveBeenCalled();
   });
 
   it('снимок этого четверга уже есть: refresh не дёргается', async () => {
@@ -341,7 +388,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('принудительное чтение прошло, но мета осталась трёхнедельной: снимок не создаётся', async () => {
-    const deps = makeDeps({ sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayMorning)) });
+    const deps = makeDeps({ sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
     expect(deps.prepareSources).toHaveBeenCalledTimes(1);

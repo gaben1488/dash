@@ -28,6 +28,17 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('очередь уведомлений без базы', () => {
+  it('повторяет отказ фиксации с ограничением числа попыток', () => {
+    expect(queue.canRetryNotification({ attempts: 1, lastError: 'WEBHOOK_QUEUE_WRITE_FAILED' })).toBe(true);
+    expect(queue.canRetryNotification({ attempts: queue.MAX_QUEUE_ATTEMPTS, lastError: 'WEBHOOK_QUEUE_WRITE_FAILED' })).toBe(false);
+  });
+  it('не объявляет успешно прочитанную цель завершённой при отказе записи', () => {
+    expect(() => queue.settleAfterRefresh([
+      { id: 1, book: 'УО', fileId: null, receivedAt: '2026-10-20T00:00:00Z', attempts: 0 },
+    ], { failed: [], svodOk: true }, { full: true, books: [], svod: true }))
+      .toThrow('WEBHOOK_QUEUE_WRITE_FAILED');
+    expect(() => queue.markProcessed([])).not.toThrow();
+  });
   it('снимок очереди отвечает unavailable: true и неизвестными счётчиками', () => {
     const stats = queue.queueStats();
     expect(stats.unavailable).toBe(true);

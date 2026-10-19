@@ -1,44 +1,15 @@
 /**
- * Четверг-cron: еженедельный снимок снимается сам, идемпотентно.
- *
- * Зачем: отчёт прошлых недель строится из снимка той недели (одна ось недели,
- * дизайн-док 2026-07-23 §4 R2; роут routes/report.ts). Снимки сохраняются при
- * каждом force-refresh (createSnapshot → saveSnapshot), но полагаться на то,
- * что в четверг кто-то откроет дашборд, нельзя — этот планировщик гарантирует
- * хотя бы один снимок каждый четверг.
- *
- * Минимализм сознательный: setInterval раз в час + unref, никаких cron-библиотек.
- * Снятие снимка — существующий путь getSnapshot(true) (полный пайплайн +
- * saveSnapshot), собственного чтения источников здесь нет.
- *
- * Календарь: срез — ЧЕТВЕРГ (день 0 эпохи 1970-01-01 — четверг, поэтому
- * «четверг» = номер суток % 7 === 0; арифметика недель — @aemr/shared/
- * parse-sheet-date). Прод-сервер живёт в UTC, пользователь — на Камчатке
- * (UTC+12, DST нет): «четверг Камчатки» на UTC-сервере начинается в среду
- * 12:00 UTC, поэтому день считается не по календарю машины, а по фиксированному
- * смещению config.weeklySnapshot.utcOffsetHours.
- *
- * СВЕЖЕСТЬ ИСТОЧНИКА (дефект Д17, «снимок недели фальсифицируется молча»).
- * Канонический периметр строк снимка — кэш собственных книг ГРБС
- * (cachedDeptSheetData в snapshot.ts). Сам снимок его НЕ перечитывает: кэш
- * наполняют только стартовый preload (app.ts) и POST /api/refresh
- * (routes/dashboard.ts). На сервере, поднятом три недели назад и никем не
- * обновлённом, четверговый cron архивировал строки трёхнедельной давности —
- * и подписывал их сегодняшней датой среза. Снимок недели — единственный
- * источник исторической правды, и молчаливая подмена в нём страшнее пропуска.
- * Поэтому тик сначала измеряет, когда книги читались на самом деле
- * (getDeptLoadMeta), и:
- *   • источник свеж — снимает как раньше;
- *   • источник устарел, но день не кончился — откладывает и говорит об этом
- *     в лог: обновление данных ещё успеет прийти, повтор через час;
- *   • источник устарел, а четверг заканчивается — снимает (неделю терять
- *     нельзя), но с честным признаком «taken-stale» и предупреждением, в
- *     котором названо, на сколько отстают книги.
+ * Недельный контроль: четверг после 18:00 в календаре продукта.
+ * Таймер выровнен по часам; утренний снимок не заменяет вечерний контроль.
+ * Перед сохранением принудительно читаются книги, формулы, СВОД и мониторинг.
+ * Неполное чтение или устаревший кэш блокируют контроль, повтор — следующим
+ * тиком четверга. Фактическое время чтения сохраняется: поздний запуск не
+ * восстанавливает состояние Google на 18:00 и не должен датироваться задним числом.
  */
 // snapshot.js импортируется ЛЕНИВО (внутри функций): статический импорт тянул
 // в этот модуль весь тяжёлый граф (googleapis, drizzle, @aemr/core) — тесты
 // чистых функций платили за него ~25 с на холодном кэше.
-import { isoOfDayNumber, DAYS_PER_WEEK } from '@aemr/shared';
+import { isoOfDayNumber, DAYS_PER_WEEK, weeklyCutoffMs } from '@aemr/shared';
 import { productCalendarDay } from './product-calendar.js';
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 
@@ -181,8 +152,7 @@ export function shouldTakeWeeklySnapshot(nowDay: number, snapshotDays: readonly 
 /**
  * Дни существующих снимков за последние ~10 недель — из метаданных истории
  * (getSnapshotHistory, data-JSON не разбирается). createdAt хранится UTC-строкой
- * toISOString, поэтому день снимка считается тем же productCalendarDay: снимок,
- * снятый в четверг 04:00 Камчатки (= среда 16:00 UTC), дедупится с четвергом.
+ * toISOString. Контроль учитывается только после вечерней границы этого дня.
  */
 export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number): Promise<number[]> {
   const { iterateWeeklySnapshotHistory } = await import('./snapshot.js');
@@ -193,17 +163,14 @@ export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number
     if (!Number.isFinite(ms)) continue;
     const day = productCalendarDay(new Date(ms), utcOffsetHours);
     if (day < nowDay - DEDUP_WINDOW_DAYS) break;
-    if (day > nowDay || day % DAYS_PER_WEEK !== 0 || days.has(day)) continue;
+    if (day > nowDay || day % DAYS_PER_WEEK !== 0 || days.has(day)
+        || ms < weeklyCutoffMs(day, utcOffsetHours)) continue;
     if (verifiedBaselineRows(row).error === null) days.add(day);
   }
   return [...days];
 }
 
-/**
- * Итог тика. `taken-stale` и `deferred` появились с Д17: снимок, снятый по
- * устаревшему источнику, — не то же самое, что снимок недели, и звать их одним
- * словом значило бы повторить ту же молчаливую подмену на уровне контракта.
- */
+/** Неполный или устаревший контроль считается неудачей, а не снятым срезом. */
 export type TickOutcome = 'taken' | 'skipped' | 'failed';
 
 /** Зависимости тика — инжектируются, чтобы тик тестировался без часов, БД и Google. */
@@ -257,6 +224,8 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
     // день ещё четверг, а час — уже пятничный.
     const now = deps.now();
     const nowDay = productCalendarDay(now, deps.utcOffsetHours);
+    const cutoff = weeklyCutoffMs(nowDay, deps.utcOffsetHours);
+    if (nowDay % DAYS_PER_WEEK !== 0 || now.getTime() < cutoff) return 'skipped';
     if (!shouldTakeWeeklySnapshot(nowDay, await deps.listSnapshotDays(nowDay))) {
       return 'skipped';
     }
@@ -286,7 +255,7 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
     // Перепроверяем мету после принудительного цикла: если источник формально
     // ответил, но кэш не получил свежую отметку, snapshot не считается годным.
     const freshness = assessSourceFreshness(now, await deps.sourceMeta());
-    if (freshness.status !== 'fresh') {
+    if (freshness.status !== 'fresh' || !(Date.parse(freshness.readAt ?? '') >= cutoff)) {
       deps.log.warn(
         `Еженедельный снимок четверга (${dayLabel}) не снят: после принудительного чтения `
         + `свежесть не подтверждена — ${describeSourceFreshness(freshness)} Повтор следующим тиком.`,
@@ -297,7 +266,8 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
     const monitoring = await deps.prepareMonitoring();
     if (Object.keys(monitoring.failed).length > 0
         || monitoring.expectedSheets < 1
-        || Object.keys(monitoring.sheets).length !== monitoring.expectedSheets) {
+        || Object.keys(monitoring.sheets).length !== monitoring.expectedSheets
+        || !(Date.parse(monitoring.readAt) >= cutoff)) {
       deps.log.warn(
         `Еженедельный снимок четверга (${dayLabel}) не снят: реестр процедур прочитан неполно `
         + `(${Object.keys(monitoring.sheets).length}/${monitoring.expectedSheets} листов). `
@@ -319,6 +289,7 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
 
     const snapshotMs = Date.parse(snapshot.createdAt);
     if (!Number.isFinite(snapshotMs)
+        || snapshotMs < cutoff
         || productCalendarDay(new Date(snapshotMs), deps.utcOffsetHours) !== nowDay) {
       deps.log.warn(
         `Еженедельный снимок четверга (${dayLabel}) не снят: сборка вернула не новый срез, `
@@ -378,9 +349,14 @@ export function startWeeklySnapshotCron(log: WeeklySnapshotDeps['log']): () => v
     log,
   };
   void tickWeeklySnapshot(deps);
-  const timer = setInterval(() => {
-    void tickWeeklySnapshot(deps);
-  }, TICK_INTERVAL_MS);
-  timer.unref();
-  return () => clearInterval(timer);
+  let timer: ReturnType<typeof setTimeout>;
+  const schedule = () => {
+    timer = setTimeout(() => {
+      schedule();
+      void tickWeeklySnapshot(deps);
+    }, TICK_INTERVAL_MS - Date.now() % TICK_INTERVAL_MS);
+    timer.unref();
+  };
+  schedule();
+  return () => clearTimeout(timer);
 }

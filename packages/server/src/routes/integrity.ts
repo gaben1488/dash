@@ -36,7 +36,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import {
-  DAYS_PER_WEEK,
+  liveBaselineDay,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -265,10 +265,9 @@ interface WeeklySnapshotRef {
 }
 
 /**
- * Контрольная точка: самый новый ЗАВЕРШЁННЫЙ четверговый снимок, не позже
- * настоящего момента. Его реестр даёт только sealed weeklyTableContext.
- * Даже при пропущенной неделе берётся последний доступный контроль — текущие
- * данные сравниваются с ним, а не с предыдущим четвергом или суточным срезом.
+ * LIVE-база — завершённый четверговый срез предыдущей календарной недели.
+ * Новый четверговый выпуск становится базой только в следующий понедельник.
+ * Пропуск нужной недели не заменяется старым или суточным снимком.
  */
 export function pickLatestControlSnapshot(
   sealed: readonly WeeklySnapshotRef[],
@@ -277,10 +276,11 @@ export function pickLatestControlSnapshot(
 ): WeeklySnapshotRef | null {
   let latest: WeeklySnapshotRef | null = null;
   let latestAt = -Infinity;
+  const baselineDay = liveBaselineDay(new Date(nowMs), utcOffsetHours);
   for (const snap of sealed) {
     const at = Date.parse(snap.createdAt);
     if (!Number.isFinite(at) || at > nowMs) continue;
-    if (productCalendarDay(new Date(at), utcOffsetHours) % DAYS_PER_WEEK !== 0) continue;
+    if (productCalendarDay(new Date(at), utcOffsetHours) !== baselineDay) continue;
     if (at > latestAt) {
       latest = snap;
       latestAt = at;
@@ -337,7 +337,7 @@ function unreadNote(dept: DepartmentEntry): string {
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
 /**
  * Одна общая истина для /api/integrity и /api/change-story.
- * База — последний контрольный четверг. После — последнее ДОСТОВЕРНОЕ чтение
+ * База — четверг предыдущей календарной недели. После — последнее ДОСТОВЕРНОЕ чтение
  * живых ведомственных книг из общего кэша, с собственной меткой каждой книги.
  * Источники не пересобираются в SQL-снимок ради сравнения; никаких записей.
  */
@@ -359,7 +359,7 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     note: lastError
       ? 'Недельный контроль не пригоден для достоверной сверки: ' + lastError +
         '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.'
-      : 'Нет последнего подтверждённого недельного контрольного среза. Сравнивать текущее состояние с суточными чтениями вместо него нельзя.',
+      : 'Нет подтверждённого среза четверга предыдущей календарной недели. Сравнивать текущее состояние с другой неделей или суточным чтением вместо него нельзя.',
   };
   const baselineNote = skippedControls > 0
     ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
@@ -557,6 +557,8 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
     const now = Date.now();
     if (!fresh && cached && now - cached.at < CACHE_TTL_MS &&
+        liveBaselineDay(new Date(cached.at), config.weeklySnapshot.utcOffsetHours) ===
+          liveBaselineDay(new Date(now), config.weeklySnapshot.utcOffsetHours) &&
         cached.sourceAt === getDeptCacheFilledAt()) {
       return reply.send(cached.response);
     }

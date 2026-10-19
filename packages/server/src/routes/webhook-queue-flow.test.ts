@@ -39,7 +39,7 @@ vi.mock('../config.js', () => ({
   webhookTuning: { debounceMs: 15_000, channelTtlMs: 86_400_000 },
 }));
 
-const refreshMonitoringBook = vi.fn(async () => ({ read: true, changed: [], version: 1 }));
+const refreshMonitoringBook = vi.fn(async () => ({ read: true, changed: [] as string[], version: 1 }));
 vi.mock('../services/monitoring.js', () => ({
   refreshMonitoringBook: () => refreshMonitoringBook(),
   MONITORING_SPREADSHEET_ID: 'file-monitoring',
@@ -112,6 +112,77 @@ function post(headers: Record<string, string>) {
 }
 
 describe('очередь уведомлений — сквозная дорога', () => {
+  it('доставляет применённую версию мониторинга даже при отказе фиксации очереди', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    const { subscribeLiveEvents } = await import('../services/event-bus.js');
+    const received = vi.fn();
+    const unsubscribe = subscribeLiveEvents(received);
+    refreshMonitoringBook.mockResolvedValueOnce({ read: true, changed: ['УО'], version: 2 });
+    db.run(sql`CREATE TEMP TRIGGER fail_monitoring_done BEFORE UPDATE OF state ON webhook_queue
+      WHEN NEW.state = 'done' BEGIN SELECT RAISE(ABORT, 'test write failure'); END`);
+    try {
+      await post(notification({ 'x-goog-resource-uri': 'https://www.googleapis.com/drive/v3/files/file-monitoring' }));
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(queue.queueStats().processed).toBe(0);
+      expect(queue.pendingNotifications()).toHaveLength(1);
+      expect(received).toHaveBeenCalledWith(expect.objectContaining({
+        event: { kind: 'monitoring-updated', sheets: ['УО'], version: 2, origin: 'webhook' },
+      }));
+      db.run(sql`DROP TRIGGER fail_monitoring_done`);
+      await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+      expect(queue.pendingNotifications()).toHaveLength(0);
+      expect(received).toHaveBeenCalledTimes(1);
+    } finally {
+      db.run(sql`DROP TRIGGER IF EXISTS fail_monitoring_done`);
+      unsubscribe();
+    }
+  });
+
+  it('не подтверждает несохранённое уведомление и принимает повтор того же номера', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    const headers = notification();
+    db.run(sql`CREATE TEMP TRIGGER fail_queue_insert BEFORE INSERT ON webhook_queue
+      BEGIN SELECT RAISE(ABORT, 'test insert failure'); END`);
+    try {
+      const response = await post(headers);
+      expect(response.statusCode).toBe(503);
+      expect(queue.pendingNotifications()).toHaveLength(0);
+    } finally {
+      db.run(sql`DROP TRIGGER fail_queue_insert`);
+    }
+    expect((await post(headers)).statusCode).toBe(200);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
+  it('повторяет чтение после отказа фиксации done и сохраняет pending до успешной записи', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    db.run(sql`CREATE TEMP TRIGGER fail_queue_done BEFORE UPDATE OF state ON webhook_queue
+      WHEN NEW.state = 'done' BEGIN SELECT RAISE(ABORT, 'test write failure'); END`);
+    try {
+      await post(notification());
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(queue.pendingNotifications()).toEqual([
+        expect.objectContaining({ attempts: 1, lastError: 'WEBHOOK_QUEUE_WRITE_FAILED' }),
+      ]);
+      expect(queue.queueStats().processed).toBe(0);
+    } finally {
+      db.run(sql`DROP TRIGGER fail_queue_done`);
+    }
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(2);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
   it('уведомление отвечает 200 мгновенно, запись лежит в очереди невыполненной', async () => {
     vi.useFakeTimers();
     const res = await post(notification());

@@ -131,6 +131,20 @@ describe('GET /api/change-story', () => {
     process.env = ORIGINAL_ENV;
   });
 
+  it('оба журнала в пятницу сохраняют предыдущую календарную неделю', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-21T00:00:00Z'));
+    try {
+      for (const url of ['/api/changes', '/api/change-story']) {
+        const result = await app.inject({ url });
+        expect(result.statusCode).toBe(200);
+        expect(result.json().since).toBe('2026-08-13');
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('адрес правки — по № п/п, номер строки листа идёт вторым', () => {
     const money = body.entries.find((e) => e.column === 'K');
     expect(money?.rowSeq).toBe('38');
@@ -269,4 +283,11 @@ it('контрольная дата показана по Камчатке, а �
   const window = changeStoryDefaultWindow({ beforeAt }, new Date('2026-10-09T01:00:00.000Z'), 12);
   expect(window.sinceMs).toBe(Date.parse(beforeAt));
   expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-01'));
+});
+
+it('без контроля журнал открывает каноническую неделю с четверга 18:00', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const window = changeStoryDefaultWindow(null, new Date('2026-10-23T00:00:00Z'), 12);
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-15'));
+  expect(window.sinceMs).toBe(Date.parse('2026-10-15T06:00:00Z'));
 });

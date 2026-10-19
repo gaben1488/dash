@@ -24,7 +24,7 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
     let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
     const methodRestricted = showKP !== showEP;
-    const selected = isActivityFiltered || methodRestricted
+    const selected = isActivityFiltered || methodRestricted || depts.some(d => d._subFiltered)
       ? selectActivityMethods(depts, {
           actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
           periodKeys: [pk], showKP, showEP,

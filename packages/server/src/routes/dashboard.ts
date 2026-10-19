@@ -540,7 +540,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           // fresh нужен вместе с формулами: присоединиться к идущему циклу
           // значило бы получить его результат БЕЗ формул и молча решить,
           // что дефектов нет.
-          withFormulas ? { withFormulas: true, fresh: true } : {},
+          withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
         );
       } catch (err) {
         // Цикл сам не валится от отказа отдельной книги; сюда попадает только

@@ -385,6 +385,7 @@ async function gateByRevision(
   candidates: readonly string[],
   wantSvod: boolean,
   ask: boolean,
+  withFormulas: boolean,
 ): Promise<{ books: string[]; svod: boolean; skipped: string[]; attested: string[] }> {
   if (!ask) return { books: [...candidates], svod: wantSvod, skipped: [], attested: [] };
 
@@ -405,7 +406,7 @@ async function gateByRevision(
     }
     const hadRevision = lastKnownRevision(fileId) !== null;
     const verdict = await checkFileChanged(fileId);
-    if (verdict === 'same') {
+    if (verdict === 'same' && (!withFormulas || cached[book]?.formulasRead)) {
       skipped.push(book);
       return;
     }
@@ -470,18 +471,14 @@ export function refreshAllSources(log?: {
 
     // Ступень отсева у Google — ДО чтения: книга, которую никто не трогал с
     // прошлого раза, не стоит ни байта грида (см. gateByRevision).
-    // Ручная просьба прочитать ФОРМУЛЫ отменяет отсев по отметке Drive.
-    // Иначе жест владельца «перечитать сейчас» бесполезен ровно в том случае,
-    // ради которого он существует: формулу починили руками, содержимое ячейки
-    // изменилось, а Drive о правке уже отчитался прошлым циклом — книга
-    // считается неизменной, формулы не читаются, дефект остаётся на экране.
-    // Плата названа вслух: полный проход по восьми книгам со вторым
-    // обращением за формулами. Автоматические циклы отсев сохраняют.
-    const askDrive = options.withFormulas ? false : (options.askDrive ?? true);
+    // Формат чтения не означает принуждение: повторный вебхук может пропустить
+    // уже прочитанную версию с формулами. Ручной/контрольный обход задаёт askDrive:false.
+    const askDrive = options.askDrive ?? true;
     const gate = await gateByRevision(
       targetBooks ?? Object.keys(DEPARTMENT_SPREADSHEETS),
       wantSvod,
       askDrive,
+      options.withFormulas ?? false,
     );
     const booksToRead = gate.books;
     const readSvod = gate.svod;

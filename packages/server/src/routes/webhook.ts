@@ -93,6 +93,16 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
         log.warn(`Вебхук: неполное чтение мониторинга; повтор поставлен в очередь`);
         return;
       }
+      // Кэш уже обновлён: повтор может вернуть changed: [], поэтому событие
+      // нельзя потерять из-за последующего отказа фиксации очереди.
+      if (r.read && r.changed.length > 0) {
+        publishLiveEvent({
+          kind: 'monitoring-updated',
+          sheets: r.changed,
+          version: r.version,
+          origin: 'webhook',
+        });
+      }
       settleMonitoring(claimed, true);
       if (!r.read) {
         log.info(`Вебхук: книга мониторинга не перечитана — ${r.skippedBecause ?? 'изменений нет'}`);
@@ -102,12 +112,6 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
         log.info('Вебхук: книга мониторинга перечитана, содержимое прежнее — эфир молчит');
         return;
       }
-      publishLiveEvent({
-        kind: 'monitoring-updated',
-        sheets: r.changed,
-        version: r.version,
-        origin: 'webhook',
-      });
       log.info(`Вебхук: книга мониторинга перечитана, изменились листы: ${r.changed.join(', ')}`);
     })
     .catch((err: unknown) => {
@@ -438,43 +442,47 @@ export function webhookRoutes(app: FastifyInstance): void {
     // концом учёта не имеет права класть второй экземпляр того же сообщения
     // из catch — иначе одна правка читалась бы и считалась дважды.
     let enqueued = false;
+    let enqueueAttempted = false;
     const enqueueOnce = (): void => {
       if (enqueued) return;
-      enqueued = true;
+      if (enqueueAttempted) throw new Error('WEBHOOK_QUEUE_ENQUEUE_FAILED');
+      enqueueAttempted = true;
       // Очередь — до ответа Google: запись переживает падение процесса, и
       // выполненной её пометит только состоявшееся чтение (проект §2.3).
-      // Отказ базы очередь ловит сама и отвечает null — уведомление всё
-      // равно принято, сетью безопасности остаётся опрос по расписанию.
-      enqueueNotification({
+      // Отказ записи не подтверждается успешным HTTP-ответом.
+      enqueued = enqueueNotification({
         book,
         fileId: notification.fileId,
         messageNumber: notification.messageNumber,
         channelId: notification.channelId,
         resourceState: notification.resourceState,
-      });
+      }) !== null;
+      if (!enqueued) throw new Error('WEBHOOK_QUEUE_ENQUEUE_FAILED');
     };
     try {
-      const decision = noteNotification(notification, isRefreshArmed());
+      const decision = noteNotification(notification, isRefreshArmed(), new Date(), enqueueOnce);
       // Цель копится и у схлопнувшегося уведомления: «схлопнуто» означает «не
       // назначай второй цикл», а не «забудь, какую книгу правили». Раньше
       // разницы не было — цикл всё равно читал всё.
       if (decision === 'refresh' || decision === 'coalesced') {
         noteTarget(notification.fileId);
-        enqueueOnce();
       }
       if (decision === 'refresh') scheduleRefresh(log);
       logNotification(request, notification, book, decision);
     } catch (err) {
-      // Сбой собственного учёта не имеет права стоить правки. Пятисотка
-      // заставила бы Google повторять доставку (документация Drive), но
-      // повторять нечего — перечитка асинхронна. Поэтому: честная запись в
-      // журнал, перечитка на всякий случай и «принято».
+      // Подтверждаем только durable-приём; при отказе записи 503 допускает
+      // повтор доставки. Плановая сверка остаётся страховкой пропущенных push.
       request.log.warn(`Вебхук: учёт уведомления не удался: ${(err as Error).message}`);
       // Собственный учёт сломался — цель уведомления доверия не заслуживает.
       // Читаем всё: пропустить правку хуже, чем прочитать лишнее. Запись в
       // очередь — тоже, чтобы правка пережила падение процесса, но ОДНА:
       // если она легла до исключения, второй экземпляр не кладётся.
-      enqueueOnce();
+      try {
+        enqueueOnce();
+      } catch {
+        request.log.warn('Вебхук: WEBHOOK_QUEUE_ENQUEUE_FAILED; уведомление не сохранено');
+        return reply.status(503).send();
+      }
       pendingPlan = mergePlans([pendingPlan, planForFile(null)]);
       scheduleRefresh(log);
     }

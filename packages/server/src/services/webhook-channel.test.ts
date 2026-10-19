@@ -499,6 +499,9 @@ describe('serialization of lifecycle generations', () => {
       expect(old.watched).toHaveLength(1);
       expect(old.stopped).toHaveLength(1);
       expect(noteNotification(earlySync, false)).toBe('late');
+      for (let messageNumber = 2; messageNumber < 602; messageNumber += 1) {
+        expect(noteNotification({ ...earlySync, messageNumber }, false)).toBe('late');
+      }
       expect(webhookChannelState().channels.items.every((item) => item.state !== 'unknown')).toBe(true);
     } finally { release(); stopWebhookChannels(); }
   });

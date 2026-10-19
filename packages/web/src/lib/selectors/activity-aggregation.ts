@@ -16,6 +16,8 @@ export interface MethodActivityValue {
   factSum: number;
   planFB: number; planKB: number; planMB: number;
   factFB: number; factKB: number; factMB: number;
+  economyTotal?: number;
+  economyFB?: number; economyKB?: number; economyMB?: number;
 }
 
 interface ActivityValue {
@@ -222,6 +224,8 @@ export function mergeSubordinateActivityPeriods(subordinates: any[]): Record<str
       for (const method of ['competitive', 'ep'] as const) {
         const metric: Record<string, number> = {};
         for (const field of amountFields) {
+          if (field.startsWith('economy') && contributors.some(a =>
+            typeof a.byMethod?.[method]?.[field] !== 'number')) continue;
           metric[field] = contributors.reduce((sum, a) => sum + (a.byMethod?.[method]?.[field] ?? 0), 0);
         }
         if (methodComplete) aggregated.byMethod[method] = metric;

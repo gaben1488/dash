@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+// Two real calculation workers took 9.6s on the CPU-bounded release runner.
+// Freshness and queue ordering are asserted below, independently of startup time.
+vi.setConfig({ testTimeout: 30_000 });
+
 const original = { ...process.env };
 const google = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('./google-sheets.js', () => ({
