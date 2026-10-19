@@ -4,9 +4,10 @@ from __future__ import annotations
 import math
 import signal
 from threading import Event
+from time import monotonic
 
 from .retention import safe_compact_transient_attempts
-from .runtime import run_once
+from .runtime import has_pending_report, run_once
 from .weekly_archive import maybe_seal_weekly_archive, recover_weekly_archives
 
 
@@ -28,13 +29,18 @@ def work(registry, ledger, state, *, interval_seconds=900, stop=None, run=run_on
         # Status/error records, publications, weekly archives and identity state
         # are outside the retention surface.
         compact(state)
+        next_run = 0.0
         while not stopped.is_set():
+            if monotonic() < next_run and not has_pending_report(state):
+                stopped.wait(min(5, max(0, next_run - monotonic())))
+                continue
             result = run(registry, ledger, state)
             # A Thursday capture must get the first chance to become an immutable
             # weekly archive before retention considers its transient payload.
             seal(state, result)
             compact(state)
-            stopped.wait(interval_seconds)
+            next_run = monotonic() + interval_seconds
+            stopped.wait(min(5, interval_seconds))
         return 0
     finally:
         for signum, handler in handlers.items():

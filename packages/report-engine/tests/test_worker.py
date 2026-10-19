@@ -5,7 +5,8 @@ from procurement_engine.worker import work
 
 
 def test_worker_retries_after_failed_attempt_and_stops_without_extra_run():
-    stopped = Event(); calls = []
+    stopped = Event()
+    calls = []
 
     def attempt(*args):
         calls.append(args)
@@ -19,7 +20,8 @@ def test_worker_retries_after_failed_attempt_and_stops_without_extra_run():
 
 
 def test_worker_refuses_busy_loop_and_does_not_run_after_shutdown():
-    stopped = Event(); stopped.set()
+    stopped = Event()
+    stopped.set()
     def forbidden(*args):
         raise AssertionError('already stopped')
     assert work('r', 'l', 's', stop=stopped, run=forbidden) == 0
@@ -59,3 +61,30 @@ def test_worker_recovers_before_first_compaction_and_seals_before_each_compactio
         ("seal", "state", "a"),
         ("compact", "state"),
     ]
+
+
+def test_manual_command_is_not_delayed_until_the_next_periodic_capture(tmp_path, monkeypatch):
+    from procurement_engine import worker
+    from procurement_engine.runtime import enqueue_report
+    from test_runtime import inputs
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    calls = []
+    class Clock:
+        now = 0
+        def is_set(self):
+            return len(calls) == 2
+        def wait(self, seconds):
+            assert seconds <= 5
+            self.now += seconds
+            if len(calls) == 1:
+                enqueue_report(registry, ledger, state)
+    clock = Clock()
+    monkeypatch.setattr(worker, 'monotonic', lambda: clock.now)
+    def run(*_args):
+        calls.append(clock.now)
+        return {'status': 'NOT_ISSUED'}
+    assert work(registry, ledger, state, interval_seconds=900, stop=clock,
+                run=run, recover=lambda *_: None, compact=lambda *_: None,
+                seal=lambda *_: None) == 0
+    assert calls == [0, 5]

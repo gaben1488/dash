@@ -63,6 +63,13 @@ def main(argv=None):
     run.add_argument("--registry", required=True)
     run.add_argument("--ledger", required=True)
     run.add_argument("--state", required=True)
+    enqueue = sub.add_parser("enqueue-report", help="Persist a full-source refresh before acknowledging it")
+    enqueue.add_argument("--registry", required=True)
+    enqueue.add_argument("--ledger", required=True)
+    enqueue.add_argument("--state", required=True)
+    command = sub.add_parser("read-report-command", help="Read a bounded durable command receipt")
+    command.add_argument("--state", required=True)
+    command.add_argument("--attempt-id", required=True)
     bootstrap = sub.add_parser("bootstrap-google", help="Install private runtime inputs using the existing service account")
     bootstrap.add_argument("--inputs", required=True)
     migration = sub.add_parser("migrate-google-schema", help="Apply reviewed private reference header migrations")
@@ -183,6 +190,14 @@ def main(argv=None):
             print(str(error), file=sys.stderr)
             return 4 if str(error) == 'PUBLICATION_NOT_FOUND' else 2
         sys.stdout.buffer.write(result)
+        return 0
+    if args.cmd == "enqueue-report":
+        from .runtime import enqueue_report
+        dump(enqueue_report(args.registry, args.ledger, args.state))
+        return 0
+    if args.cmd == "read-report-command":
+        from .runtime import read_report_command
+        dump(read_report_command(args.state, args.attempt_id))
         return 0
     if args.cmd == "run-google":
         from .deployment_diagnostics import summarize_status

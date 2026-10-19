@@ -15,6 +15,7 @@ PUBLIC_TYPES = frozenset(['GoogleReadError', 'AtomicSnapshotError', 'Publication
 
 # HTTP status is a finite protocol vocabulary; no provider response text is public.
 PUBLIC_CODES = PUBLIC_CODES | frozenset(f'GOOGLE_READ_HTTP_{code}' for code in range(400, 600)) | frozenset({
+    'REPORT_COMMAND_INPUTS_CHANGED',
     'GOOGLE_FORMULA_ERROR', 'GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT',
     'GOOGLE_SOURCE_COLUMNS_MISSING', 'GOOGLE_RANGE_OVERFLOW', 'GOOGLE_COLUMN_OVERFLOW',
     'GOOGLE_FORMULA_RANGE_OVERFLOW', 'CAPTURE_CROSSED_LOCAL_MIDNIGHT_RETRY',

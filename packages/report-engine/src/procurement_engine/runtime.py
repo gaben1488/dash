@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
 import traceback
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +34,14 @@ def _load(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
+def _sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _write(path, value):
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
@@ -42,19 +52,113 @@ def _write(path, value):
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary, path)
-        fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        _sync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _admission(state):
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (state / 'admission.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _command_inputs(registry, ledger):
+    raw = [Path(path).read_bytes() for path in (registry, ledger)]
+    return raw, [hashlib.sha256(value).hexdigest() for value in raw]
+
+
+def _pending_commands(state):
+    # Only outstanding commands are scanned, never the retained attempt history.
+    if (state / 'commands').is_symlink():
+        raise ValueError('REPORT_COMMAND_STATE_INVALID')
+    for path in (state / 'commands').glob('*.json'):
+        if path.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}', path.stem):
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        command = _load(path)
+        if command.get('attempt_id') != path.stem or command.get('status') != 'QUEUED':
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        attempt = state / 'attempts' / path.stem / 'status.json'
+        if attempt.is_symlink() or attempt.parent.is_symlink():
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        if not attempt.exists():
+            yield command
+            continue
+        saved = _load(attempt)
+        if saved.get('attempt_id') != path.stem or saved.get('status') not in {
+                'RUNNING', 'VERIFIED', 'VERIFIED_WITH_WARNINGS', 'NOT_ISSUED'}:
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        if saved['status'] != 'RUNNING':
+            # Terminal attempt was fsynced before removal; a crash may retain the
+            # queue file, but must never execute that command a second time.
+            path.unlink()
+            _sync_directory(path.parent)
+
+
+def enqueue_report(registry, ledger, state_dir):
+    """Durably accept a full-source refresh; only not-yet-started work can join."""
+    state = Path(state_dir)
+    _, fingerprints = _command_inputs(registry, ledger)
+    with _admission(state):
+        pending = list(_pending_commands(state))
+        for command in pending:
+            if command['input_sha256'] == fingerprints:
+                return _command_receipt(command)
+        if len(pending) >= 128:
+            raise ValueError('REPORT_COMMAND_QUEUE_FULL')
+        command = {'status': 'QUEUED', 'attempt_id': uuid.uuid4().hex,
+                   'requested_at': datetime.now(timezone.utc).isoformat(),
+                   'input_sha256': fingerprints, 'scope': 'full-registry-with-formulas'}
+        root = state / 'commands'
+        root.mkdir(exist_ok=True, mode=0o700)
+        _sync_directory(state)
+        _write(root / (command['attempt_id'] + '.json'), command)
+        return _command_receipt(command)
+
+
+def _command_receipt(status):
+    receipt = {key: status[key] for key in ('status', 'attempt_id', 'requested_at',
+        'started_at', 'finished_at', 'stage', 'error_code') if key in status}
+    if status.get('publication'):
+        receipt['release_id'] = status['publication']['release_id']
+    return receipt
+
+
+def read_report_command(state_dir, identifier):
+    if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier):
+        raise ValueError('REPORT_COMMAND_ID_INVALID')
+    state = Path(state_dir)
+    attempt = state / 'attempts' / identifier / 'status.json'
+    # Completion can remove the queue file after the first attempt lookup.
+    # Recheck the durable result before declaring an accepted ID missing.
+    for path in (attempt, state / 'commands' / (identifier + '.json'), attempt):
+        if path.is_symlink() or path.parent.is_symlink():
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        try:
+            status = _load(path)
+        except FileNotFoundError:
+            continue
+        if status.get('attempt_id') != identifier:
+            raise ValueError('REPORT_COMMAND_STATE_INVALID')
+        return _command_receipt(status)
+    raise ValueError('REPORT_COMMAND_NOT_FOUND')
+
+
+def has_pending_report(state_dir):
+    state = Path(state_dir)
+    if not (state / 'commands').exists():
+        return False
+    with _admission(state):
+        return next(_pending_commands(state), None) is not None
 
 
 def _checkpoint(state, attempt, status, stage):
     status['stage'] = stage
     journal = {key: status[key] for key in ('status', 'attempt_id', 'started_at', 'stage',
-        'snapshot_id', 'report_date', 'pending_release_id') if key in status}
+        'snapshot_id', 'report_date', 'pending_release_id', 'requested_at',
+        'input_sha256', 'scope') if key in status}
     _write(attempt / 'status.json', journal)
     _write(state / 'status.json', journal)
 
@@ -129,16 +233,25 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         except BlockingIOError:
             return {'status': 'ALREADY_RUNNING'}
         _recover_interrupted_attempts(state)
-        attempt_id = uuid.uuid4().hex
-        attempt = state / 'attempts' / attempt_id
-        attempt.mkdir(parents=True, mode=0o700)
-        status = {'status': 'RUNNING', 'attempt_id': attempt_id,
-                  'started_at': datetime.now(timezone.utc).isoformat()}
-        stage = 'inputs'
-        _checkpoint(state, attempt, status, stage)
+        with _admission(state):
+            queued = sorted(_pending_commands(state), key=lambda item: (item['requested_at'], item['attempt_id']))
+            status = dict(queued[0]) if queued else {'attempt_id': uuid.uuid4().hex}
+            attempt_id = status['attempt_id']
+            attempt = state / 'attempts' / attempt_id
+            attempt.mkdir(parents=True, exist_ok=True, mode=0o700)
+            status.update(status='RUNNING', started_at=datetime.now(timezone.utc).isoformat())
+            stage = 'inputs'
+            _checkpoint(state, attempt, status, stage)
         try:
-            registry = _load(registry_path)
-            ledger = issued_recommendations(_load(ledger_path))
+            if 'input_sha256' in status:
+                raw, fingerprints = _command_inputs(registry_path, ledger_path)
+                if fingerprints != status['input_sha256']:
+                    raise ValueError('REPORT_COMMAND_INPUTS_CHANGED')
+                registry = json.loads(raw[0])
+                ledger = issued_recommendations(json.loads(raw[1]))
+            else:
+                registry = _load(registry_path)
+                ledger = issued_recommendations(_load(ledger_path))
             from .runtime_inputs import validate_inputs
 
             validate_inputs(registry, ledger)
@@ -262,6 +375,11 @@ def _finish_attempt(state, attempt, status):
     status.setdefault('finished_at', datetime.now(timezone.utc).isoformat())
     _write(attempt / 'status.json', _retained_attempt_status(status))
     _write(state / 'status.json', status)
+    with _admission(state):
+        command = state / 'commands' / (status['attempt_id'] + '.json')
+        if command.exists():
+            command.unlink()
+            _sync_directory(command.parent)
     from .report_health import record_attempt
     try:
         record_attempt(state, status)
