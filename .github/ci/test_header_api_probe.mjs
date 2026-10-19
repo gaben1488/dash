@@ -1,12 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport, headerShapeIssues, parseReportJSON } from './header_api_probe.mjs';
+import { probeHeaderApi, validHeaderPayload, HEADER_ENDPOINTS, loadCandidateBrowser, metricWiringReport, headerShapeIssues, parseReportJSON, reportSelectionPath } from './header_api_probe.mjs';
 const fixtures = {
   comments: {total:0,comments:[],witnesses:[]},
   sources: { refresh: { webhookConfigured: false, withinWorkWindow: false, autoRefreshMinutes: 0, workWindowLabel: 'fixture' } },
   buckets: { asOf: '2026-10-12T00:00:00Z', source: 'snapshot', unfunded: { rows: 0, planSum: 0 }, yearlong: { rows: 0, planSum: 0 } },
   journal: { since: '2026-10-08', digest: { books: 0, rows: 0, entries: 0, byKind: Object.fromEntries(['row-vanished','row-identity-candidate','money','dates','row-added','method','comment','flag','subject','other'].map(k=>[k,0])), booksNamed: [], authors: [], firstAt:null,lastAt:null,emptiness: 'quiet' }, gaps: [], entries: [], facets: { books: [], authors: [] }, total: 0, shown: 0 },
 };
+
+test('selects the retained latest publication context without a historical fixed date', () => {
+  const release = {release_id:'REL-'+'a'.repeat(64),report_date:'2026-10-19',report_year:2027,quarter:1};
+  assert.equal(reportSelectionPath({releases:[release]}), '/api/report-releases?date=2026-10-19&year=2027&quarter=1');
+  for (const history of [{}, {releases:[]}, {releases:[{...release,report_year:null}]},
+    {releases:[{...release,report_date:'2026-02-30'}]}, {releases:[{...release,quarter:0}]},
+    {releases:[{...release,release_id:'invalid'}]}, {releases:[{},release]}]) {
+    assert.throws(() => reportSelectionPath(history), /PUBLICATION_CONTEXT_UNAVAILABLE/);
+  }
+});
 test('probes exact frontend endpoint paths with GET and preserves actual zero/false', async () => {
   const result = await probeHeaderApi(async (url, options) => {
     assert.equal(options.method, 'GET'); assert.equal(options.headers.Authorization, 'Bearer fixture-key');

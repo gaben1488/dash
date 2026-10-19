@@ -34,6 +34,17 @@ export function parseReportJSON(body) {
   return JSON.parse(body);
 }
 
+export function reportSelectionPath(history) {
+  const latest = Array.isArray(history?.releases) ? history.releases[0] : null;
+  if (!object(latest) || !/^REL-[a-f0-9]{64}$/.test(latest.release_id ?? '') ||
+      !day(latest.report_date) || !Number.isInteger(latest.report_year) ||
+      latest.report_year < 1900 || latest.report_year > 9999 ||
+      !Number.isInteger(latest.quarter) || latest.quarter < 1 || latest.quarter > 4) {
+    throw Error('PUBLICATION_CONTEXT_UNAVAILABLE');
+  }
+  return `/api/report-releases?date=${latest.report_date}&year=${latest.report_year}&quarter=${latest.quarter}`;
+}
+
 export function validHeaderPayload(name, data) {
   if (!object(data)) return false;
   if (name === 'comments') return count(data.total) && Array.isArray(data.comments) &&
@@ -172,9 +183,12 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       if(!Array.isArray(dashboard.departmentSummaries))throw Error('METRIC_INPUT_SHAPE');
       report.metric_wiring={...metricWiringReport(browser,dashboard),response_sha256:createHash('sha256').update(dashboardText).digest('hex')};
       stage='REPORT_READ';
-      // Explicit existing publication context from the Word recovery handoff.
-      // A schema that accepts an empty future-day envelope is not Word proof.
-      const response=await fetch('http://127.0.0.1:3000/api/report-releases?date=2026-10-12&year=2026&quarter=4',{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
+      // Retention removes old daily releases. Test the latest catalog context;
+      // an absent/invalid context or an empty selected envelope still fails.
+      const historyResponse=await fetch('http://127.0.0.1:3000/api/report-releases/history',{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
+      if(historyResponse.status!==200)throw Error('PUBLICATION_CONTEXT_UNAVAILABLE');
+      const selectionPath=reportSelectionPath(parseReportJSON(await historyResponse.text()));
+      const response=await fetch('http://127.0.0.1:3000'+selectionPath,{headers:{Authorization:'Bearer '+(process.env.AEMR_API_KEY??'')},signal:AbortSignal.timeout(15000)});
       const reportText=response.status===200?await response.text():null;
       report.report_response={status:response.status,bytes:reportText?Buffer.byteLength(reportText):0,
         ...(reportText?{response_sha256:createHash('sha256').update(reportText).digest('hex')}:{})};
@@ -185,7 +199,7 @@ if (process.env.HEADER_PROBE_CLI==='1' || process.argv[1] === '-' || (process.ar
       const fields=new Set(['selected','attempt','automation_assurance','contract','source_observations','nonprocurement_identity_observations','user_action_count','engine_action_count','actions','source_revision','status','available']);
       report.browser_consumers={result:selectedPresent?(headersValid?'CANDIDATE_CONSUMERS_PASS':'CANDIDATE_HEADER_CONTRACT_FAIL'):parsed?.success?'NO_SELECTED_PUBLICATION':'CANDIDATE_REPORT_CONTRACT_FAIL',report_contract:parsed?.success?'PASS':'FAIL',selected_present:Boolean(selectedPresent),errors:parsed&&!parsed.success?parsed.error.issues.slice(0,8).map(x=>({code:x.code,path:x.path.map(k=>fields.has(k)?k:'?').join('.')})):[]};
     }catch(error){
-      const known=new Set(['REPORT_PAYLOAD_TOO_LARGE','METRIC_PAYLOAD_TOO_LARGE','METRIC_INPUT_UNAVAILABLE','METRIC_INPUT_SHAPE','CANDIDATE_BUNDLE_MISSING','BROWSER_PASSPORT_UNKNOWN']);
+      const known=new Set(['REPORT_PAYLOAD_TOO_LARGE','METRIC_PAYLOAD_TOO_LARGE','METRIC_INPUT_UNAVAILABLE','METRIC_INPUT_SHAPE','CANDIDATE_BUNDLE_MISSING','BROWSER_PASSPORT_UNKNOWN','PUBLICATION_CONTEXT_UNAVAILABLE']);
       const classes=new Set(['TypeError','SyntaxError','TimeoutError','AbortError','Error']);
       report.browser_consumers={result:'CANDIDATE_CONSUMERS_UNAVAILABLE',stage,reason:known.has(error?.message)?error.message:'READ_OR_PARSER_FAILED',error_class:classes.has(error?.name)?error.name:'Other'};
     }
