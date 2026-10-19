@@ -240,6 +240,8 @@ legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
 
 <a id="program-metrics-20261018"></a>
 
+<a id="programs-metrics"></a>
+
 ## Закупочная часть программ — целевой контракт18.10.2026
 
 Это определения для существующих C02.03/C03.01/C05.01/C08.06 и концепции

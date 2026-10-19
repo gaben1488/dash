@@ -1,6 +1,8 @@
 # AEMR Production Deploy
 
-Канонический production stack: Docker Compose с тремя контейнерами.
+Канонический production stack: Docker Compose, базовые сервисы ниже;
+плановый `report-worker` подключается профилем `reports`.
+Текущая установка и допуски — [PLAN](../docs/PLAN.md#current-execution).
 
 - `caddy`: edge proxy на 80/443, gzip, optional Let's Encrypt.
 - `web`: собранная Vite SPA, отдаётся Caddy внутри контейнера.
@@ -46,6 +48,10 @@ docker run --rm -it caddy:2.10-alpine caddy hash-password
 иначе съедает часть хэша — правильный пароль начинает давать 401.
 
 ## Запуск
+
+Команды ниже — первоначальное создание пустого локального/тестового стенда.
+На действующем сервере применять [обновление и выпускной допуск](#обновление-и-выпускной-допуск),
+а не прямой `compose up --build`. Наличие этой инструкции не разрешает установку.
 
 Из каталога `deploy/`:
 
@@ -357,13 +363,16 @@ lock. Синтетические SIGKILL/process проверки не дока�
 
 ## Web Auth Bootstrap
 
-Пока полноценного login-flow нет, web client берёт API key из browser localStorage:
+Только локальный development/test с заданным ключом использует localStorage:
 
 ```js
 localStorage.setItem('aemr_api_key', '<same-key-as-AEMR_API_KEY>')
 ```
 
-Это MLP-режим для внутреннего контура. Для публичного доступа нужен отдельный login/session слой.
+Production-браузер входит через Basic Auth Caddy; proxy добавляет серверный
+Bearer, JSON-клиент не отправляет локальный ключ. Публичный read-only —
+отдельный режим. Точные границы — [SECURITY](../docs/SECURITY.md), включая
+отсутствие персональной role/actor-модели. Не раздавать production-ключ браузерам.
 
 ### Одноразовое уплотнение опубликованных отчётов
 

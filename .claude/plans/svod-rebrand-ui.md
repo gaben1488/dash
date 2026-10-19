@@ -6,6 +6,11 @@ superseded_by: "rustling-sniffing-lobster.md (Ф4 UI portion)"
 related: ["[[NOW]]", "[[FINAL_MASTER_ROADMAP]]"]
 ---
 
+> **Исторический локальный план.** Внешний vault/NOW не является
+> действующей точкой входа репозитория. Использовать
+> [AGENTS](../../AGENTS.md) и [PLAN](../../docs/PLAN.md#current-execution);
+> прежние состояния ниже не отменяют поздние решения владельца.
+
 > Активный текущий шаг см. [[NOW]] в vault AEMR/10-Index/. Этот файл содержит детализацию но не источник истины — при расхождении с NOW.md следовать NOW. В части Ф4 UI — superseded by `rustling-sniffing-lobster.md`.
 
 # СВОД Rebrand UI — Implementation Plan

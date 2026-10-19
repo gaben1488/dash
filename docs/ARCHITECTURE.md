@@ -370,7 +370,10 @@ Registered route groups:
 
 ## Auth Boundary
 
-`registerAuthHook` protects `/api/*` when `AEMR_API_KEY` is set. In production the server refuses to start without this key. `/api/health` is public.
+The implemented access modes and exceptions are documented in
+[SECURITY](SECURITY.md). Protected runtimes outside explicit development/test
+require `AEMR_API_KEY`; public read-only is a separate mode. `/api/health` and
+the channel-token-protected Drive webhook bypass the shared Bearer hook.
 
 Production browser access uses Caddy Basic authentication; Caddy injects the
 server-side Bearer token. The production web client deliberately does not send
@@ -409,6 +412,10 @@ Production compose persists SQLite at:
 Исторические `recon/trust/issues/recs/journal` читаются как пути Контроля;
 это не дополнительные независимые расчётные экраны. Перечень исходников
 не является приёмкой всех 13 браузерных сценариев.
+
+«Программы» — целевой 14-й раздел по позднему решению владельца, а не уже
+подключённый маршрут. Контракт — [METRICS_CONTRACT](METRICS_CONTRACT.md#programs-metrics),
+композиция — [DESIGN](../DESIGN.md#programs-concept-20261018), стадия — PLAN.
 
 Global state lives in `packages/web/src/store.ts`. Filter semantics: empty Set means "all"; period can be week-derived or explicit month/quarter/year selection.
 
