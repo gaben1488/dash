@@ -36,6 +36,8 @@ const TRANSIENT_REFRESH = 'SOURCE_REFRESH_TRANSIENT';
 export function canRetryNotification(entry: Pick<QueueEntry, 'attempts' | 'lastError'>): boolean {
   return entry.attempts < MAX_QUEUE_ATTEMPTS && (entry.attempts === 0 ||
     entry.lastError === 'WEBHOOK_QUEUE_WRITE_FAILED' ||
+    entry.lastError === 'SOURCE_STATE_READ_FAILED' ||
+    entry.lastError === 'SOURCE_STATE_PERSIST_FAILED' ||
     entry.lastError === TRANSIENT_REFRESH || isTransientSourceFailure(entry.lastError));
 }
 

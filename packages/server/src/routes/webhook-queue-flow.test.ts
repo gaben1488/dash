@@ -112,6 +112,29 @@ function post(headers: Record<string, string>) {
 }
 
 describe('очередь уведомлений — сквозная дорога', () => {
+  it.each(['SOURCE_STATE_READ_FAILED', 'SOURCE_STATE_PERSIST_FAILED'])('retries %s without acknowledging the failed attempt', async (code) => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValueOnce(new Error(code));
+    expect((await post(notification())).statusCode).toBe(200);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: 1, lastError: code })]);
+    expect(queue.queueStats().processed).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(2);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
+  it('bounds repeated source-state failures and retains actionable evidence', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('SOURCE_STATE_PERSIST_FAILED'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(queue.MAX_QUEUE_ATTEMPTS);
+    expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: queue.MAX_QUEUE_ATTEMPTS, lastError: 'SOURCE_STATE_PERSIST_FAILED' })]);
+    expect(queue.queueStats()).toMatchObject({ processed: 0, requiresAttention: 1 });
+  });
+
   it('доставляет применённую версию мониторинга даже при отказе фиксации очереди', async () => {
     vi.useFakeTimers();
     const { db } = await import('../db/index.js');
