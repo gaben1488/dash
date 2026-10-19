@@ -83,3 +83,19 @@ describe('честные пропуски журнала (правило пол�
     expect(wm.recentGaps()).toHaveLength(1);
   });
 });
+
+describe('storage failures are not successful empty results', () => {
+  it('reports failed writes and allows retry after SQLite becomes writable', async () => {
+    const { db } = await import('../db/index.js');
+    db.$client.pragma('query_only = ON');
+    try {
+      expect(() => wm.saveWatermark('УО', 'pending', '2026-10-20T00:00:00Z')).toThrow();
+      expect(() => wm.noteHonestGap('УО', 'pending')).toThrow();
+    } finally {
+      db.$client.pragma('query_only = OFF');
+    }
+    wm.saveWatermark('УО', 'accepted', '2026-10-20T00:00:00Z');
+    expect(wm.watermarkOf('УО')?.fingerprint).toBe('accepted');
+    expect(wm.noteHonestGap('УО', 'pending')).toBe(true);
+  });
+});

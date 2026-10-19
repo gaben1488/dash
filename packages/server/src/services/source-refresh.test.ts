@@ -117,6 +117,36 @@ afterEach(async () => {
 });
 
 describe('перечитка источников одним циклом', () => {
+  it('retries loading saved watermarks after a database read failure', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    loadWatermarks.mockImplementationOnce(() => { throw new Error('SOURCE_STATE_READ_FAILED'); });
+    await expect(refreshAllSources(log)).rejects.toThrow('SOURCE_STATE_READ_FAILED');
+    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+    await refreshAllSources(log);
+    expect(loadWatermarks).toHaveBeenCalledTimes(2);
+    resetSourcePrints();
+  });
+
+  it('does not publish caches after a persistence failure and retries the changed input', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    await refreshAllSources(log, 'cycle', { askDrive: false });
+    const previous = cachedBooks;
+    const changed = { data: { УО: { values: [['changed']], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    fetchDepartmentSpreadsheets.mockResolvedValue(changed);
+    vi.clearAllMocks();
+    saveWatermark.mockImplementationOnce(() => { throw new Error('SOURCE_STATE_PERSIST_FAILED'); });
+    await expect(refreshAllSources(log, 'cycle', { askDrive: false })).rejects.toThrow('SOURCE_STATE_PERSIST_FAILED');
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(setSvodGridCache).not.toHaveBeenCalled();
+    expect(cachedBooks).toBe(previous);
+    const retry = await refreshAllSources(log, 'cycle', { askDrive: false });
+    expect(retry.changedBooks).toContain('УО');
+    expect(cachedBooks['УО'].values).toEqual([['changed']]);
+    resetSourcePrints();
+  });
+
   it('does not publish the summary or its watermark while books are still loading', async () => {
     const { refreshAllSources } = await import('./source-refresh.js');
     let releaseBooks!: () => void;

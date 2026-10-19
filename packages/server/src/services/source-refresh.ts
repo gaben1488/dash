@@ -10,6 +10,7 @@
  */
 
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
+import { db } from '../db/index.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from './google-sheets.js';
 import type { DeptSheetResult } from './google-sheets.js';
 import {
@@ -93,8 +94,8 @@ let watermarksSeeded = false;
 
 function seedFromWatermarks(): void {
   if (watermarksSeeded) return;
-  watermarksSeeded = true;
-  for (const [book, mark] of loadWatermarks()) {
+  const marks = loadWatermarks();
+  for (const [book, mark] of marks) {
     if (book === SVOD_WATERMARK_KEY) {
       svodPrint ??= mark.fingerprint;
       continue;
@@ -107,6 +108,7 @@ function seedFromWatermarks(): void {
       seedRevision(fileId, { version: mark.driveVersion, modifiedTime: mark.driveModifiedTime });
     }
   }
+  watermarksSeeded = true;
 }
 
 /** Только для стражей: забыть посев и отпечатки. */
@@ -474,6 +476,8 @@ export function refreshAllSources(log?: {
     // Формат чтения не означает принуждение: повторный вебхук может пропустить
     // уже прочитанную версию с формулами. Ручной/контрольный обход задаёт askDrive:false.
     const askDrive = options.askDrive ?? true;
+    const previousRevisions = new Map(Object.values(DEPARTMENT_SPREADSHEETS)
+      .map(fileId => [fileId, lastKnownRevision(fileId)] as const));
     const gate = await gateByRevision(
       targetBooks ?? Object.keys(DEPARTMENT_SPREADSHEETS),
       wantSvod,
@@ -515,10 +519,7 @@ export function refreshAllSources(log?: {
         const print = sheetFingerprint(svodRead.values);
         const first = svodPrint === null;
         const changed = !first && svodPrint !== print;
-        saveWatermark(SVOD_WATERMARK_KEY, print, new Date().toISOString());
-        setSvodGridCache(svodRead.values);
-        svodPrint = print;
-        return { ok: true, changed, first };
+        return { ok: true, changed, first, print };
       } catch (err: unknown) {
         const reason = classifySourceFailure((err as Error)?.message ?? String(err));
         setSvodLoadFailure(reason);
@@ -527,7 +528,6 @@ export function refreshAllSources(log?: {
       }
     })();
     const svodOk = svodResult.ok;
-    setDeptSheetCache(data, Object.keys(errors));
 
     // Отпечатки — дешёвая ступень разбора: они отвечают «изменилось ли», и
     // только для изменившихся книг работает дорогое построчное сравнение.
@@ -537,34 +537,57 @@ export function refreshAllSources(log?: {
     // неё, собран без её строк, и оставлять его в кэше нельзя. Событий в эфир
     // первое чтение не даёт, а сброс кэша — даёт.
     let firstReads = 0;
+    const nextPrints = new Map<string, string>();
     for (const [name, result] of Object.entries(data)) {
       const print = sheetFingerprint(result.values);
       const previous = bookPrints.get(name);
-      bookPrints.set(name, print);
+      nextPrints.set(name, print);
       if (previous === undefined || !before[name]?.values.length) firstReads++;
       if (previous !== undefined && previous !== print) changedBooks.push(name);
-      // Водяной знак: момент успешного разбора, отпечаток и отметка версии
-      // файла — в базу, чтобы рестарт не обнулял базу сравнения (§2.4).
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
-      const revision = fileId ? lastKnownRevision(fileId) : null;
-      saveWatermark(name, print, new Date().toISOString(), revision ?? undefined);
     }
 
-    // Правило полноты (§2.2): Drive засвидетельствовал «файл менялся», книга
-    // прочитана, а содержательные свидетели молчат — отпечаток листа тот же.
-    // В журнал уходит честный пропуск «изменение было, содержание не
-    // установлено», а не тишина. Один и тот же пропуск не пишется дважды.
-    for (const name of gate.attested) {
-      if (changedBooks.includes(name)) continue;
-      if (!(name in data)) continue; // чтение упало — это отказ, а не пропуск
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
-      const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
-      if (noteHonestGap(name, modifiedTime)) {
-        log?.warn(
-          `Журнал: по книге «${name}» изменение было, содержание не установлено`
-          + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''),
-        );
+    const at = new Date().toISOString();
+    // Persist the acceptance boundary before changing any successful cache.
+    // SQLite rolls back the whole cycle if a watermark or gap cannot be saved.
+    const gaps: Array<{ name: string; modifiedTime: string | null }> = [];
+    try {
+      db.transaction(() => {
+        if ('print' in svodResult && svodResult.print !== undefined) {
+          saveWatermark(SVOD_WATERMARK_KEY, svodResult.print, at);
+        }
+        for (const [name, print] of nextPrints) {
+          const fileId = DEPARTMENT_SPREADSHEETS[name];
+          const revision = fileId ? lastKnownRevision(fileId) : null;
+          saveWatermark(name, print, at, revision ?? undefined);
+        }
+        for (const name of gate.attested) {
+          if (changedBooks.includes(name) || !(name in data)) continue;
+          const fileId = DEPARTMENT_SPREADSHEETS[name];
+          const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
+          if (noteHonestGap(name, modifiedTime)) gaps.push({ name, modifiedTime });
+        }
+      });
+    } catch (error) {
+      // The Drive probe advanced its in-memory revision before acquisition.
+      // Restore it so retry cannot skip this unaccepted input or lose attestation.
+      for (const name of booksToRead) {
+        const fileId = DEPARTMENT_SPREADSHEETS[name];
+        if (!fileId) continue;
+        forgetRevision(fileId);
+        const previous = previousRevisions.get(fileId);
+        if (previous) seedRevision(fileId, previous);
       }
+      throw error;
+    }
+    if (svodRead !== null && 'values' in svodRead && 'print' in svodResult && svodResult.print !== undefined) {
+      setSvodGridCache(svodRead.values);
+      svodPrint = svodResult.print;
+    }
+    setDeptSheetCache(data, Object.keys(errors));
+    for (const [name, print] of nextPrints) bookPrints.set(name, print);
+    for (const { name, modifiedTime } of gaps) {
+      log?.warn(`Журнал: по книге «${name}» изменение было, содержание не установлено`
+        + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''));
     }
     // Упавшая книга ушла из кэша — её отпечаток больше ничего не описывает.
     // Заодно забывается отметка версии файла: она снята перед чтением, которого
@@ -576,8 +599,6 @@ export function refreshAllSources(log?: {
     }
 
     publishBookChanges(before, data, origin, changedBooks);
-
-    const at = new Date().toISOString();
 
     // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
     // журнала: разбор не имеет права задержать обновление экрана, а его исход

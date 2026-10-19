@@ -48,6 +48,7 @@ vi.mock('./book-watermark.js', () => ({
 
 vi.mock('../config.js', () => ({
   config: {
+    database: { url: ":memory:" },
     google: { spreadsheetId: 'file-svod' },
     cache: { autoRefreshMinutes: 0 },
     weeklySnapshot: { utcOffsetHours: 12 },

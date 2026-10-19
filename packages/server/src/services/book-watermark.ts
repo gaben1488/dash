@@ -16,8 +16,8 @@
  *    Это и есть гарантия: не «мы ничего не потеряли», а «мы знаем обо всём,
  *    что потеряли».
  *
- * База может быть недоступна — каждый вызов ловит свой отказ: водяной знак
- * улучшает сравнение, но его отсутствие не имеет права валить цикл чтения.
+ * Отказ БД не равен пустому состоянию или успешному сохранению. Вызывающий
+ * оставляет попытку незавершённой и повторяет её после устранения отказа.
  */
 import { desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
@@ -48,8 +48,8 @@ export function loadWatermarks(): Map<string, Watermark> {
         driveModifiedTime: row.driveModifiedTime,
       });
     }
-  } catch {
-    /* базы нет — сравнение начнётся с пустоты, как раньше */
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_READ_FAILED", { cause });
   }
   return out;
 }
@@ -80,8 +80,8 @@ export function saveWatermark(
         },
       })
       .run();
-  } catch {
-    /* без знака следующее сравнение просто беднее — не повод валить цикл */
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_PERSIST_FAILED", { cause });
   }
 }
 
@@ -102,8 +102,8 @@ export function noteHonestGap(
       .onConflictDoNothing()
       .run();
     return inserted.changes > 0;
-  } catch {
-    return false;
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_PERSIST_FAILED", { cause });
   }
 }
 
@@ -126,8 +126,8 @@ export function recentGaps(limit = 50): JournalGap[] {
       .orderBy(desc(schema.journalGaps.id))
       .limit(limit)
       .all();
-  } catch {
-    return [];
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_READ_FAILED", { cause });
   }
 }
 
@@ -136,8 +136,8 @@ export function resetWatermarks(): void {
   try {
     db.delete(schema.bookWatermarks).run();
     db.delete(schema.journalGaps).run();
-  } catch {
-    /* базы нет — чистить нечего */
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_PERSIST_FAILED", { cause });
   }
 }
 
@@ -156,7 +156,7 @@ export function watermarkOf(book: string): Watermark | null {
       driveVersion: row.driveVersion,
       driveModifiedTime: row.driveModifiedTime,
     };
-  } catch {
-    return null;
+  } catch (cause) {
+    throw new Error("SOURCE_STATE_READ_FAILED", { cause });
   }
 }
