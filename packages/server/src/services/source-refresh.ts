@@ -462,8 +462,8 @@ export function refreshAllSources(log?: {
     // Книги управлений и лист СВОД читаются ОДНОВРЕМЕННО, а не одно за другим.
     // Дело не только в скорости цикла (лист СВОД перестал ждать окончания
     // восьми книг): читать их подряд значит разносить стороны сверки во
-    // времени ровно на длительность чтения книг, а канон п.66 требует
-    // обратного — обе стороны из одного момента. Отказ одной стороны не должен
+    // времени ровно на длительность чтения книг. Параллельность сокращает
+    // этот разрыв, но не доказывает единую версию Google. Отказ одной стороны не должен
     // уносить другую, поэтому лист СВОД ловит свой отказ внутри себя.
     const startedAt = Date.now();
     const targetBooks = options.books && options.books.length > 0 ? options.books : undefined;
@@ -483,7 +483,7 @@ export function refreshAllSources(log?: {
     const booksToRead = gate.books;
     const readSvod = gate.svod;
 
-    const [{ data, errors }, svodResult] = await Promise.all([
+    const [{ data, errors }, svodRead] = await Promise.all([
       // Пустая цель — это НЕ «читай всё»: у fetchDepartmentSpreadsheets пустой
       // `only` означает «все книги», и передать его сюда значило бы отменить
       // весь отсев ровно в тот момент, когда он сработал полностью.
@@ -500,29 +500,32 @@ export function refreshAllSources(log?: {
           }),
       readSvod
         ? getSheetData(SVOD_SHEET_NAME)
-            .then((values) => {
-              setSvodGridCache(values);
-              const print = sheetFingerprint(values);
-              const first = svodPrint === null;
-              const changed = !first && svodPrint !== print;
-              svodPrint = print;
-              // Водяной знак листа СВОД — тем же правилом, что и у книг:
-              // успешный разбор оставляет след в базе, а не в памяти.
-              saveWatermark(SVOD_WATERMARK_KEY, print, new Date().toISOString());
-              return { ok: true, changed, first };
-            })
-            .catch((err: unknown) => {
-              const reason = classifySourceFailure((err as Error)?.message ?? String(err));
-              // След отказа переживает цикл: без него маршрут здоровья не отличал
-              // «читали и не смогли» от «ещё не читали».
-              setSvodLoadFailure(reason);
-              log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
-              return { ok: false, changed: false, first: false, retryable: isTransientSourceFailure(err) };
-            })
-        : // Лист СВОД не входил в цель — про него в этом цикле сказать нечего.
-          // «Не читали» честнее выдаётся прошлым состоянием, а не ложным «ок».
-          Promise.resolve({ ok: getSvodLoadFailure() === null, changed: false, first: false }),
+            .then((values) => ({ values }))
+            .catch((error: unknown) => ({ error }))
+        : Promise.resolve(null),
     ]);
+    // Publish both sides only after acquisition has finished, without yielding
+    // between cache updates. Parallel reads do not prove atomic Google revisions.
+    const svodResult = (() => {
+      if (svodRead === null) {
+        return { ok: getSvodLoadFailure() === null, changed: false, first: false };
+      }
+      try {
+        if ('error' in svodRead) throw svodRead.error;
+        const print = sheetFingerprint(svodRead.values);
+        const first = svodPrint === null;
+        const changed = !first && svodPrint !== print;
+        saveWatermark(SVOD_WATERMARK_KEY, print, new Date().toISOString());
+        setSvodGridCache(svodRead.values);
+        svodPrint = print;
+        return { ok: true, changed, first };
+      } catch (err: unknown) {
+        const reason = classifySourceFailure((err as Error)?.message ?? String(err));
+        setSvodLoadFailure(reason);
+        log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
+        return { ok: false, changed: false, first: false, retryable: isTransientSourceFailure(err) };
+      }
+    })();
     const svodOk = svodResult.ok;
     setDeptSheetCache(data, Object.keys(errors));
 

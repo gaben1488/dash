@@ -117,6 +117,29 @@ afterEach(async () => {
 });
 
 describe('перечитка источников одним циклом', () => {
+  it('does not publish the summary or its watermark while books are still loading', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    let releaseBooks!: () => void;
+    fetchDepartmentSpreadsheets.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseBooks = resolve; });
+      return { data: { УО: { values: [[1]], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    });
+    const refresh = refreshAllSources(log, 'cycle', { askDrive: false });
+    try {
+      await waitFor(() => getSheetData.mock.calls.length === 1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(setSvodGridCache).not.toHaveBeenCalled();
+      expect(saveWatermark).not.toHaveBeenCalled();
+      expect(setDeptSheetCache).not.toHaveBeenCalled();
+    } finally {
+      releaseBooks();
+      await refresh;
+    }
+    expect(setSvodGridCache).toHaveBeenCalledWith([['СВОД']]);
+    expect(setDeptSheetCache).toHaveBeenCalledTimes(1);
+    expect(saveWatermark).toHaveBeenCalled();
+  });
+
   it('книги и лист СВОД читаются в одном вызове и кладутся в кэш', async () => {
     const { refreshAllSources } = await import('./source-refresh.js');
     const r = await refreshAllSources(log);
