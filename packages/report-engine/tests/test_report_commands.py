@@ -1,5 +1,6 @@
 import fcntl
 import json
+from pathlib import Path
 
 import pytest
 from procurement_engine import runtime
@@ -192,7 +193,7 @@ def test_killed_executor_is_recovered_without_executing_the_next_accepted_comman
     source = '''
 import sys, time
 from pathlib import Path
-sys.path.insert(0, 'tests')
+sys.path.insert(0, sys.argv[5])
 from test_runtime import Google
 from procurement_engine.runtime import run_once
 class Waiting(Google):
@@ -202,7 +203,8 @@ class Waiting(Google):
         return super().revision(provider)
 run_once(sys.argv[1], sys.argv[2], sys.argv[3], client=Waiting(), queued_only=True)
 '''
-    process = subprocess.Popen([sys.executable, '-c', source, str(registry), str(ledger), str(state), str(marker)])
+    process = subprocess.Popen([sys.executable, '-c', source, str(registry), str(ledger), str(state), str(marker),
+                                str(Path(__file__).resolve().parent)], cwd=tmp_path)
     try:
         deadline = time.monotonic() + 15
         while not marker.exists() and process.poll() is None and time.monotonic() < deadline:

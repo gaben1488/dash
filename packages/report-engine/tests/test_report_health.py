@@ -53,12 +53,14 @@ def test_completed_reused_success_advances_check_without_changing_publication(tm
 
 def test_health_write_failure_does_not_change_completed_runtime_status(tmp_path, monkeypatch, capsys):
     from procurement_engine import report_health, runtime
-    state = tmp_path / 'state'; state.mkdir()
-    attempt = state / 'attempts' / 'attempt'; attempt.mkdir(parents=True)
+    state = tmp_path / 'state'
+    state.mkdir()
+    attempt = state / 'attempts' / 'attempt'
+    attempt.mkdir(parents=True)
     def fail(*args):
         raise OSError('private filesystem details')
     monkeypatch.setattr(report_health, 'record_attempt', fail)
-    status = runtime._finish_attempt(state, attempt, {'status': 'VERIFIED', 'reused_publication': True})
+    status = runtime._finish_attempt(state, attempt, {'attempt_id': attempt.name, 'status': 'VERIFIED', 'reused_publication': True})
     assert status['status'] == 'VERIFIED'
     assert json.loads((state / 'status.json').read_text()) == status
     assert capsys.readouterr().err.strip() == 'REPORT_HEALTH_WRITE_FAILED'
