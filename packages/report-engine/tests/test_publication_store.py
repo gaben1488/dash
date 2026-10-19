@@ -1503,6 +1503,7 @@ def test_history_cursor_remains_stable_when_a_newer_publication_is_added(tmp_pat
 def test_inventory_does_not_repeat_metadata_reads_per_entry(tmp_path, monkeypatch):
     """Directory metadata is enough: no repeated stat for every archived input."""
     from pathlib import Path
+
     from procurement_engine.publication_store import _files
 
     root = tmp_path / 'inventory'
