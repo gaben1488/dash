@@ -8,8 +8,8 @@ from pathlib import Path
 
 from source_ci_gate import source_ci_passed
 
-BASELINE = 'b24a6a5dead4295f7bc61938a704554c8c9eef72'
-BASELINE_RUN = 39125544933
+BASELINE = 'ee04df2dde4aaf17d2ba8f0e62922f0f27c94323'
+BASELINE_RUN = 39273068566
 STEP = 'Synthetic browser acceptance boundaries (no VPS or source data)'
 DEPENDENCIES = (
     'packages/web', 'packages/shared', 'packages/core', 'scripts', 'patches',
