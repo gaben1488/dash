@@ -50,7 +50,14 @@ def _revisions_equivalent(stage, expected, observed, proofs):
         if str(source.get('sheet_or_tab_id')) != str(contract.get('sheet_id')):
             return False
         try:
-            metadata_hash = canonical_semantic_hash(source_semantic_metadata(source['payload_metadata']))
+            metadata = source['payload_metadata']
+            if 'formula_evidence' not in metadata:
+                item = next(item for item in manifest['payload_index'] if item['source_id'] == key)
+                path = Path(item['path'])
+                if path.is_absolute() or '..' in path.parts:
+                    return False
+                metadata = _json(stage / 'snapshot_bundle' / path)['metadata']
+            metadata_hash = canonical_semantic_hash(source_semantic_metadata(metadata))
             if not (proof['provider_id'] == source['provider_id']
                     and proof['sheet_id'] == str(source['sheet_or_tab_id'])
                     and proof['captured_revision'] == expected[key]
@@ -61,7 +68,7 @@ def _revisions_equivalent(stage, expected, observed, proofs):
                     and proof['captured_content_hash'] == source['content_hash']
                     and proof['schema_fingerprint'] == source['schema_fingerprint']):
                 return False
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, StopIteration):
             return False
     return True
 
@@ -98,14 +105,27 @@ def _hash(path):
 
 
 def _files(root, *, hash_names=None):
-    """Always check the complete safe inventory; hash only the requested scope."""
+    """Check every entry once; hash only the requested scope.
+
+    Keep the complete inventory gate, but avoid pathlib's repeated stat/lstat
+    calls on every raw file during status, download, publish and restore.
+    """
+    paths = []
+    pending = [root]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                mode = entry.stat(follow_symlinks=False).st_mode
+                if stat.S_ISDIR(mode):
+                    pending.append(Path(entry.path))
+                elif stat.S_ISREG(mode):
+                    paths.append(Path(entry.path))
+                else:
+                    raise PublicationError('BUNDLE_UNSAFE_FILE')
     result = {}
-    for path in sorted(root.rglob('*')):
-        if path.is_symlink() or not (path.is_file() or path.is_dir()):
-            raise PublicationError('BUNDLE_UNSAFE_FILE')
-        if path.is_file():
-            name = str(path.relative_to(root))
-            result[name] = _hash(path) if hash_names is None or name in hash_names else None
+    for path in sorted(paths):
+        name = str(path.relative_to(root))
+        result[name] = _hash(path) if hash_names is None or name in hash_names else None
     return result
 
 

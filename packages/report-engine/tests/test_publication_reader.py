@@ -1,3 +1,4 @@
+import importlib
 import json
 import shutil
 import sqlite3
@@ -24,6 +25,9 @@ def three_document_candidate(path):
 def test_status_hashes_only_published_documents(tmp_path, monkeypatch, context):
     from procurement_engine import publication_store
 
+    # Lazy imports must bind real helpers before this test instruments hashing.
+    # Otherwise archive_runtime retains the patched alias after monkeypatch undo.
+    importlib.import_module('procurement_engine.archive_runtime')
     state = tmp_path / 'state'
     store = PublicationStore(state / 'published')
     release = store.publish(three_document_candidate(tmp_path / 'candidate'), read_revisions=revisions)
@@ -60,6 +64,26 @@ def test_artifact_read_does_not_hash_unrequested_files(tmp_path, monkeypatch, vi
     name = {'main': 'main_report.docx', 'supplement': 'management_report.docx',
             'operational': 'operational_report.docx', 'dashboard': 'dashboard.json'}[view]
     assert read_publication(state, view, release['release_id']) == (bundle / name).read_bytes()
+
+
+def test_pinned_status_does_not_read_unrelated_live_attempt(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    release = store.publish(three_document_candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    live_status = state / 'status.json'
+    live_status.write_text('{incomplete unrelated live attempt' + ' ' * (2 * 1024 * 1024), encoding='utf-8')
+    original = Path.read_text
+
+    def read(path, *args, **kwargs):
+        assert path != live_status, 'pinned publication must not load the current live attempt'
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', read)
+    result = json.loads(read_publication(state, 'status', release['release_id']))
+    assert result['selected']['release_id'] == release['release_id']
+    assert result['attempt'] is None
 
 
 def test_unrequested_payload_corruption_does_not_block_documents_but_full_audit_rejects_it(tmp_path):

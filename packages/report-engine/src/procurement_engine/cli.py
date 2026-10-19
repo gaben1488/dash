@@ -185,9 +185,17 @@ def main(argv=None):
         sys.stdout.buffer.write(result)
         return 0
     if args.cmd == "run-google":
+        from .deployment_diagnostics import summarize_status
         from .runtime import run_once
         status = run_once(args.registry, args.ledger, args.state)
-        dump(status)
+        summary = summarize_status(status)
+        summary['status'] = summary.pop('last_report_status')
+        if 'attempt_id' in status:
+            summary['attempt_id'] = status['attempt_id']
+        if status.get('publication'):
+            summary['release_id'] = status['publication']['release_id']
+        # Full evidence is already persisted; stdout is a bounded command receipt.
+        dump(summary)
         return 0 if status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'} else 2
     if args.cmd == "capture-google":
         from .google_adapter import capture_google

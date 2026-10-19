@@ -18,7 +18,7 @@ from .google_adapter import (
     recheck_google_sources,
 )
 from .identity_store import IdentityStore
-from .publication_store import PublicationStore, _assurance_hash
+from .publication_store import PublicationError, PublicationStore, _assurance_hash
 from .raw_pipeline import (
     build_from_capture,
     bundle_from_capture,
@@ -51,6 +51,70 @@ def _write(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def _checkpoint(state, attempt, status, stage):
+    status['stage'] = stage
+    journal = {key: status[key] for key in ('status', 'attempt_id', 'started_at', 'stage',
+        'snapshot_id', 'report_date', 'pending_release_id') if key in status}
+    _write(attempt / 'status.json', journal)
+    _write(state / 'status.json', journal)
+
+
+def _recover_committed_publication(state, status):
+    """Only a validated receipt proves publication, including a lost response."""
+    release_id = status.get('pending_release_id')
+    if not release_id:
+        return False
+    store = PublicationStore(state / 'published', readonly=True)
+    try:
+        receipt = store.receipt(release_id)
+    except PublicationError as error:
+        if str(error) == 'PUBLICATION_NOT_FOUND':
+            return False
+        raise
+    if receipt['snapshot_id'] != status.get('snapshot_id'):
+        raise ValueError('REPORT_ATTEMPT_STATE_INVALID')
+    status.update(status=receipt['status'], publication=receipt, recovered_publication=True,
+                  finished_at=receipt['published_at'],
+                  recovered_at=datetime.now(timezone.utc).isoformat())
+    return True
+
+
+def _recover_interrupted_attempts(state):
+    """Caller owns run.lock: no RUNNING journal can still have a live writer."""
+    current = _load(state / 'status.json') if (state / 'status.json').exists() else {}
+    if current.get('status') == 'RUNNING':
+        identifier = current.get('attempt_id')
+        if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier):
+            raise ValueError('REPORT_ATTEMPT_STATE_INVALID')
+        root = state / 'attempts' / identifier
+        if root.is_symlink() or not root.is_dir() or (root / 'status.json').is_symlink():
+            raise ValueError('REPORT_ATTEMPT_STATE_INVALID')
+        if not (root / 'status.json').exists():
+            _write(root / 'status.json', current)  # Recover the previous global-only format.
+        saved = _load(root / 'status.json')
+        if saved.get('status') in {'VERIFIED', 'VERIFIED_WITH_WARNINGS', 'NOT_ISSUED'}:
+            # The local terminal write succeeded before the global pointer failed.
+            _write(state / 'status.json', saved)
+            from .report_health import record_attempt
+            record_attempt(state, saved)
+    for path in sorted((state / 'attempts').glob('*/status.json')):
+        if not re.fullmatch(r'[a-f0-9]{32}', path.parent.name):
+            continue
+        if path.is_symlink() or path.parent.is_symlink():
+            raise ValueError('REPORT_ATTEMPT_STATE_INVALID')
+        status = _load(path)
+        if status.get('status') != 'RUNNING':
+            continue
+        if status.get('attempt_id') != path.parent.name:
+            raise ValueError('REPORT_ATTEMPT_STATE_INVALID')
+        if not _recover_committed_publication(state, status):
+            detected = datetime.now(timezone.utc).isoformat()
+            status.update(status='NOT_ISSUED', error_code='REPORT_ATTEMPT_INTERRUPTED',
+                          failure_stage=status.get('stage'), interrupted_detected_at=detected,
+                          finished_at=None)
+        _finish_attempt(state, path.parent, status)
+
+
 def run_once(registry_path, ledger_path, state_dir, *, client=None):
     """Return VERIFIED, VERIFIED_WITH_WARNINGS, NOT_ISSUED, or ALREADY_RUNNING.
 
@@ -64,13 +128,14 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return {'status': 'ALREADY_RUNNING'}
+        _recover_interrupted_attempts(state)
         attempt_id = uuid.uuid4().hex
         attempt = state / 'attempts' / attempt_id
         attempt.mkdir(parents=True, mode=0o700)
         status = {'status': 'RUNNING', 'attempt_id': attempt_id,
                   'started_at': datetime.now(timezone.utc).isoformat()}
-        _write(state / 'status.json', status)
         stage = 'inputs'
+        _checkpoint(state, attempt, status, stage)
         try:
             registry = _load(registry_path)
             ledger = issued_recommendations(_load(ledger_path))
@@ -78,6 +143,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
 
             validate_inputs(registry, ledger)
             stage = 'acquisition'
+            _checkpoint(state, attempt, status, stage)
             client = client or GoogleReadClient()
             ledger, _, history_metadata, history_package = read_google_history(client, ledger, include_package=True)
             capture = capture_google(registry, client)
@@ -86,6 +152,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             if history_metadata is not None:
                 capture['recommendation_history_evidence'] = {'metadata': history_metadata, 'package': history_package}
             stage = 'publication_selection'
+            _checkpoint(state, attempt, status, stage)
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
             capture['weekly_baseline'] = freeze_weekly_baseline(publications.previous_weekly_model(capture['report_date']))
@@ -99,6 +166,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             _write(attempt / 'capture.json', capture)
             previous = publications.previous_model(capture['report_date'])
             stage = 'build'
+            _checkpoint(state, attempt, status, stage)
             recovery_diagnostics = {}
             identities.recover_latest_plan_signatures([
                 *state.glob('attempts/*/bundle/snapshot_bundle'),
@@ -135,6 +203,9 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                             'WEEKLY_BASELINE': canonical_semantic_hash(capture['weekly_baseline'])}
 
                 stage = 'publication'
+                # Same strict canonical JSON digest used by the publication validator.
+                status['pending_release_id'] = 'REL-' + _assurance_hash(model)
+                _checkpoint(state, attempt, status, stage)
                 receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions, source_equivalence=source_equivalence)
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
@@ -156,11 +227,14 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 status['private_error_saved'] = True
             except OSError:
                 status['private_error_saved'] = False
-            status.update(status='NOT_ISSUED',
-                          error_code=code, failure_stage=stage,
-                          error_type=type(error).__name__)
-            if sqlite_error is not None:
-                status['sqlite_error'] = sqlite_error
+            if _recover_committed_publication(state, status):
+                status.update(post_commit_error_code=code, post_commit_error_type=type(error).__name__)
+            else:
+                status.update(status='NOT_ISSUED',
+                              error_code=code, failure_stage=stage,
+                              error_type=type(error).__name__)
+                if sqlite_error is not None:
+                    status['sqlite_error'] = sqlite_error
         return _finish_attempt(state, attempt, status)
 
 
@@ -185,7 +259,7 @@ def _retained_attempt_status(status):
 
 
 def _finish_attempt(state, attempt, status):
-    status['finished_at'] = datetime.now(timezone.utc).isoformat()
+    status.setdefault('finished_at', datetime.now(timezone.utc).isoformat())
     _write(attempt / 'status.json', _retained_attempt_status(status))
     _write(state / 'status.json', status)
     from .report_health import record_attempt

@@ -41,6 +41,155 @@ def inputs(root):
     return registry, ledger
 
 
+def test_interrupted_attempt_has_durable_stage_and_is_closed_before_next_run(tmp_path):
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+
+    class Interrupted(Google):
+        def revision(self, provider):
+            raise KeyboardInterrupt('simulated process death')
+
+    with pytest.raises(KeyboardInterrupt):
+        run_once(registry, ledger, state, client=Interrupted())
+    current = json.loads((state / 'status.json').read_text())
+    path = state / 'attempts' / current['attempt_id'] / 'status.json'
+    assert json.loads(path.read_text())['stage'] == 'acquisition'
+    run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+    recovered = json.loads(path.read_text())
+    assert recovered['status'] == 'NOT_ISSUED'
+    assert recovered['error_code'] == 'REPORT_ATTEMPT_INTERRUPTED'
+    assert recovered['failure_stage'] == 'acquisition'
+    assert recovered['interrupted_detected_at']
+    assert recovered['finished_at'] is None
+    before = path.read_bytes()
+    run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+    assert path.read_bytes() == before
+
+
+def test_interruption_after_publication_commit_recovers_exact_receipt(tmp_path, monkeypatch):
+    from test_weekly_archive import FormulaGoogle
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    publish = PublicationStore.publish
+    committed = []
+    def interrupted(self, *args, **kwargs):
+        committed.append(publish(self, *args, **kwargs))
+        raise KeyboardInterrupt('commit succeeded; response was lost')
+    with monkeypatch.context() as patch:
+        patch.setattr(PublicationStore, 'publish', interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            run_once(registry, ledger, state, client=FormulaGoogle())
+    current = json.loads((state / 'status.json').read_text())
+    assert current['pending_release_id'] == committed[0]['release_id']
+    run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+    recovered = json.loads((state / 'attempts' / current['attempt_id'] / 'status.json').read_text())
+    assert recovered['status'] == committed[0]['status']
+    assert recovered['publication']['release_id'] == committed[0]['release_id']
+    assert recovered['recovered_publication'] is True
+    assert recovered['finished_at'] == committed[0]['published_at']
+    assert recovered['recovered_at'] >= recovered['finished_at']
+    health = json.loads((state / 'report-health.json').read_text())
+    assert health['last_success_at'] == committed[0]['published_at']
+    assert PublicationStore(state / 'published').latest()['release_id'] == committed[0]['release_id']
+
+
+def test_ordinary_error_after_commit_preserves_verified_publication(tmp_path, monkeypatch):
+    from test_weekly_archive import FormulaGoogle
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    publish = PublicationStore.publish
+    committed = []
+    def failed_response(self, *args, **kwargs):
+        committed.append(publish(self, *args, **kwargs))
+        raise OSError('commit succeeded; response failed')
+    monkeypatch.setattr(PublicationStore, 'publish', failed_response)
+    status = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert status['status'] == committed[0]['status']
+    assert status['publication']['release_id'] == committed[0]['release_id']
+    assert status['finished_at'] == committed[0]['published_at']
+    assert status['recovered_publication'] is True
+    assert status['post_commit_error_code']
+    assert status['private_error_saved'] is True
+
+
+def test_terminal_journal_survives_failure_to_update_global_pointer(tmp_path, monkeypatch):
+    from procurement_engine import runtime
+    from test_weekly_archive import FormulaGoogle
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    write = runtime._write
+    def failed_pointer(path, value):
+        if path == state / 'status.json' and value.get('status') != 'RUNNING':
+            raise OSError('global pointer write failed')
+        return write(path, value)
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime, '_write', failed_pointer)
+        with pytest.raises(OSError):
+            run_once(registry, ledger, state, client=FormulaGoogle())
+    current = json.loads((state / 'status.json').read_text())
+    journal = state / 'attempts' / current['attempt_id'] / 'status.json'
+    before = journal.read_bytes()
+    saved = json.loads(before)
+    run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+    assert journal.read_bytes() == before
+    health = json.loads((state / 'report-health.json').read_text())
+    assert health['last_success_at'] == saved['finished_at']
+
+
+def test_recovery_does_not_turn_corrupt_committed_publication_into_failed_attempt(tmp_path, monkeypatch):
+    from procurement_engine.publication_store import PublicationError
+    from test_weekly_archive import FormulaGoogle
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    publish = PublicationStore.publish
+    def interrupted(self, *args, **kwargs):
+        receipt = publish(self, *args, **kwargs)
+        (self.releases / receipt['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+        raise KeyboardInterrupt
+    with monkeypatch.context() as patch:
+        patch.setattr(PublicationStore, 'publish', interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            run_once(registry, ledger, state, client=FormulaGoogle())
+    before = (state / 'status.json').read_bytes()
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+    assert (state / 'status.json').read_bytes() == before
+    assert len(list((state / 'attempts').iterdir())) == 1
+
+
+def test_sigkill_releases_writer_lock_and_next_run_recovers_journal(tmp_path):
+    import multiprocessing
+    import signal
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    context = multiprocessing.get_context('fork')
+    ready = context.Event()
+    class Paused(Google):
+        def revision(self, provider):
+            ready.set()
+            signal.pause()
+    process = context.Process(target=run_once, args=(registry, ledger, state), kwargs={'client': Paused()})
+    process.start()
+    try:
+        assert ready.wait(15), f'Writer did not reach acquisition: {process.exitcode}'
+        identifier = json.loads((state / 'status.json').read_text())['attempt_id']
+        process.kill()
+        process.join(15)
+        assert process.exitcode == -signal.SIGKILL
+        run_once(tmp_path / 'missing.json', ledger, state, client=Google())
+        recovered = json.loads((state / 'attempts' / identifier / 'status.json').read_text())
+        assert recovered['error_code'] == 'REPORT_ATTEMPT_INTERRUPTED'
+    finally:
+        if process.is_alive():
+            process.kill()
+        process.join(15)
+
+
 @pytest.mark.parametrize('size', [1024*1024, 2*1024*1024])
 def test_reused_attempt_storage_is_bounded_but_global_and_full_proof_remain_exact(tmp_path, size):
     import hashlib
@@ -270,6 +419,25 @@ def test_missing_input_failure_is_distinguished_from_acquisition(tmp_path):
     assert status['failure_stage'] == 'inputs'
     evidence = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
     assert evidence['stage'] == 'inputs'
+
+
+def test_cli_run_emits_bounded_receipt_without_duplicating_assurance(tmp_path, capsys, monkeypatch):
+    from procurement_engine import runtime
+    from procurement_engine.cli import main
+
+    status = {'status': 'VERIFIED', 'attempt_id': 'a' * 32,
+              'automation_assurance': {'evidence': 'x' * 2_000_000},
+              'publication': {'release_id': 'REL-' + 'b' * 64,
+                              'automation_assurance': {'evidence': 'x' * 2_000_000}}}
+    monkeypatch.setattr(runtime, 'run_once', lambda *args: status)
+    code = main(['run-google', '--registry', 'registry.json', '--ledger', 'ledger.json',
+                 '--state', str(tmp_path)])
+    output = capsys.readouterr().out
+    assert code == 0
+    assert len(output.encode()) < 4096
+    assert json.loads(output) == {'status': 'VERIFIED', 'attempt_id': 'a' * 32,
+                                'release_id': 'REL-' + 'b' * 64}
+    assert len(status['automation_assurance']['evidence']) == 2_000_000
 
 
 def test_cli_busy_worker_is_not_a_successful_release(tmp_path, capsys):

@@ -163,7 +163,7 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
             'revision_or_modified_time_after': s['after'], 'canonical_semantic_hash': canonical_semantic_hash(values),
             'content_hash': canonical_semantic_hash(content),
             'content_hash_kind': 'canonical_values_and_formulas' if 'formula_evidence' in s else 'canonical_semantic_values',
-            'payload_metadata': metadata})
+            'payload_metadata': {k: v for k, v in metadata.items() if k != 'formula_evidence'}})
     # A changed historical ledger or source contract must produce a different evidence identity.
     for sid, role, value in (('HISTORICAL_RECOMMENDATIONS', 'historical_ledger', ledger or []),
                              ('SOURCE_CONTRACT', 'rule_contract', registry),

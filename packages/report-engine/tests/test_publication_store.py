@@ -1498,3 +1498,32 @@ def test_history_cursor_remains_stable_when_a_newer_publication_is_added(tmp_pat
     assert store.history_summaries(limit=1)[0]['release_id'] == second['release_id']
     store.publish(candidate(tmp_path / 'third', date='02.10.2026', cutoff='2026-10-01T15:00:00Z', quarter=4), read_revisions=revisions)
     assert [row['release_id'] for row in store.history_summaries(limit=1, before=second['release_id'])] == [first['release_id']]
+
+
+def test_inventory_does_not_repeat_metadata_reads_per_entry(tmp_path, monkeypatch):
+    """Directory metadata is enough: no repeated stat for every archived input."""
+    from pathlib import Path
+    from procurement_engine.publication_store import _files
+
+    root = tmp_path / 'inventory'
+    root.mkdir()
+    expected = {}
+    for index in range(20):
+        directory = root / str(index)
+        directory.mkdir()
+        for number in range(5):
+            name = f'{index}/{number}.json'
+            (root / name).write_bytes(b'{}')
+            expected[name] = None
+    calls = []
+    original = Path.stat
+
+    def counted(path, *args, **kwargs):
+        calls.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'stat', counted)
+    assert _files(root, hash_names=()) == expected
+    # At most one fallback metadata lookup per entry, plus the root.
+    # The old walk issued several stat/lstat calls for every file and directory.
+    assert len(calls) <= 121, f'repeated metadata reads: {len(calls)} for 120 entries'

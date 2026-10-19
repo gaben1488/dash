@@ -83,7 +83,10 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
                           ensure_ascii=False, allow_nan=False).encode()
     if view == 'status':
         attempt_path = state / 'status.json'
-        attempt = json.loads(attempt_path.read_text(encoding='utf-8')) if attempt_path.exists() else None
+        # A pinned release does not expose the live attempt. Operational health
+        # below retains its own bounded read; do not deserialize its full proof here.
+        attempt = (json.loads(attempt_path.read_text(encoding='utf-8'))
+                   if release_id is None and attempt_path.exists() else None)
         if release_id is not None:
             if store is None:
                 raise PublicationError('PUBLICATION_NOT_FOUND')

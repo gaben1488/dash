@@ -538,6 +538,10 @@ def test_worker_observation_releases_maintenance_but_start_is_exclusive(tmp_path
 
 def test_backup_guardian_contention_never_stops_api(tmp_path):
     import fcntl
+    # The mocked Git checkout belongs to this test process, independently of
+    # whether the source tree is a read-only bind mount owned by another UID.
+    repo = tmp_path / 'repo'
+    (repo / 'deploy').mkdir(parents=True)
     docker = tmp_path / 'docker'
     docker.write_text('''#!/usr/bin/env python3
 import os,sys
@@ -557,7 +561,7 @@ elif args[0]=='inspect':
     log = tmp_path / 'calls'
     with open('/run/lock/aemr-maintenance.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = subprocess.run(['bash', str(ROOT / 'deploy/report-backup-window.sh'), 'prepare', 'd'*40, '1', str(ROOT), str(tmp_path / 'backup')],
+        result = subprocess.run(['bash', str(ROOT / 'deploy/report-backup-window.sh'), 'prepare', 'd'*40, '1', str(repo), str(tmp_path / 'backup')],
             env={**os.environ, 'PATH': str(tmp_path)+os.pathsep+os.environ['PATH'], 'CALL_LOG': str(log), 'HELPER': str(ROOT / 'deploy/maintenance-lock.sh')},
             capture_output=True, text=True, timeout=15, check=False)
     assert result.returncode != 0

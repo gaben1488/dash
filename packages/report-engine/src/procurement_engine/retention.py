@@ -2,11 +2,11 @@
 
 The worker polls frequently. Each changed input can leave a complete capture and rendered
 bundle under attempts/<uuid>, which is useful for short-term diagnostics but is not the
-long-term historical contract. Long-term replay lives in immutable publications and
-WEEKLY-* archives. This module therefore compacts only old transient payloads while
-keeping status/error records.
+long-term historical contract. Long-term replay lives in WEEKLY-* archives.
+Transient compaction keeps status/error records; the worker boundary also invokes
+bounded publication retention (ADR-0013).
 
-Safety rules:
+Transient payload safety rules:
 - never touch published/, archives/, inputs/, identity.sqlite or top-level status;
 - never compact the current attempt;
 - never compact an unsealed Thursday attempt (it may still be the only weekly source);
@@ -73,20 +73,17 @@ def _payload_bytes(path: Path) -> int:
     return total
 
 
-def _sealed_week_evidence(state: Path) -> tuple[set[str], set[str]]:
-    """Return sealed days and source attempts that must remain as a second copy.
+def _sealed_week_evidence(state: Path) -> set[str]:
+    """Release duplicate attempts only after checking the independent weekly input."""
+    from .publication_store import _hash
+    from .snapshot_bundle_io import verify_persisted_bundle
 
-    The weekly archive is the canonical replay input, but keeping the one attempt
-    it was copied from gives an independent local recovery path at modest cost
-    (one complete attempt per week instead of up to 96 per day).
-    """
     days: set[str] = set()
-    source_attempts: set[str] = set()
     archives = state / "archives"
     if not archives.is_dir():
-        return days, source_attempts
+        return days
     for root in archives.glob("WEEKLY-*"):
-        if root.is_symlink() or not root.is_dir():
+        if root.is_symlink() or not root.is_dir() or (root / 'snapshot_bundle').is_symlink():
             continue
         day = root.name.removeprefix("WEEKLY-")
         try:
@@ -104,10 +101,12 @@ def _sealed_week_evidence(state: Path) -> tuple[set[str], set[str]]:
                 or _report_day(imported.get("report_date")) != day
                 or imported.get("contract") != "canonical-weekly-report-input-v1"):
             continue
+        del manifest  # Legacy manifests contain large duplicated formula metadata.
+        if (verify_persisted_bundle(root / 'snapshot_bundle')
+                or imported.get('identity_sha256') != _hash(identity)):
+            continue
         days.add(day)
-        if imported.get("source_kind") == "attempt" and isinstance(imported.get("source_ref"), str):
-            source_attempts.add(imported["source_ref"])
-    return days, source_attempts
+    return days
 
 
 def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = DEFAULT_FULL_ATTEMPTS) -> dict[str, Any]:
@@ -136,9 +135,9 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
     current = _load_json(state / "status.json") or {}
     current_id = current.get("attempt_id") if isinstance(current.get("attempt_id"), str) else None
     del current
-    sealed_days, weekly_source_attempts = _sealed_week_evidence(state)
+    sealed_days = _sealed_week_evidence(state)
     valid: list[tuple[Path, dict[str, Any]]] = []
-    protected: set[str] = set(weekly_source_attempts)
+    protected: set[str] = set()
     malformed = 0
 
     for root in attempts.iterdir():
@@ -151,7 +150,7 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
             continue
         # Preserve status files, but retain only fields used by this plan in memory.
         valid.append((root, {key: status.get(key) for key in ("finished_at", "started_at", "report_date")}))
-        if root.name == current_id:
+        if root.name == current_id or status.get('status') == 'RUNNING':
             protected.add(root.name)
         day = _report_day(status.get("report_date"))
         if day:
@@ -260,13 +259,51 @@ def apply_transient_attempt_retention(
             "status": "COMPACTED",
             "compacted": compacted,
             "bytes_reclaimed": reclaimed,
+            "status_summaries_compacted": _compact_status_summaries(state, keep_full),
         }
+
+
+def _compact_status_summaries(state, keep_full):
+    from .runtime import _write
+
+    current = (_load_json(state / 'status.json') or {}).get('attempt_id')
+    statuses = []
+    for root in (state / 'attempts').iterdir():
+        path = root / 'status.json'
+        if root.is_symlink() or path.is_symlink() or not path.is_file():
+            continue
+        status = _load_json(path)
+        if status is not None and status.get('attempt_id') == root.name:
+            statuses.append((path, _sort_key(status, root.name)))
+    statuses.sort(key=lambda item: item[1], reverse=True)
+    count = 0
+    # Read one payload at a time; old receipts may each contain megabytes of assurance.
+    for path, _ in statuses[keep_full:]:
+        status = _load_json(path)
+        if status is None or status.get('attempt_id') == current:
+            continue
+        publication = status.get('publication')
+        changed = 'automation_assurance' in status
+        status.pop('automation_assurance', None)
+        if isinstance(publication, dict):
+            summary = {k: publication[k] for k in (
+                'release_id', 'snapshot_id', 'report_date', 'cutoff_at', 'status') if k in publication}
+            changed = changed or summary != publication
+            status['publication'] = summary
+        if changed:
+            _write(path, status)
+            count += 1
+    return count
 
 
 def safe_compact_transient_attempts(state_dir: str | Path, *, keep_full: int = DEFAULT_FULL_ATTEMPTS) -> dict[str, Any]:
     """Worker boundary: retention failure must never stop report acquisition."""
     try:
-        return apply_transient_attempt_retention(state_dir, keep_full=keep_full)
+        from .publication_retention import apply_publication_retention
+
+        result = apply_transient_attempt_retention(state_dir, keep_full=keep_full)
+        result['publications'] = apply_publication_retention(state_dir)
+        return result
     except Exception as error:  # noqa: BLE001 - safe process boundary, no source text emitted.
         return {
             "status": "FAILED",

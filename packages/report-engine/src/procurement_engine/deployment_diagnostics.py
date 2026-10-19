@@ -43,6 +43,8 @@ PUBLIC_CODES = PUBLIC_CODES | frozenset(f'GOOGLE_READ_HTTP_{code}' for code in r
 
 # All domain blockers share the same safe vocabulary as exception codes.
 PUBLIC_CODES = PUBLIC_CODES | frozenset({
+    'REPORT_ATTEMPT_INTERRUPTED',
+    'REPORT_ATTEMPT_STATE_INVALID',
     'AT_PUBLISH_PROOF_MISSING',
     'DERIVED_PROJECTION_MISMATCH',
     'DETAIL_LOCATORS_INVALID',

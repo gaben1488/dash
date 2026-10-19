@@ -98,7 +98,7 @@ def _child(case, root):
         protected = plan_transient_attempt_retention(root)
         assert protected['protected_unsealed_thursdays'] == ATTEMPTS
         assert protected['compact_count'] == 0
-        # A compactable history has the same status bytes preserved after apply.
+        # Keep current/newest status bytes; older evidence becomes a bounded summary.
         for path in root.glob('attempts/*/status.json'):
             value = json.loads(path.read_text())
             value['report_date'] = '07.10.2034'
@@ -109,7 +109,17 @@ def _child(case, root):
         assert plan['compact_attempts'] == [f'attempt-{i:03}' for i in range(1, ATTEMPTS - 2)]
         applied = apply_transient_attempt_retention(root, expected_attempts=plan['compact_attempts'])
         assert applied['compacted'] == ATTEMPTS - 3
-        assert all(_digest(path) == digest for path, digest in before.items())
+        for path, digest in before.items():
+            index = int(path.parent.name.removeprefix('attempt-'))
+            if index in (0, ATTEMPTS - 2, ATTEMPTS - 1):
+                assert _digest(path) == digest
+            else:
+                value = json.loads(path.read_text())
+                assert value['snapshot_id'] == f'SNP-{index}'
+                assert value['report_date'] == '07.10.2034'
+                assert value['publication'] == {'release_id': f'REL-{index}'}
+                assert 'automation_assurance' not in value
+                assert path.stat().st_size < 1024
         assert all((path.parent / 'error.json').read_text() == 'audit error' for path in before)
     print('BOUNDED_EVIDENCE_PASS')
 
