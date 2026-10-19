@@ -82,6 +82,7 @@ def main(argv=None):
     worker.add_argument("--ledger", required=True)
     worker.add_argument("--state", required=True)
     worker.add_argument("--interval-seconds", type=int, default=900)
+    worker.add_argument("--queued-only", action="store_true", help="Drain accepted commands without periodic capture")
     prune = sub.add_parser("prune-state", help="Plan or compact old transient attempt payloads")
     prune.add_argument("--state", required=True)
     prune.add_argument("--keep-full", type=int, default=12)
@@ -178,7 +179,8 @@ def main(argv=None):
         return 0 if result.get("status") not in {"FAILED", "PLAN_CHANGED"} else 2
     if args.cmd == "worker":
         from .worker import work
-        return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds)
+        return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds,
+                    queued_only=args.queued_only)
     if args.cmd == "read-publication":
         from .publication_reader import read_publication
         from .publication_store import PublicationError
@@ -197,7 +199,14 @@ def main(argv=None):
         return 0
     if args.cmd == "read-report-command":
         from .runtime import read_report_command
-        dump(read_report_command(args.state, args.attempt_id))
+        try:
+            result = read_report_command(args.state, args.attempt_id)
+        except ValueError as error:
+            if str(error) == 'REPORT_COMMAND_NOT_FOUND':
+                print('REPORT_COMMAND_NOT_FOUND', file=sys.stderr)
+                return 4
+            raise
+        dump(result)
         return 0
     if args.cmd == "run-google":
         from .deployment_diagnostics import summarize_status

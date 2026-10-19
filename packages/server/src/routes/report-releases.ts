@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { ReportCommandSchema } from '@aemr/shared';
 import { requestStage } from '../plugins/request-timing.js';
 
 type View = 'history' | 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
@@ -57,23 +58,64 @@ async function prepareStoredArchive(context: Context): Promise<Buffer> {
   return result.stdout;
 }
 
-/** One manual on-demand attempt, using the same lock and verification as report-worker. */
-async function refreshStoredReport(): Promise<void> {
-  await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', [
-    'run-google',
+function reportInputArguments(): string[] {
+  return [
     '--registry', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports', 'inputs/registry.json'),
     '--ledger', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports', 'inputs/ledger.json'),
     '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'),
-  ], { encoding: 'buffer', timeout: 600_000, maxBuffer: 1024 * 1024, shell: false });
+  ];
+}
+
+async function refreshStoredReport(): Promise<unknown> {
+  const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+    ['enqueue-report', ...reportInputArguments()],
+    { encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, shell: false });
+  return JSON.parse(result.stdout);
+}
+
+async function wakeStoredReports(): Promise<void> {
+  await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+    ['worker', '--queued-only', ...reportInputArguments()],
+    { encoding: 'buffer', timeout: 600_000, maxBuffer: 64 * 1024, shell: false, killSignal: 'SIGKILL' });
+}
+
+async function readStoredCommand(id: string): Promise<unknown> {
+  const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+    ['read-report-command', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'), '--attempt-id', id],
+    { encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, shell: false });
+  return JSON.parse(result.stdout);
 }
 
 export async function reportReleaseRoutes(app: FastifyInstance,
   options: { read?: (view: View, releaseId?: string, context?: Context, signal?: AbortSignal) => Promise<Buffer>;
-    prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<void> } = {}): Promise<void> {
+    prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<unknown>;
+    wake?: () => Promise<void>; command?: (id: string) => Promise<unknown> } = {}): Promise<void> {
   const read = options.read ?? readStoredRelease;
   const prepare = options.prepare ?? prepareStoredArchive;
   const refresh = options.refresh ?? refreshStoredReport;
-  let refreshInProgress: Promise<void> | null = null;
+  const readCommand = options.command ?? readStoredCommand;
+  // This bounds child processes only. Acceptance/results live in the engine;
+  // onListen resumes them after process loss. A late wake cannot be dropped.
+  let executor: Promise<void> | null = null;
+  let wakeAgain = false;
+  const wake = () => {
+    wakeAgain = true;
+    if (executor) return;
+    executor = Promise.resolve().then(async () => {
+      do {
+        wakeAgain = false;
+        await (options.wake ?? wakeStoredReports)();
+      } while (wakeAgain);
+    }).catch(() => {
+      app.log.warn('Report executor wake failed; accepted commands remain in durable state');
+    }).finally(() => {
+      executor = null;
+      if (wakeAgain) wake();
+    });
+  };
+  app.addHook('onListen', async () => {
+    if (existsSync(resolve(process.env.REPORT_STATE_DIR ?? 'data/reports', 'commands'))) wake();
+  });
   app.post('/api/report-releases/refresh', { bodyLimit: 256 }, async (request, reply) => {
     if (Object.keys(request.query as object).length ||
         request.body != null && (typeof request.body !== 'object' || Object.keys(request.body).length > 0)) {
@@ -81,19 +123,31 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         message: 'Для обновления отчёта дополнительные параметры не требуются.' });
     }
     reply.header('Cache-Control', 'private, no-store');
-    if (refreshInProgress) {
-      return reply.code(202).send({ status: 'RUNNING',
-        message: 'Чтение исходных таблиц уже запущено. Готовность отчёта обновится автоматически.' });
+    try {
+      const command = ReportCommandSchema.parse(await refresh());
+      if (command.status !== 'QUEUED') throw new Error('REPORT_COMMAND_ADMISSION_INVALID');
+      wake();
+      return reply.code(202).send({ ...command, status: 'STARTED',
+        message: 'Запрос на новый отчёт сохранён. Успешный выпуск пока не подтверждён; результат появится после проверки источников.' });
+    } catch {
+      return reply.code(503).send({ code: 'REPORT_REFRESH_UNAVAILABLE',
+        message: 'Не удалось подтвердить сохранение команды. Повторите запрос; последний проверенный отчёт сохранён.' });
     }
-    const task = Promise.resolve().then(() => refresh()).catch(() => {
-      // Never return or log source paths, private document contents or credentials.
-      app.log.warn('Manual report refresh did not publish a release; diagnostics saved by report-engine');
-    }).finally(() => {
-      if (refreshInProgress === task) refreshInProgress = null;
-    });
-    refreshInProgress = task;
-    return reply.code(202).send({ status: 'STARTED',
-      message: 'Запрос на новый отчёт принят. Успешный выпуск пока не подтверждён; результат появится после проверки источников.' });
+  });
+  app.get<{ Params: { attemptId: string } }>('/api/report-releases/commands/:attemptId', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    if (!/^[a-f0-9]{32}$/.test(request.params.attemptId) || Object.keys(request.query as object).length) {
+      return reply.code(400).send({ code: 'REPORT_COMMAND_ID_INVALID', message: 'Некорректный идентификатор команды.' });
+    }
+    try {
+      const command = ReportCommandSchema.parse(await readCommand(request.params.attemptId));
+      if (command.attempt_id !== request.params.attemptId) throw new Error('REPORT_COMMAND_ID_MISMATCH');
+      return reply.send(command);
+    } catch (error) {
+      const missing = error instanceof Error && 'code' in error && error.code === 4;
+      return reply.code(missing ? 404 : 503).send({ code: missing ? 'REPORT_COMMAND_NOT_FOUND' : 'REPORT_COMMAND_UNAVAILABLE',
+        message: missing ? 'Команда не найдена.' : 'Состояние сохранённой команды сейчас недоступно.' });
+    }
   });
   // One expensive archive build per server. Repeated requests for the same
   // context share its result; another context retries via the existing polling.

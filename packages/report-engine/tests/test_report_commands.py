@@ -145,3 +145,35 @@ def test_read_during_queue_removal_finds_the_completed_command(tmp_path, monkeyp
     assert triggered
     assert receipt['attempt_id'] == accepted['attempt_id']
     assert receipt['status'] not in {'QUEUED', 'RUNNING'}
+
+
+def test_commands_only_executor_never_creates_a_periodic_capture(tmp_path):
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    assert runtime.run_once(registry, ledger, state, queued_only=True, client=object()) == {'status': 'IDLE'}
+    accepted = runtime.enqueue_report(registry, ledger, state)
+    result = runtime.run_once(registry, ledger, state, queued_only=True, client=Google())
+    assert result['attempt_id'] == accepted['attempt_id']
+    assert runtime.run_once(registry, ledger, state, queued_only=True, client=object()) == {'status': 'IDLE'}
+
+
+def test_separate_cli_processes_resume_an_accepted_command_without_a_periodic_worker(tmp_path):
+    import subprocess
+    import sys
+    registry, ledger = inputs(tmp_path)
+    registry.write_text('{}')  # Deterministic contract failure before any Google access.
+    state = tmp_path / 'state'
+    cli = [sys.executable, '-c', 'from procurement_engine.cli import main; raise SystemExit(main())']
+    arguments = ['--registry', str(registry), '--ledger', str(ledger), '--state', str(state)]
+    accepted = subprocess.run([*cli, 'enqueue-report', *arguments], capture_output=True, text=True,
+                              check=True, timeout=20)
+    identifier = json.loads(accepted.stdout)['attempt_id']
+    subprocess.run([*cli, 'worker', '--queued-only', *arguments], capture_output=True, text=True,
+                   check=True, timeout=30)
+    observed = subprocess.run([*cli, 'read-report-command', '--state', str(state), '--attempt-id', identifier],
+                              capture_output=True, text=True, check=True, timeout=20)
+    receipt = json.loads(observed.stdout)
+    assert receipt['attempt_id'] == identifier
+    assert receipt['status'] == 'NOT_ISSUED'
+    assert receipt['error_code'] == 'INPUT_REGISTRY_INVALID'
+    assert len(observed.stdout) < 2048

@@ -88,3 +88,46 @@ def test_manual_command_is_not_delayed_until_the_next_periodic_capture(tmp_path,
                 run=run, recover=lambda *_: None, compact=lambda *_: None,
                 seal=lambda *_: None) == 0
     assert calls == [0, 5]
+
+
+def test_commands_only_worker_drains_saved_request_without_a_periodic_service(tmp_path):
+    from procurement_engine.runtime import enqueue_report, read_report_command, run_once
+    from test_runtime import Google, inputs
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    command = enqueue_report(registry, ledger, state)
+    outcomes = []
+    def run(*args, **kwargs):
+        outcome = run_once(*args, **kwargs, client=Google())
+        outcomes.append(outcome['status'])
+        return outcome
+    def no_history_scan(*_args):
+        raise AssertionError('empty manual drain must not scan archive history')
+    assert work(registry, ledger, state, queued_only=True, run=run,
+                recover=no_history_scan, seal=lambda *_: None, compact=lambda *_: None) == 0
+    assert len(outcomes) == 2
+    assert outcomes[-1] == 'IDLE'
+    assert read_report_command(state, command['attempt_id'])['status'] == outcomes[0]
+
+
+def test_commands_only_worker_waits_for_a_busy_executor_before_draining(tmp_path):
+    from procurement_engine.runtime import enqueue_report, read_report_command, run_once
+    from test_runtime import Google, inputs
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    command = enqueue_report(registry, ledger, state)
+    calls = []
+    waits = []
+    class Stop:
+        def is_set(self):
+            return False
+        def wait(self, seconds):
+            waits.append(seconds)
+    def run(*args, **kwargs):
+        calls.append(True)
+        assert len(calls) <= 3
+        return {'status': 'ALREADY_RUNNING'} if len(calls) == 1 else run_once(*args, **kwargs, client=Google())
+    assert work(registry, ledger, state, queued_only=True, stop=Stop(), run=run,
+                seal=lambda *_: None, compact=lambda *_: None) == 0
+    assert waits == [5]
+    assert read_report_command(state, command['attempt_id'])['status'] not in {'QUEUED', 'RUNNING'}

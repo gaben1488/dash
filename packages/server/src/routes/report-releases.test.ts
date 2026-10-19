@@ -2,6 +2,15 @@ import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
 import { reportReleaseRoutes } from './report-releases.js';
 
+it('does not acknowledge a refresh when durable admission fails', async () => {
+  const app = Fastify();
+  await app.register(reportReleaseRoutes, { refresh: async () => { throw new Error('private disk failure'); } });
+  const response = await app.inject({ method: 'POST', url: '/api/report-releases/refresh' });
+  expect(response.statusCode).toBe(503);
+  expect(response.body).not.toContain('private disk failure');
+  await app.close();
+});
+
 it('reads a bounded history page separately from the selected release detail', async () => {
   const app = Fastify();
   const read = vi.fn(async () => Buffer.from('{"releases":[],"next":null}'));
@@ -118,23 +127,116 @@ it('coalesces the same archive request and bounds expensive concurrent builds', 
 });
 
 
-it('starts a single manual refresh and responds without waiting for full Google capture', async () => {
+it('acknowledges only saved commands and does not wait for capture', async () => {
   const app = Fastify();
-  let done!: () => void;
-  const refresh = vi.fn(() => new Promise<void>(resolve => { done = resolve; }));
-  await app.register(reportReleaseRoutes, { refresh });
-  await app.ready();
-  const first = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
-  expect(first.statusCode).toBe(202);
-  expect(first.json().status).toBe('STARTED');
-  expect(first.json().message).toContain('не подтверждён');
+  const receipt = { status: 'QUEUED', attempt_id: 'a'.repeat(32), requested_at: '2026-10-20T00:00:00+00:00' };
+  let save!: (value: unknown) => void;
+  const refresh = vi.fn().mockImplementationOnce(() => new Promise(resolve => { save = resolve; }))
+    .mockResolvedValue(receipt);
+  const wake = vi.fn(async () => {});
+  await app.register(reportReleaseRoutes, { refresh, wake });
+  let acknowledged = false;
+  const firstRequest = app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} })
+    .then(response => { acknowledged = true; return response; });
   await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  expect(acknowledged).toBe(false);
+  expect(wake).not.toHaveBeenCalled();
+  save(receipt);
+  const first = await firstRequest;
+  expect(first.statusCode).toBe(202);
+  expect(first.json()).toMatchObject({ ...receipt, status: 'STARTED' });
+  expect(first.json().message).toContain('не подтверждён');
   const other = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
   expect(other.statusCode).toBe(202);
-  expect(other.json().status).toBe('RUNNING');
-  expect(refresh).toHaveBeenCalledOnce();
+  expect(other.json().attempt_id).toBe(receipt.attempt_id);
+  expect(refresh).toHaveBeenCalledTimes(2);
+  await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(2));
+  await app.close();
+});
+
+it('reads a saved command after a new API instance starts', async () => {
+  const receipt = { status: 'QUEUED', attempt_id: 'b'.repeat(32) };
+  const first = Fastify();
+  await first.register(reportReleaseRoutes, { refresh: async () => receipt, wake: async () => {} });
+  const accepted = await first.inject({ method: 'POST', url: '/api/report-releases/refresh' });
+  await first.close();
+  const restarted = Fastify();
+  const command = vi.fn(async () => ({ ...receipt, status: 'NOT_ISSUED', error_code: 'REPORT_ATTEMPT_INTERRUPTED' }));
+  await restarted.register(reportReleaseRoutes, { command });
+  const result = await restarted.inject('/api/report-releases/commands/' + accepted.json().attempt_id);
+  expect(result.statusCode).toBe(200);
+  expect(result.json()).toMatchObject({ attempt_id: receipt.attempt_id, status: 'NOT_ISSUED' });
+  expect(result.headers['cache-control']).toBe('private, no-store');
+  expect(command).toHaveBeenCalledWith(receipt.attempt_id);
+  expect((await restarted.inject('/api/report-releases/commands/invalid')).statusCode).toBe(400);
+  expect(command).toHaveBeenCalledOnce();
+  await restarted.close();
+});
+
+it('does not replace a persisted acknowledgement with failure when waking the executor fails', async () => {
+  const app = Fastify();
+  await app.register(reportReleaseRoutes, {
+    refresh: async () => ({ status: 'QUEUED', attempt_id: 'c'.repeat(32) }),
+    wake: async () => { throw new Error('private wake error'); },
+  });
+  const response = await app.inject({ method: 'POST', url: '/api/report-releases/refresh' });
+  expect(response.statusCode).toBe(202);
+  expect(response.json().attempt_id).toBe('c'.repeat(32));
+  expect(response.body).not.toContain('private');
+  await app.close();
+});
+
+it('bounds executor processes while preserving a wake accepted during an active drain', async () => {
+  const app = Fastify();
+  let done!: () => void;
+  const wake = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { done = resolve; }))
+    .mockResolvedValue(undefined);
+  await app.register(reportReleaseRoutes, {
+    refresh: async () => ({ status: 'QUEUED', attempt_id: 'd'.repeat(32) }), wake,
+  });
+  await app.inject({ method: 'POST', url: '/api/report-releases/refresh' });
+  await vi.waitFor(() => expect(wake).toHaveBeenCalledOnce());
+  const second = await app.inject({ method: 'POST', url: '/api/report-releases/refresh' });
+  expect(second.statusCode).toBe(202);
+  expect(wake).toHaveBeenCalledOnce();
   done();
-  await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(2));
+  await app.close();
+});
+
+it('resumes accepted commands on API startup even without a periodic worker', async () => {
+  const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const state = mkdtempSync(join(tmpdir(), 'report-command-resume-'));
+  mkdirSync(join(state, 'commands'));
+  vi.stubEnv('REPORT_STATE_DIR', state);
+  const wake = vi.fn(async () => {});
+  const app = Fastify();
+  try {
+    await app.register(reportReleaseRoutes, { wake });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    await vi.waitFor(() => expect(wake).toHaveBeenCalledOnce());
+  } finally {
+    await app.close();
+    vi.unstubAllEnvs();
+    rmSync(state, { recursive: true, force: true });
+  }
+});
+
+it('rejects a receipt for another command and keeps private evidence out of HTTP', async () => {
+  const app = Fastify();
+  const command = vi.fn().mockResolvedValueOnce({ status: 'RUNNING', attempt_id: 'b'.repeat(32) })
+    .mockResolvedValueOnce({ status: 'RUNNING', attempt_id: 'a'.repeat(32), private_evidence: 'SECRET' })
+    .mockResolvedValueOnce({ status: 'VERIFIED', attempt_id: 'a'.repeat(32) })
+    .mockRejectedValueOnce(Object.assign(new Error('private missing file'), { code: 4 }));
+  await app.register(reportReleaseRoutes, { command });
+  for (const status of [503, 503, 503, 404]) {
+    const response = await app.inject('/api/report-releases/commands/' + 'a'.repeat(32));
+    expect(response.statusCode).toBe(status);
+    expect(response.body).not.toContain('SECRET');
+    expect(response.body).not.toContain('private');
+  }
   await app.close();
 });
 

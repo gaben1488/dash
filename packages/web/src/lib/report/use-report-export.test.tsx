@@ -19,10 +19,15 @@ const operations = {
 const context: ExportContext = { date: '2026-09-30', year: 2026, quarter: 3, mode: 'live' };
 const request = vi.fn();
 let poll: () => void;
+let commandPoll: () => void;
 const realSetInterval = globalThis.setInterval;
 beforeEach(() => {
   useStore.setState({ reportPinned: null });
   vi.spyOn(globalThis, 'setInterval').mockImplementation((callback, delay, ...args) => {
+    if (delay === 5_000) {
+      commandPoll = callback as () => void;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }
     if (delay !== 60_000) return realSetInterval(callback, delay, ...args);
     poll = callback as () => void;
     return 0 as unknown as ReturnType<typeof setInterval>;
@@ -301,8 +306,11 @@ it('names the missing archived inputs and does not spin up another build on ever
 it('offers one-click fresh release only in live mode and keeps Word available while starting it', async () => {
   request.mockImplementation(async (url: string) => {
     if (url === '/api/report-releases/refresh') {
-      return { ok: true, json: async () => ({ status: 'STARTED',
+      return { ok: true, json: async () => ({ status: 'STARTED', attempt_id: 'b'.repeat(32),
         message: 'Проверка актуальных данных запущена.' }) };
+    }
+    if (url.includes('/report-releases/commands/')) {
+      return { ok: true, json: async () => ({ status: 'RUNNING', attempt_id: 'b'.repeat(32) }) };
     }
     return response(receipt);
   });
@@ -313,6 +321,31 @@ it('offers one-click fresh release only in live mode and keeps Word available wh
   expect(result.current.refreshNotice).toContain('Проверка актуальных данных');
   expect(result.current.release?.release_id).toBe(receipt.release_id);
   expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(1);
+});
+
+it('follows the accepted command instead of mistaking an older Word for its success', async () => {
+  const attemptId = 'd'.repeat(32);
+  let commandStatus = 'RUNNING';
+  request.mockImplementation(async (url: string) => {
+    if (url === '/api/report-releases/refresh') {
+      return { ok: true, json: async () => ({ status: 'STARTED', attempt_id: attemptId, message: 'Запрос сохранён.' }) };
+    }
+    if (url === `/api/report-releases/commands/${attemptId}`) {
+      return { ok: true, json: async () => ({ status: commandStatus, attempt_id: attemptId }) };
+    }
+    return response(receipt);
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  await act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.refreshing).toBe(true));
+  await act(() => result.current.refresh());
+  expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(1);
+  commandStatus = 'NOT_ISSUED';
+  await act(async () => { commandPoll(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(result.current.refreshNotice).toContain('Новый отчёт не выпущен');
+  expect(result.current.refreshing).toBe(false);
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
 });
 
 

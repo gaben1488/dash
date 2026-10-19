@@ -1,6 +1,6 @@
 import { useStore } from '../../store';
 import { useEffect, useRef, useState } from 'react';
-import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
+import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, ReportCommandSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
 import { ApiContractError, ApiError, fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
@@ -46,12 +46,12 @@ export function useReportExport(context: ExportContext | null) {
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
   const downloadController = useRef<AbortController | null>(null);
-  const [refreshState, setRefreshState] = useState<{ key: string; busy: boolean; notice: string } | null>(null);
+  const [refreshState, setRefreshState] = useState<{ key: string; busy: boolean; notice: string; attemptId?: string } | null>(null);
 
   useEffect(() => {
     setPinned(null);
     setTransfer(null);
-    setRefreshState(null);
+    setRefreshState(previous => previous?.key === key ? previous : null);
     if (!key || !query) return;
     const controller = new AbortController();
     let loading = false;
@@ -125,6 +125,48 @@ export function useReportExport(context: ExportContext | null) {
     const timer = setInterval(() => void load(), 60_000);
     return () => { controller.abort(); downloadController.current?.abort(); clearInterval(timer); };
   }, [key, query, archiveMode, selectionEpoch]);
+
+  const refreshAttemptId = refreshState?.key === key ? refreshState.attemptId : undefined;
+  useEffect(() => {
+    if (!refreshAttemptId || !key) return;
+    const controller = new AbortController();
+    let loading = false;
+    let finished = false;
+    async function checkCommand() {
+      if (loading || finished) return;
+      loading = true;
+      const requestController = new AbortController();
+      const abort = () => requestController.abort();
+      controller.signal.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(abort, 35_000);
+      try {
+        const command = await fetchParsed(`/report-releases/commands/${refreshAttemptId}`, ReportCommandSchema,
+          { signal: requestController.signal });
+        if (controller.signal.aborted) return;
+        if (command.attempt_id !== refreshAttemptId) throw new Error('REPORT_COMMAND_ID_MISMATCH');
+        finished = command.status !== 'QUEUED' && command.status !== 'RUNNING';
+        const notice = command.status === 'QUEUED' ? 'Запрос сохранён и ожидает исполнителя.'
+          : command.status === 'RUNNING' ? 'Проверка актуальных данных выполняется.'
+            : command.status === 'NOT_ISSUED' ? 'Новый отчёт не выпущен. Последний проверенный Word сохранён.'
+              : 'Новый отчёт проверен и опубликован.';
+        setRefreshState({ key: key!, attemptId: refreshAttemptId, busy: !finished, notice });
+        if (finished) {
+          clearInterval(timer);
+          setSelectionEpoch(value => value + 1);
+        }
+      } catch {
+        if (!controller.signal.aborted) setRefreshState({ key: key!, attemptId: refreshAttemptId, busy: false,
+          notice: 'Не удалось прочитать состояние сохранённого запроса. Проверка повторится автоматически.' });
+      } finally {
+        clearTimeout(timeout);
+        controller.signal.removeEventListener('abort', abort);
+        loading = false;
+      }
+    }
+    const timer = setInterval(() => void checkCommand(), 5_000);
+    void checkCommand();
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [key, refreshAttemptId]);
 
   const current = state?.key === key ? state : null;
   const exact = current?.data?.selected ?? null;
@@ -238,10 +280,10 @@ export function useReportExport(context: ExportContext | null) {
       const data = await fetchParsed('/report-releases/refresh', ReportRefreshResponseSchema, {
         method: 'POST',
       });
-      setRefreshState({ key, busy: false, notice: data.message });
+      setRefreshState({ key, busy: true, notice: data.message, attemptId: data.attempt_id });
     } catch (error) {
       setRefreshState({ key, busy: false,
-        notice: `Запрос обновления не принят. ${wordReadFailure(error)} Последний проверенный Word сохраняется.` });
+        notice: `Не удалось подтвердить приём запроса. ${wordReadFailure(error)} Последний проверенный Word сохраняется.` });
     }
   }
   const canRefresh = Boolean(key && !archiveMode);

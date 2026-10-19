@@ -219,7 +219,7 @@ def _recover_interrupted_attempts(state):
         _finish_attempt(state, path.parent, status)
 
 
-def run_once(registry_path, ledger_path, state_dir, *, client=None):
+def run_once(registry_path, ledger_path, state_dir, *, client=None, queued_only=False):
     """Return VERIFIED, VERIFIED_WITH_WARNINGS, NOT_ISSUED, or ALREADY_RUNNING.
 
     Registry and ledger are private runtime files, never defaults embedded in code.
@@ -235,6 +235,8 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         _recover_interrupted_attempts(state)
         with _admission(state):
             queued = sorted(_pending_commands(state), key=lambda item: (item['requested_at'], item['attempt_id']))
+            if queued_only and not queued:
+                return {'status': 'IDLE'}
             status = dict(queued[0]) if queued else {'attempt_id': uuid.uuid4().hex}
             attempt_id = status['attempt_id']
             attempt = state / 'attempts' / attempt_id

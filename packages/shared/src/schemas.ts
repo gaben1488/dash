@@ -587,7 +587,23 @@ export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
 ]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
-export const ReportRefreshResponseSchema = z.object({
+const ReportCommandRecordSchema = z.object({
+  status: z.enum(['QUEUED', 'RUNNING', 'VERIFIED', 'VERIFIED_WITH_WARNINGS', 'NOT_ISSUED']),
+  attempt_id: z.string().regex(/^[a-f0-9]{32}$/),
+  requested_at: z.string().datetime({ offset: true }).optional(),
+  started_at: z.string().datetime({ offset: true }).optional(),
+  finished_at: z.string().datetime({ offset: true }).nullable().optional(),
+  stage: z.enum(['inputs', 'acquisition', 'publication_selection', 'build', 'publication']).optional(),
+  error_code: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+  release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
+}).strict();
+export const ReportCommandSchema = ReportCommandRecordSchema.refine(command =>
+  !['VERIFIED', 'VERIFIED_WITH_WARNINGS'].includes(command.status) || command.release_id !== undefined,
+{ message: 'A published command requires its release receipt' });
+export type ReportCommand = z.infer<typeof ReportCommandSchema>;
+export const ReportRefreshResponseSchema = ReportCommandRecordSchema.extend({
+  // Keep the acknowledgement understood by already-open older browser tabs.
+  // Actual execution state is read from the durable command endpoint.
   status: z.enum(['STARTED', 'RUNNING']),
   message: z.string(),
 });
