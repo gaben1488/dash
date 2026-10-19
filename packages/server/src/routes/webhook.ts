@@ -50,6 +50,7 @@ import {
 import {
   cycleCoversFile,
   canRetryNotification,
+  MAX_QUEUE_ATTEMPTS,
   enqueueNotification,
   noteAttemptFailed,
   pendingNotifications,
@@ -89,6 +90,7 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
       // очереди достигнута тем, что состояние сверено с Drive.
       if (Object.keys(r.failed ?? {}).length > 0) {
         settleMonitoring(claimed, false, 'MONITORING_READ_FAILED', new Date(), Object.values(r.failed ?? {}).every(isTransientSourceFailure));
+        queueWriteFailures.monitoring = 0;
         scheduleQueueRetry(log);
         log.warn(`Вебхук: неполное чтение мониторинга; повтор поставлен в очередь`);
         return;
@@ -104,6 +106,7 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
         });
       }
       settleMonitoring(claimed, true);
+      queueWriteFailures.monitoring = 0;
       if (!r.read) {
         log.info(`Вебхук: книга мониторинга не перечитана — ${r.skippedBecause ?? 'изменений нет'}`);
         return;
@@ -117,8 +120,7 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
     .catch((err: unknown) => {
       // Упавшее чтение НЕ помечается выполненным: запись остаётся в очереди
       // и будет повторена (проект службы §2.3).
-      settleMonitoring(claimed, false, (err as Error).message, new Date(), isTransientSourceFailure(err));
-      scheduleQueueRetry(log);
+      recordQueueFailure('monitoring', () => settleMonitoring(claimed, false, (err as Error).message, new Date(), isTransientSourceFailure(err)), log);
       log.warn(`Вебхук: книга мониторинга не прочитана: ${(err as Error).message}`);
     });
 }
@@ -155,6 +157,28 @@ export const QUEUE_RETRY_MS = 60_000;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 let queueReadFailures = 0;
+const queueWriteFailures = { source: 0, monitoring: 0 };
+function recordQueueFailure(kind: keyof typeof queueWriteFailures, record: () => void, log: RouteLog): void {
+  try {
+    record();
+    queueWriteFailures[kind] = 0;
+    scheduleQueueRetry(log);
+  } catch {
+    // The database cannot store the retry count. Bound recovery in this process;
+    // a restart or explicit recovery may retry the retained pending evidence.
+    queueWriteFailures[kind] += 1;
+    log.warn(`Вебхук: WEBHOOK_QUEUE_WRITE_FAILED (${kind}); исход попытки не сохранён`);
+    if (queueWriteFailures[kind] < MAX_QUEUE_ATTEMPTS) scheduleQueueRetry(log);
+  }
+}
+function canAutomaticallyRetry(entry: QueueEntry): boolean {
+  const plan = planForFile(entry.fileId);
+  return canRetryNotification(entry)
+    && (!plan.full && plan.monitoring
+      ? queueWriteFailures.monitoring < MAX_QUEUE_ATTEMPTS
+      : queueWriteFailures.source < MAX_QUEUE_ATTEMPTS && (!plan.full || queueWriteFailures.monitoring < MAX_QUEUE_ATTEMPTS));
+}
+
 function queueReadFailed(log: RouteLog, error: unknown): void {
   queueReadFailures += 1;
   let cause = error;
@@ -179,7 +203,7 @@ function scheduleQueueRetry(log: RouteLog): void {
   retryTimer = setTimeout(() => {
     retryTimer = null;
     try {
-      const entries = pendingNotifications().filter(canRetryNotification);
+      const entries = pendingNotifications().filter(canAutomaticallyRetry);
       queueReadFailures = 0;
       if (entries.length === 0 && !pendingPlan.full && !pendingPlan.monitoring && !pendingPlan.svod && pendingPlan.books.length === 0) return;
       for (const entry of entries) noteTarget(entry.fileId);
@@ -298,6 +322,7 @@ function scheduleRefresh(log: RouteLog): void {
           // план ЭТОГО цикла: запись книги, которую цикл не читал, исходом
           // цикла не решается — остаётся ждать своего чтения.
           const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk, retryableFailures: r.retryableFailures, svodRetryable: r.svodRetryable }, plan);
+          queueWriteFailures.source = 0;
           if (settled.kept.length > 0 || settled.skipped.length > 0) scheduleQueueRetry(log);
           // Комментарии-облачка задетых книг — вместе с перечиткой (§17.2).
           refreshCommentsForPlan(plan, log);
@@ -314,7 +339,7 @@ function scheduleRefresh(log: RouteLog): void {
           // Цикл упал целиком — счёт попытки идёт только записям, чью цель
           // этот цикл ЧИТАЛ (кроме мониторинговых, у них свой путь): запись
           // книги вне плана цикла его падением не наказывается.
-          noteAttemptFailed(
+          recordQueueFailure('source', () => noteAttemptFailed(
             claimed
               .filter((e) => {
                 const p = planForFile(e.fileId);
@@ -323,8 +348,7 @@ function scheduleRefresh(log: RouteLog): void {
               })
               .map((e) => e.id),
             (err as Error).message,
-          );
-          scheduleQueueRetry(log);
+          ), log);
           log.warn(`Вебхук: перечитка не удалась: ${(err as Error).message}`);
         });
     } catch (err) {
@@ -344,6 +368,8 @@ export function cancelPendingWebhookRefresh(): void {
   retryTimer = null;
   pendingPlan = EMPTY_PLAN;
   queueReadFailures = 0;
+  queueWriteFailures.source = 0;
+  queueWriteFailures.monitoring = 0;
 }
 
 /** Человеческое объяснение решения — для журнала сервера. */
@@ -505,5 +531,6 @@ export function webhookRoutes(app: FastifyInstance): void {
     // Очередь уведомлений (проект §2.3): сколько ждёт чтения, с какого
     // момента и сколько попыток упало. Идентификаторов файлов здесь нет.
     queue: queueStats(),
+    queuePersistence: { ...queueWriteFailures, requiresAttention: Object.values(queueWriteFailures).some(count => count >= MAX_QUEUE_ATTEMPTS) },
   }));
 }

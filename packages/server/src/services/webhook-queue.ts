@@ -219,19 +219,12 @@ export function settleMonitoring(
 export function noteAttemptFailed(ids: readonly number[], error: string): void {
   if (ids.length === 0) return;
   try {
-    const rows = db
-      .select({ id: schema.webhookQueue.id, attempts: schema.webhookQueue.attempts })
-      .from(schema.webhookQueue)
-      .where(inArray(schema.webhookQueue.id, [...ids]))
-      .all();
-    for (const row of rows) {
-      db.update(schema.webhookQueue)
-        .set({ attempts: row.attempts + 1, lastError: error })
-        .where(eq(schema.webhookQueue.id, row.id))
-        .run();
-    }
-  } catch {
-    // Запись остаётся pending. Исходный отказ сообщает обработчик цикла.
+    db.update(schema.webhookQueue)
+      .set({ attempts: sql`${schema.webhookQueue.attempts} + 1`, lastError: error })
+      .where(and(inArray(schema.webhookQueue.id, [...ids]), eq(schema.webhookQueue.state, 'pending')))
+      .run();
+  } catch (cause) {
+    throw new Error('WEBHOOK_QUEUE_WRITE_FAILED', { cause });
   }
 }
 

@@ -56,6 +56,21 @@ function enqueueUO(fileId: string): number {
 }
 
 describe('очередь уведомлений', () => {
+  it('rolls back the whole attempt-counter update if any selected row cannot be written', async () => {
+    const { db } = await import('../db/index.js');
+    const first = enqueueUO('one');
+    const second = enqueueUO('two');
+    db.$client.exec(`CREATE TEMP TRIGGER fail_attempt BEFORE UPDATE OF attempts ON webhook_queue WHEN OLD.id = ${second} BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
+    try {
+      expect(() => queue.noteAttemptFailed([first, second], 'timeout')).toThrow('WEBHOOK_QUEUE_WRITE_FAILED');
+      expect(queue.pendingNotifications().map(row => row.attempts)).toEqual([0, 0]);
+    } finally {
+      db.$client.exec('DROP TRIGGER fail_attempt');
+    }
+    queue.noteAttemptFailed([first, second], 'timeout');
+    expect(queue.pendingNotifications().map(row => row.attempts)).toEqual([1, 1]);
+  });
+
   it('вебхук кладёт запись — она видна невыполненной со всеми полями', async () => {
     const { uo } = await fileIds();
     enqueueUO(uo);

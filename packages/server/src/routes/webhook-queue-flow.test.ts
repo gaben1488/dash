@@ -112,6 +112,35 @@ function post(headers: Record<string, string>) {
 }
 
 describe('очередь уведомлений — сквозная дорога', () => {
+  it.each(['source', 'monitoring'])('bounds %s retries when even the failure counter cannot be persisted', async (kind) => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const read = kind === 'source' ? refreshAllSources : refreshMonitoringBook;
+    read.mockClear();
+    read.mockRejectedValue(new Error('network timeout'));
+    db.$client.exec("CREATE TEMP TRIGGER fail_attempts BEFORE UPDATE OF attempts ON webhook_queue BEGIN SELECT RAISE(ABORT, 'injected counter failure'); END");
+    try {
+      await post(notification({ 'x-goog-resource-uri': `https://www.googleapis.com/drive/v3/files/${kind === 'source' ? 'file-uo' : 'file-monitoring'}` }));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: 0 })]);
+      expect(queue.queueStats().processed).toBe(0);
+      const health = await app.inject({ method: 'GET', url: '/api/webhook/drive/state' });
+      expect(health.json().queuePersistence).toMatchObject({ [kind]: 3, requiresAttention: true });
+    } finally {
+      db.$client.exec('DROP TRIGGER fail_attempts');
+      refreshMonitoringBook.mockResolvedValue({ read: true, changed: [], version: 1 });
+    }
+    refreshAllSources.mockResolvedValue({ loaded: ['УО'], failed: [], retryableFailures: [], svodOk: true,
+      at: 'x', changedBooks: [], svodChanged: false, booksRead: 1, skipped: [] });
+    const { recoverWebhookQueue } = await import('./webhook.js');
+    expect(recoverWebhookQueue({ info() {}, warn() {} })).toBe(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    const recovered = await app.inject({ method: 'GET', url: '/api/webhook/drive/state' });
+    expect(recovered.json().queuePersistence).toMatchObject({ [kind]: 0, requiresAttention: false });
+  });
+
   it.each(['SOURCE_STATE_READ_FAILED', 'SOURCE_STATE_PERSIST_FAILED'])('retries %s without acknowledging the failed attempt', async (code) => {
     vi.useFakeTimers();
     refreshAllSources.mockRejectedValueOnce(new Error(code));
