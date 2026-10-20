@@ -1,11 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { MONITORING_DATA_SHEETS } from '@aemr/core';
-const reader = vi.hoisted(() => ({ partial: false, changed: false, calls: 0 }));
+const reader = vi.hoisted(() => ({ partial: false, changed: false, calls: 0, directory: [] as unknown[][] }));
+const writeCell = vi.hoisted(() => vi.fn());
 vi.mock('./google-sheets.js', () => ({
+  writeCellValue: writeCell,
   batchGetSheetValues: vi.fn(async () => {
     reader.calls++;
     if (reader.partial) throw new Error('batch unavailable');
-    return Object.fromEntries(MONITORING_DATA_SHEETS.map(sheet => [sheet, sheet === 'Рабочий реестр процедур' ? [[reader.changed ? 'changed' : 'initial']] : []]));
+    return Object.fromEntries(MONITORING_DATA_SHEETS.map(sheet => [sheet, sheet === 'Справочник заказчиков' ? reader.directory : sheet === 'Рабочий реестр процедур' ? [[reader.changed ? 'changed' : 'initial']] : []]));
   }),
   getSheetDataFromSpreadsheet: vi.fn(async (_id: string, sheet: string) => {
     if (reader.partial && sheet === 'Процедуры в работе') throw new Error('temporary queue refusal');
@@ -14,7 +16,16 @@ vi.mock('./google-sheets.js', () => ({
 }));
 vi.mock('./file-revision.js', () => ({ checkFileChanged: vi.fn(async () => 'same') }));
 import { getMonitoringBook, refreshMonitoringBook, resetMonitoringState } from './monitoring.js';
-beforeEach(() => { resetMonitoringState(); reader.partial = false; reader.changed = false; reader.calls = 0; });
+beforeEach(() => { resetMonitoringState(); reader.partial = false; reader.changed = false; reader.calls = 0; reader.directory = []; writeCell.mockClear(); });
+it('refreshes a directory with missing IDs without writing to the source', async () => {
+  const header = Array(19).fill(''); header[18] = 'ID учреждения';
+  const row = Array(19).fill(''); row[3] = 'Учреждение';
+  reader.directory = [header, row];
+  const result = await refreshMonitoringBook({ askDrive: false });
+  expect(result.read).toBe(true);
+  expect(writeCell).not.toHaveBeenCalled();
+  expect((await getMonitoringBook()).sheets['Справочник заказчиков']).toEqual([header, row]);
+});
 it('retries a partial read even when Drive already acknowledged its revision, and retains the change for the final event', async () => {
   await getMonitoringBook();
   reader.partial = true; reader.changed = true;
