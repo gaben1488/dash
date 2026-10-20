@@ -72,7 +72,7 @@ let deptLoadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName
 const getSnapshot = vi.fn(async () => ({
   id: 'snap-1',
   createdAt: new Date().toISOString(),
-  officialMetrics: { 'grbs.uo.year.plan_count': { numericValue: 1 } },
+  officialMetrics: { 'grbs.uo.year.plan_count': { numericValue: 1, confidence: 1, warnings: [] } },
   calculatedMetrics: {},
   deltas: [],
   issues: [],

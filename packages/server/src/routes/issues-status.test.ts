@@ -164,6 +164,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect(dashboard.statusCode).toBe(200);
     expect(dashboard.json().recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('acknowledged');
     const before = dashboard.json().trust.overall;
+    expect(before).toBeNull();
     expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'in_progress' } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'resolved' } })).statusCode).toBe(200);
     const unconfirmed = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
@@ -174,7 +175,8 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect(falsePositive.statusCode).toBe(200);
     const after = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
     expect(after.recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('false_positive');
-    expect(after.trust.overall).toBeGreaterThan(before);
+    // A decision changes the case, but cannot create evidence in an empty source.
+    expect(after.trust.overall).toBeNull();
     expect((await app.inject({ method: 'GET', url: '/api/trust' })).json().overall).toBe(after.trust.overall);
     const { getSnapshot } = await import('../services/snapshot.js');
     expect((await getSnapshot()).issues[0].status).toBe('open');
