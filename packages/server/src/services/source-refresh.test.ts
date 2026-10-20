@@ -143,6 +143,28 @@ describe('перечитка источников одним циклом', () =
     resetSourcePrints();
   });
 
+  it('rejects acquisition if the configured book is replaced while reading', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const original = DEPARTMENT_SPREADSHEETS['УО'];
+    resetSourcePrints();
+    readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+    fetchDepartmentSpreadsheets.mockImplementation(async () => {
+      DEPARTMENT_SPREADSHEETS['УО'] = 'replacement-test-book';
+      return { data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    });
+    try {
+      const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive: false });
+      expect(result.loaded).toEqual([]);
+      expect(result.retryableFailures).toEqual(['УО']);
+      expect(cachedBooks['УО']).toBeUndefined();
+      expect(saveWatermark).not.toHaveBeenCalled();
+    } finally {
+      DEPARTMENT_SPREADSHEETS['УО'] = original!;
+      resetSourcePrints();
+    }
+  });
+
   it('does not accept a known revision when its post-read check is unavailable', async () => {
     const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
     resetSourcePrints();

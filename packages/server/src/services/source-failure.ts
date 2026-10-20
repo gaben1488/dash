@@ -14,6 +14,7 @@
 /** Причина отказа источника русской фразой из закрытого списка. */
 export function classifySourceFailure(raw: string): string {
   const text = raw.toLowerCase();
+  if (text === 'source_binding_changed_during_read') return 'настройка источника изменилась во время чтения';
   if (text === 'source_changed_during_read') return 'книга изменилась во время чтения';
   if (text === 'source_revision_recheck_unavailable') return 'не удалось подтвердить версию прочитанной книги';
   if (/^snapshot_calculation_(failed|busy|timed_out|termination_failed|exited_without_result)$/.test(text)) {
@@ -51,6 +52,7 @@ export function isTransientSourceFailure(error: unknown): boolean {
   if (/schema|contract|invalid|\b40[134]\b|permission|forbidden|not found|unable to parse range/i.test(raw)) return false;
   const transient = ['источник не ответил вовремя', 'источник ограничил частоту обращений',
     'нет связи с источником', 'источник временно недоступен',
-    'книга изменилась во время чтения', 'не удалось подтвердить версию прочитанной книги'];
+    'книга изменилась во время чтения', 'не удалось подтвердить версию прочитанной книги',
+    'настройка источника изменилась во время чтения'];
   return transient.includes(raw) || transient.includes(classifySourceFailure(raw));
 }

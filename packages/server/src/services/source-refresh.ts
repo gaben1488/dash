@@ -388,6 +388,7 @@ async function gateByRevision(
   wantSvod: boolean,
   ask: boolean,
   withFormulas: boolean,
+  sourceBooks: Readonly<Record<string, string>>,
 ): Promise<{ books: string[]; svod: boolean; skipped: string[]; attested: string[] }> {
   if (!ask) return { books: [...candidates], svod: wantSvod, skipped: [], attested: [] };
 
@@ -401,7 +402,7 @@ async function gateByRevision(
 
   const cached = getDeptSheetCache();
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
-    const fileId = DEPARTMENT_SPREADSHEETS[book];
+    const fileId = sourceBooks[book];
     if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length) {
       books.push(book);
       return;
@@ -452,6 +453,7 @@ export function refreshAllSources(log?: {
   }
 
   inFlight = (async () => {
+    const sourceBooks = { ...DEPARTMENT_SPREADSHEETS };
     // Водяной знак из базы — ДО любого сравнения: после рестарта отпечатки
     // обязаны быть довалочными, а не пустыми (§2.4 проекта службы).
     seedFromWatermarks();
@@ -476,20 +478,21 @@ export function refreshAllSources(log?: {
     // Формат чтения не означает принуждение: повторный вебхук может пропустить
     // уже прочитанную версию с формулами. Ручной/контрольный обход задаёт askDrive:false.
     const askDrive = options.askDrive ?? true;
-    const previousRevisions = new Map(Object.values(DEPARTMENT_SPREADSHEETS)
+    const previousRevisions = new Map(Object.values(sourceBooks)
       .map(fileId => [fileId, lastKnownRevision(fileId)] as const));
     const gate = await gateByRevision(
-      targetBooks ?? Object.keys(DEPARTMENT_SPREADSHEETS),
+      targetBooks ?? Object.keys(sourceBooks),
       wantSvod,
       askDrive,
       options.withFormulas ?? false,
+      sourceBooks,
     );
     const booksToRead = gate.books;
     const readSvod = gate.svod;
     // Pin the pre-read revision. Forced reads bypass the skip gate, but must
     // still detect edits made while Sheets values/formulas are being acquired.
     const acquisitionRevisions = new Map(await Promise.all(booksToRead.map(async name => {
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const fileId = sourceBooks[name];
       return [name, await readRevision(fileId)] as const;
     })));
 
@@ -498,7 +501,7 @@ export function refreshAllSources(log?: {
       // `only` означает «все книги», и передать его сюда значило бы отменить
       // весь отсев ровно в тот момент, когда он сработал полностью.
       booksToRead.length > 0
-        ? fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS, {
+        ? fetchDepartmentSpreadsheets(sourceBooks, {
             only: booksToRead,
             // Формулы — только когда их попросили (вебхук, ночной обход).
             // Плановый цикл сюда приходит без флага и платит за одно чтение.
@@ -519,13 +522,21 @@ export function refreshAllSources(log?: {
       // Unavailable metadata retains the existing unverified live-read mode;
       // it must never be advertised as a sealed report source revision.
       if (!beforeRevision || (beforeRevision.version === null && beforeRevision.modifiedTime === null)) return;
-      const afterRevision = await readRevision(DEPARTMENT_SPREADSHEETS[name]);
+      const afterRevision = await readRevision(sourceBooks[name]);
       if (!afterRevision || beforeRevision.version !== afterRevision.version
           || beforeRevision.modifiedTime !== afterRevision.modifiedTime) {
         Reflect.deleteProperty(data, name);
         errors[name] = afterRevision ? 'SOURCE_CHANGED_DURING_READ' : 'SOURCE_REVISION_RECHECK_UNAVAILABLE';
       }
     }));
+    // Check after ALL asynchronous reads/rechecks; another source can finish
+    // later while settings change. Never label old-book values as the new book.
+    for (const name of Object.keys(data)) {
+      if (sourceBooks[name] !== DEPARTMENT_SPREADSHEETS[name]) {
+        Reflect.deleteProperty(data, name);
+        errors[name] = 'SOURCE_BINDING_CHANGED_DURING_READ';
+      }
+    }
     // Publish both sides only after acquisition has finished, without yielding
     // between cache updates. Parallel reads do not prove atomic Google revisions.
     const svodResult = (() => {
@@ -579,7 +590,7 @@ export function refreshAllSources(log?: {
         }
         for (const name of gate.attested) {
           if (changedBooks.includes(name) || !(name in data)) continue;
-          const fileId = DEPARTMENT_SPREADSHEETS[name];
+          const fileId = sourceBooks[name];
           const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
           if (noteHonestGap(name, modifiedTime)) gaps.push({ name, modifiedTime });
         }
@@ -588,7 +599,7 @@ export function refreshAllSources(log?: {
       // The Drive probe advanced its in-memory revision before acquisition.
       // Restore it so retry cannot skip this unaccepted input or lose attestation.
       for (const name of booksToRead) {
-        const fileId = DEPARTMENT_SPREADSHEETS[name];
+        const fileId = sourceBooks[name];
         if (!fileId) continue;
         forgetRevision(fileId);
         const previous = previousRevisions.get(fileId);
@@ -603,7 +614,7 @@ export function refreshAllSources(log?: {
     setDeptSheetCache(data, Object.keys(errors));
     for (const [name, print] of nextPrints) {
       bookPrints.set(name, print);
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const fileId = sourceBooks[name];
       forgetRevision(fileId);
       const revision = acquisitionRevisions.get(name);
       if (revision) seedRevision(fileId, revision);
@@ -617,7 +628,7 @@ export function refreshAllSources(log?: {
     // не было, и без этого книга выпала бы из перечиток до следующей правки.
     for (const name of Object.keys(errors)) {
       bookPrints.delete(name);
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const fileId = sourceBooks[name];
       if (fileId) forgetRevision(fileId);
     }
 
