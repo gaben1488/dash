@@ -665,6 +665,10 @@ export async function getSheetFormulaColumns(
 }
 
 export interface DeptSheetResult {
+  /** Shared accepted source context, when this reading came from report acquisition. */
+  sourceRevision?: string;
+  /** Provider token observed by the full connector before AND after capture. */
+  sourceVersion?: string;
   readAt?: string;
   values: unknown[][];
   formulas: unknown[][];

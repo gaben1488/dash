@@ -426,10 +426,27 @@ async function gateByRevision(
  * Ошибка отдельной книги не валит цикл: упавшая книга УДАЛЯЕТСЯ из кэша, а не
  * остаётся под видом свежих данных.
  */
+type MasterAcquisition = (books: Readonly<Record<string, string>>) =>
+  Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }>;
+
+/** Report and live consumers accept the same complete acquisition, under the
+ * existing refresh lock and persistence boundary. Never join an older live read. */
+export async function refreshReportSources(
+  acquire: MasterAcquisition,
+  log?: { info: (msg: string) => void; warn: (msg: string) => void },
+): Promise<SourceRefreshResult> {
+  while (queuedFresh || inFlight) {
+    await (queuedFresh ?? inFlight)!.catch(() => undefined);
+  }
+  return refreshAllSources(log, 'cycle',
+    { askDrive: false, svod: false, withFormulas: true }, acquire);
+}
+
 export function refreshAllSources(log?: {
   info: (msg: string) => void;
   warn: (msg: string) => void;
-}, origin: RefreshOrigin = 'cycle', options: RefreshOptions = {}): Promise<SourceRefreshResult> {
+}, origin: RefreshOrigin = 'cycle', options: RefreshOptions = {},
+acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
   if (inFlight) {
     if (!options.fresh) return inFlight;
     // Один хвост на всю серию: пять уведомлений, пришедших во время цикла,
@@ -491,7 +508,7 @@ export function refreshAllSources(log?: {
     const readSvod = gate.svod;
     // Pin the pre-read revision. Forced reads bypass the skip gate, but must
     // still detect edits made while Sheets values/formulas are being acquired.
-    const acquisitionRevisions = new Map(await Promise.all(booksToRead.map(async name => {
+    const acquisitionRevisions = new Map(await Promise.all((acquire ? [] : booksToRead).map(async name => {
       const fileId = sourceBooks[name];
       return [name, await readRevision(fileId)] as const;
     })));
@@ -500,7 +517,7 @@ export function refreshAllSources(log?: {
       // Пустая цель — это НЕ «читай всё»: у fetchDepartmentSpreadsheets пустой
       // `only` означает «все книги», и передать его сюда значило бы отменить
       // весь отсев ровно в тот момент, когда он сработал полностью.
-      booksToRead.length > 0
+      acquire ? acquire(sourceBooks) : booksToRead.length > 0
         ? fetchDepartmentSpreadsheets(sourceBooks, {
             only: booksToRead,
             // Формулы — только когда их попросили (вебхук, ночной обход).
@@ -518,6 +535,19 @@ export function refreshAllSources(log?: {
         : Promise.resolve(null),
     ]);
     await Promise.all(Object.keys(data).map(async name => {
+      if (acquire) {
+        // The full connector may have retried a changing source. Recheck its
+        // accepted token, not a probe from before that complete acquisition.
+        const revision = await readRevision(sourceBooks[name]);
+        if (!data[name].sourceVersion || !revision
+            || data[name].sourceVersion !== (revision.version ?? revision.modifiedTime)) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = 'SOURCE_CHANGED_DURING_READ';
+        } else {
+          acquisitionRevisions.set(name, revision);
+        }
+        return;
+      }
       const beforeRevision = acquisitionRevisions.get(name);
       // Unavailable metadata retains the existing unverified live-read mode;
       // it must never be advertised as a sealed report source revision.
@@ -536,6 +566,11 @@ export function refreshAllSources(log?: {
         Reflect.deleteProperty(data, name);
         errors[name] = 'SOURCE_BINDING_CHANGED_DURING_READ';
       }
+    }
+    if (acquire && (Object.keys(errors).length > 0
+        || Object.keys(data).length !== Object.keys(sourceBooks).length
+        || Object.keys(sourceBooks).some(name => !data[name]?.formulasRead))) {
+      throw new Error('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
     }
     // Publish both sides only after acquisition has finished, without yielding
     // between cache updates. Parallel reads do not prove atomic Google revisions.
@@ -639,9 +674,10 @@ export function refreshAllSources(log?: {
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
     const formulaBooks = deliverFormulas(data, at, log);
 
-    const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
+    const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string; sourceRevision?: string }> = {};
     for (const [name, result] of Object.entries(data)) {
-      loadMeta[name] = { loadedAt: at, rowCount: result.values.length, sheetName: result.sheetName };
+      loadMeta[name] = { loadedAt: result.readAt ?? at, rowCount: result.values.length, sheetName: result.sheetName,
+        ...(result.sourceRevision ? { sourceRevision: result.sourceRevision } : {}) };
     }
     for (const [name, errMsg] of Object.entries(errors)) {
       loadMeta[name] = { loadedAt: at, rowCount: 0, sheetName: name, error: errMsg };

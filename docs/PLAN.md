@@ -39,6 +39,30 @@
 
 ### Передача 20.10: метрики, хранение, идентичность и весь интерфейс
 
+Общий вход реализуется через существующий координатор refresh: worker запрашивает
+полный capture своей попытки, сервер принимает его masters через прежнюю SQL/cache
+границу, затем worker проверяет receipt/hash и строит из того же файла. Включение
+в production Compose задаёт обязательный coordinator URL; ошибки не запускают
+альтернативное самостоятельное чтение. `source_revision` сохраняется в capture,
+manifest и метаданных принятого live cache; последующие live updates могут иметь
+другой контекст. Новых очередей, БД или архивных каталогов нет.
+
+Изолированный интеграционный probe на VPS 20.10 прошёл на реальных источниках:
+SRC-61366cac3d82c50c3267c1fce44a7ea24df679d21db20e3116511385f0c05388,
+8/8 master matrices в настоящем cache совпали с файлом, который проверил Python
+worker reader; CalcEngine/metric_block совпали по plan_count и официальной экономии
+при одном годе/as_of. 173086 мс при 0.75 CPU, capture 58229766 байт. Приватные
+временные данные удалены вместе с отдельным контейнером; production не менялся.
+Проверка `.github/ci/shared_source_input_probe.mjs` использовала новую временную
+SQLite и только чтение Google, без production identity/catalog/publisher.
+70 адресных TS и 89 Python runtime/shared/archive checks PASS. Текущий cutover,
+новые три Word и установленный runtime этим ещё не подтверждены.
+
+Для fd851c11 CI39399040458 и rehearsal39399040354 завершились success. В предыдущем
+rehearsal39359933377 replay/independent audit прошли, затем API status вернул 503
+за 225 мс; свежая отдельная проверка дала 200 за 945 мс, новый rehearsal также
+прошёл. Корневая причина того одиночного 503 не установлена; timeout не увеличен.
+
 После установки подтверждён автономный worker cycle 8373bc1ae39e44538e7ce1939e726161:
 02:34:13–02:36:37 UTC, VERIFIED_WITH_WARNINGS, reused_publication=true, error_code=null.
 Это один подтверждённый цикл нового runtime, не два. Binding fix d11feaf7 прошёл

@@ -331,3 +331,20 @@ it('reads a pinned receipt by exact ID and rejects a context that could silently
   expect(read).not.toHaveBeenCalled();
   await app.close();
 });
+
+it('returns a source receipt only for the running acquisition attempt', async () => {
+  const app = Fastify();
+  const id = 'a'.repeat(32);
+  const acquire = vi.fn(async () => ({ capture_sha256: 'b'.repeat(64) }));
+  const command = vi.fn(async () => ({ attempt_id: id, status: 'RUNNING', stage: 'acquisition' }));
+  await reportReleaseRoutes(app, { command, acquire });
+  const response = await app.inject({ method: 'POST', url: `/api/report-releases/commands/${id}/source-input` });
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual({ capture_sha256: 'b'.repeat(64) });
+  expect(acquire).toHaveBeenCalledTimes(1);
+  command.mockResolvedValueOnce({ attempt_id: id, status: 'NOT_ISSUED', stage: 'publication' });
+  const stale = await app.inject({ method: 'POST', url: `/api/report-releases/commands/${id}/source-input` });
+  expect(stale.statusCode).toBe(409);
+  expect(acquire).toHaveBeenCalledTimes(1);
+  await app.close();
+});

@@ -587,3 +587,44 @@ it('keeps source permission/schema failures out of the automatic retry set', asy
   expect(result.retryableFailures).toEqual([]);
   expect(result.svodRetryable).toBe(false);
 });
+
+it('accepts the report acquisition through the same live persistence boundary without a second Sheets read', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const data = Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+    [book, { values: [[book, 'report input']], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }]));
+  fetchDepartmentSpreadsheets.mockClear();
+  const result = await refreshReportSources(async () => ({ data, errors: {} }), log);
+  expect(result.failed).toEqual([]);
+  expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+  expect(setDeptSheetCache).toHaveBeenLastCalledWith(data, []);
+  expect(saveWatermark).toHaveBeenCalledWith('УО', expect.any(String), expect.any(String), { version: '7', modifiedTime: null });
+});
+
+it('does not accept part of a report input when a master changes during acquisition', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  setDeptSheetCache.mockClear();
+  saveWatermark.mockClear();
+  await expect(refreshReportSources(async () => {
+    readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
+    return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+      [book, { values: [[book]], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }])), errors: {} };
+  }, log)).rejects.toThrow('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
+  expect(setDeptSheetCache).not.toHaveBeenCalled();
+  expect(saveWatermark).not.toHaveBeenCalled();
+});
+
+it('accepts the complete capture after its internal revision retry without comparing it to an earlier unrelated probe', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  const result = await refreshReportSources(async () => {
+    readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
+    return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+      [book, { values: [[book]], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '8' }])), errors: {} };
+  }, log);
+  expect(result.failed).toEqual([]);
+});

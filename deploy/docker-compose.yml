@@ -80,6 +80,8 @@ services:
       - "${REPORT_POLL_SECONDS:-900}"
     env_file:
       - ./.env.production
+    environment:
+      REPORT_SOURCE_COORDINATOR_URL: http://server:3000
     volumes:
       - server_data:/app/packages/server/data
     networks: [aemr]
@@ -106,6 +108,8 @@ services:
     expose: ["3000"]
     env_file:
       - ./.env.production
+    environment:
+      REPORT_SOURCE_COORDINATOR_URL: http://127.0.0.1:3000
     volumes:
       - server_data:/app/packages/server/data
     networks: [aemr]

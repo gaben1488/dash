@@ -59,6 +59,8 @@ def main(argv=None):
     capture.add_argument("--registry", required=True)
     capture.add_argument("--out", required=True)
     capture.add_argument("--timezone", default="Asia/Kamchatka")
+    capture.add_argument("--dashboard", action="store_true",
+                         help="Validate the shared input and emit its live master projection")
     run = sub.add_parser("run-google", help="Capture, build, verify and attempt an atomic release")
     run.add_argument("--registry", required=True)
     run.add_argument("--ledger", required=True)
@@ -228,6 +230,10 @@ def main(argv=None):
         dump(summary)
         return 0 if status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'} else 2
     if args.cmd == "capture-google":
+        if args.dashboard:
+            from .shared_input import acquire_dashboard
+            dump(acquire_dashboard(load(args.registry), args.out, timezone_name=args.timezone))
+            return 0
         from .google_adapter import capture_google
         if Path(args.out).exists():
             raise ValueError("CAPTURE_OUTPUT_ALREADY_EXISTS")

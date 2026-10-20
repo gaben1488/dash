@@ -506,6 +506,8 @@ def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     registry, ledger = contracts[0], ledgers[0]
     validate_inputs(registry, ledger)
     capture = {key: manifest[key] for key in ('captured_at', 'timezone', 'report_date', 'report_year')}
+    if 'source_revision' in manifest:
+        capture['source_revision'] = manifest['source_revision']
     capture['sources'] = []
     for payload in payloads:
         meta = payload.get('metadata') or {}

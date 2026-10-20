@@ -92,10 +92,21 @@ def header_hash(values, header_rows, *, volatile_cells=()):
     return canonical_semantic_hash(normalized)
 
 
+def captured_source_revision(capture):
+    fields = ('source_id', 'role', 'provider_id', 'sheet', 'sheet_id', 'grbs', 'rows',
+              'columns', 'header_rows', 'values', 'formula_evidence', 'before', 'after')
+    sources = [{key: source.get(key) for key in fields}
+               for source in sorted(capture['sources'], key=lambda source: source['source_id'])]
+    return 'SRC-' + canonical_semantic_hash(sources)
+
+
 def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
     from .recommendation_history import issued_recommendations
 
+    if ('source_revision' in capture
+            and capture['source_revision'] != captured_source_revision(capture)):
+        raise ValueError('SHARED_SOURCE_REVISION_MISMATCH')
     ledger = issued_recommendations(ledger if ledger is not None else [])
     if capture.get('archived_file_evidence') is not None:
         from .archived_evidence import verify_archived_values
@@ -217,6 +228,8 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         'status': 'DIAGNOSTIC', 'snapshot_contract_version': 'snapshot-v2.2.0', 'sources': source_manifest,
         'atomic_capture': {'before_after_equal': True, 'basis': 'observed provider modifiedTime barriers',
                            'limitation': 'Provider revision stability does not prove upstream IMPORTRANGE freshness.'}}
+    if 'source_revision' in capture:
+        manifest['source_revision'] = capture['source_revision']
     if capture.get('archived_file_evidence') is not None:
         manifest['atomic_capture'] = {'before_after_equal': True,
             'basis': 'Registered immutable archived file bytes and observed XLSX caches',

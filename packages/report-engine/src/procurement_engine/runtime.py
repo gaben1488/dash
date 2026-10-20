@@ -285,7 +285,14 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None, queued_only=
             _checkpoint(state, attempt, status, stage)
             client = client or GoogleReadClient()
             ledger, _, history_metadata, history_package = read_google_history(client, ledger, include_package=True)
-            capture = capture_google(registry, client)
+            coordinator = os.environ.get('REPORT_SOURCE_COORDINATOR_URL')
+            if coordinator:
+                from .shared_input import request_source_input
+                capture = request_source_input(coordinator, os.environ.get('AEMR_API_KEY', ''), attempt)
+                bundle_from_capture(capture, registry)
+                status['source_revision'] = capture['source_revision']
+            else:
+                capture = capture_google(registry, client)
             identities = IdentityStore(state / 'identity.sqlite')
             identity_evidence = identities.review_evidence(as_of=capture['captured_at'])
             if history_metadata is not None:

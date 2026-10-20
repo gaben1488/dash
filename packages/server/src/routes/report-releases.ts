@@ -115,14 +115,84 @@ async function readStoredCommand(id: string): Promise<unknown> {
   return JSON.parse(result.stdout);
 }
 
+const SourceReceiptSchema = z.object({ capture_sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+const SharedInputSchema = SourceReceiptSchema.extend({
+  source_revision: z.string().regex(/^SRC-[a-f0-9]{64}$/),
+  masters: z.array(z.object({
+    book: z.string().min(1), provider_id: z.string().min(1), revision: z.string().min(1),
+    values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))),
+    formulas: z.array(z.array(z.string().nullable())),
+    sheetName: z.string().min(1), readAt: z.string().datetime({ offset: true }),
+    startRow: z.literal(1), formulasRead: z.literal(true),
+  }).strict()).min(1),
+});
+
+async function acquireStoredReportInput(id: string, signal: AbortSignal): Promise<z.infer<typeof SourceReceiptSchema>> {
+  const { refreshReportSources } = await import('../services/source-refresh.js');
+  const state = resolve(process.env.REPORT_STATE_DIR ?? 'data/reports');
+  let receipt: z.infer<typeof SourceReceiptSchema> | undefined;
+  await refreshReportSources(async books => {
+    const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report',
+      ['capture-google', '--registry', resolve(state, 'inputs/registry.json'),
+        '--out', resolve(state, 'attempts', id, 'capture.json'), '--dashboard'],
+      { encoding: 'utf8', timeout: 540_000, maxBuffer: 64 * 1024 * 1024, shell: false, signal });
+    const input = SharedInputSchema.parse(JSON.parse(result.stdout));
+    const names = input.masters.map(master => master.book);
+    if (new Set(names).size !== names.length || names.length !== Object.keys(books).length
+        || input.masters.some(master => books[master.book] !== master.provider_id)) {
+      throw new Error('REPORT_SOURCE_BINDINGS_MISMATCH');
+    }
+    const command = ReportCommandSchema.parse(await readStoredCommand(id));
+    if (signal.aborted || command.status !== 'RUNNING' || command.stage !== 'acquisition') {
+      throw new Error('REPORT_SOURCE_OWNER_CHANGED');
+    }
+    receipt = { capture_sha256: input.capture_sha256 };
+    return { data: Object.fromEntries(input.masters.map(master => [master.book, {
+      values: master.values, formulas: master.formulas, sheetName: master.sheetName,
+      readAt: master.readAt, startRow: master.startRow, formulasRead: master.formulasRead,
+      sourceRevision: input.source_revision,
+      sourceVersion: master.revision,
+    }])), errors: {} };
+  });
+  if (!receipt) throw new Error('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
+  return receipt;
+}
+
 export async function reportReleaseRoutes(app: FastifyInstance,
   options: { read?: (view: View, releaseId?: string, context?: Context, signal?: AbortSignal) => Promise<Buffer>;
     prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<unknown>;
-    wake?: () => Promise<void>; command?: (id: string) => Promise<unknown> } = {}): Promise<void> {
+    wake?: () => Promise<void>; command?: (id: string) => Promise<unknown>;
+    acquire?: (id: string, signal: AbortSignal) => Promise<z.infer<typeof SourceReceiptSchema>> } = {}): Promise<void> {
   const read = options.read ?? readStoredRelease;
   const prepare = options.prepare ?? prepareStoredArchive;
   const refresh = options.refresh ?? refreshStoredReport;
   const readCommand = options.command ?? readStoredCommand;
+  const acquire = options.acquire ?? acquireStoredReportInput;
+  let acquisition: Promise<z.infer<typeof SourceReceiptSchema>> | null = null;
+  app.post<{ Params: { id: string } }>('/api/report-releases/commands/:id/source-input', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    const id = request.params.id;
+    if (!/^[a-f0-9]{32}$/.test(id) || request.body !== undefined || Object.keys(request.query as object).length) {
+      return reply.code(400).send({ code: 'REPORT_COMMAND_ID_INVALID' });
+    }
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once('close', abort);
+    try {
+      const command = ReportCommandSchema.parse(await readCommand(id));
+      if (command.status !== 'RUNNING' || command.stage !== 'acquisition' || acquisition) {
+        return reply.code(409).send({ code: 'REPORT_SOURCE_INPUT_NOT_AVAILABLE' });
+      }
+      const task = acquire(id, controller.signal);
+      acquisition = task;
+      try { return SourceReceiptSchema.parse(await task); }
+      finally { if (acquisition === task) acquisition = null; }
+    } catch {
+      return reply.code(503).send({ code: 'REPORT_SOURCE_INPUT_NOT_ACCEPTED' });
+    } finally {
+      reply.raw.removeListener('close', abort);
+    }
+  });
   // This bounds child processes only. Acceptance/results live in the engine;
   // onListen resumes them after process loss. A late wake cannot be dropped.
   let executor: Promise<void> | null = null;

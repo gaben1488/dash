@@ -110,6 +110,8 @@ def load_frozen_input(root, *, day, year, quarter):
         except (ValueError, KeyError, TypeError) as exc:
             raise ArchiveError('ARCHIVE_CONTRACT_UNSUPPORTED') from exc
         capture = {key: manifest[key] for key in ('captured_at', 'timezone', 'report_date')}
+        if 'source_revision' in manifest:
+            capture['source_revision'] = manifest['source_revision']
         capture.update(report_year=year, report_scope={'year': year, 'quarter': quarter}, sources=[])
         for payload in payloads:
             meta = payload.get('metadata') or {}

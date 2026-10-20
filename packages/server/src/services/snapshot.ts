@@ -310,6 +310,7 @@ export function getDeptSheetValues(): Record<string, unknown[][]> {
 }
 
 interface DeptLoadMeta {
+  sourceRevision?: string;
   loadedAt: string;
   rowCount: number;
   sheetName: string;
