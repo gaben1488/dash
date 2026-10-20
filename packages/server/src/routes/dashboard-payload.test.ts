@@ -37,6 +37,27 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('distinguishes an explicit unknown amount from a missing period field', async () => {
+    const data = (await app.inject('/api/dashboard?year=2026')).json();
+    const period = data.departmentSummaries[0].quarters.q1;
+    period.factTotal = null;
+    expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+    delete period.factTotal;
+    expect(DashboardDataSchema.safeParse(data).success).toBe(false);
+  });
+  it('does not publish an incomplete snapshot as a successful dashboard response', async () => {
+    const previous = fixture.snapshot;
+    fixture.snapshot = { ...previous };
+    Reflect.deleteProperty(fixture.snapshot, 'rowCount');
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(500);
+      expect(response.json().code).toBe('DASHBOARD_CONTRACT_INVALID');
+      expect(response.json()).not.toHaveProperty('snapshot');
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('does not attribute УДТХ metrics or comparisons to УД in either trust view', async () => {
     const previous = fixture.snapshot;
     const metricKey = 'grbs.udtx.year.plan_total';

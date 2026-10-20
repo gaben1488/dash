@@ -14,6 +14,7 @@ import {
   SnapshotHistoryResponseSchema,
   MetricsResponseSchema,
   TrustScoreSchema,
+  DashboardDataSchema,
 } from '@aemr/shared';
 
 export type RecommendationStage = 'ACTIVE' | 'HISTORY';
@@ -301,7 +302,7 @@ export const api = {
     if (refresh) params.set('refresh', 'true');
     if (year !== undefined) params.set('year', String(year));
     const qs = params.toString();
-    return fetchJSON<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`, { signal }).then(data => {
+    return fetchParsed<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`, DashboardDataSchema, { signal }).then(data => {
       if (data.recentIssuesRef === undefined) return data;
       if (data.recentIssuesRef !== 'snapshot.issues' || !Array.isArray(data.snapshot?.issues)) {
         throw new ApiContractError('/dashboard', 'invalid recentIssuesRef');

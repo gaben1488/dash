@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-type Stage = 'reader' | 'model';
+type Stage = 'reader' | 'model' | 'contract';
 interface Window {
   start: number; startedAt: string; serialization?: number;
   stages: Partial<Record<Stage, number>>; cpu: NodeJS.CpuUsage;

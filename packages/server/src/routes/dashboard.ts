@@ -6,7 +6,7 @@ import { overlayPersistedStatus, withPersistedDecisions } from '../services/issu
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
-import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
+import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 
 /**
@@ -30,34 +30,7 @@ const SNAPSHOT_UNAVAILABLE = {
  * (SIMPLIFY_REGISTER_2026-06-05 §S3 и §S6).
  * Замок: routes/dashboard-period-block.test.ts.
  */
-type PeriodBlock = {
-  planCount: number | null;
-  factCount: number | null;
-  planTotal: number | null;
-  factTotal: number | null;
-  planFB: number | null;
-  planKB: number | null;
-  planMB: number | null;
-  factFB: number | null;
-  factKB: number | null;
-  factMB: number | null;
-  economyTotal: number | null;
-  economyFB: number | null;
-  economyKB: number | null;
-  economyMB: number | null;
-  executionPct: number | null;
-  execCountPct: number | null;
-  compExecCountPct: number | null;
-  epExecCountPct: number | null;
-  kpCount: number | null;
-  kpFactCount: number | null;
-  kpPlanTotal: number | null;
-  kpFactTotal: number | null;
-  epCount: number | null;
-  epFactCount: number | null;
-  epPlanTotal: number | null;
-  epFactTotal: number | null;
-};
+type PeriodBlock = DepartmentPeriodBlock;
 
 /**
  * Собирает блок периода из рассчитанных метрик снимка.
@@ -440,18 +413,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       year: dataYear,
     };
 
-    // Runtime contract validation (ADR-0002, Phase 0 Hygiene): assure server↔web
-    // boundary. In development: warn on drift (surface the bug in logs).
-    // In production: ship anyway — we don't want to break user experience on a
-    // schema mismatch, but we do want to see it in logs.
-    if (process.env.NODE_ENV !== 'production') {
-      const validated = DashboardDataSchema.safeParse(data);
-      if (!validated.success) {
-        app.log.warn(
-          { zodIssues: validated.error.issues.slice(0, 5) },
-          'DashboardData contract drift: response does not match zod schema (top 5 issues logged)',
-        );
-      }
+    const validated = await requestStage(request, 'contract', async () => DashboardDataSchema.safeParse(data));
+    if (!validated.success) {
+      app.log.error(
+        { issues: validated.error.issues.slice(0, 5).map(issue => ({ path: issue.path, code: issue.code })) },
+        'Dashboard response contract invalid',
+      );
+      return reply.status(500).send({
+        code: 'DASHBOARD_CONTRACT_INVALID',
+        error: 'Не удалось проверить данные сводки. Повторите загрузку; если ошибка сохраняется, сообщите администратору.',
+      });
     }
 
     return reply.send(data);

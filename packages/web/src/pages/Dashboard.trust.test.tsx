@@ -74,8 +74,15 @@ it('selects the Russian department filter from the rating and carries the same q
     const q4 = { planTotal: 300_000 * scale, factTotal: 150_000 * scale,
       planCount: 2 * scale, factCount: scale, kpCount: 2 * scale, epCount: 0,
       kpPlanTotal: 300_000 * scale, kpFactTotal: 150_000 * scale,
-      epPlanTotal: 0, epFactTotal: 0, economyTotal: 0 };
-    const q1 = { ...q4, planTotal: 5_000_000 * scale, factTotal: 0 };
+      epPlanTotal: 0, epFactTotal: 0, economyTotal: 0,
+      planFB: 0, planKB: 0, planMB: 300_000 * scale,
+      factFB: 0, factKB: 0, factMB: 150_000 * scale,
+      economyFB: 0, economyKB: 0, economyMB: 0,
+      executionPct: 50, execCountPct: 50, compExecCountPct: 50, epExecCountPct: null,
+      kpFactCount: scale, epFactCount: 0 };
+    const q1 = { ...q4, planTotal: 5_000_000 * scale, planMB: 5_000_000 * scale,
+      factTotal: 0, factMB: 0, factCount: 0, kpFactCount: 0, kpFactTotal: 0,
+      kpPlanTotal: 5_000_000 * scale, executionPct: 0, execCountPct: 0, compExecCountPct: 0 };
     return DepartmentSummarySchema.parse({
       department: { id, name: nameShort, nameShort, sheetName: nameShort,
         svodRange: { startRow: 1, endRow: 2 }, controlCells: {} },

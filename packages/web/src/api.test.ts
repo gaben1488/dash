@@ -11,12 +11,56 @@ function fakeResponse(body: unknown = {}) {
   } as unknown as Response;
 }
 
+function dashboardBody() {
+  const createdAt = '2026-10-20T00:00:00Z';
+  const trust = { overall: null, grade: null, components: [], computedAt: createdAt, basedOnSnapshot: 'test' };
+  return {
+    snapshot: { id: 'test', spreadsheetId: 'test', createdAt, officialMetrics: {}, calculatedMetrics: {},
+      deltas: [], issues: [{ id: 'one', severity: 'info', origin: 'bi_heuristic', category: 'fixture',
+        title: 'Информация', description: 'Проверка', status: 'open', detectedAt: createdAt, detectedBy: 'test' }],
+      trust, rowCount: 0, metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+      datasetAnalyses: { retained: true } },
+    trust, kpiCards: [], departmentSummaries: [], summaryByPeriod: {}, recentIssues: [],
+    recentIssuesRef: 'snapshot.issues', signalCounts: {},
+    issueSummary: { total: 1, bySeverity: { info: 1 }, byCategory: {}, byDepartment: {}, byOrigin: {}, signalCounts: {} },
+    lastRefreshed: createdAt, year: 2026,
+  };
+}
+
+it.each(['officialMetrics', 'calculatedMetrics', 'deltas', 'metadata', 'trust'])(
+  'rejects a missing mandatory dashboard snapshot field: %s', async field => {
+    const body = dashboardBody();
+    Reflect.deleteProperty(body.snapshot, field);
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.getDashboard()).rejects.toThrow(/формат|контракт|обновите/i);
+  },
+);
+
 it('restores a compact dashboard alias without copying or losing issues', async () => {
-  const issues = [{ id: 'one' }];
-  vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({ snapshot: { issues }, recentIssues: [], recentIssuesRef: 'snapshot.issues' })));
+  const body = dashboardBody();
+  const issues = body.snapshot.issues;
+  vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
   const data = await api.getDashboard(false, 2026);
   expect(data.recentIssues).toBe(data.snapshot.issues);
   expect(data.recentIssues).toEqual(issues);
+  expect(data.snapshot).toHaveProperty('datasetAnalyses', { retained: true });
+});
+
+it('keeps a measured zero distinct from an unknown metric after contract validation', async () => {
+  const body = dashboardBody();
+  const metric = { origin: 'official', period: 'annual', unit: 'count',
+    sourceSheet: 'СВОД ТД-ПМ', sourceCell: 'D4', formula: null, confidence: 1,
+    readAt: body.lastRefreshed, warnings: [] };
+  Object.assign(body.snapshot.officialMetrics, {
+    zero: { ...metric, metricKey: 'zero', numericValue: 0, value: 0, displayValue: '0' },
+    unknown: { ...metric, metricKey: 'unknown', numericValue: null, value: null,
+      displayValue: '—', confidence: 0, warnings: ['Ячейка не прочитана'] },
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+  const data = await api.getDashboard();
+  expect(data.snapshot.officialMetrics.zero!.numericValue).toBe(0);
+  expect(data.snapshot.officialMetrics.unknown!.numericValue).toBeNull();
+  expect(data.snapshot.officialMetrics.unknown!.warnings).toEqual(['Ячейка не прочитана']);
 });
 
 describe('скачивание опубликованного документа', () => {

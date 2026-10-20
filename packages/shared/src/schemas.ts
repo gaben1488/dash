@@ -307,6 +307,37 @@ export const KPICardSchema = z.object({
   }).optional(),
 });
 
+/** An unknown value is null; an absent field is a broken response contract. */
+export const DepartmentPeriodBlockSchema = z.object({
+  planCount: z.number().nullable(),
+  factCount: z.number().nullable(),
+  planTotal: z.number().nullable(),
+  factTotal: z.number().nullable(),
+  planFB: z.number().nullable(),
+  planKB: z.number().nullable(),
+  planMB: z.number().nullable(),
+  factFB: z.number().nullable(),
+  factKB: z.number().nullable(),
+  factMB: z.number().nullable(),
+  economyTotal: z.number().nullable(),
+  economyFB: z.number().nullable(),
+  economyKB: z.number().nullable(),
+  economyMB: z.number().nullable(),
+  executionPct: z.number().nullable(),
+  execCountPct: z.number().nullable(),
+  compExecCountPct: z.number().nullable(),
+  epExecCountPct: z.number().nullable(),
+  kpCount: z.number().nullable(),
+  kpFactCount: z.number().nullable(),
+  kpPlanTotal: z.number().nullable(),
+  kpFactTotal: z.number().nullable(),
+  epCount: z.number().nullable(),
+  epFactCount: z.number().nullable(),
+  epPlanTotal: z.number().nullable(),
+  epFactTotal: z.number().nullable(),
+});
+export type DepartmentPeriodBlock = z.infer<typeof DepartmentPeriodBlockSchema>;
+
 export const DepartmentSummarySchema = z.object({
   department: z.object({
     id: z.string(),
@@ -316,7 +347,7 @@ export const DepartmentSummarySchema = z.object({
     svodRange: z.object({ startRow: z.number(), endRow: z.number() }),
     controlCells: z.record(z.string(), z.string()),
   }),
-  months: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  months: z.record(z.string(), DepartmentPeriodBlockSchema).optional(),
   planTotal: z.number().nullable(),
   factTotal: z.number().nullable(),
   executionPercent: z.number().nullable(),
@@ -331,7 +362,7 @@ export const DepartmentSummarySchema = z.object({
   trustScore: z.number().nullable(),
   trustComponents: z.array(TrustComponentSchema).optional(),
   status: z.enum(['normal', 'warning', 'critical']),
-  quarters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  quarters: z.record(z.string(), DepartmentPeriodBlockSchema).optional(),
   signalCounts: z.record(z.string(), z.number()).optional(),
   byActivity: z.record(z.string(), z.unknown()).optional(),
   subordinates: z.array(z.unknown()).optional(),
