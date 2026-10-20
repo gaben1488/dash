@@ -152,17 +152,25 @@ def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot
     registry, ledger = inputs(tmp_path)
     state = tmp_path / 'state'
     client = ChangedProgram()
-    run_once(registry, ledger, state, client=client)
+    first = run_once(registry, ledger, state, client=client)
     client.program = 'Changed program'
     result = run_once(registry, ledger, state, client=client)
     assert result['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    original = json.loads((state / 'attempts' / first['attempt_id'] / 'bundle/report_model.json').read_text())
+    current = json.loads((state / 'attempts' / result['attempt_id'] / 'bundle/report_model.json').read_text())
+    original_row = original['identity_observations']['rows'][0]
+    current_row = current['identity_observations']['rows'][0]
+    assert current_row['procurement_uid'] != original_row['procurement_uid']
+    assert current_row['status'] == 'CURRENT_IDENTITY_ESTABLISHED'
+    assert current_row['evidence']['historical_uid_recovered'] is False
     before = business_files(state)
     if upgrade:
         from procurement_engine import raw_pipeline
 
         monkeypatch.setattr(raw_pipeline, 'RAW_RULES_VERSION', raw_pipeline.RAW_RULES_VERSION + '+synthetic-upgrade')
     coverage = rehearse_latest(state, coverage=True)
-    assert coverage['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    # A new current identity is valid; no historical continuation was claimed.
+    assert coverage['identity_chain_break_counts'] == {}
     assert business_files(state) == before
 
 
