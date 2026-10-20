@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
 import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
@@ -609,7 +610,9 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       }, deptId));
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
-      const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear);
+      const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear, {
+        asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS),
+      });
       // Строки, не дошедшие до счёта, обязаны быть названы (реестр багов
       // 09.07.2026, п.6): счётчик droppedRows появился, но его никто не читал —
       // молчание осталось прежним.

@@ -13,6 +13,7 @@ import { isAbsentCell } from './absence.js';
 import { parseSheetNumber } from './editable-amount.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from './time-selection.js';
 import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
@@ -550,7 +551,7 @@ const statusOnDataRows: ValidationRule = {
       isEp: method.includes('еп') || method.includes('единствен'),
       completed: parseSheetDate(ctx.cells['Q']) !== null,
       completionDay: dayOfDateCell(ctx.cells['Q']),
-      asOfDay: dayNumberOf(ctx.asOf),
+      asOfDay: ctx.asOf ? productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS) : null,
       methodKnown: normalizeMethod(ctx.cells.L) !== undefined,
       monopoly: (method.includes('еп') || method.includes('единствен')) && canonicalizeReasonEp(String(ctx.cells.M ?? '').slice(0, 2000)).cluster === 'EP_MONOPOLIST',
     });

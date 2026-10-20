@@ -37,6 +37,15 @@ Trust — диагностический индекс доступных про�
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
 - Procurement method buckets use the shared classifier, not raw string equality.
 
+### Calculation day (21.10.2026)
+
+The snapshot instant determines one calendar day in Asia/Kamchatka (UTC+12).
+Pipeline metrics, the attached unified grid, row signals and economy-mark rules
+use that day, independently of the server/browser timezone. A future Q does not
+count as a concluded position or contribute approved economy; Q on that day
+does. Signed Z+AA+AB and AD gating are unchanged. Reusing an unchanged snapshot
+preserves its original instant; opening a page does not move its calculation day.
+
 ### Filtered money and counts (20.10.2026)
 
 Department and subordinate money, budget components and approved economy use

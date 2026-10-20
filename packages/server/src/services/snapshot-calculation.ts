@@ -1,4 +1,5 @@
 import { computeUnifiedGrid, reconcileUnified, runPipeline, type PipelineInput, type PipelineSnapshot } from '@aemr/core';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import { findDept, getActiveRules, SVOD_SHEET_NAME, type DataSnapshot, type SvodReconRow } from '@aemr/shared';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
@@ -25,7 +26,9 @@ export function attachUnifiedGrid(
     deptRowsById[dept.latinId] = rows;
   }
 
-  const grid = computeUnifiedGrid(deptRowsById, targetYear);
+  const instant = new Date(snapshot.createdAt);
+  if (!Number.isFinite(instant.getTime())) throw new Error('INVALID_SNAPSHOT_AS_OF');
+  const grid = computeUnifiedGrid(deptRowsById, targetYear, productCalendarDay(instant, PRODUCT_UTC_OFFSET_HOURS));
   snapshot.unifiedGrid = grid;
   snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
 }

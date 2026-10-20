@@ -12,6 +12,24 @@ function input(asOf: Date) {
     rules: [rule], reportMap: [], asOf };
 }
 describe('one explicit snapshot clock for economy rules and row signals', () => {
+  it.each([
+    ['2026-06-14T11:59:59Z', 0, 0],
+    ['2026-06-14T12:00:00Z', -90, 1],
+    ['2026-06-15T12:00:00Z', -90, 1],
+  ])('uses the same Kamchatka closing day for calculated economy at %s', (instant, economy, count) => {
+    const sample = input(new Date(instant));
+    const row = sample.sheetRows.УЭР[3]!;
+    row[5] = 'Текущая деятельность'; row[7] = 100;
+    row[13] = '15.06.2026'; row[14] = 2; row[15] = 2026;
+    row[21] = 80; row[25] = -100; row[26] = 10; row[29] = 'да';
+    const snapshot = runPipeline(sample);
+    const result = snapshot.recalcResults!.uer!;
+    expect(result.year.economyTotal).toBe(economy);
+    expect(result.year.factCount).toBe(count);
+    expect(snapshot.issues.some(issue => issue.signal === 'futureFactDate')).toBe(count === 0);
+    row[29] = '';
+    expect(runPipeline(sample).issues.some(issue => issue.checkId === 'status_on_data_rows')).toBe(count === 1);
+  });
   it('does not re-evaluate a historical future Q against current wall time', () => {
     const asOf = new Date(2026, 0, 10);
     const snapshot = runPipeline(input(asOf));

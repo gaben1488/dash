@@ -192,14 +192,14 @@ describe('Date signals', () => {
     // 4 из 8 срабатываний 15.07 были строками с N=15.07.2026 (УО стр.2365/2377/2396/2397)
     const s = detectSignals(makeCells({
       N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·',
-    }), new Date(2026, 6, 15, 23, 41));
+    }), new Date('2026-07-15T23:41:00+12:00'));
     expect(s.overdue).toBe(false);
   });
 
   it('overdue строго со следующего дня после дедлайна: N=15.07.2026, прогон 16.07.2026 00:10', () => {
     const s = detectSignals(makeCells({
       N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·',
-    }), new Date(2026, 6, 16, 0, 10));
+    }), new Date('2026-07-16T00:10:00+12:00'));
     expect(s.overdue).toBe(true);
   });
 
@@ -208,7 +208,7 @@ describe('Date signals', () => {
   // дальних поясах. Serial и строка ОДНОГО дня обязаны давать одинаковый вердикт.
   it('TZ-инвариантность: N=сегодня как serial → overdue=false (паритет со строкой)', () => {
     const serialToday = Date.UTC(2026, 6, 15) / 86400000 + 25569; // = 15.07.2026
-    const runAt = new Date(2026, 6, 15, 23, 41);
+    const runAt = new Date('2026-07-15T23:41:00+12:00');
     const sSerial = detectSignals(makeCells({ N: String(serialToday), Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
     const sString = detectSignals(makeCells({ N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
     expect(sSerial.overdue).toBe(false);
@@ -217,7 +217,7 @@ describe('Date signals', () => {
 
   it('TZ-инвариантность: N=вчера как serial → overdue=true (паритет со строкой)', () => {
     const serialYesterday = Date.UTC(2026, 6, 15) / 86400000 + 25569; // = 15.07.2026
-    const runAt = new Date(2026, 6, 16, 0, 10);
+    const runAt = new Date('2026-07-16T00:10:00+12:00');
     const sSerial = detectSignals(makeCells({ N: String(serialYesterday), Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
     const sString = detectSignals(makeCells({ N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
     expect(sSerial.overdue).toBe(true);

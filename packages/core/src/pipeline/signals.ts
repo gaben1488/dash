@@ -17,6 +17,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import {
   LAW_44FZ_THRESHOLDS,
   PLAN_SOURCE_COLUMNS,
@@ -482,12 +483,9 @@ function isDataRow(cells: Record<string, unknown>): boolean {
  */
 export function detectSignals(cells: Record<string, unknown>, today?: Date): RowSignals {
   const now = today ?? new Date();
-  // Календарный «сегодня» как номер суток — по ЛОКАЛЬНЫМ компонентам now
-  // (календарный день пользователя). FP-fix 2026-07-16 (signal_audit §3.7): время
-  // суток внутри now давало off-by-one — дедлайн «сегодня» (N=15.07 при прогоне
-  // 15.07 вечером) помечался просроченным; просрочка — строго со следующего дня.
-  // TZ-fix 2026-07-20: арифметика ниже — на целых номерах суток (toDayNumber).
-  const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
+  // The same project day as calculated metrics; server/browser timezone is
+  // not evidence that a deadline or completion has already arrived.
+  const todayDay = productCalendarDay(now, PRODUCT_UTC_OFFSET_HOURS);
 
   // ── Структурные поля ──
   // КАНОН п.27 (интервью 14.08.2026): свободный текст исполнителей — U
@@ -869,7 +867,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
       }
     } else {
       // No plan date but plan sum exists — only flag after April (Q2+) as before
-      const currentMonth = now.getMonth(); // 0-indexed
+      const currentMonth = new Date(todayDay * 86400000).getUTCMonth();
       if (currentMonth >= 3) { // April+
         planWithoutExecution = true;
       }
