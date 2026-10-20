@@ -11,6 +11,13 @@ class CompleteGoogle(Google):
     def formulas(self, provider, title, start, end, columns):
         return [[], [], ['Synthetic header', '=1+1']][start - 1:end]
 
+@pytest.mark.parametrize('builder', ['build_report_model', 'build_report_model_v2', 'build_report_model_v3'])
+def test_every_report_model_preserves_the_accepted_source_revision(builder):
+    from procurement_engine import report_model
+    snapshot = {'report_date': '20.10.2026', 'model': {}, 'source_revision': 'SRC-' + 'a' * 64}
+    model = getattr(report_model, builder)(snapshot, [])
+    assert model['snapshot']['source_revision'] == snapshot['source_revision']
+
 
 def test_shared_capture_gives_dash_the_exact_persisted_masters(tmp_path):
     from procurement_engine.shared_input import acquire_dashboard
