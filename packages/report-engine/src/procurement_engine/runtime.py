@@ -185,6 +185,7 @@ def _recover_committed_publication(state, status):
 
 def _recover_interrupted_attempts(state):
     """Caller owns run.lock: no RUNNING journal can still have a live writer."""
+    recovered = set()
     current = _load(state / 'status.json') if (state / 'status.json').exists() else {}
     if current.get('status') == 'RUNNING':
         identifier = current.get('attempt_id')
@@ -216,7 +217,11 @@ def _recover_interrupted_attempts(state):
             status.update(status='NOT_ISSUED', error_code='REPORT_ATTEMPT_INTERRUPTED',
                           failure_stage=status.get('stage'), interrupted_detected_at=detected,
                           finished_at=None)
-        _finish_attempt(state, path.parent, status)
+        # Recover each receipt without replacing a different, newer current attempt.
+        _finish_attempt(state, path.parent, status,
+                        update_current=not current or current.get('attempt_id') == status['attempt_id'])
+        recovered.add(status['attempt_id'] + '.json')
+    return recovered
 
 
 def recover_report_commands(state_dir):
@@ -231,11 +236,11 @@ def recover_report_commands(state_dir):
             return {'status': 'BUSY'}
         with _admission(state):
             before = {path.name for path in (state / 'commands').glob('*.json')}
-        _recover_interrupted_attempts(state)
+        recovered = _recover_interrupted_attempts(state)
         with _admission(state):
             pending = list(_pending_commands(state))
             after = {path.name for path in (state / 'commands').glob('*.json')}
-        return {'status': 'RECOVERED', 'recovered': len(before - after), 'pending': len(pending)}
+        return {'status': 'RECOVERED', 'recovered': len(recovered | (before - after)), 'pending': len(pending)}
 
 
 def run_once(registry_path, ledger_path, state_dir, *, client=None, queued_only=False):
@@ -392,10 +397,11 @@ def _retained_attempt_status(status):
     return {**status, 'publication': {**retained, 'automation_assurance_ref': reference}}
 
 
-def _finish_attempt(state, attempt, status):
+def _finish_attempt(state, attempt, status, *, update_current=True):
     status.setdefault('finished_at', datetime.now(timezone.utc).isoformat())
     _write(attempt / 'status.json', _retained_attempt_status(status))
-    _write(state / 'status.json', status)
+    if update_current:
+        _write(state / 'status.json', status)
     with _admission(state):
         command = state / 'commands' / (status['attempt_id'] + '.json')
         if command.exists():

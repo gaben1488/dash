@@ -243,6 +243,37 @@ def test_recovery_respects_a_live_owner_and_does_not_start_pending_commands(tmp_
     assert runtime.read_report_command(state, command['attempt_id']) == command
 
 
+@pytest.mark.parametrize('outcome', ['VERIFIED', 'RUNNING'])
+def test_recovery_of_old_orphans_preserves_the_current_attempt(tmp_path, outcome):
+    state = tmp_path / 'state'
+    state.mkdir()
+    current = {'attempt_id': '1' * 32, 'status': outcome,
+               'finished_at': '2026-10-19T12:00:00+00:00'}
+    (state / 'attempts' / current['attempt_id']).mkdir(parents=True)
+    runtime._write(state / 'attempts' / current['attempt_id'] / 'status.json', current)
+    runtime._write(state / 'status.json', current)
+    for identifier in ['2' * 32, '3' * 32]:
+        (state / 'attempts' / identifier).mkdir(parents=True)
+        runtime._write(state / 'attempts' / identifier / 'status.json', {
+            'attempt_id': identifier, 'status': 'RUNNING', 'stage': 'acquisition',
+            'started_at': '2026-10-18T12:00:00+00:00'})
+    result = runtime.recover_report_commands(state)
+    assert result == {'status': 'RECOVERED', 'recovered': 2 + (outcome == 'RUNNING'), 'pending': 0}
+    restored = json.loads((state / 'status.json').read_text())
+    if outcome == 'VERIFIED':
+        assert restored == current
+    else:
+        assert restored['attempt_id'] == current['attempt_id']
+        assert restored['status'] == 'NOT_ISSUED'
+        assert restored['error_code'] == 'REPORT_ATTEMPT_INTERRUPTED'
+    for identifier in ['2' * 32, '3' * 32]:
+        receipt = runtime.read_report_command(state, identifier)
+        assert receipt['status'] == 'NOT_ISSUED'
+        assert receipt['error_code'] == 'REPORT_ATTEMPT_INTERRUPTED'
+    runtime.recover_report_commands(state)
+    assert json.loads((state / 'status.json').read_text()) == restored
+
+
 def test_recovery_keeps_a_committed_release_when_the_executor_lost_its_response(tmp_path, monkeypatch):
     from procurement_engine.publication_store import PublicationStore
     from test_weekly_archive import FormulaGoogle
