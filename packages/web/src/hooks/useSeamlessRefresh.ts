@@ -154,6 +154,10 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
   /** Номер последнего тихого запроса — устаревший ответ выбрасывается. */
   const seq = useRef(0);
   const inFlight = useRef(false);
+  const retries = useRef(0);
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => { retries.current = 0; }, [live.lastEventAt, live.hasNews]);
 
   const pull = useCallback(async (force: boolean) => {
     if (inFlight.current) return;
@@ -204,7 +208,10 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
       // Числа на экране остаются прежними — это честнее пустого экрана.
       // Полоса оповещения не гаснет: человек должен знать, что новые данные
       // есть, а показать их не вышло.
-      if (mine === seq.current) setFailed(true);
+      if (mine === seq.current) {
+        setFailed(true);
+        setRetryTick(tick => tick + 1);
+      }
     } finally {
       if (mine === seq.current) {
         inFlight.current = false;
@@ -219,6 +226,16 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
     const timer = setTimeout(() => void pull(false), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [enabled, live.hasNews, live.lastEventAt, pull]);
+
+  // Retry a failed event delivery finitely; silence never starts a refresh loop.
+  useEffect(() => {
+    if (!enabled || !failed || retryTick === 0 || !live.hasNews || retries.current >= 3) return;
+    const timer = setTimeout(() => {
+      retries.current++;
+      void pull(false);
+    }, [1_000, 3_000, 10_000][retries.current]);
+    return () => clearTimeout(timer);
+  }, [enabled, failed, retryTick, live.hasNews, pull]);
 
   // Помеха исчезла — новые числа встают на место сами, без нажатия.
   useEffect(() => {

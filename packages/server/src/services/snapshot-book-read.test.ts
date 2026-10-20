@@ -7,7 +7,7 @@
  * путь по одному листу остаётся только как запасной — на отказ пакета.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALL_SHEETS, SVOD_SHEET_NAME } from '@aemr/shared';
+import { ALL_SHEETS, SVOD_SHEET_NAME, DEPARTMENTS, DEPT_HEADER_ROWS } from '@aemr/shared';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -52,6 +52,25 @@ afterEach(() => {
 });
 
 describe('сборка снимка: чтение листов сводной книги', () => {
+  it('keeps an unchanged complete model past TTL until an explicit invalidation', async () => {
+    process.env.SOURCE_AUTO_REFRESH_MINUTES = '0';
+    const source = await import('./snapshot.js');
+    source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
+      values: Array.from({ length: DEPT_HEADER_ROWS }, () => []), formulas: [], sheetName: dept.nameShort,
+    }])));
+    const first = await source.getSnapshot(true);
+    expect(first.metadata.sourceCoverage?.complete).toBe(true);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 600_000);
+    batchGetSheetValues.mockClear();
+    try {
+      expect((await source.getSnapshot()).id).toBe(first.id);
+      expect(batchGetSheetValues).not.toHaveBeenCalled();
+      source.invalidateCache();
+      await source.getSnapshot(true);
+      expect(batchGetSheetValues).toHaveBeenCalledOnce();
+    } finally { clock.mockRestore(); }
+  }, 20000);
   it('неподтверждённое зеркало не подменяет отсутствующую основную книгу', async () => {
     const values = [[], [], [], ['1', '', '', '', '', '', 'Закупка', 100, '', '', 100]];
     batchGetSheetValues.mockResolvedValueOnce({ УЭР: values });

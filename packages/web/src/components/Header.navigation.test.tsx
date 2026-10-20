@@ -10,6 +10,23 @@ vi.mock('../hooks/usePeriodCoverage', () => ({usePeriodCoverage: () => ({status:
 vi.mock('../lib/monitoring/analytics-contract', () => ({fetchMonitoringAnalytics: vi.fn(() => new Promise(() => {}))}));
 beforeEach(() => {useStore.getState().resetAllFilters(); useStore.setState({page: 'dashboard', error: null, isDemo: false, loading: false, bucketCounts: null});});
 afterEach(cleanup);
+it('does not force source refresh on a timer or when the tab becomes visible', async () => {
+ vi.useFakeTimers();
+ const previous = useStore.getState().quickRefresh;
+ const quickRefresh = vi.fn().mockResolvedValue(undefined);
+ useStore.setState({ quickRefresh });
+ const view = render(<Header />);
+ try {
+  await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+  fireEvent(document, new Event('visibilitychange'));
+  expect(quickRefresh).not.toHaveBeenCalled();
+  expect(view.queryByRole('button', { name: /Автообновление через/ })).toBeNull();
+ } finally {
+  view.unmount();
+  useStore.setState({ quickRefresh: previous });
+  vi.useRealTimers();
+ }
+});
 it('labels a partial bucket count without claiming that all books were read', () => {
  useStore.setState({ bucketCounts: { unfunded: 7, yearlong: 2, reading: {
   unfunded: { rows: 7, planSum: 1 }, yearlong: { rows: 2, planSum: 1 },

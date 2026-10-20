@@ -136,6 +136,18 @@ describe('подмена снимка', () => {
 });
 
 describe('хук бесшовного обновления', () => {
+  it('stops retrying a failed event after three retries without starting periodic refresh', async () => {
+    getDashboard.mockRejectedValue(new Error('temporary outage'));
+    setNews(true);
+    vi.useFakeTimers();
+    const view = renderHook(() => useSeamlessRefresh(true));
+    await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+    for (const delay of [1_001, 3_001, 10_001, 120_000]) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    }
+    expect(getDashboard).toHaveBeenCalledTimes(4);
+    expect(view.result.current.failed).toBe(true);
+  });
   it('событие пришло — числа подтягиваются сами, без нажатия', async () => {
     getDashboard.mockResolvedValue(dashboard('snap-live', 2026));
     setNews(true);

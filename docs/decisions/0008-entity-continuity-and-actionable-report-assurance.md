@@ -198,3 +198,12 @@ offline maintenance operation under the shared lock after all writers stop;
 `reset-current-state.py` prepares a new database first and restores moved entries
 if cutover fails. It never writes to Google. Install and reset acceptance must be
 recorded from actual production, not inferred from these tests.
+
+Remove the browser header's independent 60-second forced refresh and countdown,
+including its unconditional visibility-change refresh. Reconnection requests one
+cached-dashboard catch-up even when a server restart lost the in-memory event
+ring. A failed event-driven dashboard read retries at most three times, then
+keeps the visible failure and manual retry; an unchanged stream starts no reads.
+In push/manual mode a successful complete dashboard cache remains valid until
+source-generation invalidation. TTL expiry alone must not start Google reading,
+calculation or persistence; incomplete/failed imports retain bounded retries.

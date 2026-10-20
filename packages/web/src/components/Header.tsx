@@ -101,14 +101,13 @@ function getPageIcon(page: string): typeof Gauge {
    2. Active page icon inside the shield
    3. Brand color of current tab = shield fill + glow
    4. Loading = "ignition" flames animation
-   5. WiFi status + countdown absorbed into this block
+   5. Live stream status absorbed into this block
    ═══════════════════════════════════════════════════════════════════ */
 
-function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
+function ShieldHub({ page, loading, isOnline, onRefresh }: {
   page: Page;
   loading: boolean;
   isOnline: boolean;
-  secondsLeft: number;
   onRefresh: () => void;
 }) {
   const palette = pageTheme(page);
@@ -118,12 +117,12 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
   const cx = s / 2;
 
   // Подпись для чтения с экрана: сама кнопка — только рисунок, поэтому
-  // состояние связи и остаток до обновления проговариваются словами.
+  // состояние связи проговаривается словами.
   const label = loading
     ? 'Идёт обновление данных'
     : isOnline
-      ? `Обновить данные. Автообновление через ${secondsLeft} с`
-      : 'Нет связи с источником. Повторить попытку';
+      ? 'Обновить данные. Изменения приходят автоматически'
+      : 'Нет потока изменений. Обновить данные вручную';
 
   // Shield path — compact filled silhouette
   const shieldD = `
@@ -146,7 +145,7 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
       type="button"
       className={clsx('shield-hub', loading && 'shield-loading')}
       onClick={onRefresh}
-      title={loading ? 'Загрузка...' : isOnline ? `Обновить (${secondsLeft}с)` : 'Нет связи — повторить'}
+      title={label}
       aria-label={label}
       style={{ '--shield-color': 'var(--page-accent)' } as React.CSSProperties}
     >
@@ -216,46 +215,12 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
         <PageIcon size={13} strokeWidth={2.2} />
       </div>
 
-      {/* Countdown — tiny text below shield. Число уже проговорено в aria-label
-          кнопки, поэтому для чтения с экрана оно скрыто как дубль. */}
+      {/* Connection status is already described by the button label. */}
       <span className="shield-timer" aria-hidden="true">
-        {loading ? '…' : isOnline ? secondsLeft : '!'}
+        {loading ? '…' : isOnline ? '●' : '!'}
       </span>
     </button>
   );
-}
-
-/* ─── Auto Refresh (reused logic) ──────────────────────────── */
-
-function useAutoRefresh() {
-  const [secondsLeft, setSecondsLeft] = useState(60);
-  useEffect(() => {
-    let rt: ReturnType<typeof setInterval>, ct: ReturnType<typeof setInterval>;
-    const start = () => {
-      setSecondsLeft(60);
-      ct = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
-      rt = setInterval(() => {
-        if (!document.hidden && !useStore.getState().loading) {
-          useStore.getState().quickRefresh();
-          setSecondsLeft(60);
-        }
-      }, 60_000);
-    };
-    const onVis = () => {
-      if (!document.hidden) {
-        // П.98б: на скрытой вкладке автообновление гасится — вернувшийся
-        // пользователь смотрел бы на данные возрастом до минуты (плюс TTL
-        // снимка). Обновляемся сразу, не дожидаясь следующего тика.
-        if (!useStore.getState().loading) useStore.getState().quickRefresh();
-        start();
-      } else { clearInterval(rt); clearInterval(ct); }
-    };
-    start();
-    document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(rt); clearInterval(ct); document.removeEventListener('visibilitychange', onVis); };
-  }, []);
-  const { loading, error } = useStore();
-  return { secondsLeft, loading, isOnline: !error };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -896,7 +861,8 @@ export function Header() {
     searchQuery, setSearchQuery,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
-  const { secondsLeft, isOnline } = useAutoRefresh();
+  const { connected } = useLiveEvents();
+  const isOnline = connected && !error;
   const fg = PAGE_FILTERS[page] ?? [];
   const has = (k: string) => fg.includes(k as FilterGroup);
 
@@ -947,7 +913,6 @@ export function Header() {
           page={page}
           loading={loading}
           isOnline={isOnline}
-          secondsLeft={secondsLeft}
           onRefresh={() => useStore.getState().refresh()}
         />
 

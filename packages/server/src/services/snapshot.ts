@@ -457,7 +457,12 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const ttl = config.cache.ttlSeconds * 1000;
 
   const cached = cachedSnapshots.get(cacheKey);
-  if (!force && cached && (now - cached.timestamp) < ttl) {
+  // Push/manual mode invalidates by source generation, not by elapsed time.
+  // Failed or incomplete reads retain the bounded TTL retry path.
+  const unchanged = cached && cached.timestamp > 0 && cached.generation === cacheGeneration
+    && config.cache.autoRefreshMinutes === 0 && !cached.snapshot.metadata.readModel
+    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
+  if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
     return recordSnapshotRead(cached.snapshot);
   }
 

@@ -170,6 +170,9 @@ describe('соединение с сервером', () => {
 
     await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2), { timeout: 4000 });
 
+    // Reconnect must catch up even if the restarted server lost its event ring.
+    await vi.waitFor(() => expect(currentState().snapshotRebuilt).toBe(true));
+
     // После переподключения событие снова доходит до экрана.
     second.push(`data: ${JSON.stringify(bookEvent(1))}\n\n`);
     await vi.waitFor(() => expect(currentState().books).toHaveLength(1));
