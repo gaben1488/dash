@@ -592,6 +592,20 @@ export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
       user_action_required: z.literal(false), meaning: z.string(),
     })),
   }),
+  ReportAssuranceV2Schema.extend({
+    contract: z.literal('actionable-assurance-v4'),
+    business_id_observations: z.array(z.object({
+      code: z.literal('DUPLICATE_BUSINESS_ID'), grbs: z.string().nullable(),
+      business_id: z.string().nullable(), locations: ReportActionSchema.shape.locations,
+      user_action_required: z.literal(false), meaning: z.string(),
+    })),
+    current_result_unknown_count: z.number().int().nonnegative(),
+    resolved_questions: z.array(z.object({
+      code: z.string(), source_row_key: z.string().nullable(), recommendation_id: z.string().nullable(),
+      title: z.string(), answer: z.string(), basis: z.string(),
+      locations: ReportActionSchema.shape.locations, proves_current_implementation: z.literal(false),
+    })),
+  }),
 ]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 

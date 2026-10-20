@@ -21,6 +21,24 @@ def test_values_preserve_date_formatted_purchase_number(monkeypatch):
     assert client.values('synthetic-book', 'Sheet', 4, 4, 3) == [['23/1', 100.25, '24.02.2026']]
 
 
+def test_discussion_capture_preserves_quote_and_replies_across_pages(monkeypatch):
+    calls = []
+    thread = {'id': 'one', 'content': 'Answer', 'quotedFileContent': {'value': 'Full subject'},
+              'replies': [{'id': 'reply', 'content': 'Correction'}]}
+    client = GoogleReadClient('synthetic')
+
+    def get(url, params):
+        calls.append(params)
+        return {'comments': [thread], 'nextPageToken': 'next'} if len(calls) == 1 else {'comments': []}
+
+    monkeypatch.setattr(client, '_get', get)
+    assert client.discussions('synthetic-book') == [thread]
+    assert calls[1]['pageToken'] == 'next'
+    monkeypatch.setattr(client, '_get', lambda *_: {'nextPageToken': 'loop'})
+    with pytest.raises(GoogleReadError, match='GOOGLE_DISCUSSION_PAGE_LIMIT'):
+        client.discussions('synthetic-book')
+
+
 def test_batch_uses_ordered_ranges_and_preserves_empty_chunks(monkeypatch):
     requests = []
 

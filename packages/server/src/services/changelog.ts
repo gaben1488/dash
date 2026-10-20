@@ -19,6 +19,7 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
 } from '@aemr/shared';
+import { parseJournalInstant } from '@aemr/core';
 
 export interface ChangeRecord {
   /** Короткое имя ГРБС («УО»). */
@@ -43,11 +44,9 @@ export interface ChangeRecord {
 
 /** «06.04.2026 17:39:02» → мс эпохи; null для мусора. */
 function parseRuDateTime(raw: unknown): number | null {
-  const s = String(raw ?? '').trim();
-  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return null;
-  const [, dd, mm, yyyy, hh, mi, ss] = m;
-  const ms = Date.UTC(+yyyy, +mm - 1, +dd, +hh, +mi, +(ss ?? 0));
+  const parsed = parseJournalInstant(raw);
+  if (!parsed) return null;
+  const ms = Date.parse(parsed.at + 'Z');
   return Number.isFinite(ms) ? ms : null;
 }
 
