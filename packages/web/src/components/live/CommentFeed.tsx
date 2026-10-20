@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchJSON } from '../../api';
+import { productLabel } from '@aemr/shared';
 
 const record=(value:unknown):Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
 const text=(value:unknown)=>typeof value==='string'?value:null;
@@ -19,6 +20,12 @@ function replyState(raw:Record<string,unknown>):string {
       (typeof post.action!=='string'&&post.commentAction!=='RESOLVE'&&post.commentAction!=='REOPEN'&&
         (text(post.id)!==null||text(post.postId)!==null))));
   return replies.length>0?`Есть ответы · ${replies.length}`:'В этом чтении ответов нет';
+}
+/** Google actions are events, not messages whose text was lost. */
+function postAction(raw:Record<string,unknown>):string|null {
+  if(raw.deleted===true)return 'Удалено в Google';
+  const action=String(raw.action??raw.commentAction??'').toLowerCase();
+  return action==='resolve'?'Помечено как решённое в Google':action==='reopen'?'Обсуждение открыто повторно в Google':null;
 }
 function millisInstant(value:unknown):string|undefined {
   if(typeof value!=='number'||!Number.isFinite(value))return undefined;
@@ -67,7 +74,7 @@ export function CommentFeed({enabled,readRevision}:{enabled:boolean;readRevision
     {readings.length>0&&<details className="uf-reading"><summary>Полнота чтения обсуждений и заметок · {readings.length} каналов</summary>{readings.map(w=>{
       const e=record(w.evidence);
       const scope=Array.isArray(e.scope)?e.scope.filter((s):s is string=>typeof s==='string'):[];
-      return <p key={String(w.id)} className="uf-scope"><b>{text(w.book)} · {w.kind==='reading:notes'?'заметки':'обсуждения'}</b>: {e.status==='read'?'прочитано':text(e.reason)??'чтение не подтверждено'} · {text(w.readAt)}{scope.length>0?` · ${scope.join(', ')}`:''}</p>;
+      return <p key={String(w.id)} className="uf-scope"><b>{productLabel(text(w.book)??'Книга не названа')} · {w.kind==='reading:notes'?'заметки':'обсуждения'}</b>: {e.status==='read'?'прочитано':text(e.reason)??'чтение не подтверждено'} · {text(w.readAt)}{scope.length>0?` · ${scope.join(', ')}`:''}</p>;
     })}</details>}
     {witnesses.map(w=>{
       const original=record(record(w.evidence).original), archived=w.kind==='legacy_cache';
@@ -85,15 +92,15 @@ export function CommentFeed({enabled,readRevision}:{enabled:boolean;readRevision
           <p className="uf-scope">{threadState(raw)}</p>
           <p className="uf-scope">{replyState(raw)}</p>
         </>}
-        {posts.length>0&&<details><summary>Исходные сообщения и ответы · {posts.length}</summary>{posts.map((post,i)=>{
-          const raw=record(post.raw);
-          return <div className="uf-post" key={`${text(post.id)??'post'}:${i}`}><b>{text(post.author)??'Автор не назван'}</b><p>{text(post.content)??'Текст не передан'}</p><p className="uf-scope">{messageTimes(raw)}</p></div>;
+        {posts.length>0&&<details><summary>Исходные сообщения, ответы и события · {posts.length}</summary>{posts.map((post,i)=>{
+          const raw=record(post.raw),action=postAction(raw),content=text(post.content)?.trim()?text(post.content):null;
+          return <div className="uf-post" key={`${text(post.id)??'post'}:${i}`}><b>{text(post.author)??'Автор не назван'}</b><p>{content??action??'Текст не передан'}</p>{content&&action&&<p className="uf-scope">{action}</p>}<p className="uf-scope">{messageTimes(raw)}</p></div>;
         })}</details>}
         {note&&<p className="uf-scope">Имена и даты внутри заметки — её текст, не метаданные авторства Google.</p>}
         <p className="uf-scope">{text(e.sourceRevision)?'Есть ревизия источника':'Ревизия источника не доказана'}. Решение Dash и состояние обсуждения Google независимы.</p>
       </article>;
     })}
-    {legacyVisible.map((c,i)=><article className="uf-comment" key={text(c.commentId)??i}><header><b>Сохранённая проекция Drive</b><span>{text(c.book)}</span></header><p className="uf-comment-text">{text(c.content)??'Текст не передан'}</p><p className="uf-evidence">{text(c.author)??'Автор не назван'} · прочитано {text(c.recordedAt)??'в неизвестное время'}</p><p className="uf-scope">{messageTimes({createdTime:millisInstant(c.createdAtMs),modifiedTime:millisInstant(c.modifiedAtMs)})}</p><p className="uf-scope">{threadState(c)}</p><p className="uf-scope">{typeof c.replies==='number'?`Ответов по сохранённой проекции: ${c.replies}; полные тексты не переданы.`:'Число ответов не передано.'} Адрес по цитате не угадываем.</p></article>)}
+    {legacyVisible.map((c,i)=><article className="uf-comment" key={text(c.commentId)??i}><header><b>Сохранённая проекция Drive</b><span>{productLabel(text(c.book)??'Книга не названа')}</span></header><p className="uf-comment-text">{text(c.content)??'Текст не передан'}</p><p className="uf-evidence">{text(c.author)??'Автор не назван'} · прочитано {text(c.recordedAt)??'в неизвестное время'}</p><p className="uf-scope">{messageTimes({createdTime:millisInstant(c.createdAtMs),modifiedTime:millisInstant(c.modifiedAtMs)})}</p><p className="uf-scope">{threadState(c)}</p><p className="uf-scope">{typeof c.replies==='number'?`Ответов по сохранённой проекции: ${c.replies}; полные тексты не переданы.`:'Число ответов не передано.'} Адрес по цитате не угадываем.</p></article>)}
     {witnesses.length===0&&legacy.length===0&&<p className="uf-empty">В этом ответе сохранённых комментариев нет. Полнота чтения всех книг этим не доказана.</p>}
   </section>;
 }

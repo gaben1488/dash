@@ -87,3 +87,14 @@ it('shows historical unclassified projection and mixed residual without dropping
  expect(view.getByText('Старый вопрос')).toBeTruthy();expect(view.getByText('Уточнить сумму')).toBeTruthy();
  expect(view.getByText(/Было: 327.*Уточнить сумму/)).toBeTruthy();
 });
+
+
+it('renders Google resolution and reopening as source events, not lost text',async()=>{
+ vi.mocked(fetchJSON).mockResolvedValue({total:0,comments:[],witnesses:[{id:'thread',book:'УФБП',kind:'drive_thread',evidence:{content:'Сумма уменьшена',raw:{resolved:true,replies:[{id:'resolved',action:'resolve'}]},posts:[{id:'resolved',author:'Мария',content:null,raw:{action:'resolve'}},{id:'reopened',content:'Уточнить',raw:{commentAction:'REOPEN'}}]}}]});
+ const view=render(<CommentFeed enabled readRevision={null}/>);
+ await view.findByText('Помечено как решённое в Google');
+ expect(view.getByText('Обсуждение открыто повторно в Google')).toBeTruthy();
+ expect(view.getByText('Уточнить')).toBeTruthy();
+ expect(view.queryByText('Текст не передан')).toBeNull();
+ expect(view.getByText('В этом чтении ответов нет')).toBeTruthy();
+});
