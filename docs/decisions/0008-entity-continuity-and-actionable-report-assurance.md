@@ -181,3 +181,20 @@ window, dates, count and monetary denominator. Do not mix the current live rate
 into an archived report; missing rate/partial source is explicit, never a hidden
 8% substitution. Read failures can be retried and stale requests cannot overwrite
 an invalidated source. Existing switches and page geometry remain.
+
+## Owner correction: fresh baseline and no periodic source polling
+
+The owner explicitly authorizes resetting all application archives and history
+and starting from current Google data. This supersedes retaining old weekly
+archives in the active service. Keep Google data, source credentials and explicit
+mapping/yearlong-kind decisions. Historical continuity cannot be claimed across
+this reset. A private technical rollback tree is kept outside the active volume.
+
+Keep Google Drive webhook and the browser notification stream. Disable both
+periodic source refresh and periodic report capture in production. Worker interval
+zero waits for accepted durable commands without reading Google or scanning old
+archives. Local command checks are not source reads. Fresh reset is an explicit
+offline maintenance operation under the shared lock after all writers stop;
+`reset-current-state.py` prepares a new database first and restores moved entries
+if cutover fails. It never writes to Google. Install and reset acceptance must be
+recorded from actual production, not inferred from these tests.

@@ -14,7 +14,7 @@ from .weekly_archive import maybe_seal_weekly_archive, recover_weekly_archives
 def work(registry, ledger, state, *, interval_seconds=900, stop=None, run=run_once,
          seal=maybe_seal_weekly_archive, recover=recover_weekly_archives,
          compact=safe_compact_transient_attempts, queued_only=False):
-    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+    if not math.isfinite(interval_seconds) or interval_seconds < 0:
         raise ValueError('INTERVAL_INVALID')
     stopped = stop if stop is not None else Event()
     handlers = {}
@@ -24,18 +24,19 @@ def work(registry, ledger, state, *, interval_seconds=900, stop=None, run=run_on
     try:
         # Recovery is evidence-only: it scans retained attempt statuses and seals
         # complete Thursday inputs. Missing weeks remain missing; no live reread occurs.
-        if not queued_only:
+        if not queued_only and interval_seconds > 0:
             recover(state)
             # Only after recovery may old non-weekly transient payloads be compacted.
             # Status/error records, publications, weekly archives and identity state
             # are outside the retention surface.
             compact(state)
-        next_run = 0.0
+        # Zero disables source polling; durable user commands still execute.
+        next_run = float('inf') if interval_seconds == 0 else 0.0
         while not stopped.is_set():
             if monotonic() < next_run and not has_pending_report(state):
                 stopped.wait(min(5, max(0, next_run - monotonic())))
                 continue
-            result = (run(registry, ledger, state, queued_only=True) if queued_only
+            result = (run(registry, ledger, state, queued_only=True) if queued_only or interval_seconds == 0
                       else run(registry, ledger, state))
             if queued_only:
                 if result['status'] == 'IDLE':
@@ -50,7 +51,7 @@ def work(registry, ledger, state, *, interval_seconds=900, stop=None, run=run_on
             seal(state, result)
             compact(state)
             if not queued_only:
-                next_run = monotonic() + interval_seconds
+                next_run = monotonic() + interval_seconds if interval_seconds else float('inf')
                 stopped.wait(min(5, interval_seconds))
         return 0
     finally:

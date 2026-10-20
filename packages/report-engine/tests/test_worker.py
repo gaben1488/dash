@@ -26,7 +26,23 @@ def test_worker_refuses_busy_loop_and_does_not_run_after_shutdown():
         raise AssertionError('already stopped')
     assert work('r', 'l', 's', stop=stopped, run=forbidden) == 0
     with pytest.raises(ValueError, match='INTERVAL_INVALID'):
-        work('r', 'l', 's', interval_seconds=0, run=forbidden)
+        work('r', 'l', 's', interval_seconds=-1, run=forbidden)
+
+
+def test_zero_interval_waits_for_commands_without_reading_sources_or_history(monkeypatch):
+    from procurement_engine import worker
+    stopped = Event()
+    monkeypatch.setattr(worker, 'has_pending_report', lambda *_: False)
+    class Stop:
+        def is_set(self):
+            return stopped.is_set()
+        def wait(self, seconds):
+            assert seconds == 5
+            stopped.set()
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError('idle service must not read sources or history')
+    assert work('r', 'l', 's', interval_seconds=0, stop=Stop(), run=forbidden,
+                recover=forbidden, seal=forbidden, compact=forbidden) == 0
 
 
 def test_worker_recovers_before_first_compaction_and_seals_before_each_compaction():

@@ -85,7 +85,8 @@ def main(argv=None):
     worker.add_argument("--registry", required=True)
     worker.add_argument("--ledger", required=True)
     worker.add_argument("--state", required=True)
-    worker.add_argument("--interval-seconds", type=int, default=900)
+    worker.add_argument("--interval-seconds", type=int, default=900,
+                        help="Source capture interval; 0 waits for explicit report commands only")
     worker.add_argument("--queued-only", action="store_true", help="Drain accepted commands without periodic capture")
     prune = sub.add_parser("prune-state", help="Plan or compact old transient attempt payloads")
     prune.add_argument("--state", required=True)

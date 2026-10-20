@@ -46,7 +46,7 @@ const envSchema = z.object({
 
   // Cache
   CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(300),
-  SOURCE_AUTO_REFRESH_MINUTES: z.coerce.number().int().nonnegative().default(15),
+  SOURCE_AUTO_REFRESH_MINUTES: z.coerce.number().int().nonnegative().default(0),
   SOURCE_FRESHNESS_SECONDS: z.coerce.number().int().nonnegative().default(300),
 
   // Database

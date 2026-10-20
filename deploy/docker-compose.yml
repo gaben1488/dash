@@ -77,7 +77,7 @@ services:
       - --state
       - /app/packages/server/data/reports
       - --interval-seconds
-      - "${REPORT_POLL_SECONDS:-900}"
+      - "0"
     env_file:
       - ./.env.production
     environment:
@@ -110,6 +110,7 @@ services:
       - ./.env.production
     environment:
       REPORT_SOURCE_COORDINATOR_URL: http://127.0.0.1:3000
+      SOURCE_AUTO_REFRESH_MINUTES: "0"
     volumes:
       - server_data:/app/packages/server/data
     networks: [aemr]
