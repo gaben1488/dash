@@ -1,6 +1,6 @@
 /** Offline, synthetic-only fixture builder. No HTTP or application API calls. */
 import {createRequire} from 'node:module';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {dirname,resolve,join,extname} from 'node:path';
 import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -12,7 +12,7 @@ const arg=process.argv.indexOf('--out');
 const out=arg<0?join(web,'navigation-qa.html'):resolve(process.argv[arg+1]);
 if(extname(out)!=='.html')throw Error('OFFLINE_QA_OUTPUT_REQUIRES_HTML');
 const req=createRequire(join(web,'package.json'));
-const {build}=await import(req.resolve('vite'));
+const {build}=await import(pathToFileURL(req.resolve('vite')).href);
 const sources=['scripts/build-navigation-qa.mjs','scripts/navigation-qa-zip.mjs','packages/web/scripts/navigation-qa-entry.tsx','packages/web/scripts/navigation-qa.css','packages/web/src/components/Header.tsx','packages/web/src/components/ThemeProvider.tsx','packages/web/src/components/live/ProvenanceHub.tsx','packages/web/src/components/live/UpdateFeed.tsx','packages/web/src/store.ts','packages/web/src/index.css','packages/web/tailwind.config.ts','packages/web/postcss.config.js','packages/web/package.json','pnpm-lock.yaml'];
 async function sourceFiles(dir){
  const entries=await readdir(join(root,dir),{withFileTypes:true});

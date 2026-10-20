@@ -208,17 +208,26 @@ class HeaderControlsTests(unittest.IsolatedAsyncioTestCase):
             browser = await launch_browser(driver)
             try:
                 page = await browser.new_page(viewport={'width': 1440, 'height': 1000})
+                # Fixture rows are dated the 15th of each month. On other weeks
+                # asynchronous coverage marks the current row empty and removes
+                # it from this selector halfway through the colour assertions.
+                await page.clock.set_fixed_time('2026-10-15T06:00:00Z')
                 await open_current_header(page, artifact.as_uri())
                 for theme in ('dark', 'light'):
                     if theme == 'light':
                         await page.get_by_role('button', name='Включить светлую тему', exact=True).click()
                     for button in await page.locator('.qa-palettes button').all():
                         await button.click()
+                        await expect(button).to_have_attribute('aria-pressed', 'true')
                         ink = await button.evaluate("el=>el.style.getPropertyValue('--hdr-ink')")
                         self.assertRegex(ink, r'^#[a-f0-9]{6}$')
                         expected = 'rgb(' + ', '.join(str(int(ink[i:i+2], 16)) for i in (1, 3, 5)) + ')'
                         await expect(button).to_have_css('color', expected)
-                        for label in await page.locator('.wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum)').all():
+                        labels = page.locator('.wr-row-driving:not(.wr-row-future):not(.wr-row-empty) :is(.wr-range,.wr-month,.wr-wnum)')
+                        # These three screens do not expose the period control.
+                        count = 0 if await button.inner_text() in ('Свод', 'Мониторинг', 'Система') else 3
+                        await expect(labels).to_have_count(count)
+                        for label in await labels.all():
                             await expect(label).to_have_css('color', expected)
             finally:
                 await browser.close()
