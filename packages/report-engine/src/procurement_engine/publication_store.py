@@ -293,7 +293,7 @@ def _validate(root):
         from .recommendation_links import primary_budget_years
 
         if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0], documents=documents,
-                budget_years=primary_budget_years(capture['sources'])):
+                budget_years=primary_budget_years(capture['sources']), sources=capture['sources']):
             raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
         if capture.get('archived_file_evidence') is not None:
             from .archived_evidence import verify_archived_values

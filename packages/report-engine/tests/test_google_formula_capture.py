@@ -17,6 +17,19 @@ class Client:
         return [['header'], [1, 2, '=SUM(A2:B2)'], []][start - 1:end]
 
 
+def test_source_discussions_are_frozen_with_values_not_left_in_a_separate_cache():
+    class WithDiscussions(Client):
+        def discussions(self, provider):
+            assert provider == 'book'
+            return [{'id': 'thread', 'content': 'Source answer', 'quotedFileContent': {'value': 'Full subject'}}]
+
+    contract = {'source_id': 'master', 'role': 'master', 'provider_id': 'book',
+        'sheet_id': 0, 'sheet': 'Master', 'columns': 3, 'header_rows': 1,
+        'units': 'thousand', 'schema_fingerprint': header_hash([['header']], 1)}
+    payload = GoogleSheetSourceAdapter(contract, WithDiscussions()).read_payload()
+    assert payload.metadata['formula_evidence']['discussions'][0]['id'] == 'thread'
+
+
 def test_adapter_persists_formula_locations_and_context_in_same_payload():
     contract = {'source_id': 'master', 'role': 'master', 'provider_id': 'book',
                 'sheet_id': 0, 'sheet': 'Master', 'columns': 3, 'header_rows': 1,

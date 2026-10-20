@@ -20,6 +20,25 @@ const value: ReportAssurance = {
     }],
   }],
 };
+it('keeps dated answers inspectable without turning them into new questions or execution claims', () => {
+  const resolved = {
+    code: 'WITHDRAWN_REPORTED', source_row_key: null, recommendation_id: 'REC-test',
+    title: 'Закупка бумаги', answer: 'Закупка удалена из плана-реестра',
+    basis: 'Оригинал от 25.09.2026. Ответ не доказывает исполнение на текущую дату.',
+    locations: [], proves_current_implementation: false as const,
+  };
+  const reviewed: ReportAssurance = {
+    ...value, contract: 'actionable-assurance-v4', actions: [], user_action_count: 0,
+    source_observations: [], nonprocurement_identity_observations: 0, business_id_observations: [],
+    current_result_unknown_count: 1, resolved_questions: [resolved],
+  };
+  expect(ReportAssuranceSchema.parse(reviewed)).toEqual(reviewed);
+  expect(ReportAssuranceSchema.safeParse({ ...reviewed, resolved_questions: [{ ...resolved, proves_current_implementation: true }] }).success).toBe(false);
+  render(<ReportAssurancePanel value={reviewed} label="Выбранный выпуск" />);
+  expect(screen.getByText('Ответы уже найдены · 1')).toBeTruthy();
+  expect(screen.queryByText(/Что нужно уточнить в исходных таблицах/)).toBeNull();
+  expect(screen.getByText(/Ответ не доказывает исполнение/)).toBeTruthy();
+});
 it('shows concrete ownership, location and action without a grey-only status', () => {
   render(<ReportAssurancePanel value={value} label="Выбранный выпуск" />);
   expect(screen.getByText(/Уточнений по данным: 1/)).toBeTruthy();

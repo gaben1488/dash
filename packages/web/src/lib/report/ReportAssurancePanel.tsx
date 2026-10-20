@@ -21,7 +21,8 @@ function presentationGroups(actions: readonly Action[]) {
 export function ReportAssurancePanel({ value, label }: { value: ReportAssurance | null; label: string }) {
   const headingId = useId();
   const [downloadError, setDownloadError] = useState(false);
-  if (!value || value.actions.length === 0) return null;
+  const resolved = value?.contract === 'actionable-assurance-v4' ? value.resolved_questions : [];
+  if (!value || (value.actions.length === 0 && resolved.length === 0)) return null;
   const hasBusinessAction = value.user_action_count > 0;
   const hasBlocker = value.actions.some(action => action.severity === 'blocks_release');
   const groups = [
@@ -62,6 +63,15 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
           Технические замечания не означают, что проверенный Word ошибочен.
           Уточнения исходных данных показаны отдельно от служебной диагностики.
         </p>
+        {resolved.length > 0 && <details className="mt-3 rounded-md border border-zinc-200 p-2 dark:border-zinc-700">
+          <summary className="cursor-pointer font-medium">Ответы уже найдены · {resolved.length}</summary>
+          <p className="mt-2 text-xs">Повторное уточнение не требуется. Дата и основание ответа сохранены;
+            исторический ответ не означает, что рекомендация исполнена сейчас.</p>
+          {resolved.map(item => <details key={item.source_row_key ?? item.recommendation_id} className="mt-2 text-xs">
+            <summary className="cursor-pointer">{item.locations[0]?.subject ?? item.title}</summary>
+            <p className="mt-1">{item.answer}</p><p className="mt-1 text-zinc-500">{item.basis}</p>
+          </details>)}
+        </details>}
         {groups.filter(group => group.count > 0).map(group => (
           <details key={group.key} className="mt-3 rounded-md border border-zinc-200 p-2 dark:border-zinc-700">
             <summary className="cursor-pointer font-medium">
@@ -85,7 +95,7 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
                   item.severity === 'blocks_release' ? 'border-amber-500' : 'border-zinc-300 dark:border-zinc-600'
                 )}>
                   <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    {item.code === 'FACT_MONEY_WITHOUT_DATE'
+                    {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4'
                       ? 'Сумма без даты завершения: уточнить вид позиции' : item.title}{item.owner && ' · ' + item.owner}
                     {item.severity === 'blocks_release' && ' · требуется для нового выпуска'}
                     {group.key === 'ENGINE' && <span> · Затронутых записей: {count}</span>}
@@ -93,7 +103,7 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
                   <div className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                     <p><strong>Что произошло:</strong> {item.cause}</p>
                     <p><strong>На что влияет:</strong> {item.report_effect}</p>
-                    {item.code === 'FACT_MONEY_WITHOUT_DATE' ? <>
+                    {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4' ? <>
                       <p>Вид позиции по этому сигналу не установлен. Сумма без Q сама по себе не доказывает ошибку сотрудника.</p>
                       <p><strong>Что сделать:</strong> Уточнить, отражает ли строка один договор или годовую потребность.
                         Для годовой потребности Q — дата последнего договора, закрывающего весь объём.
@@ -105,7 +115,7 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
                         <p>{item.title}</p><p>{item.action}</p><p>{item.resolved_when}</p>
                       </details>
                     </> : <p><strong>Что сделать:</strong> {item.action}</p>}
-                    <p><strong>Когда вопрос будет закрыт:</strong> {item.code === 'FACT_MONEY_WITHOUT_DATE'
+                    <p><strong>Когда вопрос будет закрыт:</strong> {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4'
                       ? 'Вид позиции и корректность её сумм и дат подтверждены документами. Для незавершённой годовой потребности отсутствие Q допустимо; заполнение Q не является обязательным способом закрытия вопроса.'
                       : item.resolved_when}</p>
                     {(group.key === 'SOURCE_OWNER' ? item.locations : []).map((where, index) => (

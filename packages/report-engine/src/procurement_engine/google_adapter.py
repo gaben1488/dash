@@ -154,6 +154,20 @@ class GoogleReadClient:
         return {'sheets': sorted((s['properties'] for s in data.get('sheets', [])), key=lambda x: x['sheetId']),
                 'named_ranges': sorted(data.get('namedRanges', []), key=lambda x: x['name'])}
 
+    def discussions(self, provider_id):
+        result, token = [], None
+        for _ in range(10):
+            params = {'pageSize': 100, 'includeDeleted': 'false',
+                'fields': 'nextPageToken,comments(id,content,quotedFileContent,createdTime,modifiedTime,deleted,resolved,author(displayName),replies(id,content,action,deleted,createdTime,modifiedTime,author(displayName)))'}
+            if token:
+                params['pageToken'] = token
+            page = self._get('https://www.googleapis.com/drive/v3/files/' + quote(provider_id, safe='') + '/comments', params)
+            result.extend(page.get('comments', []))
+            token = page.get('nextPageToken')
+            if not token:
+                return result
+        raise GoogleReadError('GOOGLE_DISCUSSION_PAGE_LIMIT')
+
     def _values(self,provider_id,title,start,end,columns,render_option):
         a1 = _a1_range(title, start, end, columns)
         data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe='')+'/values/'+quote(a1,safe=''),
@@ -273,6 +287,8 @@ class GoogleSheetSourceAdapter:
                         if isinstance(value,str) and value.startswith('='):
                             formulas.append({'row':start+offset,'column':column,'formula':value})
             metadata['formula_evidence']={**context,'rows':count,'columns':full_columns,'formulas':formulas}
+            if self.role == 'master' and hasattr(self.client, 'discussions'):
+                metadata['formula_evidence']['discussions'] = self.client.discussions(self.provider_id)
             if full_columns>c['columns']:
                 metadata['formula_evidence']['extra_values']=extra_values
         return SourcePayload(self.source_id,self.role,self.provider_id,values,str(c['sheet_id']),

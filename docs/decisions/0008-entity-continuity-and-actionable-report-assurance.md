@@ -207,3 +207,51 @@ keeps the visible failure and manual retry; an unchanged stream starts no reads.
 In push/manual mode a successful complete dashboard cache remains valid until
 source-generation invalidation. TTL expiry alone must not start Google reading,
 calculation or persistence; incomplete/failed imports retain bounded retries.
+
+## 21.10.2026: answered questions, current results and journal time
+
+Assurance v4 and recommendation links v15 preserve the old immutable contracts.
+The owner's 11.10 clarification and the existing shared yearlong-stage predicate
+already permit accumulating money before Q closes the whole position. The engine
+now uses the same ЕП + positive money + raw empty/Х/X Q stage. It does not infer a
+curated kind, contract count, completion, payment or saving from that stage.
+Invalid Q and other inconsistent primary cells keep their independent findings.
+
+A verified original recommendation, its neighbouring department response and
+decision are distinct evidence. The latter cells are checked against the original
+DOCX bytes and coordinates; the report's generated 25.09 status appendix is
+excluded. Dated cancellation, missing financing, accepted objections and explicit
+results can answer an existing question without proving current implementation.
+Plain acceptance alone cannot close implementation. Every named group member must
+be covered; a current supplement needs its own complete literal subject, unique
+UID, listed member number and explicit primary statement, all retained in evidence.
+
+Google discussions are captured read-only within the existing source evidence,
+including full quoted subject, original content, authors, timestamps and replies.
+Opaque anchors are not interpreted as cell numbers. The bounded banner-scope rule
+requires the complete quoted expanded subject, one current row and the original
+full subject plus an explicit montage/demontage scope explanation. Deleted threads
+and discussions with substantive replies do not acquire an automatic answer.
+This records a source explanation, not a proven merge or current fulfillment.
+
+Current matching reuses the approved customer aliases (including Совместные
+закупки (УО)). Explicit labels before `/ full description` may match their complete
+old label after a numeric programme prefix; financial-only parenthetical notes
+are not subject words. The reviewed УД badge label and хоз. материалы abbreviation
+are bounded full labels, not fuzzy matching or price-based identity. Original
+full current subjects remain unchanged. The same strict whole-instruction compiler
+evaluates the linked action, including a single-item «единый ЭА» and the service
+case form already recognised by the link reader.
+
+Answered questions are inspectable separately from the action list. UNKNOWN
+current results remain UNKNOWN and retain an explicit count; finding an old
+answer must not turn the service's completeness flag green. Unanswered disposition
+questions require a verified original and absent current candidates, rather than
+asking the owner to repair a parser or select a UID.
+
+Live УО _ChangeLog!G39648:G39650 returned only 20.10.2026 as FORMATTED_STRING,
+while the stored serials were 46315.70350991898, 46315.70352293982 and
+46315.70359416667. The integrated shared journal reader retains numeric timestamp values together
+with the formatted non-time values, preserving hours/seconds without turning
+date-formatted compound business numbers into serial numbers. Both journal consumers reuse the core
+timestamp parser. This requires no source writes or formatting changes.
