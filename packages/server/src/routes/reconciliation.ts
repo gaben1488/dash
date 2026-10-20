@@ -115,6 +115,10 @@ function attachRootCauses(summary: ReconSummary, snapshot: DataSnapshot): ReconS
     DEPARTMENTS.find((d) => d.nameShort === deptName)?.nameShort;
 
   const rows = summary.rows.map((row) => {
+    if (row.fullPlanOfficial === null || row.fullPlanCalculated === null
+      || row.fullFactOfficial === null || row.fullFactCalculated === null
+      || row.ecoTotalOfficial === null || row.ecoTotalCalculated === null
+      || row.planDelta === null || row.factDelta === null || row.ecoDelta === null) return row;
     const sheet = sheetOf(row.department) ?? row.department;
     const atoms = (rowsByDept[sheet] ?? rowsByDept[row.department]) as RawRow[] | undefined;
     if (!atoms || atoms.length === 0) return row;

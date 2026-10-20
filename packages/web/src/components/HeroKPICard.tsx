@@ -901,7 +901,7 @@ export function BudgetBreakdown({ fb, kb, mb, formatter }: BudgetBreakdownProps)
 interface TrustComponentsProps {
   components: Array<{
     label: string;
-    score: number;
+    score: number | null;
     weight: string;
     metricKey?: string;
     /** Слагаемое реестра проверок: по нему открывается список замечаний. */
@@ -924,12 +924,12 @@ export function TrustComponents({ components, onOpenComponent }: TrustComponents
         Из чего сложено доверие
       </h4>
       <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-snug">
-        Каждое слагаемое — балл от 0 до 100; в скобках его вес в общей оценке.
+        Оценка относится к выполненным проверкам, а не к вероятности достоверности. Непроверенные слагаемые и операционные риски в неё не входят.
         {onOpenComponent ? ' Щелчок по слагаемому открывает замечания, из которых оно сложено.' : ''}
       </p>
       <div className="space-y-2.5">
         {components.map(c => {
-          const gradient = c.score >= 80 ? 'from-emerald-500 to-emerald-400'
+          const gradient = c.score === null ? 'from-zinc-300 to-zinc-400' : c.score >= 80 ? 'from-emerald-500 to-emerald-400'
             : c.score >= 60 ? 'from-blue-500 to-blue-400'
             : c.score >= 40 ? 'from-amber-500 to-amber-400'
             : 'from-red-500 to-red-400';
@@ -947,7 +947,7 @@ export function TrustComponents({ components, onOpenComponent }: TrustComponents
                   ? {
                       type: 'button' as const,
                       onClick: () => onOpenComponent!(c.componentId!, c.label),
-                      'aria-label': `${c.label}: ${formatMetricValue(c.score)} из 100. Открыть замечания этого слагаемого`,
+                      'aria-label': c.score === null ? `${c.label}: недостаточно данных. Открыть замечания этого слагаемого` : `${c.label}: ${(c.score === null ? 'Нет оценки' : formatMetricValue(c.score))} из 100. Открыть замечания этого слагаемого`,
                     }
                   : {})}
                 className={cn(
@@ -955,8 +955,8 @@ export function TrustComponents({ components, onOpenComponent }: TrustComponents
                   canOpen && 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/[0.04] -mx-1 px-1 py-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
                 )}
                 title={canOpen
-                  ? `${c.label}: ${formatMetricValue(c.score)} из 100, вес ${c.weight}. Открыть замечания`
-                  : `${c.label}: ${formatMetricValue(c.score)} из 100, вес ${c.weight}`}
+                  ? `${c.label}: ${(c.score === null ? 'Нет оценки' : formatMetricValue(c.score))} из 100, вес ${c.weight}. Открыть замечания`
+                  : `${c.label}: ${(c.score === null ? 'Нет оценки' : formatMetricValue(c.score))} из 100, вес ${c.weight}`}
               >
                 <span className="text-[11px] text-zinc-500 dark:text-zinc-400 w-32 shrink-0 truncate group-hover/trust:text-zinc-700 dark:group-hover/trust:text-zinc-200 transition-colors">
                   {c.label}
@@ -965,11 +965,11 @@ export function TrustComponents({ components, onOpenComponent }: TrustComponents
                 <div className="flex-1 h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                   <div
                     className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-700 ease-out', gradient)}
-                    style={{ width: `${Math.max(0, Math.min(100, c.score))}%` }}
+                    style={{ width: `${Math.max(0, Math.min(100, c.score ?? 0))}%` }}
                   />
                 </div>
                 <span className="text-xs font-bold tabular-nums w-8 text-right text-zinc-700 dark:text-zinc-200">
-                  {formatMetricValue(c.score)}
+                  {(c.score === null ? 'Нет оценки' : formatMetricValue(c.score))}
                 </span>
               </Tag>
                 );

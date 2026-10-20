@@ -177,16 +177,16 @@ export const TrustComponentSchema = z.object({
   name: z.string(),
   label: z.string(),
   weight: z.number(),
-  score: z.number().min(0).max(100),
+  score: z.number().min(0).max(100).nullable(),
   issues: z.number().int(),
   criticalIssues: z.number().int(),
   details: z.string(),
 });
 
 export const TrustScoreSchema = z.object({
-  overall: z.number().min(0).max(100),
+  overall: z.number().min(0).max(100).nullable(),
   components: z.array(TrustComponentSchema),
-  grade: TrustGradeSchema,
+  grade: TrustGradeSchema.nullable(),
   computedAt: z.string(),
   basedOnSnapshot: z.string(),
 });
@@ -328,7 +328,7 @@ export const DepartmentSummarySchema = z.object({
   soleCount: z.number().nullable().optional(),
   issueCount: z.number().int(),
   criticalIssueCount: z.number().int(),
-  trustScore: z.number(),
+  trustScore: z.number().nullable(),
   trustComponents: z.array(TrustComponentSchema).optional(),
   status: z.enum(['normal', 'warning', 'critical']),
   quarters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),

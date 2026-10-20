@@ -356,6 +356,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           narrative: discipline.narrative,
           anticorruptionFlags: anticorruption.flags.length,
           topFlags: anticorruption.flags.slice(0, 3),
+          unavailableIndicators: anticorruption.unavailableIndicators,
           execPct: profile.actualExecQ1,
           epShare: profile.actualEpShare,
           riskLevel: profile.riskLevel,

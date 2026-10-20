@@ -3,7 +3,8 @@
 
 /** Формат числа: -0 и floating-point-шум (<1e-9) → «0»; малые ОСМЫСЛЕННЫЕ
  *  значения не маскируются под ноль — добираем знаки до первой значащей цифры. */
-export function fmtNum(n: number): string {
+export function fmtNum(n: number | null): string {
+  if (n === null) return 'Нет данных';
   if (Object.is(n, -0) || Math.abs(n) < 1e-9) return '0';
   const rounded = n.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
   if (rounded === '0' || rounded === '-0') {
@@ -13,12 +14,14 @@ export function fmtNum(n: number): string {
 }
 
 /** Формат процента; шум < 1e-9 → «0%» */
-export function fmtPct(n: number): string {
+export function fmtPct(n: number | null): string {
+  if (n === null) return 'Нет базы';
   if (Math.abs(n) < 1e-9) return '0%';
   return `${n.toFixed(1)}%`;
 }
 
 /** Эффективный ноль (только floating-point-шум, НЕ округление) */
-export function isZero(n: number): boolean {
+export function isZero(n: number | null): boolean {
+  if (n === null) return false;
   return Object.is(n, -0) || Math.abs(n) < 1e-9;
 }

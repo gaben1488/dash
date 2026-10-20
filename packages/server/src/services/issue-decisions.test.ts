@@ -84,3 +84,14 @@ describe('rule decision identity compatibility', () => {
   });
 
 });
+
+it('projects current Trust rules without rewriting a stored historical score', async () => {
+  const { withPersistedDecisions } = await import('./issue-decisions.js');
+  const saved = {
+    id: 'old', issues: [], officialMetrics: {}, deltas: [],
+    trust: { overall: 73, grade: 'C', components: [], computedAt: 'old', basedOnSnapshot: 'old' },
+  } as unknown as DataSnapshot;
+  const view = withPersistedDecisions(saved);
+  expect(view.trust.overall).toBeNull();
+  expect(saved.trust.overall).toBe(73);
+});

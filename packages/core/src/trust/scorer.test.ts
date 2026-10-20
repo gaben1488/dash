@@ -37,6 +37,28 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
 }
 
 describe('computeTrustScore', () => {
+  it('does not assign an agreement score without comparable pairs', () => {
+    const result = computeTrustScore(new Map([['m1', makeMetric('m1', 100)]]), [], [], 'snapshot');
+    expect(result.components.find(c => c.name === 'mapping_consistency')?.score).toBeNull();
+  });
+
+  it('does not grade an empty evidence set', () => {
+    const result = computeTrustScore(new Map(), [], [], 'snapshot');
+    expect(result.overall).toBeNull();
+    expect(result.grade).toBeNull();
+    expect(result.components.every(c => c.score === null)).toBe(true);
+  });
+
+  it('keeps operational problems visible without lowering data quality', () => {
+    const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+    const clean = computeTrustScore(metrics, [], [], 'snapshot');
+    const delayed = computeTrustScore(metrics, [makeIssue({
+      category: 'signal:overdue', severity: 'critical',
+    })], [], 'snapshot');
+    expect(delayed.overall).toBe(clean.overall);
+    expect(delayed.components.find(c => c.name === 'operational_risk')?.issues).toBe(1);
+    expect(delayed.components.find(c => c.name === 'operational_risk')?.weight).toBe(0);
+  });
   it('returns grade A (>=90) for clean data with no issues', () => {
     const metrics = new Map([
       ['m1', makeMetric('m1', 100)],
@@ -68,19 +90,18 @@ describe('computeTrustScore', () => {
     expect(component.details).toBe('1 из 2 совпадают');
   });
 
-  it('returns 73 with empty metrics (data_quality floor=10, others=100)', () => {
+  it('preserves absence of evidence instead of the legacy empty-set grade', () => {
     const metrics = new Map<string, NormalizedMetric>();
     const result = computeTrustScore(metrics, [], [], 'snap-1');
-    // data_quality: 10×30, formula: 100×25, rules: 100×20, mapping: 100×15, ops: 100×10 = 73
-    expect(result.overall).toBe(73);
-    expect(result.grade).toBe('C');
+    expect(result.overall).toBeNull();
+    expect(result.grade).toBeNull();
   });
 
-  it('has component weights summing to 100', () => {
+  it('retains data component weights while excluding operational risk', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const result = computeTrustScore(metrics, [], [], 'snap-1');
     const totalWeight = result.components.reduce((sum, c) => sum + c.weight, 0);
-    expect(totalWeight).toBe(100);
+    expect(totalWeight).toBe(90);
   });
 
   it('critical formula issues reduce score', () => {
@@ -114,7 +135,7 @@ describe('computeTrustScore', () => {
     expect(result.overall).toBeGreaterThanOrEqual(15);
     // Every component has score >= 10
     for (const c of result.components) {
-      expect(c.score).toBeGreaterThanOrEqual(10);
+      if (c.score !== null) expect(c.score).toBeGreaterThanOrEqual(10);
     }
   });
 
@@ -140,15 +161,15 @@ describe('saved control decisions', () => {
     expect(computeTrustScore(metrics, [issue], [], 'snapshot').overall).toBe(clean.overall);
     expect(issue).toEqual(original);
     expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4', row: 4 }], [], 'snapshot').overall)
-      .toBeLessThan(clean.overall);
+      .toBeLessThan(100);
     expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4' }], [], 'snapshot').overall)
-      .toBeLessThan(clean.overall);
+      .toBeLessThan(100);
   });
   it('excludes confirmed false positives but keeps unresolved evidence and accepted risk', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const clean = computeTrustScore(metrics, [], [], 'snapshot');
     for (const status of ['open', 'acknowledged', 'in_progress', 'resolved', 'wont_fix'] as const) {
-      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').overall).toBeLessThan(clean.overall);
+      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').overall).toBeLessThan(100);
     }
     expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status: 'false_positive' })], [], 'snapshot').overall).toBe(clean.overall);
   });

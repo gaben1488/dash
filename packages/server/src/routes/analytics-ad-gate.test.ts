@@ -105,3 +105,14 @@ describe('GET /api/analytics/compliance — антидемпинг считае�
     expect(issues[0]?.rowIndex).toBe(4);
   }, 30_000);
 });
+
+it.each(['нет', 'да'])('does not infer competition or initial price from economy flag %s', async flag => {
+  setDeptSheetCache({ 'УО': { values: [[], [], [], ...Array.from({ length: 6 }, () => rowWithEconomy(flag, '15.03.2026'))], formulas: [], sheetName: 'ВСЕ' } });
+  const response = await app.inject({ method: 'GET', url: '/api/analytics/anticorruption' });
+  expect(response.statusCode).toBe(200);
+  const result = response.json().uo;
+  expect(result).toBeDefined();
+  expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
+  expect(result.disciplinaryPenalty).toBe(0);
+  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+}, 30_000);

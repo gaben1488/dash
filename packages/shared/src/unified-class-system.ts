@@ -359,7 +359,7 @@ export type TrustComponentId =
   | 'formula_integrity'     // 25% — целостность формул
   | 'rule_compliance'       // 20% — соответствие правилам
   | 'mapping_consistency'   // 15% — согласованность привязок
-  | 'operational_risk';     // 10% — операционные риски
+  | 'operational_risk';     // отдельная диагностика, вес в качестве данных 0
 
 export interface TrustComponentConfig {
   id: TrustComponentId;
@@ -403,7 +403,7 @@ export const TRUST_COMPONENT_CONFIG: Record<TrustComponentId, TrustComponentConf
   operational_risk: {
     id: 'operational_risk',
     label: 'Операционные риски',
-    weight: 10,
+    weight: 0,
     issueGroups: ['temporal', 'financial', 'economy_control'],
     penalties: { error: 15, critical: 10, significant: 5, warning: 2, info: 0 },
   },

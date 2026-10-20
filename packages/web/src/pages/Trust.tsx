@@ -46,7 +46,7 @@ interface TrustDelta {
   sourceCell?: string;
 }
 interface TrustDept {
-  trustScore?: number;
+  trustScore?: number | null;
   department?: { id?: string; name?: string; nameShort?: string };
   issueCount?: number;
   criticalIssueCount?: number;
@@ -183,7 +183,8 @@ function verdictColor(tone: VerdictTone) {
   }
 }
 
-function scoreColor(score: number) {
+function scoreColor(score: number | null) {
+  if (score === null) return 'bg-zinc-300 dark:bg-zinc-600';
   if (score >= THRESHOLDS.TRUST.A) return 'bg-emerald-500';
   if (score >= THRESHOLDS.TRUST.B) return 'bg-blue-500';
   if (score >= THRESHOLDS.TRUST.C) return 'bg-amber-500';
@@ -191,7 +192,8 @@ function scoreColor(score: number) {
   return 'bg-red-500';
 }
 
-function cellColor(score: number) {
+function cellColor(score: number | null) {
+  if (score === null) return 'text-zinc-500';
   if (score >= THRESHOLDS.TRUST.A) return 'text-emerald-600 dark:text-emerald-400';
   if (score >= THRESHOLDS.TRUST.B) return 'text-blue-600 dark:text-blue-400';
   if (score >= THRESHOLDS.TRUST.C) return 'text-amber-600 dark:text-amber-400';
@@ -284,15 +286,16 @@ export function TrustPage() {
 
   // Подстановка живых чисел: читатель видит ровно ту арифметику, что дала
   // балл на экране, а не абстрактную формулу.
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+  const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
+  const totalWeight = assessed.reduce((sum, c) => sum + c.weight, 0);
   const liveOverall = overallScore !== null && components.length > 0 && totalWeight > 0
-    ? `${overallScore} = (${components.map((c) => `${c.score} × ${c.weight}`).join(' + ')}) ÷ ${totalWeight}`
+    ? `${overallScore} = (${assessed.map((c) => `${c.score} × ${c.weight}`).join(' + ')}) ÷ ${totalWeight}`
     : null;
 
-  const weakest = components.length > 0
-    ? components.reduce((min, c) => (c.score < min.score ? c : min))
+  const weakest = assessed.length > 0
+    ? assessed.reduce((min, c) => (c.score < min.score ? c : min))
     : null;
-  const worstDept = deptSummaries.length > 0 ? deptSummaries[0] : null;
+  const worstDept = deptSummaries.find(d => d.trustScore != null) ?? null;
 
   return (
     <div className="space-y-6">
@@ -318,8 +321,14 @@ export function TrustPage() {
           </div>
           <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            {overallScore === null ? 'Для выбранного периметра недостаточно данных для расчёта.' : `Качество заполнения книг: ${overallScore} из 100`}
+            {overallScore === null ? 'Для выбранного периметра недостаточно данных для расчёта.' : `Результат доступных проверок: ${overallScore} из 100`}
           </p>
+          {components.some(c => c.score === null && c.weight > 0) && (
+            <p className="text-xs text-zinc-500 mt-2 text-center">
+              Не проверено: {components.filter(c => c.score === null && c.weight > 0).map(c => c.label).join(', ')}.
+              Итог не подтверждает достоверность непроверенной части.
+            </p>
+          )}
           {trustView.unavailableComponents.length > 0 && (
             <p className="text-xs text-zinc-500 mt-2 text-center">
               Недоступные компоненты: {trustView.unavailableComponents.join(', ')}. Обновите данные.
@@ -350,8 +359,8 @@ export function TrustPage() {
                 </div>
               )}
               <p className="text-zinc-600 dark:text-zinc-300">
-                Балл — средневзвешенная оценка пяти сторон данных. Вес показывает, насколько сторона
-                важна для итога: качество данных весит больше всех, операционные риски — меньше всех.
+                Балл — средневзвешенная оценка доступных проверок данных. Вес показывает, насколько сторона
+                важна для итога. Операционные риски и непроверенные компоненты не входят в оценку.
                 Каждый компонент раскрывается ниже: там сказано, что именно он проверяет и что его роняет.
               </p>
               <p className="text-zinc-600 dark:text-zinc-300">
@@ -392,7 +401,7 @@ export function TrustPage() {
                 const kb = kbFor(COMPONENT_KB_KEYS[c.name] ?? '');
                 const description = kb?.what ?? COMPONENT_FALLBACK_DESCRIPTIONS[c.name] ?? '';
                 const componentIssues = getComponentIssues(c.name, filteredIssues, deltas);
-                const contribution = totalWeight > 0 ? (c.score * c.weight) / totalWeight : 0;
+                const contribution = totalWeight > 0 && c.score !== null ? (c.score * c.weight) / totalWeight : 0;
                 const panelId = `trust-component-${c.name}`;
 
                 return (
@@ -417,7 +426,7 @@ export function TrustPage() {
                               {c.criticalIssues > 0 ? `${c.criticalIssues} крит.` : ''}{c.criticalIssues > 0 && c.issues > 0 ? ' / ' : ''}{c.issues > 0 ? `${c.issues} ${plural(c.issues, 'замечание', 'замечания', 'замечаний')}` : ''}
                             </span>
                           )}
-                          <span className={clsx('text-sm font-bold tabular-nums', cellColor(c.score))}>{c.score}</span>
+                          <span className={clsx('text-sm font-bold tabular-nums', cellColor(c.score))}>{c.score ?? 'Не проверено'}</span>
                         </div>
                       </div>
                       <div
@@ -425,12 +434,12 @@ export function TrustPage() {
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={c.score}
-                        aria-label={`${c.label}: ${c.score} из 100`}
+                        aria-valuenow={c.score ?? undefined}
+                        aria-label={c.score === null ? `${c.label}: недостаточно данных` : `${c.label}: ${c.score} из 100`}
                       >
                         <div
                           className={clsx('h-full rounded-full transition-all duration-500', scoreColor(c.score))}
-                          style={{ width: `${c.score}%` }}
+                          style={{ width: `${c.score ?? 0}%` }}
                         />
                       </div>
                     </button>
@@ -438,7 +447,7 @@ export function TrustPage() {
                     {isExpanded && (
                       <div id={panelId} className={clsx('px-4 pb-4 border-t', RULE_HEAD)}>
                         {/* Живая подстановка: вклад ИМЕННО этого балла в итог */}
-                        {overallScore !== null && <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
+                        {overallScore !== null && c.score !== null && c.weight > 0 && <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
                           {c.score} × {c.weight} ÷ {totalWeight} = {NUM1.format(contribution)} —
                           {' '}столько этот компонент даёт в общий балл {overallScore}
                         </div>}
@@ -506,7 +515,7 @@ export function TrustPage() {
                             </div>
                           ) : (
                             <p className="ml-5 text-xs text-zinc-500 dark:text-zinc-400">
-                              {c.score >= THRESHOLDS.TRUST.A
+                              {c.score === null ? c.details : c.score >= THRESHOLDS.TRUST.A
                                 ? 'Замечаний по этому компоненту нет — балл держится сам.'
                                 : 'Замечаний в текущем срезе нет: балл снижают счётчики снимка, а не отдельные строки (см. «Как считается»).'}
                             </p>
@@ -579,7 +588,7 @@ export function TrustPage() {
               </thead>
               <tbody className={RULE_DIVIDE}>
                 {deptSummaries.map((d: TrustDept) => {
-                  const score = d.trustScore ?? 0;
+                  const score = d.trustScore ?? null;
                   const deptComponents = d.trustComponents ?? [];
                   const deptName = d.department?.nameShort ?? d.department?.name ?? 'Управление без названия';
 
@@ -600,8 +609,8 @@ export function TrustPage() {
                         </button>
                       </th>
                       <td className="px-3 py-3 text-center">
-                        <span className={clsx('font-bold text-xs px-2 py-0.5 rounded tabular-nums', cellBg(score), cellColor(score))}>
-                          {score}
+                        <span className={clsx('font-bold text-xs px-2 py-0.5 rounded tabular-nums', score === null ? '' : cellBg(score), cellColor(score))}>
+                          {score ?? 'Нет оценки'}
                         </span>
                       </td>
                       {components.map((c: TrustComponent) => {
@@ -640,8 +649,8 @@ export function TrustPage() {
         <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-4 flex items-center gap-2">
           <TrendingDown size={16} className="text-red-500" />
           {factors.length > 0
-            ? `Балл снижают ${factors.length} ${plural(factors.length, 'замечание', 'замечания', 'замечаний')}, из них критических — ${criticalFactors}`
-            : 'Что снижает надёжность'}
+            ? `Для проверки: ${factors.length} ${plural(factors.length, 'замечание', 'замечания', 'замечаний')}, из них критических — ${criticalFactors}`
+            : 'Замечания для проверки'}
         </h3>
         {factors.length === 0 ? (
           <p className="text-xs text-zinc-600 dark:text-zinc-300">

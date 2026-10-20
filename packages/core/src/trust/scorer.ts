@@ -78,11 +78,18 @@ export function computeTrustScore(
     computeOperationalRisk(issues),
   ];
 
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const weightedSum = components.reduce((sum, c) => sum + c.score * c.weight, 0);
-  const overall = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+  if (metrics.size === 0 && components.find(c => c.name === 'mapping_consistency')?.score === null) {
+    for (const component of components) {
+      component.score = null;
+      component.details = 'Нет данных для проверки';
+    }
+  }
+  const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
+  const totalWeight = assessed.reduce((sum, c) => sum + c.weight, 0);
+  const weightedSum = assessed.reduce((sum, c) => sum + c.score * c.weight, 0);
+  const overall = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
 
-  const grade = overall >= THRESHOLDS.TRUST.A ? 'A'
+  const grade = overall === null ? null : overall >= THRESHOLDS.TRUST.A ? 'A'
     : overall >= THRESHOLDS.TRUST.B ? 'B'
     : overall >= THRESHOLDS.TRUST.C ? 'C'
     : overall >= THRESHOLDS.TRUST.D ? 'D'
@@ -100,7 +107,7 @@ export function computeTrustScore(
 function computeDataQuality(metrics: Map<string, NormalizedMetric>, issues: Issue[]): TrustComponent {
   const totalMetrics = metrics.size;
   if (totalMetrics === 0) {
-    return { name: 'data_quality', label: 'Качество данных', score: 10, weight: 30, issues: 0, criticalIssues: 0, details: 'Нет метрик' };
+    return { name: 'data_quality', label: 'Качество данных', score: null, weight: 30, issues: 0, criticalIssues: 0, details: 'Нет метрик для проверки' };
   }
 
   let score = 100;
@@ -205,7 +212,7 @@ function computeMappingConsistency(
   const totalComparable = comparable.length;
 
   if (totalComparable === 0) {
-    return { name: 'mapping_consistency', label: 'Согласованность привязок', score: 100, weight: 15, issues: 0, criticalIssues: 0, details: 'Нет данных для сравнения' };
+    return { name: 'mapping_consistency', label: 'Согласованность привязок', score: null, weight: 15, issues: 0, criticalIssues: 0, details: 'Нет данных для сравнения' };
   }
 
   // Graduated scoring: full credit ≤1%, partial credit 1-5%, no credit >5%
@@ -255,9 +262,9 @@ function computeOperationalRisk(issues: Issue[]): TrustComponent {
     name: 'operational_risk',
     label: 'Операционные риски',
     score: Math.max(10, Math.round(score)),
-    weight: 10,
+    weight: 0,
     issues: opIssues.length,
     criticalIssues: critical,
-    details: `${opIssues.length} операционных замечаний`,
+    details: `${opIssues.length} операционных замечаний; не входят в оценку качества данных`,
   };
 }

@@ -51,7 +51,7 @@ describe('TrustPage explanations match scoring eligibility', () => {
     fixture.filtered.depts = [{ department: { id: 'uksimp', name: 'УКСиМП' }, trustScore: 91,
       trustComponents: fixture.dashboard.trust.components }];
     const { container } = render(<TrustPage />);
-    expect(screen.getByText(/Балл снижают 3 замечания/)).toBeTruthy();
+    expect(screen.getByText(/Для проверки: 3 замечания/)).toBeTruthy();
     expect(screen.queryByText('Проверка false_positive')).toBeNull();
     expect(screen.queryByText('Историческая шапка')).toBeNull();
     fireEvent.click(container.querySelector('button[aria-controls="trust-component-data_quality"]')!);
@@ -62,4 +62,13 @@ describe('TrustPage explanations match scoring eligibility', () => {
     expect(panel.textContent).not.toContain('Историческая шапка');
     expect(fixture.filtered.issues).toHaveLength(5);
   });
+});
+
+it('renders an unassessed component explicitly without attributing a perfect score to it', () => {
+  fixture.filtered.depts = [{ department: { id: 'uksimp', name: 'УКСиМП' }, trustScore: 91,
+    trustComponents: [fixture.dashboard.trust.components[0], { ...fixture.dashboard.trust.components[1], score: null }] }];
+  const html = renderToStaticMarkup(<TrustPage />);
+  expect(html).toContain('Не проверено: Целостность формул');
+  expect(html).toContain('не подтверждает достоверность непроверенной части');
+  expect(html).not.toContain('NaN');
 });

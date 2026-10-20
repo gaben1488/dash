@@ -70,19 +70,16 @@ describe('reconcile', () => {
     expect(result.overallStatus).toBe('Есть расхождения');
   });
 
-  it('официал нулевой при живом расчёте — «официал не считается» (слепая зона №2)', () => {
-    // Сигнатура сломанного блока листа: COUNTIFS и SUMIFS ссылаются на
-    // недоступное зеркало и дают нули, а у управления при этом 500 тыс.
-    // плана. Прежде это рапортовалось как «нечего сравнивать» — молчание
-    // на месте реальной поломки источника.
+  it('наблюдаемый нулевой официал при живом расчёте — расхождение без доказанной причины', () => {
+    // Здесь есть только числа; причины нулей неизвестны.
     const off = mapOf([['Dept1', m(0, 0, 0)]]);
     const calc = mapOf([['Dept1', m(500_000, 300_000, 200_000)]]);
     const result = reconcile(off, calc);
 
-    expect(result.rows[0].assessment.status).toBe('Официал не считается');
-    expect(result.rows[0].assessment.kind).toBe('warning');
-    expect(result.rows[0].assessment.source).toBe('svod_error');
-    expect(result.rows[0].assessment.reason).toContain('недоступный источник');
+    expect(result.rows[0].assessment.status).toBe('Есть расхождение');
+    expect(result.rows[0].assessment.kind).toBe('high');
+    expect(result.rows[0].assessment.source).toBe('unknown');
+    expect(result.rows[0].assessment.reason).toContain('причина не установлена');
   });
 
   it('оба слоя пусты — «нечего сравнивать» (настоящая пустота, не поломка)', () => {
@@ -147,7 +144,7 @@ describe('reconcile', () => {
 
     expect(result.rows).toHaveLength(0);
     expect(result.counts).toEqual({ ok: 0, neutral: 0, warning: 0, high: 0 });
-    expect(result.overallStatus).toBe('Данные согласованы');
+    expect(result.overallStatus).toBe('Нет данных для сравнения');
   });
 
   it('handles department present only in official', () => {
@@ -157,9 +154,9 @@ describe('reconcile', () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].department).toBe('OnlyOfficial');
-    // calc defaults to 0 → big negative delta → high
-    expect(result.rows[0].fullPlanCalculated).toBe(0);
-    expect(result.rows[0].assessment.kind).toBe('high');
+    // Missing calculation is not zero or evidence of a discrepancy.
+    expect(result.rows[0].fullPlanCalculated).toBeNull();
+    expect(result.rows[0].assessment.kind).toBe('warning');
   });
 
   it('handles department present only in calculated', () => {
@@ -173,7 +170,7 @@ describe('reconcile', () => {
     // у сломанного блока листа — сравнивать не с чем, и это надо сказать,
     // а не показать спокойное «нечего сравнивать».
     expect(result.rows[0].assessment.kind).toBe('warning');
-    expect(result.rows[0].assessment.status).toBe('Официал не считается');
+    expect(result.rows[0].assessment.status).toBe('Несопоставимо');
   });
 
   it('computes deltaPct correctly (division by zero avoided)', () => {
@@ -181,28 +178,28 @@ describe('reconcile', () => {
     const calc = mapOf([['Dept1', m(100_000, 500_000, 100_000)]]);
     const result = reconcile(off, calc);
 
-    // planDeltaPct: plan is 0, so deltaPct should be 0 (base=0 guard)
-    expect(result.rows[0].planDeltaPct).toBe(0);
+    // A zero denominator cannot establish a percentage.
+    expect(result.rows[0].planDeltaPct).toBeNull();
     // factDeltaPct should be 0 (no delta)
     expect(result.rows[0].factDeltaPct).toBe(0);
   });
 
-  it('diagnoses calc_error when calculated > official consistently', () => {
+  it('does not blame calculation when calculated > official', () => {
     // calc.plan > off.plan AND planDelta > 0
     const off = mapOf([['Dept1', m(1_000_000, 800_000, 200_000)]]);
     const calc = mapOf([['Dept1', m(1_100_000, 900_000, 250_000)]]);
     const result = reconcile(off, calc);
 
-    expect(result.rows[0].assessment.source).toBe('calc_error');
+    expect(result.rows[0].assessment.source).toBe('unknown');
   });
 
-  it('diagnoses svod_error when official > calculated consistently', () => {
+  it('does not blame official data when official > calculated', () => {
     // off.plan > calc.plan AND planDelta < 0
     const off = mapOf([['Dept1', m(1_100_000, 900_000, 250_000)]]);
     const calc = mapOf([['Dept1', m(1_000_000, 800_000, 200_000)]]);
     const result = reconcile(off, calc);
 
-    expect(result.rows[0].assessment.source).toBe('svod_error');
+    expect(result.rows[0].assessment.source).toBe('unknown');
   });
 
   it('handles very large numbers (billions)', () => {
@@ -1066,6 +1063,6 @@ describe('edge cases', () => {
     // planCalc(900k) < planOff(1M), planDelta < 0 → would match svod_error
     // But let's check: planOff > planCalc is true, planDelta < 0 is true → svod_error
     // Actually the second condition: planOff(1M) > planCalc(900k) AND planDelta(-100k) < 0 → svod_error
-    expect(result.rows[0].assessment.source).toBe('svod_error');
+    expect(result.rows[0].assessment.source).toBe('unknown');
   });
 });

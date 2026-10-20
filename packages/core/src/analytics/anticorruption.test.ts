@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectSplitting,
-  detectZeroCompetition,
-  detectPriceInflation,
   detectEpOverLimit,
   detectAnnualEpShare,
   detectSupplierConcentration,
@@ -40,31 +38,7 @@ describe('anticorruption — splitting (#1 дробление)', () => {
   });
 });
 
-describe('anticorruption — zero_competition (#2)', () => {
-  it('>50% конкурентных с нулевой экономией → флаг', () => {
-    const rows = [
-      ...Array.from({ length: 4 }, (_, i) =>
-        row({ rowIndex: i + 1, method: 'ЭА', planTotal: 1_000_000, factTotal: 1_000_000, economy: 0 }),
-      ),
-      row({ rowIndex: 5, method: 'ЭА', planTotal: 1_000_000, factTotal: 900_000, economy: 100_000 }),
-    ];
-    const flags = detectZeroCompetition(rows);
-    expect(flags).toHaveLength(1);
-    expect(flags[0].indicator).toBe('zero_competition');
-  });
-  it('<5 конкурентных → нет флага', () => {
-    const rows = Array.from({ length: 3 }, (_, i) =>
-      row({ rowIndex: i + 1, method: 'ЭА', planTotal: 1_000_000, factTotal: 1_000_000, economy: 0 }),
-    );
-    expect(detectZeroCompetition(rows)).toHaveLength(0);
-  });
-});
-
-describe('anticorruption — price_inflation (#4) + ep_over_limit (#8)', () => {
-  it('экономия >25% → price_inflation', () => {
-    const flags = detectPriceInflation([row({ rowIndex: 1, method: 'ЭА', planTotal: 1_000_000, economy: 300_000 })]);
-    expect(flags.some(f => f.indicator === 'price_inflation')).toBe(true);
-  });
+describe('anticorruption — ep_over_limit (#8)', () => {
   it('ЕП >600К → ep_over_limit high', () => {
     const flags = detectEpOverLimit([row({ rowIndex: 1, method: 'ЕП', planTotal: 750_000 })]);
     expect(flags).toHaveLength(1);
@@ -98,7 +72,7 @@ describe('anticorruption — оркестратор + штраф дисципл�
     expect(penaltyForSeverity('medium')).toBe(-10);
     expect(penaltyForSeverity('low')).toBe(-5);
   });
-  it('detectAntiCorruption агрегирует флаги + отрицательный штраф', () => {
+  it('detectAntiCorruption сохраняет сигналы без штрафа за неподтверждённые нарушения', () => {
     const rows = [
       ...Array.from({ length: 10 }, (_, i) =>
         row({ rowIndex: i + 1, method: 'ЕП', planTotal: 550_000, subject: 'Канцтовары' }),
@@ -108,6 +82,6 @@ describe('anticorruption — оркестратор + штраф дисципл�
     const res = detectAntiCorruption('uo', { rows, epTotal: 6_000_000, totalPlan: 10_000_000, epShareLimit: 0.5 });
     expect(res.grbsId).toBe('uo');
     expect(res.flags.length).toBeGreaterThanOrEqual(2);
-    expect(res.disciplinaryPenalty).toBeLessThan(0);
+    expect(res.disciplinaryPenalty).toBe(0);
   });
 });

@@ -607,7 +607,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       snapshotId: snapshot.id,
       sources,
       quick,
-      trust: snapshot.trust?.overall ?? 0,
+      trust: snapshot.trust?.overall ?? null,
       issueCount: snapshot.issues?.length ?? 0,
       deltaCount,
       calculatedMetricCount: calcCount,

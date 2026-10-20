@@ -256,7 +256,8 @@ export interface TrustComponent {
   name: string;
   label: string;
   weight: number;
-  score: number;
+  /** null means insufficient evidence, never a successful check. */
+  score: number | null;
   issues: number;
   criticalIssues: number;
   details: string;
@@ -264,9 +265,9 @@ export interface TrustComponent {
 
 /** Общая оценка доверия */
 export interface TrustScore {
-  overall: number;
+  overall: number | null;
   components: TrustComponent[];
-  grade: TrustGrade;
+  grade: TrustGrade | null;
   computedAt: string;
   basedOnSnapshot: string;
 }
@@ -602,7 +603,7 @@ export interface DepartmentSummary {
   soleCount?: number | null;
   issueCount: number;
   criticalIssueCount: number;
-  trustScore: number;
+  trustScore: number | null;
   trustComponents?: TrustComponent[];
   status: 'normal' | 'warning' | 'critical';
   quarters?: Record<string, Record<string, unknown>>;

@@ -4,15 +4,15 @@
  * Каждый индикатор = «ТРЕБУЕТ ПРОВЕРКИ», НЕ обвинение (статистика ≠ детерминизм, ложные
  * срабатывания допустимы). Партиальный набор (на ТЕКУЩИХ данных, без cross-snapshot и ИНН):
  *   ✅ #1 splitting (дробление-индекс 0-100) — флагман, нового в dash не было
- *   ✅ #2 zero_competition (массовая нулевая экономия в конкурентных)
- *   ✅ #4 price_inflation (экономия лимит−факт >25%)
+ *   Недоступен #2 zero_competition: нужны данные о торгах
+ *   Недоступен #4 price_inflation: нужны НМЦК и ценовое обоснование
  *   ✅ #8 ep_over_limit (ЕП > 600К) — переиспользует порог 44-ФЗ в антикор-рамке
  *   ✅ #9 ep_annual_share (годовая доля ЕП > порога)
  *   🔌 #10 supplier_concentration — pluggable-заглушка (нужен ИНН поставщика, его пока нет в данных)
  *   ⏳ #3 reclassification / #6 mass_injection / #7 stagnation — нужна история снимков (cross-snapshot), позже
  *   ⏳ #5 collusion — нужно число участников, его нет в данных
  *
- * Флаги дают штраф к индексу дисциплины (Layer B): high −15, medium −10, low −5.
+ * Флаги требуют проверки и не дают штрафа к дисциплине без подтверждённого нарушения.
  */
 
 import { LAW_44FZ, classifyEPReason } from './compliance-44fz.js';
@@ -60,14 +60,11 @@ export interface AntiCorruptionInput {
 export interface AntiCorruptionResult {
   grbsId: string;
   flags: AntiCorruptionFlag[];
-  /** Сумма штрафов для индекса дисциплины (Layer B). Отрицательная. */
+  /** Совместимое поле старого API: 0, поскольку скрининг не доказывает нарушение. */
   disciplinaryPenalty: number;
+  unavailableIndicators: { indicator: AntiCorruptionIndicator; reason: string }[];
 }
 
-// Единицы: rows[].planTotal/factTotal/economy — тыс. руб. (канон колонок книг ГРБС),
-// как и LAW_44FZ.epSingleContractLimit ниже. ECONOMY_EPSILON=1 значит 1 тыс. руб.,
-// не 1 ₽ — подпись исправлена bug-hunt 2026-08-08 (БАГ #1).
-const ECONOMY_EPSILON = 1; // тыс. ₽ — экономия |x|<1 тыс. считается нулевой (float/округление)
 
 /** Штраф к дисциплине по severity. */
 export function penaltyForSeverity(s: FlagSeverity): number {
@@ -134,45 +131,6 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
         score,
         subject: subj,
         message: `Возможное дробление: ${group.length} ЕП на однородный предмет «${subj}» на сумму ${(total / 1_000).toFixed(1)} млн ₽ (индекс ${score}/100) — требует проверки`,
-      });
-    }
-  }
-  return flags;
-}
-
-/**
- * #2 Нулевая конкуренция — массово: >50% конкурентных закупок дали ~0 экономии (при ≥5 конкурентных).
- * Возможна имитация конкуренции. Агрегатный флаг (не пер-строчный — иначе шум, см. SIGNAL_VALIDATION).
- */
-export function detectZeroCompetition(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
-  const competitive = rows.filter(r => r.method !== 'ЕП' && r.factTotal > 0);
-  if (competitive.length < 5) return [];
-  const zero = competitive.filter(r => Math.abs(r.economy) < ECONOMY_EPSILON);
-  const share = zero.length / competitive.length;
-  if (share > 0.5) {
-    return [{
-      indicator: 'zero_competition',
-      severity: 'medium',
-      message: `Нулевая экономия в ${zero.length}/${competitive.length} (${(share * 100).toFixed(0)}%) конкурентных закупках — возможна имитация конкуренции, требует проверки`,
-    }];
-  }
-  return [];
-}
-
-/**
- * #4 Завышение НМЦ — экономия (лимит−факт) > 25%. ⚠ это лимит-прокси, НМЦК в данных нет (как антидемпинг).
- */
-export function detectPriceInflation(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
-  const flags: AntiCorruptionFlag[] = [];
-  for (const r of rows) {
-    if (r.planTotal <= 0) continue;
-    const pct = r.economy / r.planTotal;
-    if (pct > LAW_44FZ.antiDumpingThreshold) {
-      flags.push({
-        indicator: 'price_inflation',
-        severity: 'low',
-        rowIndex: r.rowIndex,
-        message: `Экономия (лимит−факт) ${(pct * 100).toFixed(0)}% > 25% (строка ${r.rowIndex}) — возможно завышение начальной цены, требует проверки (⚠ прокси от лимита, не НМЦК)`,
       });
     }
   }
@@ -249,12 +207,14 @@ export function detectAntiCorruption(grbsId: string, input: AntiCorruptionInput)
   const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5 } = input;
   const flags: AntiCorruptionFlag[] = [
     ...detectSplitting(rows),
-    ...detectZeroCompetition(rows),
-    ...detectPriceInflation(rows),
     ...detectEpOverLimit(rows),
     ...detectAnnualEpShare(epTotal, totalPlan, epShareLimit),
     ...detectSupplierConcentration(rows),
   ];
-  const disciplinaryPenalty = flags.reduce((s, f) => s + penaltyForSeverity(f.severity), 0);
-  return { grbsId, flags, disciplinaryPenalty };
+  // Screening flags are questions for review, not evidence of a disciplinary violation.
+  const disciplinaryPenalty = 0;
+  return { grbsId, flags, disciplinaryPenalty, unavailableIndicators: [
+    { indicator: 'zero_competition', reason: 'Нет данных об участниках и ходе торгов; официальная экономия не измеряет конкуренцию.' },
+    { indicator: 'price_inflation', reason: 'Нет сопоставимой НМЦК и ценового обоснования; экономия по AD не доказывает завышение цены.' },
+  ] };
 }
