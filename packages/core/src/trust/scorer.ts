@@ -240,7 +240,7 @@ function computeMappingConsistency(
   return {
     name: 'mapping_consistency',
     label: 'Согласованность привязок',
-    score: Math.max(10, score),
+    score,
     weight: 15,
     issues: outOfTolerance,
     criticalIssues: comparable.filter(d => !d.withinTolerance && d.deltaPercent !== null && Math.abs(d.deltaPercent) > 10).length,

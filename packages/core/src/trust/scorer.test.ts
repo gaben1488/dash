@@ -97,6 +97,17 @@ describe('computeTrustScore', () => {
     expect(result.grade).toBeNull();
   });
 
+  it('reports zero agreement when every comparable value contradicts the reference', () => {
+    const deltas: DeltaResult[] = [
+      { metricKey: 'm1', label: 'm1', officialValue: 100, calculatedValue: 200,
+        delta: 100, deltaPercent: 100, withinTolerance: false, explanation: '' },
+    ];
+    const component = computeTrustScore(new Map([['m1', makeMetric('m1', 100)]]), [], deltas, 'mismatch')
+      .components.find(value => value.name === 'mapping_consistency')!;
+    expect(component.score).toBe(0);
+    expect(component.details).toBe('0 из 1 совпадают');
+  });
+
   it('retains data component weights while excluding operational risk', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const result = computeTrustScore(metrics, [], [], 'snap-1');
