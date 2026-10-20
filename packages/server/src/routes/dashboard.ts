@@ -217,7 +217,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         : svodGet(`${prefix}.ep.q1.count`) ?? null;
 
       // Per-department trust score via computeTrustScore
-      const deptPrefix = `grbs.${dept.id}`;
+      const deptPrefix = `grbs.${dept.id}.`;
       const deptMetricsMap = new Map<string, NormalizedMetric>(
         Object.entries(snapshot.officialMetrics)
           .filter(([key]) => key.startsWith(deptPrefix))
@@ -473,7 +473,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
-    const deptPrefix = `grbs.${dept.id}`;
+    const deptPrefix = `grbs.${dept.id}.`;
     const deptMetricsMap = new Map<string, NormalizedMetric>(
       Object.entries(snapshot.officialMetrics)
         .filter(([key]) => key.startsWith(deptPrefix))

@@ -49,6 +49,21 @@ describe('computeTrustScore', () => {
     expect(result.components.every(c => c.score === null)).toBe(true);
   });
 
+  it.each([null, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'does not grade a populated metric map containing only unusable values (%s)',
+    value => {
+      const result = computeTrustScore(new Map([['m1', makeMetric('m1', value)]]), [
+        makeIssue({ category: 'formula_continuity', severity: 'critical' }),
+      ], [], 'unusable');
+      expect(result.overall).toBeNull();
+      expect(result.grade).toBeNull();
+      expect(result.components.every(c => c.score === null)).toBe(true);
+      const formula = result.components.find(c => c.name === 'formula_integrity')!;
+      expect(formula.criticalIssues).toBe(1);
+      expect(formula.details).toContain('1 критических');
+    },
+  );
+
   it('keeps operational problems visible without lowering data quality', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const clean = computeTrustScore(metrics, [], [], 'snapshot');

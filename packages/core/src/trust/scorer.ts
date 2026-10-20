@@ -78,10 +78,15 @@ export function computeTrustScore(
     computeOperationalRisk(issues),
   ];
 
-  if (metrics.size === 0 && components.find(c => c.name === 'mapping_consistency')?.score === null) {
+  // DTO keys alone do not prove usable observations (empty/failed sources can
+  // preserve every metric key). Keep diagnosed defects even when no grade exists.
+  const hasNumericEvidence = [...metrics.values()].some(m => Number.isFinite(m.numericValue));
+  if (!hasNumericEvidence && components.find(c => c.name === 'mapping_consistency')?.score === null) {
     for (const component of components) {
       component.score = null;
-      component.details = 'Нет данных для проверки';
+      component.details = component.issues > 0
+        ? `Недостаточно данных для оценки; ${component.details}`
+        : 'Нет данных для проверки';
     }
   }
   const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
@@ -113,7 +118,7 @@ function computeDataQuality(metrics: Map<string, NormalizedMetric>, issues: Issu
   let score = 100;
 
   // Вычитаем за пустые метрики
-  const emptyCount = [...metrics.values()].filter(m => m.numericValue === null).length;
+  const emptyCount = [...metrics.values()].filter(m => !Number.isFinite(m.numericValue)).length;
   // Reduced from 40: empty future quarters (Q3 empty in April) are expected
   const emptyPenalty = (emptyCount / totalMetrics) * 25;
   score -= emptyPenalty;

@@ -37,6 +37,25 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('does not attribute УДТХ metrics or comparisons to УД in either trust view', async () => {
+    const previous = fixture.snapshot;
+    const metricKey = 'grbs.udtx.year.plan_total';
+    fixture.snapshot = { ...previous, officialMetrics: {
+      [metricKey]: { ...Object.values(previous.officialMetrics)[0]!, metricKey },
+    }, deltas: [{ metricKey, label: 'УДТХ', officialValue: 100, calculatedValue: 100,
+      delta: 0, deltaPercent: 0, withinTolerance: true, explanation: '' }] };
+    try {
+      const detail = await app.inject('/api/trust/ud');
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().deltas).toEqual([]);
+      expect(detail.json().trust.overall).toBeNull();
+      const dashboard = (await app.inject('/api/dashboard?year=2026')).json();
+      expect(dashboard.departmentSummaries.find((d: { department: { id: string } }) => d.department.id === 'ud').trustScore).toBeNull();
+      expect((await app.inject('/api/trust/udtx')).json().deltas).toHaveLength(1);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('rejects malformed or ambiguous year scope instead of serving an unintended dataset', async () => {
     for (const query of ['year=2026junk', 'year=2026.5', 'year=2026&year=2025', 'year=1999', 'year=']) {
       expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
