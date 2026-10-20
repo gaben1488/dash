@@ -125,7 +125,16 @@ export function patchDeptSheetCacheCell(deptName: string, rowIndex: number, colu
   const values = source.values.slice();
   values[rowIndex - 1] = row.slice();
   values[rowIndex - 1][column] = value;
-  cachedDeptSheetData = { ...cachedDeptSheetData, [deptName]: { ...source, values } };
+  const edited = { ...source, values };
+  // A confirmed cell write does not establish a new complete source revision.
+  delete edited.sourceRevision;
+  delete edited.sourceVersion;
+  cachedDeptSheetData = { ...cachedDeptSheetData, [deptName]: edited };
+  if (deptLoadMeta[deptName]) {
+    const meta = { ...deptLoadMeta[deptName] };
+    delete meta.sourceRevision;
+    deptLoadMeta = { ...deptLoadMeta, [deptName]: meta };
+  }
   invalidateCache();
   return true;
 }

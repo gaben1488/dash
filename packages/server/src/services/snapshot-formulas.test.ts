@@ -78,6 +78,23 @@ afterEach(() => {
 });
 
 describe('формулы книг во входе конвейера', () => {
+  it('clears source provenance after a confirmed edit without changing selected inputs or read time', async () => {
+    const { setDeptSheetCache, getDeptSheetCache, setDeptLoadMeta, getDeptLoadMeta, patchDeptSheetCacheCell } = await import('./snapshot.js');
+    const sourceRevision = `SRC-${'a'.repeat(64)}`;
+    const loadedAt = '2026-10-20T01:00:00Z';
+    setDeptSheetCache({ УО: { values: bookValues, formulas: [], sheetName: 'ВСЕ', sourceRevision, sourceVersion: '42' } });
+    setDeptLoadMeta({ УО: { loadedAt, rowCount: 4, sheetName: 'ВСЕ', sourceRevision } });
+    const selected = getDeptSheetCache()['УО'];
+    const selectedMeta = getDeptLoadMeta()['УО'];
+    expect(patchDeptSheetCacheCell('УО', 4, 1, 'updated')).toBe(true);
+    expect(getDeptSheetCache()['УО'].sourceRevision).toBeUndefined();
+    expect(getDeptSheetCache()['УО'].sourceVersion).toBeUndefined();
+    expect(getDeptLoadMeta()['УО']).toEqual({ loadedAt, rowCount: 4, sheetName: 'ВСЕ' });
+    expect(selected.sourceRevision).toBe(sourceRevision);
+    expect(selected.values[3][1]).toBe('УО АЕМР');
+    expect(selectedMeta.sourceRevision).toBe(sourceRevision);
+  });
+
   it('marks a calculation interrupted by a confirmed row edit as refreshing', async () => {
     const { getSnapshot, setDeptSheetCache, patchDeptSheetCacheCell } = await import('./snapshot.js');
     setDeptSheetCache({ УО: { values: bookValues, formulas: formulaGrid(), formulasRead: true, sheetName: 'ВСЕ' } });
