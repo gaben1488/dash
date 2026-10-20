@@ -77,9 +77,9 @@ jobs:
           CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 .github/ci/test_browser_boundary_reuse.py
-          if git fetch --quiet origin ee04df2dde4aaf17d2ba8f0e62922f0f27c94323 &&
-             gh api repos/$GITHUB_REPOSITORY/actions/runs/39273068566 > "$RUNNER_TEMP/browser-proof-run.json" &&
-             gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39273068566/jobs?per_page=100' > "$RUNNER_TEMP/browser-proof-jobs.json"; then
+          if git fetch --quiet origin 2046a1d4e683b41adffb2e2e13f79ee240587c79 &&
+             gh api repos/$GITHUB_REPOSITORY/actions/runs/39355646157 > "$RUNNER_TEMP/browser-proof-run.json" &&
+             gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39355646157/jobs?per_page=100' > "$RUNNER_TEMP/browser-proof-jobs.json"; then
             python3 .github/ci/browser_boundary_reuse.py --candidate "$CANDIDATE" \
               --run "$RUNNER_TEMP/browser-proof-run.json" --jobs "$RUNNER_TEMP/browser-proof-jobs.json" --output "$GITHUB_OUTPUT"
           else

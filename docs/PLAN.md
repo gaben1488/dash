@@ -39,6 +39,16 @@
 
 ### Передача 20.10: метрики, хранение, идентичность и весь интерфейс
 
+После установки подтверждён автономный worker cycle 8373bc1ae39e44538e7ce1939e726161:
+02:34:13–02:36:37 UTC, VERIFIED_WITH_WARNINGS, reused_publication=true, error_code=null.
+Это один подтверждённый цикл нового runtime, не два. Binding fix d11feaf7 прошёл
+4 package typechecks и 1895 core tests (1 skipped), в дополнение к 47 адресным.
+Synthetic browser proof baseline обновлён на принятый 2046a1d4 / CI39355646157:
+реальный run completed/success, все source jobs прошли, inputs baseline/4855f017
+совпали полностью (changed_inputs=[]), can_reuse=true. 8 тестов отказов/reuse PASS.
+Меняется только привязка к более свежему доказательству; зависимости, runner,
+команды и source CI admission не ослаблены. Production probe отдельно сохраняется.
+
 CI мониторинга 39358188409 после одного rerun полностью SUCCESS. Коммиты
 f3578906/4855f017 отправлены в PR79; их CI39359933382 выполняется, production
 остаётся 2046a1d4. Дополнительная регрессия source binding: замена spreadsheetId
