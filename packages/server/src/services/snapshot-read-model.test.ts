@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { DEPARTMENTS, DEPT_HEADER_ROWS } from '@aemr/shared';
 
 // Two real calculation workers took 9.6s on the CPU-bounded release runner.
 // Freshness and queue ordering are asserted below, independently of startup time.
@@ -97,6 +98,24 @@ it('keeps a completed build invalidated if a newer source event arrived while it
   expect(next.metadata.readModel).toBeUndefined();
   expect((await source.getSnapshot(false, 2026)).id).toBe(next.id);
   expect(google.read).toHaveBeenCalledTimes(2);
+});
+
+it('keeps an unchanged accepted generation across two idle days without Google or another snapshot', async () => {
+  const { source, db, schema } = fixture;
+  source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
+    values: Array.from({ length: DEPT_HEADER_ROWS }, () => []), formulas: [], sheetName: dept.nameShort,
+  }])));
+  google.read.mockResolvedValue([]);
+  const snapshot = await source.getSnapshot(true, 2026);
+  expect(snapshot.metadata.sourceCoverage?.complete).toBe(true);
+  const stored = db.select().from(schema.snapshots).all().map(row => row.id);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 86400_000);
+  try {
+    expect((await source.getSnapshot(false, 2026)).id).toBe(snapshot.id);
+    expect((await source.getSnapshot(false, 2026)).createdAt).toBe(snapshot.createdAt);
+    expect(google.read).toHaveBeenCalledTimes(1);
+    expect(db.select().from(schema.snapshots).all().map(row => row.id)).toEqual(stored);
+  } finally { clock.mockRestore(); }
 });
 
 it('bounds retained scope models and serializes different scopes without delaying saved readers', async () => {

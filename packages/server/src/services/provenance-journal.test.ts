@@ -21,7 +21,7 @@ it('same department switched to B cannot reuse parsed A', async () => {
   source.mockResolvedValueOnce(rows('A')).mockResolvedValueOnce(rows('B'));
   await readBookJournal('УО', 'file-A', 1000);
   expect((await readBookJournal('УО', 'file-B', 1001)).records[0].was).toBe('B');
-  expect(source).toHaveBeenLastCalledWith('file-B', '_ChangeLog');
+  expect(source).toHaveBeenLastCalledWith('file-B', '_ChangeLog', true);
 });
 it('stale reset completion cannot populate or detach the winning parsed reading', async () => {
   let oldDone!: (rows: unknown[][]) => void; let newDone!: (rows: unknown[][]) => void;

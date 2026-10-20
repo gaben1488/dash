@@ -140,3 +140,10 @@ export function isoOfDayNumber(day: number): string {
   const dd = String(d.getUTCDate()).padStart(2, '0');
   return `${d.getUTCFullYear()}-${mm}-${dd}`;
 }
+
+/** Only known date columns: a numeric purchase ID must never become a date. */
+export function equivalentSheetDate(column: string | null | undefined, before: unknown, after: unknown): boolean {
+  if (column !== 'N' && column !== 'Q') return false;
+  const day = dayNumberOf(before);
+  return day !== null && day === dayNumberOf(after);
+}

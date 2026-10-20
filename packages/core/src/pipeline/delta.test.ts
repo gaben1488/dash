@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeDeltas } from './delta';
+import { computeTrustScore } from '../trust/scorer';
 import type { NormalizedMetric, ReportMapEntry } from '@aemr/shared';
 
 function makeEntry(key: string, tolerance = 0.01): ReportMapEntry {
@@ -38,6 +39,19 @@ function makeMetric(key: string, numericValue: number | null): NormalizedMetric 
 }
 
 describe('computeDeltas', () => {
+  it.each([undefined, 2025])('does not certify agreement between scope %s and the official year', calcYear => {
+    const official = new Map([['m1', makeMetric('m1', 100)]]);
+    const calculated = new Map([['m1', makeMetric('m1', 100)]]);
+    const deltas = computeDeltas(official, calculated, [makeEntry('m1')], {
+      calcYear, officialYear: 2026,
+    });
+    expect(deltas[0].delta).toBeNull();
+    const consistency = computeTrustScore(official, [], deltas, 'different-periods')
+      .components.find(component => component.name === 'mapping_consistency');
+    expect(consistency?.score).toBeNull();
+    expect(consistency?.issues).toBe(0);
+  });
+
   it('marks matching values as within tolerance', () => {
     const entry = makeEntry('m1');
     const official = new Map([['m1', makeMetric('m1', 100)]]);

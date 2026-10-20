@@ -15,6 +15,7 @@
  */
 import { CHANGE_KIND_LABELS, CHANGE_KIND_ORDER, type ChangeDigest, type ChangeEntry, type ChangeGap, type ChangeKind } from '@aemr/core';
 import { countWord, plural, relativeMoment } from './live-text';
+import { dayNumberOf, isoOfDayNumber } from '@aemr/shared';
 
 /** Роды, которые называются в краткой глубине. Порядок — канон ядра. */
 const DIGEST_KINDS: readonly ChangeKind[] = CHANGE_KIND_ORDER;
@@ -160,7 +161,11 @@ export function entryAddress(entry: ChangeEntry): string {
 }
 
 /** Значение для показа: пустота названа словом, а не пустым местом. */
-export function valueLabel(value: string): string {
+export function valueLabel(value: string, column?: string | null): string {
+  if (column === 'N' || column === 'Q') {
+    const day = dayNumberOf(value);
+    if (day !== null) return isoOfDayNumber(day).split('-').reverse().join('.');
+  }
   return value.trim() === '' ? 'пусто' : value;
 }
 
@@ -188,11 +193,11 @@ export function entryChangeLine(entry: ChangeEntry): string {
           valueLabel(entry.before) + ' → ' + valueLabel(entry.after) +
           '. Причина не установлена — возможна редакторская правка.';
       }
-      return `${valueLabel(entry.before)} → ${valueLabel(entry.after)}`;
+      return `${valueLabel(entry.before, entry.column)} → ${valueLabel(entry.after, entry.column)}`;
     case 'row-cleared':
       return 'Строку очистили — ячейки обнулены, сама строка в книге осталась';
     default:
-      return `${valueLabel(entry.before)} → ${valueLabel(entry.after)}`;
+      return `${valueLabel(entry.before, entry.column)} → ${valueLabel(entry.after, entry.column)}`;
   }
 }
 
@@ -212,7 +217,7 @@ export function entryWhoWhen(entry: ChangeEntry): string {
   const date = shortDate(entry.at);
   const time = shortTime(entry.at);
   if (entry.observedAt !== undefined) {
-    return `обнаружено сервером ${entry.observedAt} · момент ввода сотрудником не установлен`;
+    return `обнаружено сервером ${date} ${time} · момент ввода сотрудником не установлен`;
   }
   return `${who} · ${date} ${time}`;
 }

@@ -4,6 +4,118 @@ import pytest
 from procurement_engine.worker import work
 
 
+def test_idle_sources_do_not_repeat_generation_but_changed_input_does(tmp_path):
+    stopped = Event()
+    probes = []
+    runs = []
+    def probe(*_args):
+        probes.append(len(probes))
+        return 'same' if len(probes) < 4 else 'changed'
+    def run(*_args):
+        runs.append(len(probes))
+        if len(runs) == 2:
+            stopped.set()
+        return {'status': 'VERIFIED'}
+    assert work('r', 'l', tmp_path, interval_seconds=0.001, stop=stopped,
+                probe=probe, run=run, seal=lambda *_: None,
+                recover=lambda *_: None, compact=lambda *_: None) == 0
+    assert runs == [1, 4]
+
+
+def test_failed_attempt_is_not_an_accepted_unchanged_input(tmp_path):
+    stopped = Event()
+    runs = []
+    def run(*_args):
+        runs.append(1)
+        if len(runs) == 2:
+            stopped.set()
+        return {'status': 'NOT_ISSUED'}
+    work('r', 'l', tmp_path, interval_seconds=0.001, stop=stopped,
+         probe=lambda *_: 'same', run=run, seal=lambda *_: None,
+         recover=lambda *_: None, compact=lambda *_: None)
+    assert len(runs) == 2
+
+
+def test_probe_failure_does_not_reuse_an_accepted_revision(tmp_path):
+    stopped = Event()
+    runs = []
+    probes = []
+    def probe(*_args):
+        probes.append(1)
+        if len(probes) > 1:
+            raise OSError('source metadata unavailable')
+        return 'same'
+    def run(*_args):
+        runs.append(1)
+        if len(runs) == 2:
+            stopped.set()
+        return {'status': 'VERIFIED'}
+    work('r', 'l', tmp_path, interval_seconds=0.001, stop=stopped,
+         probe=probe, run=run, seal=lambda *_: None,
+         recover=lambda *_: None, compact=lambda *_: None)
+    assert len(runs) == 2
+
+
+def test_manual_request_bypasses_unchanged_input_and_poll_delay(tmp_path, monkeypatch):
+    from procurement_engine import worker
+    runs = []
+    probes = []
+    class Clock:
+        now = 0
+        pending = False
+        def is_set(self):
+            return len(runs) == 2
+        def wait(self, seconds):
+            self.now += seconds
+            self.pending = True
+    clock = Clock()
+    monkeypatch.setattr(worker, 'monotonic', lambda: clock.now)
+    monkeypatch.setattr(worker, 'has_pending_report', lambda _: clock.pending)
+    def run(*_args):
+        runs.append(clock.now)
+        return {'status': 'VERIFIED'}
+    def probe(*_args):
+        probes.append(1)
+        return 'same'
+    work('r', 'l', tmp_path, interval_seconds=900, stop=clock, probe=probe,
+         run=run, seal=lambda *_: None, recover=lambda *_: None, compact=lambda *_: None)
+    assert runs == [0, 5]
+    assert probes == [1]
+
+
+def test_probe_tracks_full_input_and_week_without_downloading_grids(tmp_path):
+    import json
+    from datetime import datetime
+    from procurement_engine.worker import input_revision
+    registry = tmp_path / 'registry.json'
+    ledger = tmp_path / 'ledger.json'
+    registry.write_text(json.dumps({'sources': [{'provider_id': 'book'}, {'provider_id': 'book'}]}))
+    ledger.write_text('[]')
+    class Metadata:
+        version = '1'
+        calls = []
+        def revision(self, provider):
+            self.calls.append(provider)
+            return self.version
+        def _get(self, url, params):
+            assert url.endswith('/drive/v3/files')
+            assert 'alt' not in params
+            return {'files': []}
+    client = Metadata()
+    def probe(day):
+        return input_revision(registry, ledger, tmp_path, client=client,
+                              now=datetime.fromisoformat(day + 'T12:00:00+12:00'))
+    baseline = probe('2026-10-19')
+    assert probe('2026-10-21') == baseline
+    assert client.calls == ['book', 'book']
+    assert probe('2026-10-22') != baseline  # existing Thursday evidence obligation
+    client.version = '2'
+    assert probe('2026-10-21') != baseline
+    client.version = '1'
+    ledger.write_text('[{"recommendation_id":"new"}]')
+    assert probe('2026-10-21') != baseline
+
+
 def test_worker_retries_after_failed_attempt_and_stops_without_extra_run():
     stopped = Event()
     calls = []
@@ -42,7 +154,30 @@ def test_zero_interval_waits_for_commands_without_reading_sources_or_history(mon
     def forbidden(*_args, **_kwargs):
         raise AssertionError('idle service must not read sources or history')
     assert work('r', 'l', 's', interval_seconds=0, stop=Stop(), run=forbidden,
-                recover=forbidden, seal=forbidden, compact=forbidden) == 0
+                recover=forbidden, seal=forbidden, compact=forbidden, probe=forbidden) == 0
+
+
+@pytest.mark.parametrize('status', ['ALREADY_RUNNING', 'IDLE'])
+def test_zero_interval_waits_when_another_executor_owns_or_finished_the_command(monkeypatch, status):
+    from procurement_engine import worker
+    monkeypatch.setattr(worker, 'has_pending_report', lambda *_: True)
+    stopped = Event()
+    calls = []
+    class Stop:
+        def is_set(self):
+            return stopped.is_set()
+        def wait(self, seconds):
+            assert seconds == 5
+            stopped.set()
+    def run(*args, **kwargs):
+        assert kwargs == {'queued_only': True}
+        calls.append(args)
+        return {'status': status}
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError('busy/empty command is not a capture or publication')
+    work('r', 'l', 's', interval_seconds=0, stop=Stop(), run=run,
+         recover=forbidden, seal=forbidden, compact=forbidden, probe=forbidden)
+    assert len(calls) == 1
 
 
 def test_worker_recovers_before_first_compaction_and_seals_before_each_compaction():

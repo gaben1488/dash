@@ -7,6 +7,8 @@ import {
   buildGRBSProfiles,
   checkEPContractLimits,
   checkAntiDumping,
+  ANTI_DUMPING_UNAVAILABLE,
+  EP_ANNUAL_UNAVAILABLE,
   checkEPShareLimits,
   analyzeEPReasons,
   buildEpJustificationDept,
@@ -20,8 +22,6 @@ import {
   GRBS_BASELINES,
   EP_SHARE_BY_ROLE,
   detectAntiCorruption,
-  gradeGRBS,
-  disciplineIndex,
   standardRowFilter,
   type ComplianceIssue,
   type AntiCorruptionRow,
@@ -39,17 +39,16 @@ import { getDeptSheetValues } from '../services/snapshot.js';
  * что уже есть в снимке: замечания группы «качество данных» несут адрес
  * управления и номер строки.
  *
- * Строк нет (лист не прочитан) — возвращаем null-эквивалент 1: штрафовать
- * управление за то, что его книга недоступна, значит смешать поломку
- * источника с дисциплиной исполнителя. Это видно отдельным сигналом.
+ * Без счётной базы доля неизвестна: отсутствие строк не доказывает
+ * ни безупречное качество, ни низкое качество данных.
  */
 function dataQualityScore(
   issues: readonly { departmentId?: string; group?: string; row?: number; status?: string; checkId?: string; category?: string; origin?: string; sheet?: string; cell?: string }[],
   grbsId: string,
   grbsShort: string,
   rowCount: number,
-): number {
-  if (rowCount <= 0) return 1;
+): number | null {
+  if (rowCount <= 0) return null;
   const dirtyRows = new Set<number>();
   for (const issue of issues) {
     if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
@@ -150,6 +149,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         critical: allIssues.filter(i => i.severity === 'critical').length,
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
+        unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE],
       };
     } catch (err) {
       app.log.error({ err }, 'Analytics compliance unavailable');
@@ -262,7 +262,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  /** GET /api/analytics/scorecard — единая карточка ГРБС: грейд A-B-C-D + дисциплина 0-100 + антикор (Layers A+B+C) */
+  /** GET /api/analytics/scorecard — фактические показатели и доступность оценок. */
   app.get('/api/analytics/scorecard', async (_request, reply) => {
     try {
       const snapshot = await getSnapshot();
@@ -270,7 +270,6 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const deptCache = getDeptSheetValues();
       const decisionIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
       const profiles = buildGRBSProfiles(recalcResults);
-      const c01 = (v: number) => Math.min(1, Math.max(0, v));
       const result: Record<string, unknown> = {};
 
       for (const profile of profiles) {
@@ -286,16 +285,6 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
         const recalc = recalcResults[profile.grbsId] as any;
         const epShareLimit = EP_SHARE_BY_ROLE[profile.role];
-
-        // нарушения 44-ФЗ (для грейда + complianceScore)
-        const violations =
-          checkEPContractLimits(rowData.filter(r => normalizeMethod(r.method) === 'ЕП'), profile.grbsId).length +
-          checkAntiDumping(rowData.filter(r => normalizeMethod(r.method) !== 'ЕП'), profile.grbsId).length;
-
-        // аномалии (Бенфорд по суммам, p<0.05 = значимое отклонение)
-        const amounts = rowData.map(r => r.planTotal).filter(v => v > 0);
-        const benford = amounts.length >= 30 ? benfordAnalysis(amounts) : null;
-        const anomalyCount = benford && benford.pValue < 0.05 ? 1 : 0;
 
         // Layer C — антикор. epTotal — ДЕНЬГИ ЕП (тыс. руб.), не счётчик:
         // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
@@ -323,43 +312,19 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           continue;
         }
 
-        // Layer A — грейд
-        const grade = gradeGRBS({
-          execPct: profile.actualExecQ1,
-          expectedExecPct: profile.expectedExecQ1,
-          anomalyCount,
-          epShare: profile.actualEpShare,
-          epShareLimit,
-          complianceViolations: violations,
-        });
-
-        // Layer B — индекс дисциплины (метрики → 0-1 scores)
-        const discipline = disciplineIndex({
-          execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
-          dynamicsScore: c01(0.6 + profile.execDeviation),
-          epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, rows.slice(DEPT_HEADER_ROWS).filter(standardRowFilter).length),
-          anomalyScore: c01(1 - anomalyCount * 0.3),
-          complianceScore: c01(1 - violations * 0.15),
-          anticorruptionPenalty: anticorruption.disciplinaryPenalty,
-        });
-
+        const countedRows = rows.slice(DEPT_HEADER_ROWS).filter(standardRowFilter).length;
         result[profile.grbsId] = {
           grbsShort: profile.grbsShort,
           role: profile.role,
-          grade: grade.grade,
-          gradeScore: grade.score,
-          gradeReasons: grade.reasons,
-          discipline: discipline.index,
-          mode: discipline.mode,
-          dominantFactor: discipline.dominantFactor,
-          narrative: discipline.narrative,
+          assessmentStatus: 'unconfirmed_methodology',
+          assessmentReason: 'Грейд и индекс дисциплины не рассчитываются: ожидания исполнения, роли и веса оценки не имеют подтверждённого основания. Фактические показатели приведены отдельно.',
+          dataQuality: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, countedRows),
           anticorruptionFlags: anticorruption.flags.length,
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,
+          unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE],
           execPct: profile.actualExecQ1,
           epShare: profile.actualEpShare,
-          riskLevel: profile.riskLevel,
         };
       }
       return result;

@@ -208,7 +208,10 @@ function computeMappingConsistency(
 ): TrustComponent {
   // Only score deltas where BOTH official and calculated values exist
   // Missing calculated values are expected (not all metrics are row-recalculable)
-  const comparable = deltas.filter(d => d.officialValue !== null && d.calculatedValue !== null);
+  // A scope mismatch keeps both values for explanation but deliberately has
+  // no delta. Its neutral UI flag is not evidence of a successful comparison.
+  const comparable = deltas.filter(d => Number.isFinite(d.officialValue)
+    && Number.isFinite(d.calculatedValue) && d.delta !== null && Number.isFinite(d.delta));
   const totalComparable = comparable.length;
 
   if (totalComparable === 0) {

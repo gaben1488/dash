@@ -26,6 +26,16 @@ const entry = (over: Partial<ChangeEntry>): ChangeEntry => ({
   ...over,
 });
 
+it('даты показаны датами, но числа и номера не переосмысляются', () => {
+  expect(valueLabel('46077', 'N')).toBe('24.02.2026');
+  expect(valueLabel('46077', 'Q')).toBe('24.02.2026');
+  expect(valueLabel('46077', 'K')).toBe('46077');
+  expect(valueLabel('23/1', 'A')).toBe('23/1');
+  expect(valueLabel('Х', 'Q')).toBe('Х');
+  expect(entryChangeLine(entry({ column: 'N', kind: 'dates', before: '46077', after: '46078' })))
+    .toBe('24.02.2026 → 25.02.2026');
+});
+
 it('locates a journal witness in its own source reading without calling it the edit timestamp', () => {
   const note = originNote(entry({ journalSource: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow: 17, readAt: 1000 } }));
   expect(note).toContain('_ChangeLog!17');

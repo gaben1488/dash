@@ -457,10 +457,12 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const ttl = config.cache.ttlSeconds * 1000;
 
   const cached = cachedSnapshots.get(cacheKey);
-  // Push/manual mode invalidates by source generation, not by elapsed time.
-  // Failed or incomplete reads retain the bounded TTL retry path.
-  const unchanged = cached && cached.timestamp > 0 && cached.generation === cacheGeneration
-    && config.cache.autoRefreshMinutes === 0 && !cached.snapshot.metadata.readModel
+  // A valid calculation belongs to an input generation, not a five-minute TTL.
+  // Source/decision changes explicitly invalidate it. Retrying a failed or
+  // interrupted build still uses TTL; a page visit alone never creates data.
+  const unchanged = !isDemoMode && cached && cached.timestamp > 0
+    && cached.generation === cacheGeneration
+    && !cached.snapshot.metadata.readModel
     && cached.snapshot.metadata.sourceCoverage?.complete !== false;
   if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
     return recordSnapshotRead(cached.snapshot);

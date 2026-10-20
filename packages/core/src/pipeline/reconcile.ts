@@ -5,7 +5,7 @@
  *
  * Assessment thresholds:
  *   < 1 %  — Совпадает          (ok)
- *   < 5 %  — Несопоставимо      (warning)  — check composition / period
+ *   < 5 %  — Есть расхождение   (warning)  — check composition / period
  *   >= 5 % — Есть расхождение   (high)     — cause requires evidence
  */
 
@@ -126,7 +126,7 @@ function assess(
 
   if (pctDelta < 5) {
     return {
-      status: 'Несопоставимо',
+      status: 'Есть расхождение',
       kind: 'warning',
       reason: `Дельта ${pctDelta.toFixed(1)}% \u2014 проверить состав и период`,
       maxAbsDelta: maxAbs,

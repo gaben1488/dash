@@ -88,7 +88,7 @@ export async function readChangelogReading(
   const pending = inFlight.get(dept);
   if (pending?.spreadsheetId === spreadsheetId) return pending.request;
 
-  const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME)
+  const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME, true)
     .then((rows) => {
       const reading = { spreadsheetId, rows, at: now };
       if (inFlight.get(dept)?.request === request) cache.set(dept, reading);

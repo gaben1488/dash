@@ -26,8 +26,8 @@ vi.mock('../services/google-sheets.js', () => ({
 }));
 
 /**
- * Строка конкурентной закупки с экономией 50 % от плана: без гейта это
- * гарантированный вердикт «высокая экономия» (порог 25 %).
+ * Строка с экономией 50 % от плана, но без НМЦК и предложенной цены.
+ * Ни флаг AD, ни дата заключения не добавляют отсутствующие данные.
  */
 function rowWithEconomy(flag: string, factDate: string, method = 'ЭА'): unknown[] {
   const row = Array<unknown>(34).fill('');
@@ -48,7 +48,15 @@ let setDeptSheetCache: typeof import('../services/snapshot.js')['setDeptSheetCac
 async function antiDumpingIssues(): Promise<Array<{ ruleCode: string; rowIndex?: number }>> {
   const res = await app.inject({ method: 'GET', url: '/api/analytics/compliance' });
   expect(res.statusCode).toBe(200);
-  const body = res.json<{ issues: Array<{ ruleCode: string; rowIndex?: number }> }>();
+  const body = res.json<{
+    issues: Array<{ ruleCode: string; rowIndex?: number }>;
+    unavailableChecks: Array<{ ruleCode: string; status: string; reason: string }>;
+  }>();
+  expect(body.unavailableChecks).toContainEqual({
+    ruleCode: 'anti_dumping',
+    status: 'insufficient_data',
+    reason: expect.stringContaining('НМЦК'),
+  });
   return body.issues.filter((i) => i.ruleCode === 'anti_dumping');
 }
 
@@ -79,7 +87,7 @@ afterAll(async () => {
   vi.resetModules();
 });
 
-describe('GET /api/analytics/compliance — антидемпинг считает только утверждённую экономию', () => {
+describe('GET /api/analytics/compliance — экономия не доказывает антидемпинг', () => {
   it('экономия не утверждена (флаг «нет») → вердикта нет', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('нет', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     expect(await antiDumpingIssues()).toEqual([]);
@@ -90,19 +98,17 @@ describe('GET /api/analytics/compliance — антидемпинг считае�
     expect(await antiDumpingIssues()).toEqual([]);
   }, 30_000);
 
-  it('алиас конкурентного способа «ЭА (МЭП)» не исчезает из правовых проверок', async () => {
+  it('конкурентный алиас «ЭА (МЭП)» не восполняет отсутствующую НМЦК', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [],
       rowWithEconomy('да', '15.03.2026', 'ЭА (МЭП)')], formulas: [], sheetName: 'ВСЕ' } });
     const issues = await antiDumpingIssues();
-    expect(issues).toHaveLength(1);
-    expect(issues[0]?.rowIndex).toBe(4);
+    expect(issues).toHaveLength(0);
   }, 30_000);
 
-  it('экономия утверждена и контракт заключён → вердикт с адресом строки', async () => {
+  it('утверждённая экономия и заключённый контракт не доказывают антидемпинг', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('да', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     const issues = await antiDumpingIssues();
-    expect(issues.length).toBe(1);
-    expect(issues[0]?.rowIndex).toBe(4);
+    expect(issues).toHaveLength(0);
   }, 30_000);
 });
 

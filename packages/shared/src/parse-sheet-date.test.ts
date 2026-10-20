@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { dayNumberOf, floorToThursday, isoOfDayNumber, mondayOfDay, parseSheetDate } from './parse-sheet-date';
+import { dayNumberOf, equivalentSheetDate, floorToThursday, isoOfDayNumber, mondayOfDay, parseSheetDate } from './parse-sheet-date';
+
+it('эквивалентность представления ограничена датными колонками и не склеивает номера', () => {
+  expect(equivalentSheetDate('N', '24.02.2026', 46077)).toBe(true);
+  expect(equivalentSheetDate('Q', '2026-02-24', '46077')).toBe(true);
+  expect(equivalentSheetDate('N', '24.02.2026', 46078)).toBe(false);
+  expect(equivalentSheetDate('Q', '', 'Х')).toBe(false);
+  expect(equivalentSheetDate('A', '23/1', 46045)).toBe(false);
+});
 
 describe('parseSheetDate — единый парсер даты из ячейки листа', () => {
   it('Google-serial 46023 → 2026-01-01 (НЕ год 46023)', () => {

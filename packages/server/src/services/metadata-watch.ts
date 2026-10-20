@@ -401,30 +401,25 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null;
 let lastSweepDay: string | null = null;
 
 /**
- * Ночная работа целиком: сперва дозор метаданных, следом ПОЛНОЕ чтение формул
- * всех книг.
- *
- * Почему формулы ночью читаются БЕЗ вопроса Drive «а менялся ли файл»
- * (`askDrive: false`). Вопрос отвечает на «изменилось ли содержимое с прошлого
- * ЧТЕНИЯ», а формулы днём могли не читаться вовсе: книгу правили до того, как
- * появился этот дозор, или уведомление потерялось. Ночной обход — сеть
- * безопасности, и сеть с дырой «а мы это уже читали» не сеть. Лист СВОД в цель
- * не входит: формул книг ГРБС в нём нет, а его собственные формулы сторожит
- * сверка.
+ * Дозор метаданных и проверка покрытия формул. Координатор пропускает только
+ * неизменную версию, для которой формулы уже получены. Если днём прочитаны
+ * лишь значения, формулы будут дочитаны даже при прежней версии Drive.
+ * Повторное полное чтение неизменных книг ночью не требуется.
  */
 export async function nightlyIntegritySweep(log: WatchLog): Promise<void> {
   await sweepMetadata(log);
   const refresh = await refreshAllSources(log, 'cycle', {
     fresh: true,
     svod: false,
-    askDrive: false,
+    askDrive: true,
     withFormulas: true,
   });
   log.info(
     `Ночной обход формул: книг прочитано ${refresh.booksRead}`
     + (refresh.formulaBooks.length > 0
       ? `, формулы получены по книгам: ${refresh.formulaBooks.join(', ')}`
-      : ', формулы не получены ни по одной книге')
+      : ', новых чтений формул нет')
+    + (refresh.skipped.length > 0 ? `, неизменные книги пропущены: ${refresh.skipped.join(', ')}` : '')
     + (refresh.failed.length > 0 ? `, не прочитано: ${refresh.failed.join(', ')}` : ''),
   );
 }

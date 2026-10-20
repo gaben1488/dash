@@ -65,6 +65,14 @@ describe('род правки по колонке — деньги, сроки, 
 });
 
 describe('адрес записи — по № п/п, а не по строке листа', () => {
+  it('журнал не выдаёт смену представления даты за изменение срока', () => {
+    const records = [
+      rec('N10', '23/1', '24.02.2026', '46077', '20.10.2026 10:00:00'),
+      rec('Q10', '23/1', '24.02.2026', '46078', '20.10.2026 10:00:00'),
+    ];
+    expect(entriesFromBookJournal('УД', records).entries.map(e => e.column)).toEqual(['Q']);
+    expect(records).toHaveLength(2); // исходные свидетельства не изменяются
+  });
   it('retains original log addresses through exact merging and cell-to-row presentation grouping', () => {
     const sources = [3, 4].map(journalRow => ({ spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow, readAt: 1000 }));
     const records = sources.map(source => ({ ...rec('K10', '8', '100', '90', '16.10.2026 10:00:00'), source }));

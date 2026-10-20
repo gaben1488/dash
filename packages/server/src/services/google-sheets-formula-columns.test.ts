@@ -17,13 +17,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
+const gridGet = vi.fn();
 
 vi.mock('googleapis', () => ({
   google: {
     sheets: vi.fn(() => ({
       spreadsheets: {
         values: { get: valuesGet, batchGet: valuesBatchGet, update: vi.fn() },
-        get: vi.fn(),
+        get: gridGet,
       },
     })),
     auth: { GoogleAuth: vi.fn(function GoogleAuth() { return {}; }) },
@@ -66,15 +67,47 @@ function formulaRanges(): Array<{ range: string; values: unknown[][] }> {
   ];
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   valuesGet.mockReset();
   valuesBatchGet.mockReset();
+  gridGet.mockReset();
   valuesGet.mockResolvedValue({ data: { values: sheetValues() } });
   valuesBatchGet.mockResolvedValue({ data: { valueRanges: formulaRanges() } });
+  await import('./google-sheets.js');
 });
 
 afterEach(() => {
   vi.resetModules();
+});
+
+describe('точность времени журнала', () => {
+  it('сохраняет скрытое время обеих схем журнала и отображаемый составной номер', async () => {
+    const text = (formattedValue: string) => ({ formattedValue });
+    const date = (numberValue: number, formattedValue: string) => ({
+      effectiveValue: { numberValue }, formattedValue,
+      effectiveFormat: { numberFormat: { type: 'DATE' } },
+    });
+    gridGet.mockResolvedValue({ data: { sheets: [{ data: [{ rowData: [
+      { values: [text('ВСЕ'), text('A236'), text('изменение'), date(46045, '23/1'),
+        text('было'), text('стало'), date(46315.707016493056, '20.10.2026'), text('сотрудник')] },
+      { values: [text('N4'), text('было'), text('стало'), date(46315.707016493056, '20.10.2026'),
+        text('сотрудник'), { effectiveValue: { numberValue: 100.25 }, formattedValue: '100,25' }] },
+    ] }] }] } });
+    const { getSheetDataFromSpreadsheet } = await import('./google-sheets.js');
+    const rows = await getSheetDataFromSpreadsheet('book', "_Change'Log", true);
+    expect(rows[0][3]).toBe('23/1');
+    expect(rows[0][6]).toBe(46315.707016493056);
+    expect(rows[1][3]).toBe(46315.707016493056);
+    expect(rows[1][5]).toBe(100.25);
+    expect(gridGet).toHaveBeenCalledWith(expect.objectContaining({ ranges: ["'_Change''Log'!A:H"] }), expect.anything());
+    expect(valuesGet).not.toHaveBeenCalled();
+  });
+
+  it('не подменяет непрочитанный журнал пустым', async () => {
+    gridGet.mockResolvedValue({ data: {} });
+    const { getSheetDataFromSpreadsheet } = await import('./google-sheets.js');
+    await expect(getSheetDataFromSpreadsheet('book', '_ChangeLog', true)).rejects.toThrow('CHANGELOG_GRID_NOT_READ');
+  });
 });
 
 describe('чтение формульных колонок', () => {

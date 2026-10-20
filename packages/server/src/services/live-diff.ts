@@ -11,7 +11,7 @@
  * номера и смена предмета/учреждения остаются в недельном контексте для проверки,
  * а не превращаются в доказанную правку чужой закупки.
  */
-import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS, equivalentSheetDate, parseSheetNumber } from '@aemr/shared';
 import { diffSnapshots, type SnapshotRow } from '@aemr/core';
 import type { RowChangedEvent } from './event-bus.js';
 
@@ -84,7 +84,7 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
       subject: cellText(row[DEPT_COLUMNS.SUBJECT]),
       subordinate: cellText(row[DEPT_COLUMNS.SUBORDINATE]),
       method: cellText(row[DEPT_COLUMNS.METHOD]),
-      planSum: Number(row[DEPT_COLUMNS.TOTAL_PLAN]),
+      planSum: parseSheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]) ?? undefined,
     }))
     .filter((row) => row.rowSeq !== '');
   const comparison = diffSnapshots(indexed(beforeRows), indexed(afterRows));
@@ -117,6 +117,7 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
       const wasText = cellText(prev[c]);
       const nowText = cellText(next[c]);
       if (wasText === nowText) continue;
+      if (equivalentSheetDate(LETTER_BY_INDEX[c], prev[c], next[c])) continue;
       rowChanged = true;
       // Построчные подробности собираем, только пока их немного: см. MAX_ROW_EVENTS.
       if (rows.length >= MAX_ROW_EVENTS) continue;

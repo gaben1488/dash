@@ -58,7 +58,7 @@ from .weekly_evidence import CONTRACT as WEEKLY_CONTRACT
 from .weekly_evidence import build_weekly_evidence, freeze_weekly_baseline
 
 RENDERER_VERSION = 'renderer-v1.5.0rc25'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1+source-values-v2+calendar-month-audit-v1+customer-alias-identity-v1+weekly-identity-scope-v1+assurance-v3'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1+source-values-v3-formatted-dates+calendar-month-audit-v1+customer-alias-identity-v1+weekly-identity-scope-v1+assurance-v3'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 

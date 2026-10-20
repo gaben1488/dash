@@ -602,7 +602,7 @@ export type CanonicalizeResult =
 export const EP_REASON_SCAN_LIMIT = 2000;
 
 export function hasNegatedEpMonopoly(reason: unknown): boolean {
-  return /(?:^|[^\p{L}\p{N}_])не\s+(?:явля(?:ется|ются)\s+)?(?:субъектом\s+)?(?:естественн\p{L}*\s+)?монопол\p{L}*/iu.test(String(reason ?? '').slice(0, EP_REASON_SCAN_LIMIT));
+  return /(?:^|[^\p{L}\p{N}_])(?:не\s+(?:явля(?:ется|ются)\s+)?(?:субъектом\s+)?(?:естественн\p{L}*\s+)?монопол\p{L}*|монопол\p{L}*\s+не\s+явля(?:ется|ются)(?![\p{L}\p{N}_]))/iu.test(String(reason ?? '').slice(0, EP_REASON_SCAN_LIMIT));
 }
 
 export function canonicalizeReasonEp(raw: unknown): CanonicalizeResult {

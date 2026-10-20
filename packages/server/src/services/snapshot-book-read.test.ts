@@ -54,6 +54,7 @@ afterEach(() => {
 describe('сборка снимка: чтение листов сводной книги', () => {
   it('keeps an unchanged complete model past TTL until an explicit invalidation', async () => {
     process.env.SOURCE_AUTO_REFRESH_MINUTES = '0';
+    process.env.GOOGLE_API_KEY = 'synthetic-configured';
     const source = await import('./snapshot.js');
     source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
       values: Array.from({ length: DEPT_HEADER_ROWS }, () => []), formulas: [], sheetName: dept.nameShort,

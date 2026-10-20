@@ -157,7 +157,7 @@ class GoogleReadClient:
     def _values(self,provider_id,title,start,end,columns,render_option):
         a1 = _a1_range(title, start, end, columns)
         data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe='')+'/values/'+quote(a1,safe=''),
-                       {'valueRenderOption':render_option,'dateTimeRenderOption':'SERIAL_NUMBER','majorDimension':'ROWS'})
+                       {'valueRenderOption':render_option,'dateTimeRenderOption':'FORMATTED_STRING','majorDimension':'ROWS'})
         return data.get('values',[])
 
     def batch_values(self, provider_id, title, ranges, columns, render_option):
@@ -165,7 +165,7 @@ class GoogleReadClient:
         data = self._get(
             'https://sheets.googleapis.com/v4/spreadsheets/' + quote(provider_id, safe='') + '/values:batchGet',
             {'ranges': requested, 'valueRenderOption': render_option,
-             'dateTimeRenderOption': 'SERIAL_NUMBER', 'majorDimension': 'ROWS'})
+             'dateTimeRenderOption': 'FORMATTED_STRING', 'majorDimension': 'ROWS'})
         if data.get('spreadsheetId') != provider_id:
             raise GoogleReadError('GOOGLE_BATCH_SOURCE_MISMATCH')
         received = data.get('valueRanges')

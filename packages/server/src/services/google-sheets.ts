@@ -438,7 +438,34 @@ export async function getMonitoringMasterCells(spreadsheetId: string): Promise<s
 export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
+  preserveJournalTime = false,
 ): Promise<unknown[][]> {
+  if (preserveJournalTime) {
+    // One Google read retains both representations. Formatted-only timestamps
+    // can lose hours; serial-only ordinals can turn "23/1" into "46045".
+    const response = await readWithRetry('чтение точного времени журнала', async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.get({
+        spreadsheetId, ranges: [`'${sheetName.replace(/'/g, "''")}'!A:H`],
+        includeGridData: true,
+        fields: 'sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue,boolValue),formattedValue,effectiveFormat(numberFormat(type))))))',
+      }, { timeout: SHEETS_TIMEOUT_MS });
+    });
+    const grid = response.data.sheets?.[0]?.data?.[0];
+    if (!grid || (grid.startRow ?? 0) !== 0 || (grid.startColumn ?? 0) !== 0)
+      throw new Error('CHANGELOG_GRID_NOT_READ');
+    return (grid.rowData ?? []).map(row => {
+      const cells = row.values ?? [];
+      const text = (index: number) => cells[index]?.formattedValue ?? cells[index]?.effectiveValue?.stringValue ?? '';
+      const timeColumn = /^[A-Z]{1,2}\d+$/i.test(text(1).trim()) ? 6 : /^[A-Z]{1,2}\d+$/i.test(text(0).trim()) ? 3 : -1;
+      return cells.map((cell, index) => {
+        const value = cell.effectiveValue;
+        if (index !== timeColumn && /^DATE/.test(cell.effectiveFormat?.numberFormat?.type ?? ''))
+          return cell.formattedValue ?? value?.numberValue ?? '';
+        return value?.stringValue ?? value?.numberValue ?? value?.boolValue ?? cell.formattedValue ?? '';
+      });
+    });
+  }
   const response = await readWithRetry(
     `чтение листа «${sheetName}»`,
     async () => {

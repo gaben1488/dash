@@ -408,7 +408,7 @@ describe('compliance — checkEPContractLimits', () => {
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700_000, factTotal: 0, economy: 0, subject: 'test' }];
     const issues = checkEPContractLimits(rows, 'dept1');
     expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('critical');
+    expect(issues[0].severity).toBe('info');
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
   });
 
@@ -431,11 +431,10 @@ describe('compliance — checkEPContractLimits', () => {
 });
 
 describe('compliance — checkAntiDumping', () => {
-  it('flags economy > 25% on competitive method', () => {
+  it('does not substitute economy for initial and offered procurement prices', () => {
     const rows = [{ rowIndex: 1, method: 'ЭА', planTotal: 1_000_000, factTotal: 700_000, economy: 300_000, subject: '' }];
     const issues = checkAntiDumping(rows, 'dept1');
-    expect(issues).toHaveLength(1);
-    expect(issues[0].ruleCode).toBe('anti_dumping');
+    expect(issues).toHaveLength(0);
   });
 
   it('does not flag economy at exactly 25%', () => {
@@ -469,9 +468,9 @@ describe('compliance — checkEPShareLimits', () => {
     expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(false);
   });
 
-  it('flags annual EP absolute > 50M', () => {
+  it('does not infer a customer annual limit violation from the department aggregate', () => {
     const issues = checkEPShareLimits(10, 100, 50_000_001, 500_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
-    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(true);
+    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });
 
   it('returns no issues for zero totalCount', () => {
@@ -619,11 +618,11 @@ describe('centralization — findCentralizationOpportunities', () => {
 // grbs-profile.ts
 // ===========================================================================
 describe('grbs-profile — buildGRBSProfiles', () => {
-  it('returns high risk when no recalc data for a baseline', () => {
+  it('does not turn missing data into high operational risk', () => {
     const profiles = buildGRBSProfiles({});
     expect(profiles).toHaveLength(GRBS_BASELINES.length);
     profiles.forEach(p => {
-      expect(p.riskLevel).toBe('high');
+      expect(p.riskLevel).toBeNull();
       expect(p.totalProcurements).toBe(0);
     });
   });
@@ -645,21 +644,22 @@ describe('grbs-profile — buildGRBSProfiles', () => {
     expect(uer.procurementVolume).toBe('НИЗКИЙ');
   });
 
-  it('calculates risk level medium for moderate deviation', () => {
+  it('retains factual execution without grading an unconfirmed deviation', () => {
     // UER baseline: expectedExecQ1=0.65, normalEpShare=0.35
-    // actualExec = 0.50, dev = -0.15 => medium
     const recalc = { uer: makeRecalc({ q1ExecutionPct: 0.50, epSharePct: 0.35 }) };
     const profiles = buildGRBSProfiles(recalc);
     const uer = profiles.find(p => p.grbsId === 'uer')!;
-    expect(uer.riskLevel).toBe('medium');
+    expect(uer.riskLevel).toBeNull();
+    expect(uer.actualExecQ1).toBe(0.50);
+    expect(uer.baselineUnconfirmed).toBe(true);
   });
 
-  it('calculates risk level low for on-target metrics', () => {
+  it('does not certify low risk from matching an unconfirmed target', () => {
     // UER: expectedExecQ1=0.65, normalEpShare=0.35
     const recalc = { uer: makeRecalc({ q1ExecutionPct: 0.65, epSharePct: 0.35 }) };
     const profiles = buildGRBSProfiles(recalc);
     const uer = profiles.find(p => p.grbsId === 'uer')!;
-    expect(uer.riskLevel).toBe('low');
+    expect(uer.riskLevel).toBeNull();
   });
 
   it('computes avgContractSize correctly', () => {

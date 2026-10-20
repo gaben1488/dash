@@ -40,7 +40,11 @@ describe('canonicalizeReasonEp — границы', () => {
     expect(cluster(null)).toBe('EMPTY');
   });
 
-  it.each(['не является монополистом', 'не монополист', 'не является естественным монополистом'])('negated monopoly is not an exemption: %s', reason => {
+  it.each([
+    'не является монополистом', 'не монополист', 'не является естественным монополистом',
+    'монополистом не является', 'естественными монополистами не являются',
+    'субъектом естественной монополии не является',
+  ])('negated monopoly is not an exemption: %s', reason => {
     expect(cluster(reason)).toBe('UNMAPPED');
   });
   it('the end of another word is not the negation particle', () => {

@@ -10,11 +10,14 @@ vi.mock('./google-sheets.js', () => ({ getSheetDataFromSpreadsheet: vi.fn(async 
 // on the bounded release runner. Keep the concurrency/atomicity assertions intact.
 vi.setConfig({ testTimeout: 30_000 });
 let dir: string;
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'snapshot-storage-'));
   vi.stubEnv('NODE_ENV', 'test');
   vi.stubEnv('SQLITE_PATH', join(dir, 'state.sqlite'));
   vi.resetModules();
+  // Module/database startup belongs to the fixture's existing hook budget.
+  // Keep each real worker/HTTP/transaction scenario under its unchanged 30s deadline.
+  await import('./snapshot.js');
 });
 afterEach(async () => {
   const { db } = await import('../db/index.js');

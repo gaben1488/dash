@@ -722,10 +722,7 @@ class IdentityStore:
 
     def review_evidence(self, *, as_of=None):
         """Stable private proof input; observations themselves are output state."""
-        with closing(self.connect()) as db:
-            return [{**dict(item), 'evidence': json.loads(item['evidence'])}
-                    for item in db.execute('SELECT * FROM reviews ORDER BY review_id')
-                    if as_of is None or datetime.fromisoformat(item['reviewed_at']) <= datetime.fromisoformat(as_of)]
+        return read_identity_reviews(self.path, as_of=as_of)
 
     def backup(self,destination):
         target=Path(destination)
@@ -762,6 +759,15 @@ class IdentityStore:
         except (sqlite3.DatabaseError, ValueError):
             target.unlink(missing_ok=True)
             raise
+
+
+def read_identity_reviews(path, *, as_of=None):
+    """Read decisions without creating a database or writing observation state."""
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        return [{**dict(item), 'evidence': json.loads(item['evidence'])}
+                for item in db.execute('SELECT * FROM reviews ORDER BY review_id')
+                if as_of is None or datetime.fromisoformat(item['reviewed_at']) <= datetime.fromisoformat(as_of)]
 
 
 def read_identity_result(path, snapshot_id, as_of):

@@ -788,8 +788,10 @@ export function startSourceAutoRefresh(log: {
     if (!isWithinWorkHours(new Date(), config.weeklySnapshot.utcOffsetHours)) return;
     void refreshAllSources(log)
       .then((r) => {
+        const state = r.failed.length || !r.svodOk ? 'Проверка источников неполна'
+          : r.changedBooks.length || r.svodChanged ? 'Источники изменились' : 'Источники проверены, изменений не обнаружено';
         log.info(
-          `Источники обновлены: книг ${r.loaded.length}` +
+          `${state}: книг прочитано ${r.loaded.length}` +
           `${r.failed.length > 0 ? `, не прочитано: ${r.failed.join(', ')}` : ''}` +
           `${r.svodOk ? '' : ', лист СВОД недоступен'}`,
         );

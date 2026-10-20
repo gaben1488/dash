@@ -38,7 +38,7 @@
  * не ответил, называется по имени в `gaps`, а не растворяется в тишине.
  */
 
-import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS } from '@aemr/shared';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, equivalentSheetDate } from '@aemr/shared';
 import {
   parseJournalInstant,
   parseJournalRowKey,
@@ -429,6 +429,7 @@ export function entriesFromBookJournal(
 
   for (const rec of records) {
     const letter = columnLetterOf(rec.cell);
+    if (equivalentSheetDate(letter, rec.was, rec.became)) continue;
     const sheetRow = sheetRowOfAddress(rec.cell);
     const key = parseJournalRowKey(rec.row);
     const moment = parseJournalInstant(rec.at);

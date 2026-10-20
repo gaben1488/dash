@@ -52,8 +52,8 @@ describe('окно чтения', () => {
     await readChangelogRows('УИО', 'book-uio', 1_000);
 
     expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
-    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uo', '_ChangeLog');
-    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uio', '_ChangeLog');
+    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uo', '_ChangeLog', true);
+    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uio', '_ChangeLog', true);
   });
 
   it('момент чтения виден снаружи — по нему судят о свежести', async () => {
@@ -113,7 +113,7 @@ it('same department switched to another file reads that file', async () => {
   getSheetDataFromSpreadsheet.mockResolvedValueOnce([['old']]).mockResolvedValueOnce([['new']]);
   await readChangelogRows('УО', 'file-A', 1000);
   expect(await readChangelogRows('УО', 'file-B', 1001)).toEqual([['new']]);
-  expect(getSheetDataFromSpreadsheet).toHaveBeenLastCalledWith('file-B', '_ChangeLog');
+  expect(getSheetDataFromSpreadsheet).toHaveBeenLastCalledWith('file-B', '_ChangeLog', true);
 });
 it('pre-reset completion cannot replace or detach the winning request', async () => {
   let oldDone!: (rows: unknown[][]) => void; let newDone!: (rows: unknown[][]) => void;

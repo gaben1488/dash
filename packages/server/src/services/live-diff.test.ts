@@ -17,6 +17,15 @@ function sheet(...dataRows: unknown[][]) {
 }
 
 describe('сравнение двух чтений книги', () => {
+  it('не объявляет датную строку и Google serial разными событиями; настоящая смена дня остаётся', () => {
+    const before = ['23/1', '', '', '', '', '', 'Предмет', '', '', '', 100, 'ЕП', '', '24.02.2026', '', '', '24.02.2026'];
+    const after = [...before];
+    after[13] = 46077; after[16] = 46077;
+    expect(isSilent(diffBook('УД', sheet(before), sheet(after)))).toBe(true);
+    after[13] = 46078;
+    expect(diffBook('УД', sheet(before), sheet(after)).rows).toMatchObject([{ column: 'N', after: '46078' }]);
+    expect(before[0]).toBe('23/1');
+  });
   it('полные значения эфира не обрезаются до одинаковых 60 символов', () => {
     const prefix = 'Описание '.repeat(15);
     const diff = diffBook('УО', sheet(['155', '', '', '', '', '', 'Предмет', '', '', '', '', '', prefix + 'А']),

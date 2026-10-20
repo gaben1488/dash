@@ -9,6 +9,16 @@ from procurement_engine.google_adapter import (
     GoogleSheetSourceAdapter,
 )
 
+def test_values_preserve_date_formatted_purchase_number(monkeypatch):
+    client = GoogleReadClient('synthetic')
+    def get(url, params):
+        # Same effective Google date value, whose displayed ordinal is 23/1.
+        assert params['valueRenderOption'] == 'UNFORMATTED_VALUE'
+        assert params['dateTimeRenderOption'] == 'FORMATTED_STRING'
+        return {'values': [['23/1', 100.25, '24.02.2026']]}
+    monkeypatch.setattr(client, '_get', get)
+    assert client.values('synthetic-book', 'Sheet', 4, 4, 3) == [['23/1', 100.25, '24.02.2026']]
+
 
 def test_batch_uses_ordered_ranges_and_preserves_empty_chunks(monkeypatch):
     requests = []
@@ -26,7 +36,7 @@ def test_batch_uses_ordered_ranges_and_preserves_empty_chunks(monkeypatch):
     assert chunks == [[['header']], [], [['far row']]]
     assert requests[0][0].endswith('/values:batchGet')
     assert requests[0][1]['ranges'] == ["'Owner''s registry'!A1:AH400", "'Owner''s registry'!A401:AH800", "'Owner''s registry'!A801:AH1200"]
-    assert requests[0][1]['dateTimeRenderOption'] == 'SERIAL_NUMBER'
+    assert requests[0][1]['dateTimeRenderOption'] == 'FORMATTED_STRING'
 
 
 @pytest.mark.parametrize('payload', [

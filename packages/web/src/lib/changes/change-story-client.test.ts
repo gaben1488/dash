@@ -39,6 +39,11 @@ describe('адрес запроса подробной глубины', () => {
 });
 
 describe('эфир переводится в те же записи, что приходят с сервера', () => {
+  it('старое событие эфира о смене формата даты не засоряет ленту', () => {
+    expect(entriesFromLiveRows([live({ column: 'N', before: '24.02.2026', after: '46077' })])).toEqual([]);
+    expect(entriesFromLiveRows([live({ column: 'Q', before: '24.02.2026', after: '46078' })])).toHaveLength(1);
+    expect(entriesFromLiveRows([live({ column: 'A', before: '23/1', after: '46045' })])).toHaveLength(1);
+  });
   it('род правки берётся из колонки тем же каноном, что на сервере', () => {
     const [e] = entriesFromLiveRows([live({})]);
     expect(e.kind).toBe('money');

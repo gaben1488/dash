@@ -66,14 +66,28 @@ describe('persisted false-positive decisions across control routes', () => {
     expect(data.snapshot.issuesSummary.total).toBe(2);
   });
 
-  it('uses the saved decision for the data-quality component of discipline only', async () => {
+  it('preserves decisions in factual quality without an unconfirmed grade or discipline index', async () => {
     const data = (await app.inject('/api/analytics/scorecard')).json();
-    const value = data.uksimp.discipline;
+    const value = data.uksimp.dataQuality;
     db.delete(schema.issues).run();
     const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
-    expect(value - unreviewed.uksimp.discipline).toBe(10);
-    expect(data.uksimp.gradeScore).toBe(unreviewed.uksimp.gradeScore);
+    expect(value - unreviewed.uksimp.dataQuality).toBe(1);
+    expect(data.uksimp).toMatchObject({ assessmentStatus: 'unconfirmed_methodology', execPct: 0.65 });
+    expect(data.uksimp).not.toHaveProperty('grade');
+    expect(data.uksimp).not.toHaveProperty('discipline');
+    expect(data.uksimp).not.toHaveProperty('riskLevel');
     expect(fixture.snapshot.issues[0].status).toBe('open');
+  });
+
+  it('does not certify data quality when aggregate metrics exist but source rows are unavailable', async () => {
+    const rows = fixture.rows;
+    fixture.rows = {};
+    try {
+      const data = (await app.inject('/api/analytics/scorecard')).json();
+      expect(data.uksimp.dataQuality).toBeNull();
+      expect(data.uksimp.execPct).toBe(0.65);
+      expect(data.uksimp).not.toHaveProperty('grade');
+    } finally { fixture.rows = rows; }
   });
 });
 
@@ -84,7 +98,7 @@ it('использует реальную группу completeness вместо
     const reviewed = (await app.inject('/api/analytics/scorecard')).json();
     db.delete(schema.issues).run();
     const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
-    expect(reviewed.uksimp.discipline - unreviewed.uksimp.discipline).toBe(10);
+    expect(reviewed.uksimp.dataQuality - unreviewed.uksimp.dataQuality).toBe(1);
   } finally { fixture.snapshot.issues[0] = original; }
 });
 
@@ -112,7 +126,7 @@ it('не считает отсутствие финансирования деф
     const reviewed = (await app.inject('/api/analytics/scorecard')).json();
     db.delete(schema.issues).run();
     const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
-    expect(reviewed.uksimp.discipline).toBe(unreviewed.uksimp.discipline);
+    expect(reviewed.uksimp.dataQuality).toBe(unreviewed.uksimp.dataQuality);
   } finally { fixture.snapshot.issues[0] = original; }
 });
 
@@ -123,6 +137,6 @@ it('не превращает исторический дефект формул
     const reviewed = (await app.inject('/api/analytics/scorecard')).json();
     db.delete(schema.issues).run();
     const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
-    expect(reviewed.uksimp.discipline).toBe(unreviewed.uksimp.discipline);
+    expect(reviewed.uksimp.dataQuality).toBe(unreviewed.uksimp.dataQuality);
   } finally { fixture.snapshot.issues[0] = original; }
 });

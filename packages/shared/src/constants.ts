@@ -90,7 +90,7 @@ export const LAW_44FZ_THRESHOLDS = {
   eShopPurchaseLimitThousandRub: 5_000,
   /** Request-for-quotations limit (тыс. руб. = 10 млн руб.). */
   quotationPurchaseLimitThousandRub: 10_000,
-  /** 44-FZ art. 37 anti-dumping threshold; AEMR uses limit-fact as an approximation. */
+  /** 44-FZ art. 37 threshold. Requires procurement prices and applicability; plan/economy is not a substitute. */
   antiDumpingSavingsShare: 0.25,
 } as const;
 

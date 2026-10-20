@@ -32,6 +32,7 @@ import {
   type ChangeKind,
 } from '@aemr/core';
 import type { RowChange } from '../../hooks/useLiveEvents';
+import { equivalentSheetDate } from '@aemr/shared';
 import { fetchJSON } from '../../api';
 
 /** Ответ GET /api/change-story — внешний контракт, менять вместе с роутом. */
@@ -101,7 +102,7 @@ export function bookClockOf(iso: string): string | null {
  * в продукте нет.
  */
 export function entriesFromLiveRows(rows: readonly RowChange[]): ChangeEntry[] {
-  const raw: ChangeEntry[] = rows.map((r) => {
+  const raw: ChangeEntry[] = rows.filter(r => !equivalentSheetDate(r.column.toUpperCase(), r.before, r.after)).map((r) => {
     const letter = r.column === '' ? null : r.column.toUpperCase();
     const at = bookClockOf(r.at);
     // Older servers borrowed an actor from the last log at the cell address.

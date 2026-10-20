@@ -91,8 +91,8 @@ interface RowData {
 }
 
 /**
- * Check EP single contract limit (п.4 ч.1 ст.93 44-ФЗ).
- * EP contracts cannot exceed 600K rubles = 600 тыс. руб.
+ * Identify rows requiring contract detail. A row total does not establish
+ * an individual contract price or the applicability of п.4 ч.1 ст.93.
  *
  * row.planTotal и LAW_44FZ.epSingleContractLimit уже в тыс. руб. (канон колонок
  * книг ГРБС) — второе деление на 1000 в сообщении убрано (bug-hunt 2026-08-08,
@@ -106,9 +106,9 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string): Complian
       issues.push({
         grbsId,
         ruleCode: 'ep_contract_limit',
-        severity: 'critical',
-        title: `ЕП превышает лимит ${LAW_44FZ.epSingleContractLimit.toFixed(0)} тыс. ₽ (строка ${row.rowIndex})`,
-        description: `Сумма контракта ${row.planTotal.toFixed(1)} тыс. ₽ превышает предельный размер для ЕП по п.4 ч.1 ст.93`,
+        severity: 'info',
+        title: `Недостаточно данных для проверки сумм отдельных договоров (строка ${row.rowIndex})`,
+        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного порога ${LAW_44FZ.epSingleContractLimit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
         article: 'ст. 93 ч.1 п.4',
         threshold: LAW_44FZ.epSingleContractLimit,
         actualValue: row.planTotal,
@@ -119,35 +119,29 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string): Complian
   return issues;
 }
 
+export const ANTI_DUMPING_UNAVAILABLE = {
+  ruleCode: 'anti_dumping',
+  status: 'insufficient_data',
+  reason: 'Антидемпинговая проверка не выполнена: нет подтверждённых НМЦК, предложенной цены и условий применения. Учтённая экономия и плановая сумма их не заменяют.',
+} as const;
+
+export const EP_ANNUAL_UNAVAILABLE = {
+  ruleCode: 'ep_annual_absolute',
+  status: 'insufficient_data',
+  reason: 'Годовые ограничения ЕП не проверены: общий объём управления не разделён по заказчикам, правовым основаниям и применимым условиям. Он не доказывает превышение лимита.',
+} as const;
+
 /**
- * Check anti-dumping (ст. 37 44-ФЗ).
- * Economy > 25% triggers mandatory compliance check.
+ * Compatibility boundary for callers using master-register RowData.
+ * This model has no procurement-level initial/offer prices or applicability.
+ * An empty issue list is not a legal PASS; API exposes ANTI_DUMPING_UNAVAILABLE.
  */
-export function checkAntiDumping(rows: RowData[], grbsId: string): ComplianceIssue[] {
-  const issues: ComplianceIssue[] = [];
-  for (const row of rows) {
-    if (normalizeMethod(row.method) === 'ЕП') continue; // anti-dumping only for competitive
-    if (row.planTotal <= 0) continue;
-    const economyPct = row.economy / row.planTotal;
-    if (economyPct > LAW_44FZ.antiDumpingThreshold) {
-      issues.push({
-        grbsId,
-        ruleCode: 'anti_dumping',
-        severity: 'warning',
-        title: `Высокая экономия: лимит−факт ${(economyPct * 100).toFixed(1)}% (строка ${row.rowIndex})`,
-        description: `Экономия (лимит−факт) превышает 25%. Внимание: антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных`,
-        article: 'ст. 37',
-        threshold: LAW_44FZ.antiDumpingThreshold,
-        actualValue: economyPct,
-        rowIndex: row.rowIndex,
-      });
-    }
-  }
-  return issues;
+export function checkAntiDumping(_rows: RowData[], _grbsId: string): ComplianceIssue[] {
+  return [];
 }
 
 /**
- * Check EP share limits by ГРБС role.
+ * Describe deviation from an unconfirmed legacy role reference, not law.
  * epTotal/yearPlanTotal — тыс. руб. (канон колонок книг ГРБС): млн = тыс./1000,
  * поэтому в сообщении ниже epTotal делится на 1_000, а не на 1_000_000
  * (последнее предполагало бы рубли — хвост БАГ #1, bug-hunt 2026-08-08:
@@ -156,8 +150,8 @@ export function checkAntiDumping(rows: RowData[], grbsId: string): ComplianceIss
 export function checkEPShareLimits(
   epCount: number,
   totalCount: number,
-  epTotal: number,
-  yearPlanTotal: number,
+  _epTotal: number,
+  _yearPlanTotal: number,
   role: GRBSRole,
   grbsId: string,
 ): ComplianceIssue[] {
@@ -170,30 +164,18 @@ export function checkEPShareLimits(
       issues.push({
         grbsId,
         ruleCode: 'ep_share_role',
-        severity: 'warning',
-        title: `Доля ЕП ${(epShareByCount * 100).toFixed(1)}% превышает норму для роли "${role}"`,
-        description: `Допустимая доля ЕП для роли ${role}: ${(roleLimit * 100).toFixed(0)}%. Фактическая: ${(epShareByCount * 100).toFixed(1)}%`,
-        article: 'ст. 93',
+        severity: 'info',
+        title: `Доля ЕП ${(epShareByCount * 100).toFixed(1)}% выше неподтверждённого внутреннего ориентира`,
+        description: `Для роли ${role} в прежнем генераторе задан ориентир ${(roleLimit * 100).toFixed(0)}%. Его основание не подтверждено; это не правовая норма и не доказательство нарушения.`,
+        article: 'Внутренний ориентир; источник не подтверждён',
         threshold: roleLimit,
         actualValue: epShareByCount,
       });
     }
   }
 
-  // Annual absolute limit check
-  if (epTotal > LAW_44FZ.epAnnualAbsoluteLimit) {
-    issues.push({
-      grbsId,
-      ruleCode: 'ep_annual_absolute',
-      severity: 'critical',
-      title: `Годовой объём ЕП превышает 50 млн ₽`,
-      description: `Объём ЕП: ${(epTotal / 1_000).toFixed(1)} млн ₽. Предельный годовой объём: 50 млн ₽`,
-      article: 'ст. 93',
-      threshold: LAW_44FZ.epAnnualAbsoluteLimit,
-      actualValue: epTotal,
-    });
-  }
-
+  // The aggregate has no customer/legal-basis scope. API exposes the missing
+  // coverage through EP_ANNUAL_UNAVAILABLE, not a fabricated legal verdict.
   return issues;
 }
 

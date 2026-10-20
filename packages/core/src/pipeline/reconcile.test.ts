@@ -55,7 +55,8 @@ describe('reconcile', () => {
     const result = reconcile(off, calc);
 
     expect(result.rows[0].assessment.kind).toBe('warning');
-    expect(result.rows[0].assessment.status).toBe('Несопоставимо');
+    expect(result.rows[0].assessment.status).toBe('Есть расхождение');
+    expect(result.rows[0].assessment.source).toBe('unknown');
     expect(result.overallStatus).toBe('Требует проверки');
   });
 
