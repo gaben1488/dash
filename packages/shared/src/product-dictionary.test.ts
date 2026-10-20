@@ -17,6 +17,9 @@ describe('product-dictionary (1.1): ни один сырой ключ не до�
     expect(productLabel('UNMAPPED')).toBe('причина не распознана');
     expect(productLabel('_org_itself')).toBe('Аппарат');
     expect(productLabel('uo')).toBe('УО');
+    expect(productLabel('УФБП')).toBe('УФ');
+    expect(productLabel('УДТХ')).toBe('УДТХиБ');
+    expect(productLabel('УФ')).toBe('УФ');
     expect(productLabel('open')).toBe('Открыто');
   });
 

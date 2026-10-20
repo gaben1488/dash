@@ -27,7 +27,7 @@
  */
 
 import { EP_REASON_CLUSTERS, EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
-import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import { DEPARTMENT_REGISTRY, findDept } from './department-registry.js';
 import { ORG_ITSELF_SENTINEL } from './dictionaries/subordinate-registry.js';
 
 // ────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export function signalCardTitle(key: string): string {
 
 /** Латинский id управления → краткое кириллическое имя (напр. 'uo' → 'УО'). */
 export const DEPT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
-  DEPARTMENT_REGISTRY.flatMap(d => [[d.latinId, d.shortName], [d.id, d.shortName], [d.shortName, d.shortName]]),
+  DEPARTMENT_REGISTRY.map((d) => [d.latinId, d.shortName]),
 );
 
 /** Латинский id управления → полное наименование. */
@@ -362,7 +362,7 @@ export function productLabel(key: string): string {
     const label = map[key];
     if (label !== undefined) return label;
   }
-  return key;
+  return findDept(key)?.shortName ?? key;
 }
 
 /**
