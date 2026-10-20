@@ -29,7 +29,9 @@ jobs:
   verify:
     name: Lint, TypeScript, Tests, Build, Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Full browser proof + TS suite reached build at 14m29s on a8fe0d67.
+    # Keep all checks; leave bounded room for build and dependency audit.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4

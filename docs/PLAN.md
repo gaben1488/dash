@@ -38,6 +38,27 @@
 
 ### Передача 20.10: метрики, хранение, идентичность и весь интерфейс
 
+Восстановление старых RUNNING-попыток больше не заменяет общий статус другой,
+более поздней попытки. Локальные квитанции закрываются; текущий указатель меняется
+только для самой текущей попытки. Счётчик recovery учитывает и старые попытки без
+файла очереди, без двойного счёта. Две регрессии воспроизвели подмену VERIFIED
+старым NOT_ISSUED и recovered=0 при двух восстановленных попытках. После правки
+85 тестов runtime/commands/health прошли на VPS; production не изменён.
+
+CI a8fe0d67: Python и image прошли; 1196 server и 2368 web тестов прошли, но verify
+отменён общим лимитом 15 минут во время build. Браузерный шаг прошёл за 9m28s;
+build начался на 14m29s. Лимит verify поднят до 20 минут без исключения проверок.
+Более свежего полного допуска для reuse пока нет; его критерий не ослаблен.
+Read-only production journal снова TIMEOUT 15014ms. Rehearsal 39290225768:
+native replay/independent audit PASS, два DOCX пересобраны без изменения headline;
+затем REPORT_DTO_SOURCE_READ_FAILED / REPORT_DTO_PROJECTION_CHECK_FAILED.
+Это открытый отказ чтения живого API, не доказанный дефект проекции DTO.
+Повторный GET report-releases: 200, 4555236 B, 247 ms; API healthy, OOM=false,
+restart=0. VPS: 21/59 GiB занято, 38 GiB свободно, available RAM 2021 MiB.
+Deployment scope: 39 tests + 25 subtests прошли в Linux-контейнере. Локальный
+Windows-прогон неприменим (getuid/bash); оснастка передачи нормализует CRLF
+deploy scripts/systemd, иначе побайтовая сверка давала искусственный отказ.
+
 Проверка выпуска 20.10: README развёртывания исправлен по действующему коду.
 Старый CI dispatch блокируется до SSH; актуален controlled-candidate-release
 в vps-cache-cleanup.yml. Независимый runner restore и полный rollback уже
