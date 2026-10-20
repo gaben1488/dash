@@ -43,12 +43,14 @@ vi.mock('./snapshot.js', () => ({
 // ожидания, а проверять здесь надо цикл, а не сеть. «Не знаю» — это прежнее
 // поведение цикла: читать всё, ничего не пропуская.
 const checkFileChanged = vi.fn(async (): Promise<'unknown' | 'changed' | 'same'> => 'unknown');
+const readRevision = vi.fn(async () => lastKnownRevision());
 const forgetRevision = vi.fn();
 const lastKnownRevision = vi.fn((): { version: string | null; modifiedTime: string | null } | null => null);
 const seedRevision = vi.fn();
 
 vi.mock('./file-revision.js', () => ({
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [])),
+  readRevision: () => readRevision(),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [])),
   lastKnownRevision: (...a: unknown[]) => lastKnownRevision(...(a as [])),
   seedRevision: (...a: unknown[]) => seedRevision(...(a as [])),
@@ -95,6 +97,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readRevision.mockImplementation(async () => lastKnownRevision());
+  lastKnownRevision.mockReturnValue(null);
   cachedBooks = {};
   getDeptSheetCache.mockImplementation(() => cachedBooks);
   setDeptSheetCache.mockImplementation((data: Record<string, { values: unknown[][] }>, failed: string[]) => {
@@ -117,6 +121,43 @@ afterEach(async () => {
 });
 
 describe('перечитка источников одним циклом', () => {
+  it.each([true, false])('rejects a book changed during acquisition and retries it (askDrive=%s)', async (askDrive) => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    checkFileChanged.mockResolvedValue('changed');
+    lastKnownRevision.mockReturnValue({ version: '7', modifiedTime: '2026-10-20T00:00:00Z' });
+    fetchDepartmentSpreadsheets.mockImplementation(async () => ({ data: {
+      'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' },
+    }, errors: {} }));
+    readRevision.mockResolvedValueOnce({ version: '7', modifiedTime: '2026-10-20T00:00:00Z' })
+      .mockResolvedValueOnce({ version: '8', modifiedTime: '2026-10-20T00:01:00Z' });
+    const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive });
+    expect(result.loaded).not.toContain('УО');
+    expect(result.retryableFailures).toContain('УО');
+    expect(cachedBooks['УО']).toBeUndefined();
+    expect(saveWatermark.mock.calls.some(([name]) => name === 'УО')).toBe(false);
+    readRevision.mockImplementation(async () => lastKnownRevision());
+    const retry = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive });
+    expect(retry.loaded).toContain('УО');
+    expect(cachedBooks['УО'].values).toEqual([[1]]);
+    resetSourcePrints();
+  });
+
+  it('does not accept a known revision when its post-read check is unavailable', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    fetchDepartmentSpreadsheets.mockImplementation(async () => ({ data: {
+      'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' },
+    }, errors: {} }));
+    readRevision.mockResolvedValueOnce({ version: '7', modifiedTime: null }).mockResolvedValueOnce(null);
+    const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive: false });
+    expect(result.loaded).toEqual([]);
+    expect(result.retryableFailures).toEqual(['УО']);
+    expect(cachedBooks['УО']).toBeUndefined();
+    expect(saveWatermark).not.toHaveBeenCalled();
+    resetSourcePrints();
+  });
+
   it('retries loading saved watermarks after a database read failure', async () => {
     const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
     resetSourcePrints();

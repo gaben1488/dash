@@ -33,6 +33,7 @@ vi.mock('./snapshot.js', () => ({
 }));
 
 vi.mock('./file-revision.js', () => ({
+  readRevision: vi.fn(async () => null),
   checkFileChanged: vi.fn(async () => 'unknown' as const),
   forgetRevision: vi.fn(),
   lastKnownRevision: vi.fn(() => null),

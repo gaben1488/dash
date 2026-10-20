@@ -19,6 +19,7 @@ vi.mock('./snapshot.js', () => ({
   setSvodLoadFailure: vi.fn(), getSvodLoadFailure: () => null, invalidateCache: vi.fn(),
 }));
 vi.mock('./file-revision.js', () => ({
+  readRevision: vi.fn(async () => null),
   checkFileChanged: vi.fn(), lastKnownRevision: () => null,
   forgetRevision: vi.fn(), seedRevision: vi.fn(),
 }));

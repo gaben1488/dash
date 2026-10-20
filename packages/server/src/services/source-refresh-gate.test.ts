@@ -41,6 +41,7 @@ const checkFileChanged = vi.fn(async (fileId: string) => verdicts.get(fileId) ??
 const forgetRevision = vi.fn();
 
 vi.mock('./file-revision.js', () => ({
+  readRevision: vi.fn(async () => null),
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [string])),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [string])),
   // Свидетельство «была прежняя отметка» здесь не проверяется — гейт отвечает

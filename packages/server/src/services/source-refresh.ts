@@ -23,7 +23,7 @@ import {
   getSvodLoadFailure,
 } from './snapshot.js';
 import { sheetFingerprint } from './sheet-fingerprint.js';
-import { checkFileChanged, forgetRevision, lastKnownRevision, seedRevision } from './file-revision.js';
+import { checkFileChanged, forgetRevision, lastKnownRevision, readRevision, seedRevision } from './file-revision.js';
 import {
   SVOD_WATERMARK_KEY,
   loadWatermarks,
@@ -486,6 +486,12 @@ export function refreshAllSources(log?: {
     );
     const booksToRead = gate.books;
     const readSvod = gate.svod;
+    // Pin the pre-read revision. Forced reads bypass the skip gate, but must
+    // still detect edits made while Sheets values/formulas are being acquired.
+    const acquisitionRevisions = new Map(await Promise.all(booksToRead.map(async name => {
+      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      return [name, await readRevision(fileId)] as const;
+    })));
 
     const [{ data, errors }, svodRead] = await Promise.all([
       // Пустая цель — это НЕ «читай всё»: у fetchDepartmentSpreadsheets пустой
@@ -508,6 +514,18 @@ export function refreshAllSources(log?: {
             .catch((error: unknown) => ({ error }))
         : Promise.resolve(null),
     ]);
+    await Promise.all(Object.keys(data).map(async name => {
+      const beforeRevision = acquisitionRevisions.get(name);
+      // Unavailable metadata retains the existing unverified live-read mode;
+      // it must never be advertised as a sealed report source revision.
+      if (!beforeRevision || (beforeRevision.version === null && beforeRevision.modifiedTime === null)) return;
+      const afterRevision = await readRevision(DEPARTMENT_SPREADSHEETS[name]);
+      if (!afterRevision || beforeRevision.version !== afterRevision.version
+          || beforeRevision.modifiedTime !== afterRevision.modifiedTime) {
+        Reflect.deleteProperty(data, name);
+        errors[name] = afterRevision ? 'SOURCE_CHANGED_DURING_READ' : 'SOURCE_REVISION_RECHECK_UNAVAILABLE';
+      }
+    }));
     // Publish both sides only after acquisition has finished, without yielding
     // between cache updates. Parallel reads do not prove atomic Google revisions.
     const svodResult = (() => {
@@ -556,8 +574,7 @@ export function refreshAllSources(log?: {
           saveWatermark(SVOD_WATERMARK_KEY, svodResult.print, at);
         }
         for (const [name, print] of nextPrints) {
-          const fileId = DEPARTMENT_SPREADSHEETS[name];
-          const revision = fileId ? lastKnownRevision(fileId) : null;
+          const revision = acquisitionRevisions.get(name) ?? null;
           saveWatermark(name, print, at, revision ?? undefined);
         }
         for (const name of gate.attested) {
@@ -584,7 +601,13 @@ export function refreshAllSources(log?: {
       svodPrint = svodResult.print;
     }
     setDeptSheetCache(data, Object.keys(errors));
-    for (const [name, print] of nextPrints) bookPrints.set(name, print);
+    for (const [name, print] of nextPrints) {
+      bookPrints.set(name, print);
+      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      forgetRevision(fileId);
+      const revision = acquisitionRevisions.get(name);
+      if (revision) seedRevision(fileId, revision);
+    }
     for (const { name, modifiedTime } of gaps) {
       log?.warn(`Журнал: по книге «${name}» изменение было, содержание не установлено`
         + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''));
