@@ -49,7 +49,7 @@
  */
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource } from './changelog-source.js';
+import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource, changelogInputKey } from './changelog-source.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export { CHANGELOG_SHEET_NAME };
@@ -143,8 +143,8 @@ export function parseProvenanceJournal(rows: readonly unknown[][], reading?: { s
 }
 
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
-const cache = new Map<string, { spreadsheetId: string; journal: BookJournal }>();
-const inFlight = new Map<string, { spreadsheetId: string; request: Promise<BookJournal> }>();
+const cache = new Map<string, { spreadsheetId: string; key: string | null; journal: BookJournal }>();
+const inFlight = new Map<string, { spreadsheetId: string; key: string | null; request: Promise<BookJournal> }>();
 
 /**
  * Сбрасывает окно кэша — нужен тестам и ручной перечитке. Сбрасывается И общий
@@ -168,15 +168,19 @@ export async function readBookJournal(
   now: number = Date.now(),
 ): Promise<BookJournal> {
   const cached = cache.get(dept);
-  if (cached?.spreadsheetId === spreadsheetId && now - cached.journal.readAt < CACHE_TTL_MS) return cached.journal;
+  const key = changelogInputKey({ [dept]: spreadsheetId });
+  if (cached?.spreadsheetId === spreadsheetId && cached.key === key
+      && (key !== null || now - cached.journal.readAt < CACHE_TTL_MS)) return cached.journal;
   if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
   const pending = inFlight.get(dept);
-  if (pending?.spreadsheetId === spreadsheetId) return pending.request;
+  if (pending?.spreadsheetId === spreadsheetId && pending.key === key) return pending.request;
 
   const request = readChangelogReading(dept, spreadsheetId, now).then((reading): BookJournal => {
     const { records, rowKeyless } = parseProvenanceJournal(reading.rows, reading);
     const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, readAt: reading.at };
-    if (inFlight.get(dept)?.request === request) cache.set(dept, { spreadsheetId, journal });
+    if (inFlight.get(dept)?.request === request && changelogInputKey({ [dept]: spreadsheetId }) === key) {
+      cache.set(dept, { spreadsheetId, key, journal });
+    }
     return journal;
   }).catch((err): BookJournal => {
     // Отказ не становится успешным пустым чтением и не кэшируется.
@@ -185,7 +189,7 @@ export async function readBookJournal(
   }).finally(() => {
     if (inFlight.get(dept)?.request === request) inFlight.delete(dept);
   });
-  inFlight.set(dept, { spreadsheetId, request });
+  inFlight.set(dept, { spreadsheetId, key, request });
   return request;
 }
 

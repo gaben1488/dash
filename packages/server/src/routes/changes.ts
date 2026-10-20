@@ -6,8 +6,8 @@
  * с автором, временем и адресом); разбор — services/changelog.ts.
  *
  * ?since=YYYY-MM-DD — явная дата; без параметра — четверг предыдущей
- * календарной недели в 18:00 по Камчатке. Кэш пять минут: журналы суммарно
- * ~37 тыс. строк, дёргать девять книг на каждый рендер страницы незачем.
+ * календарной недели в 18:00 по Камчатке. Кэш привязан к версиям книг;
+ * пятиминутное окно остаётся только для неизвестных версий.
  *
  * Прочитанное оседает в таблице changelog_entries и оттуда же отдаётся
  * (пирамида, блок Е п.23): память процесса теряла всю историю правок при
@@ -20,11 +20,11 @@ import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@a
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
-import { readChangelogRows } from '../services/changelog-source.js';
+import { readChangelogRows, changelogInputKey } from '../services/changelog-source.js';
 import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null = null;
+let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDepts: string[] } | null = null;
 
 /**
  * Журналы всех книг. Книга, которая НЕ ответила, попадает в failedDepts:
@@ -38,7 +38,8 @@ let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null
  * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
 async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
-  if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
+  const key = changelogInputKey(DEPARTMENT_SPREADSHEETS);
+  if (cache && cache.key === key && (key !== null || Date.now() - cache.at < CACHE_TTL_MS)) {
     // fresh=false: эти записи уже сохранялись при чтении, наполнившем кэш.
     // Гонять транзакцию на 37 тыс. записей ради нулевого прироста на каждый
     // рендер страницы незачем.
@@ -56,7 +57,9 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
     }
   }));
   const records = parts.flat();
-  if (failedDepts.length === 0) cache = { at: Date.now(), records, failedDepts };
+  if (failedDepts.length === 0 && changelogInputKey(DEPARTMENT_SPREADSHEETS) === key) {
+    cache = { at: Date.now(), key, records, failedDepts };
+  }
   return { records, failedDepts, fresh: true };
 }
 

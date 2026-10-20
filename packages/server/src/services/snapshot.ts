@@ -1021,3 +1021,8 @@ export function invalidateCache(): void {
   cacheGeneration++;
   for (const entry of cachedSnapshots.values()) entry.timestamp = 0;
 }
+
+/** Dependency identity for derived read models; elapsed time is not a change. */
+export function getSnapshotGeneration(): number {
+  return cacheGeneration;
+}

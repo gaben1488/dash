@@ -25,13 +25,16 @@
  * читаться сразу, а не числиться молчащей до конца окна.
  */
 import { getSheetDataFromSpreadsheet } from './google-sheets.js';
+import { knownFileRevisionKey } from './file-revision.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export const CHANGELOG_SHEET_NAME = '_ChangeLog';
 
 /**
- * Окно кэша. Пять минут — то же значение, что было у обоих прежних читателей;
- * менять его здесь значило бы менять свежесть страниц, а не устранять дубль.
+ * Только запасное окно для источника без известной версии. Подтверждённая
+ * версия координатора сохраняет чтение до изменения или ручного сброса.
+ * Этот читатель не опрашивает Drive сам: все потребители используют одну
+ * уже известную отметку. Момент чтения при повторном использовании не меняется.
  */
 export const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -39,13 +42,24 @@ interface CachedRows {
   spreadsheetId: string;
   rows: unknown[][];
   at: number;
+  revision: string | null;
 }
 
 const cache = new Map<string, CachedRows>();
-const inFlight = new Map<string, { spreadsheetId: string; request: Promise<CachedRows> }>();
+const inFlight = new Map<string, { spreadsheetId: string; revision: string | null; request: Promise<CachedRows> }>();
+let resetGeneration = 0;
+
+/** Complete known source identity, including explicit rereads; null means unproven. */
+export function changelogInputKey(books: Readonly<Record<string, string>>): string | null {
+  const entries = Object.entries(books).sort(([a], [b]) => a.localeCompare(b))
+    .map(([dept, id]) => [dept, id, knownFileRevisionKey(id)]);
+  return entries.length > 0 && entries.every(entry => entry[2] !== null)
+    ? JSON.stringify([resetGeneration, entries]) : null;
+}
 
 /** Сбрасывает окно — нужен стражам и ручной перечитке. */
 export function resetChangelogSource(): void {
+  resetGeneration++;
   cache.clear();
   inFlight.clear();
 }
@@ -82,22 +96,24 @@ export async function readChangelogReading(
   now: number = Date.now(),
 ): Promise<CachedRows> {
   const cached = cache.get(dept);
-  if (cached?.spreadsheetId === spreadsheetId && now - cached.at < CHANGELOG_CACHE_TTL_MS) return cached;
+  const revision = knownFileRevisionKey(spreadsheetId);
+  if (cached?.spreadsheetId === spreadsheetId && cached.revision === revision
+      && (revision !== null || now - cached.at < CHANGELOG_CACHE_TTL_MS)) return cached;
   if (cached && cached.spreadsheetId !== spreadsheetId) cache.delete(dept);
 
   const pending = inFlight.get(dept);
-  if (pending?.spreadsheetId === spreadsheetId) return pending.request;
+  if (pending?.spreadsheetId === spreadsheetId && pending.revision === revision) return pending.request;
 
   const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME, true)
     .then((rows) => {
-      const reading = { spreadsheetId, rows, at: now };
-      if (inFlight.get(dept)?.request === request) cache.set(dept, reading);
+      const reading = { spreadsheetId, rows, at: now, revision };
+      if (inFlight.get(dept)?.request === request && knownFileRevisionKey(spreadsheetId) === revision) cache.set(dept, reading);
       return reading;
     })
     .finally(() => {
       if (inFlight.get(dept)?.request === request) inFlight.delete(dept);
     });
 
-  inFlight.set(dept, { spreadsheetId, request });
+  inFlight.set(dept, { spreadsheetId, revision, request });
   return request;
 }

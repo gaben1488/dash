@@ -59,7 +59,9 @@ import {
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { readDeptRowsById } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
-import { readAllBookJournals, type BookJournal } from '../services/provenance-journal.js';
+import { readAllBookJournals, resetProvenanceJournalCache, type BookJournal } from '../services/provenance-journal.js';
+import { changelogInputKey } from '../services/changelog-source.js';
+import { getSnapshotGeneration } from '../services/snapshot.js';
 
 /** Что удалось прочитать по строкам одной книги. */
 interface BookRows {
@@ -208,13 +210,15 @@ function unmeasuredNote(dept: string, rowsRead: boolean, journal: BookJournal): 
   );
 }
 
-/** Кэш ответа: пять минут — как у журналов, которые он и читает. */
+/** Known journal + row generations survive idle time; TTL only covers unknown revisions. */
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cached: { at: number; response: WorkloadResponse } | null = null;
+let cached: { at: number; key: string | null; generation: number; response: WorkloadResponse } | null = null;
+let pending: { key: string | null; generation: number; request: Promise<WorkloadResponse> } | null = null;
 
 /** Сбрасывает окно кэша — нужен тестам и ручной перечитке. */
 export function resetWorkloadCache(): void {
   cached = null;
+  pending = null;
 }
 
 export async function buildWorkloadResponse(now: number = Date.now()): Promise<WorkloadResponse> {
@@ -392,12 +396,28 @@ export async function workloadRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/workload', async (request, reply) => {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
+    if (fresh) resetProvenanceJournalCache();
     const now = Date.now();
-    if (!fresh && cached && now - cached.at < CACHE_TTL_MS) {
+    const key = changelogInputKey(DEPARTMENT_SPREADSHEETS);
+    const generation = getSnapshotGeneration();
+    if (!fresh && cached && cached.key === key && cached.generation === generation
+        && (key !== null || now - cached.at < CACHE_TTL_MS)) {
       return reply.send(cached.response);
     }
-    const response = await buildWorkloadResponse(now);
-    cached = { at: now, response };
-    return reply.send(response);
+    if (!fresh && pending?.key === key && pending.generation === generation) {
+      return reply.send(await pending.request);
+    }
+    const requestBuild = buildWorkloadResponse(now).then(response => {
+      if (pending?.request === requestBuild) {
+        cached = response.coverage.complete && response.booksSilent.length === 0
+          && changelogInputKey(DEPARTMENT_SPREADSHEETS) === key && getSnapshotGeneration() === generation
+          ? { at: now, key, generation, response } : null;
+      }
+      return response;
+    }).finally(() => {
+      if (pending?.request === requestBuild) pending = null;
+    });
+    pending = { key, generation, request: requestBuild };
+    return reply.send(await requestBuild);
   });
 }

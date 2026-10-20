@@ -1,10 +1,23 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import { seedRevision, forgetRevision, resetRevisionMemory } from './file-revision.js';
 const source = vi.hoisted(() => vi.fn());
 vi.mock('./google-sheets.js', () => ({ getSheetDataFromSpreadsheet: source }));
 vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: {} }));
 const { readBookJournal, resetProvenanceJournalCache } = await import('./provenance-journal.js');
 const rows = (value: unknown): unknown[][] => [['ВСЕ', 'H7', 'H', '173', value, 'updated', '2026-10-13', null]];
-beforeEach(() => { source.mockReset(); resetProvenanceJournalCache(); });
+beforeEach(() => { source.mockReset(); resetRevisionMemory(); resetProvenanceJournalCache(); });
+it('preserves parsed provenance for unchanged days and rereads a new revision immediately', async () => {
+  seedRevision('file-A', { version: '1', modifiedTime: null });
+  source.mockResolvedValueOnce(rows('original')).mockResolvedValueOnce(rows('changed'));
+  const original = await readBookJournal('УО', 'file-A', 1000);
+  expect(await readBookJournal('УО', 'file-A', 1000 + 2 * 86400000)).toBe(original);
+  expect(original.records[0].source?.readAt).toBe(1000);
+  expect(source).toHaveBeenCalledTimes(1);
+  forgetRevision('file-A');
+  seedRevision('file-A', { version: '2', modifiedTime: null });
+  expect((await readBookJournal('УО', 'file-A', 1000 + 2 * 86400000 + 1)).records[0].was).toBe('changed');
+  expect(source).toHaveBeenCalledTimes(2);
+});
 it('concurrent cold parsed consumers share one result and preserve originals', async () => {
   let release!: (rows: unknown[][]) => void;
   source.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));

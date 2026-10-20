@@ -10,6 +10,7 @@
  *   3. Отказ книги НЕ кэшируется: ожившая через минуту книга читается сразу.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { seedRevision, forgetRevision, resetRevisionMemory } from './file-revision.js';
 
 const getSheetDataFromSpreadsheet = vi.fn();
 
@@ -23,6 +24,46 @@ const { readChangelogRows, resetChangelogSource, changelogReadAt, CHANGELOG_CACH
 beforeEach(() => {
   getSheetDataFromSpreadsheet.mockReset();
   resetChangelogSource();
+  resetRevisionMemory();
+});
+
+it('reuses an unchanged observed revision after two idle days, then reads a changed revision immediately', async () => {
+  seedRevision('book-uo', { version: '1', modifiedTime: null });
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['old']]).mockResolvedValueOnce([['new']]);
+  const first = await readChangelogRows('УО', 'book-uo', 1000);
+  expect(await readChangelogRows('УО', 'book-uo', 1000 + 2 * 86400_000)).toBe(first);
+  expect(changelogReadAt('УО')).toBe(1000);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledOnce();
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  expect(await readChangelogRows('УО', 'book-uo', 1001)).toEqual([['new']]);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
+});
+
+it('does not cache a journal under a revision that changed while the request was running', async () => {
+  seedRevision('book-uo', { version: '1', modifiedTime: null });
+  let finish!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValueOnce([['new']]);
+  const pending = readChangelogRows('УО', 'book-uo', 1000);
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  finish([['old']]);
+  await pending;
+  expect(changelogReadAt('УО')).toBeNull();
+  expect(await readChangelogRows('УО', 'book-uo', 1001)).toEqual([['new']]);
+});
+
+it('a revision change in one book does not reread the unchanged neighbouring book', async () => {
+  for (const id of ['book-uo', 'book-uio']) seedRevision(id, { version: '1', modifiedTime: null });
+  getSheetDataFromSpreadsheet.mockResolvedValue([['entry']]);
+  await readChangelogRows('УО', 'book-uo', 1000);
+  const neighbour = await readChangelogRows('УИО', 'book-uio', 1000);
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  await readChangelogRows('УО', 'book-uo', 2 * 86400_000);
+  expect(await readChangelogRows('УИО', 'book-uio', 2 * 86400_000)).toBe(neighbour);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(3);
 });
 
 describe('окно чтения', () => {
