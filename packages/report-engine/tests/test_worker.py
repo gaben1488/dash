@@ -86,6 +86,7 @@ def test_manual_request_bypasses_unchanged_input_and_poll_delay(tmp_path, monkey
 def test_probe_tracks_full_input_and_week_without_downloading_grids(tmp_path):
     import json
     from datetime import datetime
+
     from procurement_engine.worker import input_revision
     registry = tmp_path / 'registry.json'
     ledger = tmp_path / 'ledger.json'
@@ -93,7 +94,8 @@ def test_probe_tracks_full_input_and_week_without_downloading_grids(tmp_path):
     ledger.write_text('[]')
     class Metadata:
         version = '1'
-        calls = []
+        def __init__(self):
+            self.calls = []
         def revision(self, provider):
             self.calls.append(provider)
             return self.version

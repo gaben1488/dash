@@ -9,6 +9,7 @@ from procurement_engine.google_adapter import (
     GoogleSheetSourceAdapter,
 )
 
+
 def test_values_preserve_date_formatted_purchase_number(monkeypatch):
     client = GoogleReadClient('synthetic')
     def get(url, params):
