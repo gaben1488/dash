@@ -234,7 +234,7 @@ def _validate(root):
         raise PublicationError('SNAPSHOT_CORRUPT')
     if any(manifest.get(k) != snapshot[k] for k in ('snapshot_id', 'report_date', 'cutoff_at', 'rules_version', 'renderer_version')):
         raise PublicationError('SNAPSHOT_MODEL_MISMATCH')
-    for key in ('report_year', 'report_scope', 'archive_origin'):
+    for key in ('report_year', 'report_scope', 'archive_origin', 'source_revision'):
         if manifest.get(key) != snapshot.get(key):
             raise PublicationError('SNAPSHOT_MODEL_MISMATCH')
     bundle = _json(root / 'snapshot_bundle/bundle.json')

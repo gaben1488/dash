@@ -43,6 +43,7 @@ def test_worker_consumes_the_coordinator_file_and_verifies_its_receipt(tmp_path)
     import hashlib
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
     from procurement_engine.shared_input import request_source_input
 
     attempt = tmp_path / ('a' * 32)
@@ -77,8 +78,8 @@ def test_worker_consumes_the_coordinator_file_and_verifies_its_receipt(tmp_path)
         thread.join()
 
 def test_runtime_does_not_fall_back_to_independent_capture_if_coordinator_fails(tmp_path, monkeypatch):
-    import procurement_engine.runtime as runtime
     import procurement_engine.shared_input as shared
+    from procurement_engine import runtime
     registry, ledger = inputs(tmp_path)
     monkeypatch.setenv('REPORT_SOURCE_COORDINATOR_URL', 'http://coordinator.invalid')
     monkeypatch.setenv('AEMR_API_KEY', 'test-key')
@@ -100,8 +101,8 @@ def test_runtime_does_not_fall_back_to_independent_capture_if_coordinator_fails(
     assert status['error_code'] == 'SHARED_SOURCE_RECEIPT_INVALID'
 
 def test_source_revision_is_preserved_in_report_manifest_and_detects_mutation(tmp_path):
-    from procurement_engine.shared_input import acquire_dashboard
     from procurement_engine.raw_pipeline import bundle_from_capture
+    from procurement_engine.shared_input import acquire_dashboard
     registry_path, _ = inputs(tmp_path)
     registry = json.loads(registry_path.read_text())
     target = tmp_path / 'capture.json'
@@ -114,8 +115,8 @@ def test_source_revision_is_preserved_in_report_manifest_and_detects_mutation(tm
         bundle_from_capture(saved, registry)
 
 def test_source_revision_survives_order_and_legacy_reader_metadata(tmp_path):
-    from procurement_engine.shared_input import acquire_dashboard
     from procurement_engine.raw_pipeline import bundle_from_capture
+    from procurement_engine.shared_input import acquire_dashboard
     registry_path, _ = inputs(tmp_path)
     registry = json.loads(registry_path.read_text())
     target = tmp_path / 'capture.json'
@@ -125,3 +126,21 @@ def test_source_revision_survives_order_and_legacy_reader_metadata(tmp_path):
     for source in saved['sources']:
         source['capture_method'] = 'connector_bounded_ranges'
     assert bundle_from_capture(saved, registry).manifest['source_revision'] == saved['source_revision']
+
+def test_publication_rejects_a_source_context_that_differs_from_its_model(tmp_path):
+    import hashlib
+
+    from procurement_engine.publication_store import PublicationError, _validate
+    from test_publication_store import candidate
+    root = tmp_path / 'candidate'
+    candidate(root)
+    manifest_path = root / 'snapshot_bundle/manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['source_revision'] = 'SRC-' + 'a' * 64
+    manifest_path.write_text(json.dumps(manifest))
+    meta_path = root / 'snapshot_bundle/bundle.json'
+    meta = json.loads(meta_path.read_text())
+    meta['manifest_sha256'] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(PublicationError, match='SNAPSHOT_MODEL_MISMATCH'):
+        _validate(root)
