@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store';
-import { isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
+import { DEPARTMENT_REGISTRY, isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
 import clsx from 'clsx';
 import { compactSubordinateLabel } from '../lib/subordinate-label';
 import { ChevronDown } from 'lucide-react';
@@ -17,10 +17,9 @@ import { SourceCoverageNotice } from './SourceCoverageNotice';
    - Strip width: 120px
    ═══════════════════════════════════════════════════════════════════ */
 
-const DEPT_ABBR: Record<string, string> = {
-  'УЭР': 'УЭР', 'УИО': 'УИО', 'УАГЗО': 'УАГЗО', 'УФБП': 'УФБП',
-  'УД': 'УД', 'УДТХ': 'УДТХ', 'УКСиМП': 'УКСиМП', 'УО': 'УО',
-};
+const DEPT_ABBR: Record<string, string> = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map(dept => [dept.id, dept.shortName]),
+);
 
 // Палитра ГРБС без синего/индиго (итерация палитры 07.08: кнопки-чипы —
 // кремово-тёплые вместо синих; различимость 8 тонов сохранена).

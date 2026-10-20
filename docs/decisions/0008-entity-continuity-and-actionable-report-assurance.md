@@ -115,3 +115,69 @@ Tests must cover original row addresses through parser/API/UI, exact repeats,
 authors/known flags/sheets/physical cells, conflicting equal-time observations,
 input permutations and an independent arithmetic example. This change is a
 bounded witness-preservation vertical, not acceptance of the complete journal.
+
+## 2026-10-21: reviewed customer-name migration
+
+The saved 20 October release reproduces 2,388 included rows without UIDs. The
+large discontinuity starts at observation 118 (11 October), after the documented
+R→E customer-directory migration. Shared's `SUBORDINATE_REGISTRY` already records
+the approved old/current spellings; the report identity ledger did not use it.
+
+New rules package those same reviewed aliases, with a parity test against shared.
+Only customer spelling is projected for matching; raw rows, legacy fingerprints,
+old observation results and issued documents remain unchanged. The evidence scope
+is current state plus sealed weekly Thursday-evening cuts, as confirmed by the
+owner on 21 October. Intermediate daily readings (including 6 October) are not
+required archives; their absent metadata is not a defect. The retained cuts
+must agree on source, department, reviewed customer, full subject, activity, year,
+program/subprogram and non-empty business number. The complete compound key must
+be unique in each retained cut. Distinct business numbers may distinguish repeated
+subjects; a number alone, price, fuzzy name, missing retained weekly evidence or changed context
+cannot establish continuity. Missing legacy entity fingerprints remain unresolved.
+A unique complete current compound key may establish a new current identity
+when historical continuity cannot be proved. An empty A-label is acceptable when
+the complete current entity itself is unique. This is explicitly labelled
+`CURRENT_IDENTITY_ESTABLISHED`, with `historical_uid_recovered=false`; it does not
+confirm old recommendation links. The new matching path is explicitly enabled
+for new raw-pipeline snapshots.
+
+Assurance v3 preserves repeated-A groups and every address as observations rather
+than assigning a generator defect from a non-unique label alone. Actual missing
+UIDs remain separate engine work. Published assurance v1/v2 is replayed with its
+original rules and is never rewritten to make counts smaller.
+
+
+Measured on the saved 20 October release
+`REL-fa210259823dafab603bc5e6da0444c43d71cce1b81fa9bf3618e4eaeaac0673`
+(source model SHA256 `0d87001a30f874d2dee3d80d81b7fe07ab2a19b655de8fdba497461f15514d05`),
+using only its current observation and verified WEEKLY-2026-10-01/08/15 inputs:
+2,335 of the 2,388 included rows recover their previous identity; 53 establish
+current identity without claiming historical continuity. No included row remains
+without a current UID, and all 702 previously assigned UIDs are preserved.
+The 14 repeated-A groups retain all 28 locations as neutral observations.
+No missing intermediate archive is required; weekly/current metadata recovery
+reports zero missing donors. These are isolated identity/assurance measurements,
+not acceptance of recommendation execution or a production installation.
+The full publication validator passed an earlier candidate before the final weekly
+scope/current-identity changes; that result is not a release gate for this final
+candidate. Production tables, identity state and issued Word files were untouched.
+
+
+## 2026-10-21: department labels and working forecast-rate context
+
+Owner confirms current labels УФ and УДТХиБ. Keep persisted department/source
+keys stable; resolve both old/current names and use registry labels for display.
+Source scope lookup uses identity keys, never mutable display labels.
+
+Live source read, confirmed by the owner, locates the forecast at R30:U32,
+shares at A30:E32 and its EA plan-minus-fact base at K1:O2. The previous
+claim that the tier was deleted was stale and is superseded. Restore these
+readers with legacy layout compatibility. Forecast = the same table base ×
+selected rate / 100, per budget and total; never substitute a different pending
+plan definition. This is a scenario, not NMCK or AD-approved saving.
+The live rate uses money-weighted awarded procedures with an auction date in the
+12 calendar months ending at the monitoring source's Kamchatka as-of day. Return
+window, dates, count and monetary denominator. Do not mix the current live rate
+into an archived report; missing rate/partial source is explicit, never a hidden
+8% substitution. Read failures can be retried and stale requests cannot overwrite
+an invalidated source. Existing switches and page geometry remain.

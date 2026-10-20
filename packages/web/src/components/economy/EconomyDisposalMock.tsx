@@ -38,7 +38,7 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
     explain:
       'Экономия утверждена, но её судьбу ещё никто не решал. Сумма числится '
       + 'за строкой-источником и ждёт: либо заявки ГРБС на перераспределение, '
-      + 'либо решения УФБП об изъятии.',
+      + 'либо решения УФ об изъятии.',
     fill: '#3b82f6',
     dot: 'bg-blue-500',
     text: 'text-blue-600 dark:text-blue-400',
@@ -48,7 +48,7 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
     label: 'Оставлена ГРБС',
     amount: 8_100_000, // МАКЕТ
     explain:
-      'УФБП решил не забирать — дальше распоряжается сам ГРБС и распределяет '
+      'УФ решил не забирать — дальше распоряжается сам ГРБС и распределяет '
       + 'сумму внутри своих закупок (п.99/68). В книге управления появятся '
       + 'строки-приёмники на эти деньги.',
     fill: '#10b981',
@@ -57,7 +57,7 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
   },
   {
     key: 'takenByUfbp',
-    label: 'Изъята УФБП',
+    label: 'Изъята УФ',
     amount: 5_600_000, // МАКЕТ
     explain:
       'Финансовый орган забрал экономию: деньги отданы другому ГРБС или '
@@ -72,7 +72,7 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
     label: 'Спорная',
     amount: 2_300_000, // МАКЕТ
     explain:
-      'ГРБС просит УФБП не считать сумму экономией (например, закупка ещё '
+      'ГРБС просит УФ не считать сумму экономией (например, закупка ещё '
       + 'будет доторговываться). Арбитра в споре нет (п.99/71) — пока он не '
       + 'решён, сумма не распределяется и не изымается.',
     fill: '#f59e0b',
@@ -169,7 +169,7 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
         <div className="rounded-xl bg-purple-500/5 p-4 text-sm space-y-2" aria-live="polite">
           <p className="font-semibold">Выбрано: {selectedStatus.label}</p>
           <p>{selectedStatus.explain}</p>
-          <p className="text-zinc-500">Связь решения: исходная закупка → заявка ГРБС → решение УФБП → получатель или возврат → история. Текст комментария сам по себе не подтверждает финансовое решение.</p>
+          <p className="text-zinc-500">Связь решения: исходная закупка → заявка ГРБС → решение УФ → получатель или возврат → история. Текст комментария сам по себе не подтверждает финансовое решение.</p>
         </div>
         {/* ── Шов с заявкой на перераспределение (п.99/68-69): кнопка-заглушка.
               Disabled-кнопка не показывает title в части браузеров — тултип
@@ -177,7 +177,7 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
         <div className="flex items-center justify-between gap-3 flex-wrap pt-1 border-t border-zinc-200/70 dark:border-white/[0.04]">
           <p className="text-sm text-zinc-500 leading-relaxed max-w-xl">
             Свободная экономия — кандидат на заявку: ГРБС подаёт заявку на
-            перераспределение, УФБП решает «забирать или нет» (п.99/68).
+            перераспределение, УФ решает «забирать или нет» (п.99/68).
             Пять состояний согласованы. Отправка станет доступна после подключения
             подтверждённых данных, прав и хранилища решений.
           </p>

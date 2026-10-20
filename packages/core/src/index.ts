@@ -134,7 +134,7 @@ export type {
 // Аналитика вкладки: воронка, три коэффициента снижения, поставщики, сроки, сезонность
 export {
   deptComparison, detectAnomalies, discountBucketOf, discountHistogram, median,
-  monitoringAnalytics, nmckBucketOf, nmckBuckets, quantile, reductionCoefficients,
+  monitoringAnalytics, rollingReductionCoefficients, nmckBucketOf, nmckBuckets, quantile, reductionCoefficients,
   seasonality, stageDurations, stageFunnel, supplierCustomerPairs, supplierProfile,
   unsuccessfulProcedures,
 } from './monitoring/analytics.js';

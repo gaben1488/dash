@@ -597,6 +597,8 @@ export function StavkaDrum() {
   const setStavkaMode = useStore((s) => s.setStavkaMode);
   const liveStavka = useStore((s) => s.liveStavka);
   const liveStavkaAbsent = useStore((s) => s.liveStavkaAbsent);
+  const liveStavkaError = useStore(s => s.liveStavkaError);
+  const liveStavkaRevision = useStore(s => s.liveStavkaRevision);
   const fetchLiveStavka = useStore((s) => s.fetchLiveStavka);
   const dashboardData = useStore((s) => s.dashboardData);
   const formatMoney = useStore((s) => s.formatMoney);
@@ -605,7 +607,7 @@ export function StavkaDrum() {
   // событию эфира (monitoring-updated → invalidateLiveStavka обнуляет оба
   // исхода) эффект просыпается от изменения зависимостей и перезапрашивает
   // свежий коэффициент. При заполненном исходе fetchLiveStavka выходит сразу.
-  useEffect(() => { void fetchLiveStavka(); }, [fetchLiveStavka, liveStavka, liveStavkaAbsent]);
+  useEffect(() => { void fetchLiveStavka(); }, [fetchLiveStavka, liveStavka, liveStavkaAbsent, liveStavkaRevision]);
 
   // План года — сумма планов восьми ГРБС (тыс. руб.); от него обе суммы
   // ожидаемой экономии. Данных ещё нет — подсказка живёт без сумм.
@@ -628,13 +630,16 @@ export function StavkaDrum() {
   // Причина недоступности «живого» — два РАЗНЫХ исхода, две разные фразы:
   // «замер не существует» — знание из книги, «ещё не получен» — ожидание сети.
   const noMeasure = livePct === null;
-  const absentReason = liveStavkaAbsent
+  const absentReason = liveStavkaError
+    ? `Не удалось получить коэффициент: ${liveStavkaError}. Повторите чтение.`
+    : liveStavkaAbsent
     ? 'Состоявшихся торгов за 12 месяцев нет — живой коэффициент не существует. Действует норматив 8 %.'
     : 'Живой коэффициент ещё не получен из книги мониторинга — действует норматив 8 %.';
 
   const liveTitle = noMeasure
     ? `${absentReason} ${sumsLine} ${tail}`
     : `Живой коэффициент ${fmtPct2(livePct)} % — фактические снижения состоявшихся торгов за скользящие двенадцать месяцев` +
+      `${liveStavka?.window ? `, ${liveStavka.window.from} — ${liveStavka.window.to}, без даты: ${liveStavka.window.undated}` : ''}` +
       `${measured ? ` (замер ${measured}` : ' ('}${liveStavka?.q1 != null && liveStavka?.q3 != null
         ? `, разброс ${fmtPct2(liveStavka.q1)}–${fmtPct2(liveStavka.q3)} %` : ''}` +
       `${liveStavka?.count ? `, ${liveStavka.count} процедур` : ''}). ${sumsLine} ${tail}`;
@@ -661,6 +666,8 @@ export function StavkaDrum() {
           : 'Считать по живому коэффициенту снижения'}
         title={liveTitle}
       >{noMeasure ? 'живой' : `живой ${fmtPct2(livePct)} %`}</button>
+      {liveStavkaError && <button type="button" className="vf-btn vf-btn-sm"
+        onClick={() => void fetchLiveStavka()} title={absentReason}>Повторить</button>}
     </div>
   );
 }

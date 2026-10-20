@@ -541,7 +541,7 @@ def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
         recovery_diagnostics = {}
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
             *state.glob('published/releases/*/snapshot_bundle'),
-            *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+            *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics, weekly_only=True)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -575,7 +575,7 @@ def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
                 recovery_diagnostics = {}
                 history.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
                     *state.glob('published/releases/*/snapshot_bundle'),
-                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics, weekly_only=True)
                 result['identity_recovery'] = recovery_diagnostics
                 result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
             if skip_weekly:

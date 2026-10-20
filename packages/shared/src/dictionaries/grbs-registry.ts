@@ -109,7 +109,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   {
     id: 'УФБП',
     fullName: getDept('УФБП').fullName,
-    shortName: 'УФБП',
+    shortName: getDept('УФБП').shortName,
     svodSheetName: 'УФБП',
     hasSubordinates: false,
     subordinateCount: 0,
@@ -134,7 +134,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   {
     id: 'УДТХ',
     fullName: getDept('УДТХ').fullName,
-    shortName: 'УДТХ',
+    shortName: getDept('УДТХ').shortName,
     svodSheetName: 'УДТХ',
     hasSubordinates: false,
     subordinateCount: 0,
@@ -165,9 +165,11 @@ export const GRBS_ALIAS_MAP: Record<string, GrbsId> = {
   'УАГЗО': 'УАГиЗО',        // без «и» — основная форма в СВОД_ДЛЯ_GOOGLE
   'УИО': 'УИО',
   'УФБП': 'УФБП',
+  'УФ': 'УФБП',
   'УД': 'УД',
   'УЭР': 'УЭР',
   'УДТХ': 'УДТХ',
+  'УДТХиБ': 'УДТХ',
 
   // Исторические полные наименования: действующее имя — только в DEPARTMENT_REGISTRY.
   'Управление архитектуры, градостроительства и земельных отношений': 'УАГиЗО',

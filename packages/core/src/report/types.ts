@@ -314,6 +314,8 @@ export interface ReportPeriod {
    * даты адресуют хранение — снимок недели, — а живую ситуацию видно в эфире).
    */
   asOfDay?: number;
+  /** API context: live responses may also carry an addressing asOfDay. */
+  live?: boolean;
 }
 
 /** Результат buildReport — упорядоченная проекция для страницы «Отчёт». */

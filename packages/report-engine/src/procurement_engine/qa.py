@@ -141,7 +141,7 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
     for pid, rows in ids.items():
         if len(rows) > 1:
             issues.append(ValidationIssue(
-                "WARN", "DUPLICATE_BUSINESS_ID",
+                "INFO", "DUPLICATE_BUSINESS_ID",
                 f"{grbs}: A={pid} occurs on multiple rows; A alone cannot be a stable identity key",
                 {"grbs": grbs, "source_id": source_id, "sheet": sheet_name, "procurement_id": pid, "rows": rows}))
     return issues

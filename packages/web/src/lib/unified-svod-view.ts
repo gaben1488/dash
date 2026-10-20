@@ -224,7 +224,7 @@ export function sliceUnified(grid: UnifiedGrid, opts: SliceOptions): UnifiedSlic
   const sumEp = emptyCell();
 
   const departments = DEPARTMENT_REGISTRY.filter((d) =>
-    deptSelected(depts, d.latinId, d.shortName),
+    (deptSelected(depts, d.latinId, d.id) || depts?.has(d.shortName)),
   ).map((d) => {
     const grbsId = d.latinId;
     const kpCell = cellForScopes(grbsId, 'kp');

@@ -43,8 +43,8 @@ export interface DepartmentEntry {
   latinId: LatinDeptId;
   /** Полное наименование */
   fullName: string;
-  /** Краткое наименование (= id) */
-  shortName: DepartmentId;
+  /** Действующее краткое имя; ключ истории id остаётся стабильным. */
+  shortName: string;
 
   // ── Sheet resolution ──
   /** Имя вкладки в рабочей книге управления */
@@ -105,7 +105,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
   {
     id: 'УФБП', latinId: 'ufbp',
     fullName: 'Управление финансов администрации Елизовского муниципального округа',
-    shortName: 'УФБП',
+    shortName: 'УФ',
     sheetName: 'УФБП', hasSubordinates: false,
     svod: { kpQ1: 132, kpYear: 137, epQ1: 143, epYear: 148, totalCombined: 150, totalCurrent: 151, compShareRow: 153, epShareRow: 154 },
   },
@@ -119,7 +119,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
   {
     id: 'УДТХ', latinId: 'udtx',
     fullName: 'Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа',
-    shortName: 'УДТХ',
+    shortName: 'УДТХиБ',
     sheetName: 'УДТХ', hasSubordinates: false,
     svod: { kpQ1: 195, kpYear: 200, epQ1: 206, epYear: 211, totalCombined: 213, totalCurrent: 214, compShareRow: 216, epShareRow: 217 },
   },
@@ -181,7 +181,8 @@ export function getDeptByLatin(latinId: LatinDeptId): DepartmentEntry {
 
 /** Get department by either ID format (flexible lookup) */
 export function findDept(idOrLatin: string): DepartmentEntry | undefined {
-  return _byId.get(idOrLatin as DepartmentId) ?? _byLatinId.get(idOrLatin as LatinDeptId);
+  return _byId.get(idOrLatin as DepartmentId) ?? _byLatinId.get(idOrLatin as LatinDeptId)
+    ?? DEPARTMENT_REGISTRY.find(d => d.shortName === idOrLatin);
 }
 
 /** All 8 cyrillic IDs */

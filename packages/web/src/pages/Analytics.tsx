@@ -256,7 +256,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
   const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
 
   const deptOptions = useMemo(() =>
-    depts.map((d: any) => ({ id: d.department?.id ?? '', label: d.department?.nameShort ?? '?' })),
+    depts.map((d: any) => ({ id: d.department?.id ?? '', label: productLabel(d.department?.id ?? d.department?.nameShort ?? '?') })),
   [depts]);
 
   const loadForecast = useCallback(async (deptId: string) => {
@@ -444,14 +444,14 @@ export function Analytics() {
       const point: Record<string, any> = { name: PERIOD_LABELS[qk] };
       for (const d of filteredDepts) {
         const q = d.quarters?.[qk];
-        const name = d.department?.nameShort ?? d.department?.id ?? '?';
+        const name = productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?'));
         point[name] = q?.executionPct ?? null;
       }
       return point;
     });
   }, [filteredDepts]);
 
-  const deptNames = useMemo(() => filteredDepts.map((d: any) => d.department?.nameShort ?? d.department?.id ?? '?'), [filteredDepts]);
+  const deptNames = useMemo(() => filteredDepts.map((d: any) => productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?'))), [filteredDepts]);
 
   // Заголовок карточки прогноза приходит снизу: сам прогноз грузится
   // внутри карточки по выбранному управлению, а утверждение о нём должно
@@ -496,7 +496,7 @@ export function Analytics() {
     return filteredDepts.map((d: any, i: number) => {
       const q = d.quarters?.[periodKey] ?? {};
       return {
-        name: d.department?.nameShort ?? d.department?.id ?? '?',
+        name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
         planFB: q.planFB ?? 0, planKB: q.planKB ?? 0, planMB: q.planMB ?? 0,
         factFB: q.factFB ?? 0, factKB: q.factKB ?? 0, factMB: q.factMB ?? 0,
@@ -535,7 +535,7 @@ export function Analytics() {
   const trustData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => ({
-      name: d.department?.nameShort ?? d.department?.id ?? '?',
+      name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
       id: d.department?.id,
       trust: d.trustScore ?? 0,
     }));
@@ -547,7 +547,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => {
       const q = d.quarters?.[periodKey] ?? {};
       return {
-        dept: d.department?.nameShort ?? d.department?.id ?? '?',
+        dept: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
         execPct: q.executionPct ?? d.executionPercent ?? 0,
         planTotal: q.planTotal ?? d.planTotal,
@@ -565,7 +565,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => {
       const ba = d.byActivity?.[periodKey] ?? {};
       return {
-        name: d.department?.nameShort ?? '?',
+        name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         id: d.department?.id,
         // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
         // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
@@ -589,7 +589,7 @@ export function Analytics() {
       const cumulative = [q1f, q1f + q2f, q1f + q2f + q3f, q1f + q2f + q3f + q4f];
       const yearPlan = d.quarters?.year?.planTotal ?? 1;
       return {
-        name: d.department?.nameShort ?? '?',
+        name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         q1: yearPlan > 0 ? +((cumulative[0] / yearPlan) * 100).toFixed(1) : 0,
         q2: yearPlan > 0 ? +((cumulative[1] / yearPlan) * 100).toFixed(1) : 0,
         q3: yearPlan > 0 ? +((cumulative[2] / yearPlan) * 100).toFixed(1) : 0,
@@ -606,7 +606,7 @@ export function Analytics() {
       for (const sub of (d.subordinates ?? [])) {
         all.push({
           name: sub.name,
-          dept: d.department?.nameShort ?? '?',
+          dept: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           executionPct: sub.executionPct ?? 0,
           planTotal: sub.planTotal ?? 0,
           factTotal: sub.factTotal ?? 0,
@@ -714,7 +714,7 @@ export function Analytics() {
         const q = d.quarters?.[periodKey] ?? {};
         const fact = q.factTotal ?? d.factTotal ?? 0;
         return {
-          name: d.department?.nameShort ?? '?',
+          name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           id: d.department?.id,
           size: Math.max(fact, 0),
           fill: chartColors[i % chartColors.length],
@@ -1274,7 +1274,7 @@ export function Analytics() {
                         key={`${sub.name}-${idx}`}
                         className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
                         onClick={() => {
-                          const dept = filteredDepts.find((d: any) => (d.department?.nameShort ?? '?') === sub.dept);
+                          const dept = filteredDepts.find((d: any) => (productLabel(d.department?.id ?? d.department?.nameShort ?? '?')) === sub.dept);
                           if (dept?.department?.id) navigateTo('data', { department: dept.department.id, subordinate: sub.name });
                         }}
                         title="Открыть строки этой организации в Реестре"

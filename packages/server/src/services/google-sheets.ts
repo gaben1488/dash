@@ -714,7 +714,7 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
   const cached = resolvedSheetNameCache.get(cacheKey);
   if (cached) return cached;
 
-  const registryName = DEPARTMENT_REGISTRY.find(d => d.shortName === deptName)?.sheetName ?? deptName;
+  const registryName = DEPARTMENT_REGISTRY.find(d => (d.id === deptName || d.shortName === deptName))?.sheetName ?? deptName;
   const candidates = departmentSheetNameCandidates(registryName, deptName);
 
   try {
@@ -791,7 +791,7 @@ export async function readDeptSheet(
   options: DeptReadOptions = {},
 ): Promise<DeptSheetResult> {
   const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
-    DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
+    DEPARTMENT_REGISTRY.flatMap(d => [[d.id, d.sheetName], [d.shortName, d.sheetName]]),
   );
   const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
   const candidates = departmentSheetNameCandidates(sheetName, deptName);

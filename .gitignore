@@ -70,6 +70,7 @@ migrate_memory.py
 # закупок (учреждение, предмет, суммы, даты, способ) — то же, что в открытом
 # по ссылке СВОДе; ни ключей, ни учётных записей, ни персональных данных.
 !packages/core/src/report/__fixtures__/*.json
+!packages/report-engine/src/procurement_engine/customer_aliases.json
 
 # Old code references
 old/

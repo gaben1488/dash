@@ -624,10 +624,10 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         moneyByMethod: methodMoneyOf(g, qGroup),
         live: quarterLive,
         svod: input.svodGrid
-          ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
+          ? svodSplit(input.svodGrid, entry?.id ?? dept, quarter, year)
           : undefined,
         svodCells: input.svodGrid
-          ? svodCellRefs(input.svodGrid, entry?.shortName ?? dept, quarter, year)
+          ? svodCellRefs(input.svodGrid, entry?.id ?? dept, quarter, year)
           : undefined,
       },
       year: {
@@ -656,7 +656,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       ...(() => {
-        const svodYearMoney = svodYearMoneyOf(yearExtras, entry?.shortName ?? dept);
+        const svodYearMoney = svodYearMoneyOf(yearExtras, entry?.id ?? dept);
         return svodYearMoney ? { svodYearMoney } : {};
       })(),
       ...(() => {

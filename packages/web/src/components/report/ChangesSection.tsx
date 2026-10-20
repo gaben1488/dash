@@ -76,7 +76,7 @@ const HUMAN_ATTR: Partial<Record<keyof typeof DEPT_COLUMNS, string>> = {
   JUSTIFICATION: 'обоснование необходимости',
   COMMENT_GRBS: 'комментарий ГРБСа',
   COMMENT_UER: 'комментарий УЭР',
-  COMMENT_UFBP: 'комментарий УФБП',
+  COMMENT_UFBP: 'комментарий УФ',
   DEVIATION_REASON: 'причину отклонения',
 };
 

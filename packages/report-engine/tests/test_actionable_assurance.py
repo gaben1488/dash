@@ -19,6 +19,27 @@ def test_empty_fact_date_alone_does_not_create_a_task():
     assert result['user_action_count'] == 0
 
 
+def test_repeated_business_labels_with_distinct_uids_are_observations_with_all_addresses():
+    from procurement_engine.automation_assurance import assess_automation
+
+    details = [
+        {**asdict(row(row_number=number, source_row_no=label, procurement_uid=f'PUR-{number}', fact_mb=0)),
+         'physical_row_key': f'book:ВСЕ:{number}', 'included': True}
+        for number, label in ((10, '176'), (234, '176'), (14, '181'), (197, '181'))
+    ]
+    issues = [{'severity': 'WARN', 'code': 'DUPLICATE_BUSINESS_ID',
+               'context': {'grbs': 'УО', 'source_id': 'book', 'sheet': 'ВСЕ',
+                           'procurement_id': label, 'rows': numbers}}
+              for label, numbers in (('176', [10, 234]), ('181', [14, 197]))]
+    result = assess_automation({'details': details, 'issues': issues})
+    assert result['engine_action_count'] == 0
+    observations = result['business_id_observations']
+    assert len(observations) == 2
+    assert [{location['a1'] for location in item['locations']} for item in observations] == [
+        {'A10', 'A234'}, {'A14', 'A197'}]
+    assert all(item['user_action_required'] is False for item in observations)
+
+
 def test_fact_money_without_date_provides_exact_address_and_does_not_invent_completion():
     result = assurance([row(fact_mb=12, actual_date=None)])
     signal = next(x for x in result['actions'] if x['code'] == 'FACT_MONEY_WITHOUT_DATE')
@@ -112,7 +133,7 @@ def test_out_of_scope_uid_observations_are_not_false_live_engine_tasks():
         {'source_id': 'b', 'sheet_name': 'ВСЕ', 'row_number': 6,
          'physical_row_key': 'b:6', 'procurement_uid': None, 'grbs': 'УО'},
     ], 'recommendation_records': [], 'issues': [], 'snapshot': {'report_date': '09.10.2026'}}
-    now = assess_automation(model)
+    now = assess_automation(model, contract='actionable-assurance-v2')
     legacy = assess_automation(model, legacy_scope=True)
     recent = [item for item in now['actions'] if item['code'] == 'ENGINE_IDENTITY_CONTINUITY']
     before = [item for item in legacy['actions'] if item['code'] == 'ENGINE_IDENTITY_CONTINUITY']

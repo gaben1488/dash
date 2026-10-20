@@ -240,7 +240,8 @@ export const DEPARTMENTS: Department[] = DEPARTMENT_REGISTRY.map((d) => {
   return {
     id: d.latinId,
     name: d.fullName,
-    nameShort: d.shortName,
+    // Legacy source key: display labels are DEPARTMENT_SHORT_NAMES.
+    nameShort: d.id,
     sheetName: d.sheetName,
     svodRange: { startRow: d.svod.kpQ1, endRow: d.svod.kpQ1 + 30 },
     controlCells: {

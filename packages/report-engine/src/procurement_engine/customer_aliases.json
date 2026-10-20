@@ -1,0 +1,440 @@
+[
+  {
+    "id": "uo_org_itself",
+    "canonicalName": "Управление образования администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление образования АЕМР",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds01_lastochka",
+    "canonicalName": "МАДОУ \"Детский сад № 1 \"Ласточка\"",
+    "legacyCanonicalName": "МАДОУ ДС № 1 «Ласточка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds02_zhemchuzhinka",
+    "canonicalName": "МБДОУ \"Детский сад № 2 \"Жемчужинка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 2 «Жемчужинка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds03_zharptitsa",
+    "canonicalName": "МБДОУ \"Детский сад № 3 \"Жар-птица\"",
+    "legacyCanonicalName": "МБДОУ ДС № 3 «Жар-Птица»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds04_malysh",
+    "canonicalName": "МБДОУ \"Детский сад № 4 \"Малыш\"",
+    "legacyCanonicalName": "МБДОУ ДС № 4 «Малыш»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds05_romashka",
+    "canonicalName": "МБДОУ \"Детский сад № 5 \"Ромашка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 5 «Ромашка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds08_alyonushka",
+    "canonicalName": "МБДОУ \"Детский сад № 8 \"Алёнушка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 8 «Алёнушка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds09_zvezdochka",
+    "canonicalName": "МБДОУ \"Детский сад № 9 \"Звездочка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 9 «Звёздочка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds10_raduga",
+    "canonicalName": "МБДОУ \"Детский сад № 10 \"Радуга\"",
+    "legacyCanonicalName": "МБДОУ ДС № 10 «Радуга»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds11_umka",
+    "canonicalName": "МБДОУ \"Детский сад № 11 \"Умка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 11 «Умка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds12_ulybka",
+    "canonicalName": "МБДОУ \"Детский сад № 12 \"Улыбка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 12 «Улыбка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds14_skazka",
+    "canonicalName": "МБДОУ \"Детский сад № 14 \"Сказка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 14 «Сказка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds20_antoshka",
+    "canonicalName": "МБДОУ \"Детский сад № 20 \"Антошка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 20 «Антошка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds22_veselinka",
+    "canonicalName": "МБДОУ \"Детский сад № 22 \"Веселинка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 22 «Веселинка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds23_vasilyok",
+    "canonicalName": "МБДОУ \"Детский сад № 23 \"Василек\"",
+    "legacyCanonicalName": "МБДОУ ДС № 23 «Василёк»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds24_zhuravlik",
+    "canonicalName": "МБДОУ \"Детский сад № 24 \"Журавлик\"",
+    "legacyCanonicalName": "МБДОУ ДС № 24 «Журавлик»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds26_rosinka",
+    "canonicalName": "МБДОУ \"Детский сад № 26 \"Росинка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 26 «Росинка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds27_pochemuchka",
+    "canonicalName": "МБДОУ \"Детский сад № 27 \"Почемучка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 27 «Почемучка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds28_ryabinushka",
+    "canonicalName": "МБДОУ \"Детский сад № 28 \"Рябинушка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 28 «Рябинушка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds31_solnyshko",
+    "canonicalName": "МБДОУ \"Детский сад № 31 \"Солнышко\"",
+    "legacyCanonicalName": "МБДОУ ДС № 31 «Солнышко»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds36_rucheyok",
+    "canonicalName": "МБДОУ № 36",
+    "legacyCanonicalName": "МБДОУ ДС № 36 «Ручеёк»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_ds37_belochka",
+    "canonicalName": "МБДОУ \"Детский сад № 37 \"Белочка\"",
+    "legacyCanonicalName": "МБДОУ ДС № 37 «Белочка»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_nsh5",
+    "canonicalName": "МБОУ Елизовская НШ № 5",
+    "legacyCanonicalName": "МБОУ «Елизовская начальная школа № 5»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_osh4",
+    "canonicalName": "МБОУ ЕОШ№ 4",
+    "legacyCanonicalName": "МБОУ «Елизовская основная школа № 4»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh1",
+    "canonicalName": "МБОУ ЕСШ № 1 им.М.В.Ломоносова",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 1 имени М.В.Ломоносова»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh2",
+    "canonicalName": "МБОУ \"ЕСШ № 2 им. Героя Советского Союза Г.С. Кузнецова\"",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 2 им. Героя Советского Союза Г.С. Кузнецова»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh3",
+    "canonicalName": "МБОУ \"ЕСШ № 3\"",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 3»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh7",
+    "canonicalName": "МБОУ ЕСШ № 7 им. О.Н. Мамченкова",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 7 им. О.Н. Мамченкова»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh8",
+    "canonicalName": "МБОУ \"ЕСШ № 8 им. В.Н.Орловского\"",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 8 им. В.Н. Орловского»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_ssh9",
+    "canonicalName": "МБОУ \"ЕСШ № 9 им. Р.В.Федины\"",
+    "legacyCanonicalName": "МБОУ «Елизовская средняя школа № 9 им. Р.В.Федины»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_koryakskaya",
+    "canonicalName": "МБОУ \"Корякская СШ\"",
+    "legacyCanonicalName": "МБОУ «Корякская средняя школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_lesnovskaya",
+    "canonicalName": "МБОУ \"Лесновская ОШ\"",
+    "legacyCanonicalName": "МБОУ «Лесновская основная школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_nagornenskaya",
+    "canonicalName": "МБОУ \"Нагорненская СШ\"",
+    "legacyCanonicalName": "МБОУ «Нагорненская средняя школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_nachikinskaya",
+    "canonicalName": "МБОУ \"Начикинская СШ\"",
+    "legacyCanonicalName": "МБОУ «Начикинская средняя школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_nikolaevskaya",
+    "canonicalName": "МБОУ Николаевская СШ",
+    "legacyCanonicalName": "МБОУ «Николаевская средняя школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_paratunskaya",
+    "canonicalName": "МБОУ \"Паратунская СШ\"",
+    "legacyCanonicalName": "МБОУ «Паратунская средняя школа»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_pionerskaya",
+    "canonicalName": "МБОУ Пионерская СШ",
+    "legacyCanonicalName": "МБОУ «Пионерская средняя школа имени М. А. Евсюковой»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_razdolnenskaya",
+    "canonicalName": "МБОУ \"Раздольненская СШ\"",
+    "legacyCanonicalName": "МБОУ «Раздольненская средняя школа имени В.Н. Ролдугина»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_vulkannogo",
+    "canonicalName": "МБОУ \"СШ Вулканного ГП\"",
+    "legacyCanonicalName": "МБОУ «Средняя школа Вулканного городского поселения»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_school_termalnenskaya",
+    "canonicalName": "МБОУ \"Термальненская СШ\" им. Героя Российской Федерации А. Н. Попова",
+    "legacyCanonicalName": "МБОУ «Термальненская средняя школа» им. Героя РФ А.Н. Попова",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_do_luch",
+    "canonicalName": "МБУ ДО \"Центр \"Луч\"",
+    "legacyCanonicalName": "МБУ ДО «Центр «Луч»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_do_patriot",
+    "canonicalName": "МБУ ДО ПЦ \"Патриот\"",
+    "legacyCanonicalName": "МБУДО Подростковый центр «Патриот»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_do_tsdt",
+    "canonicalName": "МБУДО \"ЦДТ\"",
+    "legacyCanonicalName": "ЦДТ",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_mku_cboimto",
+    "canonicalName": "МКУ ЦБОИМТО",
+    "legacyCanonicalName": "Муниципальное казённое учреждение «Центр бухгалтерского обслуживания и материально-технического обеспечения»",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_cat_administrirovanie",
+    "canonicalName": "УО (Администрирование)",
+    "legacyCanonicalName": "Администрирование",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_cat_opeka",
+    "canonicalName": "УО (Опека)",
+    "legacyCanonicalName": "Опека",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uo_cat_sovmestnye",
+    "canonicalName": "Совместные закупки (УО)",
+    "legacyCanonicalName": "Совместные закупки",
+    "grbsId": "УО"
+  },
+  {
+    "id": "uksimp_org_itself",
+    "canonicalName": "Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление культуры, спорта и молодёжной политики АЕМР",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_kdmsh",
+    "canonicalName": "МБУ ДО КДМШ",
+    "legacyCanonicalName": "МБУ ДО «КДМШ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_ndshi",
+    "canonicalName": "МБУ ДО НДШИ",
+    "legacyCanonicalName": "МБУ ДО «НДШИ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_rdmsh",
+    "canonicalName": "МБУ ДО РДМШ",
+    "legacyCanonicalName": "МБУ ДО «РДМШ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_dshi_termalny",
+    "canonicalName": "МБУ ДО ДШИ п. Термальный",
+    "legacyCanonicalName": "МБУ ДО «ДШИ п. Термальный»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_edmsh",
+    "canonicalName": "МБУ ДО ЕДМШ",
+    "legacyCanonicalName": "МБУ ДО «ЕДМШ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_edhsh",
+    "canonicalName": "МБУ ДО ЕДХШ",
+    "legacyCanonicalName": "МБУ ДО «ЕДХШ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_ssh_lider",
+    "canonicalName": "МБУ ДО СШ \"Лидер\"",
+    "legacyCanonicalName": "МБУ ДО СШ «Лидер»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_ssh_ratibor",
+    "canonicalName": "МБУ ДО СШ \"Ратибор\"",
+    "legacyCanonicalName": "МБУ ДО СШ «Ратибор»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_sshor_krechet",
+    "canonicalName": "МБУ ДО СШОР единоборств \"Кречет\"",
+    "legacyCanonicalName": "МБУ ДО СШОР единоборств «КРЕЧЕТ»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_erkm",
+    "canonicalName": "МБУК ЕРКМ",
+    "legacyCanonicalName": "МБУК «ЕРКМ» (Музей)",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_zoopark",
+    "canonicalName": "МБУК ЕРЗ",
+    "legacyCanonicalName": "МБУК «Елизовский районный зоопарк»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_erdk",
+    "canonicalName": "МБУК ЕРДК",
+    "legacyCanonicalName": "МБУК «ЕРДК»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_dk_galaktika",
+    "canonicalName": "МБУК ДК \"Галактика\"",
+    "legacyCanonicalName": "МБУК ДК «Галактика»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_mdkm_yunost",
+    "canonicalName": "МБУК МДКМ \"Юность\"",
+    "legacyCanonicalName": "МБУК МДКМ «Юность»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_mku_tsb_aho",
+    "canonicalName": "МКУ ЦБАХО",
+    "legacyCanonicalName": "МКУ «Центр бухгалтерского и административно-хозяйственного обеспечения учреждений культуры и спорта»",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uksimp_cat_sovmestnaya",
+    "canonicalName": "Совместные закупки (УКСиМП)",
+    "legacyCanonicalName": "Совместная закупка",
+    "grbsId": "УКСиМП"
+  },
+  {
+    "id": "uagizo_org_itself",
+    "canonicalName": "Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление архитектуры, градостроительства и земельных отношений АЕМР",
+    "grbsId": "УАГиЗО"
+  },
+  {
+    "id": "uagizo_mku_elrус",
+    "canonicalName": "МКУ \"Елизовское РУС\"",
+    "legacyCanonicalName": "МКУ «Елизовское РУС»",
+    "grbsId": "УАГиЗО"
+  },
+  {
+    "id": "uio_org_itself",
+    "canonicalName": "Управление имущественных отношений администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление имущественных отношений АЕМР",
+    "grbsId": "УИО"
+  },
+  {
+    "id": "ufbp_org_itself",
+    "canonicalName": "Управление финансов администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление финансово-бюджетной политики АЕМР",
+    "grbsId": "УФБП"
+  },
+  {
+    "id": "ud_org_itself",
+    "canonicalName": "Управление делами администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление делами Администрации АЕМР",
+    "grbsId": "УД"
+  },
+  {
+    "id": "ud_mku_edds",
+    "canonicalName": "МКУ \"ЕДДС ЕМР\"",
+    "legacyCanonicalName": "МКУ «ЕДДС»",
+    "grbsId": "УД"
+  },
+  {
+    "id": "uer_org_itself",
+    "canonicalName": "Управление экономического развития администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление экономического развития АЕМР",
+    "grbsId": "УЭР"
+  },
+  {
+    "id": "uer_mku_tser",
+    "canonicalName": "МКУ \"ЦЭР\"",
+    "legacyCanonicalName": "МКУ «ЦЭР»",
+    "grbsId": "УЭР"
+  },
+  {
+    "id": "udtx_org_itself",
+    "canonicalName": "Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа",
+    "legacyCanonicalName": "Управление дорожно-транспортного хозяйства АЕМР",
+    "grbsId": "УДТХ"
+  }
+]

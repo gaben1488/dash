@@ -211,7 +211,7 @@ export function signalCardTitle(key: string): string {
 
 /** Латинский id управления → краткое кириллическое имя (напр. 'uo' → 'УО'). */
 export const DEPT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
-  DEPARTMENT_REGISTRY.map((d) => [d.latinId, d.shortName]),
+  DEPARTMENT_REGISTRY.flatMap(d => [[d.latinId, d.shortName], [d.id, d.shortName], [d.shortName, d.shortName]]),
 );
 
 /** Латинский id управления → полное наименование. */

@@ -1072,7 +1072,7 @@ function KPIExpandPanel({
       id: deptId,
       // Ключ управления переводится словарём продукта: латинский слуг в
       // подписи недопустим, а «?» ничего не объясняет.
-      name: d.department?.nameShort ?? (deptId ? productLabel(deptId) : 'Управление не указано'),
+      name: deptId ? productLabel(deptId) : 'Управление не указано',
       value,
       secondaryValue,
       color: colorClass,

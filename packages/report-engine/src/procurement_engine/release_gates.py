@@ -204,7 +204,7 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
     if model.get('snapshot', {}).get('renderer_version') not in {
             'renderer-v1.5.0rc7', 'renderer-v1.5.0rc8', 'renderer-v1.5.0rc9', 'renderer-v1.5.0rc10'}:
         assurance = (model.get('contract') or {}).get('automation_assurance_contract')
-        require(assurance in {'actionable-assurance-v1', 'actionable-assurance-v2'}
+        require(assurance in {'actionable-assurance-v1', 'actionable-assurance-v2', 'actionable-assurance-v3'}
                 and (model.get('automation_assurance') or {}).get('contract') == assurance,
                 'AUTOMATION_ASSURANCE_MISSING', 'Отсутствует обязательная оценка полноты автоматизации.')
     if model.get('snapshot', {}).get('renderer_version') not in {

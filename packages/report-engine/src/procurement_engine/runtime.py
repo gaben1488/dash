@@ -317,7 +317,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None, queued_only=
             identities.recover_latest_plan_signatures([
                 *state.glob('attempts/*/bundle/snapshot_bundle'),
                 *state.glob('published/releases/*/snapshot_bundle'),
-                *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+                *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics, weekly_only=True)
             if any(recovery_diagnostics.values()):
                 status['identity_recovery'] = recovery_diagnostics
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',

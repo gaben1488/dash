@@ -58,7 +58,7 @@ from .weekly_evidence import CONTRACT as WEEKLY_CONTRACT
 from .weekly_evidence import build_weekly_evidence, freeze_weekly_baseline
 
 RENDERER_VERSION = 'renderer-v1.5.0rc25'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1+source-values-v2+calendar-month-audit-v1'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1+source-values-v2+calendar-month-audit-v1+customer-alias-identity-v1+weekly-identity-scope-v1+assurance-v3'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -546,7 +546,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     year=capture['report_year']; report_date=parse_date(capture['report_date'])
     identity_result=None
     if identity_store is not None:
-        identity_result=identity_store.ingest(rows,snapshot_id=bundle.manifest['snapshot_id'],captured_at=capture['captured_at'],allow_plan_updates=True)
+        identity_result=identity_store.ingest(rows,snapshot_id=bundle.manifest['snapshot_id'],captured_at=capture['captured_at'],
+                                             allow_plan_updates=True,allow_customer_aliases=True)
         uids={r['source_row_key']:r['procurement_uid'] for r in identity_result['rows']}
         rows=[replace(r,procurement_uid=uids[r.physical_row_key]) for r in rows]
     for r in rows:
@@ -659,7 +660,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['contract']['context_presentation_contract'] = CONTRACT
     model['source_context_groups'] = group_context(model['source_context'], year=year, as_of=report_date)
     from .automation_assurance import assess_automation
-    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v2'
+    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v3'
     model['automation_assurance'] = assess_automation(model, capture['sources'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     model['contract']['weekly_evidence_contract'] = WEEKLY_CONTRACT

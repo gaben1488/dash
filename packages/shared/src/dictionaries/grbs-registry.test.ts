@@ -46,3 +46,14 @@ describe('округ: действующее полное имя и истори
     expect(resolveGrbsAlias('Управление без подтверждённой преемственности')).toBeUndefined();
   });
 });
+
+
+it('показывает УФ и УДТХиБ, сохраняя ключи истории и старые алиасы', () => {
+  for (const [id, label] of [['УФБП', 'УФ'], ['УДТХ', 'УДТХиБ']] as const) {
+    expect(getDept(id).shortName).toBe(label);
+    expect(getGrbs(id).shortName).toBe(label);
+    expect(resolveGrbsAlias(label)).toBe(id);
+    expect(resolveGrbsAlias(id)).toBe(id);
+    expect(SUBORDINATE_REGISTRY.find(e => e.grbsId === id && e.isOrgItself)?.shortName).toBe(label);
+  }
+});

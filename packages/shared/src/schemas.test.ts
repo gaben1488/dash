@@ -446,6 +446,32 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
     expect(response.attempt?.automation_assurance_release_id).toBe(receipt.release_id);
   });
 
+  it('preserves every repeated-label address in the reviewed v3 receipt without making it an action', () => {
+    const locations = [10, 234].map(row => ({
+      source_id: 'book', sheet: 'ВСЕ', sheet_id: 17, row, column: 'A', a1: `A${row}`,
+      url: null, subject: 'Synthetic subject', business_id: '176',
+    }));
+    const assurance = {
+      ...v2, contract: 'actionable-assurance-v3', engine_action_count: 0,
+      business_id_observations: [{
+        code: 'DUPLICATE_BUSINESS_ID', grbs: 'УО', business_id: '176', locations,
+        user_action_required: false, meaning: 'Repeated labels do not establish duplicated procurements.',
+      }],
+    };
+    const checked = SelectedReportReleaseStatusSchema.parse({
+      attempt: null, selected: { ...receipt, automation_assurance: assurance },
+    });
+    expect(checked.selected?.automation_assurance).toEqual(assurance);
+    for (const malformed of [
+      { ...assurance, business_id_observations: undefined },
+      { ...assurance, business_id_observations: [{ ...assurance.business_id_observations[0], user_action_required: true }] },
+    ]) {
+      expect(SelectedReportReleaseStatusSchema.safeParse({
+        attempt: null, selected: { ...receipt, automation_assurance: malformed },
+      }).success).toBe(false);
+    }
+  });
+
   it('continues reading historical v1 receipts with the same semantic actions', () => {
     const checked = SelectedReportReleaseStatusSchema.safeParse({
       attempt: null, selected: { ...receipt, automation_assurance: {
@@ -466,7 +492,7 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
         },
       };
       expect(SelectedReportReleaseStatusSchema.safeParse(response).success).toBe(true);
-      for (const change of [{ contract: 'actionable-assurance-v3' }, { user_action_count: -1 }]) {
+      for (const change of [{ contract: 'actionable-assurance-v4' }, { user_action_count: -1 }]) {
         expect(SelectedReportReleaseStatusSchema.safeParse({
           ...response, attempt: { ...response.attempt, automation_assurance: { ...assurance, ...change } },
         }).success).toBe(false);
@@ -481,7 +507,7 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
     for (const assurance of [
       { ...v2, source_observations: undefined },
       { ...v2, nonprocurement_identity_observations: -1 },
-      { ...v2, contract: 'actionable-assurance-v3' },
+      { ...v2, contract: 'actionable-assurance-v4' },
       { ...v2, source_observations: [{ source_row_key: 'row', events: [{ kind: 'FUNDING_REPORTED' }] }] },
     ]) {
       expect(SelectedReportReleaseStatusSchema.safeParse({

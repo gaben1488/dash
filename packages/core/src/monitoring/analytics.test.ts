@@ -20,6 +20,7 @@ import {
   nmckBuckets,
   quantile,
   reductionCoefficients,
+  rollingReductionCoefficients,
   seasonality,
   stageDurations,
   stageFunnel,
@@ -343,4 +344,14 @@ describe('сборка аналитики', () => {
     expect(analytics.funnel.total).toBe(6);
     expect(analytics.durations).toHaveLength(4);
   });
+});
+
+
+it('live rate excludes old, future and undated auctions from the monetary denominator', () => {
+  const p = procedures[0];
+  const dated = (iso: string | null) => ({ ...p, auctionDate: iso === null ? null : { ...p.auctionDate!, iso } });
+  const result = rollingReductionCoefficients([dated('2026-10-21'), dated('2025-10-21'), dated('2026-10-22'), dated(null)], '2026-10-21');
+  expect(result.window).toEqual({ from: '2025-10-22', to: '2026-10-21', undated: 1 });
+  expect(result.reduction.portfolio.count).toBe(1);
+  expect(result.reduction.portfolioPct).toBe(50);
 });

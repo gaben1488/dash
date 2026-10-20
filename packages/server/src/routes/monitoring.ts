@@ -46,6 +46,7 @@ import {
   mappingSignals,
   matchMonitoring,
   monitoringAnalytics,
+  rollingReductionCoefficients,
   procedureRowsForMatch,
   sheetSide,
   summarizeMatch,
@@ -231,7 +232,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
    * три коэффициента снижения приезжают вместе со своими знаменателями,
    * чтобы их нельзя было подменить друг другом на экране.
    */
-  app.get<{ Querystring: { refresh?: string; basis?: string } }>(
+  app.get<{ Querystring: { refresh?: string; basis?: string; window?: string } }>(
     '/api/monitoring/analytics',
     async (request, reply) => {
       const book = await getMonitoringBook(request.query.refresh === 'true');
@@ -240,6 +241,15 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const { registry } = parseBook(book);
+      if (request.query.window === 'rolling-year') {
+        const source = sourceOf(book);
+        if (Object.keys(source.sheetsFailed).length || source.sheetsRead.length !== source.sheetsExpected) {
+          return reply.status(503).send({ error: 'Живой коэффициент: книга прочитана не полностью.' });
+        }
+        const coefficient = rollingReductionCoefficients(registry.procedures, source.asOf);
+        return { source, analytics: { reduction: coefficient.reduction }, window: coefficient.window,
+          notes: ['Средневзвешенное снижение состоявшихся процедур за последние 12 месяцев; строки без даты торгов исключены.'] };
+      }
       const basis: SeasonBasis = request.query.basis === 'auction' ? 'auction' : 'publication';
       const analytics = monitoringAnalytics(registry.procedures, { seasonBasis: basis });
 

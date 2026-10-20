@@ -329,3 +329,6 @@ export function buildSheetUrl(spreadsheetId: string, cell?: string, sheetName?: 
   if (cell) url += (url.includes('#') ? '&' : '#') + `range=${cell}`;
   return url;
 }
+
+/** Forecast policy; does not change source facts or AD-approved economy. */
+export const ECONOMY_FORECAST_NORM_PCT = 8;

@@ -16,7 +16,7 @@ from urllib.parse import quote
 from .normalize import clean_text, parse_date, to_decimal
 from .source_context import explanations
 
-CONTRACT = 'actionable-assurance-v2'
+CONTRACT = 'actionable-assurance-v3'
 
 SOURCE_ISSUES = {
     'PLAN_TOTAL_MISMATCH': (('H', 'I', 'J', 'K'), 'Итог плана не равен сумме источников', 'Сверьте H:I:J с утверждённым планом и восстановите сумму в K. Не подгоняйте компоненты под ошибочный итог.'),
@@ -105,8 +105,10 @@ ENGINE_LINK_CAUSES = {
 }
 
 
-def assess_automation(model, sources=(), *, legacy_scope=False):
+def assess_automation(model, sources=(), *, legacy_scope=False, contract=CONTRACT):
     actions, observations = [], []
+    contract = 'actionable-assurance-v1' if legacy_scope else contract
+    business_labels = []
     for value in model.get('details', []):
         row = asdict(value) if is_dataclass(value) else value
         events = source_events(row)
@@ -155,6 +157,25 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
                     'IDENTITY_REVIEW_REQUIRED', 'RECOMMENDATION_LINK_UNCONFIRMED', 'IDENTITY_CONTINUITY_UNCONFIRMED'}:
             continue  # Reconstructed more specifically from primary rows/records below.
         context = issue.get('context') or {}
+        if code == 'DUPLICATE_BUSINESS_ID' and contract == CONTRACT:
+            # A is a non-unique business label. A real UID ambiguity is assessed
+            # per row below; repeating a label alone does not mean failed QA.
+            locations = []
+            for number in context.get('rows', []):
+                detail = next((item for item in model.get('details', [])
+                               if item.get('source_id') == context.get('source_id')
+                               and item.get('sheet_name') == context.get('sheet')
+                               and item.get('row_number') == number), None)
+                detail = detail or {'source_id': context.get('source_id'),
+                    'sheet_name': context.get('sheet'), 'row_number': number,
+                    'source_row_no': context.get('procurement_id')}
+                locations.append(_location(detail, 'A', sources))
+            business_labels.append({'code': code, 'grbs': context.get('grbs'),
+                'business_id': context.get('procurement_id'), 'locations': locations,
+                'user_action_required': False,
+                'meaning': 'Сам по себе повтор номера A не доказывает дублирование закупок или ошибку отчёта. '
+                           'Связность строк проверяется отдельно по полному контексту закупки.'})
+            continue
         row = next((item for item in model.get('details', [])
                     if item.get('physical_row_key') == context.get('row_key')), None)
         if row is None and context.get('row'):
@@ -219,7 +240,7 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
     actions = list({item['signal_id']: item for item in actions}.values())
     user_count = sum(item['user_action_required'] for item in actions)
     engine_count = sum(item['owner_kind'] == 'ENGINE' for item in actions)
-    outcome = {'contract': 'actionable-assurance-v1' if legacy_scope else CONTRACT,
+    outcome = {'contract': contract,
         'fully_automated': not actions,
         'user_action_count': user_count, 'engine_action_count': engine_count,
         'active_recommendations': len(active), 'link_status_counts': dict(sorted(links.items())),
@@ -228,4 +249,6 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
         'meaning': 'Arithmetic verification does not imply complete semantic automation.'}
     if not legacy_scope:
         outcome['nonprocurement_identity_observations'] = nonprocurement_uid_gaps
+    if contract == CONTRACT:
+        outcome['business_id_observations'] = business_labels
     return outcome

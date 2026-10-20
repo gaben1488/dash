@@ -556,9 +556,8 @@ export const ReportActionSchema = z.object({
     subject: z.string().nullable(), business_id: z.string().nullable(),
   })),
 });
-// Historical immutable Word releases use v1; the current report engine
-// publishes v2 with source observations. Both are approved, but v2 must retain
-// the new evidence rather than silently treating a missing field as success.
+// Frozen v1/v2 releases retain their contracts. v3 keeps repeated business
+// labels as observations, with every address and no implied corrective action.
 const ReportAssuranceCoreSchema = z.object({
   fully_automated: z.boolean(),
   user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
@@ -574,15 +573,24 @@ const ReportSourceStatementSchema = z.object({
   field: z.string(), column: z.string(), quote: z.string(),
   source_text: z.string(), evidence_kind: z.literal('SOURCE_STATEMENT'),
 });
+const ReportAssuranceV2Schema = ReportAssuranceCoreSchema.extend({
+  contract: z.literal('actionable-assurance-v2'),
+  source_observations: z.array(z.object({
+    source_row_key: z.string().nullable(),
+    events: z.array(ReportSourceStatementSchema),
+  })),
+  nonprocurement_identity_observations: z.number().int().nonnegative(),
+});
 export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
   ReportAssuranceCoreSchema.extend({ contract: z.literal('actionable-assurance-v1') }),
-  ReportAssuranceCoreSchema.extend({
-    contract: z.literal('actionable-assurance-v2'),
-    source_observations: z.array(z.object({
-      source_row_key: z.string().nullable(),
-      events: z.array(ReportSourceStatementSchema),
+  ReportAssuranceV2Schema,
+  ReportAssuranceV2Schema.extend({
+    contract: z.literal('actionable-assurance-v3'),
+    business_id_observations: z.array(z.object({
+      code: z.literal('DUPLICATE_BUSINESS_ID'), grbs: z.string().nullable(),
+      business_id: z.string().nullable(), locations: ReportActionSchema.shape.locations,
+      user_action_required: z.literal(false), meaning: z.string(),
     })),
-    nonprocurement_identity_observations: z.number().int().nonnegative(),
   }),
 ]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;

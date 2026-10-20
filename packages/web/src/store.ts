@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createLatestRead } from './lib/latest-read';
-import { subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
+import { ECONOMY_FORECAST_NORM_PCT, subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
@@ -49,7 +49,7 @@ export type MoneyUnit = 'тыс' | 'млн' | 'млрд';
 export type StavkaMode = 'norm' | 'live';
 
 /** Норматив района, которым посчитаны формулы книг, % снижения. */
-export const STAVKA_NORM_PCT = 8;
+export const STAVKA_NORM_PCT = ECONOMY_FORECAST_NORM_PCT;
 
 /**
  * Зона действия ставки — честное слово в подсказках (разведка 29.08.2026:
@@ -59,7 +59,7 @@ export const STAVKA_NORM_PCT = 8;
  * «действует везде» подсказка не смеет.
  */
 export const STAVKA_SCOPE_NOTE =
-  'Сейчас от ставки зависят суммы ожидаемой экономии Отчёта; на остальных вкладках зависимых чисел пока нет.';
+  'Ставка меняет прогноз по остатку ЭА в Отчёте. Факт экономии и данные книг от неё не меняются.';
 
 /** Копейка в тысячах рублей — порог, ниже которого разница сумм не существует. */
 const KOPECK_TYS = 0.00001;
@@ -82,7 +82,7 @@ export function buildStavkaSumsLine(
   if (planTys <= 0) return 'План года ещё не загружен — суммы ожидаемой экономии появятся с данными.';
   const normSum = planTys * (STAVKA_NORM_PCT / 100);
   if (livePct === null) {
-    return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}; живого коэффициента нет.`;
+    return `Сравнение ставок на плане года ${formatMoney(planTys)} (не прогноз по остатку): по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}; живого коэффициента нет.`;
   }
   const liveSum = planTys * (livePct / 100);
   const diff = liveSum - normSum;
@@ -92,7 +92,7 @@ export function buildStavkaSumsLine(
   const diffLine = Math.abs(diff) < KOPECK_TYS
     ? 'совпадает с нормативом'
     : `на ${formatMoney(Math.abs(diff))} ${diff >= 0 ? 'больше' : 'меньше'} норматива`;
-  return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}, ` +
+  return `Сравнение ставок на плане года ${formatMoney(planTys)} (не прогноз по остатку): по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}, ` +
     `по живой ставке ${pct} % — ${formatMoney(liveSum)}: ${diffLine}.`;
 }
 
@@ -111,6 +111,7 @@ export interface LiveStavka {
   count: number;
   /** Момент чтения книги мониторинга (ISO) — дата замера. */
   readAt: string | null;
+  window?: { from: string; to: string; undated: number };
 }
 
 /** Тип закупки (legacy single-select aliases kept for navigateTo compatibility) */
@@ -404,6 +405,8 @@ export interface AppState {
    * и перезапрашивать его без события эфира не за чем.
    */
   liveStavkaAbsent: boolean;
+  liveStavkaError: string | null;
+  liveStavkaRevision: number;
   /** Ленивая загрузка живого коэффициента (один запрос, при ошибке — повтор при следующем вызове). */
   fetchLiveStavka: () => Promise<void>;
   /**
@@ -670,6 +673,8 @@ export const useStore = create<AppState>((set, get) => ({
   setStavkaMode: (stavkaMode) => set({ stavkaMode }),
   liveStavka: null,
   liveStavkaAbsent: false,
+  liveStavkaError: null,
+  liveStavkaRevision: 0,
   fetchLiveStavka: async () => {
     // Один живой запрос на событие: повтор — после ошибки сети либо после
     // invalidateLiveStavka (monitoring-updated). Полученный замер И знание
@@ -677,8 +682,11 @@ export const useStore = create<AppState>((set, get) => ({
     // долбить сервер, чтобы услышать то же самое, не за чем.
     if (get().liveStavka !== null || get().liveStavkaAbsent || liveStavkaInFlight) return;
     liveStavkaInFlight = true;
+    const version = get().liveStavkaRevision;
+    set({ liveStavkaError: null });
     try {
-      const payload = await fetchMonitoringAnalytics();
+      const payload = await fetchMonitoringAnalytics('publication', true);
+      if (version !== get().liveStavkaRevision) return;
       const r = payload.analytics.reduction;
       if (r.portfolioPct === null) {
         // Состоявшихся торгов за 12 месяцев нет — живой коэффициент не
@@ -693,21 +701,22 @@ export const useStore = create<AppState>((set, get) => ({
           q3: r.reducedQ3Pct,
           count: r.portfolio.count,
           readAt: payload.source.readAt || null,
+          ...(payload.window ? { window: payload.window } : {}),
         },
         liveStavkaAbsent: false,
       });
-    } catch {
-      // Сервер не ответил — кнопка «живой» остаётся выключенной с честной
-      // подсказкой; следующий вызов попробует снова.
+    } catch (error) {
+      if (version === get().liveStavkaRevision) set({ liveStavkaError: humanizeRequestError(error) });
     } finally {
-      liveStavkaInFlight = false;
+      if (version === get().liveStavkaRevision) liveStavkaInFlight = false;
     }
   },
   invalidateLiveStavka: () => {
     // Книга мониторинга перечитана и изменилась — прежний замер (или прежнее
     // «замера нет») больше не факт. Сброс обоих исходов заставляет следующего
     // читателя (эффект барабана ставки) перезапросить свежий коэффициент.
-    set({ liveStavka: null, liveStavkaAbsent: false });
+    liveStavkaInFlight = false;
+    set({ liveStavka: null, liveStavkaAbsent: false, liveStavkaError: null, liveStavkaRevision: get().liveStavkaRevision + 1 });
   },
   // Multi-select filters (empty Set = identity = "Все")
   // When all options are selected individually → collapse to empty Set (= identity)

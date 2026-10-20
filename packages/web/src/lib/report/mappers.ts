@@ -8,7 +8,7 @@
  * view-моделей — свободного текста подписей здесь нет.
  */
 import type { BudgetMoney, GrbsReportBlock, LifecycleBreakdown, PendingPosition, PendingRemainder, ReasonBreakdown, Report, ReportSignal } from '@aemr/core';
-import { DEPT_COLUMNS, isoOfDayNumber, quarterLabel } from '@aemr/shared';
+import { ECONOMY_FORECAST_NORM_PCT, DEPT_COLUMNS, isoOfDayNumber, quarterLabel } from '@aemr/shared';
 import { formatDateCell } from '../sheet-date';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
@@ -480,8 +480,11 @@ export function buildIntegralSummary(report: Report, stavka?: StavkaVM): Integra
     // ÷ 8 × живой процент — основание (остаток) при этом не меняется, и обе
     // суммы названы в паспорте. В положении «норматив» число листа показано
     // как есть, паспорт называет ставку словами.
-    const livePct = stavka?.mode === 'live' && stavka.livePct !== null ? stavka.livePct : null;
-    const scale = livePct !== null ? livePct / 8 : 1;
+    const requestedLive = stavka?.mode === 'live';
+    const isLiveReport = period.live ?? period.asOfDay === undefined;
+    const livePct = requestedLive && isLiveReport ? stavka?.livePct ?? null : null;
+    const available = !requestedLive || livePct !== null;
+    const scale = livePct !== null ? livePct / ECONOMY_FORECAST_NORM_PCT : 1;
     const fmtStavkaPct = (v: number) => `${v.toFixed(2).replace('.', ',')} %`;
     const measured = stavka?.readAt ? ` (замер ${formatDateCell(stavka.readAt.slice(0, 10))})` : '';
     const stavkaTail = livePct !== null
@@ -499,13 +502,15 @@ export function buildIntegralSummary(report: Report, stavka?: StavkaVM): Integra
           ? `строка ручного отчёта, пересчитанная живой ставкой ${fmtStavkaPct(livePct)} вместо норматива 8 %`
           : 'та самая строка ручного отчёта: экономия по ещё не заключённым',
       }],
-      value: fmtThousands(e.total * scale),
+      value: available ? fmtThousands(e.total * scale) : '—',
       budget: { fb: e.fb * scale, kb: e.kb * scale, mb: e.mb * scale },
       budgetPrefix: 'economy',
       source: 'svod',
       cell: e.cell,
       accent: 'emerald',
-      live: livePct !== null
+      live: !available
+        ? 'Для выбранного контекста нет живого коэффициента. Текущий замер не переносится в архив; норматив не подставляется молча.'
+        : livePct !== null
         ? liveMoney(
           { fb: e.fb * scale, kb: e.kb * scale, mb: e.mb * scale, total: e.total * scale },
           `Основание — ячейка ${e.cell} листа СВОД ТД-ПМ (строка ${e.row}). ${stavkaTail}`,

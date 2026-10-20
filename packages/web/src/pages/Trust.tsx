@@ -553,7 +553,7 @@ export function TrustPage() {
         <div className={clsx('px-5 py-3 border-b', RULE_HEAD)}>
           <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
             {worstDept
-              ? `Слабее всех данные у «${worstDept.department?.nameShort ?? worstDept.department?.name ?? 'управления без названия'}»: ${worstDept.trustScore ?? 0} из 100`
+              ? `Слабее всех данные у «${productLabel(worstDept.department?.id ?? worstDept.department?.nameShort ?? 'управления без названия')}»: ${worstDept.trustScore ?? 0} из 100`
               : 'Надёжность по управлениям'}
           </h3>
           <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -590,7 +590,7 @@ export function TrustPage() {
                 {deptSummaries.map((d: TrustDept) => {
                   const score = d.trustScore ?? null;
                   const deptComponents = d.trustComponents ?? [];
-                  const deptName = d.department?.nameShort ?? d.department?.name ?? 'Управление без названия';
+                  const deptName = productLabel(d.department?.id ?? d.department?.nameShort ?? 'Управление без названия');
 
                   return (
                     <tr

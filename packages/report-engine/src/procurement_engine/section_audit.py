@@ -240,10 +240,10 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     for key,want in [('procedure_rows',active),('procedure_count',len(active))]:
         if mgmt.get(key)!=want:errors.append('management_summary.'+key)
     assurance_contract = (model.get('contract') or {}).get('automation_assurance_contract')
-    if assurance_contract in {'actionable-assurance-v1', 'actionable-assurance-v2'}:
+    if assurance_contract in {'actionable-assurance-v1', 'actionable-assurance-v2', 'actionable-assurance-v3'}:
         from .automation_assurance import assess_automation
         replay = assess_automation(model, capture['sources'],
-            legacy_scope=assurance_contract == 'actionable-assurance-v1')
+            legacy_scope=assurance_contract == 'actionable-assurance-v1', contract=assurance_contract)
         if model.get('automation_assurance') != replay:
             errors.append('automation_assurance')
     if (model.get('contract') or {}).get('weekly_evidence_contract') == 'weekly-evidence-v1':

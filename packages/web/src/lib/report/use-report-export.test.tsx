@@ -63,7 +63,7 @@ it('does not misreport a rejected archive action as failure of the preceding suc
   expect(result.current.operations).toEqual(operations);
 });
 
-it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
+it.each(['actionable-assurance-v1', 'actionable-assurance-v2', 'actionable-assurance-v3'])(
   'loads verified Word receipt with reviewed assurance contract %s', async contract => {
     const assurance = {
       contract, fully_automated: false, user_action_count: 1,
@@ -71,6 +71,7 @@ it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
       link_status_counts: { CONFIRMED: 40 }, action_status_counts: { UNKNOWN: 10 },
       actions: [], meaning: 'Synthetic review evidence.',
       source_observations: [], nonprocurement_identity_observations: 0,
+      business_id_observations: [],
     };
     request.mockResolvedValue(response({ ...receipt, automation_assurance: assurance }));
     const { result } = renderHook(() => useReportExport(context));
@@ -82,7 +83,7 @@ it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
 
 it('rejects unknown future assurance contract instead of accepting unreviewed semantics', async () => {
   const assurance = {
-    contract: 'actionable-assurance-v3', fully_automated: false,
+    contract: 'actionable-assurance-v4', fully_automated: false,
     user_action_count: 1, engine_action_count: 2, active_recommendations: 159,
     link_status_counts: {}, action_status_counts: {}, actions: [], meaning: 'Synthetic.',
   };
