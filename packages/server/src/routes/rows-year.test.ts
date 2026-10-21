@@ -49,8 +49,8 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
     const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
     const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
-    expect(list.rows[0].badges.find((b: { label: string }) => b.label.includes('договоров'))).toMatchObject({ color: 'blue' });
-    expect(detail.badges.find((b: { label: string }) => b.label.includes('договоров'))).toMatchObject({ color: 'blue' });
+    expect(list.rows[0].badges.find((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toMatchObject({ color: 'blue' });
+    expect(detail.badges.find((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toMatchObject({ color: 'blue' });
   });
   it.each(['', 2027])('does not carry a curated 2026 annual-series identity into source year %s', async sourceYear => {
     const { setDeptSheetCache } = await import('../services/snapshot.js');
@@ -60,8 +60,8 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
     const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
     const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
-    expect(list.rows[0].badges.some((b: { label: string }) => b.label.includes('договоров'))).toBe(false);
-    expect(detail.badges.some((b: { label: string }) => b.label.includes('договоров'))).toBe(false);
+    expect(list.rows[0].badges.some((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toBe(false);
+    expect(detail.badges.some((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toBe(false);
   });
   it('без year отдаёт все годы', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rows/УЭР?limit=100' });

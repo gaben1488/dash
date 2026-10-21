@@ -23,10 +23,10 @@ describe('source validation coverage is explicit', () => {
     row[DEPT_COLUMNS.TOTAL_PLAN] = 1200;
     row[DEPT_COLUMNS.TOTAL_FACT] = 800;
     row[DEPT_COLUMNS.FACT_DATE] = 'Х';
-    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('договоров'));
+    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Годовой объём ЕП:'));
     expect(risk).toMatchObject({ severity: 'info' });
     row[DEPT_COLUMNS.FACT_DATE] = '10.10.2026';
-    expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Цена отдельного договора')))
+    expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Недостаточно данных для проверки сумм отдельных договоров')))
       .toMatchObject({ severity: 'warning' });
   });
   it('uses the same annual-series scope for historical comma-formatted amounts', () => {
@@ -34,7 +34,7 @@ describe('source validation coverage is explicit', () => {
     row[DEPT_COLUMNS.PLAN_YEAR] = 2026; row[DEPT_COLUMNS.ID] = '3'; row[DEPT_COLUMNS.SUBJECT] = 'Окорока (куриные)';
     row[DEPT_COLUMNS.METHOD] = 'ЕП'; row[DEPT_COLUMNS.TOTAL_PLAN] = '1 200,00';
     row[DEPT_COLUMNS.TOTAL_FACT] = '800,00'; row[DEPT_COLUMNS.FACT_DATE] = 'Х';
-    expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('договоров')))
+    expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Годовой объём ЕП:')))
       .toMatchObject({ severity: 'info' });
   });
   it('a recognized reason stays an actionable warning in source validation', () => {
@@ -42,7 +42,7 @@ describe('source validation coverage is explicit', () => {
     row[DEPT_COLUMNS.ID] = '4'; row[DEPT_COLUMNS.SUBJECT] = 'Разовая закупка';
     row[DEPT_COLUMNS.METHOD] = 'ЕП'; row[DEPT_COLUMNS.TOTAL_PLAN] = 1200;
     row[DEPT_COLUMNS.EP_REASON] = 'Проведение аукциона нецелесообразно';
-    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Цена отдельного договора'));
+    const risk = validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Недостаточно данных для проверки сумм отдельных договоров'));
     expect(risk).toMatchObject({ severity: 'warning' });
   });
   it('readability of a year SVOD is not declared content validation', async () => {

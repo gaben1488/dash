@@ -86,6 +86,15 @@ jobs:
             echo run_browser=true >> "$GITHUB_OUTPUT"
           fi
 
+      - name: ESLint
+        run: pnpm lint
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm -r --workspace-concurrency=1 test
+
       - name: Synthetic browser acceptance boundaries (no VPS or source data)
         if: steps.browser-proof.outputs.run_browser != 'false'
         run: |
@@ -109,15 +118,6 @@ jobs:
             sleep 1
           done
           DASH_LAYOUT_URL=http://127.0.0.1:5178 python3 .github/ci/test_browser_shell_layout.py
-
-      - name: ESLint
-        run: pnpm lint
-
-      - name: TypeScript
-        run: pnpm typecheck
-
-      - name: Tests
-        run: pnpm -r --workspace-concurrency=1 test
 
       - name: Build
         run: pnpm build
