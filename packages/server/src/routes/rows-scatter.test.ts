@@ -174,8 +174,10 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
   it('reads the exact displayed snapshot instead of combining it with newer live rows', async () => {
     const { db, schema } = await import('../db/index.js');
     const row = sheetRow('frozen-position', 800, 46034, 46100, 700);
-    const snapshot = { id: 'frozen-scatter', createdAt: '2026-10-18T00:00:00Z',
-      rowsByDept: { 'УЭР': [row] }, metadata: { sourceCoverage: {
+    const future = sheetRow('future-for-snapshot', 900, '01.01.2026', '19.10.2026', 800);
+    future[25] = 100; future[29] = 'да';
+    const snapshot = { id: 'frozen-scatter', createdAt: '2026-10-18T11:59:59Z',
+      rowsByDept: { 'УЭР': [row, future] }, metadata: { sourceCoverage: {
         expectedDepartments: ['УЭР'], readDepartments: ['УЭР'], unreadDepartments: [], complete: true,
       } } };
     db.insert(schema.snapshots).values({ id: snapshot.id, spreadsheetId: 'synthetic', createdAt: snapshot.createdAt, data: JSON.stringify(snapshot) }).run();
@@ -183,6 +185,15 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     expect(response.statusCode).toBe(200);
     expect(response.json().points.map((point: ScatterPoint) => point.id)).toEqual(['frozen-position']);
     expect(response.json().sourceSnapshotId).toBe(snapshot.id);
+    expect(response.json().asOf).toBe('2026-10-18');
+    expect(response.json().excluded.futureFact).toBe(1);
+    expect(response.json().summary.approvedEconomy).toBe(0);
+    const next = { ...snapshot, id: 'frozen-scatter-next', createdAt: '2026-10-18T12:00:00Z' };
+    db.insert(schema.snapshots).values({ id: next.id, spreadsheetId: 'synthetic', createdAt: next.createdAt, data: JSON.stringify(next) }).run();
+    const afterBoundary = (await app.inject('/api/rows/scatter?dept=uer&snapshot_id=frozen-scatter-next')).json();
+    expect(afterBoundary.asOf).toBe('2026-10-19');
+    expect(afterBoundary.points).toHaveLength(2);
+    expect(afterBoundary.summary.approvedEconomy).toBe(100);
     expect((await app.inject('/api/rows/scatter?dept=uer&snapshot_id=missing')).statusCode).toBe(404);
   });
 });

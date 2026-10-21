@@ -18,6 +18,8 @@ async def main():
     async with async_playwright() as driver:
         browser = await driver.chromium.launch()
         page = await browser.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
         await page.route('**/api/**', lambda route: route.fulfill(
             status=503, content_type='application/json', body='{"error":"synthetic unavailable"}'))
         await page.goto(url, wait_until='domcontentloaded')
@@ -25,13 +27,22 @@ async def main():
         cases = 0
         for width, height in [(1146, 667), (1031, 600), (1440, 900), (390, 844), (844, 390)]:
             await page.set_viewport_size({'width': width, 'height': height})
-            for section in ['dashboard', 'report', 'svod', 'data', 'unfunded', 'yearlong',
-                            'monitoring', 'economy', 'competition', 'discipline', 'analytics', 'quality', 'settings']:
-                await page.evaluate("""async section => {
-                    const {useStore} = await import('/src/store.ts');
-                    useStore.getState().setPage(section);
-                }""", section)
-                await page.wait_for_selector(f'main[data-page="{section}"]')
+            for section, label in [
+                ('dashboard', 'Пульс'), ('report', 'Отчёт'), ('svod', 'Свод'),
+                ('data', 'Реестр'), ('unfunded', 'Не обеспеченные'), ('yearlong', 'В течение года'),
+                ('monitoring', 'Мониторинг'), ('economy', 'Экономия'), ('competition', 'Конкуренция'),
+                ('discipline', 'Дисциплина'), ('analytics', 'Аналитика'),
+                ('quality', 'Контроль'), ('settings', 'Система'),
+            ]:
+                # Use the running application's controls, not a second dev-server
+                # import of the store that can diverge after HMR.
+                await page.get_by_role('navigation', name='Навигация').get_by_text(label, exact=True).click()
+                try:
+                    await page.wait_for_selector(f'main[data-page="{section}"]')
+                except Exception:
+                    print({'section': section, 'viewport': [width, height], 'errors': errors,
+                           'visibleText': (await page.locator('body').inner_text())[:2000]})
+                    raise
                 result = await page.evaluate("""async () => {
                     const main = document.querySelector('main');
                     const stress = document.createElement('div');

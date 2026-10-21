@@ -15,6 +15,7 @@ DEPENDENCIES = (
     'packages/web', 'packages/shared', 'packages/core', 'scripts', 'patches',
     'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'tsconfig.strict.json',
     '.github/ci/test_browser_auth_isolation.py', '.github/ci/test_browser_header_controls.py',
+    '.github/ci/test_browser_shell_layout.py',
     '.github/ci/live_browser_readback.py', '.github/ci/source_ci_gate.py',
 )
 

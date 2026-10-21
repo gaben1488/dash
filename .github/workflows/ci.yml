@@ -101,6 +101,14 @@ jobs:
               BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py -v
             fi
           done
+          pnpm --dir packages/web exec vite --host 127.0.0.1 --port 5178 --strictPort > "$RUNNER_TEMP/layout-vite.log" 2>&1 &
+          layout_pid=$!
+          trap 'kill "$layout_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5178/ > /dev/null; then break; fi
+            sleep 1
+          done
+          DASH_LAYOUT_URL=http://127.0.0.1:5178 python3 .github/ci/test_browser_shell_layout.py
 
       - name: ESLint
         run: pnpm lint

@@ -9,6 +9,8 @@ import {
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
   dayNumberOf,
+  productCalendarDay,
+  PRODUCT_UTC_OFFSET_HOURS,
   parseEditableAmount,
   buildCellDict,
   isMetaRow,
@@ -1019,8 +1021,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         filterDepts.some(key => !departments.some(d => key === d.id || key === d.nameShort))) {
       return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Проверьте период, способ и управления в отборе.' });
     }
-    const asOf = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date());
-    const asOfDay = dayNumberOf(asOf)!;
+    const asOfInstant = frozen ? new Date(frozen.createdAt) : new Date();
+    if (!Number.isFinite(asOfInstant.getTime())) return reply.status(500).send({
+      code: 'INVALID_SNAPSHOT_TIME', message: 'Момент выбранного снимка не установлен. Исторические показатели не рассчитаны.',
+    });
+    const asOfDay = productCalendarDay(asOfInstant, PRODUCT_UTC_OFFSET_HOURS);
+    const asOf = isoOfDayNumber(asOfDay);
     const points = [];
     const unreadDepartments: Array<{ department: string; reason: string }> = [];
     const excluded = { invalidAmount: 0, invalidDate: 0, futureFact: 0, unknownMethod: 0 };
