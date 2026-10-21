@@ -37,6 +37,21 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('uses canonical position execution for Q2 instead of another money calculation', async () => {
+    const previous = fixture.snapshot;
+    const base = Object.values(previous.officialMetrics)[0]!;
+    const values = { 'competitive.q2.count': 4, 'competitive.q2.fact_count': 1,
+      'competitive.q2.total_plan': 100, 'competitive.q2.total_fact': 90,
+      'competitive.q2.percent': 0.25, 'sole.q2.count': 0, 'sole.q2.fact_count': 0 };
+    fixture.snapshot = { ...previous, calculatedMetrics: Object.fromEntries(Object.entries(values)
+      .map(([metricKey, numericValue]) => [metricKey, { ...base, metricKey, numericValue, value: numericValue }])) };
+    try {
+      const data = (await app.inject('/api/dashboard?year=2026')).json();
+      expect(data.summaryByPeriod.q2).toMatchObject({ kpCount: 4, kpFactCount: 1,
+        kpPlan: 100, kpFact: 90, kpPercent: 0.25, epCount: 0, epPercent: null });
+      expect(data.summaryByPeriod.q2.fbPlan).toBeNull();
+    } finally { fixture.snapshot = previous; }
+  });
   it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {
     const response = await app.inject('/api/dashboard?year=2026');
     expect(response.statusCode).toBe(200);

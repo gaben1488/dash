@@ -380,6 +380,10 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
 
   // Aggregate for all periods (matching REPORT_MAP summary entries)
   for (const p of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
+    // An acquired empty book emits explicit zero counts. No acquired book
+    // emits no metrics, so its absence must not become a calculated zero.
+    if (!ALL_DEPT_IDS.some(dept => target.has(`grbs.${dept}.kp.${p}.count`)
+      || target.has(`grbs.${dept}.ep.${p}.count`))) continue;
     let kpCount = 0, kpFact = 0, kpPlanTotal = 0, kpFactTotal = 0;
     let kpFbPlan = 0, kpKbPlan = 0, kpMbPlan = 0;
     let kpFbFact = 0, kpKbFact = 0, kpMbFact = 0;

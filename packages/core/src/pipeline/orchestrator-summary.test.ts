@@ -79,6 +79,17 @@ function metric(snapshot: ReturnType<typeof runOn>, key: string): number | undef
 describe('mergeSummaryMetrics — квартал и год', () => {
   const snap = runOn(SHEETS);
 
+  it('отсутствие всех книг не создаёт рассчитанные нули', () => {
+    expect(metric(runOn({}), 'competitive.q2.count')).toBeUndefined();
+    expect(metric(runOn({}), 'sole.year.total_plan')).toBeUndefined();
+  });
+
+  it('прочитанная пустая книга даёт нулевой счёт без процента исполнения', () => {
+    const empty = runOn({ 'УО': sheet([]) });
+    expect(metric(empty, 'competitive.q2.count')).toBe(0);
+    expect(metric(empty, 'competitive.q2.percent')).toBeUndefined();
+  });
+
   it('счёт КП квартала района = сумма книг', () => {
     // УО: 2 строки ЭА, УЭР: 1 строка ЭА → 3.
     expect(metric(snap, 'competitive.q1.count')).toBe(3);

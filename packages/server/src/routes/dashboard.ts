@@ -277,72 +277,35 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Q2-Q4 aggregated from calculated metrics across all departments
+    // Q2-Q4 use the same materialized summary as the core and report mapping.
+    // Percent means concluded positions / planned positions, in fractions,
+    // not a second monetary execution calculation in the HTTP route.
     for (const qk of ['q2', 'q3', 'q4'] as const) {
-      let kpCount = 0, kpFactCount = 0, kpPlan = 0, kpFact = 0;
-      let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
-      let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
-      let epFbPlan = 0, epKbPlan = 0, epMbPlan = 0, epFbFact = 0, epKbFact = 0, epMbFact = 0;
-      let hasData = false;
-
-      for (const dept of DEPARTMENTS) {
-        const prefix = `grbs.${dept.id}`;
-        const cv = (key: string) => calc[key]?.numericValue ?? 0;
-
-        const dKp = cv(`${prefix}.kp.${qk}.count`);
-        const dEp = cv(`${prefix}.ep.${qk}.count`);
-        if (dKp > 0 || dEp > 0) hasData = true;
-
-        kpCount += dKp;
-        kpFactCount += cv(`${prefix}.kp.${qk}.fact`);
-        kpPlan += cv(`${prefix}.kp.${qk}.total_plan`);
-        kpFact += cv(`${prefix}.kp.${qk}.total_fact`);
-        epCount += dEp;
-        epFactCount += cv(`${prefix}.ep.${qk}.fact`);
-        epPlan += cv(`${prefix}.ep.${qk}.total_plan`);
-        epFact += cv(`${prefix}.ep.${qk}.total_fact`);
-        // КП budget by source (ФБ/КБ/МБ)
-        fbPlan += cv(`${prefix}.kp.${qk}.fb_plan`);
-        kbPlan += cv(`${prefix}.kp.${qk}.kb_plan`);
-        mbPlan += cv(`${prefix}.kp.${qk}.mb_plan`);
-        fbFact += cv(`${prefix}.kp.${qk}.fb_fact`);
-        kbFact += cv(`${prefix}.kp.${qk}.kb_fact`);
-        mbFact += cv(`${prefix}.kp.${qk}.mb_fact`);
-        // ЕП budget by source (ФБ/КБ/МБ)
-        epFbPlan += cv(`${prefix}.ep.${qk}.fb_plan`);
-        epKbPlan += cv(`${prefix}.ep.${qk}.kb_plan`);
-        epMbPlan += cv(`${prefix}.ep.${qk}.mb_plan`);
-        epFbFact += cv(`${prefix}.ep.${qk}.fb_fact`);
-        epKbFact += cv(`${prefix}.ep.${qk}.kb_fact`);
-        epMbFact += cv(`${prefix}.ep.${qk}.mb_fact`);
-      }
-
-      const kpPct = kpPlan > 0 ? +((kpFact / kpPlan) * 100).toFixed(1) : null;
-      const epPct = epPlan > 0 ? +((epFact / epPlan) * 100).toFixed(1) : null;
-
+      const get = (family: 'competitive' | 'sole', field: string): number | null =>
+        calc[`${family}.${qk}.${field}`]?.numericValue ?? null;
       summaryByPeriod[qk] = {
-        kpCount: hasData ? kpCount : null,
-        kpFactCount: hasData ? kpFactCount : null,
-        kpPlan: hasData ? kpPlan : null,
-        kpFact: hasData ? kpFact : null,
-        kpPercent: hasData ? kpPct : null,
-        epCount: hasData ? epCount : null,
-        epFactCount: hasData ? epFactCount : null,
-        epPlan: hasData ? epPlan : null,
-        epFact: hasData ? epFact : null,
-        epPercent: hasData ? epPct : null,
-        fbPlan: hasData ? fbPlan : null,
-        kbPlan: hasData ? kbPlan : null,
-        mbPlan: hasData ? mbPlan : null,
-        fbFact: hasData ? fbFact : null,
-        kbFact: hasData ? kbFact : null,
-        mbFact: hasData ? mbFact : null,
-        epFbPlan: hasData ? epFbPlan : null,
-        epKbPlan: hasData ? epKbPlan : null,
-        epMbPlan: hasData ? epMbPlan : null,
-        epFbFact: hasData ? epFbFact : null,
-        epKbFact: hasData ? epKbFact : null,
-        epMbFact: hasData ? epMbFact : null,
+        kpCount: get('competitive', 'count'),
+        kpFactCount: get('competitive', 'fact_count'),
+        kpPlan: get('competitive', 'total_plan'),
+        kpFact: get('competitive', 'total_fact'),
+        kpPercent: get('competitive', 'percent'),
+        epCount: get('sole', 'count'),
+        epFactCount: get('sole', 'fact_count'),
+        epPlan: get('sole', 'total_plan'),
+        epFact: get('sole', 'total_fact'),
+        epPercent: get('sole', 'percent'),
+        fbPlan: get('competitive', 'fb_plan'),
+        kbPlan: get('competitive', 'kb_plan'),
+        mbPlan: get('competitive', 'mb_plan'),
+        fbFact: get('competitive', 'fb_fact'),
+        kbFact: get('competitive', 'kb_fact'),
+        mbFact: get('competitive', 'mb_fact'),
+        epFbPlan: get('sole', 'fb_plan'),
+        epKbPlan: get('sole', 'kb_plan'),
+        epMbPlan: get('sole', 'mb_plan'),
+        epFbFact: get('sole', 'fb_fact'),
+        epKbFact: get('sole', 'kb_fact'),
+        epMbFact: get('sole', 'mb_fact'),
         source: 'calculated',
       };
     }

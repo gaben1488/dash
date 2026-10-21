@@ -525,11 +525,13 @@ export interface DashboardPeriodSummary {
   kpFactCount: number | null;
   kpPlan: number | null;
   kpFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   kpPercent: number | null;
   epCount: number | null;
   epFactCount: number | null;
   epPlan: number | null;
   epFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   epPercent: number | null;
   fbPlan: number | null;
   kbPlan: number | null;

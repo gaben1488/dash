@@ -198,17 +198,17 @@ export function computeFilteredData(input: FilterInputs) {
   for (const kpi of topKpis) {
     if (kpi.metricKey?.startsWith('_derived')) continue;
     const key = kpi.metricKey ?? '';
-    const spark: number[] = [];
+    const spark: Array<number | null> = [];
     for (const qk of ['q1', 'q2', 'q3', 'q4']) {
       const q = summaryByPeriod[qk];
-      if (!q) { spark.push(0); continue; }
-      if (key.includes('competitive') && key.includes('percent')) spark.push(q.kpPercent ?? 0);
-      else if (key.includes('sole') && key.includes('percent')) spark.push(q.epPercent ?? 0);
-      else if (key.includes('competitive') && key.includes('count')) spark.push(q.kpCount ?? 0);
-      else if (key.includes('sole') && key.includes('count')) spark.push(q.epCount ?? 0);
-      else spark.push(0);
+      if (!q) { spark.push(null); continue; }
+      if (key.includes('competitive') && key.includes('percent')) spark.push(q.kpPercent ?? null);
+      else if (key.includes('sole') && key.includes('percent')) spark.push(q.epPercent ?? null);
+      else if (key.includes('competitive') && key.includes('count')) spark.push(q.kpCount ?? null);
+      else if (key.includes('sole') && key.includes('count')) spark.push(q.epCount ?? null);
+      else spark.push(null);
     }
-    if (spark.some(v => v > 0)) kpi.sparkData = spark;
+    if (spark.some(v => v !== null && v > 0)) kpi.sparkData = spark;
   }
   // 11c. Compute trend for KPI cards (current vs previous period)
   const QUARTER_ORDER = ['q1', 'q2', 'q3', 'q4'];
@@ -220,17 +220,17 @@ export function computeFilteredData(input: FilterInputs) {
     for (const kpi of topKpis) {
       if (kpi.trend || kpi.metricKey?.startsWith('_derived')) continue;
       const key = kpi.metricKey ?? '';
-      let curVal = 0, prevVal = 0;
+      let curVal: number | null = null, prevVal: number | null = null;
       if (key.includes('competitive') && key.includes('percent')) {
-        curVal = cur.kpPercent ?? 0; prevVal = prev.kpPercent ?? 0;
+        curVal = cur.kpPercent ?? null; prevVal = prev.kpPercent ?? null;
       } else if (key.includes('sole') && key.includes('percent')) {
-        curVal = cur.epPercent ?? 0; prevVal = prev.epPercent ?? 0;
+        curVal = cur.epPercent ?? null; prevVal = prev.epPercent ?? null;
       } else if (key.includes('competitive') && key.includes('count')) {
-        curVal = cur.kpCount ?? 0; prevVal = prev.kpCount ?? 0;
+        curVal = cur.kpCount ?? null; prevVal = prev.kpCount ?? null;
       } else if (key.includes('sole') && key.includes('count')) {
-        curVal = cur.epCount ?? 0; prevVal = prev.epCount ?? 0;
+        curVal = cur.epCount ?? null; prevVal = prev.epCount ?? null;
       }
-      if (prevVal > 0) {
+      if (curVal !== null && prevVal !== null && Number.isFinite(curVal) && Number.isFinite(prevVal) && prevVal > 0) {
         const diff = curVal - prevVal;
         const pctChange = Math.abs(diff / prevVal);
         kpi.trend = pctChange < 0.02 ? 'stable' : diff > 0 ? 'up' : 'down';
