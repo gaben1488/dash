@@ -26,8 +26,8 @@ beforeAll(async () => {
     import('./dashboard.js'), import('./audit.js'), import('./analytics.js'), import('@aemr/core'),
   ]);
   const issues = [issue('control-fp', 'uksimp'), issue('control-uo', 'uo')];
-  fixture.snapshot = { id: 'control-snapshot', createdAt: '2026-10-12T00:00:00Z', issues,
-    officialMetrics: {}, calculatedMetrics: {}, deltas: [], metadata: {},
+  fixture.snapshot = { id: 'control-snapshot', spreadsheetId: 'fixture-book', rowCount: 1, createdAt: '2026-10-12T00:00:00Z', issues,
+    officialMetrics: {}, calculatedMetrics: {}, deltas: [], metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
     trust: computeTrustScore(new Map(), issues, [], 'control-snapshot'), recalcResults: { uksimp: { totalCompetitive: 1, totalEP: 0, year: { planTotal: 100 }, epSharePct: 0,
       quarters: Object.fromEntries(['q1', 'q2', 'q3', 'q4'].map(q => [q, { executionPct: 0.65, ep: { planSum: 0 } }])) } } } as unknown as DataSnapshot;
   const row = Array<unknown>(34).fill('');
