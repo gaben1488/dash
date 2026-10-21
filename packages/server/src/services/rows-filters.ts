@@ -1,7 +1,8 @@
 /**
  * Query-фильтры списка строк /api/rows/:deptId (E11-2, rethink 2026-07-22).
  * Чистые функции от (rows, параметры запроса) — никакого чтения store/глобалей.
- * Инвариант каждого фильтра: пустой параметр = всё проходит (массив как есть).
+ * Отсутствующий параметр не сужает выборку. Явный ошибочный год отклоняется,
+ * а не расширяет выборку до всех лет.
  * Осевые каноны — из @aemr/shared: способы (METHOD_FAMILY_MAP), «само управление»
  * (isOrgItself), активность ТД/ПМ (matchesActivityScope).
  */
@@ -26,12 +27,7 @@ export interface FilterableRow {
   planYear: number;
 }
 
-/** Разбор query.year: 'all'/мусор/вне [2020..2100] → undefined (фильтр выключен). */
-export function parseYearFilter(yearRaw: string | undefined): number | undefined {
-  if (!yearRaw || yearRaw === 'all') return undefined;
-  const n = parseInt(yearRaw, 10);
-  return Number.isInteger(n) && n >= 2020 && n <= 2100 ? n : undefined;
-}
+export { parseYearFilterParam as parseYearFilter } from './period-params.js';
 
 /** Поля, по которым ищет applySearchFilter (единый список вместо цепочки ||). */
 const SEARCH_FIELDS: readonly (keyof FilterableRow)[] =

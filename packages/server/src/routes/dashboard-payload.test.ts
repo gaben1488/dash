@@ -2,9 +2,9 @@ import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DashboardDataSchema, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore } from '@aemr/core';
-const fixture = vi.hoisted(() => ({ snapshot: {} as DataSnapshot }));
+const fixture = vi.hoisted(() => ({ snapshot: {} as DataSnapshot, failure: null as unknown }));
 vi.mock('../config.js', () => ({ config: { database: { url: ':memory:' } }, DEPARTMENT_SPREADSHEETS: {} }));
-vi.mock('../services/snapshot.js', () => ({ getSnapshot: async () => fixture.snapshot,
+vi.mock('../services/snapshot.js', () => ({ getSnapshot: async () => { if (fixture.failure) throw fixture.failure; return fixture.snapshot; },
   getDeptSheetCache: () => ({}), getDeptLoadMeta: () => ({}), invalidateCache: vi.fn(), setSvodGridCache: vi.fn() }));
 vi.mock('../services/google-sheets.js', () => ({ getSheetData: vi.fn() }));
 vi.mock('../services/source-refresh.js', () => ({ refreshAllSources: vi.fn() }));
@@ -37,6 +37,19 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it.each(['/api/dashboard', '/api/trust/uo', '/api/svod/unified', '/api/reconciliation/quarterly'])('preserves first-start readiness on %s without disguising a source failure', async url => {
+    try {
+      fixture.failure = Object.assign(new Error('private source'), { code: 'SNAPSHOT_NOT_READY' });
+      const pending = await app.inject(url);
+      expect(pending.statusCode).toBe(503);
+      expect(pending.json().code).toBe('SNAPSHOT_NOT_READY');
+      fixture.failure = new Error('private source');
+      const failed = await app.inject(url);
+      expect(failed.statusCode).toBe(503);
+      expect(failed.json().code).not.toBe('SNAPSHOT_NOT_READY');
+      expect(failed.body).not.toContain('private source');
+    } finally { fixture.failure = null; }
+  });
   it('uses canonical position execution for Q2 instead of another money calculation', async () => {
     const previous = fixture.snapshot;
     const base = Object.values(previous.officialMetrics)[0]!;
@@ -106,6 +119,7 @@ describe('представление снимка для HTTP Dashboard', () => 
   it('rejects malformed or ambiguous year scope instead of serving an unintended dataset', async () => {
     for (const query of ['year=2026junk', 'year=2026.5', 'year=2026&year=2025', 'year=1999', 'year=']) {
       expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
+      expect((await app.inject('/api/svod/unified?' + query)).statusCode).toBe(400);
     }
     expect((await app.inject('/api/dashboard?year=all')).statusCode).toBe(200);
   });

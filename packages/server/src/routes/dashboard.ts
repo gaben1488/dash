@@ -8,6 +8,7 @@ import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
+import { parseYearFilterParam } from '../services/period-params.js';
 
 /**
  * Ответ на недоступность снимка. Демо-политика живёт в ОДНОЙ точке — getSnapshot:
@@ -19,6 +20,12 @@ import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } fro
 const SNAPSHOT_UNAVAILABLE = {
   error: 'Данные недоступны: не удалось получить снимок из источника. Повторите позже.',
 } as const;
+
+function snapshotUnavailable(error: unknown) {
+  return error instanceof Error && 'code' in error && error.code === 'SNAPSHOT_NOT_READY'
+    ? { code: 'SNAPSHOT_NOT_READY', error: 'Срез данных ещё готовится. Повторите чтение после обновления.' }
+    : SNAPSHOT_UNAVAILABLE;
+}
 
 /**
  * Блок чисел одного периода (квартал, год или месяц) в сводке ГРБС.
@@ -89,19 +96,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/dashboard', async (request, reply) => {
     const query = request.query as Record<string, string>;
     const force = query.refresh === 'true';
-    const yearParam = query.year; // e.g. '2026' or 'all'
-    // Invalid scope must not silently select the all-years model.
-    if (yearParam !== undefined && (typeof yearParam !== 'string' ||
-        yearParam !== 'all' && (!/^\d{4}$/.test(yearParam) || Number(yearParam) < 2020 || Number(yearParam) > 2100))) {
-      return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Укажите год от 2020 до 2100 или all.' });
-    }
-    const targetYear = yearParam && yearParam !== 'all' ? Number(yearParam) : undefined;
+    const targetYear = parseYearFilterParam(query.year);
     let snapshot;
     try {
       snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear));
     } catch (err) {
       app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     // Decisions are read on every request; never mutate the historical snapshot.
@@ -404,7 +405,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       snapshot = await getSnapshot(false);
     } catch (err) {
       app.log.warn({ err }, 'trust: snapshot unavailable');
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     const deptPrefix = `grbs.${dept.id}.`;
@@ -573,7 +574,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       // Раньше ошибка глоталась без лога, а сверка наполнялась демо-числами.
       app.log.warn({ err }, 'reconciliation/quarterly: snapshot unavailable');
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     const recalcResults = snapshot.recalcResults ?? {};
@@ -609,21 +610,14 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
    * Считается в snapshot (CalcEngine из атомов); ?year= уважается через getSnapshot.
    */
   app.get('/api/svod/unified', async (request, reply) => {
-    const yearParam = (request.query as Record<string, string>).year;
-    let targetYear: number | undefined;
-    if (yearParam && yearParam !== 'all') {
-      const parsed = parseInt(yearParam, 10);
-      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
-        targetYear = parsed;
-      }
-    }
+    const targetYear = parseYearFilterParam((request.query as Record<string, unknown>).year);
 
     let snapshot;
     try {
       snapshot = await getSnapshot(false, targetYear);
     } catch (err) {
       app.log.warn('svod/unified: snapshot unavailable: %s', (err as Error).message);
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     const grid = snapshot.unifiedGrid ?? { cells: {}, grbsIds: [], scopes: [] };

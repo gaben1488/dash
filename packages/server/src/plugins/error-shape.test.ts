@@ -137,6 +137,14 @@ describe('нет такого адреса', () => {
 });
 
 describe('соответствие кода состоянию', () => {
+  it('сохраняет только известные коды периода и готовности при подходящем HTTP-статусе', () => {
+    const pending = buildErrorBody(Object.assign(new Error(SECRET), { code: 'SNAPSHOT_NOT_READY', statusCode: 503 }), undefined, false);
+    expect(pending.code).toBe('SNAPSHOT_NOT_READY');
+    expect(pending.message).toContain('готовится');
+    expect(JSON.stringify(pending)).not.toContain(SECRET);
+    expect(buildErrorBody(Object.assign(new Error('Некорректный год'), { code: 'INVALID_SCOPE', statusCode: 400 }), undefined, false).code).toBe('INVALID_SCOPE');
+    expect(buildErrorBody(Object.assign(new Error(SECRET), { code: 'INVALID_SCOPE', statusCode: 500 }), undefined, false).code).toBe('INTERNAL_ERROR');
+  });
   it('известные состояния переводятся в свои слова', () => {
     expect(codeForStatus(400)).toBe('BAD_REQUEST');
     expect(codeForStatus(401)).toBe('UNAUTHORIZED');

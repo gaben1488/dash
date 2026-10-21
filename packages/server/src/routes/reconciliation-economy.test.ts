@@ -29,6 +29,19 @@ async function read(rows: unknown[][], economy: number) {
   finally { await app.close(); }
 }
 describe('economy explanation follows AD-approved budget columns, never fact', () => {
+  it('rejects a malformed period before reading data for another scope', async () => {
+    const app = Fastify();
+    await app.register(reconciliationRoutes);
+    vi.mocked(getSnapshot).mockClear();
+    try {
+      for (const query of ['year=2026junk', 'year=1999', 'year=2026&year=2025']) {
+        const response = await app.inject(`/api/reconciliation?${query}`);
+        expect(response.statusCode).toBe(400);
+        expect(response.json().code).toBe('INVALID_SCOPE');
+      }
+      expect(getSnapshot).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
   it('actual GET excludes profitable but unapproved row and attributes approved Z+AA+AB', async () => {
     const response = await read([row(false), row(true)], 6);
     const groups = response.rootCauses.filter((g: { metrics: string[] }) => g.metrics.includes('УО.economy_total'));

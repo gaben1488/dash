@@ -28,12 +28,10 @@ import {
 } from '../services/snapshot.js';
 import { getSheetDataWithFormulas } from '../services/google-sheets.js';
 import { SVOD_SPREADSHEET_ID } from '../config.js';
+import { parseYearFilterParam } from '../services/period-params.js';
 
 function parseTargetYear(query: Record<string, string | undefined>): number | undefined {
-  const raw = query.year;
-  if (!raw || raw === 'all') return undefined;
-  const year = Number.parseInt(raw, 10);
-  return Number.isInteger(year) && year >= 2020 && year <= 2100 ? year : undefined;
+  return parseYearFilterParam(query.year);
 }
 
 function n(value: unknown): number {
