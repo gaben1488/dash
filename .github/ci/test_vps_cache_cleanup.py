@@ -171,7 +171,8 @@ class ReleaseFailureEvidenceTests(unittest.TestCase):
             value = json.loads(output.getvalue())
             self.assertEqual(set(value), {'stage.log','prepare.log'})
             self.assertIn('PRIVATE_BEARER_VALUE', value['stage.log'])  # Preserved only in root-private transport.
-            with patch.dict(os.environ, {'RUNNER_TEMP': temporary}), contextlib.redirect_stdout(io.StringIO()) as output:
+            with contextlib.chdir(SCRIPT.parents[1]), patch.dict(os.environ, {'RUNNER_TEMP': temporary}), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
                 exec(compile(public, '<public-evidence-fixture>', 'exec'), {})  # noqa: S102 - trusted local workflow
             self.assertEqual(output.getvalue(), 'PRIVATE_RELEASE_FAILURE_CODE=BACKUP_STORAGE_INSUFFICIENT\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_CONTROLLER_FAILED\nPRIVATE_RELEASE_FAILURE_CODE=RELEASE_SAVED_RUNTIME_MISMATCH\nPRIVATE_RELEASE_FAILURE_CODE=SOURCE_CHANGED_DURING_BACKUP\n')
 
