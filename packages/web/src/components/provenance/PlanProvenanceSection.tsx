@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * PlanProvenanceSection — секция «Откуда взялась плановая сумма» в карточке
  * строки: текущий план крупно, под ним — лента правок плановых ячеек.
@@ -85,7 +86,7 @@ export function PlanProvenanceSection({
 
       {/* Что это за величина по природе — с происхождением знания рядом. */}
       <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed" title={semantics.explain}>
-        В книге {deptId || 'управления'} плановая сумма — {semantics.label}
+        В книге {productLabel(deptId || 'управления')} плановая сумма — {semantics.label}
         <span className="text-zinc-400 dark:text-zinc-500"> ({semantics.source})</span>
       </p>
 

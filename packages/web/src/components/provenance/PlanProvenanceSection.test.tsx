@@ -68,7 +68,7 @@ describe('PlanProvenanceSection', () => {
     render(<PlanProvenanceSection deptId="УДТХ" rowSeq={12} planNow={500} planCell="K15" />);
 
     // У УДТХ в плановых столбцах лежит лимит, а не начальная цена контракта.
-    expect(flat()).toContain('В книге УДТХ плановая сумма — распределяемый лимит');
+    expect(flat()).toContain('В книге УДТХиБ плановая сумма — распределяемый лимит');
     expect(flat()).toContain('ячейка K15');
     // Журнал книги не читается, пока секцию не раскрыли.
     expect(spy).not.toHaveBeenCalled();
