@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from procurement_engine.normalize import parse_date, parse_decimal
 
-CASES = json.loads((Path(__file__).resolve().parents[2] / 'shared/fixtures/source-value-cases.json').read_text())
+CASES = json.loads((Path(__file__).resolve().parents[2] / 'shared/fixtures/source-value-cases.json').read_text(encoding='utf-8'))
 
 
 @pytest.mark.parametrize('case', CASES['numbers'])

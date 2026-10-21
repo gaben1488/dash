@@ -263,8 +263,18 @@ export interface TrustComponent {
   details: string;
 }
 
+/** Actual check executions, recorded with the source snapshot. */
+export interface TrustCheckCoverage {
+  sheet: string;
+  component: 'formula_integrity' | 'rule_compliance';
+  expected: number;
+  checked: number;
+  failed: number;
+}
+
 /** Общая оценка доверия */
 export interface TrustScore {
+  coverage?: TrustCheckCoverage[];
   overall: number | null;
   components: TrustComponent[];
   grade: TrustGrade | null;
@@ -409,7 +419,8 @@ export interface RuleCheckContext {
 
 /** Результат проверки одного правила на одной строке */
 export interface RuleCheckResult {
-  passed: boolean;
+  /** null: the rule could not establish a result from the available inputs. */
+  passed: boolean | null;
   message?: string;
   cell?: string;
   actual?: unknown;
@@ -524,11 +535,13 @@ export interface DashboardPeriodSummary {
   kpFactCount: number | null;
   kpPlan: number | null;
   kpFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   kpPercent: number | null;
   epCount: number | null;
   epFactCount: number | null;
   epPlan: number | null;
   epFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   epPercent: number | null;
   fbPlan: number | null;
   kbPlan: number | null;

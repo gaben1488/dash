@@ -57,6 +57,12 @@ def _proven_invalid_references(value):
 
 
 def compare_weekly_replay(baseline: dict, candidate: dict) -> dict:
+    empty = {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+    if (baseline == empty and candidate == empty
+            and type(baseline.get('archive_count')) is int and type(candidate.get('archive_count')) is int):
+        return {'status': 'NO_WEEKLY_HISTORY', 'ready': True, 'historical_replay_verified': False,
+                'explanation': 'Недельная история ещё не создана. Проверка исторического воспроизведения неприменима; '
+                               'проверки первого расчёта и выпуска выполняются отдельно.'}
     proven = _proven_invalid_references(baseline)
     if (proven and _proven_invalid_references(candidate)
             and baseline['frozen_refusal'] == candidate['frozen_refusal']):

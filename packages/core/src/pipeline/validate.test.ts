@@ -88,6 +88,16 @@ describe('СВОД — границы разных схем на одном ли
 // ────────────────────────────────────────────────────────────
 
 describe('validateData — basic', () => {
+  it('reports incomplete arithmetic once per rule without alleging a financial mismatch', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const rows = [5, 6].map(rowIndex => makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, K: 100 } }));
+    const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
+    expect(issues[0].description).toContain('Не проверено 2 строк');
+    expect(issues[0].description).toContain('не установленное расхождение');
+    expect(validateData(EMPTY_METRICS, rows.map(r => ({ ...r, cells: { ...r.cells, J: 0 } })), rules, EMPTY_REPORT_MAP)).toEqual([]);
+  });
   it('returns empty issues for passing rules', () => {
     const rows = [makeRow({ cells: { A: '1', H: 100000 } })];
     const rules = [makeRule()];
@@ -554,5 +564,23 @@ describe('validateData — hasProgramName via activityType', () => {
     const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Нацпроект', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_non_program');
+  });
+});
+
+
+describe('validation execution coverage', () => {
+  it('counts true/false but leaves missing inputs and exceptions unchecked', () => {
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    validateData(EMPTY_METRICS, [makeRow({ sheet: 'УО' })], [
+      makeRule({ id: 'pass', check: () => ({ passed: true }) }),
+      makeFailingRule(),
+      makeRule({ id: 'unknown', check: () => ({ passed: null }) }),
+      makeRule({ id: 'throws', check: () => { throw new Error('source'); } }),
+      makeRule({ id: 'disabled', enabled: false }),
+      makeRule({ id: 'other-scope', scope: 'svod' }),
+    ], EMPTY_REPORT_MAP, new Date('2026-10-21T00:00:00Z'), coverage);
+    expect(coverage).toEqual([
+      { sheet: 'УО', component: 'rule_compliance', expected: 4, checked: 2, failed: 1 },
+    ]);
   });
 });

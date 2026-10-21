@@ -24,20 +24,12 @@
  * инструмент насчитал «дыры» на 58 пустых строках хвоста УО, за которыми не
  * стояло ни одного дефекта).
  */
-import type { Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS, isMetaRow } from '@aemr/shared';
+import type { TrustCheckCoverage, Issue } from '@aemr/shared';
+import { CHECK_REGISTRY, DEPT_COLUMNS, FORMULA_COLUMNS, isMetaRow } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
-/**
- * Одиннадцать формульных колонок книги ГРБС — ровно те, что канон таблиц
- * защищает (`scripts/etalon-sync/canon.cjs`, `goldenProtections`: K, O:P, R:T,
- * Y:AC) и красит правилом №1, и ровно те, что читает сервер
- * (`FORMULA_COLUMNS` в `packages/server/src/services/google-sheets.ts`).
- * Список продублирован здесь намеренно: ядро не имеет права зависеть от
- * сервера. Расхождение двух списков ловит страж
- * `formula-integrity.test.ts` — «одиннадцать канонных граф, не весь лист».
- */
-export const FORMULA_COLUMNS = ['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC'] as const;
+// Compatibility export; the shared source contract owns this column set.
+export { FORMULA_COLUMNS } from '@aemr/shared';
 
 export type FormulaColumn = (typeof FORMULA_COLUMNS)[number];
 
@@ -206,12 +198,11 @@ function shortText(raw: unknown): string {
  * объявляет всю графу перебитой. Ложная тревога на тысячи ячеек дороже
  * пропуска вырожденного случая «графа уничтожена целиком».
  */
-export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDefect[] {
-  if (input.formulasRead === false) return [];
+export function detectFormulaIntegrity(input: FormulaIntegrityInput, coverage?: TrustCheckCoverage[]): FormulaDefect[] {
   const formulas = input.formulas ?? [];
   const values = input.values ?? [];
   // Пустая сетка = «не читали». Молчание здесь — обещание слоя.
-  if (formulas.length === 0) return [];
+
 
   const startRow = input.startRow ?? 1;
   const height = Math.max(values.length, formulas.length);
@@ -224,7 +215,12 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
     if (seq === null) continue;
     judged.push({ index: i, row: startRow + i, seq });
   }
-  if (judged.length === 0) return [];
+  const execution: TrustCheckCoverage = {
+    sheet: input.book, component: 'formula_integrity',
+    expected: judged.length * FORMULA_COLUMNS.length, checked: 0, failed: 0,
+  };
+  coverage?.push(execution);
+  if (judged.length === 0 || input.formulasRead === false || formulas.length === 0) return [];
 
   // Метка номера строки — одна на строку, а не на каждую из одиннадцати граф.
   const marks = new Map<number, RegExp>();
@@ -255,6 +251,7 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
       }
     }
     if (etalon === '') continue; // графу не читали либо сравнивать не с чем
+    execution.checked += judged.length;
 
     const donorRows: number[] = [];
     for (let k = 0; k < judged.length; k++) {
@@ -291,6 +288,7 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
   // Порядок вывода — по строке, затем по графе: перечень читается сверху вниз
   // так же, как открытая книга, а не пачками по одиннадцати колонкам.
   defects.sort((a, b) => (a.row - b.row) || a.cell.localeCompare(b.cell, 'ru'));
+  execution.failed = defects.length;
   return defects;
 }
 
@@ -323,8 +321,9 @@ function describe(defect: FormulaDefect): string {
 export function formulaIntegrityIssues(
   input: FormulaIntegrityInput,
   departmentId: string,
+  coverage?: TrustCheckCoverage[],
 ): Issue[] {
-  const defects = detectFormulaIntegrity(input);
+  const defects = detectFormulaIntegrity(input, coverage);
   if (defects.length === 0) return [];
 
   const now = new Date().toISOString();

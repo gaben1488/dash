@@ -143,6 +143,9 @@ def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
             assert provider_id == provider and requested_id == sheet_id
             return {'title': self.title, 'gridProperties': {'rowCount': 3, 'columnCount': 3}}
 
+        def formula_context(self, provider_id):
+            return {'sheets': [{'sheetId': sheet_id, 'title': self.title}], 'named_ranges': []}
+
         def values(self, provider_id, title, start, end, columns):
             self.calls.append(title)
             assert title == self.title
@@ -162,6 +165,11 @@ def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
     assert renamed.semantic_values == old.semantic_values
     assert renamed.schema_fingerprint == old.schema_fingerprint
     assert renamed.metadata['sheet_title'] == approved
+    from procurement_engine.formula_dependencies import audit_formula_dependencies
+    for payload in (old, renamed):
+        captured = {**contract, 'rows': len(payload.semantic_values),
+                    'formula_evidence': payload.metadata['formula_evidence']}
+        assert audit_formula_dependencies({'sources': [captured]})['closed']
     assert client.calls and set(client.calls) == {approved}
     for wrong_title in ['UNKNOWN', approved + ' ', 'Все']:
         with pytest.raises(GoogleReadError, match='GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'):

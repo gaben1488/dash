@@ -55,6 +55,13 @@ function cardsFor(period: string) {
 }
 
 describe('computeFilteredData — тренд KPI', () => {
+  it('не рисует падение к нулю при неизвестном текущем проценте', () => {
+    const input = makeInputs('q2', cardsFor('q2'));
+    input.dashboardData.summaryByPeriod = { q1: { kpPercent: 0.4 }, q2: { kpPercent: null } };
+    const shown = computeFilteredData(input).topKpis.find(k => k.metricKey === 'competitive.q2.percent');
+    expect(shown?.trend).toBeUndefined();
+    expect(shown?.sparkData).toEqual([0.4, null, null, null]);
+  });
   it('не пишет спарклайн и тренд в исходные карточки', () => {
     const cards = cardsFor('q2');
 

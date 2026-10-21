@@ -32,9 +32,8 @@
  * выбора на счёт не влияет, и роут говорит об этом плашкой, а не молчит.
  *
  * Источник строк — то же правило одной оси недели, что у /api/report: срез
- * текущей недели читается из живого кэша книг ГРБС, срез прошлых недель — из
- * снимка той недели (строки-атомы снимка), чтобы история не переписывалась
- * сегодняшними правками книг. Снимка нет — живые строки с честной плашкой.
+ * читается из снимка выбранной даты, эфир — из текущего кэша книг ГРБС.
+ * Отсутствующий снимок не заменяется сегодняшними строками или другой неделей.
  */
 import type { FastifyInstance } from 'fastify';
 import type { RawRow } from '@aemr/core';
@@ -50,7 +49,7 @@ import {
   type MetricZone,
   type RatioValue,
 } from '@aemr/core/src/metrics/economic.js';
-import { DEPARTMENTS, collectRowsByDept, floorToThursday, isoOfDayNumber, departmentCoverage, sourceCoverageNote } from '@aemr/shared';
+import { DEPARTMENTS, collectRowsByDept, isoOfDayNumber, departmentCoverage, sourceCoverageNote } from '@aemr/shared';
 import { config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { getDeptSheetValues, getSnapshotAtOrBefore } from '../services/snapshot.js';
@@ -369,28 +368,22 @@ export async function economicMetricsRoutes(app: FastifyInstance): Promise<void>
     // Правило источника строк («одна ось недели»): срез прошлых недель обязан
     // читаться из снимка той недели, иначе прошлое пересчитается по нынешнему
     // состоянию книг и цифра в архиве поедет задним числом.
-    const currentThursday = floorToThursday(todayDay);
     let rowsByDept: Record<string, unknown[][]> | undefined;
-    if (!period.live && period.asOfDay < currentThursday) {
+    if (!period.live) {
       const snapshot = getSnapshotAtOrBefore(period.asOfDay);
-      if (snapshot?.rowsByDept) {
-        rowsByDept = snapshot.rowsByDept;
-        // День снимка — по календарю ПРОДУКТА: момент создания снимка хранится
-        // в UTC, и его UTC-срез назвал бы камчатский четверг 04:00 средой.
-        const createdMs = Date.parse(snapshot.createdAt);
-        const snapshotDay = Number.isNaN(createdMs)
-          ? null
-          : productCalendarDay(new Date(createdMs), config.weeklySnapshot.utcOffsetHours);
-        notes.push(
-          `Метрики посчитаны из снимка ${snapshotDay !== null ? ruDateOfDay(snapshotDay) : snapshot.createdAt}.`,
-        );
-      } else {
-        // Честная плашка вместо тихой подмены: читатель видит сегодняшние
-        // строки под прошлой датой среза — и знает об этом.
-        notes.push(
-          `Снимка на ${ruDateOfDay(period.asOfDay)} нет — показаны текущие данные под датой среза.`,
-        );
+      const createdMs = snapshot ? Date.parse(snapshot.createdAt) : NaN;
+      const snapshotDay = Number.isFinite(createdMs)
+        ? productCalendarDay(new Date(createdMs), config.weeklySnapshot.utcOffsetHours) : null;
+      if (!snapshot?.rowsByDept || snapshotDay !== period.asOfDay) {
+        return reply.status(404).send({
+          error: 'ArchiveSnapshotNotFound', code: 'ARCHIVE_SNAPSHOT_NOT_FOUND', statusCode: 404,
+          requestedDate: isoOfDayNumber(period.asOfDay),
+          message: `Сохранённый снимок на ${ruDateOfDay(period.asOfDay)} не найден. ` +
+            'Текущие данные и другая неделя вместо выбранной даты не использованы.',
+        });
       }
+      rowsByDept = snapshot.rowsByDept;
+      notes.push(`Метрики посчитаны из снимка ${ruDateOfDay(snapshotDay)}.`);
     }
     if (!rowsByDept) {
       rowsByDept = collectRowsByDept(getDeptSheetValues());

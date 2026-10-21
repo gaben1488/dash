@@ -268,3 +268,11 @@ timestamp parser. This requires no source writes or formatting changes.
 Оно показывается в обоих журналах с №, прежним адресом, предметом и моментом
 обнаружения; автор и время исходного удаления не выдумываются. Дубли номера
 и возможная перенумерация сохраняют ограничения существующего diffSnapshots.
+
+### Execution coverage, 21.10.2026
+
+Trust stores per-sheet expected, completed and failed check counts from the
+actual validator and formula scanner. Missing inputs, exceptions and columns
+without a formula reference remain unchecked; absence of issues is not coverage.
+Old snapshots without these observations remain ungraded. Department views use
+only the observations of their own sheets. No source writes or new DB table.

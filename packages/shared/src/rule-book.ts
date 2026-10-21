@@ -136,7 +136,7 @@ const budgetSumConsistencyPlan: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['K']);
-    if (total === null) return { passed: true };
+    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
@@ -145,7 +145,7 @@ const budgetSumConsistencyPlan: ValidationRule = {
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
-    if (!allPresent) return { passed: true };
+    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
     if (diff > TOLERANCE) {
@@ -177,7 +177,7 @@ const budgetSumConsistencyFact: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['O']);
-    if (total === null) return { passed: true };
+    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
@@ -186,7 +186,7 @@ const budgetSumConsistencyFact: ValidationRule = {
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
-    if (!allPresent) return { passed: true };
+    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
     if (diff > TOLERANCE) {
@@ -227,8 +227,7 @@ const executionPercentage: ValidationRule = {
     const g = toNumber(ctx.cells['G']); // % исполнения
 
     // Нет данных для проверки
-    if (d === null && e === null) return { passed: true };
-    if (g === null) return { passed: true };
+    if (d === null || e === null || g === null) return { passed: null, message: 'Для проверки процента нужны числовые D, E и G.' };
 
     // D = 0 и E = 0 → G должен быть 0 или пусто
     if (d === 0 && e === 0) {
@@ -258,7 +257,7 @@ const executionPercentage: ValidationRule = {
 
     // D > 0 → проверяем формулу
     if (d !== null && d > 0) {
-      const ratio = (e ?? 0) / d;
+      const ratio = e / d;
       // G может быть в формате 0-1 (десятичная доля, Excel «%») или 0-100 (число)
       // Если G <= 1.5 и expected > 1.5, значит G в десятичном формате
       const expectedPct = ratio * 100;
@@ -303,7 +302,7 @@ const deviationCalc: ValidationRule = {
     const e = toNumber(ctx.cells['E']); // факт
     const f = toNumber(ctx.cells['F']); // отклонение
 
-    if (d === null || e === null || f === null) return { passed: true };
+    if (d === null || e === null || f === null) return { passed: null, message: 'Для проверки отклонения нужны числовые D, E и F.' };
 
     // Spreadsheet convention: F = E - D (факт минус план)
     const expected = e - d;
@@ -355,20 +354,23 @@ const q1LeqYear: ValidationRule = {
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    if (!ctx.allRows || ctx.allRows.length === 0) return { passed: true };
-
     // Only fire on known Q1 rows
     const pair = Q1_YEAR_PAIRS.find(p => p.q1Row === ctx.rowIndex);
     if (!pair) return { passed: true };
 
-    const yearRow = ctx.allRows.find(r => r.rowIndex === pair.yearRow);
-    if (!yearRow) return { passed: true };
+    const yearRow = ctx.allRows?.find(r => r.rowIndex === pair.yearRow);
+    if (!yearRow) return { passed: null, message: `Не прочитана годовая строка ${pair.yearRow} для сравнения с кварталом.` };
 
     const columnsToCheck = ['D', 'K'];
+    const missing: string[] = [];
     for (const col of columnsToCheck) {
       const q1Val = toNumber(ctx.cells[col]);
       const yearVal = toNumber(yearRow.cells[col]);
-      if (q1Val === null || yearVal === null) continue;
+      if (q1Val === null || yearVal === null) {
+        if (q1Val === null) missing.push(`${col}${ctx.rowIndex}`);
+        if (yearVal === null) missing.push(`${col}${pair.yearRow}`);
+        continue;
+      }
 
       if (q1Val > yearVal) {
         return {
@@ -383,7 +385,9 @@ const q1LeqYear: ValidationRule = {
       }
     }
 
-    return { passed: true };
+    return missing.length
+      ? { passed: null, message: `Не получены числовые значения для сравнения квартала с годом: ${missing.join(', ')}.` }
+      : { passed: true };
   },
 };
 
@@ -406,7 +410,7 @@ const factLeqPlan: ValidationRule = {
     const d = toNumber(ctx.cells['D']); // план
     const e = toNumber(ctx.cells['E']); // факт
 
-    if (d === null || e === null) return { passed: true };
+    if (d === null || e === null) return { passed: null, message: 'Для сравнения количества плана и факта нужны числовые значения D и E.' };
     if (d === 0) return { passed: true }; // нечего сравнивать
 
     if (e > d) {
@@ -632,7 +636,7 @@ const deptFactSumConsistency: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['Y']);
-    if (total === null) return { passed: true };
+    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
@@ -641,7 +645,7 @@ const deptFactSumConsistency: ValidationRule = {
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
-    if (!allPresent) return { passed: true };
+    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
     if (diff > TOLERANCE) {
@@ -677,7 +681,7 @@ const deptEconomySumConsistency: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['AC']);
-    if (total === null) return { passed: true };
+    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
@@ -686,7 +690,7 @@ const deptEconomySumConsistency: ValidationRule = {
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
-    if (!allPresent) return { passed: true };
+    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
     if (diff > TOLERANCE) {
@@ -1115,8 +1119,7 @@ const numericCellUnreadable: ValidationRule = {
   name: 'Денежная графа заполнена не числом',
   description:
     'В графах сумм (H:J план, V:X факт, Z:AB остаток) стоит значение, которое ' +
-    'числом не читается. Сверки итогов такую графу молча пропускают, и строка ' +
-    'выпадает из сумм.',
+    'числом не читается. Проверить соответствующий итог без этого значения невозможно.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -1139,8 +1142,7 @@ const numericCellUnreadable: ValidationRule = {
       message:
         `Денежные графы строки заполнены не числом: ${list}. ` +
         `Сверки итогов (K = H+I+J, Y = V+W+X, AC = Z+AA+AB) при нечитаемом ` +
-        `слагаемом молчат — расхождение не всплывёт нигде, а сумма строки ` +
-        `посчитается без этой графы.`,
+        `слагаемом не выполнены. Это не доказательство совпадения или расхождения сумм.`,
       cell: `${bad[0].col}${ctx.rowIndex}`,
       actual: bad.map(b => `${b.col}="${b.shown}"`).join(', '),
       expected: 'число (сумма в тыс. руб.) либо пустая ячейка',
@@ -1187,10 +1189,9 @@ const economyFlagGarbage: ValidationRule = {
 // ============================================================
 const overdueReasonMissing: ValidationRule = {
   id: 'overdue_reason_missing',
-  name: 'Срок нарушен, а причина (U) не заполнена',
+  name: 'Не указана причина задержки заключения договора (столбец U)',
   description:
-    'Срок по строке нарушен — либо графа T говорит «Срок нарушен», либо дни ' +
-    'просрочки больше нуля, — а графа U (причина отклонения) пуста.',
+    'Задержка подтверждена датами N/Q либо плановой датой и днём среза при отсутствии факта; столбец U пуст.',
   severity: 'warning',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -1198,16 +1199,23 @@ const overdueReasonMissing: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
 
-    // Опоздание видно двумя путями. Структурный (даты N и Q) — основной, он не
-    // зависит от целостности формулы T. Графа T нужна для строк БЕЗ факта:
-    // там «нарушен ли срок» решают часы («сегодня» против плановой даты), а у
-    // правила листа часов нет — их держит формула книги, сравнивающая план с
-    // датой среза из настроек.
+    // N/Q and the captured day own the event; T is only a derived display.
+    // Amounts without Q remain the existing annual-stage convention, not proof
+    // of a missing contract. Never demand a reason solely because T says so.
     const late = daysLateOfRow(ctx.cells);
-    const verdictT = String(ctx.cells['T'] ?? '').trim().toLowerCase();
-    const daysT = toNumber(ctx.cells['T']);
-    const overdueByBook = verdictT.includes('срок нарушен') || (daysT !== null && daysT > 0);
-    if (late === null && !overdueByBook) return { passed: true };
+    const planDay = dayOfDateCell(ctx.cells['N']);
+    const factDay = dayOfDateCell(ctx.cells['Q']);
+    const today = ctx.asOf && Number.isFinite(ctx.asOf.getTime())
+      ? productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS) : null;
+    if (today !== null && factDay !== null && factDay > today) return { passed: true };
+    if (late === null) {
+      const total = toNumber(ctx.cells['Y']);
+      const factAmount = total !== null && total !== 0 ? total
+        : ['V', 'W', 'X'].reduce((sum, col) => sum + (toNumber(ctx.cells[col]) ?? 0), 0);
+      if (planDay === null || hasFactDate(ctx.cells['Q']) || factAmount > 0) return { passed: true };
+      if (today === null) return { passed: null, message: 'Не задан день среза для проверки текущей задержки.' };
+      if (planDay >= today) return { passed: true };
+    }
 
     // ПУСТОТА — СТРУКТУРНАЯ, СОДЕРЖИМОЕ НЕ ЧИТАЕТСЯ. Канон п.27 запрещает
     // машинно толковать свободный текст исполнителя (U «Причина отклонения»),
@@ -1218,7 +1226,7 @@ const overdueReasonMissing: ValidationRule = {
 
     const howLate = late !== null
       ? `Заключение позже плановой даты на ${late} ${daysWord(late)}.`
-      : 'Плановая дата прошла, факта нет.';
+      : 'Плановый срок прошёл; заключение не подтверждено датой или фактическими суммами.';
     return {
       passed: false,
       message:
@@ -1239,16 +1247,18 @@ const overdueReasonMissing: ValidationRule = {
 // ============================================================
 const lateSigned: ValidationRule = {
   id: 'late_signed',
-  name: 'Исполнено с опозданием',
+  name: 'Договор заключён позже планового срока',
   description:
-    'Договор заключён (дата в Q) позже плановой даты (N). Строка закрыта, но ' +
-    'срок сорван — признак просрочки у неё гаснет вместе с появлением факта.',
-  severity: 'warning',
+    'Дата заключения Q позже плановой даты N. Это история заключения, а не подтверждение поставки, приёмки или оплаты.',
+  severity: 'info',
   origin: 'bi_heuristic',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
+    const factDay = dayOfDateCell(ctx.cells['Q']);
+    if (ctx.asOf && Number.isFinite(ctx.asOf.getTime()) && factDay !== null
+      && factDay > productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS)) return { passed: true };
     const late = daysLateOfRow(ctx.cells);
     if (late === null) return { passed: true };
 
@@ -1256,9 +1266,8 @@ const lateSigned: ValidationRule = {
       passed: false,
       message:
         `Заключение (Q${ctx.rowIndex}) позже плановой даты (N${ctx.rowIndex}) ` +
-        `на ${late} ${daysWord(late)}. Это не упрёк, а факт исполнения: строка ` +
-        `состоялась, и признак просрочки по ней погас — до этой проверки ` +
-        `закрытая с нарушением срока закупка выглядела чистой.`,
+        `на ${late} ${daysWord(late)}. Сохраните фактические даты и объяснение ` +
+        `в столбце U. Поставка, приёмка и оплата этим сравнением не проверяются.`,
       cell: `Q${ctx.rowIndex}`,
       actual: `+${late} ${daysWord(late)}`,
       expected: 'заключение не позже плановой даты (N)',

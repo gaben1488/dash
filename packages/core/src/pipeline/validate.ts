@@ -1,5 +1,5 @@
 import { issueIdentity, ruleIssueIdentityParts, nextOccurrence, SEP } from './issue-identity.js';
-import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
+import type { TrustCheckCoverage, Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
 import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
 
 /**
@@ -43,6 +43,7 @@ export function validateData(
   rules: ValidationRule[],
   _reportMap: ReportMapEntry[],
   asOf: Date = new Date(),
+  coverage?: TrustCheckCoverage[],
 ): Issue[] {
   const issues: Issue[] = [];
   const now = new Date().toISOString();
@@ -54,6 +55,8 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
+  const execution: TrustCheckCoverage = { sheet: sheetName, component: 'rule_compliance', expected: 0, checked: 0, failed: 0 };
+  coverage?.push(execution);
   // Один лист содержит несколько таблиц с разными значениями D:U. Граница
   // определяется шапкой/названием блока, а не номером строки: вставка строк
   // не должна возвращать проверку количества на денежную аналитическую таблицу.
@@ -116,6 +119,8 @@ export function validateData(
     });
   }
 
+  if (sheetClass.kind === 'unknown' || unknownSvodHeaders.length > 0) execution.expected += 1;
+
   for (const rule of rules) {
     if (rule.enabled === false) continue;
 
@@ -128,12 +133,15 @@ export function validateData(
     // A failing rule must not silently turn an incomplete validation into clean data.
     let failedRows = 0;
     let firstFailedRow: number | null = null;
+    let uncheckedRows = 0;
+    let firstUnchecked: { row: number; message: string } | null = null;
     // Run the rule's check() against each applicable row
     for (const row of rows) {
       if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
       if (rule.rowFilter && !rule.rowFilter.includes(row.classification)) continue;
+      execution.expected += 1;
       const ctx: import('@aemr/shared').RuleCheckContext = {
         cells: row.cells,
         rowIndex: row.rowIndex,
@@ -151,7 +159,14 @@ export function validateData(
         if (firstFailedRow === null) firstFailedRow = row.rowIndex;
         continue;
       }
-      if (!result.passed) {
+      if (result.passed === null) {
+        uncheckedRows += 1;
+        firstUnchecked ??= { row: row.rowIndex, message: result.message ?? 'Недостаточно исходных значений.' };
+        continue;
+      }
+      execution.checked += 1;
+      if (result.passed === false) {
+        execution.failed += 1;
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
         // Стабильный id (issue-identity.ts): содержимое-якорь, не номер строки.
@@ -197,6 +212,17 @@ export function validateData(
           detectedBy: `rule:${rule.id}`,
         });
       }
+    }
+    if (uncheckedRows > 0 && firstUnchecked) {
+      issues.push({
+        id: issueIdentity(['validation-input-unavailable', rule.id, sheetName]),
+        severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed',
+        title: `Недостаточно данных для проверки «${rule.name}»`,
+        description: `Не проверено ${uncheckedRows} строк листа «${sheetName}». Первая — ${firstUnchecked.row}: ${firstUnchecked.message} Это ограничение проверки, а не установленное расхождение сумм.`,
+        sheet: sheetName, row: firstUnchecked.row, departmentId: sheetClass.latinId,
+        recommendation: 'Сопровождению: проверить полноту чтения и исходные значения; повторить проверку. Не изменять достоверные суммы ради снятия сообщения.',
+        status: 'open', detectedAt: now, detectedBy: `rule:${rule.id}`,
+      });
     }
     if (failedRows > 0) {
       issues.push({

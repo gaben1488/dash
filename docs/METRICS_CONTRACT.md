@@ -25,6 +25,14 @@ Trust — диагностический индекс доступных про�
 
 ## Rule
 
+`DashboardPeriodSummary.kpPercent/epPercent` are position-count execution
+fractions (`fact_count / count`, 1 = 100%) in every quarter and filtered view.
+They are not monetary execution percentages. Q2–Q4 read the core's materialized
+`competitive/sole.{quarter}.percent` instead of recalculating in the API.
+No denominator yields null, including after filtering. Sparkline gaps stay null
+and cannot produce a trend against an unknown value. An acquired empty book can
+produce zero counts; absence of all acquired books produces no calculated total.
+
 - `amount_deviation` is `fact_total - plan_total` — the sign of the source
   sheet (`СВОД ТД-ПМ` column `P`), where under-execution is negative.
   Corrected 2026-08-08: this file previously stated the opposite order while

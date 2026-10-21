@@ -7,7 +7,7 @@ import { makeReportFixture } from '../lib/report/fixture';
 import { useStore } from '../store';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 
-const backend = vi.hoisted(() => ({ archiveUnavailable: false }));
+const backend = vi.hoisted(() => ({ archiveUnavailable: false, preparing: false }));
 
 vi.mock('../api', async importOriginal => {
   const original = await importOriginal<typeof import('../api')>();
@@ -20,6 +20,7 @@ vi.mock('../api', async importOriginal => {
     }),
     getHistorySnapshots: async () => [],
     getReport: async (year: number, quarter = 3, asOf?: string) => {
+      if (backend.preparing) throw new original.ApiError(503, JSON.stringify({ code: 'SNAPSHOT_NOT_READY' }));
       if (asOf && backend.archiveUnavailable) throw new Error('503 legacy archive unavailable');
       return ({
       ...makeReportFixture(),
@@ -38,6 +39,7 @@ const request = vi.fn();
 let saved: string[];
 beforeEach(() => {
   backend.archiveUnavailable = false;
+  backend.preparing = false;
   useStore.setState({ reportMode: 'live', reportQuarter: null, reportPinned: null });
   localStorage.clear();
   useStore.setState({ year: 2026, period: 'q3', periodMode: 'explicit', focusedWeekStart: new Date('2026-09-28T00:00:00Z') });
@@ -55,6 +57,18 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.download); });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it('shows first calculation as preparation without inventing a previous release or server outage', async () => {
+  backend.preparing = true;
+  request.mockImplementation(async () => ({ ok: true, json: async () => ({
+    latest: null, attempt: null, selected: null, latest_matching: null,
+  }) }));
+  render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  const title = await screen.findByText('Данные для отчёта ещё готовятся');
+  expect(title.closest('[role="alert"]')).toBeNull();
+  expect(screen.getByText(/Чтение и расчёт уже запущены/)).toBeTruthy();
+  expect(saved).toEqual([]);
+});
 
 it('keeps three native Word actions on one frozen release instead of the browser renderer', async () => {
   localStorage.setItem('aemr_api_key', 'test-token');

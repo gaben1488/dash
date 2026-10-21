@@ -22,6 +22,8 @@ describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)',
       source: 'filtered',
     });
     expect(s.q2.kpCount).toBe(0);
+    expect(s.q2.kpPercent).toBeNull();
+    expect(s.q2.epPercent).toBeNull();
     expect(Object.keys(s)).toEqual(['q1', 'q2', 'q3', 'q4', 'year']);
   });
 

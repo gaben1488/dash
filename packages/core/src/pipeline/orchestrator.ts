@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
-import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
+import type { TrustCheckCoverage, DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
 import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
@@ -380,6 +380,10 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
 
   // Aggregate for all periods (matching REPORT_MAP summary entries)
   for (const p of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
+    // An acquired empty book emits explicit zero counts. No acquired book
+    // emits no metrics, so its absence must not become a calculated zero.
+    if (!ALL_DEPT_IDS.some(dept => target.has(`grbs.${dept}.kp.${p}.count`)
+      || target.has(`grbs.${dept}.ep.${p}.count`))) continue;
     let kpCount = 0, kpFact = 0, kpPlanTotal = 0, kpFactTotal = 0;
     let kpFbPlan = 0, kpKbPlan = 0, kpMbPlan = 0;
     let kpFbFact = 0, kpKbFact = 0, kpMbFact = 0;
@@ -559,6 +563,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
   // 3. Classify + Validate: построчно по листам
   const allIssues: Issue[] = [];
+  const checkCoverage: TrustCheckCoverage[] = [];
   let totalRows = 0;
   const perSheetRowCount: Record<string, number> = {};
   const calculatedMetrics = new Map<string, NormalizedMetric>();
@@ -576,7 +581,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
     perSheetRowCount[sheetName] = classified.length;
 
     // Валидация строк
-    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap, asOf);
+    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap, asOf, checkCoverage);
     allIssues.push(...sheetIssues);
 
     // Signal detection + CalcEngine only for department sheets (СВОД has
@@ -607,7 +612,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
         values: rows as unknown[][],
         formulas: input.sheetFormulas?.[sheetName] ?? [],
         startRow: 1,
-      }, deptId));
+      }, deptId, checkCoverage));
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
       const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear, {
@@ -683,7 +688,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
   });
 
   // 6. Trust
-  const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId);
+  const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId, checkCoverage);
 
   // 7. Атомы для честной истории: снимок несёт строки книг ГРБС без шапки и
   // распарсенную официальную сетку СВОД — из УЖЕ прочитанных input.sheetRows,

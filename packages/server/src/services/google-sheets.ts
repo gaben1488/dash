@@ -596,7 +596,7 @@ export const FORMULA_COLUMN_GROUPS = [
 ] as const;
 
 /** Те же группы поимённо — для сообщений и стражей. */
-export const FORMULA_COLUMNS = ['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC'] as const;
+export { FORMULA_COLUMNS } from '@aemr/shared';
 
 /** Буква колонки → индекс от нуля (A=0, AA=26). */
 export function letterToColumn(letter: string): number {

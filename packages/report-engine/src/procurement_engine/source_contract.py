@@ -5,6 +5,9 @@ import json
 
 from .normalize import clean_text
 
+# Compatibility export: adapter and formula closure share the editable directory.
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES
+
 
 def schema_fingerprint(header_rows: list[list], *, max_rows: int = 4, max_cols: int = 34) -> str:
     """Stable fingerprint of the header/schema area, independent of incidental whitespace."""

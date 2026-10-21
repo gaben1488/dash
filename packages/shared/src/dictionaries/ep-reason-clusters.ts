@@ -86,11 +86,6 @@ export interface EpReasonEntry {
    */
   regex: RegExp[];
   /**
-   * Устаревшая оценка словаря; сохранена для совместимости.
-   * Не является результатом правовой проверки и не используется в новых отчётах.
-   */
-  is_legitimate: boolean;
-  /**
    * Исторический признак несовместимости. Электронная форма ЕП сама по себе
    * не противоречит способу ЕП и не включает этот признак.
    */
@@ -129,7 +124,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // «Закупка ЕП по наименьшей цене» — без предлога (живой лист, 2 строки)
       /закупк[аие]\s+еп\s+по\s+наи[мм]ень?шей\s+цене/i,
     ],
-    is_legitimate: true,
     // ~907 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -143,7 +137,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // и прилагательно-наречные формы («нецелесообразно», «нецелесообразный»).
       /нецелес?о{1,2}бразн/i,
     ],
-    is_legitimate: true,  // административно признано АЕМР, но не совпадает со ст. 93
     // ~525 строк — разведка корпуса, снимок 18.04.2026
     watchdog_threshold: 600,  // предупреждение если кластер пересечёт 600 строк
   },
@@ -156,7 +149,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /заключени[ея]\s+(?:с|у)\s+еп\s+по\s+наи[мм]ень?шей\s+цене/i,
       /заключени[ея]\s+(?:с|у)\s+еп.*(?:отсутстви[еи]\s+конкурентов|наи[мм]ень?шей)/i,
     ],
-    is_legitimate: true,
     // ~381 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -171,7 +163,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /распоряжени[еяю]\s+администрации\s+емр[\s\S]{0,40}№?\s*112/i,
       /пп\.?\s*(?:1|5|8|11)\s*,?\s*п\.?\s*1/i, // FP-fix 2026-06-05: убран \b (не работает с кириллицей в JS)
     ],
-    is_legitimate: true,
     // ~221 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -183,7 +174,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /по\s+поручению\s+губернатор/i,
       /местн(?:ого|ый|ые)\s+производител/i,
     ],
-    is_legitimate: true,
     // ~46 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -196,7 +186,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /ч\.?\s*12\s*ст\.?\s*93/i,
       /мал(?:ая|ые)\s+электронн(?:ая|ые)\s+закупк[иа]/i,
     ],
-    is_legitimate: false,
     // ~43 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -207,7 +196,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /монополист/i, // FP-fix 2026-06-05: \b (word-boundary) не матчит кириллицу в JS без флага u → был баг (монополист → UNMAPPED)
     ],
-    is_legitimate: true,
     // ~43 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -218,7 +206,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /наи[мм]ень?шая\s+стоимость\s+оказания\s+услуг/i,
     ],
-    is_legitimate: true,
     // ~39 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -230,7 +217,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /п\.?\s*(?:6|8|29)\s*[,.]?\s*ч\.?\s*1\s*[,.]?\s*ст\.?\s*93/i,
       /относятся\s+к\s+сфере\s+деятельности\s+субъектов/i,
     ],
-    is_legitimate: true,
     // ~21 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -241,7 +227,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /распоряжени[ея]\s+а[ея]мр\s+кк\s+№\s*112\s+от/i,
     ],
-    is_legitimate: true,
     // ~19 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -253,7 +238,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /закупка\s+(?:с|у)\s+местн(?:ым|ого)\s+производител/i,
       /у\s+местного\s+производителя/i,
     ],
-    is_legitimate: true,
     // ~18 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -264,7 +248,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /в\s+соответствии\s+с\s+действующим\s+законодательством/i,
     ],
-    is_legitimate: false,  // мусорная формулировка без конкретной ссылки
     // ~17 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -275,7 +258,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /пп\s*1\s+п\.?\s*1\s+распоряжени/i,
     ],
-    is_legitimate: true,
     // ~15 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -286,7 +268,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /разработчик\s+п(?:рограммного\s+)?о(?:беспечения)?/i,
     ],
-    is_legitimate: true,
     // ~12 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -297,7 +278,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     regex: [
       /п\.?\s*(\d+)\s*[,.]?\s*ч\.?\s*1\s*[,.]?\s*ст\.?\s*93/i,
     ],
-    is_legitimate: true,
     // ~10 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -314,7 +294,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // закупкой» (EP_SMALL_EL_PURCH — процедура, проверяется раньше по порядку).
       /мал(?:ый|ого|ом)\s+об[ъь]?[её]м/i,
     ],
-    is_legitimate: true,
     // ~17 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -331,7 +310,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // Региональный оператор ТКО — в whitelist signals.ts был, в словаре отсутствовал.
       /региональн[а-яё]+\s+оператор[а-яё]*\s+по\s+обращению\s+с\s+тко/i,
     ],
-    is_legitimate: true,
     // ~17 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -345,7 +323,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // «в Камчатском крае госэкспертизу проводит только одно учреждение» (6)
       /только\s+одно\s+учреждение/i,
     ],
-    is_legitimate: true,
     // ~14 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -359,7 +336,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /издательств[а-яё]*\s+[«"']?\s*просвещение/i,
       /единственн[а-яё]+\s+издател/i,
     ],
-    is_legitimate: true,
     // ~11 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -373,7 +349,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /росгвард/i,
       /вневедомственн[а-яё]+\s+охран/i,
     ],
-    is_legitimate: true,
     // ~7 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -392,7 +367,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /официальн[а-яё]*\s+дил+ер/i,
       /авторизованн[а-яё]*\s+(?:дилер|сервис|поставщик)/i,
     ],
-    is_legitimate: true,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -405,7 +379,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /устранени[а-яё]*\s+аварии/i,
       /чрезвычайн[а-яё]*\s+ситуац/i,
     ],
-    is_legitimate: true,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -424,7 +397,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     ],
     // Срочность сама по себе основанием ст. 93 не является: это управленческое
     // объяснение, и оно должно оставаться видимым для разбора.
-    is_legitimate: false,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -436,7 +408,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /согласован[а-яё]*\s+с\s+(?:уэр|управлением|первым\s+зам)/i,
       /обоснование\s+целесообразн[а-яё]*.*уэр/i,
     ],
-    is_legitimate: true,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -451,7 +422,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /(?:не\s+подано|подано\s+0|отсутстви[а-яё]*)\s+заявок/i,
       /расторжени[а-яё]*\s+эа/i,
     ],
-    is_legitimate: true,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -467,7 +437,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     ],
     // Строка живёт в листе 44-ФЗ, а закупка идёт по другому закону — это не
     // обоснование выбора ЕП, а иной периметр; помечаем, чтобы было видно.
-    is_legitimate: false,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -480,7 +449,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /удобн[а-яё]*\s+расположени[а-яё]*\s+поставщик/i,
       /расположени[а-яё]*\s+организаци/i,
     ],
-    is_legitimate: false,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -492,7 +460,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /(?:поставщик|участник)[а-яё]*\s+(?:на\s+)?(?:процедур[а-яё]*\s+)?эа\s+не\s+выход/i,
       /никто\s+не\s+(?:выход|подаёт|подает)/i,
     ],
-    is_legitimate: false,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -506,7 +473,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /один\s+исполнитель\s+(?:предоставляет|оказывает)/i,
       /ограничен[а-яё]*\s+(?:круг|количеств)[а-яё]*\s+(?:исполнител|поставщик|подрядчик)/i,
     ],
-    is_legitimate: true,
     // ~0 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -519,7 +485,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /(?:ниже|низк)[а-яё]*\s+цену?.*коммерческ/i,
       /по\s+коммерческим\s+предложениям\s+сама[яю]\s+низка[яю]/i,
     ],
-    is_legitimate: true,
     // ~5 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -534,7 +499,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /(?:находится|оказывается|предоставляет)\s+(?:только|лишь)/i,
       /единственн[а-яё]*\s+возможн[а-яё]*\s+поставщик/i,
     ],
-    is_legitimate: true,
     // ~12 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -548,7 +512,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /объ[еи]дин[а-яё]*\s+в\s+(?:несколько\s+)?аукцион[а-яё]*\s+не\s+получ/i,
       /разного\s+назначени[а-яё]*\s+в\s+мал/i,
     ],
-    is_legitimate: true,
     // ~6 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -560,7 +523,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /^неконкурентн[а-яё]*\s+закупк/i,
     ],
     // Это не обоснование, а повтор способа: строка обязана попадать в разбор.
-    is_legitimate: false,
     // ~6 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -572,7 +534,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       // «закупка по предписанию УФСБ.» (3) — обязательная по предписанию.
       /по\s+предписани[юя]/i,
     ],
-    is_legitimate: true,
     // ~3 строк — разведка корпуса, снимок 18.04.2026
   },
 };
@@ -632,9 +593,4 @@ export function canonicalizeReasonEp(raw: unknown): CanonicalizeResult {
 /** Является ли кластер сигналом process mismatch (L=ЕП + EP_SMALL_EL_PURCH) */
 export function isProceduralMismatch(cluster: EpReasonCluster): boolean {
   return EP_REASON_DICT[cluster].is_procedural_mismatch === true;
-}
-
-/** Является ли обоснование легитимным по мнению методолога */
-export function isLegitimateReason(cluster: EpReasonCluster): boolean {
-  return EP_REASON_DICT[cluster].is_legitimate;
 }

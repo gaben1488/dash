@@ -67,6 +67,8 @@ export const ERROR_RESPONSE_SCHEMA = {
 /** Устойчивое слово отказа. Список закрытый: по нему ветвятся, его не читают. */
 export type ErrorCode =
   | 'BAD_REQUEST'
+  | 'INVALID_SCOPE'
+  | 'SNAPSHOT_NOT_READY'
   | 'VALIDATION_FAILED'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
@@ -140,6 +142,7 @@ interface HttpishError extends Error {
 const GENERIC_MESSAGE: Readonly<Partial<Record<ErrorCode, string>>> = {
   INTERNAL_ERROR: 'Internal server error',
   NOT_FOUND: 'Такого адреса на сервере нет.',
+  SNAPSHOT_NOT_READY: 'Срез данных ещё готовится. Повторите чтение после обновления.',
 };
 
 /**
@@ -155,7 +158,10 @@ export function buildErrorBody(
   const raw = error.statusCode ?? error.status ?? 500;
   const statusCode = raw >= 400 && raw <= 599 ? raw : 500;
   const validation = error.validation;
-  const code: ErrorCode = validation ? 'VALIDATION_FAILED' : codeForStatus(statusCode);
+  const code: ErrorCode = validation ? 'VALIDATION_FAILED'
+    : statusCode === 400 && error.code === 'INVALID_SCOPE' ? 'INVALID_SCOPE'
+    : statusCode === 503 && error.code === 'SNAPSHOT_NOT_READY' ? 'SNAPSHOT_NOT_READY'
+    : codeForStatus(statusCode);
 
   // Ниже 500 отказ поднят приложением намеренно — его текст и есть объяснение.
   // Выше 500 показывается только то, что само объявило себя показываемым.

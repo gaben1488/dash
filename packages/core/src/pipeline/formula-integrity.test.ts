@@ -438,3 +438,25 @@ describe('формульная целостность — подключение
     expect(run(false).issues.filter((i) => i.checkId?.startsWith('formula_'))).toEqual([]);
   });
 });
+
+
+describe('formula execution coverage', () => {
+  it('records checked cells and actual defects from the same scan', () => {
+    const grid = book([...HEALTHY, { seq: 6, cells: { K: 42 } }]);
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', ...grid }, coverage);
+    expect(coverage).toEqual([
+      { sheet: 'УО', component: 'formula_integrity', expected: 66, checked: 66, failed: 1 },
+    ]);
+  });
+  it('does not count unread formulas or an entire unrecognised column as checked', () => {
+    const grid = book(HEALTHY);
+    const unread: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', values: grid.values, formulas: [] }, unread);
+    expect(unread[0]).toMatchObject({ expected: 55, checked: 0, failed: 0 });
+    for (const row of grid.formulas) row[10] = '';
+    const partial: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', ...grid }, partial);
+    expect(partial[0]).toMatchObject({ expected: 55, checked: 50, failed: 0 });
+  });
+});

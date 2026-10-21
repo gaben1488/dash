@@ -87,9 +87,9 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     const unknownBudget = methodRestricted && !coverageComplete;
     filteredSummary[pk] = {
       kpCount, kpFactCount, kpPlan, kpFact,
-      kpPercent: kpCount > 0 ? kpFactCount / kpCount : 0,
+      kpPercent: kpCount > 0 ? kpFactCount / kpCount : null,
       epCount, epFactCount, epPlan, epFact,
-      epPercent: epCount > 0 ? epFactCount / epCount : 0,
+      epPercent: epCount > 0 ? epFactCount / epCount : null,
       fbPlan: unknownBudget ? null : fbPlan,
       kbPlan: unknownBudget ? null : kbPlan,
       mbPlan: unknownBudget ? null : mbPlan,

@@ -73,9 +73,9 @@ export const SVOD_COLUMNS = {
 export type ColumnLetter = keyof typeof SVOD_COLUMNS;
 
 /** Столбцы, содержащие формулы (ожидаем, что НЕ будут вручную) */
-export const FORMULA_COLUMNS: ColumnLetter[] = [
+export const FORMULA_COLUMNS = [
   'K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC',
-];
+] as const;
 
 /** Столбцы с правилами валидации данных */
 export const RULE_COLUMNS = {

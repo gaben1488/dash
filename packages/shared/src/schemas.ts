@@ -184,6 +184,13 @@ export const TrustComponentSchema = z.object({
 });
 
 export const TrustScoreSchema = z.object({
+  coverage: z.array(z.object({
+    sheet: z.string(),
+    component: z.enum(['formula_integrity', 'rule_compliance']),
+    expected: z.number().int().nonnegative(),
+    checked: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  })).optional(),
   overall: z.number().min(0).max(100).nullable(),
   components: z.array(TrustComponentSchema),
   grade: TrustGradeSchema.nullable(),

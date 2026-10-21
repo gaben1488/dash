@@ -204,3 +204,33 @@ describe('saved control decisions', () => {
     expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status: 'false_positive' })], [], 'snapshot').overall).toBe(clean.overall);
   });
 });
+
+
+describe('recorded execution coverage', () => {
+  const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+  it('scores completed checks from their actual results, not issue absence', () => {
+    const result = computeTrustScore(metrics, [], [], 's', [
+      { sheet: 'УО', component: 'formula_integrity', expected: 10, checked: 10, failed: 2 },
+      { sheet: 'УО', component: 'rule_compliance', expected: 4, checked: 4, failed: 1 },
+    ]);
+    expect(result.components.find(c => c.name === 'formula_integrity')?.score).toBe(80);
+    expect(result.components.find(c => c.name === 'rule_compliance')?.score).toBe(75);
+    expect(result.coverage).toHaveLength(2);
+  });
+  it('keeps partial and empty checks ungraded even without issues', () => {
+    const result = computeTrustScore(metrics, [], [], 's', [
+      { sheet: 'УО', component: 'formula_integrity', expected: 10, checked: 9, failed: 0 },
+      { sheet: 'УО', component: 'rule_compliance', expected: 0, checked: 0, failed: 0 },
+    ]);
+    expect(result.components.find(c => c.name === 'formula_integrity')?.score).toBeNull();
+    expect(result.components.find(c => c.name === 'rule_compliance')?.score).toBeNull();
+  });
+  it('rejects inconsistent or non-finite coverage instead of awarding credit', () => {
+    for (const count of [-1, 1.5, Infinity, NaN]) {
+      const result = computeTrustScore(metrics, [], [], 's', [
+        { sheet: 'УО', component: 'formula_integrity', expected: 1, checked: count, failed: 0 },
+      ]);
+      expect(result.components.find(c => c.name === 'formula_integrity')?.score).toBeNull();
+    }
+  });
+});

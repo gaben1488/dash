@@ -34,6 +34,12 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
   }, 60_000);
   afterAll(async () => { await app?.close(); process.env = { ...ORIGINAL_ENV }; vi.resetModules(); });
 
+  it.each(['2026junk', '1999', '2026.5', ''])('отклоняет ошибочный год %s вместо расширения до всех лет', async year => {
+    const response = await app.inject(`/api/rows/УЭР?year=${year}`);
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('INVALID_SCOPE');
+  });
+
   it('year=2026 отдаёт только строки с planYear=2026', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rows/УЭР?year=2026&limit=100' });
     const body = res.json<{ rows: Array<{ planYear: number }> }>();

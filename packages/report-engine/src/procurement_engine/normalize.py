@@ -52,16 +52,21 @@ def parse_date(value) -> str | None:
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    # Google Sheets UNFORMATTED_VALUE and exported XLSX can expose dates as spreadsheet serials.
-    # Excel/Sheets use the 1899-12-30 compatibility epoch for modern dates.
-    if isinstance(value, (int, float)) and 1 <= float(value) <= 200000:
-        try:
-            return (date(1899, 12, 30) + timedelta(days=float(value))).isoformat()
-        except (OverflowError, ValueError):
-            pass
     text = clean_text(value)
     if text.casefold() in NO_DATE_MARKERS:
         return None
+    # Same supported serial range as Dash. Bare years are not event dates;
+    # decimal strings are valid, hexadecimal/exponent notation is not.
+    if re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', text):
+        serial = float(text)
+        if 40000 < serial < 60000:
+            return (date(1899, 12, 30) + timedelta(days=serial)).isoformat()
+    # Source civil date, not conversion to the server's timezone.
+    if re.match(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]', text):
+        try:
+            return datetime.fromisoformat(text).date().isoformat()
+        except ValueError:
+            return None
     for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
         try:
             return datetime.strptime(text, fmt).date().isoformat()  # noqa: DTZ007 — civil report date, not an instant.
