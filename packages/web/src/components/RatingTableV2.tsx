@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { memo, useCallback, useId, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
@@ -514,7 +515,7 @@ const DeptRowComponent = memo(function DeptRowComponent({
             <button
               type="button"
               onClick={() => onToggleExpand(dept.id)}
-              aria-label={`Состав управления ${dept.nameShort}`}
+              aria-label={`Состав управления ${productLabel(dept.nameShort)}`}
               aria-expanded={isExpanded}
               aria-controls={isExpanded ? detailsId : undefined}
               title={`${isExpanded ? 'Свернуть' : 'Раскрыть'} состав: ${dept.name}`}
@@ -535,7 +536,7 @@ const DeptRowComponent = memo(function DeptRowComponent({
               title={`${dept.name} — отфильтровать страницу по этому управлению`}
               className="inline-flex items-center min-h-7 min-w-7 max-sm:min-h-11 max-sm:min-w-11 rounded text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
             >
-              {dept.nameShort}
+              {productLabel(dept.nameShort)}
             </button>
           </div>
         </td>
@@ -665,8 +666,8 @@ const DeptRowComponent = memo(function DeptRowComponent({
               onDeptDetail(dept.id);
             }}
             className="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-            title={`Открыть реестр строк управления «${dept.nameShort}»`}
-            aria-label={`Открыть реестр строк управления «${dept.nameShort}»`}
+            title={`Открыть реестр строк управления «${productLabel(dept.nameShort)}»`}
+            aria-label={`Открыть реестр строк управления «${productLabel(dept.nameShort)}»`}
           >
             <ChevronRight size={14} aria-hidden="true" />
           </button>

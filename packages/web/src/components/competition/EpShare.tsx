@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ────────────────────────────────────────────────────────────────
 // «Доля ЕП» — блок 3 вкладки «Конкуренция».
 //
@@ -294,7 +295,7 @@ export function EpShare({ totals, orgScope }: {
           {subRows && (
             <div className="mt-4">
               <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1">
-                Доля закупок без торгов по учреждениям {orgScope.dept ?? 'управления'}
+                Доля закупок без торгов по учреждениям {productLabel(orgScope.dept ?? 'управления')}
               </h3>
               {!orgScope.hasSubs && subRows.length <= 1 ? (
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">

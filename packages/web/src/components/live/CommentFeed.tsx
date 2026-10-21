@@ -83,7 +83,7 @@ export function CommentFeed({enabled,readRevision}:{enabled:boolean;readRevision
       const note=w.kind==='cell_note', posts=records(e.posts),raw=record(e.raw);
       const head=w.kind==='native_thread'?record(raw.headPost):raw;
       return <article className="uf-comment" key={String(w.id)}>
-        <header><b>{note?'Заметка ячейки':archived?'Историческая проекция Drive':w.kind==='native_thread'?'Обсуждение Google':'Обсуждение Drive'}</b><span>{text(w.book)??'Книга неизвестна'} · {[text(e.sheet),text(e.cell)].filter(Boolean).join('!')||'адрес не доказан'}</span></header>
+        <header><b>{note?'Заметка ячейки':archived?'Историческая проекция Drive':w.kind==='native_thread'?'Обсуждение Google':'Обсуждение Drive'}</b><span>{productLabel(text(w.book)??'Книга неизвестна')} · {[text(e.sheet),text(e.cell)].filter(Boolean).join('!')||'адрес не доказан'}</span></header>
         <p className="uf-comment-text">{(note?text(e.discussionText):null)??text(e.content)??'Текст не передан'}</p>
         {note&&text(e.discussionText)!==null&&e.discussionText!==e.content&&<details><summary>Исходная заметка с историей значений</summary><p className="uf-comment-text">{text(e.content)}</p></details>}
         <p className="uf-evidence">{note?'Автор заметки не известен':text(e.author)??'Автор не назван источником'} · прочитано {text(w.readAt)??'в неизвестное время'}</p>

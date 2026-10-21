@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Режим «Справочник учреждений» — лист «Перечень ГРБС» (спека §2.4).
  *
@@ -75,7 +76,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceS
               {directory.rows.map((r, i) => (
                 <tr key={r.institutionId ?? r.sourceAddress ?? `${r.num ?? i}:${r.fullName ?? i}`} className={`${RULE_ROW} align-top`}>
                   <td className="px-2 py-1.5 tabular-nums text-zinc-500 dark:text-zinc-400">{r.num ?? '—'}</td>
-                  <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-300">{r.grbs ?? '—'}</td>
+                  <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-300">{productLabel(r.grbs ?? '—')}</td>
                   <td className="px-2 py-1.5 max-w-[24rem] text-zinc-700 dark:text-zinc-200">{r.fullName ?? '—'}
                     {r.sourceAddress && <p className="mt-1 text-xs text-[var(--ink-muted)]">{r.sourceAddress}</p>}
                     {r.institutionId && <details className="mt-1 text-xs text-[var(--ink-muted)]"><summary className="cursor-pointer">Идентификатор учреждения</summary><p className="mt-1 break-all font-mono">{r.institutionId}</p></details>}
