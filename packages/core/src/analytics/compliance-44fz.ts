@@ -4,8 +4,9 @@
  * Based on procurement_report.gs LAW_44FZ_ and EP_SHARE_THRESHOLDS_.
  */
 
+import type { DatedThreshold } from '@aemr/shared';
 import type { GRBSRole } from './grbs-profile.js';
-import { LAW_44FZ_THRESHOLDS, normalizeMethod } from '@aemr/shared';
+import { INTERNAL_EP_SHARE_BY_ROLE, LAW_44FZ_THRESHOLDS, normalizeMethod } from '@aemr/shared';
 
 export interface ComplianceIssue {
   grbsId: string;
@@ -56,11 +57,7 @@ export const LAW_44FZ = {
  * подписывается «внутренняя норма района (настраивается)»; целевое место —
  * редактируемый справочник настроек аналитика (дизайн-док §5.1-3/4), не константа.
  */
-export const EP_SHARE_BY_ROLE: Record<GRBSRole, number> = {
-  'ОПЕРАЦИОННЫЙ': 0.50,
-  'ИНВЕСТИЦИОННЫЙ': 0.30,
-  'СМЕШАННЫЙ': 0.40,
-};
+export const EP_SHARE_BY_ROLE: Record<GRBSRole, number> = INTERNAL_EP_SHARE_BY_ROLE;
 
 /** EP reason codes (п-codes from 44-ФЗ ст. 93) */
 export type EPReasonCode =
@@ -98,19 +95,20 @@ interface RowData {
  * книг ГРБС) — второе деление на 1000 в сообщении убрано (bug-hunt 2026-08-08,
  * БАГ #1): оно предполагало planTotal в рублях и превращало «600 тыс.» в «0.6».
  */
-export function checkEPContractLimits(rows: RowData[], grbsId: string): ComplianceIssue[] {
+export function checkEPContractLimits(rows: RowData[], grbsId: string, context?: DatedThreshold): ComplianceIssue[] {
+  const limit = context?.value ?? LAW_44FZ.epSingleContractLimit;
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
     if (normalizeMethod(row.method) !== 'ЕП') continue;
-    if (row.planTotal > LAW_44FZ.epSingleContractLimit) {
+    if (row.planTotal > limit) {
       issues.push({
         grbsId,
         ruleCode: 'ep_contract_limit',
         severity: 'info',
         title: `Недостаточно данных для проверки сумм отдельных договоров (строка ${row.rowIndex})`,
-        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного порога ${LAW_44FZ.epSingleContractLimit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
+        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного порога ${limit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
         article: 'ст. 93 ч.1 п.4',
-        threshold: LAW_44FZ.epSingleContractLimit,
+        threshold: limit,
         actualValue: row.planTotal,
         rowIndex: row.rowIndex,
       });

@@ -176,7 +176,9 @@ export const SCHEMA_DDL = `
     fingerprint TEXT NOT NULL,
     parsed_at TEXT NOT NULL,
     drive_version TEXT,
-    drive_modified_time TEXT
+    drive_modified_time TEXT,
+    source_file_id TEXT,
+    reading_json TEXT
   );
 
   CREATE TABLE IF NOT EXISTS journal_gaps (
@@ -275,6 +277,8 @@ export const SCHEMA_DDL = `
  * отказа («duplicate column name») — см. `db/index.ts`.
  */
 export const COLUMN_MIGRATIONS: readonly string[] = [
+  `ALTER TABLE book_watermarks ADD COLUMN source_file_id TEXT`,
+  `ALTER TABLE book_watermarks ADD COLUMN reading_json TEXT`,
   `ALTER TABLE audit_log ADD COLUMN entity TEXT`,
   `ALTER TABLE audit_log ADD COLUMN entity_id TEXT`,
   `ALTER TABLE audit_log ADD COLUMN department_id TEXT`,

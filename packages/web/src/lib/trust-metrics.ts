@@ -1,3 +1,4 @@
+import { summarizeCheckCoverage } from '@aemr/shared';
 import type { DepartmentSummary, TrustComponent, TrustScore } from '@aemr/shared';
 
 export interface TrustViewModel {
@@ -61,15 +62,19 @@ export function buildTrustViewModel(
     }
 
     const base = globalComponent ?? matching[0];
+    const counts = matching.flatMap(c => c.checks ? [c.checks] : []);
+    const coverage = counts.length === matching.length ? summarizeCheckCoverage(counts) : null;
     return [{
       ...base,
       score: matching.some(component => component.score === null)
-        ? null : roundAverage(matching.map((component) => component.score!)),
+        ? null : coverage ? coverage.score : roundAverage(matching.map((component) => component.score!)),
+      ...(coverage ? { checks: { expected: coverage.expected, checked: coverage.checked, failed: coverage.failed } } : {}),
       issues: matching.reduce((sum, component) => sum + component.issues, 0),
       criticalIssues: matching.reduce((sum, component) => sum + component.criticalIssues, 0),
       details: matching.some(component => component.score === null)
         ? `Фильтр: ${matching.length} управлений. Полнота проверки не подтверждена; оценка недоступна.`
-        : `Фильтр: ${matching.length} управлений`,
+        : coverage ? `Выполнено ${coverage.checked} из ${coverage.expected} проверок; выявлено ${coverage.failed} расхождений.`
+          : `Фильтр: ${matching.length} управлений`,
     }];
   });
 

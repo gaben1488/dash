@@ -93,3 +93,14 @@ describe('buildTrustViewModel', () => {
   });
 
 });
+
+
+it('uses actual check denominators across differently sized departments', () => {
+  const small = dept('small', 0, 100, 0);
+  const large = dept('large', 100, 100, 100);
+  small.trustComponents![1].checks = { expected: 1, checked: 1, failed: 1 };
+  large.trustComponents![1].checks = { expected: 9, checked: 9, failed: 0 };
+  const result = buildTrustViewModel(baseTrust, [small, large]);
+  expect(result.components[1].score).toBe(90);
+  expect(result.components[1].checks).toEqual({ expected: 10, checked: 10, failed: 1 });
+});

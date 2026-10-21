@@ -174,6 +174,8 @@ export const IssueSchema = z.object({
 // ────────────────────────────────────────────────────────────
 
 export const TrustComponentSchema = z.object({
+  checks: z.object({ expected: z.number().int().nonnegative(),
+    checked: z.number().int().nonnegative(), failed: z.number().int().nonnegative() }).optional(),
   name: z.string(),
   label: z.string(),
   weight: z.number(),
@@ -286,6 +288,17 @@ export const DataSnapshotSchema = z.object({
     pipelineDurationMs: z.number(),
     targetYear: z.number().int().nullable().optional(),
     readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
+    calculationContext: z.object({
+      contract: z.literal('aemr-calculation-context-v1'), id: z.string(),
+      sources: z.object({ content: z.string(), profiles: z.string() }), semantics: z.string(),
+      thresholds: z.record(z.string(), z.object({ value: z.number(),
+        status: z.enum(['verified', 'internal', 'unverified']), edition: z.string().nullable(), sourceRef: z.string().nullable() })),
+      calendar: z.object({ asOf: z.string(), productDay: z.number().int(),
+        utcOffsetHours: z.number(), weeklyCutoffHour: z.number() }),
+      scope: z.object({ targetYear: z.number().nullable(), officialYear: z.number().nullable() }),
+      decisions: z.literal('not-applied'), access: z.literal('full-dataset'),
+    }).optional(),
+    decisionView: z.object({ basedOnContext: z.string().nullable(), revision: z.string() }).optional(),
     sourceCoverage: SourceCoverageSchema.optional(),
     perSheetRowCount: z.record(z.string(), z.number()).optional(),
   }),

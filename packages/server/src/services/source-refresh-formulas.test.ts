@@ -42,6 +42,7 @@ vi.mock('./file-revision.js', () => ({
 
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => new Map(),
   loadWatermarks: vi.fn(() => new Map()),
   saveWatermark: vi.fn(),
   noteHonestGap: vi.fn(() => true),

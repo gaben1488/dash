@@ -28,6 +28,7 @@ import { checkFileChanged, forgetRevision, lastKnownRevision, readRevision, seed
 import {
   SVOD_WATERMARK_KEY,
   loadWatermarks,
+  loadAcceptedReadings,
   noteHonestGap,
   saveWatermark,
 } from './book-watermark.js';
@@ -92,10 +93,14 @@ let svodPrint: string | null = null;
  * чтение, изменений нет». Теперь база сравнения переживает перезапуск.
  */
 let watermarksSeeded = false;
+const restoredReadings = new Map<string, { values: unknown[][] }>();
 
 function seedFromWatermarks(): void {
   if (watermarksSeeded) return;
   const marks = loadWatermarks();
+  for (const [book, reading] of loadAcceptedReadings()) {
+    if (DEPARTMENT_SPREADSHEETS[book] === reading.fileId) restoredReadings.set(book, { values: reading.values });
+  }
   for (const [book, mark] of marks) {
     if (book === SVOD_WATERMARK_KEY) {
       svodPrint ??= mark.fingerprint;
@@ -116,6 +121,7 @@ function seedFromWatermarks(): void {
 export function resetSourcePrints(): void {
   watermarksSeeded = false;
   bookPrints.clear();
+  restoredReadings.clear();
   svodPrint = null;
 }
 
@@ -479,7 +485,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // Прежнее чтение книг — материал для ответа «что именно поменялось»
     // (шина живых событий). Ссылка снимается ДО записи нового кэша: запись
     // подставляет новый объект, прежний остаётся целым.
-    const before = getDeptSheetCache();
+    const before = { ...Object.fromEntries(restoredReadings), ...getDeptSheetCache() };
 
     // Книги управлений и лист СВОД читаются ОДНОВРЕМЕННО, а не одно за другим.
     // Дело не только в скорости цикла (лист СВОД перестал ждать окончания
@@ -623,7 +629,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
         for (const [name, print] of nextPrints) {
           const revision = acquisitionRevisions.get(name) ?? null;
           saveSourceRowObservations(name, before[name], data[name], bookPrints.get(name), print, at);
-          saveWatermark(name, print, at, revision ?? undefined);
+          saveWatermark(name, print, at, revision ?? undefined, { fileId: sourceBooks[name], values: data[name].values });
         }
         for (const name of gate.attested) {
           if (changedBooks.includes(name) || !(name in data)) continue;
@@ -651,6 +657,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     setDeptSheetCache(data, Object.keys(errors));
     for (const [name, print] of nextPrints) {
       bookPrints.set(name, print);
+      restoredReadings.delete(name);
       const fileId = sourceBooks[name];
       forgetRevision(fileId);
       const revision = acquisitionRevisions.get(name);

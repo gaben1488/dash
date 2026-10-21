@@ -66,6 +66,7 @@ const noteHonestGap = vi.fn((...args: unknown[]) => { void args; return true; })
 
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => new Map(),
   loadWatermarks: (...a: unknown[]) => loadWatermarks(...(a as [])),
   saveWatermark: (...a: unknown[]) => saveWatermark(...(a as [])),
   noteHonestGap: (...a: unknown[]) => noteHonestGap(...(a as [])),
@@ -599,7 +600,7 @@ it('accepts the report acquisition through the same live persistence boundary wi
   expect(result.failed).toEqual([]);
   expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
   expect(setDeptSheetCache).toHaveBeenLastCalledWith(data, []);
-  expect(saveWatermark).toHaveBeenCalledWith('УО', expect.any(String), expect.any(String), { version: '7', modifiedTime: null });
+  expect(saveWatermark).toHaveBeenCalledWith('УО', expect.any(String), expect.any(String), { version: '7', modifiedTime: null }, expect.objectContaining({ fileId: expect.any(String), values: expect.any(Array) }));
 });
 
 it('does not accept part of a report input when a master changes during acquisition', async () => {

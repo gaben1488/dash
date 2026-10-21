@@ -1,3 +1,4 @@
+import { sheetFingerprint } from './sheet-fingerprint.js';
 /**
  * book-watermark.ts — водяной знак книги и честные пропуски журнала.
  *
@@ -60,8 +61,11 @@ export function saveWatermark(
   fingerprint: string,
   parsedAt: string,
   drive?: { version: string | null; modifiedTime: string | null },
+  accepted?: { fileId: string; values: unknown[][] },
 ): void {
   try {
+    if (accepted && (!accepted.fileId || sheetFingerprint(accepted.values) !== fingerprint))
+      throw new Error('INVALID_ACCEPTED_SOURCE');
     db.insert(schema.bookWatermarks)
       .values({
         book,
@@ -69,6 +73,8 @@ export function saveWatermark(
         parsedAt,
         driveVersion: drive?.version ?? null,
         driveModifiedTime: drive?.modifiedTime ?? null,
+        sourceFileId: accepted?.fileId ?? null,
+        readingJson: accepted ? JSON.stringify(accepted.values) : null,
       })
       .onConflictDoUpdate({
         target: schema.bookWatermarks.book,
@@ -77,6 +83,8 @@ export function saveWatermark(
           parsedAt,
           driveVersion: drive?.version ?? null,
           driveModifiedTime: drive?.modifiedTime ?? null,
+          sourceFileId: accepted?.fileId ?? null,
+          readingJson: accepted ? JSON.stringify(accepted.values) : null,
         },
       })
       .run();
@@ -158,5 +166,24 @@ export function watermarkOf(book: string): Watermark | null {
     };
   } catch (cause) {
     throw new Error("SOURCE_STATE_READ_FAILED", { cause });
+  }
+}
+
+
+/** One current accepted matrix per source, used for comparison after restart. */
+export function loadAcceptedReadings(): Map<string, { fileId: string; values: unknown[][] }> {
+  try {
+    const result = new Map<string, { fileId: string; values: unknown[][] }>();
+    for (const row of db.select().from(schema.bookWatermarks).all()) {
+      if (row.readingJson === null && row.sourceFileId === null) continue; // Legacy baseline is unknown.
+      if (!row.readingJson || !row.sourceFileId) throw new Error('INCOMPLETE_ACCEPTED_SOURCE');
+      const values = JSON.parse(row.readingJson) as unknown;
+      if (!Array.isArray(values) || !values.every(Array.isArray) || sheetFingerprint(values) !== row.fingerprint)
+        throw new Error('INVALID_ACCEPTED_SOURCE');
+      result.set(row.book, { fileId: row.sourceFileId, values });
+    }
+    return result;
+  } catch (cause) {
+    throw new Error('SOURCE_STATE_READ_FAILED', { cause });
   }
 }

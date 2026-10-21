@@ -1,5 +1,5 @@
 import type { TrustScore, TrustCheckCoverage, TrustComponent, Issue, NormalizedMetric, DeltaResult } from '@aemr/shared';
-import { THRESHOLDS, TRUST_COMPONENT_CONFIG, isTrustIssueApplicable } from '@aemr/shared';
+import { summarizeCheckCoverage, THRESHOLDS, TRUST_COMPONENT_CONFIG, isTrustIssueApplicable } from '@aemr/shared';
 import type { TrustComponentId } from '@aemr/shared';
 
 /**
@@ -82,15 +82,11 @@ export function computeTrustScore(
   for (const component of components) {
     if (component.name !== 'formula_integrity' && component.name !== 'rule_compliance') continue;
     const observations = coverage?.filter(c => c.component === component.name) ?? [];
-    const valid = observations.length > 0 && observations.every(c =>
-      [c.expected, c.checked, c.failed].every(n => Number.isSafeInteger(n) && n >= 0)
-      && c.failed <= c.checked && c.checked <= c.expected);
-    if (!valid) continue;
-    const expected = observations.reduce((sum, c) => sum + c.expected, 0);
-    const checked = observations.reduce((sum, c) => sum + c.checked, 0);
-    const failed = observations.reduce((sum, c) => sum + c.failed, 0);
-    component.score = expected > 0 && checked === expected
-      ? Math.round(100 * (checked - failed) / checked) : null;
+    const summary = summarizeCheckCoverage(observations);
+    if (!summary) continue;
+    const { expected, checked, failed, score } = summary;
+    component.checks = { expected, checked, failed };
+    component.score = score;
     component.details = `Выполнено ${checked} из ${expected} проверок; выявлено ${failed} расхождений.`;
   }
 

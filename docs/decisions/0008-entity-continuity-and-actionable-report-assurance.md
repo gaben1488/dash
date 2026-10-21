@@ -276,3 +276,31 @@ actual validator and formula scanner. Missing inputs, exceptions and columns
 without a formula reference remain unchecked; absence of issues is not coverage.
 Old snapshots without these observations remain ungraded. Department views use
 only the observations of their own sheets. No source writes or new DB table.
+
+### Calculation provenance, 21.10.2026
+
+A newly calculated snapshot stores a typed immutable context: actual input
+content, source profiles/report map, installed calculation code, calendar instant
+and product day, year scope. Versions are content digests, not hand-maintained
+release dates. The source calculation applies no user decisions and covers the
+whole dataset; request-time decisions record their own revision separately.
+Historical contexts stay absent when not captured; readers must not fabricate
+them from today's rules. Context construction runs once in the existing
+calculation worker, never on every cached GET and never writes to Google.
+
+Threshold editions carry an explicit effective interval and documentary reference.
+An undated legal constant is reference data, not verified applicability for an
+arbitrary date. Missing/overlapping evidence cannot produce a legal PASS.
+Internal screening thresholds remain labelled internal; frozen context keeps the
+selected threshold values and status independently of later dictionary edits.
+
+### Current accepted book state across restart, 21.10.2026
+
+A fingerprint alone cannot reconstruct deleted rows after restarting the service.
+The existing book_watermarks row therefore also stores its current accepted
+values and immutable source file ID. This is one overwritten current state per
+book, not an archive. It is committed with the watermark and journal observations.
+After restart it supplies comparison evidence only for the same source file;
+it does not make cached Google data fresh. Malformed or hash-mismatched stored
+state fails explicitly. Legacy rows without this state stay unproved until a
+successful current read, rather than fabricating deletion history.

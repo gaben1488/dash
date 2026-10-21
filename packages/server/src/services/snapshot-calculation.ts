@@ -1,3 +1,4 @@
+import { snapshotCalculationContext } from './snapshot-calculation-context.js';
 import { computeUnifiedGrid, reconcileUnified, runPipeline, type PipelineInput, type PipelineSnapshot } from '@aemr/core';
 import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import { findDept, getActiveRules, SVOD_SHEET_NAME, type DataSnapshot, type SvodReconRow } from '@aemr/shared';
@@ -34,7 +35,9 @@ export function attachUnifiedGrid(
 }
 
 export function calculateSnapshot(input: SnapshotCalculationInput): PipelineSnapshot {
-  const snapshot = runPipeline({ ...input, rules: getActiveRules() });
+  const resolved = { ...input, asOf: input.asOf ?? new Date(), rules: getActiveRules() };
+  const snapshot = runPipeline(resolved);
+  snapshot.metadata.calculationContext = snapshotCalculationContext(resolved, resolved.asOf);
   attachUnifiedGrid(snapshot, input.sheetRows, input.targetYear);
   return snapshot;
 }

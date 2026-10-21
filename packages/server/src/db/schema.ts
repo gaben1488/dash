@@ -238,6 +238,8 @@ export const bookWatermarks = sqliteTable('book_watermarks', {
    *  времени переживали рестарт вместе с отпечатком. */
   driveVersion: text('drive_version'),
   driveModifiedTime: text('drive_modified_time'),
+  sourceFileId: text('source_file_id'),
+  readingJson: text('reading_json'),
 });
 
 /**

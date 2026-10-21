@@ -3,12 +3,12 @@ import { afterAll, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => {
   const sqlitePath = process.env.SQLITE_PATH;
   process.env.SQLITE_PATH = ':memory:';
-  return { sqlitePath, value: 'old', books: {} as Record<string, { values: unknown[][] }> };
+  return { sqlitePath, value: 'old', grid: undefined as unknown[][] | undefined, books: {} as Record<string, { values: unknown[][] }> };
 });
 const publishSummary = vi.hoisted(() => vi.fn());
 vi.mock('./google-sheets.js', () => ({
   fetchDepartmentSpreadsheets: async () => ({
-    data: { УО: { values: [[state.value]], formulas: [], sheetName: 'ВСЕ' } }, errors: {},
+    data: { УО: { values: state.grid ?? [[state.value]], formulas: [], sheetName: 'ВСЕ' } }, errors: {},
   }),
   getSheetData: async () => [[state.value]],
 }));
@@ -51,4 +51,26 @@ it('rolls back earlier watermarks when a later SQLite write fails, then accepts 
   expect(retry.svodChanged).toBe(true);
   expect(state.books['УО'].values).toEqual([['new']]);
   expect(loadWatermarks().get('УО')?.fingerprint).not.toBe(accepted.get('УО')?.fingerprint);
+}, 30_000);
+
+
+it('records missing manual numbers after restarting with only the accepted SQLite state', async () => {
+  const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+  const { readSourceRowObservations } = await import('./source-row-observations.js');
+  const numbers = [1094, 1506, 1507, 1510, 1512, 1514, 1518];
+  const row = (n: number) => { const r: unknown[] = []; r[0] = n; r[2] = 'Учреждение';
+    r[6] = `Предмет ${n}`; r[10] = 100; r[11] = 'ЕП'; return r; };
+  const headers = [[], [], []];
+  state.grid = [...headers, row(1000), ...numbers.map(row), row(1600)];
+  await refreshAllSources(undefined, 'cycle', { books: ['УО'], svod: false, askDrive: false });
+  state.books = {}; // A fresh process has no in-memory matrices.
+  resetSourcePrints();
+  state.grid = [...headers, row(1000), row(1600)];
+  await refreshAllSources(undefined, 'webhook', { books: ['УО'], svod: false, askDrive: false });
+  const entries = readSourceRowObservations(0);
+  expect(entries.map(e => e.rowSeq).sort()).toEqual(numbers.map(String).sort());
+  expect(entries.every(e => e.at === null && !!e.observedAt && e.author === null)).toBe(true);
+  resetSourcePrints(); state.books = {};
+  await refreshAllSources(undefined, 'webhook', { books: ['УО'], svod: false, askDrive: false });
+  expect(readSourceRowObservations(0)).toHaveLength(7);
 }, 30_000);

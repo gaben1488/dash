@@ -253,6 +253,7 @@ export interface Issue {
 
 /** Компонент скоринга доверия */
 export interface TrustComponent {
+  checks?: TrustCheckCounts;
   name: string;
   label: string;
   weight: number;
@@ -264,12 +265,15 @@ export interface TrustComponent {
 }
 
 /** Actual check executions, recorded with the source snapshot. */
-export interface TrustCheckCoverage {
-  sheet: string;
-  component: 'formula_integrity' | 'rule_compliance';
+export interface TrustCheckCounts {
   expected: number;
   checked: number;
   failed: number;
+}
+
+export interface TrustCheckCoverage extends TrustCheckCounts {
+  sheet: string;
+  component: 'formula_integrity' | 'rule_compliance';
 }
 
 /** Общая оценка доверия */
@@ -471,6 +475,18 @@ export interface WeeklyTableContext {
   monitoring: WeeklyMonitoringTableEvidence;
 }
 
+export interface CalculationContext {
+  contract: 'aemr-calculation-context-v1';
+  id: string;
+  sources: { content: string; profiles: string };
+  semantics: string;
+  thresholds: Record<string, import('./threshold-registry.js').DatedThreshold>;
+  calendar: { asOf: string; productDay: number; utcOffsetHours: number; weeklyCutoffHour: number };
+  scope: { targetYear: number | null; officialYear: number | null };
+  decisions: 'not-applied';
+  access: 'full-dataset';
+}
+
 export interface DataSnapshot {
   id: string;
   spreadsheetId: string;
@@ -520,6 +536,8 @@ export interface DataSnapshot {
     targetYear?: number | null;
     /** HTTP-only read state; original captured time and stored evidence stay unchanged. */
     readModel?: { state: 'refreshing' | 'stale' };
+    calculationContext?: CalculationContext;
+    decisionView?: { basedOnContext: string | null; revision: string };
     sourceCoverage?: import('./source-coverage.js').SourceCoverage;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */
     perSheetRowCount?: Record<string, number>;

@@ -57,6 +57,10 @@ async function antiDumpingIssues(): Promise<Array<{ ruleCode: string; rowIndex?:
     status: 'insufficient_data',
     reason: expect.stringContaining('НМЦК'),
   });
+  expect(body.unavailableChecks).toContainEqual({
+    ruleCode: 'legal_rule_version', status: 'insufficient_data',
+    reason: expect.stringContaining('редакция'),
+  });
   return body.issues.filter((i) => i.ruleCode === 'anti_dumping');
 }
 

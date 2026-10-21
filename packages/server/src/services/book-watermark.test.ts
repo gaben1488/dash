@@ -99,3 +99,22 @@ describe('storage failures are not successful empty results', () => {
     expect(wm.noteHonestGap('УО', 'pending')).toBe(true);
   });
 });
+
+
+describe('accepted current reading', () => {
+  it('retains one state per book, restores it and rejects corruption', async () => {
+    const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+    const { db } = await import('../db/index.js');
+    const values = [[], [], [], [1094, 'УО', 'Учреждение', '', '', '', 'Предмет']];
+    wm.saveWatermark('УО', sheetFingerprint(values), '2026-10-21T06:28:00Z', undefined,
+      { fileId: 'same-source', values });
+    expect(wm.loadAcceptedReadings().get('УО')).toEqual({ fileId: 'same-source', values });
+    const changed = [[], [], []];
+    wm.saveWatermark('УО', sheetFingerprint(changed), '2026-10-21T06:29:00Z', undefined,
+      { fileId: 'same-source', values: changed });
+    expect(wm.loadAcceptedReadings().size).toBe(1);
+    expect(wm.loadAcceptedReadings().get('УО')?.values).toEqual(changed);
+    db.$client.prepare("UPDATE book_watermarks SET reading_json = '{}' WHERE book = ?").run('УО');
+    expect(() => wm.loadAcceptedReadings()).toThrow('SOURCE_STATE_READ_FAILED');
+  });
+});

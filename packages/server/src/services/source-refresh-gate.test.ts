@@ -53,6 +53,7 @@ vi.mock('./file-revision.js', () => ({
 // Водяной знак заглушен: гейт проверяет отсев чтений, а не память базы.
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => new Map(),
   loadWatermarks: () => loadWatermarks(),
   saveWatermark: vi.fn(),
   noteHonestGap: vi.fn(() => true),
