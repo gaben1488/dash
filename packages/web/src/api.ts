@@ -75,7 +75,7 @@ export interface EpReasonsResponse {
     /** Сколько строк книг прочитано — знаменатель честности разбора. */
     rowsScanned: number;
     /** Момент чтения книг (канон п.58). */
-    readAt: string;
+    readAt: string | null;
   };
 }
 

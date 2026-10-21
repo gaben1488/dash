@@ -1,4 +1,4 @@
-import { parseSheetNumber } from '@aemr/shared';
+import { parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
@@ -12,7 +12,6 @@ import {
   checkEPShareLimits,
   analyzeEPReasons,
   buildEpJustificationDept,
-  epPlanQuarter,
   type EpJustificationDept,
   benfordAnalysis,
   zScoreAnalysis,
@@ -28,7 +27,7 @@ import {
   type AntiCorruptionResult,
 } from '@aemr/core';
 import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod, CHECK_REGISTRY, TRUST_COMPONENT_CONFIG, formulaDiagnosticInapplicableReason } from '@aemr/shared';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptCacheFilledAt } from '../services/snapshot.js';
 
 /**
  * Качество данных управления — доля строк БЕЗ замечаний качества.
@@ -164,7 +163,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
    *   • `byDept` — прежняя рубрикация по предмету закупки (analyzeEPReasons,
    *     колонка G): «что покупали у ЕП»;
    *   • `justification` — степени обоснованности по колонке M через словарь
-   *     причин (канон п.98ж): «имел ли заказчик право так закупать». Здесь же
+   *     причин (канон п.98ж): «какое пояснение указал сотрудник». Здесь же
    *     кварталы плана — из них вкладка «Конкуренция» строит динамику
    *     снижения ЕП и особенно НЕобоснованного ЕП.
    *
@@ -201,7 +200,10 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
             method: row?.[DEPT_COLUMNS.METHOD],
             reason: row?.[DEPT_COLUMNS.EP_REASON],
             planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
-            quarter: epPlanQuarter(row?.[DEPT_COLUMNS.PLAN_QUARTER]),
+            quarter: (() => {
+              const day = dayNumberOf(row?.[DEPT_COLUMNS.PLAN_DATE]);
+              return day === null ? null : Math.floor(new Date(day * 86_400_000).getUTCMonth() / 3) + 1;
+            })(),
           })),
         );
         rowsScanned += body.length;
@@ -213,7 +215,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           byDept: justificationByDept,
           rowsScanned,
           /** Момент чтения книг (канон п.58): число обязано называть свой срок. */
-          readAt: new Date().toISOString(),
+          readAt: getDeptCacheFilledAt() > 0 ? new Date(getDeptCacheFilledAt()).toISOString() : null,
         },
       };
     } catch (err) {

@@ -122,3 +122,21 @@ it.each(['нет', 'да'])('does not infer competition or initial price from ec
   expect(result.disciplinaryPenalty).toBe(0);
   expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
 }, 30_000);
+
+
+it('EP analysis uses the source date, not stale quarter formulas or request time', async () => {
+  const source = rowWithEconomy('нет', '', 'ЕП');
+  source[DEPT_COLUMNS.PLAN_DATE] = '15.04.2026';
+  source[DEPT_COLUMNS.PLAN_QUARTER] = 1;
+  const undated = [...source];
+  undated[DEPT_COLUMNS.PLAN_DATE] = '';
+  setDeptSheetCache({ 'УО': { values: [[], [], [], source, undated], formulas: [], sheetName: 'ВСЕ' } });
+  const first = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
+  expect(first.byDept.uo.quarters.q1.ep.rows).toBe(0);
+  expect(first.byDept.uo.quarters.q2.ep.rows).toBe(1);
+  expect(first.byDept.uo.noQuarter.rows).toBe(1);
+  const { getDeptCacheFilledAt } = await import('../services/snapshot.js');
+  expect(first.readAt).toBe(new Date(getDeptCacheFilledAt()).toISOString());
+  const second = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
+  expect(second).toEqual(first);
+}, 30_000);
