@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Периметр числа: за что именно посчитана карточка ────────────────────────
 //
 //    Канон п.58 реестра интервью 14.08 (дословно владелец): «я всегда должен
@@ -186,13 +187,7 @@ const ALL_SLICE = 'все закупки';
 const SEP = ' · ';
 
 /** Имена осей человеку — для подсказки и списков «за что это число». */
-const AXIS_TITLE: Readonly<Record<PerimeterAxisId, string>> = {
-  year: 'Год',
-  span: 'Период',
-  orgs: 'Органы',
-  slice: 'Срез',
-  moment: 'Момент',
-};
+const AXIS_TITLE: Readonly<Record<PerimeterAxisId, string>> = PRODUCT_COPY["lib/perimeter:AXIS_TITLE"];
 
 /**
  * Правило (ж) дословно: неприменимая ось НАЗЫВАЕТСЯ. Формулировки одинаковой

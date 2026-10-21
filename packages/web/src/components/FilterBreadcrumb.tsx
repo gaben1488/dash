@@ -1,15 +1,10 @@
+import { PERIOD_LABELS as QUARTER_LABELS } from '@aemr/shared';
 import { hasExplicitPeriodFilter, useStore, MONTHS } from '../store';
 import { X, Filter } from 'lucide-react';
 import { subordinateLabel } from '../lib/subordinate-label';
 import clsx from 'clsx';
 
 /** Подписи кварталов для чипа «квартал без месяцев». */
-const QUARTER_LABELS: Record<string, string> = {
-  q1: 'I квартал',
-  q2: 'II квартал',
-  q3: 'III квартал',
-  q4: 'IV квартал',
-};
 
 /**
  * Premium breadcrumb showing active filters as removable pills.

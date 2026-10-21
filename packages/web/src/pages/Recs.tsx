@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { useState, useMemo, useEffect } from 'react';
 import { SEVERITY_LABELS, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
@@ -46,7 +47,7 @@ function toRecSeverity(severity: unknown): RecSeverity {
   }
 }
 
-const DEPT_UNKNOWN_LABEL = 'Управление не указано';
+const DEPT_UNKNOWN_LABEL = PRODUCT_COPY["department.unknown"];
 
 function deptLabel(dept: string): string {
   return dept ? productLabel(dept) : DEPT_UNKNOWN_LABEL;

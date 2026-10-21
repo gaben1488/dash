@@ -16,7 +16,7 @@ proc-report = "procurement_engine.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-procurement_engine = ["customer_aliases.json"]
+procurement_engine = ["customer_aliases.json", "department_directory.json"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

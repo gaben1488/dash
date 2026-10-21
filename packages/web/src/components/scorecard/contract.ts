@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Договор с сервером по оценке управлений: грейд, индекс дисциплины и
  * нарушения норм 44-ФЗ (маяк продукта, Г-06 и Г-09).
@@ -140,40 +141,16 @@ export const GRADE_STYLE: Readonly<Record<Grade, string>> = {
  * Нарративный режим движка. Слова движка — заглавные ярлыки («ТРЕВОГА»),
  * на экран они не выходят: читателю нужна фраза, а не ярлык.
  */
-export const MODE_LABEL: Readonly<Record<NarrativeMode, string>> = {
-  'ПОХВАЛА': 'идёт с опережением',
-  'ШТАТНЫЙ': 'штатный ход',
-  'ВНИМАНИЕ': 'требует внимания',
-  'ТРЕВОГА': 'тревожно',
-  'КОНТЕКСТНЫЙ': 'есть пояснение исполнителя',
-};
+export const MODE_LABEL: Readonly<Record<NarrativeMode, string>> = PRODUCT_COPY["components/scorecard/contract:MODE_LABEL"];
 
 /** Что именно тянет индекс вниз сильнее прочего. */
-export const FACTOR_LABEL: Readonly<Record<DominantFactor, string>> = {
-  'КОНТЕКСТ': 'пояснение исполнителя',
-  'АНОМАЛИЯ': 'аномалии в суммах',
-  'ИСПОЛНЕНИЕ': 'исполнение плана',
-  'ЕП': 'доля единственного поставщика',
-  'ДИНАМИКА': 'динамика к ожиданию',
-  'ЭКОНОМИЯ': 'экономия',
-};
+export const FACTOR_LABEL: Readonly<Record<DominantFactor, string>> = PRODUCT_COPY["components/scorecard/contract:FACTOR_LABEL"];
 
 /** Роль управления — тот самый неподтверждённый ориентир, отсюда осторожная подпись. */
-export const ROLE_LABEL: Readonly<Record<GRBSRole, string>> = {
-  'ОПЕРАЦИОННЫЙ': 'операционное',
-  'ИНВЕСТИЦИОННЫЙ': 'инвестиционное',
-  'СМЕШАННЫЙ': 'смешанное',
-};
+export const ROLE_LABEL: Readonly<Record<GRBSRole, string>> = PRODUCT_COPY["components/scorecard/contract:ROLE_LABEL"];
 
 /** Антикор-индикаторы: имя механизма по-русски. */
-export const INDICATOR_LABEL: Readonly<Record<AntiCorruptionIndicator, string>> = {
-  splitting: 'дробление закупок',
-  zero_competition: 'торги без снижения цены',
-  price_inflation: 'цена выше типичной по предмету',
-  ep_over_limit: 'ЕП свыше разового лимита',
-  ep_annual_share: 'годовая доля ЕП выше ориентира роли',
-  supplier_concentration: 'закупки сходятся на одном поставщике',
-};
+export const INDICATOR_LABEL: Readonly<Record<AntiCorruptionIndicator, string>> = PRODUCT_COPY["components/scorecard/contract:INDICATOR_LABEL"];
 
 /**
  * Оговорка о происхождении ориентира. Текст держится здесь, а не берётся из

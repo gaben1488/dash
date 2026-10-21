@@ -1,3 +1,4 @@
+import { readSourceRowObservations } from '../services/source-row-observations.js';
 /**
  * GET /api/change-story — ОДИН журнал изменений на два уровня подробности.
  *
@@ -224,7 +225,7 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
     const story = buildChangeStory(inputs, { sinceMs });
     // Один список: правки книги и пропажи из сравнения снимков. Порядок
     // держит ядро — записи без момента впереди, дальше свежие сверху.
-    const all = [...story.entries, ...vanished.entries].sort((a, b) => {
+    const all = [...story.entries, ...vanished.entries, ...readSourceRowObservations(sinceMs)].sort((a, b) => {
       if (a.atMs === null && b.atMs !== null) return -1;
       if (a.atMs !== null && b.atMs === null) return 1;
       if (a.atMs !== null && b.atMs !== null && a.atMs !== b.atMs) return b.atMs - a.atMs;

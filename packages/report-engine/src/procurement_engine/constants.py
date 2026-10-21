@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-GRBS_ORDER = ["УЭР", "УИО", "УАГЗО", "УФБП", "УД", "УДТХ", "УКСиМП", "УО"]
+from .department_directory import DEPARTMENTS
+
+GRBS_ORDER = [entry["id"] for entry in DEPARTMENTS]
 
 ROW_MAPPING = {
     "A": "source_row_no", "B": "grbs", "C": "institution", "D": "program",

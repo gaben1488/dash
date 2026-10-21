@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { productLabel } from '@aemr/shared';
 // ────────────────────────────────────────────────────────────────
 // «Доля ЕП» — блок 3 вкладки «Конкуренция».
@@ -51,10 +52,7 @@ function share(part: number, whole: number): number | null {
 type EpCountMode = 'sheet' | 'clean';
 
 /** Подписи режимов — обе всегда на экране, активная просто выбрана. */
-const MODE_LABELS: Record<EpCountMode, string> = {
-  sheet: 'как в листе',
-  clean: 'без выплат и платежей',
-};
+const MODE_LABELS: Record<EpCountMode, string> = PRODUCT_COPY["components/competition/EpShare:MODE_LABELS"];
 
 /** Вычет из итогов ЕП (счёт и план), с прижимом к нулю. */
 function applyExclusion(t: EpKpTotals, ex: ExcludedEpTotals): EpKpTotals {

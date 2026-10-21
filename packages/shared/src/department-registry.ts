@@ -1,3 +1,4 @@
+import directory from '../../report-engine/src/procurement_engine/department_directory.json';
 /**
  * department-registry.ts — Единый реестр управлений (ГРБС).
  *
@@ -46,6 +47,11 @@ export interface DepartmentEntry {
   /** Действующее краткое имя; ключ истории id остаётся стабильным. */
   shortName: string;
 
+  /** Точные исторические адреса книги мониторинга; это не подписи UI. */
+  monitoring: { order: number; sheet: string; svodName: string };
+  grbs: { id: Exclude<DepartmentId, 'УАГЗО'> | 'УАГиЗО'; order: number; sheetName: string; subordinateCount: number; isAuthorizedBody?: true };
+  approvedPrimaryRename?: { providerId: string; sheetId: number };
+
   // ── Sheet resolution ──
   /** Имя вкладки в рабочей книге управления */
   sheetName: string;
@@ -77,67 +83,7 @@ export interface DepartmentEntry {
 // 3. The Registry (single source of truth)
 // ───────────────────────────────────��────────────────────────
 
-export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
-  {
-    id: 'УЭР', latinId: 'uer',
-    fullName: 'Управление экономического развития администрации Елизовского муниципального округа',
-    shortName: 'УЭР',
-    // «ВСЕ» = управление + подвед МКУ «ЦЭР» — тот же периметр, что официальный
-    // СВОД (IMPORTRANGE книги УЭР тянет именно «ВСЕ»). Вкладка «УЭР» (только
-    // управление) остаётся fallback-кандидатом. Следствие 2026-07-23.
-    sheetName: 'ВСЕ', hasSubordinates: true,
-    svod: { kpQ1: 42, kpYear: 47, epQ1: 53, epYear: 58, totalCombined: 60, totalCurrent: 61, compShareRow: 63, epShareRow: 64 },
-  },
-  {
-    id: 'УИО', latinId: 'uio',
-    fullName: 'Управление имущественных отношений администрации Елизовского муниципального округа',
-    shortName: 'УИО',
-    sheetName: 'УИО', hasSubordinates: false,
-    svod: { kpQ1: 72, kpYear: 77, epQ1: 83, epYear: 88, totalCombined: 90, totalCurrent: 91, compShareRow: 93, epShareRow: 94 },
-  },
-  {
-    id: 'УАГЗО', latinId: 'uagzo',
-    fullName: 'Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа',
-    shortName: 'УАГЗО',
-    sheetName: 'ВСЕ', hasSubordinates: true,
-    svod: { kpQ1: 102, kpYear: 107, epQ1: 113, epYear: 118, totalCombined: 120, totalCurrent: 121, compShareRow: 123, epShareRow: 124 },
-  },
-  {
-    id: 'УФБП', latinId: 'ufbp',
-    fullName: 'Управление финансов администрации Елизовского муниципального округа',
-    shortName: 'УФ',
-    sheetName: 'УФБП', hasSubordinates: false,
-    svod: { kpQ1: 132, kpYear: 137, epQ1: 143, epYear: 148, totalCombined: 150, totalCurrent: 151, compShareRow: 153, epShareRow: 154 },
-  },
-  {
-    id: 'УД', latinId: 'ud',
-    fullName: 'Управление делами администрации Елизовского муниципального округа',
-    shortName: 'УД',
-    sheetName: 'ВСЕ', hasSubordinates: true,
-    svod: { kpQ1: 163, kpYear: 168, epQ1: 175, epYear: 180, totalCombined: 182, totalCurrent: 183, compShareRow: 185, epShareRow: 186 },
-  },
-  {
-    id: 'УДТХ', latinId: 'udtx',
-    fullName: 'Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа',
-    shortName: 'УДТХиБ',
-    sheetName: 'УДТХ', hasSubordinates: false,
-    svod: { kpQ1: 195, kpYear: 200, epQ1: 206, epYear: 211, totalCombined: 213, totalCurrent: 214, compShareRow: 216, epShareRow: 217 },
-  },
-  {
-    id: 'УКСиМП', latinId: 'uksimp',
-    fullName: 'Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа',
-    shortName: 'УКСиМП',
-    sheetName: 'ВСЕ', hasSubordinates: true,
-    svod: { kpQ1: 225, kpYear: 230, epQ1: 236, epYear: 241, totalCombined: 243, totalCurrent: 244, compShareRow: 246, epShareRow: 247 },
-  },
-  {
-    id: 'УО', latinId: 'uo',
-    fullName: 'Управление образования администрации Елизовского муниципального округа',
-    shortName: 'УО',
-    sheetName: 'ВСЕ', hasSubordinates: true,
-    svod: { kpQ1: 255, kpYear: 260, epQ1: 266, epYear: 271, totalCombined: 273, totalCurrent: 274, compShareRow: 276, epShareRow: 277 },
-  },
-] as const;
+export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = directory.departments as DepartmentEntry[];
 
 // ─────────────────────────────────��──────────────────────────
 // 4. Lookup helpers
@@ -179,10 +125,35 @@ export function getDeptByLatin(latinId: LatinDeptId): DepartmentEntry {
   return d;
 }
 
+/** Исторические написания; действующие имена и ключи добавляются из реестра. */
+const HISTORICAL_DEPARTMENT_ALIASES: Readonly<Record<string, DepartmentId>> = directory.aliases as Record<string, DepartmentId>;
+
+/** Один индекс для всех потребителей. Коллизия справочника — явный отказ, не выбор первой записи. */
+function departmentAliasKey(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleUpperCase('ru-RU').replace(/Ё/g, 'Е');
+}
+const departmentAliases: Record<string, DepartmentId> = Object.create(null);
+const departmentAliasIndex = new Map<string, DepartmentId>();
+for (const [raw, id] of [
+  ...Object.entries(HISTORICAL_DEPARTMENT_ALIASES),
+  ...DEPARTMENT_REGISTRY.flatMap(d =>
+    [d.id, d.latinId, d.shortName, d.fullName].map(key => [key, d.id])),
+]) {
+  const key = raw.trim().replace(/\s+/g, ' ');
+  const normalizedKey = departmentAliasKey(key);
+  const previous = departmentAliasIndex.get(normalizedKey);
+  if (previous !== undefined && previous !== id) {
+    throw new Error(`Department alias conflict: ${key} (${previous}, ${id})`);
+  }
+  departmentAliases[key] = id as DepartmentId;
+  departmentAliasIndex.set(normalizedKey, id as DepartmentId);
+}
+export const DEPARTMENT_ALIASES: Readonly<Record<string, DepartmentId>> = Object.freeze(departmentAliases);
+
 /** Get department by either ID format (flexible lookup) */
 export function findDept(idOrLatin: string): DepartmentEntry | undefined {
-  return _byId.get(idOrLatin as DepartmentId) ?? _byLatinId.get(idOrLatin as LatinDeptId)
-    ?? DEPARTMENT_REGISTRY.find(d => d.shortName === idOrLatin);
+  const id = departmentAliasIndex.get(departmentAliasKey(idOrLatin));
+  return id === undefined ? undefined : _byId.get(id);
 }
 
 /** All 8 cyrillic IDs */
@@ -195,3 +166,7 @@ export const ALL_LATIN_IDS: readonly LatinDeptId[] = DEPARTMENT_REGISTRY.map(d =
 // читателей не было, живой канон — SUMMARY_ROWS (report-map.ts) и
 // SHDYU_ALL_BLOCK/SHDYU_BLOCKS (shdyu-map.ts). Копии без стража-теста
 // разъехались бы при следующей смене вёрстки книг.
+
+/** Порядок источника мониторинга; имена берутся только из записей управлений. */
+export const MONITORING_DEPARTMENTS = [...DEPARTMENT_REGISTRY]
+  .sort((a, b) => a.monitoring.order - b.monitoring.order);

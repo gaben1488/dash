@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * subordinateLabel — человекочитаемая подпись подведомственного для UI.
  *
@@ -11,7 +12,7 @@
 import { ORG_ITSELF_SENTINEL, resolveSubordinateName } from '@aemr/shared';
 
 /** Подпись аппарата ГРБС (само управление, не подвед). */
-export const ORG_ITSELF_LABEL = 'Аппарат управления';
+export const ORG_ITSELF_LABEL = PRODUCT_COPY["lib/subordinate-label:ORG_ITSELF_LABEL"];
 
 /** Сырое имя подведа → подпись для отображения. */
 export function subordinateLabel(raw: string): string {

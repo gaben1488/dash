@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Адреса находок датасет-аналитики (канон п.119: по каждому сработавшему
  * сигналу читателю виден ответ «какая строка, что в ней, почему»).
@@ -62,15 +63,7 @@ interface SplittingGroupDTO {
 const SHEET_ROW_FROM_INDEX = 1;
 
 /** Обывательские подписи сезонных признаков — без внутренних ключей на экране. */
-export const SEASONAL_LABELS: Record<SeasonalAnomalyType, string> = {
-  SCHOOL_REPAIR_OUTSIDE_HOLIDAYS: 'Ремонт школы в учебное время',
-  LATE_SCHOOL_FOOD_CONTRACT: 'Школьное питание без контракта к 15 августа',
-  WINTER_ROAD_WORK: 'Дорожные работы в зимние месяцы',
-  LATE_FUEL_PROCUREMENT: 'Топливо не закуплено к отопительному сезону',
-  BOILER_REPAIR_HEATING_SEASON: 'Ремонт теплоснабжения в отопительный сезон',
-  Q4_SPENDING_SPIKE: 'Заключения смещены в IV квартал',
-  DECEMBER_RUSH_CONTRACT: 'Декабрьское заключение в короткий срок',
-};
+export const SEASONAL_LABELS: Record<SeasonalAnomalyType, string> = PRODUCT_COPY["lib/analytics/anomaly-addresses:SEASONAL_LABELS"];
 
 /** Острота — словом, без «нарушений» (PRODUCT.md, строгие правила языка). */
 export const SEASONAL_URGENCY: Record<SeasonalSeverity, string> = {

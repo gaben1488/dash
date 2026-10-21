@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Договор экрана «Сверка трёх источников» с сервером (GET /api/monitoring/triple).
  *
@@ -32,11 +33,7 @@ export type TripleSide = 'book' | 'sheet' | 'journal';
  * обязан назвать сторону даже тогда, когда сервер прислал незнакомое слово,
  * а тянуть `@aemr/core` в браузер ради трёх строк — лишний вес бандла.
  */
-export const SIDE_LABELS: Record<TripleSide, string> = {
-  book: 'книга ГРБС',
-  sheet: 'лист управления мониторинга',
-  journal: 'переходящий реестр «25-26»',
-};
+export const SIDE_LABELS: Record<TripleSide, string> = PRODUCT_COPY["lib/monitoring/triple-contract:SIDE_LABELS"];
 
 /** Короткая подпись стороны — для тесных мест: заголовка колонки, чипа. */
 export const SIDE_SHORT: Record<TripleSide, string> = {
@@ -72,22 +69,7 @@ export type TripleFindingKind =
   | string;
 
 /** Заголовок карточки класса — литературный русский, без упрёка. */
-export const FINDING_LABELS: Record<string, string> = {
-  'no-pair-in-monitoring': 'Нет пары в книге мониторинга',
-  'no-pair-in-books': 'Нет строки в книгах ГРБС',
-  'no-journal-record': 'Нет записи в переходящем реестре',
-  'no-sheet-record': 'Не перенесена на лист управления',
-  'plan-differs': 'Начальные цены разошлись',
-  'fact-differs': 'Факт и цена победителя разошлись',
-  'savings-differ': 'Экономия разошлась',
-  'savings-not-difference': 'Экономия не равна разности',
-  'winner-price-missing': 'Цена победителя не проставлена',
-  'code-distorted': 'Код процедуры с опечаткой',
-  'subject-mismatch': 'Предметы сторон описаны по-разному',
-  'duplicate-in-book': 'Код дважды в одной книге',
-  'joint-shares': 'Доли совместной закупки',
-  'duplicate-in-monitoring': 'Код дважды на одном листе мониторинга',
-};
+export const FINDING_LABELS: Record<string, string> = PRODUCT_COPY["lib/monitoring/triple-contract:FINDING_LABELS"];
 
 /**
  * Что означает класс и что с ним делать (канон п.135: у метрики карточка базы

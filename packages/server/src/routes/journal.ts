@@ -1,3 +1,4 @@
+import { SOURCE_ROW_OBSERVATION_LABEL } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { buildHealthReport } from './health.js';
 import { db, schema } from '../db/index.js';
@@ -62,6 +63,7 @@ const FILTERABLE_TYPES = [
 const ACTION_TO_TYPE: Readonly<Record<string, string>> = {
   cell_edit: 'edit',
   batch_cell_edit: 'edit',
+  source_row_observation: 'edit',
 };
 
 /**
@@ -123,6 +125,7 @@ function auditEntryType(action: string): string {
  */
 function formatAuditAction(action: string): string {
   switch (action) {
+    case 'source_row_observation': return SOURCE_ROW_OBSERVATION_LABEL;
     case 'import':           return 'Импорт данных';
     case 'edit':             return 'Правка данных';
     case 'cell_edit':        return 'Правка ячейки';

@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * formula-defects.ts — чтение замечаний формульной целостности книг на экранах.
  *
@@ -49,7 +50,7 @@ export type FormulaDefectCheckId = (typeof FORMULA_DEFECT_CHECK_IDS)[number];
 export const FORMULA_DEFECT_GROUP = 'formula_consistency';
 
 /** Заголовок поверхностей — один на все три экрана, чтобы не разъехался. */
-export const FORMULA_INTEGRITY_TITLE = 'Целостность формул книг';
+export const FORMULA_INTEGRITY_TITLE = PRODUCT_COPY["lib/formulas/formula-defects:FORMULA_INTEGRITY_TITLE"];
 
 const CHECK_ID_SET: ReadonlySet<string> = new Set(FORMULA_DEFECT_CHECK_IDS);
 
@@ -112,7 +113,7 @@ export interface FormulaDefectView {
 
 const ACTUAL_OVERWRITTEN = /вместо формулы стоит «([^»]*)»/;
 const ACTUAL_MUTANT = /формула «([^»]*)» расходится/;
-const ETALON_LABEL = 'Эталон графы: ';
+const ETALON_LABEL = PRODUCT_COPY["lib/formulas/formula-defects:ETALON_LABEL"];
 const ETALON_INLINE = 'расходится с эталоном графы ';
 const DONOR_MARK = '; целая формула — в строке ';
 

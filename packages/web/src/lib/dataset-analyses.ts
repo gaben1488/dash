@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Чистый маппер snapshot.datasetAnalyses (/api/dashboard) → строки таблицы
  * «Аномалии данных по управлениям» (E4 волна-1, W1-A: данные уже в браузере,
@@ -44,12 +45,7 @@ export interface DatasetAuditRow {
 export const BENFORD_LABELS: Record<
   NonNullable<DatasetAuditRow['benfordConformity']>,
   { label: string; hint: string; tone: 'ok' | 'warn' | 'bad' }
-> = {
-  close: { label: 'соответствует', hint: 'MAD ≤ 0.006 — распределение первых цифр естественное', tone: 'ok' },
-  acceptable: { label: 'приемлемо', hint: 'MAD ≤ 0.012 — отклонение в допустимых пределах', tone: 'ok' },
-  marginal: { label: 'на грани', hint: 'MAD ≤ 0.015 — отклонение заметное, стоит присмотреться', tone: 'warn' },
-  nonconforming: { label: 'не соответствует', hint: 'MAD > 0.015 — возможна манипуляция суммами', tone: 'bad' },
-};
+> = PRODUCT_COPY["lib/dataset-analyses:BENFORD_LABELS"];
 
 /**
  * snapshot.datasetAnalyses → строки таблицы, худшие первыми

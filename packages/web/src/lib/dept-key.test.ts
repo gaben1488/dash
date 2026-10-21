@@ -7,8 +7,14 @@ describe('approved department names in filters', () => {
     ['УДТХиБ', 'УДТХ', 'udtx'],
   ])('resolves %s to existing source keys', (label, canonical, latin) => {
     expect(toCanonicalDeptId(label)).toBe(canonical);
-    expect(bothDeptKeyForms([label])).toEqual(new Set([label, canonical, latin]));
-    expect(bothDeptKeyForms([canonical])).toEqual(new Set([label, canonical, latin]));
-    expect(bothDeptKeyForms([latin])).toEqual(new Set([label, canonical, latin]));
+    expect([...bothDeptKeyForms([label])]).toEqual(expect.arrayContaining([label, canonical, latin]));
+    expect(bothDeptKeyForms([canonical])).toEqual(bothDeptKeyForms([label]));
+    expect(bothDeptKeyForms([latin])).toEqual(bothDeptKeyForms([label]));
   });
+});
+
+
+it('исторические алиасы не исключаются из отбора по действующему управлению', () => {
+  expect(bothDeptKeyForms(['УФ']).has('УФБР')).toBe(true);
+  expect(bothDeptKeyForms(['УДТХиБ']).has('УТХиРКИ')).toBe(true);
 });

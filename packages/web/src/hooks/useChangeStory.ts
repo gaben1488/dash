@@ -63,6 +63,8 @@ function queryKey(query: ChangeStoryQuery): string {
  */
 export function useChangeStory(query: ChangeStoryQuery, enabled = true): UseChangeStoryResult {
   const live = useLiveEvents(enabled);
+  const structuralAt = live.books.filter(book => book.removedRows > 0)
+    .map(book => book.at).sort().at(-1) ?? null;
   const [response, setResponse] = useState<ChangeStoryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +104,7 @@ export function useChangeStory(query: ChangeStoryQuery, enabled = true): UseChan
     // Запрос пересобирается по КЛЮЧУ отбора, а не по ссылке на объект: иначе
     // каждый рендер родителя заново дёргал бы журнал в тридцать тысяч строк.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, enabled, again]);
+  }, [key, enabled, again, structuralAt]);
 
   useEffect(() => {
     if (!enabled || live.recentRows.length === 0) return;

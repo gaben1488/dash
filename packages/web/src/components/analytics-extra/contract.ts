@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Договор с сервером по двум разделам, которые до 21.08.2026 не выводились
  * никуда: адресные признаки странностей (GET /api/anomalies) и целостность
@@ -198,10 +199,7 @@ export interface IntegrityResponse {
 // ────────────────────────────────────────────────────────────
 
 /** Заголовки шкал: вопрос, на который отвечает каждая. */
-export const SCALE_TITLE: Record<AnomalyScale, string> = {
-  typo: 'Похоже на опечатку',
-  fitted: 'Похоже на подгон',
-};
+export const SCALE_TITLE: Record<AnomalyScale, string> = PRODUCT_COPY["components/analytics-extra/contract:SCALE_TITLE"];
 
 export const SCALE_LEAD: Record<AnomalyScale, string> = {
   typo: 'Рука дрогнула: лишний ноль, рубли вместо тысяч, соседний год, сумма скопирована '
@@ -211,11 +209,7 @@ export const SCALE_LEAD: Record<AnomalyScale, string> = {
 };
 
 /** Уровень аномалии датасета словом — внутренние коды на экран не выходят. */
-export const LEVEL_LABEL: Record<DatasetFindingDto['level'], string> = {
-  row: 'строка книги',
-  behaviour: 'видно сравнением с прошлым чтением',
-  book: 'признак всей книги',
-};
+export const LEVEL_LABEL: Record<DatasetFindingDto['level'], string> = PRODUCT_COPY["components/analytics-extra/contract:LEVEL_LABEL"];
 
 /** Тысячи рублей с русской группировкой разрядов. */
 export function fmtTys(value: number): string {

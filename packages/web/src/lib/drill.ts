@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Провал несёт периметр (механизм М14) ────────────────────────────────────
 //
 //    Болезнь, ради которой модуль появился, записана в атласе карточек 20.08
@@ -101,19 +102,7 @@ export type DrillCarrier = 'head' | 'local' | 'none';
 export type DrillPage = ViewTab;
 
 /** Имя оси человеку — для фразы «чего в цели не будет». */
-const AXIS_TITLE: Readonly<Record<DrillAxis, string>> = {
-  dept: 'Управление',
-  subordinate: 'Учреждение',
-  year: 'Год',
-  quarter: 'Квартал',
-  month: 'Месяц',
-  method: 'Способ закупки',
-  budget: 'Бюджет',
-  activity: 'Вид деятельности',
-  signals: 'Признаки строк',
-  search: 'Поиск',
-  procedure: 'Процедура',
-};
+const AXIS_TITLE: Readonly<Record<DrillAxis, string>> = PRODUCT_COPY["lib/drill:AXIS_TITLE"];
 
 /**
  * Причина, по которой ось до цели не доезжает. Формулировка отвечает на
@@ -214,11 +203,7 @@ const BUDGET_SHORT: Readonly<Record<BudgetLevel, string>> = {
   fb: 'ФБ', kb: 'КБ', mb: 'МБ',
 };
 
-const ACTIVITY_TITLE: Readonly<Record<ActivityKey, string>> = {
-  program: 'программная',
-  current_program: 'текущая программная',
-  current_non_program: 'текущая непрограммная',
-};
+const ACTIVITY_TITLE: Readonly<Record<ActivityKey, string>> = PRODUCT_COPY["lib/drill:ACTIVITY_TITLE"];
 
 /** Значение оси словами — для чипа, подсказки и фразы «чего не будет». */
 function axisLabel(point: DrillPoint, axis: DrillAxis): string | null {

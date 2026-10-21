@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Раздел «Гигиена текста» на вкладке «Контроль» (канон п.122, приказ владельца
  * 20.08.2026: подача структурой, а не простынёй).
@@ -254,7 +255,7 @@ type FindingKind = TextHygieneKind | 'spelling';
 // `kind === SPELLING_KIND` не сужает род и словарь дефектов индексируется
 // ключом «орфография», которого в нём нет.
 const SPELLING_KIND = 'spelling' as const;
-const SPELLING_LABEL = 'орфография';
+const SPELLING_LABEL = PRODUCT_COPY["components/text-hygiene/TextHygieneSection:SPELLING_LABEL"];
 
 /** Подпись рода для чипа и подсказки: словарь дефектов плюс орфография. */
 function findingKindLabel(kind: FindingKind): string {

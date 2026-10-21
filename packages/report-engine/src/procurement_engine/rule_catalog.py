@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .normalize import clean_text
+from .department_directory import department_id
 
 if TYPE_CHECKING:
     from .models import ProcurementRow
@@ -33,31 +34,7 @@ class RuleCatalog:
     procedure_subject_similarity_threshold: float = 0.45
 
     def normalize_grbs(self, value) -> str | None:
-        text = clean_text(value).upper().replace("Ё", "Е")
-        if not text:
-            return None
-        compact = re.sub(r"[^А-ЯA-Z0-9]", "", text)
-        exact = {
-            "УЭР": "УЭР", "УИО": "УИО", "УАГЗО": "УАГЗО", "УАГИЗО": "УАГЗО",
-            "УФБП": "УФБП", "УФ": "УФБП", "УДТХИБ": "УДТХ", "УД": "УД", "УДТХ": "УДТХ", "УДТХИРКИ": "УДТХ",
-            "УКСИМП": "УКСиМП", "УО": "УО",
-        }
-        if compact in exact:
-            return exact[compact]
-        aliases = (
-            (("УПРАВЛЕНИЕ ОБРАЗОВАН",), "УО"),
-            (("ДОРОЖНО-ТРАНСПОРТ", "УДТХ"), "УДТХ"),
-            (("КУЛЬТУР", "СПОРТ", "МОЛОДЕЖ"), "УКСиМП"),
-            (("УПРАВЛЕНИЕ ИМУЩ", "УИО"), "УИО"),
-            (("ФИНАНСОВО-БЮДЖЕТ", "УПРАВЛЕНИЕ ФИНАНСОВ", "УФБП"), "УФБП"),
-            (("ГРАДОСТРО", "ЗЕМЕЛ", "УАГЗО", "УАГИЗО"), "УАГЗО"),
-            (("ЭКОНОМИЧЕСКОГО РАЗВИТ", "УЭР"), "УЭР"),
-            (("УПРАВЛЕНИЕ ДЕЛАМИ",), "УД"),
-        )
-        for tokens, canonical in aliases:
-            if any(token in text for token in tokens):
-                return canonical
-        return None
+        return department_id(clean_text(value))
 
     def normalize_procedure_code(self, value) -> str | None:
         text = clean_text(value).upper().replace("E", "Е").replace("Ё", "Е")

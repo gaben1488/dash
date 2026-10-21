@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { subordinateNameMatchKey, type TrustScore } from '@aemr/shared';
 import { countNodeIssues } from '../lib/selectors/issues-filtering';
 import { useState, useMemo, useEffect } from 'react';
@@ -1000,10 +1001,7 @@ const BREAKDOWN_UNITS: Record<string, string> = {
 };
 
 /** Чем подписать пустую строку разбивки — по причине пустоты, а не «нет данных». */
-const BREAKDOWN_EMPTY_LABELS: Record<string, string> = {
-  critical_issues: 'не посчитано',
-  trust_binary: 'не оценено',
-};
+const BREAKDOWN_EMPTY_LABELS: Record<string, string> = PRODUCT_COPY["pages/Dashboard:BREAKDOWN_EMPTY_LABELS"];
 
 function KPIExpandPanel({
   kpi,

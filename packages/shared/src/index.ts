@@ -171,3 +171,7 @@ export * from './threshold-registry.js';
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
 export * from './source-coverage.js';
+
+export * from './metrics/types.js';
+export * from './metrics/registry.js';
+export * from './metrics/kb-uplift.js';

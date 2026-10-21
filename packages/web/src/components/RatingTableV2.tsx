@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { productLabel } from '@aemr/shared';
 import { memo, useCallback, useId, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -38,7 +39,7 @@ import { pluralRu } from '@/lib/economy-copy';
 const QUARTER_LABELS = [1, 2, 3, 4].map(quarterLabel);
 
 /** Фраза для пустой ячейки процента: почему числа нет. */
-const NO_PLAN_HINT = 'За выбранный период плана нет — исполнять нечего';
+const NO_PLAN_HINT = PRODUCT_COPY["components/RatingTableV2:NO_PLAN_HINT"];
 
 /** Полное наименование федерального бюджета — из реестра, а не строкой здесь. */
 const FB_FULL = BUDGET_SOURCE_META.fb.label;
@@ -117,14 +118,7 @@ const MERIT_SORT_KEYS: ReadonlySet<SortKey> = new Set<SortKey>([
 ]);
 
 /** Человеческое имя столбца сортировки — для подписи под таблицей. */
-const SORT_LABELS: Record<SortKey, string> = {
-  execCountPct: 'исполнению по количеству',
-  execAmountPct: 'исполнению по сумме',
-  fbExecPct: 'исполнению федерального бюджета',
-  fbPct: 'исполнению федерального бюджета',
-  trustScore: 'доверию к данным',
-  issueCount: 'числу замечаний',
-};
+const SORT_LABELS: Record<SortKey, string> = PRODUCT_COPY["components/RatingTableV2:SORT_LABELS"];
 
 export function RatingTableV2({
   departments,

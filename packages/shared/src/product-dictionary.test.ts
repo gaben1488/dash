@@ -29,3 +29,11 @@ describe('product-dictionary (1.1): ни один сырой ключ не до�
     expect(() => productLabel('totally_unknown_key_xyz')).not.toThrow();
   });
 });
+
+
+it('исторические алиасы имеют ту же действующую подпись во всех представлениях', () => {
+  expect(productLabel('УФБР')).toBe('УФ');
+  expect(productLabel('УТХиРКИ')).toBe('УДТХиБ');
+  expect(productLabel(' УФБП   АЕМР ')).toBe('УФ');
+  expect(productLabel('УАГиЗО')).toBe('УАГЗО');
+});

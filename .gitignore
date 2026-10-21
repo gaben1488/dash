@@ -113,3 +113,6 @@ scripts/out-zarya/
 
 # Ephemeral reviewed browser contract transported by read-only CI
 .github/ci/_browser-contract.br
+
+# Shared canonical department data, also packaged by the report engine.
+!packages/report-engine/src/procurement_engine/department_directory.json

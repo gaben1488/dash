@@ -1,3 +1,4 @@
+import { METRIC_LABELS } from '@aemr/shared';
 /**
  * CalcEngine — Unified, extensible calculation engine for procurement metrics.
  *
@@ -390,52 +391,52 @@ export function approvedEconomy(row: RawRow, asOfDay?: number): number {
  */
 export const STANDARD_METRICS: MetricDefinition[] = [
   // D: Plan count — count all rows (no extra gate)
-  { key: 'plan_count', label: 'План (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [] },
+  { key: 'plan_count', label: METRIC_LABELS['plan_count'], unit: 'count', source: { aggregation: 'count' }, gates: [] },
   // E: Fact count — count rows with fact date
-  { key: 'fact_count', label: 'Факт (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_count', label: METRIC_LABELS['fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT] },
 
   // Method-specific counts
-  { key: 'competitive_count', label: 'КП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_count', label: 'ЕП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_EP] },
+  { key: 'competitive_count', label: METRIC_LABELS['competitive_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_count', label: METRIC_LABELS['ep_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_EP] },
 
   // H-K: Plan sums (лимиты программ) — K with fallback to H+I+J
-  { key: 'plan_fb', label: 'Лимит ФБ', unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_kb', label: 'Лимит КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_mb', label: 'Лимит МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_total', label: 'Лимит ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [] },
+  { key: 'plan_fb', label: METRIC_LABELS['plan_fb'], unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_kb', label: METRIC_LABELS['plan_kb'], unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_mb', label: METRIC_LABELS['plan_mb'], unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_total', label: METRIC_LABELS['plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [] },
 
   // Остаток: плановые деньги ЕЩЁ НЕ заключённых процедур. Прямой запрос
   // ГРБС-специалиста (27.07): «сколько в плановых деньгах по оставшимся
   // процедурам с разбивкой по бюджетам». Считается по ПЛАНОВЫМ столбцам с
   // обратным гейтом факта — это не «план минус факт»: факт есть цена
   // контракта, она ниже плана, и разность дала бы экономию, а не остаток.
-  { key: 'pending_count', label: 'Осталось заключить (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_fb', label: 'Остаток ФБ', unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_kb', label: 'Остаток КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_mb', label: 'Остаток МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_total', label: 'Остаток ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_NO_FACT] },
+  { key: 'pending_count', label: METRIC_LABELS['pending_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_fb', label: METRIC_LABELS['pending_fb'], unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_kb', label: METRIC_LABELS['pending_kb'], unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_mb', label: METRIC_LABELS['pending_mb'], unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_total', label: METRIC_LABELS['pending_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_NO_FACT] },
 
   // L-O: Fact sums (цены контрактов) — gated on fact date, Y with fallback to V+W+X
-  { key: 'fact_fb', label: 'Факт ФБ', unit: 'currency', source: { column: COL.FB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_kb', label: 'Факт КБ', unit: 'currency', source: { column: COL.KB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_mb', label: 'Факт МБ', unit: 'currency', source: { column: COL.MB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_total', label: 'Факт ИТОГО', unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_fb', label: METRIC_LABELS['fact_fb'], unit: 'currency', source: { column: COL.FB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_kb', label: METRIC_LABELS['fact_kb'], unit: 'currency', source: { column: COL.KB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_mb', label: METRIC_LABELS['fact_mb'], unit: 'currency', source: { column: COL.MB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_total', label: METRIC_LABELS['fact_total'], unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT] },
 
   // R-U листа СВОД (источник — Z/AA/AB книг ГРБС) под гейтом AD="да" + дата факта.
   // Имя с прилагательным «утверждённая» обязательно: вторая экономия района —
   // «НМЦК минус цена аукциона» книги мониторинга, в рублях, — считается иначе,
   // отбирается иначе и живёт в другой книге (см. economy_total ниже).
-  { key: 'economy_fb', label: 'Утверждённая экономия ФБ', unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_kb', label: 'Утверждённая экономия КБ', unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_mb', label: 'Утверждённая экономия МБ', unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_fb', label: METRIC_LABELS['economy_fb'], unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_kb', label: METRIC_LABELS['economy_kb'], unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_mb', label: METRIC_LABELS['economy_mb'], unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
 
   // Compound-gate counts for G-column СВОД: comp_fact_count = КП with fact, ep_fact_count = ЕП with fact
-  { key: 'comp_fact_count', label: 'Факт КП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_fact_count', label: 'Факт ЕП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
+  { key: 'comp_fact_count', label: METRIC_LABELS['comp_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_fact_count', label: METRIC_LABELS['ep_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
 
   // Method-specific plan totals
-  { key: 'comp_plan_total', label: 'Лимит КП ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_plan_total', label: 'Лимит ЕП ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_EP] },
+  { key: 'comp_plan_total', label: METRIC_LABELS['comp_plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_plan_total', label: METRIC_LABELS['ep_plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_EP] },
 ];
 
 /** Derived metrics computed from accumulated values. */
@@ -453,15 +454,15 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // только знак и подпись; словесная формулировка еженедельного отчёта
   // («Отклонение от плана 2 квартала – 19 процедур», положительный недобор)
   // живёт отдельной величиной в docx-сборщике и от этого ключа не зависит.
-  { key: 'deviation', label: 'Отклонение, единиц', unit: 'count', formula: { op: 'diff', a: 'fact_count', b: 'plan_count' } },
+  { key: 'deviation', label: METRIC_LABELS['deviation'], unit: 'count', formula: { op: 'diff', a: 'fact_count', b: 'plan_count' } },
   // Q листа СВОД: fact_total / plan_total. ОДНА колонка листа — два ключа
   // продукта (execution_pct и savings_pct ниже). Дубль наследственный: оба
   // ключа записаны в персистентных снимках, поэтому не сливаются, но обе
   // карточки БЗ обязаны называть друг друга и колонку Q.
-  { key: 'execution_pct', label: 'Исполнение (сумма), %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  { key: 'execution_pct', label: METRIC_LABELS['execution_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // P листа СВОД: `=O43-K43` — факт минус план, недоосвоение < 0. Тот же знак,
   // что и у счётного deviation выше.
-  { key: 'amount_deviation', label: 'Отклонение, тыс. руб.', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
+  { key: 'amount_deviation', label: METRIC_LABELS['amount_deviation'], unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
   // Та же дробь колонки Q, что и у execution_pct выше, — но под ИМЕНЕМ ЛИСТА.
   // Оба ключа записаны в сохранённых снимках и переименованию не подлежат;
   // разница между ними чисто именная, и обе карточки БЗ это говорят прямо.
@@ -472,7 +473,7 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // «savings_pct = копия execution_pct»: мислейбл снят переименованием
   // 18.08.2026, ложное описание осталось).
   // Имя листа СВОД после переименования владельцем 18.08.2026 (было «Потрачено, %»).
-  { key: 'savings_pct', label: 'Законтрактовано, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  { key: 'savings_pct', label: METRIC_LABELS['savings_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // U: Economy total = economy_fb + economy_kb + economy_mb.
   // «Утверждённая» в имени — не украшение: в районе живут ДВЕ экономии.
   // Эта — утверждённая финансовым органом (флаг AD книг ГРБС), в ТЫСЯЧАХ рублей,
@@ -480,17 +481,17 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // в РУБЛЯХ из книги «Ежедневный мониторинг» (та самая, что стоит в записке
   // руководителю: 293 аукциона, 57 743 709,89 руб.). Числа разные, единицы
   // разные — одним словом называться не должны.
-  { key: 'economy_total', label: 'Утверждённая экономия, ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
+  { key: 'economy_total', label: METRIC_LABELS['economy_total'], unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
   // Total procedures and EP share
-  { key: 'total_procedures', label: 'Всего процедур', unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
-  { key: 'ep_share_pct', label: 'Доля ЕП %', unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
+  { key: 'total_procedures', label: METRIC_LABELS['total_procedures'], unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
+  { key: 'ep_share_pct', label: METRIC_LABELS['ep_share_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
 
   // Execution % by count: fact_count / plan_count (all methods)
-  { key: 'exec_count_pct', label: '% исполнения (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'fact_count', denominator: 'plan_count' } },
+  { key: 'exec_count_pct', label: METRIC_LABELS['exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_count', denominator: 'plan_count' } },
   // G-column СВОД: comp_fact_count / competitive_count — ГЛАВНЫЙ ПОКАЗАТЕЛЬ РУКОВОДСТВА
-  { key: 'comp_exec_count_pct', label: '% исполнения КП (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'comp_fact_count', denominator: 'competitive_count' } },
+  { key: 'comp_exec_count_pct', label: METRIC_LABELS['comp_exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'comp_fact_count', denominator: 'competitive_count' } },
   // EP execution by count
-  { key: 'ep_exec_count_pct', label: '% исполнения ЕП (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_count', denominator: 'ep_count' } },
+  { key: 'ep_exec_count_pct', label: METRIC_LABELS['ep_exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_count', denominator: 'ep_count' } },
 ];
 
 // ── CalcEngine ───────────────────────────────────────────────────────

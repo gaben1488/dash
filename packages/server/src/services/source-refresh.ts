@@ -1,3 +1,4 @@
+import { saveSourceRowObservations } from './source-row-observations.js';
 /**
  * source-refresh.ts — ОДИН цикл чтения всех источников.
  *
@@ -621,6 +622,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
         }
         for (const [name, print] of nextPrints) {
           const revision = acquisitionRevisions.get(name) ?? null;
+          saveSourceRowObservations(name, before[name], data[name], bookPrints.get(name), print, at);
           saveWatermark(name, print, at, revision ?? undefined);
         }
         for (const name of gate.attested) {

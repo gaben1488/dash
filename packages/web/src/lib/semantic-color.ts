@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * semantic-color.ts — ОДИН ДОМ ЦВЕТА (механизм М13, 21.08.2026).
  *
@@ -90,12 +91,7 @@ const STATE_TONE: Readonly<Record<SemanticState, DataTone>> = {
  * дублировалась текстом: печать бывает чёрно-белой, а около восьми процентов
  * мужчин не различают часть тонов.
  */
-export const STATE_LABELS: Readonly<Record<SemanticState, string>> = {
-  'норма': 'в норме',
-  'внимание': 'требует внимания',
-  'нарушение': 'нарушение',
-  'не оценено': 'не оценено — базы для счёта нет',
-};
+export const STATE_LABELS: Readonly<Record<SemanticState, string>> = PRODUCT_COPY["lib/semantic-color:STATE_LABELS"];
 
 // ────────────────────────────────────────────────────────────────
 // 2. Единственный способ получить цвет

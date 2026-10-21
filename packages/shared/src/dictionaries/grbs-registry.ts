@@ -11,12 +11,12 @@
  *   - Маппинг alias-строк к каноническому ID (включая опечатки и двойные пробелы)
  *   - Флаг hasSubordinates для разветвлённой иерархии подведов
  *
- * ВАЖНО: Этот файл — единственный источник для алиасов ГРБС.
+ * ВАЖНО: Алиасы и действующие названия определены в department-registry.ts.
  * department-registry.ts содержит row-positions СВОД/ШДЮ и остаётся отдельным.
  */
 
 import type { DepartmentId } from '../types.js';
-import { DEPARTMENT_REGISTRY, getDept } from '../department-registry.js';
+import { DEPARTMENT_ALIASES, DEPARTMENT_REGISTRY, findDept, getDept, type DepartmentEntry } from '../department-registry.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Канонические идентификаторы
@@ -30,18 +30,10 @@ import { DEPARTMENT_REGISTRY, getDept } from '../department-registry.js';
  * Особенность: «УАГиЗО» — каноническое написание из реестра СВОД-25-26/ГРБС.
  * В dept-таблицах фигурирует «УАГЗО» (без «и»); алиас-карта покрывает оба варианта.
  */
-export const GRBS_CANONICAL = [
-  'УО',
-  'УКСиМП',
-  'УАГиЗО',
-  'УИО',
-  'УФБП',
-  'УД',
-  'УЭР',
-  'УДТХ',
-] as const;
+export const GRBS_CANONICAL: readonly GrbsId[] = DEPARTMENT_REGISTRY.slice()
+  .sort((a, b) => a.grbs.order - b.grbs.order).map(d => d.grbs.id);
 
-export type GrbsId = typeof GRBS_CANONICAL[number];
+export type GrbsId = DepartmentEntry['grbs']['id'];
 
 // ────────────────────────────────────────────────────────────
 // 2. Полные наименования и метаданные
@@ -72,74 +64,12 @@ export interface GrbsEntry {
   isAuthorizedBody?: true;
 }
 
-export const GRBS_REGISTRY: readonly GrbsEntry[] = [
-  {
-    id: 'УО',
-    fullName: getDept('УО').fullName,
-    shortName: 'УО',
-    svodSheetName: 'УО',
-    hasSubordinates: true,
-    subordinateCount: 43,
-    // TODO: заполнить из СВОД/Settings при следующей синхронизации dept-файлов
-  },
-  {
-    id: 'УКСиМП',
-    fullName: getDept('УКСиМП').fullName,
-    shortName: 'УКСиМП',
-    svodSheetName: 'УКСиМП',
-    hasSubordinates: true,
-    subordinateCount: 20,
-  },
-  {
-    id: 'УАГиЗО',
-    fullName: getDept('УАГЗО').fullName,
-    shortName: 'УАГиЗО',
-    svodSheetName: 'УАГЗО',   // без «и» в файле — намеренно
-    hasSubordinates: true,
-    subordinateCount: 1,      // только МКУ «Елизовское РУС»
-  },
-  {
-    id: 'УИО',
-    fullName: getDept('УИО').fullName,
-    shortName: 'УИО',
-    svodSheetName: 'УИО',
-    hasSubordinates: false,
-    subordinateCount: 0,
-  },
-  {
-    id: 'УФБП',
-    fullName: getDept('УФБП').fullName,
-    shortName: getDept('УФБП').shortName,
-    svodSheetName: 'УФБП',
-    hasSubordinates: false,
-    subordinateCount: 0,
-    isAuthorizedBody: true,   // владеет флагами экономии в колонке AD
-  },
-  {
-    id: 'УД',
-    fullName: getDept('УД').fullName,
-    shortName: 'УД',
-    svodSheetName: 'ВСЕ',     // dept-файл содержит лист «ВСЕ» как агрегатор
-    hasSubordinates: true,
-    subordinateCount: 1,      // МКУ «ЕДДС»
-  },
-  {
-    id: 'УЭР',
-    fullName: getDept('УЭР').fullName,
-    shortName: 'УЭР',
-    svodSheetName: 'УЭР',
-    hasSubordinates: true,
-    subordinateCount: 1,      // МКУ «ЦЭР»
-  },
-  {
-    id: 'УДТХ',
-    fullName: getDept('УДТХ').fullName,
-    shortName: getDept('УДТХ').shortName,
-    svodSheetName: 'УДТХ',
-    hasSubordinates: false,
-    subordinateCount: 0,
-  },
-] as const;
+export const GRBS_REGISTRY: readonly GrbsEntry[] = DEPARTMENT_REGISTRY.slice().sort((a, b) => a.grbs.order - b.grbs.order).map(d => ({
+  id: d.grbs.id, fullName: d.fullName, shortName: d.shortName,
+  svodSheetName: d.grbs.sheetName, hasSubordinates: d.hasSubordinates,
+  subordinateCount: d.grbs.subordinateCount,
+  ...(d.grbs.isAuthorizedBody ? { isAuthorizedBody: true as const } : {}),
+}));
 
 // ────────────────────────────────────────────────────────────
 // 3. Alias-карта: все варианты написания → канонический GrbsId
@@ -157,57 +87,11 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
  *   - Полное написание «Управление делами»
  *   - Оба варианта УАГЗО/УАГиЗО
  */
-export const GRBS_ALIAS_MAP: Record<string, GrbsId> = {
-  // Себя → себе (идемпотентность)
-  'УО': 'УО',
-  'УКСиМП': 'УКСиМП',
-  'УАГиЗО': 'УАГиЗО',
-  'УАГЗО': 'УАГиЗО',        // без «и» — основная форма в СВОД_ДЛЯ_GOOGLE
-  'УИО': 'УИО',
-  'УФБП': 'УФБП',
-  'УФ': 'УФБП',
-  'УД': 'УД',
-  'УЭР': 'УЭР',
-  'УДТХ': 'УДТХ',
-  'УДТХиБ': 'УДТХ',
-
-  // Исторические полные наименования: действующее имя — только в DEPARTMENT_REGISTRY.
-  'Управление архитектуры, градостроительства и земельных отношений': 'УАГиЗО',
-  'Управление дорожно-транспортного хозяйства': 'УДТХ',
-  'Управление имущественных отношений': 'УИО',
-  'Управление культуры, спорта и молодёжной политики': 'УКСиМП',
-  'Управление образования Администрации Елизовского муниципального района': 'УО',
-  'Управление образования': 'УО', // прежняя краткая подпись из исторических процедур
-  'Управление финансово-бюджетной политики': 'УФБП',
-  'Управление экономического развития': 'УЭР',
-
-  // Текущие полные имена производятся от основного реестра ГРБС.
-  ...Object.fromEntries(DEPARTMENT_REGISTRY.map((d) => [d.fullName,
-    d.id === 'УАГЗО' ? 'УАГиЗО' : d.id])),
-
-  // Варианты с суффиксом «АЕМР»
-  'УО АЕМР': 'УО',
-  'УО  АЕМР': 'УО',          // двойной пробел — 21 строка в данных
-  'УКСиМП АЕМР': 'УКСиМП',
-  'УАГЗО АЕМР': 'УАГиЗО',
-  'УАГиЗО АЕМР': 'УАГиЗО',
-  'УИО АЕМР': 'УИО',
-  'УФБП АЕМР': 'УФБП',
-  'УД АЕМР': 'УД',
-  'УЭР АЕМР': 'УЭР',
-  'УДТХ АЕМР': 'УДТХ',
-
-  // Опечатки и исторические формы
-  'УФБР': 'УФБП',            // опечатка, замечена в AE УАГЗО
-  'УТХиРКИ': 'УДТХ',         // историческое сокращение в СВОД-25-26
-  'МКУ УЭР': 'УЭР',          // лист в dept-файле
-  'Управление делами': 'УД',
-
-  // Составное написание в книге СВОД-25-26
-  'УФБП СВОД25-26': 'УФБП',
-  'УАГиЗО СВОД 25-26': 'УАГиЗО',
-  'УТХиРКИ СВОД 25-26': 'УДТХ',
-} as const;
+/** Совместимый GrbsId-проектор общего словаря; отдельного набора алиасов нет. */
+export const GRBS_ALIAS_MAP: Readonly<Record<string, GrbsId>> = Object.fromEntries(
+  Object.entries(DEPARTMENT_ALIASES).map(([alias, id]) =>
+    [alias, getDept(id).grbs.id]),
+);
 
 // ────────────────────────────────────────────────────────────
 // 4. Lookup helpers
@@ -228,11 +112,11 @@ export function getGrbs(id: GrbsId): GrbsEntry {
  * Нормализовать произвольную строку к GrbsId через alias-карту.
  * Если совпадений нет — возвращает undefined.
  * Нечёткий поиск (Levenshtein) не используется намеренно: ложные срабатывания
- * хуже пропуска. При расширении корпуса дополняйте GRBS_ALIAS_MAP вручную.
+ * хуже пропуска. При расширении корпуса дополняйте DEPARTMENT_ALIASES в department-registry.ts.
  */
 export function resolveGrbsAlias(raw: string): GrbsId | undefined {
-  const trimmed = raw.trim().replace(/\s{2,}/g, '  '); // нормализуем двойные пробелы
-  return GRBS_ALIAS_MAP[trimmed] ?? GRBS_ALIAS_MAP[trimmed.replace(/\s+/g, ' ')];
+  const department = findDept(raw);
+  return department ? DEPARTMENT_ID_TO_GRBS_ID[department.id] : undefined;
 }
 
 /** Все канонические ID в порядке реестра */
@@ -254,28 +138,14 @@ export const GRBS_WITH_SUBORDINATES: readonly GrbsId[] = GRBS_REGISTRY
  * Эти две карты — единственная биекция между кириллическими формами;
  * Record-тип гарантирует на этапе компиляции покрытие всех восьми.
  */
-export const DEPARTMENT_ID_TO_GRBS_ID: Record<DepartmentId, GrbsId> = {
-  'УЭР': 'УЭР',
-  'УИО': 'УИО',
-  'УАГЗО': 'УАГиЗО',
-  'УФБП': 'УФБП',
-  'УД': 'УД',
-  'УДТХ': 'УДТХ',
-  'УКСиМП': 'УКСиМП',
-  'УО': 'УО',
-};
+export const DEPARTMENT_ID_TO_GRBS_ID = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map(d => [d.id, d.grbs.id]),
+) as Record<DepartmentId, GrbsId>;
 
 /** Обратная биекция GrbsId → DepartmentId (форма данных/листов). */
-export const GRBS_ID_TO_DEPARTMENT_ID: Record<GrbsId, DepartmentId> = {
-  'УО': 'УО',
-  'УКСиМП': 'УКСиМП',
-  'УАГиЗО': 'УАГЗО',
-  'УИО': 'УИО',
-  'УФБП': 'УФБП',
-  'УД': 'УД',
-  'УЭР': 'УЭР',
-  'УДТХ': 'УДТХ',
-};
+export const GRBS_ID_TO_DEPARTMENT_ID = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map(d => [d.grbs.id, d.id]),
+) as Record<GrbsId, DepartmentId>;
 
 /**
  * Привести любую форму идентификатора ГРБС к каноническому GrbsId.

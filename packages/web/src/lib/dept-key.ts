@@ -7,7 +7,7 @@
  * латиницу из DTO) → фильтры issues/deltas матчились или нет в зависимости от
  * того, КТО последний писал. Канон store: кириллица; сравнение — обе формы.
  */
-import { findDept } from '@aemr/shared';
+import { DEPARTMENT_ALIASES, findDept } from '@aemr/shared';
 
 /** Любая форма → кириллический канон ('uer' → 'УЭР'; 'УЭР' → 'УЭР'; чужое — как есть). */
 export function toCanonicalDeptId(key: string): string {
@@ -24,6 +24,9 @@ export function bothDeptKeyForms(keys: Iterable<string>): Set<string> {
       out.add(dept.id);
       out.add(dept.latinId);
       out.add(dept.shortName);
+      for (const [alias, id] of Object.entries(DEPARTMENT_ALIASES)) {
+        if (id === dept.id) out.add(alias);
+      }
     }
   }
   return out;

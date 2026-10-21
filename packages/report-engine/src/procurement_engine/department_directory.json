@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "departments": [
+    {
+      "id": "УЭР",
+      "latinId": "uer",
+      "monitoring": {
+        "order": 1,
+        "sheet": "1. УЭР",
+        "svodName": "УЭР АЕМР"
+      },
+      "fullName": "Управление экономического развития администрации Елизовского муниципального округа",
+      "shortName": "УЭР",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 42,
+        "kpYear": 47,
+        "epQ1": 53,
+        "epYear": 58,
+        "totalCombined": 60,
+        "totalCurrent": 61,
+        "compShareRow": 63,
+        "epShareRow": 64
+      },
+      "grbs": {
+        "id": "УЭР",
+        "order": 6,
+        "sheetName": "УЭР",
+        "subordinateCount": 1
+      }
+    },
+    {
+      "id": "УИО",
+      "latinId": "uio",
+      "monitoring": {
+        "order": 3,
+        "sheet": "3. УИО",
+        "svodName": "УИО АЕМР"
+      },
+      "fullName": "Управление имущественных отношений администрации Елизовского муниципального округа",
+      "shortName": "УИО",
+      "sheetName": "УИО",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 72,
+        "kpYear": 77,
+        "epQ1": 83,
+        "epYear": 88,
+        "totalCombined": 90,
+        "totalCurrent": 91,
+        "compShareRow": 93,
+        "epShareRow": 94
+      },
+      "grbs": {
+        "id": "УИО",
+        "order": 3,
+        "sheetName": "УИО",
+        "subordinateCount": 0
+      }
+    },
+    {
+      "id": "УАГЗО",
+      "latinId": "uagzo",
+      "monitoring": {
+        "order": 4,
+        "sheet": "4. УАГиЗО",
+        "svodName": "УАГЗО АЕМР"
+      },
+      "fullName": "Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа",
+      "shortName": "УАГЗО",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 102,
+        "kpYear": 107,
+        "epQ1": 113,
+        "epYear": 118,
+        "totalCombined": 120,
+        "totalCurrent": 121,
+        "compShareRow": 123,
+        "epShareRow": 124
+      },
+      "grbs": {
+        "id": "УАГиЗО",
+        "order": 2,
+        "sheetName": "УАГЗО",
+        "subordinateCount": 1
+      }
+    },
+    {
+      "id": "УФБП",
+      "latinId": "ufbp",
+      "monitoring": {
+        "order": 7,
+        "sheet": "7. УФБП",
+        "svodName": "УФБП АЕМР"
+      },
+      "fullName": "Управление финансов администрации Елизовского муниципального округа",
+      "shortName": "УФ",
+      "sheetName": "УФБП",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 132,
+        "kpYear": 137,
+        "epQ1": 143,
+        "epYear": 148,
+        "totalCombined": 150,
+        "totalCurrent": 151,
+        "compShareRow": 153,
+        "epShareRow": 154
+      },
+      "approvedPrimaryRename": {
+        "providerId": "14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ",
+        "sheetId": 1575754193
+      },
+      "grbs": {
+        "id": "УФБП",
+        "order": 4,
+        "sheetName": "УФБП",
+        "subordinateCount": 0,
+        "isAuthorizedBody": true
+      }
+    },
+    {
+      "id": "УД",
+      "latinId": "ud",
+      "monitoring": {
+        "order": 6,
+        "sheet": "6. УД",
+        "svodName": "УД АЕМР"
+      },
+      "fullName": "Управление делами администрации Елизовского муниципального округа",
+      "shortName": "УД",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 163,
+        "kpYear": 168,
+        "epQ1": 175,
+        "epYear": 180,
+        "totalCombined": 182,
+        "totalCurrent": 183,
+        "compShareRow": 185,
+        "epShareRow": 186
+      },
+      "grbs": {
+        "id": "УД",
+        "order": 5,
+        "sheetName": "ВСЕ",
+        "subordinateCount": 1
+      }
+    },
+    {
+      "id": "УДТХ",
+      "latinId": "udtx",
+      "monitoring": {
+        "order": 5,
+        "sheet": "5. УДТХиРКИ",
+        "svodName": "УДТХ АЕМР"
+      },
+      "fullName": "Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа",
+      "shortName": "УДТХиБ",
+      "sheetName": "УДТХ",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 195,
+        "kpYear": 200,
+        "epQ1": 206,
+        "epYear": 211,
+        "totalCombined": 213,
+        "totalCurrent": 214,
+        "compShareRow": 216,
+        "epShareRow": 217
+      },
+      "approvedPrimaryRename": {
+        "providerId": "1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4",
+        "sheetId": 1697519059
+      },
+      "grbs": {
+        "id": "УДТХ",
+        "order": 7,
+        "sheetName": "УДТХ",
+        "subordinateCount": 0
+      }
+    },
+    {
+      "id": "УКСиМП",
+      "latinId": "uksimp",
+      "monitoring": {
+        "order": 2,
+        "sheet": "2. УКСиМП",
+        "svodName": "УКСиМП АЕМР"
+      },
+      "fullName": "Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа",
+      "shortName": "УКСиМП",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 225,
+        "kpYear": 230,
+        "epQ1": 236,
+        "epYear": 241,
+        "totalCombined": 243,
+        "totalCurrent": 244,
+        "compShareRow": 246,
+        "epShareRow": 247
+      },
+      "grbs": {
+        "id": "УКСиМП",
+        "order": 1,
+        "sheetName": "УКСиМП",
+        "subordinateCount": 20
+      }
+    },
+    {
+      "id": "УО",
+      "latinId": "uo",
+      "monitoring": {
+        "order": 8,
+        "sheet": "8. УО",
+        "svodName": "УО АЕМР"
+      },
+      "fullName": "Управление образования администрации Елизовского муниципального округа",
+      "shortName": "УО",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 255,
+        "kpYear": 260,
+        "epQ1": 266,
+        "epYear": 271,
+        "totalCombined": 273,
+        "totalCurrent": 274,
+        "compShareRow": 276,
+        "epShareRow": 277
+      },
+      "grbs": {
+        "id": "УО",
+        "order": 0,
+        "sheetName": "УО",
+        "subordinateCount": 43
+      }
+    }
+  ],
+  "aliases": {
+    "УАГиЗО": "УАГЗО",
+    "Управление архитектуры, градостроительства и земельных отношений": "УАГЗО",
+    "Управление дорожно-транспортного хозяйства": "УДТХ",
+    "Управление имущественных отношений": "УИО",
+    "Управление культуры, спорта и молодёжной политики": "УКСиМП",
+    "Управление образования Администрации Елизовского муниципального района": "УО",
+    "Управление образования": "УО",
+    "Управление финансово-бюджетной политики": "УФБП",
+    "Управление экономического развития": "УЭР",
+    "УО АЕМР": "УО",
+    "УО  АЕМР": "УО",
+    "УКСиМП АЕМР": "УКСиМП",
+    "УАГЗО АЕМР": "УАГЗО",
+    "УАГиЗО АЕМР": "УАГЗО",
+    "УИО АЕМР": "УИО",
+    "УФБП АЕМР": "УФБП",
+    "УД АЕМР": "УД",
+    "УЭР АЕМР": "УЭР",
+    "УДТХ АЕМР": "УДТХ",
+    "УФБР": "УФБП",
+    "УТХиРКИ": "УДТХ",
+    "МКУ УЭР": "УЭР",
+    "Управление делами": "УД",
+    "УФБП СВОД25-26": "УФБП",
+    "УАГиЗО СВОД 25-26": "УАГЗО",
+    "УТХиРКИ СВОД 25-26": "УДТХ",
+    "Управление культуры, спорта и молодежной политики Администрации Елизовского муниципального района, УКС и МП": "УКСиМП",
+    "УИО Администрации Елизовского МР": "УИО",
+    "УАГЗО Администрации Елизовского муниципального района": "УАГЗО",
+    "Управление дорожно-транспортного хозяйства, УДТХ": "УДТХ",
+    "Управление делами Администрации Елизовского муниципального района": "УД",
+    "Управление финансово-бюджетной политики (УФБП АЕМР)": "УФБП",
+    "Управление культуры, спорта и молодежной политики Администрации": "УКСиМП",
+    "УДТХиРКИ": "УДТХ"
+  }
+}

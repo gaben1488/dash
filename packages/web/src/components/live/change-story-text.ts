@@ -1,3 +1,5 @@
+import { SOURCE_ROW_OBSERVATION_ORIGIN, sourceRowObservationMoment } from '@aemr/shared';
+import { formatEventTime } from '../../lib/selectors/event-time';
 import { productLabel } from '@aemr/shared';
 /**
  * change-story-text.ts — фразы журнала изменений обеих глубин.
@@ -204,6 +206,7 @@ export function entryChangeLine(entry: ChangeEntry): string {
 
 /** Кто и когда — хвост строки. Незнание называется, а не заполняется. */
 export function entryWhoWhen(entry: ChangeEntry): string {
+  if (entry.at === null && entry.observedAt) return sourceRowObservationMoment(formatEventTime(entry.observedAt));
   const who = entry.author ?? 'автор источником не назван';
   if (entry.at === null && entry.origin === 'snapshot-diff' && entry.comparisonEvidence) {
     return 'между контролем ' + entry.comparisonEvidence.controlAt.slice(0, 10) +
@@ -231,7 +234,7 @@ export function originNote(entry: ChangeEntry): string {
         + ` · чтение ${new Date(entry.journalSource.readAt).toISOString()}`
       : 'из журнала правок книги';
     case 'live-stream': return 'из прямого эфира';
-    case 'snapshot-diff': return 'из сверки текущих книг с недельным контролем';
+    case 'snapshot-diff': return entry.observedAt ? SOURCE_ROW_OBSERVATION_ORIGIN : 'из сверки текущих книг с недельным контролем';
     default: return '';
   }
 }

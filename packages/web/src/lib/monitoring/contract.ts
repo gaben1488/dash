@@ -1,3 +1,4 @@
+import { MONITORING_ANCESTOR_SHEETS } from '@aemr/shared';
 /**
  * Договор экрана «Мониторинг · Реестр процедур определения поставщика» с
  * сервером (GET /api/monitoring, GET /api/monitoring/match; канон п.101а).
@@ -962,9 +963,7 @@ export const ANCESTOR_SHEET_COLUMNS: readonly string[] = [
  * писал «3 листа скрыты» только благодаря «+1» в формуле полосы состояния,
  * а называл два. Копия остаётся запасом, а не источником.
  */
-export const ANCESTOR_SHEET_NAMES: readonly string[] = [
-  'Отчет по процедурам Свод', 'СВОД', 'ГРБС',
-];
+export const ANCESTOR_SHEET_NAMES: readonly string[] = MONITORING_ANCESTOR_SHEETS.map(s => s.sheet);
 
 /** Лист-предок, как его называет ядро: имя, род и что на нём есть. */
 export interface AncestorSheet {

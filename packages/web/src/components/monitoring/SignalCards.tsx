@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Сигналы книги карточками диагноста (канон п.53, спека §5).
  *
@@ -37,11 +38,7 @@ import { TILE } from './surfaces';
 /** Порядок важности — сверху то, что меняет числа, снизу то, что мешает читать. */
 const SEVERITY_ORDER = ['high', 'medium', 'low'];
 
-const SEVERITY_LABEL: Record<string, string> = {
-  high: 'Меняет числа',
-  medium: 'Искажает разрезы',
-  low: 'Мешает читать',
-};
+const SEVERITY_LABEL: Record<string, string> = PRODUCT_COPY["components/monitoring/SignalCards:SEVERITY_LABEL"];
 
 // Тон важности живёт в СВЕТЛОЙ теме тонкой цветной линией, а в тёмной гаснет
 // вовсе (канон п.129). Красное и янтарное кольцо вокруг карточки на тёмном

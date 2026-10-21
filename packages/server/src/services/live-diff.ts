@@ -12,7 +12,7 @@
  * а не превращаются в доказанную правку чужой закупки.
  */
 import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS, equivalentSheetDate, parseSheetNumber } from '@aemr/shared';
-import { diffSnapshots, type SnapshotRow } from '@aemr/core';
+import { diffSnapshots, entriesFromRowDiff, type ChangeEntry, type SnapshotRow } from '@aemr/core';
 import type { RowChangedEvent } from './event-bus.js';
 
 /** Чтение листа книги: только то, что нужно сравнению. */
@@ -31,6 +31,7 @@ export interface BookDiff {
   rowsTotal: number;
   /** Построчные изменения — не больше MAX_ROW_EVENTS на книгу. */
   rows: RowChangedEvent[];
+  structuralChanges?: ChangeEntry[];
 }
 
 /**
@@ -141,7 +142,11 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     if (rowChanged) changedRows++;
   }
 
-  return { book, changedRows, addedRows, removedRows, rowsTotal, rows };
+  const structuralChanges = entriesFromRowDiff(book, comparison)
+    .filter(entry => entry.kind === 'row-vanished' || entry.kind === 'row-identity-candidate');
+  return { book, changedRows, addedRows, removedRows, rowsTotal, rows,
+    ...(structuralChanges.length ? { structuralChanges } : {}),
+  };
 }
 
 /** Изменилось ли в книге хоть что-нибудь. Тишина — законный ответ. */

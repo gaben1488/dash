@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { productLabel } from '@aemr/shared';
 import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
@@ -59,12 +60,7 @@ import type { MultiDimResult, ExecutionMetrics } from '../../hooks/useMultiDimMe
 
 export type DrillDimension = 'procurement' | 'budget' | 'department' | 'execution';
 
-export const DRILL_DIMENSION_LABELS: Record<DrillDimension, string> = {
-  procurement: 'Способ закупки',
-  budget: 'Бюджеты',
-  department: 'Управления',
-  execution: 'Исполнение',
-};
+export const DRILL_DIMENSION_LABELS: Record<DrillDimension, string> = PRODUCT_COPY["components/charts/DrillPieChart:DRILL_DIMENSION_LABELS"];
 
 /**
  * Показатели круга. «Исполнение, %» здесь сознательно отсутствует: доля
@@ -78,18 +74,10 @@ type Metric = 'plan' | 'fact' | 'economy' | 'count';
  * форматтером. Прежние «План ₽» обещали рубли, а число рядом стояло в
  * тысячах — подпись и значение противоречили друг другу.
  */
-const METRIC_LABELS: Record<Metric, string> = {
-  plan: 'План',
-  fact: 'Факт',
-  economy: 'Экономия',
-  count: 'Закупки, шт.',
-};
+const METRIC_LABELS: Record<Metric, string> = PRODUCT_COPY["components/charts/DrillPieChart:METRIC_LABELS"];
 
 type ViewLevel = 'grbs' | 'orgs';
-const VIEW_LEVEL_LABELS: Record<ViewLevel, string> = {
-  grbs: 'ГРБС',
-  orgs: 'Организации',
-};
+const VIEW_LEVEL_LABELS: Record<ViewLevel, string> = PRODUCT_COPY["components/charts/DrillPieChart:VIEW_LEVEL_LABELS"];
 
 /** Что стоит за числом среза: деньги, штуки или проценты. */
 type Unit = 'money' | 'count';

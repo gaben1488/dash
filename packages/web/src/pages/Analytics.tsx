@@ -1,3 +1,6 @@
+import { MONTHS } from '@aemr/shared';
+import { PRODUCT_COPY } from '@aemr/shared';
+import { PERIOD_LABELS } from '@aemr/shared';
 import { useScopedQuery } from '../hooks/useScopedQuery';
 import { scatterScope } from '../lib/scatter-scope';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
@@ -37,9 +40,6 @@ import {
 import { api } from '../api';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
-const PERIOD_LABELS: Record<string, string> = {
-  year: 'Год', q1: '1 кв.', q2: '2 кв.', q3: '3 кв.', q4: '4 кв.',
-};
 
 /** Возможность централизации: одна категория закупок у нескольких ГРБС. */
 interface CentralizationOpportunityDTO {
@@ -217,10 +217,8 @@ function BudgetProgress({ label, plan, fact, color, formatMoney }: {
   );
 }
 
-const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-const TREND_LABELS: Record<string, string> = {
-  accelerating: 'Ускорение', decelerating: 'Замедление', stable: 'Стабильно', insufficient_data: 'Мало данных',
-};
+const MONTH_LABELS = MONTHS.map(m => m.short);
+const TREND_LABELS: Record<string, string> = PRODUCT_COPY["pages/Analytics:TREND_LABELS"];
 const TREND_COLORS: Record<string, string> = {
   accelerating: 'text-emerald-500', decelerating: 'text-red-500', stable: 'text-zinc-400', insufficient_data: 'text-zinc-400',
 };

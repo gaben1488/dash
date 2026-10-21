@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { IssueHistoryEvent } from '@aemr/shared';
@@ -50,7 +51,7 @@ interface DisplayIssue {
 }
 
 /** Управление без ключа называется словами, а не прочерком (критерий пустоты). */
-const DEPT_UNKNOWN_LABEL = 'Управление не указано';
+const DEPT_UNKNOWN_LABEL = PRODUCT_COPY["department.unknown"];
 
 function deptLabel(dept: string): string {
   return dept ? productLabel(dept) : DEPT_UNKNOWN_LABEL;

@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Группировка замечаний по МЕХАНИЗМУ — ядро карточки диагноста (канон п.53
  * интервью 14.08.2026).
@@ -109,7 +110,7 @@ function isUntranslated(value: string): boolean {
 }
 
 /** Честная заглушка вместо латинского ключа на экране. */
-export const MECHANISM_FALLBACK_LABEL = 'Проверка без подписи в словаре';
+export const MECHANISM_FALLBACK_LABEL = PRODUCT_COPY["lib/diagnostics/mechanism-groups:MECHANISM_FALLBACK_LABEL"];
 
 /**
  * Заголовок-механизм замечания.

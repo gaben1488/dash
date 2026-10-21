@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Страница «Доверие»: индекс надёжности данных, пять компонентов,
 //    разрез по управлениям и факторы снижения.
 //
@@ -90,20 +91,10 @@ const COMPONENT_FALLBACK_DESCRIPTIONS: Record<string, string> = {
 };
 
 /** Короткая подпись столбца таблицы управлений (полное название — в подсказке столбца). */
-const COMPONENT_SHORT_LABELS: Record<string, string> = {
-  data_quality: 'Данные',
-  formula_integrity: 'Формулы',
-  rule_compliance: 'Правила',
-  mapping_consistency: 'Сверка',
-  operational_risk: 'Риски',
-};
+const COMPONENT_SHORT_LABELS: Record<string, string> = PRODUCT_COPY["pages/Trust:COMPONENT_SHORT_LABELS"];
 
 /** Область действия проверки → подпись группы в разборе нарушений. */
-const CHECK_SCOPE_LABELS: Record<string, string> = {
-  svod: 'Лист «СВОД ТД-ПМ»',
-  department: 'Листы управлений',
-  both: 'Общие для всех листов',
-};
+const CHECK_SCOPE_LABELS: Record<string, string> = PRODUCT_COPY["pages/Trust:CHECK_SCOPE_LABELS"];
 
 /** Реестр проверок по идентификатору и по прежнему идентификатору — читаем только имена. */
 const CHECK_BY_KEY = new Map<string, (typeof CHECK_REGISTRY)[number]>();

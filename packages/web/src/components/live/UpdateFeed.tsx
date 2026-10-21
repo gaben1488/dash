@@ -13,7 +13,7 @@ function Origin({entry}:{entry:ChangeEntry}) {
 export function UpdateFeed({entries,onOpen}:{entries:readonly ChangeEntry[];onOpen:(entry:ChangeEntry)=>void}) {
   return <div className="uf-feed" role="region" aria-label="Лента обновлений">
     {entries.map(entry=><article key={entry.id} className="uf-event">
-      <time className="uf-time" dateTime={entry.at??undefined}>{entry.at?.match(/T(\d{2}:\d{2})/)?.[1]??'дата не установлена'}</time>
+      <time className="uf-time" dateTime={entry.at??entry.observedAt??undefined}>{entry.at?.match(/T(\d{2}:\d{2})/)?.[1]??(entry.observedAt?'наблюдение':'дата не установлена')}</time>
       <div className="uf-content">
         <p className="uf-change">{['row-added','row-vanished','row-identity-candidate','row-cleared'].includes(entry.kind)?entryChangeLine(entry):<><b>{entry.columnLabel??entry.column??'Поле'}</b><span className="uf-values"><del>{valueLabel(entry.before,entry.column)}</del><span aria-hidden="true">→</span><strong>{valueLabel(entry.after,entry.column)}</strong></span></>}</p>
         <p className="uf-address">{entryAddress({...entry,columnLabel:null})}</p>

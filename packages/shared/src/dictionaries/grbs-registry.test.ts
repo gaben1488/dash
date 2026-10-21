@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getGrbs, resolveGrbsAlias } from './grbs-registry';
 import { SUBORDINATE_REGISTRY } from './subordinate-registry';
-import { getDept } from '../department-registry';
+import { DEPARTMENT_ALIASES, findDept, getDept } from '../department-registry';
 
 /** Снимок только восьми публикуемых названий, без строк организаций или ID таблиц. */
 const ACTIVE: ReadonlyArray<readonly [Parameters<typeof getGrbs>[0], string, string]> = [
@@ -55,5 +55,15 @@ it('показывает УФ и УДТХиБ, сохраняя ключи ис�
     expect(resolveGrbsAlias(label)).toBe(id);
     expect(resolveGrbsAlias(id)).toBe(id);
     expect(SUBORDINATE_REGISTRY.find(e => e.grbsId === id && e.isOrgItself)?.shortName).toBe(label);
+  }
+});
+
+
+it('каждый подтверждённый алиас одинаково разрешается общим реестром и ГРБС', () => {
+  for (const [alias, id] of Object.entries(DEPARTMENT_ALIASES)) {
+    expect(findDept(alias)?.id, alias).toBe(id);
+    const grbsId = resolveGrbsAlias(alias);
+    expect(grbsId, alias).toBe(id === 'УАГЗО' ? 'УАГиЗО' : id);
+    expect(getGrbs(grbsId!).shortName, alias).toBe(getDept(id).shortName);
   }
 });

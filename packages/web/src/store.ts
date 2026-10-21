@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { create } from 'zustand';
 import { createLatestRead } from './lib/latest-read';
 import { ECONOMY_FORECAST_NORM_PCT, subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
@@ -59,7 +60,7 @@ export const STAVKA_NORM_PCT = ECONOMY_FORECAST_NORM_PCT;
  * «действует везде» подсказка не смеет.
  */
 export const STAVKA_SCOPE_NOTE =
-  'Ставка меняет прогноз по остатку ЭА в Отчёте. Факт экономии и данные книг от неё не меняются.';
+  PRODUCT_COPY["store:STAVKA_SCOPE_NOTE"];
 
 /** Копейка в тысячах рублей — порог, ниже которого разница сумм не существует. */
 const KOPECK_TYS = 0.00001;
@@ -295,20 +296,7 @@ export const AVAILABLE_YEARS: number[] = Array.from(
 export type YearFilter = number | 'all';
 
 /** Месяцы (1-12) */
-export const MONTHS = [
-  { id: 1, short: 'Янв', full: 'Январь' },
-  { id: 2, short: 'Фев', full: 'Февраль' },
-  { id: 3, short: 'Мар', full: 'Март' },
-  { id: 4, short: 'Апр', full: 'Апрель' },
-  { id: 5, short: 'Май', full: 'Май' },
-  { id: 6, short: 'Июн', full: 'Июнь' },
-  { id: 7, short: 'Июл', full: 'Июль' },
-  { id: 8, short: 'Авг', full: 'Август' },
-  { id: 9, short: 'Сен', full: 'Сентябрь' },
-  { id: 10, short: 'Окт', full: 'Октябрь' },
-  { id: 11, short: 'Ноя', full: 'Ноябрь' },
-  { id: 12, short: 'Дек', full: 'Декабрь' },
-] as const;
+export { MONTHS } from '@aemr/shared';
 
 /**
  * Fallback subordinates (используется до загрузки реальных данных из API).

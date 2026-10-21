@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Текст справки «Как читать этот дэш».
 //
 //    Зачем отдельным файлом, а не прямо в разметке: это единственный текст
@@ -19,10 +20,10 @@ export interface HelpSection {
   paragraphs: string[];
 }
 
-export const HELP_TITLE = 'Как читать этот дэш';
+export const HELP_TITLE = PRODUCT_COPY["lib/help/help-content:HELP_TITLE"];
 
 export const HELP_SUBTITLE =
-  'Четыре вещи, которые стоит знать до первого числа на экране.';
+  PRODUCT_COPY["lib/help/help-content:HELP_SUBTITLE"];
 
 export const HELP_SECTIONS: HelpSection[] = [
   {

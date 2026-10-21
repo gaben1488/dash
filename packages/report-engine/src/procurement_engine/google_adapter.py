@@ -11,6 +11,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES
 from .atomic_snapshot import SourcePayload, capture_atomic_snapshot
 from .raw_pipeline import (
     FORMULA_ERRORS,
@@ -200,10 +201,7 @@ class GoogleReadClient:
 
 # Explicit, live-directory-approved title migrations, keyed by immutable book and
 # sheetId. No fuzzy matching, no source identity change and no unknown fallback.
-APPROVED_PRIMARY_TITLE_ALIASES = {
-    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП'): 'УФ',
-    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ'): 'УДТХиБ',
-}
+
 
 
 class GoogleSheetSourceAdapter:

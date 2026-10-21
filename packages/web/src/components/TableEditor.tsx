@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { useState, useCallback, useRef, useEffect, useMemo, type RefObject } from 'react';
 import {
   Save, Undo2, PlusCircle,
@@ -91,7 +92,7 @@ interface CellEdit {
 
 /** Пустая ячейка книги: показываем прочерк, а причину — подсказкой при наведении. */
 const EMPTY_CELL = '—';
-const EMPTY_CELL_HINT = 'В книге значение не заполнено';
+const EMPTY_CELL_HINT = PRODUCT_COPY["components/TableEditor:EMPTY_CELL_HINT"];
 
 /**
  * Деньги книги — тысячи рублей (тот же масштаб, что у расчёта: «ИТОГО план»
@@ -233,7 +234,7 @@ export async function copyText(text: string): Promise<boolean> {
 
 /** Что сказать после попытки копирования — включая честное признание отказа. */
 export const COPY_REFUSED_NOTE =
-  'Браузер не дал доступ к буферу обмена — скопируйте выделение вручную.';
+  PRODUCT_COPY["components/TableEditor:COPY_REFUSED_NOTE"];
 
 /** Версия схемы хранимых настроек таблиц: смена ключа обнуляет их намеренно. */
 const TABLE_PREFS_SCHEMA = 1;

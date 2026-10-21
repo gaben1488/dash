@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * registry-view.ts — счёт строк и словарь признаков для «Реестра строк».
  *
@@ -472,15 +473,7 @@ export function describeUncheckedByPeriod(
  * applyActivityFilter, поэтому подпись фильтра и подпись строки не могут
  * разойтись: дом у них один.
  */
-const ACTIVITY_FILTER_LABELS: Readonly<Record<string, string>> = {
-  program: 'программные мероприятия',
-  // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — заполненная
-  // графа программы у ТД норма, подписи «в рамках/вне программ» лгали бы:
-  // classifyActivity теперь всю ТД отдаёт ключом current_non_program, а
-  // current_program остаётся только в старых снимках — обе подписи «ТД».
-  current_program: 'текущая деятельность',
-  current_non_program: 'текущая деятельность',
-};
+const ACTIVITY_FILTER_LABELS: Readonly<Record<string, string>> = PRODUCT_COPY["lib/rows/registry-view:ACTIVITY_FILTER_LABELS"];
 
 /**
  * Подпись вида деятельности строки по столбцам «вид деятельности» и
@@ -494,10 +487,7 @@ export function activityRowLabel(type: unknown, programName?: unknown): string {
 }
 
 /** Человеческие названия способов закупки (те же семейства, что METHOD_LABELS). */
-const PROCUREMENT_FILTER_LABELS: Readonly<Record<string, string>> = {
-  competitive: 'конкурентные способы',
-  single: 'единственный поставщик',
-};
+const PROCUREMENT_FILTER_LABELS: Readonly<Record<string, string>> = PRODUCT_COPY["lib/rows/registry-view:PROCUREMENT_FILTER_LABELS"];
 
 /** Состояние шапки, влияющее на запрос к серверу. */
 export interface RequestFilterState {
