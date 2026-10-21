@@ -3,6 +3,7 @@ import type { DeltaResult, Issue } from '@aemr/shared';
 import { getSnapshot } from '../services/snapshot.js';
 import { getMetricTrend } from '../services/snapshot.js';
 import { REPORT_MAP } from '@aemr/shared';
+import { metricExplanation } from '../services/metric-explanation.js';
 
 export async function metricsRoutes(app: FastifyInstance): Promise<void> {
 
@@ -27,15 +28,18 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
       const { key } = request.params as { key: string };
       const snapshot = await getSnapshot();
       const metric = snapshot.officialMetrics[key];
+      const calculated = snapshot.calculatedMetrics[key];
       const mapEntry = REPORT_MAP.find((e) => e.metricKey === key);
       const trend = getMetricTrend(key);
 
-      if (!metric && !mapEntry) {
+      if (!metric && !calculated && !mapEntry) {
         return reply.status(404).send({ error: `Метрика "${key}" не найдена` });
       }
 
       return reply.send({
         metric,
+        calculated,
+        explanation: calculated ? metricExplanation(snapshot, key) : null,
         mapEntry,
         trend,
         delta: snapshot.deltas.find((d: DeltaResult) => d.metricKey === key),

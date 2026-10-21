@@ -871,8 +871,7 @@ export class CalcEngine {
 
   private computeDerived(metrics: Map<string, AccumulatedValue>): void {
     for (const d of this.derived) {
-      const val = evaluateDerivedFormula(d, (key) => metrics.get(key)?.value ?? 0);
-      metrics.set(d.key, { value: val, contributingRows: [] });
+      metrics.set(d.key, evaluateDerivedMetric(d, metrics));
     }
   }
 }
@@ -883,6 +882,44 @@ export class CalcEngine {
  * (слитых) числителя/знаменателя, никогда не агрегируются сами (§3.2
  * пирамиды агрегации).
  */
+/** Dependencies come from the executable registry, including intermediate totals. */
+export function metricDependencies(d: DerivedMetricDefinition): string[] {
+  const f = d.formula;
+  switch (f.op) {
+    case 'ratio': case 'pct': return [f.numerator, f.denominator];
+    case 'diff': return [f.a, f.b];
+    case 'sum': return f.operands;
+  }
+}
+
+function evaluateDerivedMetric(
+  d: DerivedMetricDefinition,
+  metrics: Map<string, AccumulatedValue>,
+): AccumulatedValue {
+  return {
+    value: evaluateDerivedFormula(d, (key) => metrics.get(key)?.value ?? 0),
+    contributingRows: [...new Set(metricDependencies(d)
+      .flatMap(key => metrics.get(key)?.contributingRows ?? []))].sort((a, b) => a - b),
+  };
+}
+
+/** Explain an already computed value; never rerun a formula or read live sources. */
+export function explainMetric(key: string, metrics: Map<string, AccumulatedValue>) {
+  const definition = STANDARD_METRICS.find(d => d.key === key)
+    ?? STANDARD_DERIVED.find(d => d.key === key);
+  if (!definition) return null;
+  const dependencies = 'formula' in definition ? metricDependencies(definition) : [];
+  return {
+    definition,
+    value: metrics.get(key)?.value ?? null,
+    contributingRows: metrics.get(key)?.contributingRows ?? [],
+    operands: dependencies.map(dependency => ({
+      key: dependency, value: metrics.get(dependency)?.value ?? null,
+      contributingRows: metrics.get(dependency)?.contributingRows ?? [],
+    })),
+  };
+}
+
 function evaluateDerivedFormula(
   d: DerivedMetricDefinition,
   get: (key: string) => number,
@@ -1179,8 +1216,7 @@ export function sliceResults(
 
   // Производные — заново по слитым базам (единый вычислитель с compute()).
   for (const d of STANDARD_DERIVED) {
-    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
-    result.set(d.key, { value: val, contributingRows: [] });
+    result.set(d.key, evaluateDerivedMetric(d, result));
   }
 
   return result;
@@ -1240,8 +1276,7 @@ export function slicePeriods(
   }
 
   for (const d of STANDARD_DERIVED) {
-    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
-    result.set(d.key, { value: val, contributingRows: [] });
+    result.set(d.key, evaluateDerivedMetric(d, result));
   }
 
   return result;

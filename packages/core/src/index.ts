@@ -19,7 +19,7 @@ export {
 export { normalizeCell, normalizeMoney, normalizeDate, normalizeStatus, detectFieldType, applyTextNormalization, type NormalizationResult, type TextNormalizationResult } from './pipeline/normalizer-rules.js';
 export { validateInput, isFormulaColumn, isEditableColumn, getColumnDescription } from './pipeline/input-control.js';
 export { type RecalculatedMetrics, type QuarterMetrics, type ActivityBreakdown, type SubordinateMetrics, type SubPeriodMetrics } from './pipeline/recalculate.js';
-export { CalcEngine, classifyMethodGroup, standardRowFilter, getValue, sliceResults, slicePeriods, approvedEconomy, DEFAULT_EXTRACTORS, STANDARD_METRICS, STANDARD_DERIVED, type RawRow, type GroupedResults, type AccumulatedValue, type MetricDefinition, type DerivedMetricDefinition, type SliceFilter, type GateCondition } from './pipeline/calc-engine.js';
+export { CalcEngine, explainMetric, metricDependencies, classifyMethodGroup, standardRowFilter, getValue, sliceResults, slicePeriods, approvedEconomy, DEFAULT_EXTRACTORS, STANDARD_METRICS, STANDARD_DERIVED, type RawRow, type GroupedResults, type AccumulatedValue, type MetricDefinition, type DerivedMetricDefinition, type SliceFilter, type GateCondition } from './pipeline/calc-engine.js';
 export {
   classifyUnfunded, classifyFactQuarterMissing, classifyAfterSlice,
   classifySign, classifyMethod, classifyCancelled, classifyParsing,
