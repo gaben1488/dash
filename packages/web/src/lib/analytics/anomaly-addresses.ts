@@ -1,3 +1,4 @@
+import type { SeasonalRuleId } from '@aemr/shared';
 import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Адреса находок датасет-аналитики (канон п.119: по каждому сработавшему
@@ -31,20 +32,15 @@ import { ORG_ITSELF_LABEL } from '../subordinate-label';
  * здесь, в единственном месте, которое эти поля читает, и каждое поле
  * проверяется при разборе. Расширять ядро ради витрины не требуется.
  */
-export type SeasonalAnomalyType =
-  | 'SCHOOL_REPAIR_OUTSIDE_HOLIDAYS'
-  | 'LATE_SCHOOL_FOOD_CONTRACT'
-  | 'WINTER_ROAD_WORK'
-  | 'LATE_FUEL_PROCUREMENT'
-  | 'BOILER_REPAIR_HEATING_SEASON'
-  | 'Q4_SPENDING_SPIKE'
-  | 'DECEMBER_RUSH_CONTRACT';
+export type SeasonalAnomalyType = SeasonalRuleId;
 
 type SeasonalSeverity = 'critical' | 'high' | 'medium';
 
 interface SeasonalAnomalyDTO {
   type: SeasonalAnomalyType;
   severity: SeasonalSeverity;
+  nextAction?: string;
+  limitation?: string;
   /** Индекс строки в массиве листа (с шапкой); −1 — признак по всей книге. */
   rowIndex: number;
   description: string;
@@ -152,7 +148,7 @@ export function selectSeasonalFindings(
       typeLabel: SEASONAL_LABELS[type],
       severity,
       urgency: SEASONAL_URGENCY[severity] ?? SEASONAL_URGENCY.medium,
-      why: typeof a.description === 'string' ? a.description : SEASONAL_LABELS[type],
+      why: [typeof a.description === 'string' ? a.description : SEASONAL_LABELS[type], a.limitation, a.nextAction].filter(Boolean).join(' '),
       subject: typeof details.description === 'string' ? details.description : '',
       subordinate: orgLabel(details.subordinate),
     });

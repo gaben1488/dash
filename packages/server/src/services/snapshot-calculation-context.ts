@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, WEEKLY_CUTOFF_HOUR,
-  freezeThresholds, isoOfDayNumber, DEPARTMENT_REGISTRY, type CalculationContext } from '@aemr/shared';
+  freezeThresholds, isoOfDayNumber, DEPARTMENT_REGISTRY, getActiveRules, REPORT_MAP, type DataSnapshot, type CalculationContext } from '@aemr/shared';
 import type { PipelineInput } from '@aemr/core';
 
 /** Canonical object keys; array order, formula text and scalar types remain evidence. */
@@ -27,9 +27,7 @@ function semanticRevision(): string {
   }
   visit(new URL('../../../shared/src/', import.meta.url), 'shared/');
   visit(new URL('../../../core/src/', import.meta.url), 'core/');
-  // This constructor and its caller are part of the installed calculation semantics.
-  hash.update(readFileSync(new URL('./snapshot-calculation.ts', import.meta.url)));
-  hash.update(readFileSync(new URL('./snapshot-calculation-context.ts', import.meta.url)));
+  visit(new URL('./', import.meta.url), 'server/services/');
   semantics = hash.digest('hex');
   return semantics;
 }
@@ -40,15 +38,28 @@ export function snapshotCalculationContext(input: PipelineInput, asOf: Date): Ca
     thresholds: freezeThresholds(isoOfDayNumber(productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS))),
     sources: {
       content: calculationDigest({ spreadsheetId: input.spreadsheetId, batch: input.batchGetData,
-        rows: input.sheetRows, formulas: input.sheetFormulas ?? null }),
+        rows: input.sheetRows, formulas: input.sheetFormulas ?? null, bindings: input.sourceBindings ?? null }),
       profiles: calculationDigest({ departments: DEPARTMENT_REGISTRY, reportMap: input.reportMap }),
     },
-    semantics: calculationDigest({ implementation: semanticRevision(),
-      rules: input.rules.map(({ check: _check, ...definition }) => definition) }),
+    semantics: calculationSemantics(input.rules),
     calendar: { asOf: asOf.toISOString(), productDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS),
       utcOffsetHours: PRODUCT_UTC_OFFSET_HOURS, weeklyCutoffHour: WEEKLY_CUTOFF_HOUR },
     scope: { targetYear: input.targetYear ?? null, officialYear: input.officialYear ?? null },
     decisions: 'not-applied', access: 'full-dataset',
   };
   return { ...context, id: calculationDigest(context) };
+}
+
+
+function calculationSemantics(rules: PipelineInput['rules']): string {
+  return calculationDigest({ implementation: semanticRevision(),
+    rules: rules.map(({ check: _check, ...definition }) => definition) });
+}
+
+/** Reuse only a captured context under exactly the installed source/rule profiles. */
+export function currentCalculationContextMatches(snapshot: DataSnapshot): boolean {
+  const context = snapshot.metadata.calculationContext;
+  return !!context && context.semantics === calculationSemantics(getActiveRules())
+    && context.sources.profiles === calculationDigest({ departments: DEPARTMENT_REGISTRY, reportMap: REPORT_MAP })
+    && calculationDigest(context.thresholds) === calculationDigest(freezeThresholds(isoOfDayNumber(context.calendar.productDay)));
 }

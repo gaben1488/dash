@@ -1,3 +1,4 @@
+import directory from '../../report-engine/src/procurement_engine/department_directory.json';
 import { findDept } from './department-registry.js';
 
 /**
@@ -9,53 +10,11 @@ import { findDept } from './department-registry.js';
  * column-map.test.ts. Правило: индекс меняется только вместе с подписью,
  * иначе продукт снова начнёт читать соседнюю колонку.
  */
-export const DEPT_COLUMNS = {
-  ID: 0,              // A — «№ п/п»
-  // B — «Наименование управления»: имя ГРБС («УО АЕМР»), а НЕ реестровый номер.
-  // Ключ звался REG_NUMBER — по 3 852 живым строкам ни одного номера там нет.
-  MANAGEMENT_NAME: 1,
-  SUBORDINATE: 2,     // C — «Наименование подведомственного учреждения»
-  // ВНИМАНИЕ (канон, сверено по листам + подтверждено пользователем «D=название программы»):
-  // индекс 3 (D) = Наименование программы («графа программы»), НЕ описание;
-  // индекс 4 (E) = подпрограмма. Ранее метки были перепутаны (DESCRIPTION=3/PROGRAM_NAME=4).
-  PROGRAM_NAME: 3,    // D — Наименование программы (X/Х/пусто = нет программы → ТД вне рамок ПМ)
-  SUBPROGRAM: 4,      // E — «Пункт и наименование подпрограммы»
-  TYPE: 5,            // F — вид деятельности (Текущая деятельность / Программное мероприятие)
-  SUBJECT: 6,         // G — предмет закупки
-  FB_PLAN: 7,         // H — федеральный бюджет (план)
-  KB_PLAN: 8,         // I — краевой бюджет (план)
-  MB_PLAN: 9,         // J — муниципальный бюджет (план)
-  TOTAL_PLAN: 10,     // K — итого (план)
-  METHOD: 11,         // L — способ закупки (ЭА/ЕП/ЭК/ЭЗК)
-  EP_REASON: 12,      // M — «Причина выбора способа определения поставщика (в случае выбора ЕП)»
-  PLAN_DATE: 13,      // N — дата размещения плана
-  PLAN_QUARTER: 14,   // O — квартал плана
-  PLAN_YEAR: 15,      // P — год плана
-  FACT_DATE: 16,      // Q — дата заключения контракта
-  FACT_QUARTER: 17,   // R — квартал факта
-  FACT_YEAR: 18,      // S — год факта
-  DEVIATION_DAYS: 19, // T — «Отклонение, дни» (факт минус план)
-  // U — в шапке «Причина отклонения» (свободный текст, чаще всего «Х»).
-  // U — «Причина отклонения (если значение положительное либо срок нарушен)».
-  // Колонки «статус» в источнике НЕТ вообще (аудит 30.07: шаблон отмены — 4
-  // строки из 3 762, «подписан/заключен» — 134). Ключ назван по живой шапке;
-  // детекторы, ищущие здесь статусные слова, ищут редкие оговорки операторов.
-  // переименование — отдельной правкой, чтобы не тащить чужие файлы.
-  DEVIATION_REASON: 20,
-  FB_FACT: 21,        // V — федеральный бюджет (факт)
-  KB_FACT: 22,        // W — краевой бюджет (факт)
-  MB_FACT: 23,        // X — муниципальный бюджет (факт)
-  TOTAL_FACT: 24,     // Y — итого (факт)
-  ECONOMY_FB: 25,     // Z — экономия ФБ
-  ECONOMY_KB: 26,     // AA — экономия КБ
-  ECONOMY_MB: 27,     // AB — экономия МБ
-  ECONOMY_TOTAL: 28,  // AC — экономия итого
-  FLAG: 29,           // AD — «Учитывать в расчете экономии да/нет»
-  JUSTIFICATION: 30,  // AE — «Обоснование необходимости»
-  COMMENT_GRBS: 31,   // AF — «Комментарий ГРБСа» (было 30 = AE, сдвиг на колонку)
-  COMMENT_UER: 32,    // AG — «Комментарий УЭР АЕМР» (было 31 = AF)
-  COMMENT_UFBP: 33,   // AH — «Комментарий УФБП АЕМР» (в карте отсутствовал)
-} as const;
+export const MASTER_SOURCE_PROFILE = directory.masterProfile;
+export const MONITORING_SOURCE_SCHEMA = directory.monitoringSchema;
+export const DEPT_COLUMNS = Object.fromEntries(
+  Object.entries(MASTER_SOURCE_PROFILE.fields).map(([key, field]) => [key, field.index]),
+) as { readonly [K in keyof typeof directory.masterProfile.fields]: number };
 
 /**
  * Дословные подписи шапки (строка 3 листа ГРБС) для каждой колонки карты.
@@ -64,45 +23,12 @@ export const DEPT_COLUMNS = {
  * тихо подменяет данные (так «Комментарий ГРБСа» три года читался из
  * «Обоснования необходимости»).
  */
-export const DEPT_HEADER_LABELS: Readonly<Record<keyof typeof DEPT_COLUMNS, string>> = {
-  ID: '№ п/п',
-  MANAGEMENT_NAME: 'Наименование управления',
-  SUBORDINATE: 'Наименование подведомственного учреждения',
-  PROGRAM_NAME: 'Наименование программы',
-  SUBPROGRAM: 'Пункт и наименование подпрограммы',
-  TYPE: 'Программное мероприятие/текущая деятельность',
-  SUBJECT: 'Наименование мероприятия/наименование предмета контракта',
-  FB_PLAN: 'ФБ 1',
-  KB_PLAN: 'КБ 1',
-  MB_PLAN: 'МБ 1',
-  TOTAL_PLAN: 'ИТОГО 1',
-  METHOD: 'Способ определения поставщика (ЭА и аналоги/ЕП)',
-  EP_REASON: 'Причина выбора способа определения поставщика (в случае выбора ЕП)',
-  PLAN_DATE: 'Планируемый',
-  PLAN_QUARTER: 'Квартал (план)',
-  PLAN_YEAR: 'Год (план)',
-  FACT_DATE: 'Фактический (в случае отсутствия проставляется Х)',
-  FACT_QUARTER: 'Квартал (факт)',
-  FACT_YEAR: 'Год (факт)',
-  DEVIATION_DAYS: 'Отклонение, дни',
-  DEVIATION_REASON: 'Причина отклонения',
-  FB_FACT: 'ФБ 2',
-  KB_FACT: 'КБ 2',
-  MB_FACT: 'МБ 2',
-  TOTAL_FACT: 'ИТОГО 2',
-  ECONOMY_FB: 'ФБ 3',
-  ECONOMY_KB: 'КБ 3',
-  ECONOMY_MB: 'МБ 3',
-  ECONOMY_TOTAL: 'ИТОГО 3',
-  FLAG: 'Учитывать в расчете экономии да/нет',
-  JUSTIFICATION: 'Обоснование необходимости',
-  COMMENT_GRBS: 'Комментарий ГРБСа',
-  COMMENT_UER: 'Комментарий УЭР АЕМР',
-  COMMENT_UFBP: 'Комментарий УФБП АЕМР',
-};
+export const DEPT_HEADER_LABELS = Object.fromEntries(
+  Object.entries(MASTER_SOURCE_PROFILE.fields).map(([key, field]) => [key, field.label]),
+) as Readonly<Record<keyof typeof DEPT_COLUMNS, string>>;
 
 /** Number of header rows in department sheets (шапка: 3 строки) */
-export const DEPT_HEADER_ROWS = 3;
+export const DEPT_HEADER_ROWS = MASTER_SOURCE_PROFILE.headerRows;
 
 /**
  * Значения листов → строки-атомы книг ГРБС без шапки. Ключи входа — имена
@@ -192,7 +118,7 @@ export interface HeaderGeometryMismatch {
 
 /** Сравнение подписей: регистр, ё/е и пробельные переносы значения не имеют. */
 function normHeader(value: unknown): string {
-  return String(value ?? '').replace(/ё/gi, 'е').replace(/\s+/g, ' ').trim().toLowerCase();
+  return String(value ?? '').normalize('NFKC').replace(/ё/gi, 'е').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
@@ -204,18 +130,9 @@ function normHeader(value: unknown): string {
  * встречается в шапке ровно один раз («итого 1», а не «итого»: последнее
  * стоит и у плана, и у факта, и у экономии).
  */
-const HEADER_ANCHORS: ReadonlyArray<{ index: number; probe: string }> = [
-  { index: DEPT_COLUMNS.ID, probe: '№ п/п' },
-  { index: DEPT_COLUMNS.SUBORDINATE, probe: 'подведомственного учреждения' },
-  { index: DEPT_COLUMNS.TYPE, probe: 'текущая деятельность' },
-  { index: DEPT_COLUMNS.SUBJECT, probe: 'предмета контракта' },
-  { index: DEPT_COLUMNS.TOTAL_PLAN, probe: 'итого 1' },
-  { index: DEPT_COLUMNS.METHOD, probe: 'способ определения поставщика' },
-  { index: DEPT_COLUMNS.PLAN_QUARTER, probe: 'квартал (план)' },
-  { index: DEPT_COLUMNS.PLAN_YEAR, probe: 'год (план)' },
-  { index: DEPT_COLUMNS.TOTAL_FACT, probe: 'итого 2' },
-  { index: DEPT_COLUMNS.FLAG, probe: 'учитывать в расчете экономии' },
-];
+const HEADER_ANCHORS = Object.values(MASTER_SOURCE_PROFILE.fields)
+  .filter((field): field is typeof field & { headerProbe: string } => field.requiredMeaning && field.headerProbe !== null)
+  .map(field => ({ index: field.index, probe: field.headerProbe, aliases: field.headerAliases as string[] }));
 
 /**
  * Проверка якорей шапки книги ГРБС (реестр багов 09.07.2026, п.11
@@ -244,7 +161,7 @@ export function checkDeptHeaderGeometry(rows: unknown[][]): HeaderGeometryMismat
   const mismatches: HeaderGeometryMismatch[] = [];
   for (const anchor of HEADER_ANCHORS) {
     const probe = normHeader(anchor.probe);
-    const at = normalized.findIndex(cell => cell.includes(probe));
+    const at = normalized.findIndex(cell => [probe, ...anchor.aliases.map(normHeader)].some(p => cell.includes(p)));
     if (at === -1 || at === anchor.index) continue;
     mismatches.push({
       column: INDEX_TO_LETTER[anchor.index] ?? String(anchor.index),
@@ -280,4 +197,14 @@ const META_ROW_PREFIX = /^(итого|всего|раздел|наименова
 export function isMetaRow(text: string): boolean {
   if (!text) return false;
   return META_ROW_PREFIX.test(text.trim().toLowerCase());
+}
+
+
+/** Strict semantic check for an explicitly selected master profile; not a row-data validator. */
+export function validateMasterSourceHeader(header: readonly unknown[]): void {
+  const normalized = header.map(normHeader);
+  for (const anchor of HEADER_ANCHORS) {
+    if (![anchor.probe, ...anchor.aliases].some(probe => normalized[anchor.index]?.includes(normHeader(probe))))
+      throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
+  }
 }

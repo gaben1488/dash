@@ -1,7 +1,7 @@
 // Юниты lib/recon/metric-rows — маппинг дельт API в строки «По метрикам»,
 // оценка ok/warning/critical, ГРБС-фильтр по паттерну ключа, счёты для бейджей.
 import { describe, expect, it } from 'vitest';
-import { buildMetricRows, countMetricAssessments, deriveAssessment, filterActiveMetricRows } from './metric-rows';
+import { buildMetricRows, countMetricAssessments, deriveAssessment, filterActiveMetricRows, filterMetricPeriod } from './metric-rows';
 import type { MetricReconRow, ReconMetricDelta } from './types';
 
 function makeDelta(overrides: Partial<ReconMetricDelta> = {}): ReconMetricDelta {
@@ -54,12 +54,13 @@ describe('buildMetricRows', () => {
     expect(buildMetricRows([makeDelta({ officialValue: null, calculatedValue: null })])).toEqual([]);
   });
 
-  it('одностороннее значение сохраняется, отсутствующая сторона = 0', () => {
+  it('одностороннее значение сохраняется без выдуманного нуля и успешной сверки', () => {
     const [row] = buildMetricRows([makeDelta({ officialValue: null, calculatedValue: 40, deltaPercent: null })]);
-    expect(row.official).toBe(0);
+    expect(row.official).toBeNull();
     expect(row.calculated).toBe(40);
-    expect(row.deltaAbs).toBe(40);
-    expect(row.deltaPct).toBe(0); // official = 0 → Δ% не считается
+    expect(row.deltaAbs).toBeNull();
+    expect(row.deltaPct).toBeNull();
+    expect(row.assessment).toBe('unknown');
   });
 
   it('Δ% берётся из API по модулю, при null — считается от official', () => {
@@ -81,9 +82,9 @@ describe('buildMetricRows', () => {
 describe('filterActiveMetricRows', () => {
   const none: ReadonlySet<string> = new Set();
 
-  it('пустая метрика (обе величины 0) отбрасывается всегда', () => {
+  it('известные нулевые значения сохраняются как результат сравнения', () => {
     const rows = [makeRow({ official: 0, calculated: 0 })];
-    expect(filterActiveMetricRows(rows, none)).toEqual([]);
+    expect(filterActiveMetricRows(rows, none)).toEqual(rows);
     expect(filterActiveMetricRows(rows, new Set(['УЭР']))).toEqual([]);
   });
 
@@ -98,10 +99,10 @@ describe('filterActiveMetricRows', () => {
     expect(picked).toEqual([uer]);
   });
 
-  it('метрика без grbs-паттерна и неизвестный id проходят всегда', () => {
+  it('общий итог и неизвестный id не подменяют выбранное управление', () => {
     const total = makeRow({ metric: 'totals.planTotal' });
     const ghost = makeRow({ metric: 'grbs.nosuch.planTotal' });
-    expect(filterActiveMetricRows([total, ghost], new Set(['УЭР']))).toEqual([total, ghost]);
+    expect(filterActiveMetricRows([total, ghost], new Set(['УЭР']))).toEqual([]);
   });
 });
 
@@ -113,7 +114,20 @@ describe('countMetricAssessments', () => {
       makeRow({ assessment: 'warning' }),
       makeRow({ assessment: 'critical' }),
     ];
-    expect(countMetricAssessments(rows)).toEqual({ ok: 2, warning: 1, critical: 1 });
-    expect(countMetricAssessments([])).toEqual({ ok: 0, warning: 0, critical: 0 });
+    expect(countMetricAssessments(rows)).toEqual({ ok: 2, warning: 1, critical: 1, unknown: 0 });
+    expect(countMetricAssessments([])).toEqual({ ok: 0, warning: 0, critical: 0, unknown: 0 });
   });
+});
+
+
+it('selected quarter never includes annual or another quarter evidence', () => {
+  const deltas = ['competitive.q1.count', 'competitive.q2.count', 'competitive.year.count'].map(metricKey => makeDelta({ metricKey }));
+  expect(filterMetricPeriod(deltas, 'q1').map(d => d.metricKey)).toEqual(['competitive.q1.count']);
+  expect(filterMetricPeriod(deltas, 'year').map(d => d.metricKey)).toEqual(['competitive.year.count']);
+});
+
+it('zero versus absent remains unknown and is not removed from the worklist', () => {
+  const rows = buildMetricRows([makeDelta({ officialValue: null, calculatedValue: 0 })]);
+  expect(filterActiveMetricRows(rows, new Set())).toHaveLength(1);
+  expect(countMetricAssessments(rows)).toEqual({ ok: 0, warning: 0, critical: 0, unknown: 1 });
 });

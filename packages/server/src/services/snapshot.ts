@@ -1,3 +1,6 @@
+import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
+import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
+import { measureReadStage } from '../plugins/request-timing.js';
 import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
 import type { DataSnapshot, Issue, SHDYUDeptData } from '@aemr/shared';
@@ -59,13 +62,14 @@ let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
+  acceptedAt?: string,
 ): void {
   const next = { ...cachedDeptSheetData, ...data };
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
   cachedDeptSheetData = next;
-  deptCacheFilledAt = Date.now();
+  deptCacheFilledAt = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
 }
 
 /**
@@ -178,8 +182,8 @@ let cachedSvodGrid: { values: unknown[][]; loadedAt: string } | null = null;
  */
 let svodLoadFailure: { checkedAt: string; error: string } | null = null;
 
-export function setSvodGridCache(values: unknown[][]): void {
-  cachedSvodGrid = { values, loadedAt: new Date().toISOString() };
+export function setSvodGridCache(values: unknown[][], acceptedAt?: string): void {
+  cachedSvodGrid = { values, loadedAt: acceptedAt ?? new Date().toISOString() };
   // Удачное чтение снимает прежний отказ: он больше не описывает состояние.
   svodLoadFailure = null;
 }
@@ -475,7 +479,19 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
     const previous = needsStorageRead
       ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
       : cached.snapshot;
-    if (previous && needsStorageRead) rememberSnapshot(cacheKey, previous, 0);
+    if (previous && needsStorageRead) {
+      const receipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
+        ...cachedDeptSheetData, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}),
+      });
+      if (receipt && previous.metadata.sourceReceipt === receipt
+        && previous.metadata.sourceCoverage?.complete === true
+        && !Object.values(deptLoadMeta).some(meta => meta.error) && !svodLoadFailure
+        && currentCalculationContextMatches(previous)) {
+        rememberSnapshot(cacheKey, previous, now);
+        return recordSnapshotRead(previous);
+      }
+      rememberSnapshot(cacheKey, previous, 0);
+    }
     if (!inFlightLoads.has(cacheKey)) {
       void snapshotReadContext.exit(() => getSnapshot(true, year)).catch((error: unknown) => {
         logSourceProblem('Фоновая сборка снимка не завершена', {
@@ -589,6 +605,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // Select the source generation before any more I/O. Refresh/edit paths
     // replace cache entries, so later arrivals cannot change this calculation.
     const deptSources = cachedDeptSheetData;
+    const inputReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId,
+      { ...deptSources, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}) });
     const svodSource = cachedSvodGrid;
     let monthlyData = cachedSHDYUData;
     let monthlyYear = cachedSHDYUOfficialYear;
@@ -731,7 +749,12 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       officialYear: monthlyYear ?? undefined,
     };
 
+    pipelineInput.sourceBindings = Object.fromEntries(Object.entries(deptSources).map(([name, reading]) => [name, {
+      providerId: reading.providerId ?? null, sheetName: reading.sheetName,
+      version: reading.sourceVersion ?? null, readAt: reading.readAt ?? null,
+    }]));
     const snapshot = await runSnapshotCalculation(pipelineInput);
+    snapshot.metadata.sourceReceipt = inputReceipt;
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
@@ -819,25 +842,29 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)
       .toSQL();
-    for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
-      const row = raw as { data: string | null };
-      if (!row.data) continue;
-      try {
-        const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
-          // The current fallback must not revive an obsolete perfect grade.
-          // Reassess its captured evidence without changing data/time or writing
-          // history; getStoredSnapshotById still returns the original record.
-          if (snapshot.trust?.overall != null || snapshot.trust?.grade != null) {
-            return { ...snapshot, trust: computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)),
-              snapshot.issues, snapshot.deltas, snapshot.id) };
+    const cursor = measureReadStage('sql', () => db.$client.prepare(rows.sql).iterate(...rows.params));
+    try {
+      for (let next = measureReadStage('sql', () => cursor.next()); !next.done; next = measureReadStage('sql', () => cursor.next())) {
+        const raw = next.value;
+        const row = raw as { data: string | null };
+        if (!row.data) continue;
+        try {
+          const snapshot = measureReadStage('decode', () => JSON.parse(row.data!)) as PipelineSnapshot;
+          if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+            // The current fallback must not revive an obsolete perfect grade.
+            // Reassess its captured evidence without changing data/time or writing
+            // history; getStoredSnapshotById still returns the original record.
+            if (snapshot.trust?.overall != null || snapshot.trust?.grade != null) {
+              return { ...snapshot, trust: computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)),
+                snapshot.issues, snapshot.deltas, snapshot.id, snapshot.trust?.coverage) };
+            }
+            return snapshot;
           }
-          return snapshot;
+        } catch {
+          // Повреждённый data-JSON — пробуем снимок старше.
         }
-      } catch {
-        // Повреждённый data-JSON — пробуем снимок старше.
       }
-    }
+    } finally { cursor.return?.(); }
   } catch {
     // БД недоступна — фолбэка нет, вызывающий пробросит исходную ошибку.
   }

@@ -10,6 +10,12 @@ _DIRECTORY = json.loads(files(__package__).joinpath("department_directory.json")
 if _DIRECTORY.get("version") != 1:
     raise ValueError("DEPARTMENT_DIRECTORY_VERSION")
 DEPARTMENTS = tuple(_DIRECTORY["departments"])
+MASTER_SOURCE_PROFILE = _DIRECTORY["masterProfile"]
+MASTER_FIELDS = MASTER_SOURCE_PROFILE["fields"]
+MASTER_COLUMNS = {key: field["index"] for key, field in MASTER_FIELDS.items()}
+MONITORING_SOURCE_SCHEMA = _DIRECTORY["monitoringSchema"]
+if sorted(MASTER_COLUMNS.values()) != list(range(MASTER_SOURCE_PROFILE["columns"])):
+    raise ValueError("MASTER_SOURCE_FIELDS_INVALID")
 _BY_ID = {entry["id"]: entry for entry in DEPARTMENTS}
 if len(_BY_ID) != len(DEPARTMENTS):
     raise ValueError("DEPARTMENT_DIRECTORY_DUPLICATE_ID")
@@ -41,6 +47,18 @@ def department_label(value: str) -> str:
 
 
 APPROVED_PRIMARY_TITLE_ALIASES = {
-    (entry["approvedPrimaryRename"]["providerId"], entry["approvedPrimaryRename"]["sheetId"], entry["sheetName"]): entry["shortName"]
-    for entry in DEPARTMENTS if "approvedPrimaryRename" in entry
+    (entry["source"]["providerId"], entry["source"]["sheetId"], entry["sheetName"]): entry["shortName"]
+    for entry in DEPARTMENTS if entry.get("approvedPrimaryRename")
 }
+
+
+def validate_master_source_header(header) -> None:
+    """The same required meanings and field-local aliases as the TypeScript reader."""
+    for field in MASTER_FIELDS.values():
+        if not field['requiredMeaning']:
+            continue
+        index = field['index']
+        actual = _alias_key(str(header[index])) if index < len(header) else ''
+        probes = [field['headerProbe'], *field['headerAliases']]
+        if not any(_alias_key(probe) in actual for probe in probes if probe):
+            raise ValueError('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:' + field['column'])

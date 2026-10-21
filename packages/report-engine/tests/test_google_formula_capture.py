@@ -134,6 +134,9 @@ def test_canonical_directory_exact_physical_width_guards_live_capture(
 def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
         provider, sheet_id, former, approved):
     """Rename only the visible sheet title, never its ID or 34-column payload."""
+    from procurement_engine.department_directory import MASTER_FIELDS
+    headers = [[], [], [field['label'] for field in MASTER_FIELDS.values()]]
+
     class RenameClient(Client):
         def __init__(self, title):
             self.title = title
@@ -141,7 +144,7 @@ def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
 
         def grid(self, provider_id, requested_id):
             assert provider_id == provider and requested_id == sheet_id
-            return {'title': self.title, 'gridProperties': {'rowCount': 3, 'columnCount': 3}}
+            return {'title': self.title, 'gridProperties': {'rowCount': 3, 'columnCount': 34}}
 
         def formula_context(self, provider_id):
             return {'sheets': [{'sheetId': sheet_id, 'title': self.title}], 'named_ranges': []}
@@ -149,16 +152,16 @@ def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
         def values(self, provider_id, title, start, end, columns):
             self.calls.append(title)
             assert title == self.title
-            return super().values(provider_id, title, start, end, columns)
+            return headers[start - 1:end]
 
         def formulas(self, provider_id, title, start, end, columns):
             self.calls.append(title)
             assert title == self.title
-            return super().formulas(provider_id, title, start, end, columns)
+            return headers[start - 1:end]
 
     contract = {'source_id': former, 'role': 'master', 'provider_id': provider,
-                'sheet_id': sheet_id, 'sheet': former, 'columns': 3, 'header_rows': 1,
-                'units': 'thousand', 'schema_fingerprint': header_hash([['header']], 1)}
+                'sheet_id': sheet_id, 'sheet': former, 'columns': 34, 'header_rows': 3,
+                'units': 'thousand', 'schema_fingerprint': header_hash(headers, 3)}
     old = GoogleSheetSourceAdapter(contract, RenameClient(former)).read_payload()
     client = RenameClient(approved)
     renamed = GoogleSheetSourceAdapter(contract, client).read_payload()

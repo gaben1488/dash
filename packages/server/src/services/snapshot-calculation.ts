@@ -1,7 +1,7 @@
 import { snapshotCalculationContext } from './snapshot-calculation-context.js';
 import { computeUnifiedGrid, reconcileUnified, runPipeline, type PipelineInput, type PipelineSnapshot } from '@aemr/core';
 import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
-import { findDept, getActiveRules, SVOD_SHEET_NAME, type DataSnapshot, type SvodReconRow } from '@aemr/shared';
+import { MASTER_SOURCE_PROFILE, validateMasterSourceHeader, findDept, getActiveRules, SVOD_SHEET_NAME, type DataSnapshot, type SvodReconRow } from '@aemr/shared';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -35,6 +35,11 @@ export function attachUnifiedGrid(
 }
 
 export function calculateSnapshot(input: SnapshotCalculationInput): PipelineSnapshot {
+  for (const [sheet, rows] of Object.entries(input.sheetRows)) {
+    const header = rows[MASTER_SOURCE_PROFILE.headerRows - 1];
+    // Partial legacy matrices carry no proof of the current header schema.
+    if (findDept(sheet) && header?.length >= MASTER_SOURCE_PROFILE.columns) validateMasterSourceHeader(header);
+  }
   const resolved = { ...input, asOf: input.asOf ?? new Date(), rules: getActiveRules() };
   const snapshot = runPipeline(resolved);
   snapshot.metadata.calculationContext = snapshotCalculationContext(resolved, resolved.asOf);

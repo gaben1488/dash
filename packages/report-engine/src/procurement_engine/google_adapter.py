@@ -11,7 +11,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES, MONITORING_SOURCE_SCHEMA, MASTER_SOURCE_PROFILE, DEPARTMENTS, validate_master_source_header
 from .atomic_snapshot import SourcePayload, capture_atomic_snapshot
 from .raw_pipeline import (
     FORMULA_ERRORS,
@@ -253,7 +253,8 @@ class GoogleSheetSourceAdapter:
         # as business/evidence fields, unlike sheets with spare formula columns.
         # An installed 18/19/32 contract must not silently read a live 34 grid.
         if ((c['provider_id'], c['sheet_id']) ==
-            ('1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E', 837564274)
+            (MONITORING_SOURCE_SCHEMA['providerId'],
+             next(r['sheet_id'] for r in MONITORING_SOURCE_SCHEMA['reviews'] if r['sheet'] == 'Справочник заказчиков'))
             and physical_columns != c['columns']):
             raise GoogleReadError('MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH')
         if physical_columns<c['columns']:
@@ -271,6 +272,12 @@ class GoogleSheetSourceAdapter:
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
                 values[start-1+offset]=row[:c['columns']]
                 extra_values[start-1+offset]=row[c['columns']:]
+        known_master = any((entry['source']['providerId'], entry['source']['sheetId']) ==
+                           (self.provider_id, c['sheet_id']) for entry in DEPARTMENTS)
+        if self.role == 'master' and known_master:
+            if (c['columns'], c['header_rows']) != (MASTER_SOURCE_PROFILE['columns'], MASTER_SOURCE_PROFILE['headerRows']):
+                raise GoogleReadError('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH')
+            validate_master_source_header(values[MASTER_SOURCE_PROFILE['headerRows'] - 1])
         metadata={'sheet_title':live_title,'row_count':count,
                   'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')}
         # Legacy adapters can still produce diagnostic snapshots; missing evidence cannot pass closure.

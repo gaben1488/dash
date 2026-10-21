@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { runPipeline } from '@aemr/core';
-import { DEPT_COLUMNS as C } from '@aemr/shared';
+import { DEPT_COLUMNS as C, MetricDetailSchema } from '@aemr/shared';
 import { metricsRoutes } from './metrics.js';
 import { getSnapshot } from '../services/snapshot.js';
 
@@ -29,11 +29,27 @@ async function read(value: ReturnType<typeof snapshot>, key: string) {
 }
 
 describe('calculated metric detail', () => {
+  it('supports district and method month totals without mixing their scope', async () => {
+    const value = snapshot();
+    for (const key of ['competitive.q1.count', 'competitive.m1.count', 'grbs.uo.kp.m1.count']) {
+      const response = await read(value, key);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().explanation).toMatchObject({ status: 'available', value: 2,
+        rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }] });
+    }
+  });
+
+  it('rejects a changed snapshot and malformed year before attaching evidence', async () => {
+    const value = snapshot();
+    expect((await read(value, 'grbs.uo.q1.exec_count_pct?snapshotId=older')).statusCode).toBe(409);
+    expect((await read(value, 'grbs.uo.q1.exec_count_pct?year=2026junk')).statusCode).toBe(400);
+  });
   it('opens a calculated-only metric and traces numerator and denominator to snapshot rows', async () => {
     const value = snapshot();
     const response = await read(value, 'grbs.uo.q1.exec_count_pct');
     expect(response.statusCode).toBe(200);
     const body = response.json();
+    expect(MetricDetailSchema.safeParse(body).success).toBe(true);
     expect(body.calculated.numericValue).toBe(0.5);
     expect(body.explanation).toMatchObject({ status: 'available', snapshotId: value.id, value: 0.5,
       rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }],

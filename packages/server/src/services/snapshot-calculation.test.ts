@@ -16,7 +16,7 @@ function input(): SnapshotCalculationInput {
 
 function semantic(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value, (key, item) => {
-    if (['pipelineDurationMs', 'readDurationMs', 'computedAt', 'detectedAt', 'readAt'].includes(key)) return '<measurement>';
+    if (['ingestMs', 'officialNormalizeMs', 'checksAndCalculationMs', 'deltaMs', 'trustMs', 'pipelineDurationMs', 'readDurationMs', 'computedAt', 'detectedAt', 'readAt'].includes(key)) return '<measurement>';
     if (key === 'basedOnSnapshot') return '<snapshot-id>';
     return item;
   }));
@@ -101,4 +101,15 @@ it('keeps frozen threshold observations independent of later dictionary edits', 
     expect(before.metadata.calculationContext?.thresholds[key].value).toBe(25);
     expect(after.metadata.calculationContext?.id).not.toBe(before.metadata.calculationContext?.id);
   } finally { (THRESHOLD_REGISTRY as Record<string, typeof original>)[key] = original; }
+});
+
+
+it('rejects changed required source semantics before producing financial results', async () => {
+  const { DEPT_COLUMNS, DEPT_HEADER_LABELS } = await import('@aemr/shared');
+  const source = input();
+  const header: string[] = [];
+  for (const [key, column] of Object.entries(DEPT_COLUMNS)) header[column] = DEPT_HEADER_LABELS[key as keyof typeof DEPT_COLUMNS];
+  header[DEPT_COLUMNS.METHOD] = 'Другой смысл колонки';
+  source.sheetRows.УЭР[2] = header;
+  expect(() => calculateSnapshot(source)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:L');
 });

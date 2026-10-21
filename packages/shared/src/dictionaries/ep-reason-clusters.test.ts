@@ -171,3 +171,13 @@ describe('canonicalizeReasonEp — EP_LOWEST_PRICE: падежное оконч�
     )).toBe('EP_NOT_WORTHWHILE');
   });
 });
+
+
+it.each([
+  ['Закупка оборудования у местных производителей', 'EP_LOCAL_PROD'],
+  ['Услуги оказываются официальным представителем', 'EP_OFFICIAL_DEALER'],
+  ['Срочность проведения ремонта', 'EP_URGENCY'],
+  ['Подрядчики в ораниченом количестве по оказанию услуги', 'EP_LIMITED_MARKET'],
+])('recognises observed wording without inventing a legal verdict: %s', (text, cluster) => {
+  expect(canonicalizeReasonEp(text).cluster).toBe(cluster);
+});

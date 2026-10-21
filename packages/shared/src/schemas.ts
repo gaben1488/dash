@@ -286,8 +286,10 @@ export const DataSnapshotSchema = z.object({
     cellsRead: z.number().int(),
     readDurationMs: z.number(),
     pipelineDurationMs: z.number(),
+    timings: z.record(z.string(), z.number().nonnegative()).optional(),
     targetYear: z.number().int().nullable().optional(),
     readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
+    sourceReceipt: z.string().nullable().optional(),
     calculationContext: z.object({
       contract: z.literal('aemr-calculation-context-v1'), id: z.string(),
       sources: z.object({ content: z.string(), profiles: z.string() }), semantics: z.string(),

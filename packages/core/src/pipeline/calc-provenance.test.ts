@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEPT_COLUMNS as C } from '@aemr/shared';
-import { CalcEngine, slicePeriods, sliceResults, standardRowFilter } from './calc-engine.js';
+import { CalcEngine, explainMetric, slicePeriods, sliceResults, standardRowFilter } from './calc-engine.js';
 
 function row(id: string, quarter: number, fact: boolean, approved: boolean) {
   const r: unknown[] = Array(34).fill('');
@@ -34,7 +34,10 @@ describe('derived metric source rows', () => {
   });
 
   it('retains empty evidence and unknown ratio for an empty period', () => {
-    expect(sliceResults(grouped, { quarters: ['q4'] }).get('execution_pct'))
+    const empty = sliceResults(grouped, { quarters: ['q4'] });
+    expect(empty.get('execution_pct'))
       .toEqual({ value: null, contributingRows: [] });
+    expect(explainMetric('plan_count', empty)?.value).toBe(0);
+    expect(explainMetric('execution_pct', empty)?.operands.map(operand => operand.value)).toEqual([0, 0]);
   });
 });

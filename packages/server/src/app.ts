@@ -402,14 +402,15 @@ export function preloadData(app: FastifyInstance): void {
     if (shutdownGuards.get(app)?.isClosing()) return;
     try {
       app.log.info('Loading SVOD snapshot and pipeline...');
-      const snapshot = await getSnapshot(true);
+      const snapshot = await getSnapshot(false);
       const deltaCount = snapshot.deltas?.length ?? 0;
       const calcCount = Object.keys(snapshot.calculatedMetrics ?? {}).length;
       app.log.info(
         `SVOD loaded: ${Object.keys(snapshot.officialMetrics ?? {}).length} metrics, ${deltaCount} deltas, ${calcCount} calculated, ${snapshot.issues?.length ?? 0} issues`,
       );
     } catch (err) {
-      app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
+      if ((err as { code?: string }).code === 'SNAPSHOT_NOT_READY') app.log.info('Первый срез готовится в фоне');
+      else app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
     }
 
     if (shutdownGuards.get(app)?.isClosing()) return;

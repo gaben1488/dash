@@ -11,20 +11,26 @@ const ALIASES: Record<string, string> = {
 
 /** Requested drill-down uses the retained snapshot only, never a new Sheets read. */
 export function metricExplanation(snapshot: DataSnapshot, key: string) {
-  const match = /^grbs\.([^.]+)\.(?:(kp|ep)\.)?(q[1-4]|year)\.([a-z_]+)$/.exec(key);
-  if (!match) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
-  const [, department, method, period, name] = match;
-  const source = Object.entries(snapshot.rowsByDept ?? {})
-    .find(([sheet]) => findDept(sheet)?.latinId === department);
-  if (!source) return { status: 'unavailable', reason: 'SOURCE_ROWS_NOT_RETAINED' } as const;
+  const match = /^grbs\.([^.]+)\.(?:(kp|ep)\.)?(q[1-4]|m(?:[1-9]|1[0-2])|year)\.([a-z_]+)$/.exec(key);
+  const summary = /^(competitive|sole)\.(q[1-4]|m(?:[1-9]|1[0-2])|year)\.([a-z_]+)$/.exec(key);
+  if (!match && !summary) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
+  const department = match?.[1];
+  const method = match?.[2] ?? (summary ? summary[1] === 'competitive' ? 'kp' : 'ep' : undefined);
+  const period = (match?.[3] ?? summary?.[2])!;
+  const name = (match?.[4] ?? summary?.[3])!;
+  const sources = Object.entries(snapshot.rowsByDept ?? {})
+    .filter(([sheet]) => department ? findDept(sheet)?.latinId === department : !!findDept(sheet));
+  if (sources.length === 0) return { status: 'unavailable', reason: 'SOURCE_ROWS_NOT_RETAINED' } as const;
   const asOf = new Date(snapshot.createdAt);
   if (!Number.isFinite(asOf.getTime())) return { status: 'unavailable', reason: 'SNAPSHOT_TIME_UNKNOWN' } as const;
-  const [sheet, rows] = source;
-  const grouped = new CalcEngine().compute(rows, standardRowFilter, 0,
+  const addresses = sources.flatMap(([sheet, rows]) => rows.map((_, index) => ({ sheet, row: index + DEPT_HEADER_ROWS + 1 })));
+  const grouped = new CalcEngine().compute(sources.flatMap(([, rows]) => rows), standardRowFilter, 0,
     snapshot.metadata.targetYear ?? undefined,
     { asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS) });
+  // Method/month intersections already live in byQuarterMethod as m1..m12.
   const values = sliceResults(grouped, {
-    quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period!],
+    ...(period.startsWith('m') && !method ? { months: [Number(period.slice(1))] }
+      : { quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period] }),
     ...(method ? { methods: [method === 'kp' ? 'competitive' : 'ep'] } : {}),
   });
   const explanation = explainMetric(ALIASES[name!] ?? name!, values);
@@ -35,15 +41,15 @@ export function metricExplanation(snapshot: DataSnapshot, key: string) {
   if (savedValue === undefined || savedValue !== explanation.value) {
     return { status: 'unavailable', reason: 'SAVED_RESULT_NOT_REPRODUCED' } as const;
   }
-  const address = (index: number) => ({ sheet, row: index + DEPT_HEADER_ROWS + 1 });
+  const address = (index: number) => addresses[index]!;
   return {
     status: 'available', evidenceKind: 'reproduced_from_retained_rows',
     snapshotId: snapshot.id, asOf: snapshot.createdAt,
-    period, year: snapshot.metadata.targetYear ?? null, department,
+    period, year: snapshot.metadata.targetYear ?? null, department: department ?? null,
     definition: explanation.definition, value: savedValue,
     rows: explanation.contributingRows.map(address),
     operands: explanation.operands.map(operand => ({
-      key: operand.key, value: operand.value, rows: operand.contributingRows.map(address),
+      key: operand.key, label: explainMetric(operand.key, values)?.definition.label ?? operand.key, value: operand.value, rows: operand.contributingRows.map(address),
     })),
   } as const;
 }

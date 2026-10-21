@@ -1,3 +1,4 @@
+import { SEASONAL_RULE_LABELS } from './procurement-guidance.js';
 /**
  * product-dictionary.ts — SSOT человеческих лейблов продукта AEMR (фаза 1.1).
  *
@@ -635,15 +636,7 @@ export const PRODUCT_COPY = {
   thin: 'журнал редкий',
   blind: 'журнал слепой',
 },
-  "lib/analytics/anomaly-addresses:SEASONAL_LABELS": {
-  SCHOOL_REPAIR_OUTSIDE_HOLIDAYS: 'Ремонт школы в учебное время',
-  LATE_SCHOOL_FOOD_CONTRACT: 'Школьное питание без контракта к 15 августа',
-  WINTER_ROAD_WORK: 'Дорожные работы в зимние месяцы',
-  LATE_FUEL_PROCUREMENT: 'Топливо не закуплено к отопительному сезону',
-  BOILER_REPAIR_HEATING_SEASON: 'Ремонт теплоснабжения в отопительный сезон',
-  Q4_SPENDING_SPIKE: 'Заключения смещены в IV квартал',
-  DECEMBER_RUSH_CONTRACT: 'Декабрьское заключение в короткий срок',
-},
+  "lib/analytics/anomaly-addresses:SEASONAL_LABELS": SEASONAL_RULE_LABELS,
   "lib/chart-colors:EXECUTION_BAND_LABELS": {
   over: 'больше 100 %: факт выше плана',
   good: 'больше 80 %',

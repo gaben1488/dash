@@ -177,3 +177,7 @@ export * from './metrics/registry.js';
 export * from './metrics/kb-uplift.js';
 
 export { summarizeCheckCoverage } from './check-coverage.js';
+export { MetricDetailSchema, MetricExplanationSchema, type MetricExplanation } from './metric-explanation-contract.js';
+
+export { MASTER_SOURCE_PROFILE, MONITORING_SOURCE_SCHEMA, validateMasterSourceHeader } from './column-map.js';
+export * from './procurement-guidance.js';

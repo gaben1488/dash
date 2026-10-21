@@ -1,18 +1,29 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-type Stage = 'reader' | 'model' | 'contract';
+type Stage = 'reader' | 'model' | 'contract' | 'sql' | 'decode';
 interface Window {
   start: number; startedAt: string; serialization?: number;
   stages: Partial<Record<Stage, number>>; cpu: NodeJS.CpuUsage;
 }
 const windows = new WeakMap<FastifyRequest, Window>();
+const activeWindow = new AsyncLocalStorage<Window>();
 
 /** Inclusive stage durations: concurrent work and process CPU must never be added as independent costs. */
 export async function requestStage<T>(request: FastifyRequest, stage: Stage, operation: () => Promise<T>): Promise<T> {
   const start = performance.now();
-  try { return await operation(); } finally {
+  try { const window = windows.get(request); return await (window ? activeWindow.run(window, operation) : operation()); } finally {
     const window = windows.get(request);
+    if (window) window.stages[stage] = (window.stages[stage] ?? 0) + performance.now() - start;
+  }
+}
+
+/** Nested synchronous storage/decode work belongs to the existing reader window. */
+export function measureReadStage<T>(stage: 'sql' | 'decode', operation: () => T): T {
+  const start = performance.now();
+  try { return operation(); } finally {
+    const window = activeWindow.getStore();
     if (window) window.stages[stage] = (window.stages[stage] ?? 0) + performance.now() - start;
   }
 }
@@ -49,6 +60,7 @@ export function registerRequestTiming(app: FastifyInstance): void {
   });
   app.addHook('onSend', async (request, reply, payload) => {
     const window = windows.get(request);
+    reply.header('X-Request-Id', request.id);
     if (window) {
       const now = performance.now();
       const stages = Object.entries(window.stages).map(([name, ms]) => `${name};dur=${ms!.toFixed(2)}`);

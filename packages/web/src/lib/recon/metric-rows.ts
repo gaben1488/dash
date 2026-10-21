@@ -1,7 +1,7 @@
 // ── Маппинг метрик-дельт (fd.deltas) в строки таблицы «По метрикам» + фильтры/счёты.
 //    Извлечено move-only из pages/Recon.tsx (разрез E11-4).
 
-import { LATIN_TO_CYRILLIC, productLabel } from '@aemr/shared';
+import { findDept, productLabel, REPORT_MAP } from '@aemr/shared';
 import type { MetricAssessment, MetricReconRow, ReconMetricDelta } from './types';
 
 /** Оценка метрики: в допуске → ok; |Δ%| > 5 → critical; иначе warning */
@@ -19,12 +19,13 @@ export function buildMetricRows(deltas: ReconMetricDelta[]): MetricReconRow[] {
   return deltas
     .filter((d) => d.officialValue != null || d.calculatedValue != null)
     .map((d) => {
-      const official = d.officialValue ?? 0;
-      const calculated = d.calculatedValue ?? 0;
-      const deltaAbs = Math.abs(official - calculated);
-      const deltaPct = d.deltaPercent != null
+      const official = d.officialValue;
+      const calculated = d.calculatedValue;
+      const known = official != null && calculated != null;
+      const deltaAbs = known ? Math.abs(official - calculated) : null;
+      const deltaPct = !known || official === 0 ? null : d.deltaPercent != null
         ? Math.abs(d.deltaPercent)
-        : (official !== 0 ? Math.abs(((official - calculated) / official) * 100) : 0);
+        : Math.abs(((official - calculated) / official) * 100);
       return {
         metric: d.metricKey,
         metricLabel: d.label ?? productLabel(d.metricKey),
@@ -32,35 +33,33 @@ export function buildMetricRows(deltas: ReconMetricDelta[]): MetricReconRow[] {
         calculated,
         deltaAbs,
         deltaPct,
-        assessment: deriveAssessment(d.withinTolerance, d.deltaPercent),
+        assessment: known ? deriveAssessment(d.withinTolerance, deltaPct) : 'unknown',
       };
     });
 }
 
-/** Латинский id ГРБС из ключа метрики → кириллическое имя (канон @aemr/shared).
- *  Ключ из regex-матча — произвольная строка, поэтому расширяем тип индекса. */
-const DEPT_ID_TO_RU: Readonly<Record<string, string>> = LATIN_TO_CYRILLIC;
-
-/**
- * Активные строки метрик:
- * 1) обе величины 0 → пустая метрика, отбрасывается всегда;
- * 2) фильтр по выбранным ГРБС через паттерн ключа `grbs.{deptId}.` — пустой
- *    выбор = всё проходит; метрики без ГРБС-паттерна проходят всегда.
- */
+/** A selected department excludes district-wide and unidentified metrics. */
 export function filterActiveMetricRows(rows: MetricReconRow[], selectedDepartments: ReadonlySet<string>): MetricReconRow[] {
-  return rows.filter(r => {
-    if (r.official === 0 && r.calculated === 0) return false;
-    if (selectedDepartments.size === 0) return true;
-    const match = r.metric.match(/^grbs\.(\w+)\./);
-    if (!match) return true;
-    const ruName = DEPT_ID_TO_RU[match[1]];
-    return ruName ? selectedDepartments.has(ruName) : true;
+  if (selectedDepartments.size === 0) return rows;
+  const selected = new Set<string | undefined>([...selectedDepartments].map(id => findDept(id)?.latinId).filter(Boolean));
+  return rows.filter(row => {
+    const department = /^grbs\.([^.]+)\./.exec(row.metric)?.[1];
+    return department !== undefined && selected.has(department);
+  });
+}
+
+/** The chosen period never inherits annual metrics when its own data is absent. */
+export function filterMetricPeriod(deltas: ReconMetricDelta[], period: string): ReconMetricDelta[] {
+  return deltas.filter(delta => {
+    const registered = REPORT_MAP.find(entry => entry.metricKey === delta.metricKey)?.period;
+    return registered ? registered === (period === 'year' ? 'annual' : period)
+      : delta.metricKey.split('.').includes(period);
   });
 }
 
 /** Счёт строк метрик по оценкам (для бейджей-саммари) */
 export function countMetricAssessments(rows: MetricReconRow[]): Record<MetricAssessment, number> {
-  const counts: Record<MetricAssessment, number> = { ok: 0, warning: 0, critical: 0 };
+  const counts: Record<MetricAssessment, number> = { ok: 0, warning: 0, critical: 0, unknown: 0 };
   for (const r of rows) counts[r.assessment]++;
   return counts;
 }

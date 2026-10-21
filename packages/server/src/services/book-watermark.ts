@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { sheetFingerprint } from './sheet-fingerprint.js';
 /**
  * book-watermark.ts — водяной знак книги и честные пропуски журнала.
@@ -186,4 +187,23 @@ export function loadAcceptedReadings(): Map<string, { fileId: string; values: un
   } catch (cause) {
     throw new Error('SOURCE_STATE_READ_FAILED', { cause });
   }
+}
+
+
+/** Receipt of accepted source state, independent of the last time it was re-read. */
+export function sourceStateReceipt(bindings: Readonly<Record<string, string>>, mainFileId: string,
+  current: Readonly<Record<string, { values: unknown[][] }>> = {}): string | null {
+  const rows = db.select({ book: schema.bookWatermarks.book, fingerprint: schema.bookWatermarks.fingerprint,
+    fileId: schema.bookWatermarks.sourceFileId, version: schema.bookWatermarks.driveVersion,
+    modified: schema.bookWatermarks.driveModifiedTime }).from(schema.bookWatermarks).all();
+  const byBook = new Map(rows.map(row => [row.book, row]));
+  const expected: Record<string, string> = { ...bindings, [SVOD_WATERMARK_KEY]: mainFileId };
+  const receipt = [];
+  for (const book of Object.keys(expected).sort()) {
+    const mark = byBook.get(book);
+    if (!mark || mark.fileId !== expected[book]
+      || (current[book] && sheetFingerprint(current[book].values) !== mark.fingerprint)) return null;
+    receipt.push(mark);
+  }
+  return createHash('sha256').update(JSON.stringify(receipt)).digest('hex');
 }

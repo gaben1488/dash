@@ -1,3 +1,4 @@
+import { FIELD_GUIDANCE, PROCUREMENT_METHODS } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -521,23 +522,23 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     { key: 'id', label: '№', type: 'text', width: 'w-14', editable: false },
     { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
-    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: ['ЭА', 'ЭК', 'ЭЗК', 'ЕП'] },
+    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...PROCUREMENT_METHODS], guidance: FIELD_GUIDANCE.method },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
-    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
+    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
     // Итоги считает формула книги; в редакторе они показываются пересчитанными
     // от трёх бюджетов, чтобы число под рукой не расходилось с тем, что уедет в лист.
     { key: 'planSum', label: 'План итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
+    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
     { key: 'factSum', label: 'Факт итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'planDate', label: 'Дата плана', type: 'date', width: 'w-28' },
-    { key: 'factDate', label: 'Дата факта', type: 'date', width: 'w-28' },
+    { key: 'planDate', label: 'Дата плана', type: 'date', guidance: FIELD_GUIDANCE.planDate, width: 'w-28' },
+    { key: 'factDate', label: 'Дата факта', type: 'date', guidance: FIELD_GUIDANCE.factDate, width: 'w-28' },
     { key: 'status', label: 'Статус', type: 'text', width: 'w-28', editable: false },
-    { key: 'flag', label: 'Признак экономии', type: 'text', width: 'w-36' },
-    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text' },
+    { key: 'flag', label: 'Признак экономии', type: 'text', guidance: FIELD_GUIDANCE.flag, width: 'w-36' },
+    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text', guidance: FIELD_GUIDANCE.commentGRBS },
   ], [moneyCell]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */

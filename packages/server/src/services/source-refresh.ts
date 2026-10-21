@@ -32,7 +32,7 @@ import {
   noteHonestGap,
   saveWatermark,
 } from './book-watermark.js';
-import { SVOD_SHEET_NAME } from '@aemr/shared';
+import { findDept, SVOD_SHEET_NAME } from '@aemr/shared';
 import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
 import { diffBook, isSilent } from './live-diff.js';
 import { classifySourceFailure, isTransientSourceFailure } from './source-failure.js';
@@ -98,8 +98,22 @@ const restoredReadings = new Map<string, { values: unknown[][] }>();
 function seedFromWatermarks(): void {
   if (watermarksSeeded) return;
   const marks = loadWatermarks();
+  const currentCache = getDeptSheetCache();
   for (const [book, reading] of loadAcceptedReadings()) {
-    if (DEPARTMENT_SPREADSHEETS[book] === reading.fileId) restoredReadings.set(book, { values: reading.values });
+    const mark = marks.get(book)!;
+    if (!Number.isFinite(Date.parse(mark.parsedAt))) throw new Error('SOURCE_STATE_READ_FAILED');
+    if (book === SVOD_WATERMARK_KEY && reading.fileId === config.google.spreadsheetId) {
+      setSvodGridCache(reading.values, mark.parsedAt);
+    } else if (DEPARTMENT_SPREADSHEETS[book] === reading.fileId) {
+      restoredReadings.set(book, { values: reading.values });
+      if (!currentCache[book]) {
+        const sheetName = findDept(book)?.source.sheet ?? book;
+        setDeptSheetCache({ [book]: { values: reading.values, formulas: [], formulasRead: false,
+          sheetName, providerId: reading.fileId, sourceVersion: mark.driveVersion ?? mark.driveModifiedTime ?? undefined,
+          readAt: mark.parsedAt } }, [], mark.parsedAt);
+        setDeptLoadMeta({ [book]: { loadedAt: mark.parsedAt, rowCount: reading.values.length, sheetName } });
+      }
+    }
   }
   for (const [book, mark] of marks) {
     if (book === SVOD_WATERMARK_KEY) {
@@ -478,6 +492,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
 
   inFlight = (async () => {
     const sourceBooks = { ...DEPARTMENT_SPREADSHEETS };
+    const svodSourceId = config.google.spreadsheetId;
     // Водяной знак из базы — ДО любого сравнения: после рестарта отпечатки
     // обязаны быть довалочными, а не пустыми (§2.4 проекта службы).
     seedFromWatermarks();
@@ -485,7 +500,8 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // Прежнее чтение книг — материал для ответа «что именно поменялось»
     // (шина живых событий). Ссылка снимается ДО записи нового кэша: запись
     // подставляет новый объект, прежний остаётся целым.
-    const before = { ...Object.fromEntries(restoredReadings), ...getDeptSheetCache() };
+    const cachedBefore = getDeptSheetCache();
+    const before = { ...Object.fromEntries(restoredReadings), ...cachedBefore };
 
     // Книги управлений и лист СВОД читаются ОДНОВРЕМЕННО, а не одно за другим.
     // Дело не только в скорости цикла (лист СВОД перестал ждать окончания
@@ -582,6 +598,10 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // Publish both sides only after acquisition has finished, without yielding
     // between cache updates. Parallel reads do not prove atomic Google revisions.
     const svodResult = (() => {
+      if (svodRead !== null && svodSourceId !== config.google.spreadsheetId) {
+        setSvodLoadFailure('SOURCE_BINDING_CHANGED_DURING_READ');
+        return { ok: false, changed: false, first: false, retryable: true };
+      }
       if (svodRead === null) {
         return { ok: getSvodLoadFailure() === null, changed: false, first: false };
       }
@@ -624,7 +644,8 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     try {
       db.transaction(() => {
         if ('print' in svodResult && svodResult.print !== undefined) {
-          saveWatermark(SVOD_WATERMARK_KEY, svodResult.print, at);
+          saveWatermark(SVOD_WATERMARK_KEY, svodResult.print, at, lastKnownRevision(svodSourceId) ?? undefined,
+            { fileId: svodSourceId, values: svodRead && 'values' in svodRead ? svodRead.values : [] });
         }
         for (const [name, print] of nextPrints) {
           const revision = acquisitionRevisions.get(name) ?? null;
@@ -653,6 +674,11 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     if (svodRead !== null && 'values' in svodRead && 'print' in svodResult && svodResult.print !== undefined) {
       setSvodGridCache(svodRead.values);
       svodPrint = svodResult.print;
+    }
+    for (const [name, reading] of Object.entries(data)) {
+      reading.providerId = sourceBooks[name];
+      const revision = acquisitionRevisions.get(name);
+      if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
     }
     setDeptSheetCache(data, Object.keys(errors));
     for (const [name, print] of nextPrints) {
@@ -700,9 +726,12 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // «Ничего не сдвинулось» — это ОДНОВРЕМЕННО: ни одна книга не изменилась,
     // ни одна не прочитана впервые, лист СВОД тот же и никто не отказал.
     // Достаточно любому условию не выполниться — снимок обязан пересобраться.
+    const formulaInputsChanged = Object.entries(data).some(([book, reading]) => reading.formulasRead
+      && (!cachedBefore[book]?.formulasRead || sheetFingerprint(reading.formulas) !== sheetFingerprint(cachedBefore[book].formulas)));
     const nothingChanged =
       changedBooks.length === 0
       && firstReads === 0
+      && !formulaInputsChanged
       && !svodResult.changed
       && !svodResult.first
       && Object.keys(errors).length === 0;
@@ -718,7 +747,10 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       + (formulaBooks.length > 0
           ? `, формулы прочитаны: ${formulaBooks.join(', ')}`
           : ', формулы не читались')
-      + (nothingChanged ? ', изменений нет — снимок не пересобирался' : `, изменилось: ${[...changedBooks, ...(svodResult.changed ? ['лист СВОД'] : [])].join(', ')}`),
+      + (nothingChanged ? ', изменений нет — снимок не пересобирался'
+        : changedBooks.length || svodResult.changed ? `, изменилось: ${[...changedBooks, ...(svodResult.changed ? ['лист СВОД'] : [])].join(', ')}`
+          : formulaInputsChanged ? ', получены новые сведения о формулах'
+            : Object.keys(errors).length ? ', чтение источников неполно' : ', принято первое чтение источников'),
       {
         ms: Date.now() - startedAt,
         books: Object.keys(data).length,

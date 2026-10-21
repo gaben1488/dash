@@ -29,3 +29,17 @@ it('preserves a clicked active editor and its uncommitted draft across metadata 
  expect((view.getByRole('textbox',{name:'Subject: значение'}) as HTMLInputElement).value).toBe('Pending draft');
  expect(document.activeElement).toBe(input);expect(change).not.toHaveBeenCalled();
 });
+
+
+it('shows field guidance without changing or saving the source', () => {
+ vi.stubGlobal('ResizeObserver',class {observe(){} disconnect(){} unobserve(){}});
+ const save=vi.fn(), change=vi.fn();
+ const view=render(<TableEditor rows={[{_id:'r',date:'01.10.2026'}]}
+  columns={[{key:'date',label:'Дата',type:'date',guidance:'Годовая потребность допускает пустую Q.'}]}
+  onCellChange={change} onSaveRow={save}/>);
+ fireEvent.click(view.getByRole('cell',{name:'01.10.2026'}));
+ const input=view.getByRole('textbox',{name:'Дата: значение'});
+ expect(view.getByRole('note').textContent).toContain('пустую Q');
+ expect(input.getAttribute('aria-describedby')).toBe(view.getByRole('note').id);
+ expect(change).not.toHaveBeenCalled(); expect(save).not.toHaveBeenCalled();
+});

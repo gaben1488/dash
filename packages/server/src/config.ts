@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkS
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { AppConfig } from '@aemr/shared';
-import { DEPARTMENT_SPREADSHEET_IDS, SVOD_SPREADSHEET_ID as SHARED_SVOD_ID } from '@aemr/shared';
+import { MONITORING_SOURCE_SCHEMA, DEPARTMENT_SPREADSHEET_IDS, SVOD_SPREADSHEET_ID as SHARED_SVOD_ID } from '@aemr/shared';
 
 // Load .env from monorepo root (2 levels up from packages/server/)
 const rootEnv = resolve(process.cwd(), '.env');
@@ -145,7 +145,7 @@ export const SVOD_SPREADSHEET_ID = SHARED_SVOD_ID;
  * который в Drive уже называется «старый …». Переменная окружения оставляет
  * явную управляемую точку миграции без правки исходников.
  */
-const DEFAULT_MONITORING_SPREADSHEET_ID = '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
+const DEFAULT_MONITORING_SPREADSHEET_ID = MONITORING_SOURCE_SCHEMA.providerId;
 
 function resolveMonitoringSpreadsheetId(raw: string | undefined): string {
   const value = raw?.trim();

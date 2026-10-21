@@ -532,11 +532,13 @@ export interface DataSnapshot {
     cellsRead: number;
     readDurationMs: number;
     pipelineDurationMs: number;
+    timings?: Record<string, number>;
     /** Явный год среза: null = все годы; отсутствие = старый снимок без доказанного scope. */
     targetYear?: number | null;
     /** HTTP-only read state; original captured time and stored evidence stay unchanged. */
     readModel?: { state: 'refreshing' | 'stale' };
     calculationContext?: CalculationContext;
+    sourceReceipt?: string | null;
     decisionView?: { basedOnContext: string | null; revision: string };
     sourceCoverage?: import('./source-coverage.js').SourceCoverage;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */

@@ -13,6 +13,7 @@ import {
   SourcesResponseSchema,
   SnapshotHistoryResponseSchema,
   MetricsResponseSchema,
+  MetricDetailSchema,
   TrustScoreSchema,
   DashboardDataSchema,
 } from '@aemr/shared';
@@ -327,8 +328,10 @@ export const api = {
   getMetrics: () =>
     fetchParsed('/metrics', MetricsResponseSchema),
 
-  getMetric: (key: string) =>
-    fetchJSON<any>(`/metrics/${encodeURIComponent(key)}`),
+  getMetric: (key: string, scope?: { year: number | 'all'; snapshotId: string }) => {
+    const query = scope ? `?${new URLSearchParams({ year: String(scope.year), snapshotId: scope.snapshotId })}` : '';
+    return fetchParsed(`/metrics/${encodeURIComponent(key)}${query}`, MetricDetailSchema);
+  },
 
   // Issues
   getIssues: (filters?: Record<string, string>) => {

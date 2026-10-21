@@ -50,7 +50,9 @@ export interface DepartmentEntry {
   /** Точные исторические адреса книги мониторинга; это не подписи UI. */
   monitoring: { order: number; sheet: string; svodName: string };
   grbs: { id: Exclude<DepartmentId, 'УАГЗО'> | 'УАГиЗО'; order: number; sheetName: string; subordinateCount: number; isAuthorizedBody?: true };
-  approvedPrimaryRename?: { providerId: string; sheetId: number };
+  approvedPrimaryRename?: boolean;
+  source: { sourceId: string; providerId: string; sheetId: number; sheet: string;
+    role: 'master'; profile: 'master-v1'; access: 'read' };
 
   // ── Sheet resolution ──
   /** Имя вкладки в рабочей книге управления */

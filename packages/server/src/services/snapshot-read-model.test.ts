@@ -273,3 +273,37 @@ it.each([true, false])('enumerates weekly candidate metadata without rescanning 
   else expect(scan).toHaveBeenCalled();
   expect(db.select({ id: schema.snapshots.id, data: schema.snapshots.data }).from(schema.snapshots).all()).toEqual(original);
 });
+
+
+it('reuses a fully accepted saved calculation after restart without a Google read or new snapshot', async () => {
+  const { source, db, schema } = fixture;
+  const { config, DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const { saveWatermark, sourceStateReceipt, SVOD_WATERMARK_KEY } = await import('./book-watermark.js');
+  const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+  const { calculateSnapshot } = await import('./snapshot-calculation.js');
+  const { REPORT_MAP, DEPT_COLUMNS, DEPT_HEADER_LABELS, departmentCoverage } = await import('@aemr/shared');
+  const header: string[] = [];
+  for (const [key, index] of Object.entries(DEPT_COLUMNS)) header[index] = DEPT_HEADER_LABELS[key as keyof typeof DEPT_COLUMNS];
+  const rows = Object.fromEntries(Object.entries(DEPARTMENT_SPREADSHEETS).map(([book, fileId]) => {
+    const values = [[], [], [...header]];
+    saveWatermark(book, sheetFingerprint(values), '2026-10-21T00:00:00Z', { version: 'fixture-v1', modifiedTime: null }, { fileId, values });
+    return [book, values];
+  }));
+  saveWatermark(SVOD_WATERMARK_KEY, sheetFingerprint([]), '2026-10-21T00:00:00Z',
+    { version: 'fixture-main-v1', modifiedTime: null }, { fileId: config.google.spreadsheetId, values: [] });
+  const saved = calculateSnapshot({ spreadsheetId: config.google.spreadsheetId, asOf: new Date('2026-10-21T00:00:00Z'),
+    sheetRows: rows, batchGetData: [], reportMap: REPORT_MAP, targetYear: 2026, officialYear: 2026 });
+  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId);
+  saved.metadata.sourceCoverage = departmentCoverage(Object.keys(rows), Object.keys(rows));
+  await source.saveSnapshot(saved);
+  const count = db.select().from(schema.snapshots).all().length;
+  google.read.mockClear();
+  for (let n = 0; n < 2; n++) {
+    const result = await source.getSnapshot(false, 2026);
+    expect(result.id).toBe(saved.id); expect(result.createdAt).toBe(saved.createdAt);
+    expect(result.metadata.readModel).toBeUndefined();
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  expect(google.read).not.toHaveBeenCalled();
+  expect(db.select().from(schema.snapshots).all()).toHaveLength(count);
+});

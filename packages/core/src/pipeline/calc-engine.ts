@@ -909,12 +909,14 @@ export function explainMetric(key: string, metrics: Map<string, AccumulatedValue
     ?? STANDARD_DERIVED.find(d => d.key === key);
   if (!definition) return null;
   const dependencies = 'formula' in definition ? metricDependencies(definition) : [];
+  const valueOf = (metricKey: string) => metrics.get(metricKey)?.value
+    ?? (STANDARD_METRICS.some(metric => metric.key === metricKey) ? 0 : null);
   return {
     definition,
-    value: metrics.get(key)?.value ?? null,
+    value: valueOf(key),
     contributingRows: metrics.get(key)?.contributingRows ?? [],
     operands: dependencies.map(dependency => ({
-      key: dependency, value: metrics.get(dependency)?.value ?? null,
+      key: dependency, value: valueOf(dependency),
       contributingRows: metrics.get(dependency)?.contributingRows ?? [],
     })),
   };

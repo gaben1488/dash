@@ -12,6 +12,7 @@
 //    • раскрытие строки доступно с клавиатуры: заголовок строки стал кнопкой.
 
 import React from 'react';
+import { MetricCalculationEvidence } from './MetricCalculationEvidence';
 import clsx from 'clsx';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock, ExternalLink, FileSpreadsheet, Info } from 'lucide-react';
 import { SVOD_SPREADSHEET_ID } from '@aemr/shared';
@@ -21,6 +22,7 @@ import { buildSheetUrl } from '../../lib/recon/sheet-links';
 import { CARD, HEAD_STRIP, RULE_DIVIDE } from '../control/surfaces';
 
 const METRIC_ASSESS_CONFIG: Record<MetricAssessment, { label: string; bg: string; text: string; icon: typeof CheckCircle2 }> = {
+  unknown: { label: 'Не проверено', bg: 'bg-zinc-100 dark:bg-zinc-800', text: 'text-zinc-600 dark:text-zinc-400', icon: Info },
   ok:       { label: 'Совпадает',    bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400', icon: CheckCircle2 },
   warning:  { label: 'Допустимо',    bg: 'bg-amber-50 dark:bg-amber-950/30',     text: 'text-amber-700 dark:text-amber-400',     icon: Clock },
   critical: { label: 'Расхождение',  bg: 'bg-red-50 dark:bg-red-950/30',         text: 'text-red-700 dark:text-red-400',         icon: AlertTriangle },
@@ -28,9 +30,11 @@ const METRIC_ASSESS_CONFIG: Record<MetricAssessment, { label: string; bg: string
 
 interface ReconMetricTableProps {
   rows: MetricReconRow[];
+  snapshotId?: string;
+  year?: number | 'all';
   /** Отфильтрованные по периоду дельты — для поиска sourceCell показателя */
   deltas: ReconMetricDelta[];
-  counts: { ok: number; warning: number; critical: number };
+  counts: Record<MetricAssessment, number>;
   expandedMetric: string | null;
   onToggleMetric: (metric: string | null) => void;
 }
@@ -62,11 +66,13 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 /** Заголовок-утверждение: чем закончилась сверка показателей. */
 function verdictHeadline(
-  counts: { ok: number; warning: number; critical: number },
+  counts: Record<MetricAssessment, number>,
   /** Канон п.64: «чиста» — только при нулевой разнице (см. ReconDeptTable). */
   allZero: boolean,
 ): string {
   const total = counts.ok + counts.warning + counts.critical;
+  if (counts.unknown > 0) return `Сравнено показателей: ${total}; недостаточно данных: ${counts.unknown}`;
+  if (total === 0) return 'Нет показателей для сравнения';
   const items = (n: number) => `${n} ${plural(n, 'показатель', 'показателя', 'показателей')}`;
   if (counts.critical > 0) return `Расходятся ${items(counts.critical)} из ${total}`;
   if (counts.warning > 0) return `За пределы допуска не вышел ни один показатель, у ${items(counts.warning)} расхождение в пределах допуска`;
@@ -75,18 +81,17 @@ function verdictHeadline(
     : `Сверх допуска не вышел ни один показатель; у части разница ненулевая — раскройте строку`;
 }
 
-export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggleMetric }: ReconMetricTableProps) {
+export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggleMetric, snapshotId, year = 'all' }: ReconMetricTableProps) {
   return (
     <>
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-          {/* null-разница означает «сравнивать не с чем» — она не мешает
-              слову «чиста», в отличие от ненулевого числа. */}
-          {verdictHeadline(counts, deltas.every((d) => d.delta == null || isZero(d.delta)))}
+          {verdictHeadline(counts, rows.every((row) => isZero(row.deltaAbs)))}
         </h3>
 
         {/* Summary badges */}
         <div className="flex flex-wrap gap-3 text-xs">
+          {counts.unknown > 0 && <span className="text-zinc-500">{counts.unknown} не проверено: одной из сторон нет</span>}
           <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-medium">
             <CheckCircle2 size={13} aria-hidden="true" /> {counts.ok} совпадает
           </span>
@@ -183,7 +188,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                         {bothSidesKnown && delta?.deltaPercent != null ? (
                           <span className={clsx(
                             'font-medium',
-                            isZero(row.deltaPct) ? 'text-zinc-400 dark:text-zinc-500' : row.deltaPct > 5 ? 'text-red-600 dark:text-red-400' : row.deltaPct > 1 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400'
+                            isZero(row.deltaPct) ? 'text-zinc-400 dark:text-zinc-500' : (row.deltaPct ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : (row.deltaPct ?? 0) > 1 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400'
                           )}>
                             {fmtPct(row.deltaPct)}
                           </span>
@@ -200,7 +205,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                     {isExpanded && (
                       <tr className="bg-zinc-50/80 dark:bg-white/[0.05]">
                         <td colSpan={6} className="px-5 py-4" id={panelId}>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs w-[min(100%,calc(100vw-96px))] md:w-full">
                             <div className="space-y-2">
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <FileSpreadsheet size={13} className="text-blue-500" aria-hidden="true" /> Официальное число
@@ -235,8 +240,10 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                                   Результат: <strong><SideValue value={calculatedValue} missingNote="не построен" /></strong>
                                 </div>
                                 <div className="text-indigo-500 mt-0.5 text-[10px]">
-                                  Считается заново, строка за строкой, по листу управления — формулы книги не используются
+                                  Рассчитано по строкам управления в сохранённом снимке — формулы книги не используются
                                 </div>
+                                {snapshotId && <MetricCalculationEvidence key={`${snapshotId}:${year}:${row.metric}`}
+                                  metricKey={row.metric} snapshotId={snapshotId} year={year} />}
                               </div>
                             </div>
                             <div className="space-y-2">

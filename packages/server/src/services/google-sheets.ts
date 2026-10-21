@@ -692,6 +692,7 @@ export async function getSheetFormulaColumns(
 }
 
 export interface DeptSheetResult {
+  providerId?: string;
   /** Shared accepted source context, when this reading came from report acquisition. */
   sourceRevision?: string;
   /** Provider token observed by the full connector before AND after capture. */
@@ -830,12 +831,12 @@ export async function readDeptSheet(
       const values = await getSheetDataFromSpreadsheet(ssId, candidate);
       if (values.length === 0) continue;
       if (!options.withFormulas) {
-        return { values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
+        return { providerId: ssId, values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
           startRow: 1, formulasRead: false ,
         };
       }
       const { formulas } = await getSheetFormulaColumns(ssId, candidate);
-      return { values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
+      return { providerId: ssId, values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
         startRow: 1, formulasRead: true ,
       };
     } catch (err) {

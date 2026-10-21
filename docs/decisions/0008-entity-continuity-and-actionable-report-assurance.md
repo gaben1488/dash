@@ -304,3 +304,23 @@ After restart it supplies comparison evidence only for the same source file;
 it does not make cached Google data fresh. Malformed or hash-mismatched stored
 state fails explicitly. Legacy rows without this state stay unproved until a
 successful current read, rather than fabricating deletion history.
+
+### Shared source profiles, 21.10.2026
+
+The same editable JSON directory owns default immutable source bindings, named
+master fields, physical indices, wire names, types, units and required semantic
+header probes. TS column maps/header labels and Python ROW_MAPPING derive from
+it. The recorded monitoring schema reviews, including 19/32/34 customer directory
+predecessors, move unchanged into that directory; adapters continue to require
+explicit review rather than accepting a changed required meaning. Optional
+caption aliases belong to their field/profile, never to a global fuzzy matcher.
+Configured source overrides retain their existing explicit acceptance contract.
+
+A stored calculation also carries the accepted watermark receipt. A cold reader
+reuses it only when source bindings/fingerprints/revisions, complete coverage and
+installed calculation/threshold context still match. Matching reads preserve the
+source clock and do not schedule Google or a new snapshot. Startup restores the
+current matrices with their original acceptance time for the existing Drive gate.
+Missing legacy proof still requires preparation; source/formula/config changes
+invalidate the same coordinator. Source acquisition belongs to startup/push/manual
+refresh, never to an idle timer.

@@ -19,6 +19,7 @@ import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 export interface PipelineInput {
   /** Explicit historical clock; live runs capture one clock at pipeline entry. */
   asOf?: Date;
+  sourceBindings?: Record<string, { providerId: string | null; sheetName: string; version: string | null; readAt: string | null }>;
   /** Ответ batchGet для официальных ячеек */
   batchGetData: Array<{
     range: string;
@@ -558,8 +559,12 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
   // 1. Ingest: официальные ячейки
   const ingestResult = ingestBatchGetResponse(input.batchGetData, input.reportMap);
 
+  const ingestEnded = Date.now();
+
   // 2. Normalize: официальные метрики
   const officialMetrics = normalizeMetrics(ingestResult.cells, input.reportMap);
+
+  const normalizeEnded = Date.now();
 
   // 3. Classify + Validate: построчно по листам
   const allIssues: Issue[] = [];
@@ -682,13 +687,18 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
   // 5. Delta — со знанием периметра обеих сторон (Д21): несравнимые пары
   // не превращаются в дельту, а объясняют, почему сверки нет.
+  const deltaStarted = Date.now();
   const deltas = computeDeltas(officialMetrics, calculatedMetrics, input.reportMap, {
     calcYear: input.targetYear,
     officialYear: input.officialYear,
   });
 
+  const deltaEnded = Date.now();
+
   // 6. Trust
   const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId, checkCoverage);
+
+  const trustEnded = Date.now();
 
   // 7. Атомы для честной истории: снимок несёт строки книг ГРБС без шапки и
   // распарсенную официальную сетку СВОД — из УЖЕ прочитанных input.sheetRows,
@@ -715,7 +725,10 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       sheetsRead: ingestResult.sheets,
       cellsRead: ingestResult.cells.size,
       readDurationMs: ingestResult.durationMs,
-      pipelineDurationMs: Date.now() - pipelineStart,
+      pipelineDurationMs: Math.max(0, Date.now() - pipelineStart),
+      timings: { ingestMs: Math.max(0, ingestEnded - pipelineStart), officialNormalizeMs: Math.max(0, normalizeEnded - ingestEnded),
+        checksAndCalculationMs: Math.max(0, deltaStarted - normalizeEnded), deltaMs: Math.max(0, deltaEnded - deltaStarted),
+        trustMs: Math.max(0, trustEnded - deltaEnded) },
       targetYear: input.targetYear ?? null,
       perSheetRowCount,
     },
