@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Hero-полоса страницы «Экономия»: четыре метрики со спарклайнами и
 //    дельтами, вертикальный разрез по бюджетам и четвёрка управлений с
 //    наибольшей экономией. Store не читает — все данные и колбэки через пропсы.
@@ -331,14 +332,14 @@ export function EconomyHero({
               key={d.deptId}
               type="button"
               onClick={() => onToggleDepartment(d.deptId)}
-              title={`Оставить в фильтре только ${d.dept}`}
+              title={`Оставить в фильтре только ${productLabel(d.dept)}`}
               className={clsx(
                 'w-full flex items-center gap-1.5 py-0.5 hover:bg-zinc-100/70 dark:hover:bg-white/[0.03] rounded transition-colors group/rank',
                 FOCUS_RING,
               )}
             >
               <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-600 w-3" aria-hidden="true">{i + 1}</span>
-              <span className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover/rank:text-blue-600 dark:group-hover/rank:text-blue-400 transition-colors truncate flex-1 text-left">{d.dept}</span>
+              <span className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover/rank:text-blue-600 dark:group-hover/rank:text-blue-400 transition-colors truncate flex-1 text-left">{productLabel(d.dept)}</span>
               <span className="text-[10px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(d.economy)}</span>
             </button>
           ))}

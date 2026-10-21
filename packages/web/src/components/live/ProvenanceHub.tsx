@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Узел провенанса в правом верхнем углу шапки (канон п.133).
  *
@@ -157,7 +158,7 @@ export function ProvenanceHub({ className, compact = false, style }: { className
           )}
         />
         <span className={compact?'uf-state':undefined}>{compact ? <>Журнал<span className="uf-mode">{digestFailed?'нет чтения':live.connected?'эфир':'поток не подключён'}</span></> : pill.moment}</span>
-        {compact&&<span className="uf-tape" aria-hidden="true"><i className="uf-lens"/>{events.slice(0,3).map((entry,i)=><span key={entry.id} className={`uf-preview-row uf-preview-${i}`}><span>{entry.at?.match(/T(\d{2}:\d{2})/)?.[1]??'—'}</span><b>{entry.book}</b><span>{entryChangeLine(entry)}</span></span>)}{events.length===0&&<span className="uf-preview-empty">{digestFailed?'Журнал недоступен':digest===null?'Читаем журнал…':'Нет подробных записей в ответе'}</span>}</span>}
+        {compact&&<span className="uf-tape" aria-hidden="true"><i className="uf-lens"/>{events.slice(0,3).map((entry,i)=><span key={entry.id} className={`uf-preview-row uf-preview-${i}`}><span>{entry.at?.match(/T(\d{2}:\d{2})/)?.[1]??'—'}</span><b>{productLabel(entry.book)}</b><span>{entryChangeLine(entry)}</span></span>)}{events.length===0&&<span className="uf-preview-empty">{digestFailed?'Журнал недоступен':digest===null?'Читаем журнал…':'Нет подробных записей в ответе'}</span>}</span>}
         {(compact ? !digestFailed && digest !== null && digest.emptiness!=='unknown' : pill.changes > 0) && (
           <span
             aria-hidden="true"
@@ -178,7 +179,7 @@ export function ProvenanceHub({ className, compact = false, style }: { className
             'ring-1 ring-black/5 dark:ring-white/10',
           )}
         >
-          {compact&&<div className="uf-panel-head"><strong>Лента обновлений</strong><p>{pill.moment} · с контрольного среза {digestSince??'—'}</p><div className="uf-books">{digest?.booksNamed.map(book=><span key={book}>{book}</span>)}</div></div>}
+          {compact&&<div className="uf-panel-head"><strong>Лента обновлений</strong><p>{pill.moment} · с контрольного среза {digestSince??'—'}</p><div className="uf-books">{digest?.booksNamed.map(book=><span key={book}>{productLabel(book)}</span>)}</div></div>}
           {compact && <div className="pv-tabs" role="tablist" aria-label="Журнал и источники" onKeyDown={event=>{
             if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
             event.preventDefault();
@@ -291,7 +292,7 @@ export function ProvenanceHub({ className, compact = false, style }: { className
               <ul className="space-y-0.5">
                 {live.recentRows.slice(0, ROWS_SHOWN).map((r, i) => (
                   <li key={`${r.book}-${r.sheetRow}-${r.column}-${i}`} className="text-[10px] leading-snug text-[var(--ink-muted)]">
-                    <span className="text-[var(--ink)]">{r.book}</span>
+                    <span className="text-[var(--ink)]">{productLabel(r.book)}</span>
                     {' · '}
                     {/* Адрес строки по № п/п (п.98б): позиционный номер устаревает
                         при перемещениях, поэтому он идёт вторым, а не первым. */}

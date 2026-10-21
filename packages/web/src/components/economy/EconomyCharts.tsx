@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Графики страницы «Экономия»: стек-бар по бюджетам (клик = фильтр по
 //    управлению) и квартальный тренд с переключателем ФБ/КБ/МБ и наложением
 //    линий отдельных управлений (при выборке от двух до шести). Store не читает.
@@ -277,7 +278,7 @@ export function EconomyCharts({
               )}
               {/* Линии отдельных управлений при выборке от двух до шести */}
               {perDeptQuarterly && perDeptQuarterly.map(dept => (
-                <Line key={dept.id} yAxisId="left" type="monotone" dataKey={dept.id} name={dept.id}
+                <Line key={dept.id} yAxisId="left" type="monotone" dataKey={dept.id} name={productLabel(dept.id)}
                   stroke={dept.color} strokeWidth={1.2} strokeDasharray="3 2"
                   dot={{ r: 2, fill: dept.color, strokeWidth: 0 }} />
               ))}

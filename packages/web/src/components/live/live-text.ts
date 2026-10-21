@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Фразы прямого эфира — чистая часть, отделённая от разметки.
  *
@@ -50,7 +51,7 @@ export function liveHeadline(books: BookChange[]): string {
   if (books.length === 0) return 'Данные на сервере обновились';
   if (books.length === 1) {
     const b = books[0];
-    return `Книга ${b.book} обновилась`;
+    return `Книга ${productLabel(b.book)} обновилась`;
   }
   return `Обновились ${countWord(books.length, 'книга', 'книги', 'книг')}`;
 }

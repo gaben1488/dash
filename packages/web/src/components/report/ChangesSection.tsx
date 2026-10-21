@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * «Кто что менял с последнего среза» — провенанс правок книг ГРБС.
  *
@@ -117,7 +118,7 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
       <span className={isMethod ? 'font-medium text-violet-700 dark:text-violet-400' : undefined}>
         {attr}
       </span>{' '}
-      в книге {r.dept}, лист «{r.sheet}», ячейка{' '}
+      в книге {productLabel(r.dept)}, лист «{r.sheet}», ячейка{' '}
       <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{r.cell}</span>:{' '}
       <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
       <span aria-hidden="true">→</span>{' '}
@@ -201,7 +202,7 @@ export function ChangesSection({ since, depts = [] }: {
   // посчитано число, а не из бейджа шапки).
   const scopeLabel = deptSet.size === 0
     ? 'все книги управлений'
-    : `книги: ${depts.join(', ')}`;
+    : `книги: ${depts.map(productLabel).join(', ')}`;
   return (
     <div className="space-y-4">
       <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
@@ -237,7 +238,7 @@ export function ChangesSection({ since, depts = [] }: {
       {records.length === 0 ? (
         deptSet.size > 0 && data.records.length > 0 ? (
           <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
-            В выбранных книгах ({depts.join(', ')}) правок с даты среза нет.
+            В выбранных книгах ({depts.map(productLabel).join(', ')}) правок с даты среза нет.
             В остальных книгах района за тот же срок — {data.records.length}:
             снимите фильтр управления в шапке, чтобы увидеть их.
           </p>
@@ -250,7 +251,7 @@ export function ChangesSection({ since, depts = [] }: {
         byDept.map(([dept, records]) => (
           <div key={dept}>
             <div className="mb-1 text-[12px] font-medium text-zinc-600 dark:text-zinc-300">
-              {dept} <span className="font-normal text-zinc-400">· {records.length}</span>
+              {productLabel(dept)} <span className="font-normal text-zinc-400">· {records.length}</span>
             </div>
             <ExpandableRows
               rows={records}

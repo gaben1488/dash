@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   BookOpenCheck, Check, ChevronDown, ChevronUp, FileClock, FilePlus2,
@@ -52,7 +53,7 @@ function RecommendationEditor({ initial, busy, saveLabel, onCancel, onSave }: Ed
           Управление
           <select aria-label="Управление" value={grbs} onChange={e => setGrbs(e.target.value)}
             className="mt-1.5 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-100">
-            {ALL_DEPT_IDS.map(d => <option value={d} key={d}>{d}</option>)}
+            {ALL_DEPT_IDS.map(d => <option value={d} key={d}>{productLabel(d)}</option>)}
           </select>
         </label>
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-200">
@@ -356,7 +357,7 @@ export function RecommendationRegister() {
                 onChange={e => { setDept(e.target.value); setLimit(PAGE_SIZE); }}
                 className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-700 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-200">
                 <option value="all">Все управления</option>
-                {ALL_DEPT_IDS.map(d => <option key={d} value={d}>{d}</option>)}
+                {ALL_DEPT_IDS.map(d => <option key={d} value={d}>{productLabel(d)}</option>)}
               </select>
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -383,7 +384,7 @@ export function RecommendationRegister() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">{record.grbs}</span>
+                        <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">{productLabel(record.grbs)}</span>
                         <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${statusClass(record.stage)}`}>{record.editable ? 'Официальная · УЭР' : stageLabel(record.stage)}</span>
                         {record.sourceIds.length > 0 && <span className="text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">№ {record.sourceIds.slice(0, 3).join(', ')}{record.sourceIds.length > 3 ? ` +${record.sourceIds.length - 3}` : ''}</span>}
                       </span>

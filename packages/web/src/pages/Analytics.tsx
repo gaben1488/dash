@@ -1281,7 +1281,7 @@ export function Analytics() {
                       >
                         <td className="py-1.5 text-[10px] tabular-nums text-[var(--ink-faint)]">{idx + 1}</td>
                         <td className="max-w-[180px] truncate py-1.5 text-xs text-[var(--ink)]" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
-                        <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{sub.dept}</td>
+                        <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{productLabel(sub.dept)}</td>
                         <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.planTotal)}</td>
                         <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.factTotal)}</td>
                         <td className="py-1.5 text-center">
@@ -1374,7 +1374,7 @@ export function Analytics() {
                       return (
                         <div className="max-w-xs rounded-lg border border-[var(--line-card)] bg-[var(--surface-overlay)] p-3 text-xs shadow-lg">
                           <div className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.subject}</div>
-                          <div className="text-zinc-500">{d.department} · {d.procurementType}</div>
+                          <div className="text-zinc-500">{productLabel(d.department)} · {d.procurementType}</div>
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
                             {/* Единица — та же, что в книге: тысячи рублей. «7 000 ₽»
                                 на деле было 7 млн руб. (скрин-разбор №5). */}
@@ -1508,7 +1508,7 @@ export function Analytics() {
                       onClick={() => row.id && navigateTo('data', { department: row.id })}
                       title="Открыть строки управления в Реестре"
                     >
-                      <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{row.dept}</td>
+                      <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{productLabel(row.dept)}</td>
                       <td className="py-1.5 text-center">
                         <span
                           className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"

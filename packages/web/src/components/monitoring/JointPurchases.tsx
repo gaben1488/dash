@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * «Где деньги» — совместные закупки против одиночных (разрез витрины §5).
  *
@@ -221,7 +222,7 @@ export function JointPurchasesCard({
                               onClick={() => onPickDept(d.dept)}
                               className="underline decoration-dotted underline-offset-2 hover:text-zinc-900 dark:hover:text-white"
                             >
-                              {d.dept}
+                              {productLabel(d.dept)}
                             </button>
                           )}
                         </td>

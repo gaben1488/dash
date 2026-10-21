@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * «Где деньги» — чей рубль сэкономлен (разрез витрины §2).
  *
@@ -49,7 +50,7 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
     .filter((d) => d.splitTotalRub !== 0)
     .map((d) => ({
       key: d.dept,
-      label: d.dept,
+      label: productLabel(d.dept),
       МБ: d.mbRub / 1_000_000,
       КБ: d.kbRub / 1_000_000,
       ФБ: d.fbRub / 1_000_000,
@@ -230,7 +231,7 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
               <tbody className="text-zinc-700 dark:text-zinc-200">
                 {budget.byDept.map((d) => (
                   <tr key={d.dept} className={RULE_ROW_TOP}>
-                    <td className="py-1 pr-2">{d.dept}</td>
+                    <td className="py-1 pr-2">{productLabel(d.dept)}</td>
                     <td className="py-1 pr-2 text-right tabular-nums">{fmtRub(d.mbRub)}</td>
                     <td className="py-1 pr-2 text-right tabular-nums">{fmtRub(d.kbRub)}</td>
                     <td className="py-1 pr-2 text-right tabular-nums">{fmtRub(d.fbRub)}</td>

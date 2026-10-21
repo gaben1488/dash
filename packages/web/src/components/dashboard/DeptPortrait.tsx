@@ -174,7 +174,7 @@ export function DeptPortrait({ dm, scope, issues, lastRefreshed, formatMoney, na
 
   return (
     <section
-      aria-label={`Портрет управления ${dm.dept}`}
+      aria-label={`Портрет управления ${productLabel(dm.dept)}`}
       className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}
     >
       {/* Шапка портрета: имя, режим подведов, период и свежесть */}
@@ -184,7 +184,7 @@ export function DeptPortrait({ dm, scope, issues, lastRefreshed, formatMoney, na
             {dm.deptName}
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Портрет управления {dm.dept}
+            Портрет управления {productLabel(dm.dept)}
             {scope.mode === 'grbs' && ' · показан только аппарат: в фильтре выбран режим «только ГРБС»'}
             {scope.mode === 'withSubs' && dm.realSubCount > 0 &&
               ` · с подведомственными (${dm.realSubCount} ${pluralRu(dm.realSubCount, 'учреждение', 'учреждения', 'учреждений')})`}

@@ -162,7 +162,7 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
                       : 'bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700/50 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
                   )}
                 >
-                  {book}
+                  {productLabel(book)}
                   <span className="ml-1.5 tabular-nums text-zinc-400 dark:text-zinc-500">
                     {counts.byBook[book] ?? 0}
                   </span>

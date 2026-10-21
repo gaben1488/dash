@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * provenance-view.ts — чистая витрина провенанса плановой суммы (без React).
  *
@@ -245,7 +246,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (!p.journalAvailable) {
     return {
       level: 'unreadable',
-      title: `Книга ${p.dept} сейчас не прочитана — история плановой суммы не просмотрена`,
+      title: `Книга ${productLabel(p.dept)} сейчас не прочитана — история плановой суммы не просмотрена`,
       detail:
         (p.journalError ? `Причина: ${p.journalError}. ` : '')
         + 'Это не «правок не было» и не «журнал не ведётся»: источник не ответил. '
@@ -256,7 +257,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (entries === 0) {
     return {
       level: 'empty',
-      title: `Журнал правок по книге ${p.dept} не ведётся — история плановой суммы пуста`,
+      title: `Журнал правок по книге ${productLabel(p.dept)} не ведётся — история плановой суммы пуста`,
       detail:
         'Правки плана в этой книге не фиксируются вовсе, поэтому снижение суммы задним числом '
         + 'здесь невидимо в принципе. Молчание ленты означает отсутствие следов, а не отсутствие '
@@ -268,7 +269,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (keyless >= entries) {
     return {
       level: 'keyless',
-      title: `Записи журнала книги ${p.dept} не привязаны к закупкам — историю строки не выделить`,
+      title: `Записи журнала книги ${productLabel(p.dept)} не привязаны к закупкам — историю строки не выделить`,
       detail:
         `Журнал ведётся (${entries} записей), но ни в одной нет номера строки: книга заполняет `
         + 'его по укороченной шапке. Правки видны только целиком по книге, поэтому судить о плане '
@@ -279,7 +280,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (entries < SCANT_JOURNAL_ENTRIES) {
     return {
       level: 'scant',
-      title: `Журнал правок по книге ${p.dept} почти не ведётся — история неполна`,
+      title: `Журнал правок по книге ${productLabel(p.dept)} почти не ведётся — история неполна`,
       detail:
         `В журнале всего ${entries} записей, тогда как у самых аккуратных книг их десятки тысяч. `
         + 'Часть правок плана в него не попала, поэтому пустая или короткая лента ничего не '
@@ -302,7 +303,7 @@ export function emptyLedgerNote(p: RowProvenanceResponse): string {
       ? ` У ${observability.unparsedRowKeys} записей журнала номер строки не читается — они могли `
         + 'относиться и к этой закупке.'
       : '';
-    return `В журнале книги ${p.dept} нет ни одной записи об этой строке: её либо не правили с тех `
+    return `В журнале книги ${productLabel(p.dept)} нет ни одной записи об этой строке: её либо не правили с тех `
       + `пор, как журнал ведётся, либо правка в него не попала.${caveat}`;
   }
   if (observability.planEntries === 0) {

@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * change-story-text.ts — фразы журнала изменений обеих глубин.
  *
@@ -120,7 +121,7 @@ export function digestLines(digest: ChangeDigest): string[] {
 export function emptinessLine(digest: ChangeDigest, gaps: readonly ChangeGap[]): string | null {
   if (digest.entries > 0) return null;
   if (digest.emptiness === 'unknown') {
-    const books = gaps.filter((g) => g.reason === 'journal-unread' || g.reason === 'source-unavailable' || g.reason === 'no-previous-snapshot').map((g) => g.book);
+    const books = gaps.filter((g) => g.reason === 'journal-unread' || g.reason === 'source-unavailable' || g.reason === 'no-previous-snapshot').map((g) => productLabel(g.book));
     const named = books.length === 0
       ? 'ни одна книга'
       : books.length <= 3 ? books.join(', ') : `${books.slice(0, 3).join(', ')} и ещё ${books.length - 3}`;
