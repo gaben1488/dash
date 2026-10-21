@@ -156,12 +156,12 @@ export const SIGNAL_ANSWER_RULES: Readonly<Record<string, SignalAnswerRule>> = {
     geometry: 'dept',
   },
   overdue: {
-    condition: 'плановая дата прошла, а договора всё нет',
-    evidence: ['N', 'Q', 'L', 'K'],
+    condition: 'плановая дата прошла; дата заключения и фактические суммы отсутствуют',
+    evidence: ['N', 'Q', 'V', 'W', 'X', 'Y'],
     geometry: 'dept',
   },
   early_closure: {
-    condition: 'договор заключён заметно раньше плановой даты',
+    condition: 'год или разрыв между датами N и Q требуют сверки с документами; ошибка даты ещё не установлена',
     evidence: ['N', 'Q'],
     geometry: 'dept',
   },

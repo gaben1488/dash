@@ -30,7 +30,7 @@ import {
   subordinateKey,
 } from '@aemr/shared';
 import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
-import { api, type ReportResponse } from '../api';
+import { api, ApiError, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
 import { perimeterLabel, type Perimeter } from '../lib/perimeter';
@@ -123,17 +123,17 @@ function moneyFooter(tile: KpiVM) {
  * Заголовок — причина, описание — что это значит и что делать; технический
  * текст сервера уезжает в мелкую строку подробности, а не подменяет объяснение.
  */
-function errorContent(error: string, mode: ReportMode): { title: string; description: string } {
+function errorContent(error: unknown, mode: ReportMode): { title: string; description: string } {
   if (mode === 'archive') return {
     title: 'Архивные показатели страницы недоступны',
     description: 'Старый снимок страницы не загружен. Проверенный Word-комплект собирается отдельно из полного архива выбранной даты; его состояние показано выше. Текущие данные не заменяют архив.',
   };
-  return error.includes('503')
+  return error instanceof ApiError && error.status === 503 && error.code === 'SNAPSHOT_NOT_READY'
     ? {
-      title: 'Сервер ещё не прочитал книги управлений',
+      title: 'Данные для отчёта ещё готовятся',
       description:
-        'Снимка данных на сервере пока нет, поэтому отчёту не из чего собраться. ' +
-        'Запустите чтение книг на Пульте и вернитесь сюда.',
+        'Для выбранного периода ещё нет готового среза. Чтение и расчёт уже запущены. ' +
+        'Дождитесь завершения и запросите отчёт снова.',
     }
     : {
       title: 'Отчёт не удалось загрузить',
@@ -709,7 +709,7 @@ export function ReportPage() {
   // retry — счётчик «Повторить запрос» из пустого состояния ошибки: без него
   // читатель после сбоя мог только перезагрузить страницу целиком.
   const [report, setReport] = useState<ReportResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -717,7 +717,7 @@ export function ReportPage() {
     setError(null);
     api.getReport(request.year, request.quarter, request.asOf)
       .then((r) => { if (!cancelled) setReport(r); })
-      .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e : new Error(String(e))); });
     return () => { cancelled = true; };
   }, [request.year, request.quarter, request.asOf, retry]);
 
@@ -1179,10 +1179,10 @@ export function ReportPage() {
         // повтор запроса — на месте, дорога к чтению книг — на Пульт.
         <div className="analytics-chart-card">
           <EmptyState
-            tone="problem"
+            tone={error instanceof ApiError && error.status === 503 && error.code === 'SNAPSHOT_NOT_READY' ? 'neutral' : 'problem'}
             title={errorContent(error, mode).title}
             description={errorContent(error, mode).description}
-            detail={error}
+            detail={String(error)}
             action={{ label: 'Запросить отчёт заново', onClick: () => setRetry((r) => r + 1) }}
             secondaryAction={{ label: 'Открыть Пульт', onClick: () => navigateTo('dashboard') }}
           />

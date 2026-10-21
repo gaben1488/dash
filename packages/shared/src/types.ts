@@ -409,7 +409,8 @@ export interface RuleCheckContext {
 
 /** Результат проверки одного правила на одной строке */
 export interface RuleCheckResult {
-  passed: boolean;
+  /** null: the rule could not establish a result from the available inputs. */
+  passed: boolean | null;
   message?: string;
   cell?: string;
   actual?: unknown;

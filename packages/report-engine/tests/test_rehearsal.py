@@ -416,13 +416,54 @@ def test_weekly_only_cli_reports_archive_error_without_candidate_replay(monkeypa
     assert 'candidate' not in json.dumps(result).lower()
 
 
-def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
+def test_weekly_only_cli_accepts_clean_start_without_claiming_replay(tmp_path, capsys):
     from procurement_engine import rehearsal
 
-    monkeypatch.setattr(rehearsal, 'rehearse_weekly', lambda _state: None)
-    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result['replay_status'] == 'FAIL'
+    assert result == {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+    (tmp_path / 'archives').mkdir()
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 0
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_weekly_only_does_not_mistake_unreadable_state_for_clean_start(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    assert rehearsal.main(['--state', str(tmp_path / 'absent'), '--weekly-only']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
+    (tmp_path / 'archives').write_text('not a directory')
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
+
+
+@pytest.mark.parametrize('option', ['--published-summary', '--coverage-summary', None])
+@pytest.mark.parametrize('initialized', [False, True])
+def test_no_publication_yet_is_not_a_failed_or_verified_replay(tmp_path, capsys, option, initialized):
+    from procurement_engine import rehearsal
+    from procurement_engine.publication_store import PublicationStore
+
+    if initialized:
+        PublicationStore(tmp_path / 'published')
+    args = ['--state', str(tmp_path)] + ([option] if option else [])
+    assert rehearsal.main(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    key = 'published_evidence_read' if option == '--published-summary' else 'replay_status'
+    assert result == {key: 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
+
+
+@pytest.mark.parametrize('broken', ['database', 'orphan'])
+def test_broken_publication_state_is_not_clean_start(tmp_path, capsys, broken):
+    from procurement_engine import rehearsal
+
+    published = tmp_path / 'published'
+    published.mkdir()
+    if broken == 'database':
+        (published / 'publications.sqlite').write_text('broken SQLite')
+    else:
+        (published / 'releases' / 'REL-orphan').mkdir(parents=True)
+    assert rehearsal.main(['--state', str(tmp_path), '--coverage-summary']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
 
 
 def test_rehearsal_os_errors_disclose_only_safe_errno_not_private_path(monkeypatch, capsys):

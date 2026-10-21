@@ -188,15 +188,24 @@ function httpErrorPhrase(status: number): string {
 export class ApiError extends Error {
   readonly status: number;
   readonly body: string;
+  readonly code: string | null;
 
   constructor(status: number, body: string) {
+    let code: string | null = null;
+    try {
+      const payload: unknown = JSON.parse(body);
+      if (payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'string') code = payload.code;
+    } catch { /* A proxy can return HTML; HTTP status still describes that failure. */ }
     // Текст ошибки видит пользователь в красной плашке шапки — он русский
     // и объясняет ситуацию, а не пересказывает протокол. Код и тело
     // остаются в скобках: без них не отличить «нет прав» от «сервер лёг».
-    super(`${httpErrorPhrase(status)} (код ${status}${body ? `: ${body.slice(0, 120)}` : ''})`);
+    super(status === 503 && code === 'SNAPSHOT_NOT_READY'
+      ? 'Срез данных ещё готовится. Дождитесь завершения чтения и повторите запрос.'
+      : `${httpErrorPhrase(status)} (код ${status}${body ? `: ${body.slice(0, 120)}` : ''})`);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.code = code;
   }
 }
 

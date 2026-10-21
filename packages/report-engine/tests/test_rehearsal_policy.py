@@ -13,6 +13,20 @@ LEGACY = {
 }
 
 
+def test_clean_start_has_no_weekly_replay_to_perform():
+    empty = {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+    result = compare_weekly_replay(empty, dict(empty))
+    assert result['ready'] is True
+    assert result['historical_replay_verified'] is False
+    assert result['status'] == 'NO_WEEKLY_HISTORY'
+    for prior in ({'replay_status': 'PASS'}, LEGACY, {}, {'replay_status': 'FAIL', 'error_code': 'ARCHIVE_NOT_FOUND'}):
+        assert not compare_weekly_replay(prior, empty)['ready']
+        assert not compare_weekly_replay(empty, prior)['ready'] or prior == {'replay_status': 'PASS'}
+    for count in (False, None, 1):
+        malformed = {**empty, 'archive_count': count}
+        assert not compare_weekly_replay(malformed, malformed)['ready']
+
+
 def test_identical_proven_legacy_archive_blocker_is_labeled_not_hidden():
     result = compare_weekly_replay(LEGACY, dict(LEGACY))
     assert result["ready"] is True

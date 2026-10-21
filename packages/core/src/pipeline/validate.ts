@@ -128,6 +128,8 @@ export function validateData(
     // A failing rule must not silently turn an incomplete validation into clean data.
     let failedRows = 0;
     let firstFailedRow: number | null = null;
+    let uncheckedRows = 0;
+    let firstUnchecked: { row: number; message: string } | null = null;
     // Run the rule's check() against each applicable row
     for (const row of rows) {
       if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
@@ -151,7 +153,12 @@ export function validateData(
         if (firstFailedRow === null) firstFailedRow = row.rowIndex;
         continue;
       }
-      if (!result.passed) {
+      if (result.passed === null) {
+        uncheckedRows += 1;
+        firstUnchecked ??= { row: row.rowIndex, message: result.message ?? 'Недостаточно исходных значений.' };
+        continue;
+      }
+      if (result.passed === false) {
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
         // Стабильный id (issue-identity.ts): содержимое-якорь, не номер строки.
@@ -197,6 +204,17 @@ export function validateData(
           detectedBy: `rule:${rule.id}`,
         });
       }
+    }
+    if (uncheckedRows > 0 && firstUnchecked) {
+      issues.push({
+        id: issueIdentity(['validation-input-unavailable', rule.id, sheetName]),
+        severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed',
+        title: `Недостаточно данных для проверки «${rule.name}»`,
+        description: `Не проверено ${uncheckedRows} строк листа «${sheetName}». Первая — ${firstUnchecked.row}: ${firstUnchecked.message} Это ограничение проверки, а не установленное расхождение сумм.`,
+        sheet: sheetName, row: firstUnchecked.row, departmentId: sheetClass.latinId,
+        recommendation: 'Сопровождению: проверить полноту чтения и исходные значения; повторить проверку. Не изменять достоверные суммы ради снятия сообщения.',
+        status: 'open', detectedAt: now, detectedBy: `rule:${rule.id}`,
+      });
     }
     if (failedRows > 0) {
       issues.push({

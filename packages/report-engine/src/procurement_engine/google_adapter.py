@@ -19,6 +19,7 @@ from .raw_pipeline import (
     header_hash,
 )
 from .snapshot import canonical_semantic_hash
+from .source_contract import APPROVED_PRIMARY_TITLE_ALIASES
 
 
 class GoogleReadError(RuntimeError):
@@ -196,14 +197,6 @@ class GoogleReadClient:
                 raise GoogleReadError('GOOGLE_BATCH_VALUES_INVALID')
             chunks.append(chunk)
         return chunks
-
-
-# Explicit, live-directory-approved title migrations, keyed by immutable book and
-# sheetId. No fuzzy matching, no source identity change and no unknown fallback.
-APPROVED_PRIMARY_TITLE_ALIASES = {
-    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП'): 'УФ',
-    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ'): 'УДТХиБ',
-}
 
 
 class GoogleSheetSourceAdapter:

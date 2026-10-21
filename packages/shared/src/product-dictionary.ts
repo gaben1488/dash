@@ -95,7 +95,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   notDue: { chip: 'Срок не наступил' },
   canceled: { chip: 'Отменён' },
   // ── Критические ──
-  overdue: { chip: 'Просрочен', card: 'Просрочка закупки' },
+  overdue: { chip: 'Срок прошёл', card: 'Плановый срок прошёл — заключение не подтверждено' },
   epRisk: { chip: 'ЕП-риск', card: 'ЕП-риск свыше 600 тыс. рублей' },
   // Имя ведёт числом, а не статьёй закона: «Антидемпинговый сигнал» обещал
   // ст.37, которую по этим данным проверить нельзя (нужна НМЦК, её в книгах
@@ -111,7 +111,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   budgetMismatch: { chip: 'Расхождение бюджета' },
   // ── Предупреждения ──
   stalledContract: { chip: 'Подвисший контракт', card: 'Подвисший контракт' },
-  earlyClosure: { chip: 'Раннее закрытие', card: 'Раннее закрытие' },
+  earlyClosure: { chip: 'Проверьте даты', card: 'Необычное опережение плана — проверьте год и даты заключения' },
   financeDelay: { chip: 'Задержка финансирования', card: 'Задержка финансирования' },
   planSoon: { chip: 'Скоро срок' },
   lowCompetition: { chip: 'Низкая конкуренция ниже 2%', card: 'Низкая конкуренция ниже 2%' },

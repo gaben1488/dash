@@ -1651,7 +1651,7 @@ describe('getSignalBadges', () => {
     const badges = getSignalBadges(makeSignals({ overdue: true }));
     expect(badges.length).toBe(1);
     expect(badges[0].color).toBe('red');
-    expect(badges[0].label).toBe('Просрочен');
+    expect(badges[0].label).toBe('Срок прошёл');
   });
 
   it('returns green badge for signed', () => {
@@ -1675,7 +1675,7 @@ describe('getSignalBadges', () => {
     }));
     expect(badges.length).toBe(3);
     const labels = badges.map(b => b.label);
-    expect(labels).toContain('Просрочен');
+    expect(labels).toContain('Срок прошёл');
     expect(labels).toContain('ЕП-риск');
     expect(labels).toContain('Пустые обязательные поля');
   });
@@ -2226,14 +2226,11 @@ describe('слепота 4: просрочка без причины (U)', () =>
       bookRow({ N: '01.03.2026', Q: '15.03.2026', U: 'Х' })).passed).toBe(false);
   });
 
-  it('СТРАЖ: строка БЕЗ факта — срыв виден только через графу T книги', () => {
-    // У правила листа нет часов: «плановая дата прошла» решает формула книги,
-    // сравнивающая план с датой среза. Поэтому вердикт T тут единственный
-    // источник — и он же второй путь, «дни просрочки больше нуля».
+  it('без дня среза производная T не доказывает текущую задержку', () => {
     expect(checkBook('overdue_reason_missing',
-      bookRow({ N: '01.03.2026', T: 'Срок нарушен', U: '' })).passed).toBe(false);
+      bookRow({ N: '01.03.2026', T: 'Срок нарушен', U: '' })).passed).toBeNull();
     expect(checkBook('overdue_reason_missing',
-      bookRow({ N: '01.03.2026', T: 12, U: '' })).passed).toBe(false);
+      bookRow({ N: '01.03.2026', T: 12, U: '' })).passed).toBeNull();
   });
 
   it('СТРАЖ: срок соблюдён — пустая причина законна', () => {
@@ -2242,7 +2239,7 @@ describe('слепота 4: просрочка без причины (U)', () =>
     expect(checkBook('overdue_reason_missing',
       bookRow({ N: '15.03.2026', Q: '01.03.2026', U: '' })).passed).toBe(true);
     expect(checkBook('overdue_reason_missing',
-      bookRow({ N: '15.03.2026', T: 'Срок не наступил', U: '' })).passed).toBe(true);
+      bookRow({ N: '15.03.2026', T: 'Срок не наступил', U: '' })).passed).toBeNull();
   });
 });
 

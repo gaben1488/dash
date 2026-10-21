@@ -203,6 +203,16 @@ describe('ApiError: состояние ответа — поле, а не под
   it('сетевой отказ движка переводится в русскую фразу с действием', () => {
     expect(humanizeRequestError(new TypeError('Failed to fetch'))).toMatch(/Нет связи с сервером/);
   });
+
+  it('distinguishes a first snapshot being prepared from an unavailable server', () => {
+    const preparing = new ApiError(503, JSON.stringify({ code: 'SNAPSHOT_NOT_READY' }));
+    expect(preparing.code).toBe('SNAPSHOT_NOT_READY');
+    expect(humanizeRequestError(preparing)).toContain('Срез данных ещё готовится');
+    expect(humanizeRequestError(preparing)).not.toContain('недоступен');
+    const unavailable = new ApiError(503, '<html>Unavailable</html>');
+    expect(unavailable.code).toBeNull();
+    expect(humanizeRequestError(unavailable)).toContain('недоступен');
+  });
 });
 
 describe('issue decision confirmed persistence', () => {

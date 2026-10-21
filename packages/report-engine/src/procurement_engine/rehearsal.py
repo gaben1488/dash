@@ -103,7 +103,15 @@ def rehearse_weekly(state):
         load_frozen_input,
     )
 
-    weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
+    state = Path(state)
+    if not state.is_dir():
+        raise FileNotFoundError('REPORT_STATE_NOT_FOUND')
+    try:
+        # glob can hide directory read failures. Empty history is valid, but an
+        # unreadable or malformed archive directory must still fail explicitly.
+        weeks = sorted(path for path in (state / 'archives').iterdir() if path.name.startswith('WEEKLY-'))
+    except FileNotFoundError:
+        weeks = []
     if not weeks:
         return None
     source = weeks[-1]
@@ -384,6 +392,34 @@ def published_evidence_summary(state_dir):
         return _leased_published_evidence_summary(state_dir)
 
 
+def _existing_publication(state):
+    """An empty catalogue is normal; broken SQLite or orphan releases are not."""
+    from .readonly_catalog import copied_catalog
+
+    if not state.is_dir():
+        raise FileNotFoundError('REPORT_STATE_NOT_FOUND')
+    store = PublicationStore(state / 'published', readonly=True)
+    try:
+        store.database_path.stat()
+    except FileNotFoundError:
+        receipt = None
+    else:
+        with copied_catalog(store.database_path) as catalog:
+            store.database_path = catalog
+            receipt = store.latest()
+            if receipt is None:
+                with closing(sqlite3.connect(catalog)) as db:
+                    if db.execute('SELECT count(*) FROM publications').fetchone()[0]:
+                        raise PublicationError('PUBLICATION_NOT_FOUND')
+    if receipt is None:
+        try:
+            if next(store.releases.iterdir(), None) is not None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+        except FileNotFoundError:
+            pass
+    return store, receipt
+
+
 def _leased_published_evidence_summary(state_dir):
     """Fast, sealed-current evidence inventory, independent of the weekly replay.
 
@@ -394,12 +430,9 @@ def _leased_published_evidence_summary(state_dir):
     from .readonly_catalog import copied_catalog
 
     state = Path(state_dir).resolve()
-    store = PublicationStore(state / 'published', readonly=True)
-    with copied_catalog(store.database_path) as catalog:
-        store.database_path = catalog
-        receipt = store.latest()
+    store, receipt = _existing_publication(state)
     if receipt is None:
-        raise ValueError('PUBLICATION_NOT_FOUND')
+        return {'published_evidence_read': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
     model = _json(store.releases / receipt['release_id'] / 'report_model.json')
     if model.get('snapshot', {}).get('snapshot_id') != receipt['snapshot_id']:
         raise ValueError('SNAPSHOT_MODEL_MISMATCH')
@@ -483,16 +516,11 @@ def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     No Google request, schedule change, production identity write or publish occurs.
     """
     state = Path(state_dir).resolve()
-    if not (state / 'published/publications.sqlite').is_file():
-        raise ValueError('PUBLICATION_NOT_FOUND')
-    store = PublicationStore(state / 'published', readonly=True)
+    store, receipt = _existing_publication(state)
     from .readonly_catalog import copied_catalog
 
-    with copied_catalog(store.database_path) as catalog:
-        store.database_path = catalog
-        receipt = store.latest()
     if receipt is None:
-        raise ValueError('PUBLICATION_NOT_FOUND')
+        return {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
     root = store.releases / receipt['release_id']
     previous, *_ = _validate(root)
     snapshot = root / 'snapshot_bundle'
@@ -610,13 +638,15 @@ def main(argv=None):
         elif args.weekly_only:
             weekly = rehearse_weekly(args.state)
             if weekly is None:
-                raise ValueError('ARCHIVE_NOT_FOUND')
-            result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
+                result = {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+            else:
+                result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
         elif args.coverage_summary:
             full = rehearse_latest(args.state, coverage=True, skip_weekly=True)
             # Explicit allowlist: no coordinates, business text or UID-bearing
             # recommendation indexes may appear in shared workflow output.
             fields = ('replay_status', 'independent_audit', 'two_docx_rebuilt',
+                'reason', 'publication_count',
                 'headline_changed', 'error_counts', 'weekly_replay',
                 'identity_recovery', 'identity_unresolved_count',
                 'recommendation_replay_delta',
@@ -626,13 +656,14 @@ def main(argv=None):
                 'text_reference_missing_subject_shapes', 'origin_date_identity_bindable_count',
                 'automation')
             result = {key: full[key] for key in fields if key in full}
-            action_codes = full.get('action_code_counts') or {}
-            safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
-                'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
-            result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
-                                            if key in action_codes}
-            result['other_action_count'] = sum(value for key, value in action_codes.items()
-                                                if key not in safe)
+            if full.get('replay_status') != 'NOT_APPLICABLE':
+                action_codes = full.get('action_code_counts') or {}
+                safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
+                    'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
+                result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
+                                                if key in action_codes}
+                result['other_action_count'] = sum(value for key, value in action_codes.items()
+                                                    if key not in safe)
         else:
             result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
@@ -682,8 +713,10 @@ def main(argv=None):
             result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     if args.published_summary:
-        return 0 if result.get('published_evidence_read') == 'PASS' else 2
-    return 0 if result['replay_status'] == 'PASS' else 2
+        return 0 if result.get('published_evidence_read') in ('PASS', 'NOT_APPLICABLE') else 2
+    return 0 if result['replay_status'] == 'PASS' or (
+        result['replay_status'] == 'NOT_APPLICABLE' and result.get('reason') in
+        ('NO_WEEKLY_ARCHIVES', 'NO_PUBLISHED_RELEASE')) else 2
 
 
 if __name__ == '__main__':

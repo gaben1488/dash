@@ -40,7 +40,7 @@ export function parseSheetDate(val: unknown): Date | null {
   }
 
   // Google/Excel serial (число дней от 1899-12-30).
-  const serial = Number(s);
+  const serial = /^[0-9]+(?:\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
     const d = new Date((serial - 25569) * 86400000);
     return isNaN(d.getTime()) ? null : d;
@@ -100,7 +100,7 @@ export function dayNumberOf(val: unknown): number | null {
   }
 
   // Google/Excel serial — уже число суток, только сместить эпоху
-  const serial = Number(s);
+  const serial = /^[0-9]+(?:\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
     // Fractions represent time within this day; rounding shifts dates after noon.
     return Math.floor(serial) - SERIAL_EPOCH_OFFSET;

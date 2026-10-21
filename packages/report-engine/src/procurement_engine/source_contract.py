@@ -5,6 +5,13 @@ import json
 
 from .normalize import clean_text
 
+# Reviewed title migrations share the immutable book/sheet identity. Readers
+# and formula closure must use the same aliases without rewriting old captures.
+APPROVED_PRIMARY_TITLE_ALIASES = {
+    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП'): 'УФ',
+    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ'): 'УДТХиБ',
+}
+
 
 def schema_fingerprint(header_rows: list[list], *, max_rows: int = 4, max_cols: int = 34) -> str:
     """Stable fingerprint of the header/schema area, independent of incidental whitespace."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .snapshot import canonical_semantic_hash
+from .source_contract import APPROVED_PRIMARY_TITLE_ALIASES
 
 # Unknown/custom functions require review. Dynamic/external functions are deliberately absent.
 # Native vocabulary: https://support.google.com/docs/table/25273?hl=en
@@ -131,7 +132,10 @@ def audit_formula_dependencies(capture):
             problem(sid, 'FORMULA_CONTEXT_CHANGED')
         sheets = {p['title']: p['sheetId'] for p in evidence['sheets']}
         names = {p['name']: p['range'] for p in evidence['named_ranges']}
-        if sheets.get(s['sheet']) != s['sheet_id'] or len(names) != len(evidence['named_ranges']):
+        reviewed_title = APPROVED_PRIMARY_TITLE_ALIASES.get((s['provider_id'], s['sheet_id'], s['sheet']))
+        title_matches = sheets.get(s['sheet']) == s['sheet_id'] or (
+            reviewed_title is not None and sheets.get(reviewed_title) == s['sheet_id'])
+        if not title_matches or len(names) != len(evidence['named_ranges']):
             problem(sid, 'FORMULA_CONTEXT_INVALID'); continue
         for cell in evidence['formulas']:
             if (not isinstance(cell.get('formula'), str) or not cell['formula'].startswith('=')

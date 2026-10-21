@@ -28,6 +28,33 @@ function check(id: string, cells: Record<string, unknown>): RuleCheckResult {
   });
 }
 
+describe('неполные исходные значения не доказывают правильность арифметики', () => {
+  it.each([
+    ['budget_sum_plan', { K: 100, H: 100, I: 0 }],
+    ['budget_sum_fact', { O: 100, L: 100, M: '#REF!', N: 0 }],
+    ['execution_percentage', { D: 10, G: 0 }],
+    ['deviation_calc', { D: 10, F: -10 }],
+  ])('%s сообщает недостаточность данных', (id, cells) => {
+    expect(check(String(id), cells as Record<string, unknown>).passed).toBeNull();
+  });
+});
+
+describe('причина задержки следует датам, а не устаревшему значению T', () => {
+  it.each([
+    { N: '01.03.2026', Q: '01.03.2026', T: 12 },
+    { N: '01.03.2026', Y: 50, T: 12 },
+    { N: '', T: 12 },
+  ])('не требует причины неподтверждённой задержки', cells => {
+    expect(check('overdue_reason_missing', { A: 1, U: '', ...cells }).passed).toBe(true);
+  });
+  it('определяет текущую задержку по дню среза даже при пустой T', () => {
+    const result = rule('overdue_reason_missing').check({ cells: { A: 1, N: '01.03.2026', U: '' },
+      rowIndex: 42, sheet: 'УО', classification: 'procurement', asOf: new Date('2026-03-02T00:00:00Z') });
+    expect(result.passed).toBe(false);
+    expect(result.message).toContain('заключение не подтверждено');
+  });
+});
+
 describe('§22 п.1 — словарь способов разделён по источникам', () => {
   it('СТРАЖ: книга ГРБС знает ровно два способа — ЕП и ЭА', () => {
     expect([...GRBS_BOOK_METHODS]).toEqual(['ЕП', 'ЭА']);
