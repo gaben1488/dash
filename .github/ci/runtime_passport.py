@@ -54,7 +54,8 @@ def capture():
     return {'started_at': started, 'ended_at': datetime.now(timezone.utc).isoformat(),
             'database': {'schema_sha256': schema_digest, 'user_version': user_version},
             'dashboard': {'snapshot_id': snapshot['id'], 'created_at': snapshot['createdAt']},
-            'report': {name: receipt[name] for name in ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')},
+            'report': ({name: receipt[name] for name in ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')}
+                       if receipt is not None else None),
             'runtime_versions': {'node': subprocess.check_output(['node', '--version'], text=True, timeout=5).strip(),
                                  'python': '.'.join(map(str, sys.version_info[:3])), 'rules': RAW_RULES_VERSION, 'renderer': RENDERER_VERSION}}
 
@@ -73,11 +74,17 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed):
             and all(re.fullmatch(r'[a-f0-9]{64}', value) for value in stage['config_sha256'].values()))
     wanted = stage['candidate_images']
     require(all(re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in wanted.values()))
-    require(wanted['server'] == wanted['report-worker'] == artifact['images']['server']['id']
+    web_only = accepted.get('state') == 'RELEASE_WEB_ACCEPTED'
+    backend_sha = accepted.get('backend_sha') if web_only else sha
+    require(isinstance(backend_sha, str) and re.fullmatch(r'[a-f0-9]{40}', backend_sha) is not None)
+    require(wanted['server'] == wanted['report-worker'] ==
+            (stage['images']['server'] if web_only else artifact['images']['server']['id'])
             and wanted['web'] == artifact['images']['web']['id'] and wanted['caddy'] == stage['images']['caddy'])
-    acceptance = accepted['acceptance']
-    require(acceptance['state'] == 'RELEASE_CANDIDATE_ACCEPTED' and acceptance['release_sha'] == sha
-            and acceptance['candidate_images'] == wanted and acceptance['config_sha256'] == stage['config_sha256']
+    acceptance = accepted if web_only else accepted['acceptance']
+    require(acceptance['state'] == ('RELEASE_WEB_ACCEPTED' if web_only else 'RELEASE_CANDIDATE_ACCEPTED')
+            and acceptance['release_sha'] == sha
+            and acceptance['images' if web_only else 'candidate_images'] == wanted
+            and acceptance['config_sha256'] == stage['config_sha256']
             and re.fullmatch(r'[a-f0-9]{64}', accepted['plan_sha256']) is not None)
     actual = {}
     require(len(containers) == 4)
@@ -90,32 +97,47 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed):
         require(row['Image'] == wanted[role] and row['RestartCount'] == 0 and state['Status'] == 'running'
                 and state['OOMKilled'] is False and labels.get('com.docker.compose.project') == 'aemr'
                 and labels.get('com.docker.compose.service') == role
-                and (role == 'caddy' or labels.get('org.opencontainers.image.revision') == sha)
+                and (role == 'caddy' or labels.get('org.opencontainers.image.revision') ==
+                     (backend_sha if role in ('server', 'report-worker') else sha))
                 and (role != 'server' or state.get('Health', {}).get('Status') == 'healthy'))
         instant(state['StartedAt'])
         require(re.fullmatch(r'[a-f0-9]{64}', row['Id']) is not None)
+        if web_only:
+            require(row['Id'] == accepted['container_ids'][role]
+                    and (role == 'web' or row['Id'] == stage['container_ids'][role]))
         actual[role] = {'image_id': row['Image'], 'container_id': row['Id'], 'started_at': state['StartedAt'], 'restarts': 0}
     expected_ops = {Path(name).name: digest for name, digest in artifact['source_files'].items() if name.startswith(('deploy/', '.github/'))}
-    require(ops == expected_ops and observed['runtime_versions'] == artifact['versions'])
+    require(ops == expected_ops)
+    versions = observed['runtime_versions']
+    require(isinstance(versions, dict) and set(versions) == set(artifact['versions'])
+            and all(isinstance(value, str) and 0 < len(value) <= 512 for value in versions.values()))
+    require(all(versions[key] == artifact['versions'][key]
+                for key in (('rules', 'renderer') if web_only else artifact['versions'])))
     require(instant(observed['ended_at']) >= instant(observed['started_at'])
             and re.fullmatch(r'[a-f0-9]{64}', observed['database']['schema_sha256']) is not None
             and type(observed['database']['user_version']) is int and observed['database']['user_version'] >= 0)
-    for key, value in (('snapshot', observed['dashboard']['snapshot_id']), ('snapshot', observed['report']['snapshot_id']),
-                       ('release', observed['report']['release_id'])):
+    report = observed['report']
+    require(report is not None or stage.get('word') == {'release_id': None, 'sha256': {}})
+    identities = [('snapshot', observed['dashboard']['snapshot_id'])]
+    if report is not None:
+        identities += [('snapshot', report['snapshot_id']), ('release', report['release_id'])]
+    for key, value in identities:
         require(isinstance(value, str) and re.fullmatch(r'REL-[a-f0-9]{64}' if key == 'release' else r'[A-Za-z0-9_.:-]{1,160}', value) is not None
                 and not value.startswith('demo-'))
     instant(observed['dashboard']['created_at'])
-    instant(observed['report']['cutoff_at'])
-    for name in ('rules_version', 'renderer_version'):
-        require(isinstance(observed['report'][name], str) and 0 < len(observed['report'][name]) <= 512)
+    if report is not None:
+        instant(report['cutoff_at'])
+        for name in ('rules_version', 'renderer_version'):
+            require(isinstance(report[name], str) and 0 < len(report[name]) <= 512)
     return {'format': 'dash-installed-runtime-v1', 'consistency': 'observation_window',
             'observed': {key: observed[key] for key in ('started_at', 'ended_at')},
-            'build': {'source_sha': sha, 'ci': artifact['ci'], 'artifact_id': metadata['id'],
+            'build': {'source_sha': sha, 'backend_source_sha': backend_sha, 'ci': artifact['ci'], 'artifact_id': metadata['id'],
                       'artifact_digest': metadata['digest'], 'versions': artifact['versions'], 'source_files': artifact['source_files']},
-            'runtime': actual, 'ops_sha256': ops, 'acceptance_plan_sha256': accepted['plan_sha256'],
+            'runtime': actual, 'runtime_versions': versions, 'ops_sha256': ops, 'acceptance_plan_sha256': accepted['plan_sha256'],
             'data': {'database': {key: observed['database'][key] for key in ('schema_sha256', 'user_version')},
                      'dashboard': {key: observed['dashboard'][key] for key in ('snapshot_id', 'created_at')},
-                     'report': {key: observed['report'][key] for key in ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')}}}
+                     'report': ({key: report[key] for key in ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')}
+                                if report is not None else None)}}
 
 
 def read(path):

@@ -42,12 +42,14 @@ try {
  const health=await app.inject({method:'GET',url:'/api/health',headers});if(health.statusCode!==200)throw Error('health');
  const status=await app.inject({method:'GET',url:'/api/report-releases',headers});
  if(status.statusCode!==200||status.rawPayload.length>32*1024*1024)throw Error('status');
- const value=JSON.parse(status.payload);if(!value.latest)throw Error('latest');
+ const value=JSON.parse(status.payload);
+ const empty=binding.release_id===null;
+ if(empty?value.latest!==null:!value.latest)throw Error('latest');
  if(candidate){
   const shared=await import('@aemr/shared');
   if(!shared.ReportReleaseStatusSchema.safeParse(value).success)throw Error('schema');
   function visit(root){
-   if(!fs.existsSync(root))throw Error('history');
+   if(!fs.existsSync(root)){if(empty)return;throw Error('history');}
    if(fs.lstatSync(root).isSymbolicLink())throw Error('symlink');
    for(const entry of fs.readdirSync(root,{withFileTypes:true})){
     const file=root+'/'+entry.name;if(entry.isSymbolicLink())throw Error('symlink');
@@ -61,9 +63,9 @@ try {
   }
   visit('/app/packages/server/data/reports/published/releases');
   const archives='/app/packages/server/data/reports/archives';
-  for(const name of fs.readdirSync(archives))if(name.startsWith('WEEKLY-'))visit(archives+'/'+name);
+  if(fs.existsSync(archives))for(const name of fs.readdirSync(archives))if(name.startsWith('WEEKLY-'))visit(archives+'/'+name);
  }
- for(const view of ['main','supplement','operational']){
+ for(const view of Object.keys(binding.sha256)){
   const response=await app.inject({method:'GET',url:'/api/report-releases/'+binding.release_id+'/'+view+'.docx',headers});
   const body=response.rawPayload;if(response.statusCode!==200||body.length>33554432)throw Error('word');
   const checked=spawnSync('/opt/report-env/bin/python',['-c',"import io,sys,zipfile;z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()));assert z.testzip() is None and 'word/document.xml' in z.namelist()"],{input:body,timeout:20000,stdio:['pipe','pipe','pipe']});

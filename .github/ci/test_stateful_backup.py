@@ -49,6 +49,21 @@ class StatefulBackupTests(unittest.TestCase):
             [sys.executable, str(SCRIPT), command, *map(str, args)],
             text=True, capture_output=True, timeout=25, check=False)
 
+    def test_zero_state_roundtrip_keeps_empty_inventory_without_fake_database_or_word(self):
+        import hashlib
+        for compressed in (False, True):
+            with self.subTest(compressed=compressed):
+                source = Path(self.temp.name) / ('initial-' + str(compressed))
+                source.mkdir()
+                backup = Path(self.temp.name) / ('initial-backup-' + str(compressed))
+                self.module.create(source, backup, compressed=compressed)
+                digest = hashlib.sha256((backup / 'manifest.json').read_bytes()).hexdigest()
+                (source / 'new-after-checkpoint.json').write_text('{}')
+                result = self.module.restore_state(backup, source, digest)
+                self.assertEqual(result['sqlite_checked'], 0)
+                self.assertEqual(result['docx_checked'], 0)
+                self.assertEqual(list(source.iterdir()), [])
+
     def test_generated_archive_and_manifest_are_private_under_container_umasks(self):
         import os
         import stat

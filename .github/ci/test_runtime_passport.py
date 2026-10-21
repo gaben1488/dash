@@ -77,6 +77,34 @@ class RuntimePassportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.build()
 
+    def test_web_release_records_actual_backend_revision_and_rejects_recreated_worker(self):
+        self.stage['images'] = deepcopy(self.stage['images'])
+        for role in ('server', 'report-worker'):
+            self.stage['images'][role] = self.stage['candidate_images'][role] = 'sha256:' + 'd' * 64
+        self.stage['container_ids'] = {role: row['Id'] for role, row in zip(
+            ('server', 'web', 'report-worker', 'caddy'), self.containers, strict=True)}
+        for row in self.containers:
+            if row['Name'] in {'/aemr-server-1', '/aemr-report-worker-1'}:
+                row['Image'] = 'sha256:' + 'd' * 64
+                row['Config']['Labels']['org.opencontainers.image.revision'] = 'b' * 40
+        self.accepted = {'state': 'RELEASE_WEB_ACCEPTED', 'release_sha': 'a' * 40,
+                         'backend_sha': 'b' * 40, 'plan_sha256': 'f' * 64,
+                         'images': self.stage['candidate_images'], 'config_sha256': self.stage['config_sha256'],
+                         'container_ids': dict(self.stage['container_ids'])}
+        self.assertEqual(self.build()['build']['backend_source_sha'], 'b' * 40)
+        self.containers[2]['Id'] = '9' * 64
+        self.accepted['container_ids']['report-worker'] = '9' * 64
+        with self.assertRaises(ValueError):
+            self.build()
+
+    def test_initial_state_is_not_fabricated_report_or_permission_to_lose_existing_report(self):
+        self.observed['report'] = None
+        with self.assertRaises(ValueError):
+            self.build()
+        self.stage['word'] = {'release_id': None, 'sha256': {}}
+        self.accepted['acceptance']['word_sha256'] = {}
+        self.assertIsNone(self.build()['data']['report'])
+
 
 if __name__ == '__main__':
     unittest.main()

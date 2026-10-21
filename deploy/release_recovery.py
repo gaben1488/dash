@@ -112,6 +112,16 @@ def require_lock(fd):
         fail('RELEASE_LOCK_REQUIRED')
 
 
+def valid_word_binding(word):
+    if not isinstance(word, dict) or set(word) != {'release_id', 'sha256'}:
+        return False
+    if word['release_id'] is None:
+        return word['sha256'] == {}
+    return (isinstance(word['release_id'], str) and re.fullmatch('REL-[a-f0-9]{64}', word['release_id']) is not None
+            and isinstance(word['sha256'], dict) and set(word['sha256']) == {'main', 'supplement', 'operational'}
+            and all(isinstance(v, str) and HEX.fullmatch(v) for v in word['sha256'].values()))
+
+
 def validate_plan(plan):
     keys = {'format', 'release_sha', 'manifest_sha256', 'images', 'candidate_images', 'config_sha256',
             'backup_reference', 'volume', 'tool_sha256', 'original_running', 'word', 'proofs'}
@@ -138,11 +148,7 @@ def validate_plan(plan):
             or not re.fullmatch(r'worker-[0-9]+/(?:backup|release-[a-f0-9]{40}-[0-9]+-[0-9]+)', plan['backup_reference'])
             or not isinstance(plan['volume'], str) or not re.fullmatch(r'aemr_[A-Za-z0-9_.-]+', plan['volume'])):
         fail('RELEASE_RECEIPT_INVALID')
-    word = plan['word']
-    if (not isinstance(word, dict) or set(word) != {'release_id', 'sha256'}
-            or not isinstance(word['release_id'], str) or not re.fullmatch('REL-[a-f0-9]{64}', word['release_id'])
-            or not isinstance(word['sha256'], dict) or set(word['sha256']) != {'main', 'supplement', 'operational'}
-            or any(not isinstance(value, str) or not HEX.fullmatch(value) for value in word['sha256'].values())):
+    if not valid_word_binding(plan['word']):
         fail('RELEASE_RECEIPT_INVALID')
     binding = {key: plan[key] for key in ('release_sha', 'manifest_sha256', 'images', 'config_sha256')}
     if not isinstance(plan['proofs'], dict) or set(plan['proofs']) != set(PROOF_STATES):
@@ -173,7 +179,7 @@ def validate_acceptance(value):
             or any(not isinstance(v, str) or not IMAGE.fullmatch(v) for v in value['candidate_images'].values())
             or not isinstance(value['config_sha256'], dict) or set(value['config_sha256']) != set(CONFIG_FILES)
             or any(not isinstance(v, str) or not HEX.fullmatch(v) for v in value['config_sha256'].values())
-            or not isinstance(value['word_sha256'], dict) or set(value['word_sha256']) != {'main', 'supplement', 'operational'}
+            or not isinstance(value['word_sha256'], dict) or set(value['word_sha256']) not in (set(), {'main', 'supplement', 'operational'})
             or any(not isinstance(v, str) or not HEX.fullmatch(v) for v in value['word_sha256'].values())):
         fail('RELEASE_ACCEPTANCE_INVALID')
     return value
@@ -275,8 +281,13 @@ class ReleaseRecovery:
         if digest(manifest_body) != plan['manifest_sha256']:
             fail('RELEASE_CHECKPOINT_CHANGED')
         manifest = json.loads(manifest_body)
+        if plan['word']['release_id'] is None and any(
+                name.startswith('reports/published/releases/') and name.endswith(('.docx', '/report_model.json'))
+                for name in manifest.get('files', {})):
+            fail('RELEASE_WORD_PROOF_INVALID')
         names = {'main': 'main_report.docx', 'supplement': 'management_report.docx', 'operational': 'operational_report.docx'}
-        for view, name in names.items():
+        for view in plan['word']['sha256']:
+            name = names[view]
             key = f'reports/published/releases/{plan["word"]["release_id"]}/{name}'
             if manifest.get('files', {}).get(key, {}).get('sha256') != plan['word']['sha256'][view]:
                 fail('RELEASE_WORD_PROOF_INVALID')
@@ -485,6 +496,15 @@ class ReleaseRecovery:
         else:
             fail('RELEASE_API_NOT_HEALTHY')
         self.command(['exec', 'aemr-server-1', 'curl', '-fsS', '--max-time', '5', 'http://127.0.0.1:3000/api/health'])
+        if plan['word']['release_id'] is None:
+            program = """import json,os,urllib.request
+r=urllib.request.Request('http://127.0.0.1:3000/api/report-releases',headers={'Authorization':'Bearer '+os.environ.get('AEMR_API_KEY','')})
+with urllib.request.urlopen(r,timeout=20) as response: body=response.read(32*1024*1024+1)
+if len(body)>32*1024*1024 or json.loads(body).get('latest','missing') is not None: raise ValueError('expected initial state')
+print('NO_PUBLISHED_RELEASE')"""
+            if self.command(['exec', 'aemr-server-1', 'python3', '-c', program], timeout=25).strip() != 'NO_PUBLISHED_RELEASE':
+                fail('RELEASE_NATIVE_WORD_MISMATCH')
+            return
         program = """import hashlib,json,os,sys,urllib.request,zipfile,io
 out={}
 for view in ('main','supplement','operational'):
@@ -551,7 +571,7 @@ print(json.dumps(out))"""
                 'manifest_sha256': plan['manifest_sha256'], 'candidate_images': plan['candidate_images'],
                 'config_sha256': plan['config_sha256'], 'word_sha256': plan['word']['sha256']}
 
-    def _verify_candidate_schema(self):
+    def _verify_candidate_schema(self, *, allow_empty=False):
         program = """(async()=>{
 const deadline=Date.now()+90000;
 const {ReportReleaseStatusSchema,DashboardDataSchema}=await import('@aemr/shared');
@@ -579,7 +599,7 @@ async function read(endpoint){
  }
 }
 const parsed=ReportReleaseStatusSchema.safeParse(await read('/api/report-releases'));
-if(!parsed.success||parsed.data.latest===null)throw Error('schema');
+if(!parsed.success||(parsed.data.latest===null&&!ALLOW_EMPTY))throw Error('schema');
 for(const endpoint of ['/api/dashboard','/api/dashboard?year=all']){
  if(!DashboardDataSchema.safeParse(await read(endpoint)).success)throw Error('dashboard');
 }
@@ -590,6 +610,7 @@ for(const [name,endpoint] of Object.entries(HEADER_ENDPOINTS)){
 }
 console.log('CANDIDATE_SCHEMA_PASS');
 })().catch(()=>process.exit(2));"""
+        program = program.replace('ALLOW_EMPTY', 'true' if allow_empty else 'false')
         value = self.command(['exec', 'aemr-server-1', './node_modules/.bin/tsx', '--eval', program], timeout=100)
         if value.strip() != 'CANDIDATE_SCHEMA_PASS':
             fail('RELEASE_CANDIDATE_SCHEMA_INVALID')
@@ -602,7 +623,7 @@ console.log('CANDIDATE_SCHEMA_PASS');
         if any(records[s]['State']['Status'] not in {'created', 'exited'} for s in ('caddy', 'report-worker')):
             fail('RELEASE_INGRESS_NOT_FENCED')
         self._verify_api_word(plan, candidate=True)
-        self._verify_candidate_schema()
+        self._verify_candidate_schema(allow_empty=plan['word']['release_id'] is None)
         acceptance = self._acceptance(plan)
         atomic_json(STATE_DIR / 'release-recovery-progress.json', {
             'plan_sha256': digest(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode()),
@@ -648,13 +669,124 @@ console.log('CANDIDATE_SCHEMA_PASS');
                 pass
             fail('RELEASE_ACCEPTED_RUNTIME_UNAVAILABLE')
 
+    def web_config(self, plan, *, candidate=False):
+        """Validate the bounded web transition without opening the business volume."""
+        keys = {'format', 'release_sha', 'images', 'candidate_images', 'volume', 'config_sha256',
+                'tool_sha256', 'source_ci_sha256', 'word', 'original_running', 'container_ids', 'backend_sha'}
+        if (not isinstance(plan, dict) or set(plan) != keys or plan['format'] != 'aemr-web-release-v1'
+                or not re.fullmatch('[a-f0-9]{40}', plan['release_sha'])
+                or not re.fullmatch('[a-f0-9]{40}', plan['backend_sha'])
+                or plan['volume'] != 'aemr_server_data'
+                or set(plan['images']) != set(SERVICES) or set(plan['candidate_images']) != set(SERVICES)
+                or any(not IMAGE.fullmatch(v) for v in [*plan['images'].values(), *plan['candidate_images'].values()])
+                or any(plan['images'][s] != plan['candidate_images'][s] for s in SERVICES if s != 'web')
+                or set(plan['container_ids']) != set(SERVICES)
+                or any(not HEX.fullmatch(v) for v in plan['container_ids'].values())
+                or set(plan['original_running']) != set(SERVICES)
+                or any(type(v) is not bool for v in plan['original_running'].values())
+                or not plan['original_running']['web'] or not plan['original_running']['server']
+                or set(plan['config_sha256']) != set(CONFIG_FILES)):
+            fail('RELEASE_WEB_PLAN_INVALID')
+        private_directory(STATE_DIR)
+        private_directory(RUNTIME_DIR)
+        bodies = {name: read_owned(RUNTIME_DIR / name) for name in CONFIG_FILES}
+        if any(digest(body) != plan['config_sha256'][name] for name, body in bodies.items()):
+            fail('RELEASE_CONFIG_CHANGED')
+        previous, following = (json.loads(bodies[name]) for name in ('compose.json', 'candidate-compose.json'))
+        for value, pins in ((previous, plan['images']), (following, plan['candidate_images'])):
+            if (value.get('name') != 'aemr' or set(value.get('services', {})) != set(SERVICES)
+                    or any(value['services'][s].get('image') != pins[s] for s in SERVICES)):
+                fail('RELEASE_WEB_PLAN_INVALID')
+        compared = json.loads(json.dumps(following))
+        compared['services']['web']['image'] = plan['images']['web']
+        if (compared != previous or bodies['Caddyfile'] != bodies['candidate-Caddyfile']
+                or previous['services']['web'].get('volumes')
+                or previous['services']['web'].get('network_mode')
+                or previous['services']['web'].get('privileged')):
+            fail('RELEASE_WEB_COMPATIBILITY_CHANGED')
+        config = following if candidate else previous
+        # Only web is handed to Compose: a dependency cannot be recreated accidentally.
+        web = config['services']['web']
+        web.pop('build', None)
+        web.pop('env_file', None)
+        web.pop('depends_on', None)
+        web['container_name'] = 'aemr-web-1'
+        web['pull_policy'] = 'never'
+        config['services'] = {'web': web}
+        config.pop('volumes', None)
+        return literal(config)
+
+    def web_unchanged(self, plan, records):
+        for service in SERVICES:
+            if service == 'web':
+                continue
+            record = records[service]
+            if (record['Id'] != plan['container_ids'][service]
+                    or record['Image'] != plan['images'][service]
+                    or (record['State']['Status'] == 'running') != plan['original_running'][service]):
+                fail('RELEASE_WEB_BACKEND_CHANGED')
+
+    def web_start(self, plan, *, candidate):
+        config = self.web_config(plan, candidate=candidate)
+        records = self._recovery_records(plan)
+        self.web_unchanged(plan, records)
+        # A failed Compose rename may leave a stopped owned survivor. Never remove data.
+        web = records.get('web')
+        if web and web['Name'] != '/aemr-web-1':
+            if web['State']['Status'] not in {'exited', 'created'}:
+                fail('RELEASE_RUNTIME_NOT_OWNED')
+            self.command(['rm', web['Id']])
+        path = RUNTIME_DIR / ('web-candidate-resume.json' if candidate else 'web-recovery-compose.json')
+        atomic_json(path, config)
+        self.command(['compose', '-p', 'aemr', '-f', str(path), '--env-file',
+                      str(RUNTIME_DIR / '.env.production'), 'up', '-d', '--no-build', '--no-deps',
+                      '--force-recreate', 'web'], timeout=180)
+
+    def web_verify(self, plan, *, candidate):
+        records = self._records(plan, candidate=candidate, original=not candidate)
+        self.web_unchanged(plan, records)
+        if records['web']['State']['Status'] != 'running':
+            fail('RELEASE_WEB_UNAVAILABLE')
+        self.command(['exec', 'aemr-web-1', 'wget', '-q', '-T', '15', '-O', '/dev/null',
+                      'http://127.0.0.1/'], timeout=20)
+        self.command(['exec', 'aemr-server-1', 'curl', '-fsS', '--max-time', '15',
+                      'http://127.0.0.1:3000/api/health'], timeout=20)
+
+    def recover_web(self, plan):
+        self.web_config(plan)
+        plan_hash = digest(json.dumps(plan, sort_keys=True).encode())
+        accepted = STATE_DIR / 'web-release-accepted.json'
+        keep = os.path.lexists(accepted) and json.loads(read_owned(accepted)) == {'plan_sha256': plan_hash}
+        if not keep:
+            self.web_start(plan, candidate=False)
+        try:
+            self.web_verify(plan, candidate=keep)
+        except RecoveryError:
+            if not keep:
+                raise
+            # Acceptance is durable: recover the accepted image, never the old UI.
+            self.web_start(plan, candidate=True)
+            self.web_verify(plan, candidate=True)
+        receipt = {'state': 'RELEASE_WEB_ACCEPTED' if keep else 'RELEASE_WEB_RECOVERED',
+                   'release_sha': plan['release_sha'], 'backend_sha': plan['backend_sha'],
+                   'plan_sha256': plan_hash, 'images': plan['candidate_images'] if keep else plan['images'],
+                   'container_ids': {s: r['Id'] for s, r in self._records(plan).items()},
+                   'config_sha256': plan['config_sha256']}
+        atomic_json(STATE_DIR / 'web-release-completed.json', receipt)
+        PENDING.unlink()
+        fsync_directory(STATE_DIR)
+        return receipt
+
     def recover(self):
         require_lock(self.lock_fd)
         if not PENDING.exists() and not PENDING.is_symlink():
             self._retire_completed_progress()
             return None
         private_directory(STATE_DIR)
-        plan = validate_plan(json.loads(read_owned(PENDING, 64 * 1024)))
+        pending = json.loads(read_owned(PENDING, 64 * 1024))
+        if isinstance(pending, dict) and pending.get('format') == 'aemr-web-release-v1':
+            return self.recover_web(pending)
+        plan = validate_plan(pending)
         progress_path = STATE_DIR / 'release-recovery-progress.json'
         if progress_path.exists() or progress_path.is_symlink():
             early = validate_progress(json.loads(read_owned(progress_path)))

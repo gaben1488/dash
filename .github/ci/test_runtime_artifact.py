@@ -154,6 +154,14 @@ class RuntimeArtifactWorkflowTests(unittest.TestCase):
         self.assertIn('source_ci_gate.py', release)
         self.assertIn('Freeze writers once', release)
         self.assertIn('Independent one-clone candidate and previous runtime', release)
+        self.assertNotIn('docker save "aemr-server:release-$RECOVERY_SHA"', release)
+        self.assertIn('gzip -dc "$RUNNER_TEMP/release/runtime-candidate/$role.tar.gz"', release)
+        for name in ('Freeze writers once and create fresh full private backup',
+                     'Independent one-clone candidate and previous runtime with actual complete restore',
+                     'Same guardian exact-SHA release with closed-ingress API and Word acceptance'):
+            self.assertIn('      - name: ' + name + "\n        if: steps.release-component.outputs.mode == 'full'", release)
+        self.assertIn("if: steps.release-component.outputs.mode == 'web'", release)
+        self.assertIn('release-controller.py deploy-web', release)
 
 
 if __name__ == '__main__':

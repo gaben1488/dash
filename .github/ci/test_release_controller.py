@@ -263,6 +263,209 @@ class TrialTests(unittest.TestCase):
 
 @unittest.skipUnless(os.geteuid() == 0, 'real root ownership exercised by namespace wrapper')
 class ControllerTests(TrialTests):
+    def test_web_release_rejects_any_changed_backend_or_operational_input(self):
+        compatible = self.controller_module.web_only_inputs
+        self.assertTrue(compatible(['packages/web/src/App.tsx', 'docs/PLAN.md']))
+        for path in ('packages/shared/src/schemas.ts', 'packages/server/src/db/schema.ts',
+                     'packages/report-engine/src/procurement_engine/publication_reader.py',
+                     'deploy/docker-compose.yml', 'deploy/release_trial.py',
+                     '.github/ci/source_ci_gate.py', 'pnpm-lock.yaml', 'docs/template.docx',
+                     'packages/web/../../server/index.ts'):
+            with self.subTest(path=path):
+                self.assertFalse(compatible(['packages/web/src/App.tsx', path]))
+        self.assertFalse(compatible([]))
+        self.assertFalse(compatible(['docs/PLAN.md']))
+
+    def web_stage(self):
+        self.stage_fixture()
+        self.controller_module.REVIEWED_CADDY.write_bytes((self.operator / 'Caddyfile').read_bytes())
+        self.fixture.records['report-worker']['State']['Status'] = 'running'
+        self.fixture.persist_records()
+        patcher = patch.object(self.controller, '_web_source', return_value='a' * 40)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.controller.stage(self.request)
+        self.fixture.calls.clear()
+        return {s: r['Id'] for s, r in self.fixture.records.items()}
+
+    def test_web_compatibility_uses_real_committed_diff_including_renamed_reader(self):
+        root = self.fixture.private / 'git-source'
+        root.mkdir()
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(root), '-c', 'user.email=fixture@example.invalid',
+                                            '-c', 'user.name=fixture', *args], text=True, stderr=subprocess.DEVNULL).strip()
+        git('init')
+        web = root / 'packages/web/src/App.tsx'
+        reader = root / 'packages/report-engine/reader.py'
+        web.parent.mkdir(parents=True)
+        reader.parent.mkdir(parents=True)
+        web.write_text('old ui')
+        reader.write_text('stable reader')
+        git('add', '.')
+        git('commit', '-m', 'baseline')
+        before = git('rev-parse', 'HEAD')
+        images = {**self.plan['images'], 'report-worker': self.plan['images']['server']}
+        def image(*args, **kwargs):
+            return json.dumps([{'Config': {'Labels': {'org.opencontainers.image.revision': before}}}])
+        with (patch.object(self.controller_module, 'OPERATOR', root / 'deploy'),
+              patch.object(self.fixture.executor, 'command', side_effect=image)):
+            web.write_text('new ui')
+            git('add', '.')
+            git('commit', '-m', 'ui')
+            self.assertEqual(self.controller._web_source(images, git('rev-parse', 'HEAD')), before)
+            (root / 'docs').mkdir()
+            git('mv', str(reader.relative_to(root)), 'docs/reader.md')
+            git('commit', '-m', 'move reader')
+            self.assertIsNone(self.controller._web_source(images, git('rev-parse', 'HEAD')))
+
+    def test_web_release_keeps_api_worker_and_data_live(self):
+        original = self.web_stage()
+        result = self.controller.deploy_web()
+        self.assertEqual(result['state'], 'RELEASE_WEB_ACCEPTED')
+        self.assertEqual(result['images']['server'], self.plan['images']['server'])
+        self.assertEqual(result['images']['web'], self.plan['candidate_images']['web'])
+        self.assertFalse(self.fixture.pending.exists())
+        for service in ('server', 'report-worker', 'caddy'):
+            self.assertEqual(self.fixture.records[service]['Id'], original[service])
+            self.assertEqual(self.fixture.records[service]['State']['Status'], 'running')
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+        changes = [call for call in self.fixture.calls if call[0] in {'compose', 'stop', 'start', 'rm'}]
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0][-1], 'web')
+
+    def test_web_failure_restores_only_web_and_retains_concurrent_data(self):
+        self.web_stage()
+        actual = self.fixture.executor.web_verify
+        def reject(plan, *, candidate):
+            if candidate:
+                with sqlite3.connect(self.fixture.source / 'aemr.db') as db:
+                    db.execute('update receipt set value=777')
+                raise RuntimeError('synthetic unavailable web')
+            return actual(plan, candidate=candidate)
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=reject),
+              self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_REJECTED_AND_RECOVERED')):
+            self.controller.deploy_web()
+        with sqlite3.connect(self.fixture.source / 'aemr.db') as db:
+            self.assertEqual(db.execute('select value from receipt').fetchone()[0], 777)
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['images']['web'])
+        self.assertFalse(self.fixture.pending.exists())
+
+    def test_web_recovery_after_owner_loss_uses_durable_pending(self):
+        self.web_stage()
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=KeyboardInterrupt),
+              self.assertRaises(KeyboardInterrupt)):
+            self.controller.deploy_web()
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertEqual(self.fixture.executor.recover()['state'], 'RELEASE_WEB_RECOVERED')
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['images']['web'])
+
+    def test_web_owner_loss_after_acceptance_retains_accepted_image(self):
+        self.web_stage()
+        with (patch.object(self.fixture.executor, 'recover', side_effect=KeyboardInterrupt),
+              self.assertRaises(KeyboardInterrupt)):
+            self.controller.deploy_web()
+        self.assertTrue(self.fixture.pending.exists())
+        self.fixture.records['web']['State']['Status'] = 'exited'
+        self.fixture.persist_records()
+        self.assertEqual(self.fixture.executor.recover()['state'], 'RELEASE_WEB_ACCEPTED')
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['candidate_images']['web'])
+        self.assertEqual(self.fixture.records['server']['Image'], self.plan['images']['server'])
+
+    def test_web_config_drift_is_rejected_before_any_container_change(self):
+        self.web_stage()
+        (self.fixture.runtime / '.env.production').write_text('CHANGED=yes')
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_CONFIG_CHANGED'):
+            self.controller.deploy_web()
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+
+    def test_changed_backend_environment_selects_full_release_despite_ui_source_diff(self):
+        self.web_stage()
+        config = self.compose_sources[str(self.controller_module.REVIEWED_COMPOSE)]
+        config['services']['server'].setdefault('environment', {})['NEW_READER_MODE'] = 'changed'
+        self.controller.stage(self.request)
+        component = json.loads((self.fixture.runtime / 'component.json').read_text())
+        stage = json.loads((self.fixture.runtime / 'stage.json').read_text())
+        self.assertEqual(component['mode'], 'full')
+        self.assertEqual(stage['candidate_images']['server'], self.request['candidate_images']['server'])
+        self.assertFalse(self.fixture.pending.exists())
+
+    def test_first_release_without_previous_word_restores_and_accepts_real_empty_checkpoint(self):
+        import shutil
+        published = self.fixture.source / 'reports/published'
+        self.assertTrue(published.resolve().is_relative_to(Path(self.fixture.tmp.name).resolve()))
+        shutil.rmtree(published)
+        backup = self.fixture.backups / 'worker-124/backup'
+        backup.parent.mkdir(mode=0o700)
+        self.fixture.backup_tool.create(self.fixture.source, backup)
+        self.fixture.expected = self.fixture.backup_tool.inventory(self.fixture.source)
+        self.plan['backup_reference'] = 'worker-124/backup'
+        self.plan['manifest_sha256'] = self.fixture.module.digest((backup / 'manifest.json').read_bytes())
+        self.plan['word'] = {'release_id': None, 'sha256': {}}
+        bound = {k: self.plan[k] for k in ('release_sha', 'manifest_sha256', 'images', 'config_sha256')}
+        self.plan['proofs'] = {name: {**bound, 'state': state} for name, state in self.fixture.module.PROOF_STATES.items()}
+        actual = self.fixture.executor.command
+        def command(args, **kwargs):
+            if args[0] == 'exec' and 'python3' in args and 'NO_PUBLISHED_RELEASE' in args[args.index('-c') + 1]:
+                return 'NO_PUBLISHED_RELEASE'
+            return actual(args, **kwargs)
+        self.fixture.executor.command = command
+        self.controller.prepare(self.plan)
+        proof = self.runner.run(self.plan)
+        self.assertEqual(proof['full_restore']['docx_checked'], 0)
+        self.fixture.module.atomic_json(self.fixture.runtime / 'trial-proof.json', proof)
+        result = self.controller.deploy()
+        self.assertEqual(result['state'], 'RELEASE_CANDIDATE_ACCEPTED')
+        self.assertEqual(result['word_sha256'], {})
+        self.assertFalse(published.exists())
+
+    def test_capture_empty_status_is_explicit_and_does_not_request_fake_documents(self):
+        import urllib.request
+        urls = []
+        def get(request, **kwargs):
+            urls.append(request.full_url)
+            result = io.BytesIO(b'{"latest":null,"attempt":null}')
+            result.status = 200
+            return result
+        output = io.StringIO()
+        with (patch.object(urllib.request, 'urlopen', side_effect=get),
+              patch.dict(os.environ, {'AEMR_API_KEY': 'PRIVATE_TOKEN'}),
+              contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as stopped):
+            exec(self.controller_module.CAPTURE_WORD, {})  # noqa: S102 - actual fixed capture program
+        self.assertEqual(stopped.exception.code, 0)
+        self.assertEqual(json.loads(output.getvalue()), {'release_id': None, 'sha256': {}})
+        self.assertEqual(len(urls), 2)
+
+    def test_live_gate_accepts_empty_only_when_bound_to_initial_state(self):
+        self.live_api_driver(broken='null-latest', padding=0)
+        self.fixture.executor._verify_candidate_schema(allow_empty=True)
+
+    def test_empty_word_binding_cannot_hide_partial_or_disappeared_documents(self):
+        valid = self.fixture.module.valid_word_binding
+        self.assertTrue(valid({'release_id': None, 'sha256': {}}))
+        self.assertFalse(valid({'release_id': None, 'sha256': self.fixture.word_hashes}))
+        self.assertFalse(valid({'release_id': self.fixture.release_id, 'sha256': {}}))
+        self.plan['word'] = {'release_id': None, 'sha256': {}}
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WORD_PROOF_INVALID'):
+            self.controller.prepare(self.plan)
+
+    def test_actual_native_program_distinguishes_first_start_from_lost_publication(self):
+        app = """Promise.resolve({createApp:()=>({inject:async()=>{
+const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,payload,rawPayload:Buffer.from(payload)};
+},close:async()=>{}})})"""
+        program = self.module.NATIVE_PROGRAM.replace("import('./src/app.ts')", app)
+        program = program.replace("import('@aemr/shared')", 'import(' + json.dumps((ROOT / 'packages/shared/src/schemas.ts').as_uri()) + ')')
+        program = program.replace('/app/packages/server/data/reports', str(self.fixture.private / 'not-created-yet'))
+        for binding, expected in (({'release_id': None, 'sha256': {}}, 0), (self.plan['word'], 2)):
+            with self.subTest(initial=binding['release_id'] is None):
+                result = subprocess.run(['node', '--import', str(ROOT / 'packages/server/node_modules/tsx/dist/loader.mjs'),
+                                         '--eval', program, 'candidate'], input=json.dumps(binding), text=True,
+                                        capture_output=True, timeout=15, check=False,
+                                        env={**os.environ, 'AEMR_API_KEY': 'PRIVATE_FIXTURE'})
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertEqual(result.stdout.strip(), 'CANDIDATE_TRIAL_PASS' if expected == 0 else '')
+                self.assertEqual(result.stderr.strip(), '' if expected == 0 else 'NATIVE_TRIAL_FAILURE=latest')
+
     def setUp(self):
         super().setUp()
         path = self.fixture.trusted_source('deploy/release-controller.py')
@@ -585,7 +788,7 @@ class ControllerTests(TrialTests):
             program = step.split('          program="', 1)[1].split('"\n', 1)[0]
         envelope = bare_status(self.fixture.private / 'preflight-reader-status', self.fixture.release_id)
         bodies = [(json.dumps(envelope), 'LIVE_LATEST_REPORT_SCHEMA_PASS', False),
-                  (json.dumps({**envelope, 'latest': None}), 'LIVE_REPORT_LATEST_NULL', False),
+                  (json.dumps({**envelope, 'latest': None}), 'LIVE_LATEST_REPORT_SCHEMA_PASS', False),
                   (json.dumps({'selected': envelope['latest'], 'attempt': None}), 'LIVE_REPORT_LATEST_MISSING', False),
                   (json.dumps({**envelope, 'latest': {**envelope['latest'], 'status': 'PRIVATE_INVALID_STATUS'}}), 'LIVE_REPORT_SCHEMA_INVALID', False),
                   ('PRIVATE_NOT_JSON', 'LIVE_REPORT_JSON_INVALID', False),

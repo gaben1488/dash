@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import stat
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -17,7 +18,24 @@ SOURCE_GATE = trial.SOURCE_GATE
 OPERATOR = Path('/home/aemr/dash/deploy')
 REVIEWED_COMPOSE = Path('/usr/local/libexec/aemr/reviewed-docker-compose.yml')
 REVIEWED_CADDY = Path('/usr/local/libexec/aemr/reviewed-Caddyfile')
-CAPTURE_WORD = """import hashlib,io,json,os,re,urllib.request,zipfile
+
+
+def web_only_inputs(paths):
+    """Only UI sources and inert documentation may reuse the installed backend."""
+    seen_web = False
+    for path in paths:
+        if (not isinstance(path, str) or not path or '\\' in path
+                or any(part in {'', '.', '..'} for part in path.split('/'))):
+            return False
+        if path.startswith('packages/web/'):
+            seen_web = True
+        elif not (path.startswith('docs/') and path.endswith('.md') or path in
+                  {'README.md', 'AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'LICENSE', 'LICENSE.txt'}):
+            return False
+    return seen_web
+
+
+CAPTURE_WORD = """import hashlib,io,json,os,re,sys,urllib.request,zipfile
 key=os.environ.get('AEMR_API_KEY','')
 if not key: raise ValueError('auth')
 def get(path):
@@ -28,7 +46,11 @@ def get(path):
  if len(body)>32*1024*1024: raise ValueError('size')
  return body
 get('/api/health')
-latest=json.loads(get('/api/report-releases')).get('latest')
+status=json.loads(get('/api/report-releases'))
+if 'latest' not in status: raise ValueError('latest')
+latest=status['latest']
+if latest is None:
+ print(json.dumps({'release_id':None,'sha256':{}}));sys.exit(0)
 if not isinstance(latest,dict): raise ValueError('latest')
 release=latest.get('release_id')
 if not isinstance(release,str) or not re.fullmatch('REL-[a-f0-9]{64}',release): raise ValueError('release')
@@ -55,6 +77,22 @@ class ReleaseController:
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
             if json.loads(self.executor.command(['image', 'inspect', image]))[0].get('Id') != image:
                 recovery.fail('RELEASE_IMAGE_UNAVAILABLE')
+
+    def _web_source(self, images, release_sha):
+        """Unknown history means full release, never inferred compatibility."""
+        image = json.loads(self.executor.command(['image', 'inspect', images['server']]))[0]
+        before = (image.get('Config', {}).get('Labels') or {}).get('org.opencontainers.image.revision', '')
+        if not isinstance(before, str) or not re.fullmatch('[a-f0-9]{40}', before) or images['server'] != images['report-worker']:
+            return None
+        try:
+            command = ['git', '-c', 'safe.directory=' + str(OPERATOR.parent), '-C', str(OPERATOR.parent)]
+            subprocess.run([*command, 'merge-base', '--is-ancestor', before, release_sha],
+                           capture_output=True, check=True, timeout=30)
+            paths = subprocess.run([*command, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', before, release_sha],
+                                   capture_output=True, check=True, timeout=30).stdout.decode().rstrip('\0').split('\0')
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            return None
+        return before if web_only_inputs(paths) else None
 
     def _saved_runtime(self, plan, records, resolved=None):
         if resolved is None:
@@ -231,11 +269,28 @@ class ReleaseController:
         for config, pins in ((previous, images), (candidate, candidate_images)):
             for service in recovery.SERVICES:
                 config['services'][service]['image'] = pins[service]
+        backend_sha = self._web_source(images, request['release_sha'])
+        same_caddy = old_caddy == recovery.read_owned(REVIEWED_CADDY, private=False)
+        if same_caddy:
+            # A previous release may bind identical bytes from its immutable capsule.
+            for mount in candidate['services']['caddy'].get('volumes', []):
+                if mount.get('type') == 'bind' and mount.get('target') == '/etc/caddy/Caddyfile':
+                    mount['source'] = str(caddy)
+        # Source equivalence alone cannot excuse changed environment/mounts/limits.
+        comparable = json.loads(json.dumps(candidate))
+        for service in recovery.SERVICES:
+            comparable['services'][service]['image'] = images[service]
+        if (backend_sha and comparable == previous
+                and same_caddy
+                and records['web']['State']['Status'] == 'running'
+                and not previous['services']['web'].get('volumes')):
+            candidate_images.update({s: images[s] for s in ('server', 'report-worker')})
+            for service in ('server', 'report-worker'):
+                candidate['services'][service]['image'] = images[service]
+        else:
+            backend_sha = None
         word = json.loads(self.executor.command(['exec', 'aemr-server-1', 'python3', '-c', CAPTURE_WORD], timeout=150))
-        if (not isinstance(word, dict) or set(word) != {'release_id', 'sha256'}
-                or not isinstance(word['release_id'], str) or not re.fullmatch('REL-[a-f0-9]{64}', word['release_id'])
-                or not isinstance(word['sha256'], dict) or set(word['sha256']) != {'main', 'supplement', 'operational'}
-                or any(not isinstance(v, str) or not recovery.HEX.fullmatch(v) for v in word['sha256'].values())):
+        if not recovery.valid_word_binding(word):
             recovery.fail('RELEASE_WORD_PROOF_INVALID')
         source_ci = {**ci, 'candidate_image_binding': {'source_sha': request['release_sha'], 'images': candidate_images}}
         encode = lambda value: json.dumps(value, sort_keys=True, allow_nan=False).encode()
@@ -251,7 +306,37 @@ class ReleaseController:
             recovery.atomic_bytes(recovery.RUNTIME_DIR / name, body)
         recovery.atomic_bytes(recovery.RUNTIME_DIR / 'source-ci.json', encode(source_ci))
         recovery.atomic_json(recovery.RUNTIME_DIR / 'stage.json', stage)
+        recovery.atomic_json(recovery.RUNTIME_DIR / 'component.json',
+                             {'mode': 'web' if backend_sha else 'full', 'backend_sha': backend_sha,
+                              'stage_sha256': recovery.digest(encode(stage))})
         return {'state': 'RELEASE_CONFIGURATION_STAGED'}
+
+    def deploy_web(self):
+        recovery.require_lock(self.executor.lock_fd)
+        self._idle()
+        stage = json.loads(recovery.read_owned(recovery.RUNTIME_DIR / 'stage.json'))
+        component = json.loads(recovery.read_owned(recovery.RUNTIME_DIR / 'component.json'))
+        if (component.get('mode') != 'web' or component.get('stage_sha256') != recovery.digest(
+                json.dumps(stage, sort_keys=True, allow_nan=False).encode())
+                or self._web_source(stage['images'], stage['release_sha']) != component.get('backend_sha')
+                or self._source(stage) != stage['source_ci_sha256']):
+            recovery.fail('RELEASE_WEB_COMPATIBILITY_CHANGED')
+        self._images(stage)
+        records = self.executor._records(stage, original=True)
+        self._saved_runtime(stage, records)
+        plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha']}
+        self.executor.web_config(plan)
+        self.executor.web_unchanged(plan, records)
+        recovery.atomic_json(recovery.PENDING, plan)
+        try:
+            self.executor.web_start(plan, candidate=True)
+            self.executor.web_verify(plan, candidate=True)
+            plan_hash = recovery.digest(json.dumps(plan, sort_keys=True).encode())
+            recovery.atomic_json(recovery.STATE_DIR / 'web-release-accepted.json', {'plan_sha256': plan_hash})
+            return self.executor.recover()
+        except Exception:  # noqa: BLE001 - durable recovery also handles interrupted activation
+            self.executor.recover()
+            recovery.fail('RELEASE_WEB_REJECTED_AND_RECOVERED')
 
     def base_plan(self, run_id):
         """Read the guardian's frozen backup; prepare later owns the actual EX."""
@@ -451,7 +536,7 @@ class ReleaseController:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('stage', 'base-plan', 'prepare', 'deploy'))
+    parser.add_argument('mode', choices=('stage', 'base-plan', 'prepare', 'deploy', 'deploy-web'))
     parser.add_argument('run_id', nargs='?')
     args = parser.parse_args(argv)
     try:
@@ -467,6 +552,8 @@ def main(argv=None):
             result = getattr(controller, args.mode)(json.loads(body))
         elif args.mode == 'base-plan':
             result = controller.base_plan(args.run_id)
+        elif args.mode == 'deploy-web':
+            result = controller.deploy_web()
         else:
             result = controller.deploy()
         print(result['state'])

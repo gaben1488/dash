@@ -2825,7 +2825,6 @@ jobs:
             let shared;try{shared=await import('@aemr/shared');}catch{return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');}
             if(typeof shared.ReportReleaseStatusSchema?.safeParse!=='function')return fail('LIVE_REPORT_SCHEMA_IMPORT_FAILED');
             if(value&&typeof value==='object'&&!Object.hasOwn(value,'latest'))return fail('LIVE_REPORT_LATEST_MISSING');
-            if(value?.latest===null)return fail('LIVE_REPORT_LATEST_NULL');
             if(!shared.ReportReleaseStatusSchema.safeParse(value).success)return fail('LIVE_REPORT_SCHEMA_INVALID');
             console.log('LIVE_LATEST_REPORT_SCHEMA_PASS');
           })().catch(()=>{console.log('LIVE_REPORT_CHECK_FAILED');process.exitCode=2;});
@@ -2859,6 +2858,7 @@ jobs:
           test "${outcome[0]}:${outcome[1]}" = 0:0
           grep -Fx LIVE_LATEST_REPORT_SCHEMA_PASS "$RUNNER_TEMP/release/live-envelope-check.log"
       - name: Install reviewed recovery tools and stage actual unchanged runtime
+        id: release-component
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
@@ -2866,8 +2866,11 @@ jobs:
           remote git -C /home/aemr/dash fetch --quiet origin "$RECOVERY_SHA"
           git archive "$RECOVERY_SHA" deploy .github/ci/source_ci_gate.py | \
             remote "sudo -n install -d -m 700 /root/codex-fixes/release-$RECOVERY_RUN && sudo -n tar --no-same-owner -xf - -C /root/codex-fixes/release-$RECOVERY_RUN"
-          docker save "aemr-server:release-$RECOVERY_SHA" "aemr-web:release-$RECOVERY_SHA" | gzip -1 | \
-            remote sudo -n docker load > "$RUNNER_TEMP/release/image-load.log" 2>&1
+          # Transport the verified CI bytes, not another export of the same images.
+          for role in server web; do
+            gzip -dc "$RUNNER_TEMP/release/runtime-candidate/$role.tar.gz" | \
+              remote sudo -n docker load >> "$RUNNER_TEMP/release/image-load.log" 2>&1
+          done
           remote sudo -n bash "/root/codex-fixes/release-$RECOVERY_RUN/deploy/install-runtime-guard.sh" \
             /home/aemr/dash/deploy > "$RUNNER_TEMP/release/install.log" 2>&1 || { echo RELEASE_TOOL_INSTALL_FAILED; exit 2; }
           python3 - <<'PY' > "$RUNNER_TEMP/release/stage-request.json"
@@ -2881,6 +2884,10 @@ jobs:
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py stage'" \
             < "$RUNNER_TEMP/release/stage-request.json" > "$RUNNER_TEMP/release/stage.log" 2>&1 || { echo RELEASE_RUNTIME_STAGE_FAILED; exit 2; }
           remote sudo -n cat /var/lib/aemr/release-runtime/stage.json > "$RUNNER_TEMP/release/stage.json"
+          remote sudo -n cat /var/lib/aemr/release-runtime/component.json > "$RUNNER_TEMP/release/component.json"
+          mode=$(python3 -c 'import json,sys;x=json.load(open(sys.argv[1]));assert x["mode"] in {"web","full"};print(x["mode"])' "$RUNNER_TEMP/release/component.json")
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          if test "$mode" = web; then exit 0; fi
           # Private exact previous images are loaded on runner before downtime.
           previous=$(python3 - <<'PY'
           import json,os
@@ -2907,6 +2914,7 @@ jobs:
           PYENVBEFOREFREEZE
           echo RELEASE_IMAGES_AND_CONFIGURATION_READY
       - name: Admit independent full-restore capacity before production downtime
+        if: steps.release-component.outputs.mode == 'full'
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
@@ -2964,6 +2972,7 @@ jobs:
           print(json.dumps({'status':'RELEASE_INDEPENDENT_CAPACITY_ADMITTED','free_bytes':free,'required_bytes':required}))
           PYRUNNERCAPACITY
       - name: Freeze writers once and create fresh full private backup
+        if: steps.release-component.outputs.mode == 'full'
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
@@ -2980,6 +2989,7 @@ jobs:
           done
           test "$ready" = true || { echo RELEASE_PLAN_NOT_PREPARED; exit 2; }
       - name: Independent one-clone candidate and previous runtime with actual complete restore
+        if: steps.release-component.outputs.mode == 'full'
         run: |
           set -euo pipefail
           umask 077
@@ -3023,6 +3033,7 @@ jobs:
             < "$RUNNER_TEMP/release/trial-proof.json"
           echo RELEASE_FULL_RESTORE_CANDIDATE_AND_PREVIOUS_RUNTIME_PASS
       - name: Same guardian exact-SHA release with closed-ingress API and Word acceptance
+        if: steps.release-component.outputs.mode == 'full'
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
@@ -3052,6 +3063,15 @@ jobs:
           assert json.loads((Path(os.environ['RUNNER_TEMP'])/'release/public-health.json').read_text())['status']=='ok'
           print('PUBLIC_HEALTH_PASS')
           PY
+      - name: Install compatible web without stopping API or worker
+        if: steps.release-component.outputs.mode == 'web'
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/release/ssh.sh"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py deploy-web'" > "$RUNNER_TEMP/release/web-release.log" 2>&1
+          remote sudo -n cat /var/lib/aemr/web-release-completed.json > "$RUNNER_TEMP/release/accepted.json"
+          curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
       - name: Seal the actual installed runtime passport
         run: |
           set -euo pipefail
@@ -3086,7 +3106,7 @@ jobs:
             'passport_sha256':hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest()}))
           PY
       - name: Always request same-owner resume without reverting an accepted release
-        if: always()
+        if: always() && steps.release-component.outputs.mode == 'full'
         run: |
           set -euo pipefail
           if test -f "$RUNNER_TEMP/release/ssh.sh"; then

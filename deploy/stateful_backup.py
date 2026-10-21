@@ -54,10 +54,10 @@ def inventory(root: Path, *, require_complete: bool = True) -> dict[str, dict[st
         result[path.relative_to(root).as_posix()] = {
             **attributes, "sha256": digest.hexdigest(), "bytes": size}
     must_exist = {"aemr.db", "reports/inputs/registry.json", "reports/inputs/ledger.json"}
-    if require_complete and not must_exist.issubset(result):
-        raise BackupError("BACKUP_STATE_INCOMPLETE")
-    if require_complete and not any(name.startswith("reports/published/") and name.endswith(".docx")
-                                    for name in result):
+    # Initial state has no publications yet and may precede source initialization.
+    # Once documents exist, retain the established operational-input requirement.
+    has_documents = any(name.startswith('reports/published/') and name.endswith('.docx') for name in result)
+    if require_complete and has_documents and not must_exist.issubset(result):
         raise BackupError("BACKUP_STATE_INCOMPLETE")
     return result
 
@@ -85,8 +85,6 @@ def verify_restored_documents_and_sqlite(root: Path, files: dict) -> tuple[int, 
                 documents += 1
             except (OSError, zipfile.BadZipFile) as exc:
                 raise BackupError("BACKUP_DOCX_INVALID") from exc
-    if dbs == 0 or documents == 0:
-        raise BackupError("BACKUP_STATE_INCOMPLETE")
     return dbs, documents
 
 
@@ -402,7 +400,7 @@ def restore_state(backup: Path, source: Path, verified_manifest_sha256: str) -> 
         raise BackupError('BACKUP_VERIFIED_MANIFEST_MISMATCH')
     manifest, files, total = _validated_backup(backup)
     required = {'aemr.db','reports/inputs/registry.json','reports/inputs/ledger.json'}
-    if not required.issubset(files) or not any(k.startswith('reports/published/') and k.endswith('.docx') for k in files):
+    if any(k.startswith('reports/published/') and k.endswith('.docx') for k in files) and not required.issubset(files):
         raise BackupError('BACKUP_STATE_INCOMPLETE')
     if manifest['format'] == 2:
         _validate_archive_content(backup, files)
