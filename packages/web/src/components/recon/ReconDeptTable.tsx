@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Таблица сверки «По управлениям» (год-уровень): бейджи-саммари, таблица,
 //    раскрывающаяся диагностика со ссылками на ячейки СВОД ТД-ПМ.
 //    Извлечено move-only из pages/Recon.tsx (разрез E11-4). Store не читает.
@@ -150,7 +151,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                           className="flex items-center gap-2 text-left rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
                           <Building2 size={14} className="text-zinc-400" aria-hidden="true" />
-                          <span className="font-semibold text-zinc-700 dark:text-zinc-200">{row.department}</span>
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-200">{productLabel(row.department)}</span>
                           {isExpanded
                             ? <ChevronUp size={12} className="text-zinc-400" aria-hidden="true" />
                             : <ChevronDown size={12} className="text-zinc-400" aria-hidden="true" />}

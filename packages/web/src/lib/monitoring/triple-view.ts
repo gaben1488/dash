@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Что экран «Сверка трёх источников» показывает и в каком порядке.
  *
@@ -251,7 +252,7 @@ export function scopeTripleRows(rows: readonly TripleRow[], scope: DeptScope): T
 /** Организации строки одной фразой: ГРБС и учреждение внутри него (п.127). */
 export function orgPhrase(row: TripleRow): string {
   const parts: string[] = [];
-  if (row.departments.length > 0) parts.push(row.departments.join(', '));
+  if (row.departments.length > 0) parts.push(row.departments.map(productLabel).join(', '));
   const subs = row.subordinates.filter((s) => s !== '' && s !== 'Х' && s !== 'х');
   if (subs.length > 0) parts.push(subs.slice(0, 2).join('; ') + (subs.length > 2 ? ' и ещё…' : ''));
   return parts.join(' · ');

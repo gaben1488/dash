@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * text-blocks.ts — состав выгрузок словами, БЕЗ библиотеки docx.
  *
@@ -363,7 +364,7 @@ function grbsExecutionLine(
 ): ReportBlock {
   const kp = b.quarter.methods.kp;
   return line(
-    `- ${b.dept} – ${pct(kp.pct)} (план на ${qNom(q)} – ${num(kp.planCount)}, ` +
+    `- ${productLabel(b.dept)} – ${pct(kp.pct)} (план на ${qNom(q)} – ${num(kp.planCount)}, ` +
     `исполнено ${num(kp.doneCount)}, план на год – ${num(yearPlanCount)})`,
   );
 }
@@ -481,7 +482,7 @@ export function mainReportBlocks(
   for (const b of grbsBlocks) {
     const deptKp = yearOf(quarters, 'kp', b.dept);
     const deptEp = yearOf(quarters, 'ep', b.dept);
-    out.push(heading(`${b.dept} — ${b.deptLabel}`));
+    out.push(heading(`${productLabel(b.dept)} — ${b.deptLabel}`));
 
     out.push(heading('КОНКУРЕНТНЫЕ ПРОЦЕДУРЫ:'));
     // П.44 (класс): каждая строка «Всего на год» несёт сумму с разбивкой по

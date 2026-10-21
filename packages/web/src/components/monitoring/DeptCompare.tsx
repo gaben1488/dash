@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Сравнение управлений по нормированным величинам (спека §3.7).
  *
@@ -120,7 +121,7 @@ export function DeptCompare({ depts, periodLabel, onPickDept }: DeptCompareProps
                           title={drillHintFor(r.dept)}
                           className="text-left font-medium hover:underline"
                         >
-                          {r.dept}
+                          {productLabel(r.dept)}
                         </button>
                       )}
                       <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">

@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store';
 import { DEPARTMENT_REGISTRY, isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
@@ -57,7 +58,7 @@ export function isSelfReference(subName: string, deptId: string): boolean {
   if (isOrgItself(subName)) return true;
   if (SELF_REF_PATTERNS.test(subName)) return true;
   // If the sub name is just the dept name in quotes
-  if (subName === deptId || subName === `МКУ "${deptId}"`) return true;
+  if (subName === deptId || subName === `МКУ "${productLabel(deptId)}"`) return true;
   return false;
 }
 
@@ -182,7 +183,7 @@ export function OrgStrip() {
               <button
                 type="button"
                 aria-pressed={isDeptSelected && !isDeptOnly}
-                aria-label={`${dept.id} с подведомственными${hasSubs ? `, ${dept.realSubs.length}` : ''}`}
+                aria-label={`${productLabel(dept.id)} с подведомственными${hasSubs ? `, ${dept.realSubs.length}` : ''}`}
                 className={clsx('ob-dept-btn', isActive && !deptOnlyMode.has(dept.id) && 'ob-dept-active')}
                 onClick={() => {
                   if (selectedDepartments.has(dept.id) && !deptOnlyMode.has(dept.id)) {
@@ -196,7 +197,7 @@ export function OrgStrip() {
                     }
                   }
                 }}
-                title={`${dept.id} — выбрать с подведами`}
+                title={`${productLabel(dept.id)} — выбрать с подведами`}
               >
                 <span className="ob-dept-bar" style={{ background: dept.color }} aria-hidden="true" />
                 <span className="ob-dept-name">{dept.abbr}</span>

@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useEffect, useRef, useState } from 'react';
 import { fetchJSON } from '../../api';
 
@@ -125,7 +126,7 @@ export function CellNotesMetadata({
           {data.notes.map((note) => (
             <article key={note.id} className="space-y-1">
               <p>
-                Заметка {note.book} · {note.evidence.sheet}!{note.evidence.cell} · sheetId {note.evidence.sheetId} ·
+                Заметка {productLabel(note.book)} · {note.evidence.sheet}!{note.evidence.cell} · sheetId {note.evidence.sheetId} ·
                 прочитано {note.readAt}
               </p>
               <p className="whitespace-pre-wrap">{note.evidence.content ?? 'Текст заметки не передан'}</p>

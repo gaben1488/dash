@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useId, useState } from 'react';
 import type { ReportAssurance } from '@aemr/shared';
 
@@ -96,7 +97,7 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
                 )}>
                   <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
                     {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4'
-                      ? 'Сумма без даты завершения: уточнить вид позиции' : item.title}{item.owner && ' · ' + item.owner}
+                      ? 'Сумма без даты завершения: уточнить вид позиции' : item.title}{item.owner && ' · ' + productLabel(item.owner)}
                     {item.severity === 'blocks_release' && ' · требуется для нового выпуска'}
                     {group.key === 'ENGINE' && <span> · Затронутых записей: {count}</span>}
                   </summary>

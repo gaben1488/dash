@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { ChevronLeft, Calendar, X } from 'lucide-react';
@@ -363,7 +364,7 @@ export function DrillPieChart({
       if (dm.orgSelf) {
         raw.push({
           id: `self:${dm.dept}`,
-          name: `${dm.dept} (само)`,
+          name: `${productLabel(dm.dept)} (само)`,
           value: readMetric(dm.orgSelf.metrics, metric, scope),
           color: deptColorMap.get(dm.dept),
           drillable: false,
@@ -449,7 +450,7 @@ export function DrillPieChart({
             if (dm.orgSelf) {
               raw.push({
                 id: `org:self:${dm.dept}`,
-                name: `${dm.dept} (само)`,
+                name: `${productLabel(dm.dept)} (само)`,
                 value: readMetric(dm.orgSelf.metrics, metric, scope),
                 color: deptColorMap.get(dm.dept),
                 drillable: false,
@@ -469,7 +470,7 @@ export function DrillPieChart({
           for (const dm of mdm.departments) {
             raw.push({
               id: `d:${dm.dept}`,
-              name: dm.dept,
+              name: productLabel(dm.dept),
               value: readMetric(dm.total, metric, scope),
               color: deptColorMap.get(dm.dept),
               drillable: true,
@@ -498,7 +499,7 @@ export function DrillPieChart({
         if (viewLevel === 'orgs') {
           for (const dm of mdm.departments) {
             const nodes = [
-              ...(dm.orgSelf ? [{ id: `eo:self:${dm.dept}`, name: `${dm.dept} (само)`, m: dm.orgSelf.metrics }] : []),
+              ...(dm.orgSelf ? [{ id: `eo:self:${dm.dept}`, name: `${productLabel(dm.dept)} (само)`, m: dm.orgSelf.metrics }] : []),
               ...dm.realSubs.map(sub => ({ id: `eo:sub:${dm.dept}:${sub.name}`, name: sub.displayName, m: sub.metrics })),
             ];
             for (const n of nodes) {
@@ -515,7 +516,7 @@ export function DrillPieChart({
             planCount += dm.total.planCount ?? 0;
             factCount += dm.total.factCount ?? 0;
             raw.push({
-              id: `e:${dm.dept}`, name: dm.dept, value: dm.total.factCount ?? 0,
+              id: `e:${dm.dept}`, name: productLabel(dm.dept), value: dm.total.factCount ?? 0,
               color: deptColorMap.get(dm.dept), drillable: true,
             });
           }

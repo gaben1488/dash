@@ -911,7 +911,7 @@ export function ReportPage() {
                   : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/60',
               )}
             >
-              <span>{vm.dept}</span>
+              <span>{productLabel(vm.dept)}</span>
               <span className={clsx(
                 'tabular-nums font-medium',
                 activeDept === vm.dept ? 'text-amber-900 dark:text-amber-100' : 'text-zinc-800 dark:text-zinc-100',

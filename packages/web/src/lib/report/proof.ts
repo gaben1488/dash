@@ -32,7 +32,7 @@ const EPS = 0.5;
  */
 function sheetAddress(dept: string, deptLabel: string): string {
   const entry = findDept(dept);
-  return entry ? `${entry.id} · ${entry.sheetName}` : deptLabel;
+  return entry ? `${entry.shortName} · ${entry.sheetName}` : deptLabel;
 }
 
 /** Σ вкладов строк-атомов — сторона сверки с итогом, не замена итога. */

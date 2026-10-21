@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * ChangeJournal — ПОДРОБНАЯ глубина журнала изменений (требование владельца
  * 21.08.2026: «и кратко, и вместе с тем подробно, необходимо и достаточно
@@ -202,7 +203,7 @@ export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose
             <FilterRow label="Книга">
               {facets.books.map((b) => (
                 <Chip key={b.book} active={books.includes(b.book)} onClick={() => toggleBook(b.book)}>
-                  {b.book} <span className="opacity-60 tabular-nums">{b.count}</span>
+                  {productLabel(b.book)} <span className="opacity-60 tabular-nums">{b.count}</span>
                 </Chip>
               ))}
             </FilterRow>

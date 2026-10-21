@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /** Трёхстрочный эфирный барабан и серверный журнал с контрольного среза.
  * Перечитываем при открытии, раскрытии и принятом чтении источников; SSE и
  * подтверждение уведомления не сбрасывают серверный накопленный итог. */
@@ -126,7 +127,7 @@ export function LiveHistory() {
               : history.length > 0 ? 'Правка учтена: числа на экране её уже содержат' : 'Запись серверного журнала с контрольного среза'}
           >
             <span className="lh-t">{fmtClock(r.at)}</span>
-            <span className="lh-b">{r.book}</span>
+            <span className="lh-b">{productLabel(r.book)}</span>
             <span className="lh-s">
               {r.columnLabel ?? r.column} {val(r.before)} → <b>{val(r.after)}</b>
             </span>
@@ -183,7 +184,7 @@ export function LiveHistory() {
                   className="flex items-baseline gap-1.5 text-[10px] leading-snug whitespace-nowrap overflow-hidden"
                 >
                   <span className="shrink-0 tabular-nums text-[var(--ink-faint)]">{r.at?.slice(11, 16) ?? '—'}</span>
-                  <span className="shrink-0 font-medium text-[var(--ink-strong)]">{r.book}</span>
+                  <span className="shrink-0 font-medium text-[var(--ink-strong)]">{productLabel(r.book)}</span>
                   <span className="shrink-0 text-[var(--ink-muted)]">{entryAddress(r)}</span>
                   <span className="min-w-0 truncate">{entryChangeLine(r)}</span>
                   <span className="ml-auto shrink-0 text-[9px] text-[var(--ink-faint)] max-w-[90px] truncate">

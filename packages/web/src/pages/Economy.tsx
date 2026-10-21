@@ -219,7 +219,7 @@ export function EconomyPage() {
     if (orgScope.mode === 'district' || !singleDept) return null;
     return {
       mode: orgScope.mode,
-      deptLabel: singleDept.dept,
+      deptLabel: productLabel(singleDept.dept),
       hasSubs: orgScope.hasSubs,
       top: singleDept.subordinates
         .filter(s => s.name !== ORG_ITSELF)
@@ -273,7 +273,7 @@ export function EconomyPage() {
   const conflictSubScope: ConflictSubScope | null = useMemo(() => {
     if (!withSubsMode || !singleDept) return null;
     return {
-      deptLabel: singleDept.dept,
+      deptLabel: productLabel(singleDept.dept),
       hasSubs: orgScope.hasSubs,
       orgs: orgScope.subordinates.map(g => ({ key: g.key, label: g.label })),
     };
@@ -627,8 +627,8 @@ export function EconomyPage() {
                   а не «управления» во множественном числе. */}
               {singleDept
                 ? (totals.share !== null
-                  ? `${singleDept.dept}: сэкономлено ${formatPct(totals.share)} лимита`
-                  : `Экономия ${singleDept.dept} (лимиты не заданы)`)
+                  ? `${productLabel(singleDept.dept)}: сэкономлено ${formatPct(totals.share)} лимита`
+                  : `Экономия ${productLabel(singleDept.dept)} (лимиты не заданы)`)
                 : (totals.share !== null
                   ? `Управления сэкономили ${formatPct(totals.share)} своих лимитов`
                   : 'Экономия по управлениям (лимиты не заданы)')}

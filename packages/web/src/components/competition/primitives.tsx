@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ────────────────────────────────────────────────────────────────
 // Общие части вкладки «Конкуренция»: каркас карточки и счёт ЕП/КП
 // по периметру шапки.
@@ -90,7 +91,7 @@ export function SubScopeNote({ mode, deptLabel, reason, grbsNote }: {
   grbsNote?: string | null;
 }) {
   if (mode === 'district') return null;
-  const who = deptLabel ? `${deptLabel}` : 'выбранного управления';
+  const who = deptLabel ? productLabel(deptLabel) : 'выбранного управления';
   if (mode === 'grbs' && grbsNote === null) return null;
   return (
     <p className="mt-3 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">

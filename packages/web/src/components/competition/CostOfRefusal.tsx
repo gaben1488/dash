@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // Scenario on recorded K/Y positions. Financial semantics are source-defined.
 // Approved economy is a separate AD-gated fact, never inferred from this ratio.
 
@@ -277,7 +278,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                 <tbody>
                   {sortedRows.slice(0, ROWS_VISIBLE_LIMIT).map((p, i) => (
                     <tr key={i} className={clsx(RULE_ROW, 'align-top')}>
-                      <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{p.department}</td>
+                      <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{productLabel(p.department)}</td>
                       <td className="py-1.5 pr-3 text-zinc-700 dark:text-zinc-200 max-w-[380px]">
                         {/* Из числа — в строки-основания (канон п.119). Цель
                             собирает `buildDrill` (М14): управление, квартал
