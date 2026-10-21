@@ -212,7 +212,7 @@ export function EpJustification({ orgScope }: {
   return (
     <CompetitionCard
       title="Из чего состоит закупка у единственного поставщика"
-      subtitle="Одна доля ЕП складывает монополиста и «сочли аукцион нецелесообразным» — а это разные закупки. Здесь объём без торгов разложен на четыре степени обоснованности, и отдельно назван сокращаемый ЕП: та часть, которую в принципе можно вывести на торги."
+      subtitle="Пояснения к закупкам у ЕП сгруппированы по содержанию. Категория показывает, что указал сотрудник; применимость основания, документы и возможность конкурентной закупки требуют отдельной проверки."
       icon={Scale}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.ep_justification}
@@ -256,7 +256,7 @@ export function EpJustification({ orgScope }: {
           {/* ── Главное число: сокращаемый ЕП ── */}
           <div className={clsx(TILE, 'px-4 py-3')}>
             <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Сокращаемый ЕП — решение заказчика и закупки без обоснования
+              ЕП для разбора — решение заказчика и неустановленное основание
             </p>
             <p className="text-2xl font-semibold tabular-nums text-pink-700 dark:text-pink-400 mt-1">
               {formatMoney(summary.reducible.sum)}
@@ -271,10 +271,9 @@ export function EpJustification({ orgScope }: {
               )}
             </p>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1.5 leading-relaxed max-w-2xl">
-              Это верхняя граница объёма, который можно вынести на торги, а не обещанная
-              экономия. Остальной ЕП сокращать нечем: монополиста, коммунальный ресурс,
-              охрану и аварию конкурсом не заменить — закон прямо разрешает такие закупки,
-              а объединение и торги на них не действуют.
+              Это объём позиций для предметного разбора, а не доказанный объём для перевода
+              на торги и не прогноз экономии. Другие группы тоже не освобождаются от проверки:
+              текст о монополии, согласовании или выгоде сам по себе не подтверждает основание.
             </p>
             <button
               type="button"
@@ -284,7 +283,7 @@ export function EpJustification({ orgScope }: {
                 FOCUS_RING,
               )}
             >
-              Открыть закупки без обоснования в Реестре →
+              Открыть строки с вопросами к основанию в Реестре →
             </button>
             <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
               Реестр отбирает строки по признакам «обоснование не заполнено», «формулировка
@@ -319,7 +318,7 @@ export function EpJustification({ orgScope }: {
                         {EP_GRADE_LABELS[g.grade]}
                         {reducible && (
                           <span className="ml-1.5 font-normal text-[10px] text-zinc-500 dark:text-zinc-400">
-                            (сокращаемый)
+                            (для разбора)
                           </span>
                         )}
                       </p>
@@ -331,7 +330,7 @@ export function EpJustification({ orgScope }: {
                       </p>
                       <p className="text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400 mt-0.5">
                         {g.rows} {rowsAccWord(g.rows)}
-                        {g.countShare !== null && <> · {fmtPct(g.countShare)} процедур ЕП</>}
+                        {g.countShare !== null && <> · {fmtPct(g.countShare)} строк ЕП</>}
                       </p>
                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1.5 leading-relaxed">
                         {EP_GRADE_EXPLAIN[g.grade]}
@@ -368,7 +367,7 @@ export function EpJustification({ orgScope }: {
               {trend && (
                 <>
                   {' '}
-                  {`От ${quarterLabel(trend.first.index)} к ${quarterLabel(trend.last.index)} сокращаемая доля `}
+                  {`От ${quarterLabel(trend.first.index)} к ${quarterLabel(trend.last.index)} доля позиций для разбора `}
                   {trend.deltaPp < 0 ? 'упала' : trend.deltaPp > 0 ? 'выросла' : 'не изменилась'}
                   {trend.deltaPp === 0
                     ? `: ${fmtPct(trend.last.reducibleShareOfAll ?? 0)}.`
@@ -408,7 +407,7 @@ export function EpJustification({ orgScope }: {
                     <Line
                       type="monotone"
                       dataKey="reducibleShare"
-                      name="Из них сокращаемые"
+                      name="Из них для разбора"
                       stroke={gradeColor('unfounded', isDark)}
                       strokeWidth={2}
                       strokeDasharray="5 3"
@@ -436,8 +435,8 @@ export function EpJustification({ orgScope }: {
                   <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Квартал</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium text-right">Без торгов</th>
-                    <th scope="col" className="py-1.5 pr-3 font-medium text-right">Сокращаемые</th>
-                    <th scope="col" className="py-1.5 font-medium text-right">Деньги сокращаемых</th>
+                    <th scope="col" className="py-1.5 pr-3 font-medium text-right">Для разбора</th>
+                    <th scope="col" className="py-1.5 font-medium text-right">План позиций для разбора</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -92,7 +92,10 @@ export function computeTrustScore(
   const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
   const totalWeight = assessed.reduce((sum, c) => sum + c.weight, 0);
   const weightedSum = assessed.reduce((sum, c) => sum + c.score * c.weight, 0);
-  const overall = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
+  // Missing coverage must not be silently removed from the denominator.
+  // An aggregate grade requires evidence for every weighted component.
+  const requiredWeight = components.reduce((sum, c) => sum + Math.max(0, c.weight), 0);
+  const overall = totalWeight > 0 && totalWeight === requiredWeight ? Math.round(weightedSum / totalWeight) : null;
 
   const grade = overall === null ? null : overall >= THRESHOLDS.TRUST.A ? 'A'
     : overall >= THRESHOLDS.TRUST.B ? 'B'
@@ -148,16 +151,6 @@ function computeDataQuality(metrics: Map<string, NormalizedMetric>, issues: Issu
 
 function computeFormulaIntegrity(issues: Issue[]): TrustComponent {
   const formulaIssues = issuesForComponent(issues, 'formula_integrity');
-  const config = TRUST_COMPONENT_CONFIG['formula_integrity'];
-
-  let score = 100;
-  // Per-severity penalty from config — linear, not logarithmic
-  // This ensures 100 critical issues ARE worse than 10 critical issues
-  for (const issue of formulaIssues) {
-    const sev = issue.severity as keyof typeof config.penalties;
-    const penalty = config.penalties[sev] ?? config.penalties['warning'] ?? 3;
-    score -= penalty;
-  }
 
   const critical = formulaIssues.filter(i => i.severity === 'critical').length;
   const significant = formulaIssues.filter(i => i.severity === 'significant').length;
@@ -165,26 +158,16 @@ function computeFormulaIntegrity(issues: Issue[]): TrustComponent {
   return {
     name: 'formula_integrity',
     label: 'Целостность формул',
-    score: Math.max(10, Math.round(score)),
+    score: null,
     weight: 25,
     issues: formulaIssues.length,
     criticalIssues: critical,
-    details: `${formulaIssues.length} замечаний (${critical} критических, ${significant} значимых)`,
+    details: `${formulaIssues.length} замечаний (${critical} критических, ${significant} значимых). Полнота проверки формул не подтверждена; отсутствие замечаний не означает успешную проверку всех формул.`,
   };
 }
 
 function computeRuleCompliance(issues: Issue[]): TrustComponent {
   const ruleIssues = issuesForComponent(issues, 'rule_compliance');
-  const config = TRUST_COMPONENT_CONFIG['rule_compliance'];
-
-  let score = 100;
-
-  // Per-severity weighting from config — each issue penalizes proportionally
-  for (const issue of ruleIssues) {
-    const sev = issue.severity as keyof typeof config.penalties;
-    const penalty = config.penalties[sev] ?? config.penalties['warning'] ?? 3;
-    score -= penalty;
-  }
 
   // Group by rule ID for reporting
   const byRule = new Map<string, number>();
@@ -199,11 +182,11 @@ function computeRuleCompliance(issues: Issue[]): TrustComponent {
   return {
     name: 'rule_compliance',
     label: 'Соответствие правилам',
-    score: Math.max(10, Math.round(score)),
+    score: null,
     weight: 20,
     issues: ruleIssues.length,
     criticalIssues: totalCritical,
-    details: `${byRule.size} правил с нарушениями, ${ruleIssues.length} замечаний (${criticalRules} критических правил)`,
+    details: `${byRule.size} правил с замечаниями, ${ruleIssues.length} замечаний (${criticalRules} критических правил). Полнота и применимость проверок не подтверждены; общий балл не рассчитан.`,
   };
 }
 

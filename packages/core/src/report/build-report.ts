@@ -530,7 +530,7 @@ function reasonsOf(rows: RawRow[], year: number): ReasonBreakdown {
   return {
     epReasons: reasonBuckets(epRows, DEPT_COLUMNS.EP_REASON, canonicalizeReasonEp, (c) => {
       const e = EP_REASON_DICT[c as keyof typeof EP_REASON_DICT];
-      return e ? { label: e.label_ru, legitimate: e.is_legitimate } : null;
+      return e ? { label: e.label_ru } : null;
     }),
     deviations: reasonBuckets(inYear, DEPT_COLUMNS.DEVIATION_REASON, canonicalizeDeviation, (c) => {
       const e = DEVIATION_DICT[c as keyof typeof DEVIATION_DICT];

@@ -43,7 +43,8 @@ describe('обоснованность ЕП (канон п.98ж)', () => {
   it('пустая графа, нераспознанное и подмена процедуры — без обоснования', () => {
     expect(epGradeOfCluster('EMPTY').grade).toBe('unfounded');
     expect(epGradeOfCluster('UNMAPPED').grade).toBe('unfounded');
-    expect(epGradeOfCluster('EP_SMALL_EL_PURCH').grade).toBe('unfounded');
+    expect(epGradeOfCluster('EP_SMALL_EL_PURCH').grade).toBe('lawful-exclusive');
+    expect(epGradeOfCluster('EP_SMALL_EL_PURCH').evidence).toContain('требуют проверки');
     expect(epGradeOfCluster('EP_CURRENT_LAW').grade).toBe('unfounded');
   });
 

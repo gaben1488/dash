@@ -321,7 +321,7 @@ export function TrustPage() {
           </div>
           <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            {overallScore === null ? 'Для выбранного периметра недостаточно данных для расчёта.' : `Результат доступных проверок: ${overallScore} из 100`}
+            {overallScore === null ? 'Общий балл не рассчитан: полнота проверок выбранных данных не подтверждена. Найденные замечания и результаты отдельных сверок показаны ниже.' : `Результат доступных проверок: ${overallScore} из 100`}
           </p>
           {components.some(c => c.score === null && c.weight > 0) && (
             <p className="text-xs text-zinc-500 mt-2 text-center">

@@ -12,6 +12,7 @@ function roundAverage(values: number[]): number {
 }
 
 export function weightedTrustOverall(components: TrustComponent[]): number | null {
+  if (components.some(c => c.weight > 0 && (c.score === null || !Number.isFinite(c.score)))) return null;
   const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
   const totalWeight = assessed.reduce((sum, component) => sum + component.weight, 0);
   if (totalWeight <= 0) return null;
@@ -66,7 +67,9 @@ export function buildTrustViewModel(
         ? null : roundAverage(matching.map((component) => component.score!)),
       issues: matching.reduce((sum, component) => sum + component.issues, 0),
       criticalIssues: matching.reduce((sum, component) => sum + component.criticalIssues, 0),
-      details: `Фильтр: ${matching.length} управлений`,
+      details: matching.some(component => component.score === null)
+        ? `Фильтр: ${matching.length} управлений. Полнота проверки не подтверждена; оценка недоступна.`
+        : `Фильтр: ${matching.length} управлений`,
     }];
   });
 

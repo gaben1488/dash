@@ -37,6 +37,17 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {
+    const response = await app.inject('/api/dashboard?year=2026');
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(data.trust.overall).toBeNull();
+    expect(data.trust.grade).toBeNull();
+    for (const name of ['formula_integrity', 'rule_compliance']) {
+      expect(data.trust.components.find((c: { name: string }) => c.name === name).score).toBeNull();
+    }
+    expect(data.snapshot.issues).toEqual(fixture.snapshot.issues);
+  });
   it('distinguishes an explicit unknown amount from a missing period field', async () => {
     const data = (await app.inject('/api/dashboard?year=2026')).json();
     const period = data.departmentSummaries[0].quarters.q1;

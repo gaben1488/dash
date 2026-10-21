@@ -92,10 +92,10 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     ]);
     draw(<EpJustification orgScope={districtScope} />);
 
-    await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/ЕП для разбора/)).toBeTruthy());
     // Четыре степени подписаны по-русски, латинских ключей на экране нет.
-    expect(screen.getByText('Безальтернативная по закону')).toBeTruthy();
-    expect(screen.getByText(/Выгода подтверждена документом/)).toBeTruthy();
+    expect(screen.getByText('Указано основание или особый режим')).toBeTruthy();
+    expect(screen.getByText(/Указаны выгода или согласование/)).toBeTruthy();
     expect(screen.getByText(/Решение заказчика/)).toBeTruthy();
     // Dictionary uncertainty is not proof of an absent legal basis (owner K02/C06, 12 October).
     expect(screen.getByText('Основание не установлено')).toBeTruthy();
@@ -103,10 +103,10 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     expect(screen.getByText(/40[.,]0\s*%\s*денег ЕП/)).toBeTruthy();
     expect(screen.getByText(/20[.,]0\s*%\s*всего плана периметра/)).toBeTruthy();
     // Тон — объяснение механизма, а не упрёк.
-    expect(screen.getByText(/верхняя граница объёма/)).toBeTruthy();
-    expect(screen.getByText(/конкурсом не заменить/)).toBeTruthy();
+    expect(screen.getByText(/не доказанный объём для перевода/)).toBeTruthy();
+    expect(screen.queryByText(/конкурсом не заменить/)).toBeNull();
     // Раскрытие в Реестр по фильтру.
-    expect(screen.getByRole('button', { name: /Открыть закупки без обоснования в Реестре/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Открыть строки с вопросами к основанию в Реестре/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Открыть все закупки без торгов в Реестре/ })).toBeTruthy();
   });
 
@@ -124,7 +124,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     // Кварталы без строк не рисуют нулей, а говорят причину.
     expect(screen.getAllByText(/строк с этим кварталом плана нет/).length).toBeGreaterThan(0);
     // Снижение названо словами и двумя числами: 100 % в I квартале → 0 % в III.
-    expect(screen.getByText(/сокращаемая доля/)).toBeTruthy();
+    expect(screen.getByText(/доля позиций для разбора/)).toBeTruthy();
     expect(screen.getByText(/упала/)).toBeTruthy();
   });
 
@@ -145,7 +145,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     await waitFor(() =>
       expect(screen.getByText('Закупок с определённым способом за периметр нет')).toBeTruthy(),
     );
-    expect(screen.queryByText(/Сокращаемый ЕП/)).toBeNull();
+    expect(screen.queryByText(/ЕП для разбора/)).toBeNull();
   });
 
   it('отказ сервера объявляется отдельно и даёт повтор запроса', async () => {
@@ -160,7 +160,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     respond([row({ reason: 'Монополист', planTotal: 500, quarter: 1 })]);
     draw(<EpJustification orgScope={grbsScope} />);
 
-    await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/ЕП для разбора/)).toBeTruthy());
     expect(screen.getByText(/Режим скрывает разбивку, а не вычитает их из счёта/)).toBeTruthy();
     expect(screen.getByText(/УЭР/)).toBeTruthy();
   });
@@ -169,7 +169,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
     respond([row({ reason: 'Монополист', planTotal: 500, quarter: 1 })]);
     draw(<EpJustification orgScope={districtScope} />);
 
-    await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/ЕП для разбора/)).toBeTruthy());
     expect(screen.queryByText(/Режим скрывает разбивку/)).toBeNull();
     expect(screen.queryByText(/Разбивки по учреждениям/)).toBeNull();
   });

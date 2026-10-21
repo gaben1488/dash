@@ -1,5 +1,5 @@
 /**
- * ep-reason-clusters.ts — 15 канонических кластеров обоснования ЕП.
+ * ep-reason-clusters.ts — классификатор формулировок обоснования ЕП.
  *
  * Источник: AEMR_EP_REASON_DICT.md (18.04.2026).
  * Колонка M («Обоснование единственного поставщика») — основной нарратив строки ЕП.
@@ -11,7 +11,7 @@
  *   ~213 строк в «other»-корзине (UNMAPPED + CROSS без матча)
  *
  * Связь с сигналами:
- *   EP_SMALL_EL_PURCH + L=ЕП → methodReasonMismatch (27 строк)
+ *   EP_SMALL_EL_PURCH + L=ЕП → совместимая электронная форма; не правовая оценка
  *   EP_CURRENT_LAW            → unmappedReasonEP (жёлтый, 17 строк)
  *   UNMAPPED                  → unmappedReasonEP (красный, ~230 строк)
  *   EMPTY + L=ЕП              → epJustificationMissing (существующий сигнал)
@@ -30,7 +30,7 @@ export const EP_REASON_CLUSTERS = [
   'EP_CONCLUDE_LOWEST',   // 381 строка — «Заключение с ЕП по наименьшей цене»
   'EP_DECREE_112',        // 221 строка — «пп. 5, п.1» и другие короткие ссылки на № 112
   'EP_LOCAL_PROD',        //  46 строк — «местный производитель по поручению Губернатора»
-  'EP_SMALL_EL_PURCH',    //  43 строки — «малая электронная закупка» (ПРОЦЕДУРНЫЙ МИСМАТЧ)
+  'EP_SMALL_EL_PURCH',    //  43 строки — «малая электронная закупка» (электронная форма ЕП)
   'EP_MONOPOLIST',        //  43 строки — «Монополист» (ФЗ-147)
   'EP_LOWEST_COST',       //  39 строк  — «наименьшая стоимость услуг»
   'EP_ART93_SUBJECT',     //  21 строка — субъект-основание ст. 93 (СМП, пп.6/8/29)
@@ -86,14 +86,13 @@ export interface EpReasonEntry {
    */
   regex: RegExp[];
   /**
-   * Признак легитимного обоснования ЕП.
-   * false = обоснование либо ошибочное, либо процедурный мисматч.
+   * Устаревшая оценка словаря; сохранена для совместимости.
+   * Не является результатом правовой проверки и не используется в новых отчётах.
    */
   is_legitimate: boolean;
   /**
-   * Только для EP_SMALL_EL_PURCH.
-   * «Малая электронная закупка» — это ПРОЦЕДУРА (форма ЭА ≤ 600 тыс.),
-   * а не обоснование ЕП. Строки с L=ЕП + M=EP_SMALL_EL_PURCH → сигнал methodReasonMismatch.
+   * Исторический признак несовместимости. Электронная форма ЕП сама по себе
+   * не противоречит способу ЕП и не включает этот признак.
    */
   is_procedural_mismatch?: true;
   // Поле approx_count удалено 14.08.2026: счётчики замерли на снимке
@@ -179,7 +178,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
   EP_LOCAL_PROD: {
     cluster: 'EP_LOCAL_PROD',
     label_ru: 'Местный производитель по поручению Губернатора',
-    legal_refs: ['GUBERNATOR_CAMCHATKA', '44_FZ_93_1_29'],
+    legal_refs: ['GUBERNATOR_CAMCHATKA'],
     regex: [
       /по\s+поручению\s+губернатор/i,
       /местн(?:ого|ый|ые)\s+производител/i,
@@ -190,7 +189,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
 
   EP_SMALL_EL_PURCH: {
     cluster: 'EP_SMALL_EL_PURCH',
-    label_ru: 'Малая электронная закупка (процедурный мисматч)',
+    label_ru: 'Малая электронная закупка',
     legal_refs: ['44_FZ_93_1_4'],
     regex: [
       // Малая электронная закупка = ч. 12 ст. 93 (формулировка справочника v1)
@@ -198,7 +197,6 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
       /мал(?:ая|ые)\s+электронн(?:ая|ые)\s+закупк[иа]/i,
     ],
     is_legitimate: false,
-    is_procedural_mismatch: true,
     // ~43 строк — разведка корпуса, снимок 18.04.2026
   },
 
@@ -284,7 +282,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
   EP_SOFTWARE_DEV: {
     cluster: 'EP_SOFTWARE_DEV',
     label_ru: 'Разработчик программного обеспечения',
-    legal_refs: ['44_FZ_93_1_1'],
+    legal_refs: [],
     regex: [
       /разработчик\s+п(?:рограммного\s+)?о(?:беспечения)?/i,
     ],
@@ -389,7 +387,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
   EP_OFFICIAL_DEALER: {
     cluster: 'EP_OFFICIAL_DEALER',
     label_ru: 'Официальный дилер марки',
-    legal_refs: ['44_FZ_93_1_8'],
+    legal_refs: [],
     regex: [
       /официальн[а-яё]*\s+дил+ер/i,
       /авторизованн[а-яё]*\s+(?:дилер|сервис|поставщик)/i,

@@ -228,7 +228,7 @@ describe('§6 спеки: объяснения без развилок', () => {
     const context = { ...row, commentGRBS };
     expect(epRiskStrictnessOfReason('', context)).toBe('warning');
     const details = epRiskReviewDetails('', context);
-    expect(details.title).toContain('Цена отдельного договора не установлена');
+    expect(details.title).toContain('Недостаточно данных для проверки сумм отдельных договоров');
     expect(details.explanation).toContain('не подтверждают');
   });
   it('does not reuse the 2026 curated observation in another year or subject', () => {

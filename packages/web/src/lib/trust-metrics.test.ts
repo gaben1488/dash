@@ -32,6 +32,14 @@ function dept(name: string, trustScore: number, dataScore: number, formulaScore:
 }
 
 describe('buildTrustViewModel', () => {
+  it('does not turn an unassessed formula component into a perfect filtered score', () => {
+    const local = dept('d1', 100, 100, 100);
+    local.trustComponents![1].score = null;
+    const result = buildTrustViewModel({ ...baseTrust, overall: null }, [local]);
+    expect(result.overallScore).toBeNull();
+    expect(result.components[1].issues).toBe(2);
+    expect(result.components[1].details).toContain('не подтверждена');
+  });
   it('returns global trust when no filtered departments are provided', () => {
     const result = buildTrustViewModel(baseTrust);
 

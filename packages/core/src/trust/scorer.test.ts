@@ -74,7 +74,7 @@ describe('computeTrustScore', () => {
     expect(delayed.components.find(c => c.name === 'operational_risk')?.issues).toBe(1);
     expect(delayed.components.find(c => c.name === 'operational_risk')?.weight).toBe(0);
   });
-  it('returns grade A (>=90) for clean data with no issues', () => {
+  it('does not infer full formula and rule coverage from clean metrics and matching values', () => {
     const metrics = new Map([
       ['m1', makeMetric('m1', 100)],
       ['m2', makeMetric('m2', 200)],
@@ -84,8 +84,12 @@ describe('computeTrustScore', () => {
       { metricKey: 'm1', label: 'm1', officialValue: 100, calculatedValue: 100, delta: 0, deltaPercent: 0, withinTolerance: true, explanation: '' },
     ];
     const result = computeTrustScore(metrics, [], deltas, 'snap-1');
-    expect(result.overall).toBeGreaterThanOrEqual(90);
-    expect(result.grade).toBe('A');
+    expect(result.overall).toBeNull();
+    expect(result.grade).toBeNull();
+    expect(result.components.find(c => c.name === 'mapping_consistency')?.score).toBe(100);
+    for (const name of ['formula_integrity', 'rule_compliance']) {
+      expect(result.components.find(c => c.name === name)?.score).toBeNull();
+    }
   });
 
   it.each([50, -50])('does not credit an official zero versus recalculated %s as agreement', calculatedValue => {
@@ -130,17 +134,17 @@ describe('computeTrustScore', () => {
     expect(totalWeight).toBe(90);
   });
 
-  it('critical formula issues reduce score', () => {
+  it('keeps critical formula evidence even without a coverage score', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const issues = Array.from({ length: 10 }, (_, i) =>
       makeIssue({ id: `f${i}`, category: 'formula_continuity', severity: 'critical' })
     );
     const result = computeTrustScore(metrics, issues, [], 'snap-1');
-    // With 10 critical formula issues, score should be well below A
-    expect(result.overall).toBeLessThan(90);
+    expect(result.overall).toBeNull();
+    expect(result.components.find(c => c.name === 'formula_integrity')).toMatchObject({ score: null, issues: 10, criticalIssues: 10 });
   });
 
-  it('10 critical issues across all components still yield score >= 15 (floor=10)', () => {
+  it('preserves issue counts across components without fabricating an aggregate grade', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const issues = [
       ...Array.from({ length: 3 }, (_, i) =>
@@ -157,20 +161,20 @@ describe('computeTrustScore', () => {
       ),
     ];
     const result = computeTrustScore(metrics, issues, [], 'snap-1');
-    // Floor of 10 per component means minimum possible is ~10
-    expect(result.overall).toBeGreaterThanOrEqual(15);
+    expect(result.overall).toBeNull();
+    expect(result.components.reduce((sum, c) => sum + c.issues, 0)).toBe(10);
     // Every component has score >= 10
     for (const c of result.components) {
       if (c.score !== null) expect(c.score).toBeGreaterThanOrEqual(10);
     }
   });
 
-  it('grade boundaries are correct (A>=90, B>=75, C>=60, D>=40, F<40)', () => {
+  it('keeps provenance and component structure when the aggregate is unavailable', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const result = computeTrustScore(metrics, [], [], 'snap-1');
 
     // Just verify structure
-    expect(result.grade).toMatch(/^[A-F]$/);
+    expect(result.grade).toBeNull();
     expect(result.computedAt).toBeTruthy();
     expect(result.basedOnSnapshot).toBe('snap-1');
     expect(result.components).toHaveLength(5);
@@ -186,16 +190,16 @@ describe('saved control decisions', () => {
     const clean = computeTrustScore(metrics, [], [], 'snapshot');
     expect(computeTrustScore(metrics, [issue], [], 'snapshot').overall).toBe(clean.overall);
     expect(issue).toEqual(original);
-    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4', row: 4 }], [], 'snapshot').overall)
-      .toBeLessThan(100);
-    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4' }], [], 'snapshot').overall)
-      .toBeLessThan(100);
+    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4', row: 4 }], [], 'snapshot').components.find(c => c.name === 'formula_integrity')?.criticalIssues)
+      .toBe(1);
+    expect(computeTrustScore(metrics, [{ ...issue, cell: 'AA4' }], [], 'snapshot').components.find(c => c.name === 'formula_integrity')?.criticalIssues)
+      .toBe(1);
   });
   it('excludes confirmed false positives but keeps unresolved evidence and accepted risk', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const clean = computeTrustScore(metrics, [], [], 'snapshot');
     for (const status of ['open', 'acknowledged', 'in_progress', 'resolved', 'wont_fix'] as const) {
-      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').overall).toBeLessThan(100);
+      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').components.find(c => c.name === 'formula_integrity')?.criticalIssues).toBe(1);
     }
     expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status: 'false_positive' })], [], 'snapshot').overall).toBe(clean.overall);
   });

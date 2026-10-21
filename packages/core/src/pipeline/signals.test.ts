@@ -773,9 +773,9 @@ describe('FP-fixes 2026-06-05 и их судьба после канона п.27
 });
 
 describe('EP reason classification (ep-reason-clusters wiring 2026-06-05)', () => {
-  it('methodReasonMismatch: ЕП + «малая электронная закупка» (процедура, не основание)', () => {
+  it('methodReasonMismatch: электронная форма не противоречит ЕП', () => {
     const s = detectSignals(makeCells({ L: 'ЕП', M: 'малая электронная закупка', K: 100_000 }), REF_DATE);
-    expect(s.methodReasonMismatch).toBe(true);
+    expect(s.methodReasonMismatch).toBe(false);
     expect(s.unmappedReasonEP).toBe(false);
   });
   it('methodReasonMismatch: NOT for competitive method (ЭА)', () => {
