@@ -54,9 +54,17 @@ describe('calculated metric detail', () => {
     expect(body.explanation).toMatchObject({ status: 'available', snapshotId: value.id, value: 0.5,
       rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }],
       operands: [
-        { key: 'fact_count', value: 1, rows: [{ sheet: 'УО', row: 4 }] },
-        { key: 'plan_count', value: 2, rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }] },
+        { key: 'fact_count', unit: 'count', value: 1, rows: [{ sheet: 'УО', row: 4 }] },
+        { key: 'plan_count', unit: 'count', value: 2, rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }] },
       ] });
+  });
+
+  it('keeps money operands in the source unit of thousands of rubles', async () => {
+    const response = await read(snapshot(), 'grbs.uo.q1.execution_pct');
+    expect(response.json().explanation.operands).toMatchObject([
+      { key: 'fact_total', unit: 'currency', value: 80 },
+      { key: 'plan_total', unit: 'currency', value: 200 },
+    ]);
   });
 
   it('does not substitute another period or new evidence for an incompatible saved result', async () => {

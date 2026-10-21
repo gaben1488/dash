@@ -28,6 +28,7 @@ function semanticRevision(): string {
   visit(new URL('../../../shared/src/', import.meta.url), 'shared/');
   visit(new URL('../../../core/src/', import.meta.url), 'core/');
   visit(new URL('./', import.meta.url), 'server/services/');
+  hash.update(readFileSync(new URL('../../../report-engine/src/procurement_engine/department_directory.json', import.meta.url)));
   semantics = hash.digest('hex');
   return semantics;
 }

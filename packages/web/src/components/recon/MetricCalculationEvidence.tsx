@@ -31,7 +31,9 @@ export function MetricCalculationEvidence({ metricKey, snapshotId, year }: {
   return <div className="mt-2 space-y-2 min-w-0">
     <p>Воспроизведено по строкам снимка от {new Date(evidence.asOf).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })}.</p>
     {evidence.operands.map(operand => <p key={operand.key}>
-      {operand.label}: <strong>{fmtNum(operand.value)}</strong> · строк в основании: {operand.rows.length}
+      {operand.label}: <strong>{fmtNum(operand.unit === 'percent' && operand.value !== null ? operand.value * 100 : operand.value)}
+        {operand.unit === 'currency' ? ' тыс. руб.' : operand.unit === 'count' ? ' поз.' : operand.unit === 'percent' ? '%' : ''}
+      </strong> · строк в основании: {operand.rows.length}
     </p>)}
     <details>
       <summary className="cursor-pointer">Строки источников: {evidence.rows.length}</summary>

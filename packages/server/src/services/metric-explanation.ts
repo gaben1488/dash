@@ -48,8 +48,10 @@ export function metricExplanation(snapshot: DataSnapshot, key: string) {
     period, year: snapshot.metadata.targetYear ?? null, department: department ?? null,
     definition: explanation.definition, value: savedValue,
     rows: explanation.contributingRows.map(address),
-    operands: explanation.operands.map(operand => ({
-      key: operand.key, label: explainMetric(operand.key, values)?.definition.label ?? operand.key, value: operand.value, rows: operand.contributingRows.map(address),
-    })),
+    operands: explanation.operands.map(operand => {
+      const definition = explainMetric(operand.key, values)?.definition;
+      return { key: operand.key, label: definition?.label ?? operand.key, unit: definition?.unit ?? null,
+        value: operand.value, rows: operand.contributingRows.map(address) };
+    }),
   } as const;
 }

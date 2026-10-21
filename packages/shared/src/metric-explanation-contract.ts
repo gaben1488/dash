@@ -9,7 +9,7 @@ export const MetricExplanationSchema = z.discriminatedUnion('status', [
     year: z.number().nullable(), department: z.string().nullable(),
     definition: z.object({ key: z.string(), label: z.string(), unit: z.string() }).passthrough(),
     value: z.number().nullable(), rows: z.array(SourceRow),
-    operands: z.array(z.object({ key: z.string(), label: z.string(), value: z.number().nullable(), rows: z.array(SourceRow) })),
+    operands: z.array(z.object({ key: z.string(), label: z.string(), unit: z.string().nullable(), value: z.number().nullable(), rows: z.array(SourceRow) })),
   }),
 ]);
 export const MetricDetailSchema = z.object({ explanation: MetricExplanationSchema.nullable() }).passthrough();
