@@ -34,8 +34,29 @@ describe('неполные исходные значения не доказыв
     ['budget_sum_fact', { O: 100, L: 100, M: '#REF!', N: 0 }],
     ['execution_percentage', { D: 10, G: 0 }],
     ['deviation_calc', { D: 10, F: -10 }],
+    ['fact_leq_plan', { D: 10, E: '#REF!' }],
   ])('%s сообщает недостаточность данных', (id, cells) => {
     expect(check(String(id), cells as Record<string, unknown>).passed).toBeNull();
+  });
+});
+
+describe('квартал сравнивается с годом только по прочитанным значениям', () => {
+  const context = { cells: { D: 2, K: 50 }, rowIndex: 9, sheet: 'СВОД ТД-ПМ', classification: 'summary' as const };
+  const year = { ...context, rowIndex: 14, classificationConfidence: 1, classificationReasons: [] };
+  it('не объявляет проверенным отсутствующий годовой контекст', () => {
+    expect(rule('q1_leq_year').check(context).passed).toBeNull();
+    expect(rule('q1_leq_year').check({ ...context, allRows: [] }).passed).toBeNull();
+  });
+  it('не объявляет проверенной нечитаемую годовую сумму', () => {
+    expect(rule('q1_leq_year').check({ ...context,
+      allRows: [{ ...year, cells: { D: 3, K: '#REF!' } }] }).passed).toBeNull();
+  });
+  it('сохраняет доказанное превышение количества при неизвестной сумме', () => {
+    expect(rule('q1_leq_year').check({ ...context,
+      allRows: [{ ...year, cells: { D: 1, K: '#REF!' } }] })).toMatchObject({ passed: false, cell: 'D9' });
+  });
+  it('не требует годовую пару у неприменимой строки', () => {
+    expect(rule('q1_leq_year').check({ ...context, rowIndex: 1 }).passed).toBe(true);
   });
 });
 

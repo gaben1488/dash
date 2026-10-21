@@ -354,20 +354,23 @@ const q1LeqYear: ValidationRule = {
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    if (!ctx.allRows || ctx.allRows.length === 0) return { passed: true };
-
     // Only fire on known Q1 rows
     const pair = Q1_YEAR_PAIRS.find(p => p.q1Row === ctx.rowIndex);
     if (!pair) return { passed: true };
 
-    const yearRow = ctx.allRows.find(r => r.rowIndex === pair.yearRow);
-    if (!yearRow) return { passed: true };
+    const yearRow = ctx.allRows?.find(r => r.rowIndex === pair.yearRow);
+    if (!yearRow) return { passed: null, message: `Не прочитана годовая строка ${pair.yearRow} для сравнения с кварталом.` };
 
     const columnsToCheck = ['D', 'K'];
+    const missing: string[] = [];
     for (const col of columnsToCheck) {
       const q1Val = toNumber(ctx.cells[col]);
       const yearVal = toNumber(yearRow.cells[col]);
-      if (q1Val === null || yearVal === null) continue;
+      if (q1Val === null || yearVal === null) {
+        if (q1Val === null) missing.push(`${col}${ctx.rowIndex}`);
+        if (yearVal === null) missing.push(`${col}${pair.yearRow}`);
+        continue;
+      }
 
       if (q1Val > yearVal) {
         return {
@@ -382,7 +385,9 @@ const q1LeqYear: ValidationRule = {
       }
     }
 
-    return { passed: true };
+    return missing.length
+      ? { passed: null, message: `Не получены числовые значения для сравнения квартала с годом: ${missing.join(', ')}.` }
+      : { passed: true };
   },
 };
 
@@ -405,7 +410,7 @@ const factLeqPlan: ValidationRule = {
     const d = toNumber(ctx.cells['D']); // план
     const e = toNumber(ctx.cells['E']); // факт
 
-    if (d === null || e === null) return { passed: true };
+    if (d === null || e === null) return { passed: null, message: 'Для сравнения количества плана и факта нужны числовые значения D и E.' };
     if (d === 0) return { passed: true }; // нечего сравнивать
 
     if (e > d) {

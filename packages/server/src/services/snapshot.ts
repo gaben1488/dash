@@ -1,4 +1,4 @@
-import { MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
+import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
 import type { DataSnapshot, Issue, SHDYUDeptData } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
@@ -824,7 +824,16 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) return snapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+          // The current fallback must not revive an obsolete perfect grade.
+          // Reassess its captured evidence without changing data/time or writing
+          // history; getStoredSnapshotById still returns the original record.
+          if (snapshot.trust?.overall != null || snapshot.trust?.grade != null) {
+            return { ...snapshot, trust: computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)),
+              snapshot.issues, snapshot.deltas, snapshot.id) };
+          }
+          return snapshot;
+        }
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
       }

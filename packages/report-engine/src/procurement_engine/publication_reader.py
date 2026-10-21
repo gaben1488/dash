@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from datetime import date
 from pathlib import Path
 
@@ -55,9 +56,31 @@ def _status_projection(result):
     return projected
 
 
+def _catalog_available(root):
+    """A first read creates nothing; an unreadable or damaged store is not empty."""
+    try:
+        mode = root.lstat().st_mode
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISDIR(mode):
+        raise PublicationError('PUBLICATION_CATALOG_INVALID')
+    try:
+        mode = (root / 'publications.sqlite').lstat().st_mode
+    except FileNotFoundError:
+        try:
+            if next((root / 'releases').iterdir(), None) is not None:
+                raise PublicationError('PUBLICATION_CATALOG_INVALID')
+        except FileNotFoundError:
+            pass
+        return False
+    if not stat.S_ISREG(mode):
+        raise PublicationError('PUBLICATION_CATALOG_INVALID')
+    return True
+
+
 def read_publication(state_dir, view, release_id=None, *, selection=None):
     root = Path(state_dir) / 'published'
-    if (root / 'publications.sqlite').is_file():
+    if _catalog_available(root):
         with PublicationStore(root, readonly=True).reader_lease():
             return _read_publication(state_dir, view, release_id, selection=selection)
     return _read_publication(state_dir, view, release_id, selection=selection)
@@ -75,7 +98,7 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
             raise PublicationError('PUBLICATION_CONTEXT_INVALID') from exc
     state = Path(state_dir)
     root = state / 'published'
-    exists = (root / 'publications.sqlite').is_file()
+    exists = _catalog_available(root)
     store = PublicationStore(root, readonly=True) if exists else None
     if view == 'history':
         rows = store.history_summaries(limit=51, before=release_id) if store else []

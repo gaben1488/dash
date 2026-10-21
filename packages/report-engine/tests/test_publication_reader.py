@@ -21,6 +21,22 @@ def three_document_candidate(path):
     return bundle
 
 
+@pytest.mark.parametrize('damage', ['catalog_directory', 'published_file', 'orphan_release'])
+@pytest.mark.parametrize('view', ['status', 'history'])
+def test_broken_catalog_is_not_reported_as_clean_start(tmp_path, damage, view):
+    root = tmp_path / 'published'
+    if damage == 'published_file':
+        root.write_text('not a directory')
+    else:
+        root.mkdir()
+        if damage == 'catalog_directory':
+            (root / 'publications.sqlite').mkdir()
+        else:
+            (root / 'releases' / 'unregistered').mkdir(parents=True)
+    with pytest.raises(PublicationError, match='PUBLICATION_CATALOG_INVALID'):
+        read_publication(tmp_path, view)
+
+
 @pytest.mark.parametrize('context', ['latest', 'selected', 'pinned'])
 def test_status_hashes_only_published_documents(tmp_path, monkeypatch, context):
     from procurement_engine import publication_store

@@ -213,9 +213,10 @@ def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
     assert business_files(state) == before
 
 
-def test_missing_publication_is_not_a_successful_rehearsal(tmp_path):
-    with pytest.raises(ValueError, match='PUBLICATION_NOT_FOUND'):
-        rehearse_latest(tmp_path)
+def test_first_start_does_not_claim_successful_historical_rehearsal(tmp_path):
+    assert rehearse_latest(tmp_path) == {
+        'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0,
+    }
 
 
 def test_corrupt_saved_doc_is_rejected_before_replay(tmp_path):
@@ -228,12 +229,14 @@ def test_corrupt_saved_doc_is_rejected_before_replay(tmp_path):
 
 def test_rehearsal_cli_sanitizes_private_failure(tmp_path, capsys):
     from procurement_engine.rehearsal import main
+    # Orphaned publication evidence is a real failure, unlike an empty first start.
+    (tmp_path / 'private-name' / 'published' / 'releases' / 'orphan').mkdir(parents=True)
     assert main(['--state', str(tmp_path / 'private-name')]) == 2
     output = capsys.readouterr().out
     result = json.loads(output)
     assert result['replay_status'] == 'FAIL'
     assert result['error_code'] == 'PUBLICATION_NOT_FOUND'
-    assert result['error_type'] == 'ValueError'
+    assert result['error_type'] == 'PublicationError'
     assert result['internal_code'] == 'PUBLICATION_NOT_FOUND'
     assert 'private-name' not in output
 

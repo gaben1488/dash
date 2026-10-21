@@ -48,7 +48,9 @@ it('returns the same-scope persisted model while one slow background import serv
     await new Promise(resolve => setImmediate(resolve));
     const results = [];
     for (const read of reads) results.push(await Promise.race([read, Promise.resolve(null)]));
-    expect(results).toEqual([0, 1].map(() => ({ ...saved, metadata: { ...saved.metadata, readModel: { state: 'refreshing' } } })));
+    expect(results).toEqual([0, 1].map(() => ({ ...saved,
+      trust: expect.objectContaining({ overall: null, grade: null, basedOnSnapshot: saved.id }),
+      metadata: { ...saved.metadata, readModel: { state: 'refreshing' } } })));
     expect(scan.mock.calls.filter(([query]) => query.includes('json_type'))).toHaveLength(1);
     expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(raw);
   } finally { scan.mockRestore(); reject(new Error('synthetic delayed source')); await force; }
@@ -66,6 +68,19 @@ it('never substitutes a saved different year for an unmaterialized period', asyn
   finally { reject(new Error('synthetic delayed source')); await force; }
 });
 
+it('does not revive a legacy perfect trust grade while serving saved data during a source outage', async () => {
+  const { source, saved, raw, db, schema, reject } = fixture;
+  const current = await source.getSnapshot(false, 2026);
+  const force = source.getSnapshot(true, 2026);
+  try {
+    expect(current.trust).toMatchObject({ overall: null, grade: null, basedOnSnapshot: saved.id });
+    expect(current.id).toBe(saved.id);
+    expect(current.createdAt).toBe(saved.createdAt);
+    expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(raw);
+    expect(source.getStoredSnapshotById(saved.id)?.trust.overall).toBe(100);
+  } finally { reject(new Error('synthetic source failure')); await force; }
+});
+
 
 it('keeps captured data through repeated invalidation and marks a failed import stale without a new timestamp', async () => {
   const { source, saved, raw, db, schema, reject } = fixture;
@@ -73,7 +88,9 @@ it('keeps captured data through repeated invalidation and marks a failed import 
   const force = source.getSnapshot(true, 2026);
   try {
     source.invalidateCache(); source.invalidateCache();
-    expect(await source.getSnapshot(false, 2026)).toEqual(first);
+    expect(await source.getSnapshot(false, 2026)).toEqual({ ...first,
+      // Reassessment time may change; the captured source time and all data may not.
+      trust: { ...first.trust, computedAt: expect.any(String) } });
   } finally { reject(new Error('synthetic source failure')); }
   const failed = await force;
   expect(failed.createdAt).toBe(saved.createdAt);
