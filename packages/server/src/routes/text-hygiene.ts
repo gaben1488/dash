@@ -15,9 +15,9 @@ import { readDeptRowsById } from '../services/dept-rows.js';
  * ЧТО ПРОВЕРЯЕТСЯ. Счётные строки всех книг (предикат isDataRow — тот же, что
  * у /api/workload): колонка C (имя подведа) сличается со справочником и
  * механикой набора, колонка G (предмет) — только механикой. Орфография
- * (проверенный корпус text-language) идёт по G (наименование), M (обоснование
- * выбора ЕП) и AF (фактический комментарий); C намеренно не проверяется словарём: имя
- * подведа правится по справочнику, а не по частоте слов.
+ * (проверенные пары text-language) идёт по всем текстовым значениям A:AH.
+ * Имена подведов дополнительно сличаются со справочником. Частота слова
+ * не доказывает ошибку; прочие рабочие листы этот маршрут не читает.
  *
  * ЧЕСТНОСТЬ ПУСТОТЫ. «Дефектов нет» и «книги не прочитаны» — разные новости:
  * ответ несёт cellsChecked и booksSilent, чтобы экран мог сказать «проверено
@@ -49,8 +49,8 @@ import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 
 /** Колонки, которые проверяет гигиена набора: C — подвед, G — предмет. */
 type HygieneColumn = 'C' | 'G';
-/** Орфография: G — наименование, M — основание, AF — свободный комментарий. */
-type LanguageColumn = 'G' | 'M' | 'AF';
+/** Адрес текстовой ячейки в действующей геометрии A:AH. */
+type LanguageColumn = string;
 
 /** Одна находка гигиены: адрес → род → контекст → готовое значение. */
 export interface TextHygieneItemDto {
@@ -214,15 +214,16 @@ export async function buildTextHygieneResponse(
         }
       }
 
-      // ── Проверенная орфография: G — предмет, M — основание, AF — комментарий. ──
-      const languageCells: Array<{ col: LanguageColumn; raw: unknown; role: 'наименование' | 'свободный текст' }> = [
-        { col: 'G', raw: row[DEPT_COLUMNS.SUBJECT], role: 'наименование' },
-        { col: 'M', raw: row[DEPT_COLUMNS.EP_REASON], role: 'свободный текст' },
-        { col: 'AF', raw: row[31], role: 'свободный текст' }, // A:AH, AF = 0-based 31
-      ];
+      // Все текстовые значения счётной строки A:AH, включая программы и пояснения.
+      // Числа, пустые ячейки и маркеры не дают словарных предложений.
+      const languageCells = row.slice(0, 34).map((raw, index) => ({
+        raw,
+        col: index < 26 ? String.fromCharCode(65 + index) : `A${String.fromCharCode(65 + index - 26)}`,
+        role: index === DEPT_COLUMNS.SUBJECT ? 'наименование' as const : 'свободный текст' as const,
+      }));
       for (const { col, raw, role } of languageCells) {
         if (!isCheckableCell(raw)) continue;
-        if (col !== 'G') cellsChecked += 1; // G уже посчитана гигиеной выше
+        if (col !== 'G' && col !== 'C') cellsChecked += 1; // C/G уже посчитаны выше
         const seen = new Set<string>();
         for (const hit of collectWords(raw)) {
           const suggestion = suggestFromCorpus(hit.word);
@@ -283,9 +284,9 @@ export async function buildTextHygieneResponse(
     );
   }
   notes.push(
-    'Проверенная орфография охватывает G/M/AF, гигиена набора — C/G. ' +
-    'Содержательные E/U/AE/AG/AH этим маршрутом семантически пока НЕ прочитаны: ' +
-    'ноль находок не является полной проверкой всех текстовых полей.',
+    'Проверенная орфография охватывает текстовые значения A:AH счётных строк основных листов; ' +
+    'гигиена набора — C/G. Зеркала, технические листы и история не входят в этот маршрут. ' +
+    'Ноль словарных находок не подтверждает смысловую корректность текста.',
   );
   notes.push(
     'Орфографические готовые исправления показываются только для ранее подтверждённых ' +

@@ -52,6 +52,14 @@ function sheetRow(
   r[11] = 'ЕП';         // L — способ
   r[12] = epReason;     // M — основание выбора ЕП
   r[31] = finalComment; // AF — фактический комментарий / ход исполнения
+  if (id === '3') {
+    r[3] = 'ифраструктура культуры';
+    r[4] = 'Проведение меропиятий';
+    r[20] = 'доовор заключен';
+    r[30] = 'страхование ответсвенности';
+    r[32] = 'учбная литература';
+    r[33] = 'центализованной закупки';
+  }
   r[16] = 'Х';          // Q — факта нет
   return r;
 }
@@ -212,6 +220,14 @@ describe('GET /api/text-hygiene', () => {
     expect(body.language.some(item => item.col === 'AF' && item.word === 'сменой')).toBe(false);
   });
 
+  it('проверяет D/E/U/AE/AG/AH без повторного счёта C/G', () => {
+    for (const col of ['D', 'E', 'U', 'AE', 'AG', 'AH']) {
+      expect(body.language.some(item => item.cell === `${col}6`)).toBe(true);
+    }
+    expect(body.notes.join(' ')).toContain('A:AH');
+    expect(body.notes.join(' ')).toContain('Зеркала, технические листы и история');
+  });
+
   it('маркеры отсутствия «X/х» дефектом не считаются (канон п.62)', () => {
     const uer = body.byDept.find((d) => d.dept === 'УЭР')!;
     expect(uer.items.some((i) => i.row === 7)).toBe(false);
@@ -342,3 +358,5 @@ describe('GET /api/text-hygiene', () => {
     expect(refused).toBe(true);
   });
 });
+
+// Публичный API: поля вне прежних G/M/AF не теряются, адреса сохраняются.
