@@ -95,6 +95,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   /** GET /api/dashboard — полные данные для дашборда */
   app.get('/api/dashboard', async (request, reply) => {
     const query = request.query as Record<string, string>;
+    if (query.identity !== undefined && (query.identity !== '1' || query.refresh === 'true')) {
+      return reply.status(400).send({ code: 'DASHBOARD_IDENTITY_QUERY_INVALID' });
+    }
     const force = query.refresh === 'true';
     const targetYear = parseYearFilterParam(query.year);
     let snapshot;
@@ -105,7 +108,23 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(snapshotUnavailable(err));
     }
 
-    // Decisions are read on every request; never mutate the historical snapshot.
+    // Release passport reads the SAME accepted model as the dashboard but only
+    // needs its identity. Do not serialize 10 MB of KPI/issues or load the
+    // separate decisions overlay for a two-field, read-only observation.
+    if (query.identity === '1') {
+      const { id, createdAt } = snapshot;
+      if (typeof id !== 'string' || !/^[A-Za-z0-9_.:-]{1,160}$/.test(id)
+          || typeof createdAt !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(createdAt)
+          || !Number.isFinite(Date.parse(createdAt))
+          || !Number.isSafeInteger(snapshot.rowCount) || snapshot.rowCount < 0
+          || !snapshot.metadata || typeof snapshot.metadata !== 'object') {
+        return reply.status(500).send({ code: 'SNAPSHOT_IDENTITY_INVALID' });
+      }
+      reply.header('Cache-Control', 'private, no-store');
+      return reply.send({ snapshot: { id, createdAt } });
+    }
+
+    // Decisions are read on every full dashboard request; never mutate historical data.
     snapshot = withPersistedDecisions(snapshot);
 
     // Формируем KPI-карточки
