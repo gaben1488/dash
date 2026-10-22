@@ -52,3 +52,33 @@ def test_master_fields_and_required_meanings_come_from_shared_profile():
     header[21] = 'Цена договора вместо ФБ 2'
     with pytest.raises(ValueError, match='MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V'):
         validate_master_source_header(header)
+
+
+def test_known_master_binding_cannot_skip_the_single_profile_after_provider_change():
+    from procurement_engine.department_directory import MASTER_FIELDS
+    from procurement_engine.google_adapter import GoogleReadError, GoogleSheetSourceAdapter
+
+    header = [field['label'] for field in MASTER_FIELDS.values()]
+    header[21] = 'Другая сумма вместо ФБ 2'
+
+    class Source:
+        def grid(self, _provider, _sheet_id):
+            return {'title': 'ВСЕ', 'gridProperties': {'columnCount': 34, 'rowCount': 3}}
+
+        def values(self, _provider, _title, start, end, _columns):
+            return [[], [], header][start - 1:end]
+
+    registry_source = {
+        'source_id': 'UER', 'provider_id': 'new-reviewed-provider',
+        'sheet_id': 1344447365, 'sheet': 'ВСЕ', 'role': 'master',
+        'columns': 34, 'header_rows': 3, 'units': 'thousand_rub',
+        'schema_fingerprint': '0' * 64,
+    }
+    with pytest.raises((GoogleReadError, ValueError), match='MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V'):
+        GoogleSheetSourceAdapter(registry_source, Source()).read_payload()
+
+    # The override itself is not the reason for failure: a correct header
+    # still passes the one shared required-meaning validator.
+    header[21] = MASTER_FIELDS['FB_FACT']['label']
+    payload = GoogleSheetSourceAdapter(registry_source, Source()).read_payload()
+    assert payload.source_id == 'UER'
