@@ -88,6 +88,14 @@ describe('parseProcedureRef — строгий разбор ячейки AG', ()
   });
 });
 
+describe('procedure identity never rounds an unsafe numeric code', () => {
+  it('rejects out-of-range procedure and lot numbers rather than linking another entity', () => {
+    expect(parseProcedureRef('ЭА9007199254740993-26')).toBeNull();
+    expect(parseProcedureRef('ЭАС205/9007199254740993-26')).toBeNull();
+    expect(extractProcedureRefs('ЭА9007199254740993-26, ЭА152-26').map((ref) => ref.code)).toEqual(['ЭА152-26']);
+  });
+});
+
 describe('extractProcedureRefs — коды в свободном тексте', () => {
   it('вынимает список кодов из живой ячейки УЭР r21 (с пробелом внутри первого)', () => {
     const refs = extractProcedureRefs('ЭЕП 103-26, ЭЕП104-26, ЭЕП106-26,ЭЕП107-26,ЭЕП108-26');
