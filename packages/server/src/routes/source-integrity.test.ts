@@ -49,6 +49,7 @@ const metadataWatchState = vi.fn(() => ({
       ],
     },
   ],
+  lastConfirmed: [],
   notWatched: ['УИО'],
 }));
 
