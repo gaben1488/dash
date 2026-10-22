@@ -55,13 +55,16 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
 
   useEffect(() => {
     let alive = true;
-    api.getSourceIntegrity()
-      .then((res) => { if (alive) { setReadState(res.formulas); setLoadError(null); } })
-      // Ошибка запроса — это НЕ «формулы чисты» и не «формулы не читались»:
-      // мы просто не знаем. Так и сказано, состояние остаётся пустым.
-      .catch((err) => { if (alive) setLoadError(humanizeRequestError(err)); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+    const read = () => {
+      void api.getSourceIntegrity()
+        .then((res) => { if (alive) { setReadState(res.formulas); setLoadError(null); } })
+        // Error is unknown coverage, never a clean result.
+        .catch((err) => { if (alive) setLoadError(humanizeRequestError(err)); })
+        .finally(() => { if (alive) setLoading(false); });
+    };
+    read();
+    window.addEventListener('source-formulas-updated', read);
+    return () => { alive = false; window.removeEventListener('source-formulas-updated', read); };
   }, []);
 
   const defects = useMemo(() => collectFormulaDefects(issues), [issues]);

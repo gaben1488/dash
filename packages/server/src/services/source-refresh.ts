@@ -231,6 +231,20 @@ export function formulaDeliveryState(): {
   };
 }
 
+/** Proof may be kept after values-only reads only for an unchanged source revision.
+ * A later source change/failed read invalidates a prior verified formula score.
+ * null = no accepted source cache yet (durable last-check evidence still dated).
+ */
+export function currentFormulaSourceProof(): Record<string, boolean> | null {
+  const cached = getDeptSheetCache();
+  if (Object.keys(cached).length === 0) return null;
+  return Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book => {
+    const reading = cached[book];
+    return [book, Boolean(reading && (reading.formulasRead || reading.retainedFormulas)
+      && reading.formulas.length > 0)];
+  }));
+}
+
 /** Restore attempted deliveries, including failures, before webhook handlers start. */
 export function restoreFormulaDeliveries(): void {
   formulaNotes.clear();
@@ -781,6 +795,15 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // журнала: разбор не имеет права задержать обновление экрана, а его исход
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
     const formulaBooks = deliverFormulas(data, errors, options.withFormulas ?? false, at, log);
+    // A formula result changes the trust assessment even if values and formulas
+    // match the prior read. Do not fake a rebuilt snapshot or read Google again.
+    if (options.withFormulas && (Object.keys(data).length > 0 || Object.keys(errors).length > 0)) {
+      publishLiveEvent({
+        kind: 'formula-check-updated',
+        books: [...new Set([...Object.keys(data), ...Object.keys(errors)])].sort(),
+        origin,
+      }, at);
+    }
 
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string; sourceRevision?: string }> = {};
     for (const [name, result] of Object.entries(data)) {

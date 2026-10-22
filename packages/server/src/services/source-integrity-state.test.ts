@@ -38,6 +38,16 @@ describe('durable source-integrity state', () => {
     expect(loadFormulaAudits()).toEqual([{ delivery, verdict }]);
   });
 
+  it('persists the exact check denominator across process restart', () => {
+    const delivery = { book: 'УО', at: goodAt, cells: 70, handled: true, formulasRead: true, persisted: true };
+    const verdict = {
+      book: 'УО', at: goodAt, rowsJudged: 1,
+      checks: { expected: 11, checked: 11, failed: 0 }, defects: [],
+    };
+    saveFormulaAudit(delivery, verdict);
+    expect(loadFormulaAudits()).toEqual([{ delivery, verdict }]);
+  });
+
   it('keeps an earlier real verdict but records a later failed attempt (not clean)', () => {
     const verdict = { book: 'УО', at: goodAt, rowsJudged: 7, defects: [] };
     saveFormulaAudit({ book: 'УО', at: goodAt, cells: 22, handled: true, persisted: true }, verdict);

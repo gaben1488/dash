@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DepartmentSummary, TrustScore } from '@aemr/shared';
-import { buildTrustViewModel } from './trust-metrics';
+import { buildTrustViewModel, withCurrentFormulaAssessment, currentFormulaScope, type LiveFormulaAssessment } from './trust-metrics';
 
 const baseTrust: TrustScore = {
   overall: 70,
@@ -103,4 +103,54 @@ it('uses actual check denominators across differently sized departments', () => 
   const result = buildTrustViewModel(baseTrust, [small, large]);
   expect(result.components[1].score).toBe(90);
   expect(result.components[1].checks).toEqual({ expected: 10, checked: 10, failed: 1 });
+});
+
+describe('latest formula assessment in visible trust', () => {
+  const evidence: LiveFormulaAssessment = {
+    expectedBooks: 2, checkedBooks: 2, checkedAt: '2026-10-23T02:00:00.000Z',
+    score: 90, checks: { expected: 10, checked: 10, failed: 1 },
+    books: [
+      { book: 'd1', checkedAt: '2026-10-23T01:00:00.000Z', score: 100,
+        checks: { expected: 1, checked: 1, failed: 0 }, defects: 0 },
+      { book: 'd2', checkedAt: '2026-10-23T02:00:00.000Z', score: 89,
+        checks: { expected: 9, checked: 9, failed: 1 }, defects: 1 },
+    ],
+  };
+  it('recalculates the overall from the live formula verdict without mutating snapshot components', () => {
+    const before = buildTrustViewModel(baseTrust);
+    const after = withCurrentFormulaAssessment(before, evidence);
+    expect(after.components[1].score).toBe(90);
+    expect(after.components[1].checks).toMatchObject({ expected: 10, checked: 10, failed: 1 });
+    expect(after.overallScore).toBe(79); // (70*30 + 90*25) / 55
+    expect(baseTrust.components[1].score).toBe(70);
+  });
+
+  it('uses only selected books, weighted by actual checked cells rather than average department grade', () => {
+    expect(currentFormulaScope(evidence, ['d1'])).toMatchObject({
+      score: 100, expectedBooks: 1, checkedBooks: 1,
+    });
+    expect(currentFormulaScope(evidence, ['d1', 'd2'])).toMatchObject({
+      score: 90, expectedBooks: 2, checkedBooks: 2,
+    });
+    const local = buildTrustViewModel(baseTrust, [dept('d1', 80, 70, 100)]);
+    expect(withCurrentFormulaAssessment(local, evidence, ['d1']).components[1].score).toBe(100);
+  });
+
+  it('does not present an unconfirmed book as a perfect grade', () => {
+    const latest = { ...evidence, checkedBooks: 1, score: null, books: [
+      evidence.books[0], { ...evidence.books[1], score: null, checks: null, defects: null },
+    ] };
+    const after = withCurrentFormulaAssessment(buildTrustViewModel(baseTrust), latest);
+    expect(after.overallScore).toBeNull();
+    expect(after.components[1].score).toBeNull();
+    expect(after.components[1].details).toContain('1 из 2');
+  });
+
+  it('does not invent missing local components even with complete formula evidence', () => {
+    const only = dept('d1', 90, 100, 90);
+    only.trustComponents = only.trustComponents!.slice(0, 1);
+    const view = withCurrentFormulaAssessment(buildTrustViewModel(baseTrust, [only]), evidence, ['d1']);
+    expect(view.overallScore).toBeNull();
+    expect(view.unavailableComponents).toEqual(['Целостность формул']);
+  });
 });

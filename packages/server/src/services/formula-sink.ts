@@ -17,6 +17,7 @@
 import { detectFormulaIntegrity, formulaIntegrityRowNumber, type FormulaDefect } from '@aemr/core';
 import { setFormulaSink, type FormulaDelivery } from './source-refresh.js';
 import { loadFormulaAudits } from './source-integrity-state.js';
+import type { TrustCheckCounts, TrustCheckCoverage } from '@aemr/shared';
 
 export interface BookFormulaVerdict {
   book: string;
@@ -24,6 +25,8 @@ export interface BookFormulaVerdict {
   at: string;
   /** Сколько строк судилось (номер закупки — число больше нуля). */
   rowsJudged: number;
+  /** Complete denominator from the SAME source read. Absent in older records: no numeric grade. */
+  checks?: TrustCheckCounts;
   /** Дефекты книги: затёртые формулы, мутанты, непротянутые. */
   defects: FormulaDefect[];
 }
@@ -68,12 +71,13 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): BookFormulaVer
   const skip = Math.max(0, FIRST_DATA_ROW - delivery.startRow);
   const values = (delivery.values ?? []).slice(skip) as string[][];
   const formulas = (delivery.formulas ?? []).slice(skip) as string[][];
+  const coverage: TrustCheckCoverage[] = [];
   const defects = detectFormulaIntegrity({
     values,
     formulas,
     startRow: Math.max(delivery.startRow, FIRST_DATA_ROW),
     book: delivery.book,
-  });
+  }, coverage);
   let rowsJudged = 0;
   for (const row of values) {
     if (formulaIntegrityRowNumber(row ?? []) !== null) rowsJudged++;
@@ -82,6 +86,9 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): BookFormulaVer
     book: delivery.book,
     at: delivery.at ?? new Date().toISOString(),
     rowsJudged,
+    ...(coverage[0] ? { checks: {
+      expected: coverage[0].expected, checked: coverage[0].checked, failed: coverage[0].failed,
+    } } : {}),
     defects,
   };
   verdicts.set(delivery.book, verdict);

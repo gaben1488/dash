@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TrustPage } from './Trust';
+
+const apiStub = vi.hoisted(() => ({
+  getSourceIntegrity: vi.fn(async (): Promise<unknown> => ({ formulas: {} })),
+}));
+vi.mock('../api', () => ({ api: apiStub }));
 
 const fixture = vi.hoisted(() => ({
   dashboard: {
@@ -71,4 +76,35 @@ it('renders an unassessed component explicitly without attributing a perfect sco
   expect(html).toContain('Не проверено: Целостность формул');
   expect(html).toContain('не подтверждает достоверность непроверенной части');
   expect(html).not.toContain('NaN');
+});
+describe('live formula grade in the Trust view', () => {
+  it('refreshes the visible grade after a formula read event without forcing a Google or snapshot read', async () => {
+    const source = (score: number | null) => ({
+      formulas: { assessment: {
+        expectedBooks: 1, checkedBooks: score === null ? 0 : 1,
+        checkedAt: '2026-10-23T02:00:00.000Z', score,
+        checks: score === null ? null : { expected: 10, checked: 10, failed: Math.round((100 - score) / 10) },
+        books: [{ book: 'УКСиМП', checkedAt: '2026-10-23T02:00:00.000Z', score,
+          checks: score === null ? null : { expected: 10, checked: 10, failed: Math.round((100 - score) / 10) },
+          defects: score === null ? null : Math.round((100 - score) / 10) }],
+      } },
+    });
+    fixture.filtered.depts = [{
+      department: { id: 'uksimp', nameShort: 'УКСиМП' }, trustScore: 91,
+      trustComponents: fixture.dashboard.trust.components,
+    }];
+    apiStub.getSourceIntegrity.mockResolvedValueOnce(source(100));
+    const { container } = render(<TrustPage />);
+    await waitFor(() => expect(container.textContent).toContain('Оценка формул — 100 из 100'));
+
+    apiStub.getSourceIntegrity.mockResolvedValueOnce(source(80));
+    act(() => window.dispatchEvent(new Event('source-formulas-updated')));
+    await waitFor(() => expect(container.textContent).toContain('Оценка формул — 80 из 100'));
+    expect(container.querySelector('[aria-controls="trust-component-formula_integrity"]')?.textContent).toContain('80');
+
+    apiStub.getSourceIntegrity.mockResolvedValueOnce(source(null));
+    act(() => window.dispatchEvent(new Event('source-formulas-updated')));
+    await waitFor(() => expect(container.textContent).toContain('Оценка не подтверждена'));
+    expect(container.textContent).toContain('Оценка недоступна');
+  });
 });

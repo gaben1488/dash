@@ -155,6 +155,31 @@ describe('чтение формул в цикле источников', () => {
     expect(state.books[0].formulasRead).toBe(true);
   });
 
+  it('publishes a formula verdict event for a manual or night read, even without value changes', async () => {
+    const { subscribeLiveEvents } = await import('./event-bus.js');
+    const { refreshAllSources, setFormulaSink } = await import('./source-refresh.js');
+    const received: string[] = [];
+    const unsubscribe = subscribeLiveEvents(envelope => received.push(envelope.event.kind));
+    try {
+      setFormulaSink(delivery => ({
+        book: delivery.book, at: delivery.at!, rowsJudged: 2,
+        checks: { expected: 11, checked: 11, failed: 0 }, defects: [],
+      }));
+      fetchDepartmentSpreadsheets.mockResolvedValue({ data: bookWithFormulas(), errors: {} });
+      await refreshAllSources(log, 'request', { withFormulas: true });
+      expect(received).toContain('formula-check-updated');
+      received.length = 0;
+      // Same source values and formula fingerprints still represent a new check.
+      await refreshAllSources(log, 'cycle', { withFormulas: true, fresh: true, askDrive: false, svod: false });
+      expect(received).toContain('formula-check-updated');
+      received.length = 0;
+      await refreshAllSources(log, 'cycle');
+      expect(received).not.toContain('formula-check-updated');
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('разбор не подключён — след говорит об этом, а не молчит', async () => {
     fetchDepartmentSpreadsheets.mockResolvedValue({ data: bookWithFormulas(), errors: {} });
     const { refreshAllSources, formulaDeliveryState } = await import('./source-refresh.js');

@@ -57,6 +57,7 @@ describe('приёмник формул', () => {
     const v = formulaVerdicts().find((x) => x.book === 'УИО');
     expect(v).toBeDefined();
     expect(v?.rowsJudged).toBe(3);
+    expect(v?.checks).toEqual({ expected: 33, checked: 3, failed: 1 });
     expect(v?.defects.some((d) => d.kind === 'formula_overwritten' && d.column === 'K')).toBe(true);
     expect(v?.defects[0]?.cell).toBe('K6');
   });

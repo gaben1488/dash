@@ -45,6 +45,12 @@ function validVerdict(value: unknown, book: string): value is BookFormulaVerdict
   return isObject(value)
     && value.book === book && validAt(value.at)
     && Number.isSafeInteger(value.rowsJudged) && (value.rowsJudged as number) >= 0
+    && (value.checks === undefined || (isObject(value.checks)
+      && Number.isSafeInteger(value.checks.expected) && (value.checks.expected as number) >= 0
+      && Number.isSafeInteger(value.checks.checked) && (value.checks.checked as number) >= 0
+      && Number.isSafeInteger(value.checks.failed) && (value.checks.failed as number) >= 0
+      && (value.checks.failed as number) <= (value.checks.checked as number)
+      && (value.checks.checked as number) <= (value.checks.expected as number)))
     && Array.isArray(value.defects)
     && value.defects.every((defect: unknown) => isObject(defect)
       && defect.book === book

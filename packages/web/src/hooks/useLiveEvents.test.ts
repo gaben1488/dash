@@ -68,6 +68,25 @@ describe('дешёвая перепроверка раздела по событ
   });
 });
 
+describe('formula assessment notifications', () => {
+  it('updates local formula views but does not fabricate a changed book or snapshot', () => {
+    const formulaNotice = vi.fn();
+    const booksNotice = vi.fn();
+    window.addEventListener('source-formulas-updated', formulaNotice);
+    window.addEventListener('department-books-updated', booksNotice);
+    try {
+      ingestLiveEvent({ kind: 'formula-check-updated', books: ['УО'], origin: 'cycle' });
+      expect(formulaNotice).toHaveBeenCalledTimes(1);
+      expect(booksNotice).not.toHaveBeenCalled();
+      expect(currentState().snapshotRebuilt).toBe(false);
+      expect(currentState().books).toHaveLength(0);
+    } finally {
+      window.removeEventListener('source-formulas-updated', formulaNotice);
+      window.removeEventListener('department-books-updated', booksNotice);
+    }
+  });
+});
+
 describe('разбор записей потока', () => {
   it('запись с данными разбирается в событие', () => {
     const raw = 'id: 7\nevent: book-updated\ndata: {"id":7,"kind":"book-updated","book":"УО"}';
