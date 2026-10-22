@@ -84,8 +84,11 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
 
     // Without per-method provenance the *combined* budget breakdown
     // cannot be attributed to only EP/KP. A null is not a computed zero.
-    const unknownSubordinateMethod = !coverageComplete && depts.some(d => d._subFiltered);
-    const unknownBudget = methodRestricted && !coverageComplete;
+    // Activity scopes without an activity×method source are not known zeroes:
+    // keep legacy unfiltered method counts only when no activity is selected.
+    const unknownSubordinateMethod = !coverageComplete &&
+      (isActivityFiltered || depts.some(d => d._subFiltered));
+    const unknownBudget = !coverageComplete && (methodRestricted || isActivityFiltered);
     filteredSummary[pk] = {
       kpCount: unknownSubordinateMethod ? null : kpCount,
       kpFactCount: unknownSubordinateMethod ? null : kpFactCount,
