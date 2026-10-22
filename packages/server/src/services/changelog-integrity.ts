@@ -18,7 +18,7 @@ export interface JournalCellWitness {
   sourceCell: string;
   currentCell: string | null;
   at: string;
-  status: 'matches-current' | 'different-current' | 'row-not-found' | 'ambiguous-number' | 'conflicting-log';
+  status: 'matches-current' | 'different-current' | 'row-not-found' | 'ambiguous-number' | 'conflicting-log' | 'context-unverified';
 }
 
 export interface JournalIntegrityWitness {
@@ -77,7 +77,7 @@ export function correlateChangelogWithCurrent(
   });
 
   const latest = new Map<string, { rowSeq: string; sourceCell: string; col: number;
-    atMs: number; became: string; conflicting: boolean }>();
+    atMs: number; became: string; subject: string | null; truncated: boolean; conflicting: boolean }>();
   let withoutStableKey = 0;
   let entriesSinceControl = 0;
 
@@ -95,7 +95,8 @@ export function correlateChangelogWithCurrent(
     if (col === undefined) continue;
     entriesSinceControl++;
 
-    const rowSeq = parseJournalRowKey(record.row).ordinal ?? '';
+    const rowKey = parseJournalRowKey(record.row);
+    const rowSeq = rowKey.ordinal ?? '';
     if (!rowSeq) {
       withoutStableKey++;
       continue;
@@ -105,7 +106,8 @@ export function correlateChangelogWithCurrent(
     const became = asText(record.became);
     const prev = latest.get(key);
     if (!prev || atMs > prev.atMs) {
-      latest.set(key, { rowSeq, sourceCell: cell, col, atMs, became, conflicting: false });
+      latest.set(key, { rowSeq, sourceCell: cell, col, atMs, became,
+        subject: rowKey.subject, truncated: rowKey.truncated, conflicting: false });
     } else if (atMs === prev.atMs && prev.became !== became) {
       prev.conflicting = true;
     }
@@ -123,6 +125,9 @@ export function correlateChangelogWithCurrent(
       ? 'conflicting-log'
       : match.length === 0 ? 'row-not-found'
       : match.length !== 1 ? 'ambiguous-number'
+      : witness.subject !== null && (witness.truncated ||
+          asText(match[0].row[DEPT_COLUMNS.SUBJECT]) !== witness.subject)
+        ? 'context-unverified'
       : asText(match[0].row[witness.col]) === witness.became
         ? 'matches-current' : 'different-current';
     if (status === 'matches-current') matchesCurrent++;
