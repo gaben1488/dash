@@ -133,6 +133,15 @@ describe('назначение строки и составные номера',
     expect(shifted).toEqual(coverage);
   });
 
+  it('СТРАЖ: первая строка данных (4) остаётся под полным контролем формул', () => {
+    const defects = detect([
+      { seq: 1, cells: { K: 42 } }, { seq: 2 }, { seq: 3 }, { seq: 4 }, { seq: 5 },
+    ]);
+    expect(defects.map((d) => ({ cell: d.cell, kind: d.kind }))).toEqual([
+      { cell: 'K4', kind: 'formula_overwritten' },
+    ]);
+  });
+
   it('служебные числа без предмета не являются закупкой даже внутри данных', () => {
     expect(detect([...HEALTHY, { seq: 6, subject: '', cells: { K: 11, AA: 27 } }])).toEqual([]);
   });
