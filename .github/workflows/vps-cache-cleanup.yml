@@ -2670,7 +2670,12 @@ jobs:
        github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
        github.actor == github.repository_owner &&
        github.repository == 'gaben1488/dash' &&
-       github.workflow == 'Integrated durable source-state release')
+       github.workflow == 'Integrated durable source-state release') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash' &&
+       github.workflow == 'Main controlled release')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -2696,11 +2701,24 @@ jobs:
           [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          head_path=pulls/79
+          head_query=.head.sha
+          if test "$GITHUB_EVENT_NAME:$GITHUB_REF" = push:refs/heads/main; then
+            head_path=git/ref/heads/main
+            head_query=.object.sha
+          fi
+          export RELEASE_HEAD_PATH="$head_path" RELEASE_HEAD_QUERY="$head_query"
+          printf 'RELEASE_HEAD_PATH=%s\nRELEASE_HEAD_QUERY=%s\n' "$head_path" "$head_query" >> "$GITHUB_ENV"
+          test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"
           if test "$GITHUB_EVENT_NAME" = push; then
             request=.github/ci/integrated-source-state-release-20261022.request
+            purpose=integrated-durable-source-state-production-release
+            if test "$GITHUB_REF" = refs/heads/main; then
+              request=.github/ci/main-controlled-release-20261023.request
+              purpose=main-controlled-production-release
+            fi
             test "$(git diff --name-only HEAD^ HEAD)" = "$request"
-            python3 -c 'import json,sys; expected={"purpose":"integrated-durable-source-state-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
+            python3 -c 'import json,sys; expected={"purpose":sys.argv[3],"approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)" "$purpose"
             echo OWNER_RELEASE_REQUEST_VERIFIED
           fi
           mkdir -m 700 "$RUNNER_TEMP/release"
@@ -2732,9 +2750,9 @@ jobs:
           ci_event=pull_request
           if test "$GITHUB_EVENT_NAME" = push; then ci_event=push; fi
           for attempt in $(seq 1 90); do
-            # Do not hold the release lock or wait for CI after PR79 advances.
+            # Do not hold the release lock or wait for CI after the approved branch advances.
             # Never let an older accepted SHA replace a newer integrated head.
-            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then
+            if test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" != "$RECOVERY_SHA"; then
               echo RELEASE_CANDIDATE_SUPERSEDED
               exit 2
             fi
@@ -2757,7 +2775,7 @@ jobs:
             sleep 20
           done
           test "$ready" = true
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"
           printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
           python3 - <<'PY'
           import json,os
@@ -3016,7 +3034,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"
           window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
           remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
             > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
@@ -3077,7 +3095,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"
           window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
           done=false
           for attempt in $(seq 1 300); do
@@ -3108,7 +3126,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py deploy-web'" > "$RUNNER_TEMP/release/web-release.log" 2>&1
           remote sudo -n cat /var/lib/aemr/web-release-completed.json > "$RUNNER_TEMP/release/accepted.json"
           curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
