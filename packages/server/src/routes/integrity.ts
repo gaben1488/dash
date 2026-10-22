@@ -546,8 +546,10 @@ export function buildWeeklyComparison(now: number = Date.now()): {
   let before: ReturnType<typeof verifiedBaselineRows>;
   let after: ReturnType<typeof verifiedBaselineRows>;
   try {
-    before = verifiedBaselineRows(pair[0]);
+    // Оперативная проверка только что удостоверила after: читаем её первой,
+    // используя существующий verifiedCache; затем проверяем предыдущий четверг.
     after = verifiedBaselineRows(pair[1]);
+    before = verifiedBaselineRows(pair[0]);
   } catch {
     return {
       weeklyComparison: null,
