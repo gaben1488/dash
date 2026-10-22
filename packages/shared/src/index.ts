@@ -1,6 +1,6 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
-export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable } from './issue-conversion.js';
+export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable, isDepartmentRiskIssue } from './issue-conversion.js';
 // Canonical case state transitions for API and UI; never maintain mirrored tables.
 export * from './issue-status-transitions.js';
 
