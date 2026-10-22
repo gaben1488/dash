@@ -559,7 +559,12 @@ SQLITE_PATH=./data/aemr.db
   // Замечания считаются РОВНО один раз — по результатам проверок источников.
   // Прежде тот же итог параллельно копился в отдельном состоянии, и полоса
   // показывала удвоенное число.
-  const checkedSources = Object.values(validationResults).filter(v => !v.loading && v.result && !v.result.error);
+  const checkedSources = Object.values(validationResults).filter(v =>
+    !v.loading && v.result && !v.result.error && v.result.validationMode !== 'access_only');
+  const readOnlySources = Object.values(validationResults).filter(v =>
+    !v.loading && v.result && !v.result.error && v.result.validationMode === 'access_only');
+  const failedValidationCount = Object.values(validationResults).filter(v =>
+    !v.loading && v.result?.error).length;
   const issuesFound = checkedSources.reduce((sum, v) => sum + (v.result.summary?.total ?? 0), 0);
   const rowsKnown = sources.filter(s => s.rows !== null);
   const totalRows = rowsKnown.reduce((sum, s) => sum + (s.rows ?? 0), 0);
@@ -670,12 +675,15 @@ SQLITE_PATH=./data/aemr.db
             <span className="font-medium">
               {issuesFound > 0
                 ? `Найдено ${issuesFound} ${pluralRu(issuesFound, 'замечание', 'замечания', 'замечаний')} в ${checkedSources.length} ${pluralRu(checkedSources.length, 'проверенной книге', 'проверенных книгах', 'проверенных книгах')}`
-                : `Замечаний нет — проверено книг: ${checkedSources.length} из ${sources.length}`}
+                : `В построчной проверке ${checkedSources.length} книг ГРБС замечаний не найдено`}
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs opacity-80">
-            {checkedSources.length < sources.length && (
-              <span>Остальные книги не проверялись — в счёт не вошли</span>
+            {readOnlySources.length > 0 && (
+              <span>Агрегатных источников прочитано: {readOnlySources.length}; правила строк ГРБС к ним не применялись</span>
+            )}
+            {failedValidationCount > 0 && (
+              <span>Проверка не завершена для {failedValidationCount} источников — причины в карточках</span>
             )}
             {lastCheckedAt && <span>Проверено: {timeAgo(lastCheckedAt)}</span>}
           </div>
@@ -1057,11 +1065,15 @@ SQLITE_PATH=./data/aemr.db
                         {/* Результат проверки данных */}
                         {check?.result && !check.result.error && (
                           <div className={clsx('mt-2 px-2.5 py-2 rounded-lg text-[10px] space-y-1',
-                            (check.result.summary?.total ?? 0) === 0
-                              ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
-                              : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
+                            check.result.validationMode === 'access_only'
+                              ? 'bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'
+                              : (check.result.summary?.total ?? 0) === 0
+                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
+                                : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
                           )}>
-                            {(check.result.summary?.total ?? 0) === 0 ? (
+                            {check.result.validationMode === 'access_only' ? (
+                              <p>Книга читается. Построчные правила ГРБС к агрегированному листу не применяются.</p>
+                            ) : (check.result.summary?.total ?? 0) === 0 ? (
                               <div className="flex items-center gap-1">
                                 <CheckCircle2 size={10} aria-hidden="true" /> Замечаний не найдено
                                 {check.result.rowsChecked > 0 && (
