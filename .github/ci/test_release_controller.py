@@ -347,7 +347,7 @@ class ControllerTests(TrialTests):
         self.assertFalse(self.fixture.pending.exists())
         self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
 
-    def test_web_worker_restart_during_promotion_restores_only_web(self):
+    def test_web_worker_restart_during_promotion_retains_pending_without_blind_rollback(self):
         self.web_stage()
         verify = self.fixture.executor.web_verify
         def worker_restarts(plan, *, candidate):
@@ -356,11 +356,14 @@ class ControllerTests(TrialTests):
                 self.fixture.persist_records()
             return verify(plan, candidate=candidate)
         with (patch.object(self.fixture.executor, 'web_verify', side_effect=worker_restarts),
-              self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_REJECTED_AND_RECOVERED')):
+              self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED')):
             self.controller.deploy_web()
-        self.assertEqual(self.fixture.records['web']['Image'], self.plan['images']['web'])
+        # The recovery witness is now stale. Do not rewrite even web until
+        # an operator re-establishes which backend state must be preserved.
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['candidate_images']['web'])
         self.assertEqual(self.fixture.records['report-worker']['RestartCount'], 1)
-        self.assertFalse(self.fixture.pending.exists())
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertFalse((self.fixture.private / 'web-release-accepted.json').exists())
         self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
 
     def test_owner_loss_with_backend_restart_fences_web_recovery_before_mutation(self):
