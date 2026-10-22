@@ -9,7 +9,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, DEPARTMENTS, DEPT_HEADER_ROWS } from '@aemr/shared';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -44,6 +44,7 @@ function rowWithEconomy(flag: string, factDate: string, method = 'ЭА'): unknow
 
 let app: FastifyInstance;
 let setDeptSheetCache: typeof import('../services/snapshot.js')['setDeptSheetCache'];
+let writeLiveCacheWithoutChangingCapture: typeof import('../services/snapshot.js')['setDeptSheetCache'];
 
 async function antiDumpingIssues(): Promise<Array<{ ruleCode: string; rowIndex?: number }>> {
   const res = await app.inject({ method: 'GET', url: '/api/analytics/compliance' });
@@ -76,11 +77,27 @@ beforeAll(async () => {
     GOOGLE_PRIVATE_KEY: '',
     GOOGLE_API_KEY: '',
   };
-  const [snapshot, { createApp }] = await Promise.all([
-    import('../services/snapshot.js'),
-    import('../app.js'),
-  ]);
-  setDeptSheetCache = snapshot.setDeptSheetCache;
+  // Keep the route's sealed calculation and captured rows in the SAME
+  // fixture. Older tests injected only a mutable Google cache beside an
+  // unrelated demo snapshot, which was exactly the C08.02 inconsistency.
+  const snapshot = await import('../services/snapshot.js');
+  const originalGetSnapshot = snapshot.getSnapshot;
+  const byDept: Record<string, unknown[][]> = Object.fromEntries(
+    DEPARTMENTS.map(dept => [dept.nameShort, []]),
+  );
+  writeLiveCacheWithoutChangingCapture = snapshot.setDeptSheetCache;
+  setDeptSheetCache = (books, failed = [], acceptedAt) => {
+    snapshot.setDeptSheetCache(books, failed, acceptedAt);
+    for (const [name, reading] of Object.entries(books)) {
+      byDept[name] = reading.values.slice(DEPT_HEADER_ROWS);
+    }
+    for (const name of failed) Reflect.deleteProperty(byDept, name);
+  };
+  vi.spyOn(snapshot, 'getSnapshot').mockImplementation(async () => {
+    const sealed = await originalGetSnapshot(false);
+    return { ...sealed, rowsByDept: { ...byDept } };
+  });
+  const { createApp } = await import('../app.js');
   app = await createApp({ logger: false });
   await app.ready();
 }, 60_000);
@@ -143,4 +160,29 @@ it('EP analysis uses the source date, not stale quarter formulas or request time
   expect(first.readAt).toBe(new Date(getDeptCacheFilledAt()).toISOString());
   const second = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
   expect(second).toEqual(first);
+}, 30_000);
+
+
+it('C08.02: a separately refreshed Google cache cannot change four analytics derived from an older sealed snapshot', async () => {
+  const first = rowWithEconomy('нет', '', 'ЕП');
+  first[DEPT_COLUMNS.TOTAL_PLAN] = 900;
+  setDeptSheetCache({
+    'УО': { values: [[], [], [], first], formulas: [], sheetName: 'ВСЕ' },
+  });
+  const endpoints = ['/api/analytics/compliance', '/api/analytics/anticorruption',
+    '/api/analytics/scorecard', '/api/analytics/anomalies'];
+  const read = async () => Promise.all(endpoints.map(async url => {
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode, url).toBe(200);
+    return response.json();
+  }));
+  const before = await read();
+  const changed = rowWithEconomy('да', '15.03.2026', 'ЭА');
+  changed[DEPT_COLUMNS.TOTAL_PLAN] = 9_000_000;
+  // This changes the independent live cache, NOT the captured byDept arrays
+  // of the snapshot the routes are still serving.
+  writeLiveCacheWithoutChangingCapture({
+    'УО': { values: [[], [], [], changed, changed, changed], formulas: [], sheetName: 'ВСЕ' },
+  });
+  expect(await read()).toEqual(before);
 }, 30_000);

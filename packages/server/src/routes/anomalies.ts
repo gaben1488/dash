@@ -16,7 +16,7 @@
  * пересчитываются: их считает конвейер (orchestrator, шаг 4b), и вторая
  * реализация того же механизма развела бы два числа под одним именем — ровно
  * та болезнь, которую инвентаризация записала в §3.2. Роут только доводит
- * находки снимка до адреса, доставая № п/п, предмет и учреждение из живых
+ * находки снимка до адреса, доставая № п/п, предмет и учреждение из сохранённых
  * строк книги по номеру строки листа.
  *
  * ТОН. Признак — повод открыть строку, а не вывод о нарушении; отсутствие
@@ -33,6 +33,7 @@
  * Момент чтения (asOf) назван всегда — канон п.58.
  */
 import type { FastifyInstance } from 'fastify';
+import { anomalyFactsOfCapturedRows } from '../services/anomaly-snapshot-facts.js';
 import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
@@ -62,7 +63,7 @@ import {
   type SystemicAnomaly,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptCacheFilledAt, getSnapshot } from '../services/snapshot.js';
 import { readAllBookJournals, type BookJournal } from '../services/provenance-journal.js';
 import { toJournalEntries } from './workload.js';
 
@@ -201,8 +202,12 @@ export interface NoiseGroupDto {
 }
 
 export interface AnomaliesResponse {
-  /** Момент чтения (ISO) — канон п.58. */
+  /** Момент построения ответа (ISO); НЕ доказательство свежести каждой книги. */
   asOf: string;
+  /** Последний зафиксированный момент обновления кэша (не каждой книги отдельно). */
+  sourceCacheFilledAt: string | null;
+  /** Момент расчёта отдельного frozen-датасета. */
+  datasetCapturedAt: string | null;
   /** Книги, чьи строки прочитаны. */
   booksRead: string[];
   /** Книги без строк: признаков по ним нет, потому что смотреть было нечего. */
@@ -449,14 +454,20 @@ export function resetAnomaliesCache(): void {
 
 export async function buildAnomaliesResponse(now: number = Date.now()): Promise<AnomaliesResponse> {
   const sheetValues = getDeptSheetValues();
+  // Capture the cache timestamp with the same non-awaiting source selection.
+  const sourceCacheFilledMs = getDeptCacheFilledAt();
   const journals = await readAllBookJournals(now);
   const journalByDept = new Map(journals.map((j) => [j.dept, j]));
 
   let snapshotAnalyses: Record<string, unknown> = {};
+  let capturedRowsByDept: Record<string, unknown[][]> | undefined;
+  let datasetCapturedAt: string | null = null;
   let datasetAvailable = false;
   let thresholdContext: Readonly<Record<string, DatedThreshold>> | null = null;
   try {
     const snapshot = await getSnapshot();
+    capturedRowsByDept = snapshot.rowsByDept;
+    datasetCapturedAt = snapshot.createdAt;
     thresholdContext = snapshot.metadata.calculationContext?.thresholds ?? null;
     const analyses = (snapshot as { datasetAnalyses?: Record<string, unknown> }).datasetAnalyses;
     if (analyses && typeof analyses === 'object') {
@@ -484,50 +495,54 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
     const dept = findDept(deptId);
     if (!dept) continue;
 
-    // Ключ кэша листов — имя книги; findDept понимает и его, и канон-id.
+    // Live row/journal signals are a different observation from the frozen
+    // dataset analysis; do not mix their addresses and source versions.
     const values = Object.entries(sheetValues)
       .find(([name]) => findDept(name)?.id === dept.id)?.[1];
     if (!values || values.length <= DEPT_HEADER_ROWS) {
       booksSilent.push(dept.id);
-      continue;
-    }
-    booksRead.push(dept.id);
+    } else {
+      booksRead.push(dept.id);
+      const { rows } = buildAnomalyRows(dept, values);
+      rowsScanned += rows.length;
 
-    const { rows, byRow } = buildAnomalyRows(dept, values);
-    rowsScanned += rows.length;
+      const journal: BookJournal | undefined = journalByDept.get(deptId);
+      if (!journal?.available) journalsSilent.push(dept.id);
+      const journalEntries: AnomalyJournalEntry[] = journal?.available
+        ? toJournalEntries(journal).map((e) => ({
+          book: dept.id,
+          sheet: dept.sheetName,
+          cell: e.cell,
+          was: e.was,
+          became: e.became,
+          at: e.at,
+          ...(e.author ? { author: e.author } : {}),
+        }))
+        : [];
 
-    const journal: BookJournal | undefined = journalByDept.get(deptId);
-    if (!journal?.available) journalsSilent.push(dept.id);
-    const journalEntries: AnomalyJournalEntry[] = journal?.available
-      ? toJournalEntries(journal).map((e) => ({
-        book: dept.id,
-        sheet: dept.sheetName,
-        cell: e.cell,
-        was: e.was,
-        became: e.became,
-        at: e.at,
-        ...(e.author ? { author: e.author } : {}),
-      }))
-      : [];
-
-    const report = detectRowAnomalies({ rows, journal: journalEntries, thresholdContext });
-    for (const f of report.typo) typo.push(findingToDto(f, dept.fullName));
-    for (const f of report.fitted) fitted.push(findingToDto(f, dept.fullName));
-    for (const [sign, n] of Object.entries(report.counts)) {
-      counts[sign] = (counts[sign] ?? 0) + n;
-    }
-    amountTypo += report.amountAtRisk.typo;
-    amountFitted += report.amountAtRisk.fitted;
-    // Оговорки ядра берём из ядра — экран не сочиняет их заново.
-    if (journalEntries.length === 0 && journalMissingNote === '') {
-      journalMissingNote = report.notes.find((n) => n.includes('Журнал')) ?? '';
+      const report = detectRowAnomalies({ rows, journal: journalEntries, thresholdContext });
+      for (const f of report.typo) typo.push(findingToDto(f, dept.fullName));
+      for (const f of report.fitted) fitted.push(findingToDto(f, dept.fullName));
+      for (const [sign, n] of Object.entries(report.counts)) {
+        counts[sign] = (counts[sign] ?? 0) + n;
+      }
+      amountTypo += report.amountAtRisk.typo;
+      amountFitted += report.amountAtRisk.fitted;
+      if (journalEntries.length === 0 && journalMissingNote === '') {
+        journalMissingNote = report.notes.find((n) => n.includes('Журнал')) ?? '';
+      }
     }
 
+    // The snapshot's dataset anomalies must resolve against the very same
+    // frozen rows, regardless of changes to the separate live cache.
     const analysis = snapshotAnalyses[dept.latinId] ?? snapshotAnalyses[dept.id];
+    const frozenByRow = anomalyFactsOfCapturedRows(
+      { rowsByDept: capturedRowsByDept }, dept.id,
+    );
     const parsed = datasetFindingsOf(
       analysis as Partial<DatasetAnalysis> | undefined,
       dept,
-      byRow,
+      frozenByRow,
     );
     dataset.push(...parsed.findings);
     noise.push(...parsed.noise);
@@ -552,6 +567,16 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
         'после факта» по этим книгам не проверялись.'),
     );
   }
+  if (datasetAvailable) {
+    notes.push('Находки датасета рассчитаны по сохранённому снимку ' +
+      (datasetCapturedAt ?? 'с неизвестной датой') +
+      '; построчные признаки построены отдельно по живому кэшу и журналам. ' +
+      'Источники нельзя считать одним атомарным наблюдением.');
+  }
+  if (datasetAvailable && !capturedRowsByDept) {
+    notes.push('Строковая база сохранённого снимка недоступна: адреса находок показаны без ' +
+      'подстановки № закупки, предмета или учреждения из другого наблюдения.');
+  }
   if (!datasetAvailable) {
     notes.push(
       'Разбор датасета в снимке отсутствует: аномалии по книгам не показаны потому, что их ' +
@@ -561,6 +586,9 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
 
   return {
     asOf: new Date(now).toISOString(),
+    sourceCacheFilledAt: Number.isFinite(sourceCacheFilledMs) && sourceCacheFilledMs > 0
+      ? new Date(sourceCacheFilledMs).toISOString() : null,
+    datasetCapturedAt,
     booksRead,
     booksSilent,
     journalsSilent,

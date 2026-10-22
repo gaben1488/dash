@@ -95,3 +95,23 @@ it('projects current Trust rules without rewriting a stored historical score', a
   expect(view.trust.overall).toBeNull();
   expect(saved.trust.overall).toBe(73);
 });
+
+
+it('C08.02: current decision view has its own revision and never modifies the sealed calculation', async () => {
+  const { withPersistedDecisions } = await import('./issue-decisions.js');
+  const saved = {
+    id: 'frozen-context', createdAt: '2026-10-21T00:00:00.000Z',
+    issues: [], officialMetrics: {}, calculatedMetrics: {}, deltas: [],
+    trust: { overall: 73, grade: 'C', components: [], computedAt: 'old', basedOnSnapshot: 'frozen-context' },
+    metadata: { calculationContext: { id: 'sealed-calculation-id' } },
+  } as unknown as DataSnapshot;
+  const prior = structuredClone(saved);
+  const view = withPersistedDecisions(saved);
+  expect(saved).toEqual(prior);
+  expect(view.metadata.calculationContext).toBe(saved.metadata.calculationContext);
+  expect(view.metadata.decisionView).toEqual({
+    basedOnContext: 'sealed-calculation-id', revision: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
+  expect(view).not.toBe(saved);
+  expect(view.trust.overall).toBeNull();
+});

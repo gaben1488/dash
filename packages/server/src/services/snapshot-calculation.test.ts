@@ -3,6 +3,7 @@ import { setImmediate } from 'node:timers';
 import { describe, expect, it } from 'vitest';
 import { REPORT_MAP } from '@aemr/shared';
 import { calculateSnapshot, runSnapshotCalculation, type SnapshotCalculationInput } from './snapshot-calculation.js';
+import { calculationDigest, currentCalculationContextMatches } from './snapshot-calculation-context.js';
 
 function input(): SnapshotCalculationInput {
   const row: unknown[] = Array(34).fill('');
@@ -112,4 +113,51 @@ it('rejects changed required source semantics before producing financial results
   header[DEPT_COLUMNS.METHOD] = 'Другой смысл колонки';
   source.sheetRows.УЭР[2] = header;
   expect(() => calculateSnapshot(source)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:L');
+});
+
+it('C08.02: a saved live context is reusable within the Kamchatka day, not across midnight', () => {
+  const source = input();
+  const snapshot = calculateSnapshot(source);
+  expect(currentCalculationContextMatches(snapshot, new Date('2026-10-18T00:00:01Z'))).toBe(true);
+  expect(currentCalculationContextMatches(snapshot, new Date('2026-10-18T11:59:59Z'))).toBe(true);
+  // Midnight in Kamchatka (+12:00) is 12:00 UTC on the preceding UTC date.
+  expect(currentCalculationContextMatches(snapshot, new Date('2026-10-18T12:00:00Z'))).toBe(false);
+  expect(currentCalculationContextMatches(snapshot, new Date('2026-10-18T00:00:00Z'))).toBe(true);
+  expect(currentCalculationContextMatches(snapshot, new Date('2026-10-17T23:59:59Z'))).toBe(false);
+  expect(currentCalculationContextMatches(snapshot, new Date(Number.NaN))).toBe(false);
+  // Replaying the original input is still deterministic; live revalidation
+  // must never overwrite the historical observation or its rules.
+  expect(calculateSnapshot(structuredClone(source)).metadata.calculationContext)
+    .toEqual(snapshot.metadata.calculationContext);
+});
+
+it('C08.02: rejects changed rules, source profiles, scoped access and tampered context even with a resealed ID', () => {
+  const original = calculateSnapshot(input());
+  const now = new Date('2026-10-18T00:00:01Z');
+  expect(currentCalculationContextMatches(original, now)).toBe(true);
+
+  const changed = (patch: (context: NonNullable<typeof original.metadata.calculationContext>) => void) => {
+    const candidate = structuredClone(original);
+    const context = candidate.metadata.calculationContext!;
+    patch(context);
+    const { id: _priorId, ...evidence } = context;
+    context.id = calculationDigest(evidence);
+    return candidate;
+  };
+
+  expect(currentCalculationContextMatches(changed(c => { c.semantics = 'another-rule-revision'; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { c.sources.profiles = 'another-source-profile'; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { c.scope.targetYear = 2025; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { c.calendar.utcOffsetHours = 3; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { c.calendar.productDay += 1; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { c.thresholds['economy.highSharePct'].value += 1; }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { Object.assign(c, { access: 'restricted' }); }), now)).toBe(false);
+  expect(currentCalculationContextMatches(changed(c => { Object.assign(c, { decisions: 'applied' }); }), now)).toBe(false);
+
+  const altered = structuredClone(original);
+  altered.metadata.calculationContext!.calendar.asOf = '2026-10-18T00:00:02.000Z';
+  expect(currentCalculationContextMatches(altered, now)).toBe(false);
+  const missing = structuredClone(original);
+  delete missing.metadata.calculationContext;
+  expect(currentCalculationContextMatches(missing, now)).toBe(false);
 });

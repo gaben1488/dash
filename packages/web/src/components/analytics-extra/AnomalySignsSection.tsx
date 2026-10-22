@@ -448,8 +448,14 @@ export function AnomalySignsSection() {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <div className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--surface-raised)] px-2 py-0.5 ds-text-3xs font-[var(--weight-medium)] text-[var(--ink-muted)]">
               <Clock size={10} aria-hidden="true" />
-              <span className="tabular-nums">прочитано {fmtMoment(data.asOf)}</span>
+              <span className="tabular-nums">ответ сформирован {fmtMoment(data.asOf)}</span>
             </div>
+            <span className="max-w-[20rem] text-right ds-text-3xs leading-tight text-[var(--ink-faint)]">
+              Строки: {data.sourceCacheFilledAt ? fmtMoment(data.sourceCacheFilledAt) : 'время чтения не подтверждено'}
+              {data.datasetAvailable && (
+                <>; датасет: {data.datasetCapturedAt ? fmtMoment(data.datasetCapturedAt) : 'дата не подтверждена'}</>
+              )}
+            </span>
             <span
               className="max-w-[16rem] text-right ds-text-3xs leading-tight text-[var(--ink-faint)]"
               title="Детектор сравнивает строку с её соседями по всей книге — сузить это кварталом нечем. Выбранное управление срез сужает (канон п.127)."
@@ -529,6 +535,12 @@ export function AnomalySignsSection() {
           <ScaleBlock scale="fitted" items={fitted} amount={amount.fitted} groups={groupsOf(fitted)} />
           <DatasetBlock items={dataset} available={data.datasetAvailable} />
           <NoiseBlock items={noise} />
+          {data.datasetAvailable && (
+            <p className="ds-text-3xs text-[var(--ink-muted)]">
+              Находки датасета относятся к сохранённому снимку. Проверки строк и журналы
+              читаются отдельно: их сведения не образуют один атомарный срез.
+            </p>
+          )}
 
           {(booksSilent.length > 0 || journalsSilent.length > 0) && (
             <div className="rounded-[var(--radius-card)] bg-[var(--surface-raised)] px-4 py-3 ds-text-xs text-[var(--ink-muted)]">
