@@ -90,9 +90,12 @@ describe('СВОД — границы разных схем на одном ли
 describe('validateData — basic', () => {
   it('reports incomplete arithmetic once per rule without alleging a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    // В Sheets пустая ячейка J законно равна нулю. Непроверенность возникает
-    // только от НЕчислового заполненного компонента, а не пустоты.
-    const rows = [5, 6].map(rowIndex => makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, J: 'не число', K: 100 } }));
+    // В Sheets пустая ячейка J законно равна нулю: непрочитанное значение
+    // должно быть именно заполненным нечисловым компонентом. А текущая схема
+    // СВОДа подтверждается действующей заголовочной строкой.
+    const rows = [primaryHeader, ...[5, 6].map(rowIndex => makeRow({ rowIndex,
+      cells: { A: 'УО', H: 100, I: 0, J: 'не число', K: 100 },
+    }))];
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });

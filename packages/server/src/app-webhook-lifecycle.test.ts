@@ -11,7 +11,11 @@ vi.mock('./services/source-refresh.js', async original => ({ ...await original<t
   refreshAllSources: startup.refresh, startSourceAutoRefresh: vi.fn() }));
 vi.mock('./services/snapshot.js', async original => ({ ...await original<typeof import('./services/snapshot.js')>(),
   getSnapshot: startup.snapshot }));
-vi.mock('./services/formula-sink.js', () => ({ connectFormulaSink: watch.formulas }));
+vi.mock('./services/formula-sink.js', () => ({
+  restoreFormulaVerdicts: vi.fn(),
+  connectFormulaSink: watch.formulas,
+  disconnectFormulaSink: vi.fn(),
+}));
 vi.mock('./routes/webhook.js', async original => ({ ...await original<typeof import('./routes/webhook.js')>(), recoverWebhookQueue: watch.recover }));
 const { createApp, preloadData } = await import('./app.js');
 const app = await createApp({ logger: false });
