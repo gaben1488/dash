@@ -1,0 +1,21 @@
+{
+  "snapshot": "9d0cedaee51483bc0430200354ba6820a7681295",
+  "files": 250,
+  "bytes": 10514007,
+  "section_headings": 4662,
+  "all_fulltext_parsed": 250,
+  "core_editorial_review_count": 33,
+  "remaining_editorial_review_count": 217,
+  "waves": {
+    "04_история_планы_и_руководства": 40,
+    "00_методология_и_ошибки": 13,
+    "01_действующие_контракты_и_изменения": 28,
+    "02_аудиты_и_фактические_проверки": 100,
+    "03_спеки_и_гипотезы": 69
+  },
+  "gaps": {
+    "production_readback": "not_run_in_this_iteration",
+    "CI_exact_head": "not_run_in_this_iteration"
+  },
+  "note": "Full-text ingestion and SHA-256 validation do not prove deep human editorial reading or current production."
+}
