@@ -1167,7 +1167,13 @@ export function sliceResults(
   const months = [...new Set(filter.months ?? [])];
   const methods = [...new Set(filter.methods ?? [])];
   const subordinates = [...new Set(filter.subordinates ?? [])];
-  const activities = [...new Set(filter.activities ?? [])];
+  const selectedActivities = [...new Set(filter.activities ?? [])];
+  // Canon p.30: both old TD keys select ALL current activity. A legacy
+  // snapshot may still split TD between the two keys; a modern one doesn't.
+  const activities = selectedActivities.some(a =>
+    a === 'current_program' || a === 'current_non_program')
+    ? [...new Set([...selectedActivities, 'current_program', 'current_non_program'])]
+    : selectedActivities;
   const hasQ = quarters.length > 0;
   const hasM = months.length > 0;
   const hasMeth = methods.length > 0;
