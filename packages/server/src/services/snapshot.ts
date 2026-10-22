@@ -1,5 +1,6 @@
 import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
 import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
+import { sheetFingerprint } from './sheet-fingerprint.js';
 import { measureReadStage, withoutRequestTiming } from '../plugins/request-timing.js';
 import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
@@ -59,12 +60,36 @@ let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
  * цикле: их запись УДАЛЯЕТСЯ из кэша, а не остаётся молча от предыдущей
  * успешной загрузки под видом свежих данных (маскировка отказа, B-9).
  */
+/**
+ * A values-only poll must not discard a confirmed formula grid for an
+ * unchanged Google revision. The matching value fingerprint is necessary but
+ * NOT sufficient: a formula can be edited without changing its result.
+ * Without matching source identity and version, withdraw the formula evidence.
+ */
+function canKeepFormulaGrid(before: DeptSheetResult, after: DeptSheetResult): boolean {
+  if (before.formulasRead !== true || after.formulasRead === true || before.formulas.length === 0) return false;
+  if (!before.providerId || before.providerId !== after.providerId
+      || before.sheetName !== after.sheetName
+      || (before.startRow ?? 1) !== (after.startRow ?? 1)) return false;
+  const sameProviderVersion = !!before.sourceVersion && before.sourceVersion === after.sourceVersion;
+  const sameSharedRevision = !before.sourceVersion && !after.sourceVersion
+    && !!before.sourceRevision && before.sourceRevision === after.sourceRevision;
+  return (sameProviderVersion || sameSharedRevision)
+    && sheetFingerprint(before.values) === sheetFingerprint(after.values);
+}
+
 export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
   acceptedAt?: string,
 ): void {
-  const next = { ...cachedDeptSheetData, ...data };
+  const next = { ...cachedDeptSheetData };
+  for (const [name, reading] of Object.entries(data)) {
+    const before = next[name];
+    next[name] = before && canKeepFormulaGrid(before, reading)
+      ? { ...reading, formulas: before.formulas, formulasRead: true }
+      : reading;
+  }
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
