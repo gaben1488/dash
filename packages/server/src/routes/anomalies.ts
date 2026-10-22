@@ -535,7 +535,7 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
     // frozen rows, regardless of changes to the separate live cache.
     const analysis = snapshotAnalyses[dept.latinId] ?? snapshotAnalyses[dept.id];
     const frozenByRow = anomalyFactsOfCapturedRows(
-      { rowsByDept: capturedRowsByDept }, dept.nameShort,
+      { rowsByDept: capturedRowsByDept }, dept.id,
     );
     const parsed = datasetFindingsOf(
       analysis as Partial<DatasetAnalysis> | undefined,
