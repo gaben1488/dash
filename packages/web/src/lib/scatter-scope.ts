@@ -15,9 +15,13 @@ export function scatterScope(input: {
   else if (input.activityFilter && input.activityFilter !== 'all') params.activity = input.activityFilter;
   if (input.procurementFilter && input.procurementFilter !== 'all') params.type = input.procurementFilter;
   if (input.searchQuery?.trim()) params.search = input.searchQuery.trim();
-  if (input.periodMode === 'explicit') {
-    if (input.activeMonths.size) params.months = [...input.activeMonths].sort((a, b) => a - b).join(',');
-    else params.period = input.period;
+  // In weekly archive mode the stray activeMonths are not an explicit selection,
+  // but the selected quarter still applies to the visible dashboard totals.
+  // Omitting it silently widened scatter to the full calendar year.
+  if (input.periodMode === 'explicit' && input.activeMonths.size) {
+    params.months = [...input.activeMonths].sort((a, b) => a - b).join(',');
+  } else if (input.period !== 'year') {
+    params.period = input.period;
   }
   return params;
 }
