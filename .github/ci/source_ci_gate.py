@@ -13,7 +13,7 @@ def source_ci_passed(run, jobs, sha):
     # only against the exact tested SHA and the same three mandatory jobs.
     owner_integrated_push = (
         run.get('event') == 'push'
-        and run.get('head_branch') in ('codex/dash-audit-integrated-20261010', 'release/dash79-modern-forward-20261022')
+        and run.get('head_branch') in ('codex/dash-audit-integrated-20261010', 'release/dash79-modern-forward-20261022', 'release/isolated-production-cutover-20261022')
         and (run.get('actor') or {}).get('login') == 'gaben1488'
     )
     if (not re.fullmatch('[a-f0-9]{40}', sha) or run.get('head_sha') != sha

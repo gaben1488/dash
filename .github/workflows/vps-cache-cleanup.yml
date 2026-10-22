@@ -2667,7 +2667,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.head_ref == 'codex/dash-audit-integrated-20261010') ||
       (github.event_name == 'push' &&
-       (github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' || github.ref == 'refs/heads/release/dash79-modern-forward-20261022') &&
+       (github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' || github.ref == 'refs/heads/release/dash79-modern-forward-20261022' || github.ref == 'refs/heads/release/isolated-production-cutover-20261022') &&
        github.actor == github.repository_owner &&
        github.repository == 'gaben1488/dash' &&
        github.workflow == 'Integrated durable source-state release')
@@ -2679,7 +2679,7 @@ jobs:
     env:
       RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
-      RELEASE_PR: ${{ github.ref == 'refs/heads/release/dash79-modern-forward-20261022' && '129' || '79' }}
+      RELEASE_PR: ${{ github.ref == 'refs/heads/release/isolated-production-cutover-20261022' && '152' || github.ref == 'refs/heads/release/dash79-modern-forward-20261022' && '129' || '79' }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
