@@ -461,21 +461,28 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const ttl = config.cache.ttlSeconds * 1000;
 
   const cached = cachedSnapshots.get(cacheKey);
-  // A valid calculation belongs to an input generation, not a five-minute TTL.
-  // Source/decision changes explicitly invalidate it. Retrying a failed or
-  // interrupted build still uses TTL; a page visit alone never creates data.
-  const unchanged = !isDemoMode && cached && cached.timestamp > 0
-    && cached.generation === cacheGeneration
-    && !cached.snapshot.metadata.readModel
-    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
-  if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
+  // A ready projection requires the same source generation AND calculation
+  // context. Raw input capture is not a perpetual license to reuse a
+  // calendar-dependent derived value after Kamchatka midnight.
+  const sameGeneration = !!cached && cached.generation === cacheGeneration;
+  const contextMatches = !!cached && !isDemoMode
+    && currentCalculationContextMatches(cached.snapshot, new Date(now));
+  const unchanged = sameGeneration && contextMatches && cached!.timestamp > 0
+    && !cached!.snapshot.metadata.readModel
+    && cached!.snapshot.metadata.sourceCoverage?.complete !== false;
+  // Preserve a bounded retry window for an explicitly not-ready view, but
+  // never treat it (or an invalidated source generation) as ready.
+  const withinRetry = !!cached && sameGeneration && cached.timestamp > 0
+    && now >= cached.timestamp && now - cached.timestamp < ttl;
+  if (!force && cached && (unchanged
+    || (withinRetry && (isDemoMode || !!cached.snapshot.metadata.readModel)))) {
     return recordSnapshotRead(cached.snapshot);
   }
 
   // Reading a page must not await Google, calculations, persistence and pruning.
   // Keep the last proven scope; its createdAt remains the actual captured time.
   if (!force && !isDemoMode) {
-    const needsStorageRead = !cached || cached.generation !== cacheGeneration;
+    const needsStorageRead = !cached || !sameGeneration || !contextMatches;
     const previous = needsStorageRead
       ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
       : cached.snapshot;
@@ -486,7 +493,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
       if (receipt && previous.metadata.sourceReceipt === receipt
         && previous.metadata.sourceCoverage?.complete === true
         && !Object.values(deptLoadMeta).some(meta => meta.error) && !svodLoadFailure
-        && currentCalculationContextMatches(previous)) {
+        && currentCalculationContextMatches(previous, new Date(now))) {
         rememberSnapshot(cacheKey, previous, now);
         return recordSnapshotRead(previous);
       }
