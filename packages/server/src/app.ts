@@ -38,6 +38,7 @@ import { textHygieneRoutes } from './routes/text-hygiene.js';
 import { eventsRoutes } from './routes/events.js';
 import { commentsRoutes } from './routes/comments.js';
 import { sourceIntegrityRoutes } from './routes/source-integrity.js';
+import { sourceDiagnosticsRoutes } from './routes/source-diagnostics.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
 import { startNightlyIntegritySweep, restoreMetadataWatch } from './services/metadata-watch.js';
@@ -259,6 +260,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(eventsRoutes);
   await app.register(commentsRoutes);
   await app.register(sourceIntegrityRoutes);
+  await app.register(sourceDiagnosticsRoutes);
 
   // Отладочное чтение книги регистрируется только в явно названной среде
   // разработки (прежде — при любой, кроме production, включая незаданную).
