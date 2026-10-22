@@ -93,7 +93,9 @@ describe('validateData — basic', () => {
     // В Sheets пустая ячейка J законно равна нулю: непрочитанное значение
     // должно быть именно заполненным нечисловым компонентом. А текущая схема
     // СВОДа подтверждается действующей заголовочной строкой.
-    const rows = [primaryHeader, ...[5, 6].map(rowIndex => makeRow({ rowIndex,
+    const header = makeRow({ rowIndex: 3, classification: 'header',
+      cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
+    const rows = [header, ...[5, 6].map(rowIndex => makeRow({ rowIndex,
       cells: { A: 'УО', H: 100, I: 0, J: 'не число', K: 100 },
     }))];
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
