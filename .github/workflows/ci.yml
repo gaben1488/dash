@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, codex/dash79-evidence-consolidation-20261022]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
