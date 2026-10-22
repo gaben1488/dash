@@ -23,6 +23,8 @@ export interface ColumnConfig {
   width?: string;
   editable?: boolean;
   guidance?: string;
+  /** Contextual explanation of the active source row (pure; not an editable rule). */
+  guidanceForRow?: (row: RowData) => string;
   /** Варианты для типа «выбор». */
   options?: string[];
   /** Проверка значения — текст ошибки по-русски либо null. */
@@ -453,6 +455,11 @@ export function TableEditor({
   const metadataFocusTransition = useRef(false);
   const metadataWasOpen = useRef(false);
   const guidanceId = useId();
+  const activeGuidanceColumn = editingCell ? columns.find(col => col.key === editingCell.colKey) : undefined;
+  const activeGuidanceRow = editingCell ? rows.find(row => row._id === editingCell.rowId) : undefined;
+  const activeGuidance = activeGuidanceRow && activeGuidanceColumn?.guidanceForRow
+    ? activeGuidanceColumn.guidanceForRow(activeGuidanceRow)
+    : activeGuidanceColumn?.guidance;
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -978,9 +985,9 @@ export function TableEditor({
         </div>
       </div>
 
-      {editingCell && columns.find(col => col.key === editingCell.colKey)?.guidance && (
+      {editingCell && activeGuidance && (
         <p id={guidanceId} role="note" className="text-xs text-zinc-600 dark:text-zinc-300">
-          {columns.find(col => col.key === editingCell.colKey)?.guidance}
+          {activeGuidance}
         </p>
       )}
 
@@ -1320,7 +1327,7 @@ export function TableEditor({
                                   commitEdit();
                                 }}
                                 aria-label={`${col.label}: значение`}
-                                aria-describedby={col.guidance ? guidanceId : undefined}
+                                aria-describedby={col.guidance || col.guidanceForRow ? guidanceId : undefined}
                                 aria-invalid={cellError ? true : undefined}
                                 placeholder={col.type === 'date' ? 'ДД.ММ.ГГГГ' : ''}
                                 className={clsx(
