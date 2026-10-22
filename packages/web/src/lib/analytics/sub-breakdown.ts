@@ -13,6 +13,8 @@
  * и карточка пишет словами, что строк нет (PRODUCT.md, «честная пустота»).
  */
 
+import { completeSum } from '../source-availability';
+
 /** Метрики организации из снимка; поля приходят по проводу как есть. */
 export interface SubordinateMetricsLike {
   name: string;
@@ -71,13 +73,16 @@ export function buildSubBreakdown(input: {
 
 /** Итоги разбивки: суммы и сколько организаций реально ведут закупки. */
 export function subBreakdownTotals(rows: readonly SubBreakdownRow[]): {
-  plan: number;
-  fact: number;
+  plan: number | null;
+  fact: number | null;
   withRows: number;
 } {
+  // An explicitly absent institution contributes zero; a known institution
+  // with an unread period does not. Otherwise one incomplete budget would
+  // silently become an apparently precise department total and share.
   return {
-    plan: rows.reduce((s, r) => s + (r.planTotal ?? 0), 0),
-    fact: rows.reduce((s, r) => s + (r.factTotal ?? 0), 0),
-    withRows: rows.filter((r) => r.hasRows && (r.planTotal ?? 0) > 0).length,
+    plan: completeSum(rows.map(r => r.hasRows ? r.planTotal : 0)),
+    fact: completeSum(rows.map(r => r.hasRows ? r.factTotal : 0)),
+    withRows: rows.filter((r) => r.hasRows && r.planTotal != null && r.planTotal > 0).length,
   };
 }
