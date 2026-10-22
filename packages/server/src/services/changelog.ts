@@ -14,6 +14,7 @@
  *     причём строки обеих схем встречаются вперемешку, поэтому схема
  *     определяется ПО СТРОКЕ (что лежит в её ячейках), а не по шапке.
  */
+import { createHash } from 'node:crypto';
 import {
   COL_LETTER_INDEX,
   DEPT_COLUMNS,
@@ -39,8 +40,8 @@ export interface ChangeRecord {
   atMs: number;
   /** 'day' means the source gave no clock time; atMs is only a date anchor. */
   timePrecision?: 'day';
-  /** Source _ChangeLog row, used to distinguish multiple date-only edits. */
-  sourceRow?: number;
+  /** 0-based occurrence among identical source events, independent of sheet row position. */
+  sourceOccurrence?: number;
   /** Почта автора правки, как её записал источник. */
   author: string;
 }
@@ -88,43 +89,111 @@ function attributeOf(cell: string): string {
  * Строки без распознаваемого времени пропускаются: без момента правки
  * запись бесполезна для вопроса «что поменялось с даты среза».
  */
-export function parseChangeLog(rows: unknown[][], dept: string): ChangeRecord[] {
-  const out: ChangeRecord[] = [];
-  rows.forEach((row, index) => {
-    if (!row || row.length < 5) return;
-    const s = (i: number): string => String(row[i] ?? '').trim();
-    const provenance = (time: { atMs: number; precision: 'exact' | 'day' }) =>
-      time.precision === 'day'
-        ? { timePrecision: 'day' as const, sourceRow: index + 1 }
-        : {};
+export interface ChangeLogCoverage {
+  rawRows: number;
+  parsed: number;
+  dayOnly: number;
+  /** Non-empty source records not safely parsed as single-cell events. */
+  unparsed: number;
+  /** Non-cell actions (ranges, sheet deletion, bulk writes), not expanded. */
+  nonCell: number;
+  /** A recognisable cell event without a valid timestamp. */
+  invalidTime: number;
+}
 
-    // Eight-column source schema: 'Лист | Ячейка | ... | Время | Автор'.
+export interface ParsedChangeLog {
+  records: ChangeRecord[];
+  coverage: ChangeLogCoverage;
+}
+
+/** Canonical source-value signature, not a mutable sheet coordinate. */
+function dayEventSignature(record: ChangeRecord): string {
+  return JSON.stringify([
+    record.dept, record.sheet, record.cell, record.atMs, record.author,
+    record.oldValue, record.newValue,
+  ]);
+}
+
+/**
+ * Do not use journal row number as identity: reordering or inserting rows
+ * shifts that number while leaving the original event unchanged.
+ * Indistinguishable *identical* entries receive occurrence ordinals; without
+ * source event IDs their individual identities cannot be proven.
+ */
+export function parseChangeLogDetailed(rows: unknown[][], dept: string): ParsedChangeLog {
+  const records: ChangeRecord[] = [];
+  const coverage: ChangeLogCoverage = {
+    rawRows: rows.length, parsed: 0, dayOnly: 0, unparsed: 0, nonCell: 0, invalidTime: 0,
+  };
+  const occurrences = new Map<string, number>();
+  const add = (record: ChangeRecord, precision: 'exact' | 'day'): void => {
+    if (precision === 'day') {
+      const signature = dayEventSignature(record);
+      const ordinal = occurrences.get(signature) ?? 0;
+      occurrences.set(signature, ordinal + 1);
+      record.timePrecision = 'day';
+      record.sourceOccurrence = ordinal;
+      coverage.dayOnly += 1;
+    }
+    records.push(record);
+    coverage.parsed += 1;
+  };
+
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length === 0 || row.every(v => String(v ?? '').trim() === '')) continue;
+    const s = (i: number): string => String(row[i] ?? '').trim();
+    if ((s(0) === 'Лист' && s(1) === 'Ячейка') ||
+        (s(0) === 'Ячейка' && s(3) === 'Время')) continue;
+
+    // Eight-column source schema.
     const cell8 = s(1).toUpperCase();
-    const time8 = parseRuDateTime(row[6]);
-    if (time8 && /^[A-Z]{1,2}\d+$/i.test(cell8)) {
-      out.push({
+    if (/^[A-Z]{1,2}\d+$/i.test(cell8)) {
+      const time8 = parseRuDateTime(row[6]);
+      if (!time8) { coverage.invalidTime += 1; coverage.unparsed += 1; continue; }
+      add({
         dept, sheet: s(0) || 'ВСЕ', cell: cell8,
         attribute: attributeOf(cell8), oldValue: s(4), newValue: s(5),
-        atMs: time8.atMs, author: s(7), ...provenance(time8),
-      });
-      return;
+        atMs: time8.atMs, author: s(7),
+      }, time8.precision);
+      continue;
     }
 
-    // Six-column source schema, including 'УАГЗО!B48' cell references.
+    // Six-column source schema, including 'УАГЗО!B48' addresses.
     const sixCell = s(0).match(/^(?:(.+)!)?([A-Z]{1,2}\d+)$/i);
-    const time6 = parseRuDateTime(row[3]);
-    if (time6 && sixCell) {
+    if (sixCell) {
+      const time6 = parseRuDateTime(row[3]);
+      if (!time6) { coverage.invalidTime += 1; coverage.unparsed += 1; continue; }
       const cell = sixCell[2].toUpperCase();
-      out.push({
+      add({
         dept, sheet: sixCell[1] || 'ВСЕ', cell,
         attribute: attributeOf(cell), oldValue: s(1), newValue: s(2),
-        atMs: time6.atMs, author: s(4), ...provenance(time6),
-      });
+        atMs: time6.atMs, author: s(4),
+      }, time6.precision);
+      continue;
     }
-    // A bulk/range event without a single cell is not silently expanded into
-    // fabricated per-cell history. Its coverage must be checked separately.
-  });
-  return out;
+
+    // Bulk/range operations remain visible as a coverage gap. Inventing
+    // per-cell edits from A1:C12 or 'deleteSheet x1' would falsify history.
+    coverage.nonCell += 1;
+    coverage.unparsed += 1;
+  }
+  return { records, coverage };
+}
+
+/** Compatibility entrypoint: the shared source still has one fetch path. */
+export function parseChangeLog(rows: unknown[][], dept: string): ChangeRecord[] {
+  return parseChangeLogDetailed(rows, dept).records;
+}
+
+/** Immutable content identity for date-only entries (no spreadsheet position). */
+export function changeEntryIdentity(r: ChangeRecord): string {
+  const legacy = [r.dept, r.sheet, r.cell, r.atMs, r.author].join('|');
+  if (r.timePrecision !== 'day') return legacy;
+  if (!Number.isSafeInteger(r.sourceOccurrence) || (r.sourceOccurrence ?? -1) < 0) {
+    throw new Error('Date-only event requires a stable content occurrence');
+  }
+  const digest = createHash('sha256').update(dayEventSignature(r)).digest('hex');
+  return 'journal-day-v2:' + digest + ':' + r.sourceOccurrence;
 }
 
 /** Правки после момента среза, свежие сверху. */
