@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   completeAverage, completeSum, confirmedEmptyCounts,
-  cumulativePercentOfYear, observedNumber, percentOf,
+  cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf,
 } from './source-availability';
 
 describe('C05.02: source completeness is not a fabricated zero', () => {
@@ -35,6 +35,14 @@ describe('C05.02: source completeness is not a fabricated zero', () => {
     expect(cumulativePercentOfYear([10, null, 30, 40], 100)).toEqual([10, null, null, null]);
     expect(cumulativePercentOfYear([10, 20], null)).toEqual([null, null]);
     expect(cumulativePercentOfYear([10, 20], 0)).toEqual([null, null]);
+  });
+
+  it('recognizes absent categories in an accepted period but not an absent period', () => {
+    expect(materializedCategoryAmount(undefined, 'current_program', 'planTotal')).toBeNull();
+    expect(materializedCategoryAmount({ current_non_program: { planTotal: 12 } }, 'current_program', 'planTotal')).toBe(0);
+    expect(materializedCategoryAmount({ current_non_program: { planTotal: 0 } }, 'current_non_program', 'planTotal')).toBe(0);
+    expect(materializedCategoryAmount({ current_program: { planTotal: null } }, 'current_program', 'planTotal')).toBeNull();
+    expect(materializedCategoryAmount({ current_program: {} }, 'current_program', 'planTotal')).toBeNull();
   });
 
   it('does not average unread Trust or declare a source with missing counts empty', () => {
