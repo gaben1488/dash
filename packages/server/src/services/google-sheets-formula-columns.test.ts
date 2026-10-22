@@ -14,7 +14,7 @@
  */
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE } from '@aemr/shared';
+import { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE, MASTER_FORMULA_COLUMN_GROUPS } from '@aemr/shared';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
@@ -287,7 +287,9 @@ describe('R05.01 — source profile is the single implementation across consumer
   it('one object reference supplies read ranges and metadata protected groups', async () => {
     const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
     const { METADATA_CANON } = await import('./metadata-canon.js');
-    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_SOURCE_PROFILE.formulaColumnGroups);
+    // Assert canonical module identity, not the identity of a package-export wrapper.
+    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_FORMULA_COLUMN_GROUPS);
+    expect(FORMULA_COLUMN_GROUPS).toEqual(MASTER_SOURCE_PROFILE.formulaColumnGroups);
     expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
     expect(FORMULA_COLUMNS).toEqual(
       Object.values(MASTER_SOURCE_PROFILE.fields)
