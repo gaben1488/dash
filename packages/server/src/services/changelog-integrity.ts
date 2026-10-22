@@ -11,7 +11,7 @@
  * durable identity after insertions or removals.
  */
 import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
-import { parseJournalInstant, type JournalRecord } from '@aemr/core';
+import { parseJournalInstant, parseJournalRowKey, type JournalRecord } from '@aemr/core';
 
 export interface JournalCellWitness {
   rowSeq: string;
@@ -38,10 +38,13 @@ function asText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-function instantMs(value: unknown): number | null {
+function instantMs(value: unknown, utcOffsetHours: number): number | null {
   const parsed = parseJournalInstant(value);
   if (!parsed) return null;
-  const ms = Date.parse(parsed.at + 'Z');
+  // Journal timestamps are the source workbook's wall clock, not UTC.
+  // Convert through the product's configured calendar offset (Kamchatka).
+  const localAsUtc = Date.parse(parsed.at + 'Z');
+  const ms = localAsUtc - utcOffsetHours * 3_600_000;
   return Number.isFinite(ms) ? ms : null;
 }
 
@@ -61,6 +64,7 @@ export function correlateChangelogWithCurrent(
   currentAtMs: number,
   journalReadAtMs: number,
   canonicalSheet = 'ВСЕ',
+  utcOffsetHours = 12,
 ): JournalIntegrityWitness {
   const rowsByNumber = new Map<string, Array<{ row: readonly unknown[]; sheetRow: number }>>();
   current.forEach((row, index) => {
@@ -78,10 +82,12 @@ export function correlateChangelogWithCurrent(
   let entriesSinceControl = 0;
 
   for (const record of records) {
-    const atMs = instantMs(record.at);
+    const atMs = instantMs(record.at, utcOffsetHours);
     if (atMs === null || atMs < controlAtMs || atMs > currentAtMs) continue;
     const sheet = asText(record.sheet);
-    if (sheet && sheet !== canonicalSheet) continue;
+    // Some _ChangeLog sheets use the GRBS name even when the primary data tab
+    // is 'ВСЕ'. Accept only these known source labels, not arbitrary mirrors.
+    if (sheet && sheet !== canonicalSheet && sheet !== dept) continue;
     const cell = asText(record.cell).toUpperCase();
     const parsedCell = /^([A-Z]{1,2})([1-9]\d*)$/.exec(cell);
     if (!parsedCell) continue;
@@ -89,7 +95,7 @@ export function correlateChangelogWithCurrent(
     if (col === undefined) continue;
     entriesSinceControl++;
 
-    const rowSeq = asText(record.row);
+    const rowSeq = parseJournalRowKey(record.row).ordinal ?? '';
     if (!rowSeq) {
       withoutStableKey++;
       continue;
@@ -111,7 +117,7 @@ export function correlateChangelogWithCurrent(
   for (const witness of latest.values()) {
     const match = rowsByNumber.get(witness.rowSeq) ?? [];
     const currentCell = match.length === 1
-      ? witness.sourceCell.match(/^[A-Z]{1,2}/)?.[0] + String(match[0].sheetRow)
+      ? witness.sourceCell.replace(/\d+$/, String(match[0].sheetRow))
       : null;
     const status: JournalCellWitness['status'] = witness.conflicting
       ? 'conflicting-log'
@@ -133,6 +139,7 @@ export function correlateChangelogWithCurrent(
     entriesSinceControl, withoutStableKey, matchesCurrent, needsReview, examples,
     note: 'Уведомление Drive не содержит числа правок. Совпавшие № п/п и текущие значения '
       + 'подтверждают только соответствующую ячейку; полноту журнала, автора удаления '
-      + 'и физическое удаление строки не доказывают. Пропавшие № определяет четверговая сверка.',
+      + 'и физическое удаление строки не доказывают. Время журнала интерпретируется по '
+      + 'часовому поясу продукта. Пропавшие № определяет четверговая сверка.',
   };
 }
