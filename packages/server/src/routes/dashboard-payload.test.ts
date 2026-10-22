@@ -76,6 +76,79 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
     expect(data.snapshot.issues).toEqual(fixture.snapshot.issues);
   });
+
+  it('R05.03: unread primary remains UNKNOWN, not SVOD mirror or calculated zero', async () => {
+    const previous = fixture.snapshot;
+    const base = Object.values(previous.officialMetrics)[0]!;
+    const metric = (metricKey: string, n: number): NormalizedMetric => ({
+      ...base, metricKey, numericValue: n, value: n, displayValue: String(n),
+    });
+    const expectedDepartments = ['УО', 'УД'];
+    fixture.snapshot = {
+      ...previous,
+      metadata: {
+        ...previous.metadata,
+        sourceCoverage: {
+          expectedDepartments,
+          readDepartments: ['УД'],
+          unreadDepartments: [{ department: 'УО', reason: 'Primary book unavailable' }],
+          complete: false,
+        },
+      },
+      officialMetrics: {
+        ...previous.officialMetrics,
+        'grbs.uo.kp.year.total_plan': metric('grbs.uo.kp.year.total_plan', 900),
+        'grbs.uo.kp.q1.count': metric('grbs.uo.kp.q1.count', 10),
+      },
+      calculatedMetrics: {
+        ...previous.calculatedMetrics,
+        'grbs.uo.year.plan_total': metric('grbs.uo.year.plan_total', 0),
+        'grbs.uo.q1.plan_total': metric('grbs.uo.q1.plan_total', 0),
+        'grbs.ud.year.plan_total': metric('grbs.ud.year.plan_total', 75),
+      },
+    };
+    try {
+      const partial = await app.inject('/api/dashboard?year=2026');
+      expect(partial.statusCode).toBe(200);
+      const data = partial.json();
+      const uo = data.departmentSummaries.find((d: { department: { id: string } }) => d.department.id === 'uo');
+      const ud = data.departmentSummaries.find((d: { department: { id: string } }) => d.department.id === 'ud');
+      expect(uo).toMatchObject({
+        planTotal: null, competitiveCount: null, trustScore: null, status: 'critical',
+      });
+      expect(uo.quarters.q1.planTotal).toBeNull();
+      expect(uo.months).toEqual({});
+      expect(ud.planTotal).toBe(75);
+      expect(data.snapshot.metadata.sourceCoverage).toMatchObject({
+        complete: false, readDepartments: ['УД'],
+      });
+
+      // A real zero stays zero once the SAME primary is attested; do not
+      // confuse the absence of evidence with an ordinary empty budget.
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        metadata: {
+          ...fixture.snapshot.metadata,
+          sourceCoverage: {
+            expectedDepartments,
+            readDepartments: ['УО', 'УД'],
+            unreadDepartments: [],
+            complete: true,
+          },
+        },
+      };
+      const complete = await app.inject('/api/dashboard?year=2026');
+      expect(complete.statusCode).toBe(200);
+      const verifiedUo = complete.json().departmentSummaries.find(
+        (d: { department: { id: string } }) => d.department.id === 'uo',
+      );
+      expect(verifiedUo.planTotal).toBe(0);
+      expect(verifiedUo.quarters.q1.planTotal).toBe(0);
+      expect(verifiedUo.competitiveCount).toBe(10);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('distinguishes an explicit unknown amount from a missing period field', async () => {
     const data = (await app.inject('/api/dashboard?year=2026')).json();
     const period = data.departmentSummaries[0].quarters.q1;
