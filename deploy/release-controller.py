@@ -28,6 +28,10 @@ def web_only_inputs(paths):
         if (not isinstance(path, str) or not path or '\\' in path
                 or any(part in {'', '.', '..'} for part in path.split('/'))):
             return False
+        # A changed API adapter is a changed backend dependency, even when
+        # Git reports it under the frontend directory.
+        if path == 'packages/web/src/api.ts' or path.startswith('packages/web/src/api/'):
+            return False
         if path.startswith('packages/web/'):
             seen_web = True
         elif not (path.startswith('docs/') and path.endswith('.md') or path in
