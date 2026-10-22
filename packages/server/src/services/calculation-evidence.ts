@@ -118,6 +118,7 @@ export function makeCalculationEvidence(
     const metadata = sources.readMeta[dept];
     const fromMaster = masterNames.has(dept) && raw !== undefined && raw.length > 0;
     const readAt = metadata?.loadedAt ?? null;
+    const observedVersion = sources.observedDriveVersions?.[dept] ?? null;
 
     books[dept] = {
       fileId,
@@ -125,10 +126,14 @@ export function makeCalculationEvidence(
       archivedRowsSha256: archived === undefined ? null : calculationSha256(archived),
       loadedAt: readAt,
       origin: fromMaster ? 'master' : 'mirror-or-unconfirmed',
-      lastObservedDriveVersion: sources.observedDriveVersions?.[dept] ?? null,
+      lastObservedDriveVersion: observedVersion,
     };
 
     if (!fromMaster) blockers.push('master_unconfirmed:' + dept);
+    // Drive's last-seen version is useful evidence, not an atomic read barrier.
+    // An absent token must never qualify as fully observed source provenance.
+    if (!observedVersion || !observedVersion.trim()) blockers.push('source_revision_unobserved:' + dept);
+    if (metadata && raw && metadata.rowCount !== raw.length) blockers.push('source_row_count_mismatch:' + dept);
     if (!archived) blockers.push('archive_rows_missing:' + dept);
     if (metadata?.error) blockers.push('source_read_error:' + dept);
     const loadedMs = Date.parse(readAt ?? '');
@@ -188,6 +193,18 @@ export function inspectArchivedCalculationEvidence(snapshot: DataSnapshot): Evid
   if (evidence.spreadsheetId !== snapshot.spreadsheetId) mismatches.push('spreadsheet_id');
   if (evidence.outputSha256 !== calculationSha256(calculatedResultInput(snapshot))) {
     mismatches.push('output_hash');
+  }
+  // A modified passport cannot silently omit a book whose rows remain archived.
+  // This compares the existing two structures, without a new source fetch.
+  for (const dept of Object.keys(snapshot.rowsByDept ?? {})) {
+    if (!Object.prototype.hasOwnProperty.call(evidence.books, dept)) {
+      mismatches.push('archived_book_unlisted:' + dept);
+    }
+  }
+  if (evidence.scope === 'all-masters-observed' &&
+      (evidence.blockers.length > 0 || Object.values(evidence.books).some(item =>
+        item.origin !== 'master' || !item.lastObservedDriveVersion || !item.archivedRowsSha256))) {
+    mismatches.push('scope_inconsistent');
   }
   for (const [dept, item] of Object.entries(evidence.books)) {
     const archived = snapshot.rowsByDept?.[dept];
