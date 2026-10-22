@@ -116,5 +116,51 @@ jobs:
                         sort_keys=True,ensure_ascii=True))
                 except Exception as error:
                     print(json.dumps({'source':label,'error':type(error).__name__},sort_keys=True))
+            print('READ_ONLY_RUNTIME_STRICT_CONTROLLER_BEGIN')
+            import sys,importlib.util,stat
+            sys.path.insert(0,'/usr/local/libexec/aemr')
+            try:
+                spec=importlib.util.spec_from_file_location('readonly_controller','/usr/local/libexec/aemr/release-controller.py')
+                mod=importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                class ImageOnly:
+                    def command(self,args,**kwargs):
+                        if args[:2]!=['image','inspect']:raise RuntimeError('NOT_IMAGE_INSPECT')
+                        return cmd('docker',*args)
+                records={s:json.loads(cmd('docker','inspect','aemr-'+s+'-1'))[0] for s in services}
+                binding={'images':{s:records[s]['Image'] for s in services}}
+                checker=mod.ReleaseController(ImageOnly())
+                for label,path in candidates:
+                    if not path.is_file():continue
+                    try:
+                        if label=='operator':
+                            mod.ReleaseController._operator_file(path)
+                        else:
+                            import release_recovery
+                            release_recovery.read_owned(path)
+                        file_valid='PASS'
+                    except Exception as error:
+                        file_valid=type(error).__name__
+                    try:
+                        output=cmd('docker','compose','--project-directory',str(root),
+                            '--env-file',str(root/'.env.production'),'-f',str(path),
+                            '--profile','reports','config','--format','json')
+                        config=json.loads(output.replace('$','
+            PYDIAG
+))
+                        checker._saved_runtime(binding,records,config)
+                        result={'source':label,'operator_file':file_valid,'strict_result':'PASS'}
+                    except Exception as error:
+                        locations=[]
+                        tb=error.__traceback__
+                        while tb:
+                            if tb.tb_frame.f_code.co_name in ('_saved_runtime','_operator_file'):
+                                locations.append(tb.tb_frame.f_code.co_name+':'+str(tb.tb_lineno))
+                            tb=tb.tb_next
+                        result={'source':label,'operator_file':file_valid,'strict_result':type(error).__name__,'fail_lines':locations}
+                    print(json.dumps(result,sort_keys=True))
+            except Exception as error:
+                print(json.dumps({'strict_probe':'IMPORT_OR_INIT_FAILED','type':type(error).__name__}))
+            print('READ_ONLY_RUNTIME_STRICT_CONTROLLER_END')
             print('READ_ONLY_RUNTIME_SOURCE_COMPARISON_END')
             PYDIAG
