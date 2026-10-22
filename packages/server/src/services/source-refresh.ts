@@ -169,11 +169,11 @@ export interface FormulaDeliveryNote {
   failedBecause?: string;
 }
 
-let formulaSink: ((delivery: FormulaDelivery) => BookFormulaVerdict | void) | null = null;
+let formulaSink: ((delivery: FormulaDelivery) => BookFormulaVerdict | undefined) | null = null;
 const formulaNotes = new Map<string, FormulaDeliveryNote>();
 
 /** Подключить слой разбора формул. `null` — отключить (стражи, выключение). */
-export function setFormulaSink(sink: ((delivery: FormulaDelivery) => BookFormulaVerdict | void) | null): void {
+export function setFormulaSink(sink: ((delivery: FormulaDelivery) => BookFormulaVerdict | undefined) | null): void {
   formulaSink = sink;
 }
 
