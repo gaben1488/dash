@@ -49,3 +49,6 @@ def test_master_fields_and_required_meanings_come_from_shared_profile():
     header[21] = 'Иной денежный показатель'
     with pytest.raises(ValueError, match='MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V'):
         validate_master_source_header(header)
+    header[21] = 'Цена договора вместо ФБ 2'
+    with pytest.raises(ValueError, match='MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V'):
+        validate_master_source_header(header)
