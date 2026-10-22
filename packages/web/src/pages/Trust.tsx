@@ -13,14 +13,16 @@ import { PRODUCT_COPY } from '@aemr/shared';
 //    плюс подстановка ЖИВЫХ чисел этого экрана. Латинская отметка A–F
 //    заменена русским словом: школьная шкала США читателю ничего не говорит.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel, isTrustIssueApplicable } from '@aemr/shared';
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
-import { buildTrustViewModel } from '../lib/trust-metrics';
+import { buildTrustViewModel, currentFormulaScope, withCurrentFormulaAssessment } from '../lib/trust-metrics';
+import type { LiveFormulaAssessment } from '../lib/trust-metrics';
 import { kbFor } from '../lib/kb/metric-kb';
 import { natureOf } from '../lib/diagnostics/nature-categories';
 import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE } from '../components/control/surfaces';
@@ -212,6 +214,20 @@ export function TrustPage() {
   const { dashboardData, navigateTo, refresh, loading } = useStore();
   const fd = useFilteredData();
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
+  const [liveFormula, setLiveFormula] = useState<LiveFormulaAssessment | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const read = () => {
+      // This is a local SQLite-backed API read, not a new Google Sheets request.
+      void api.getSourceIntegrity()
+        .then(result => { if (active) setLiveFormula(result.formulas.assessment ?? null); })
+        .catch(() => { if (active) setLiveFormula(null); });
+    };
+    read();
+    window.addEventListener('source-formulas-updated', read);
+    return () => { active = false; window.removeEventListener('source-formulas-updated', read); };
+  }, []);
 
   if (!dashboardData) {
     return (
@@ -242,7 +258,14 @@ export function TrustPage() {
   const filteredDeptSummaries = [...fd.depts].sort((a: TrustDept, b: TrustDept) => (a.trustScore ?? 0) - (b.trustScore ?? 0));
 
   const scopedToFilter = hasDeptFilter;
-  const trustView = buildTrustViewModel(trustData, scopedToFilter ? filteredDeptSummaries : undefined);
+  const snapshotTrustView = buildTrustViewModel(trustData, scopedToFilter ? filteredDeptSummaries : undefined);
+  // A book-level check is not an assessment of one subordinate organization.
+  const formulaBooks = scopedToFilter && !fd.hasSubFilter
+    ? filteredDeptSummaries.map(dept => dept.department?.nameShort).filter((name): name is string => Boolean(name))
+    : undefined;
+  const liveScope = liveFormula && !fd.hasSubFilter ? currentFormulaScope(liveFormula, formulaBooks) : null;
+  const trustView = liveFormula && !fd.hasSubFilter
+    ? withCurrentFormulaAssessment(snapshotTrustView, liveFormula, formulaBooks) : snapshotTrustView;
   const overallScore = trustView.overallScore;
   const components = trustView.components;
 
@@ -318,6 +341,17 @@ export function TrustPage() {
             <p className="text-xs text-zinc-500 mt-2 text-center">
               Не проверено: {components.filter(c => c.score === null && c.weight > 0).map(c => c.label).join(', ')}.
               Итог не подтверждает достоверность непроверенной части.
+            </p>
+          )}
+          {liveScope && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center" aria-live="polite">
+              Проверка формул: подтверждено {liveScope.checkedBooks} из {liveScope.expectedBooks} книг.
+              {' '}{liveScope.score === null ? 'Оценка не подтверждена: не все формульные графы проверены.'
+                : `Оценка формул — ${liveScope.score} из 100.`}
+              {liveScope.checkedAt && (
+                <> Последний результат: {new Date(liveScope.checkedAt).toLocaleString('ru-RU',
+                  { timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (Камчатка).</>
+              )}
             </p>
           )}
           {trustView.unavailableComponents.length > 0 && (
@@ -460,7 +494,7 @@ export function TrustPage() {
                             их пишет сам счётчик; при фильтре по управлениям строка
                             заменяется честным указанием охвата. */}
                         {c.details && !c.details.startsWith('Фильтр:') && (
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 ml-5">Счёт по снимку: {c.details}</p>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 ml-5">{c.name === 'formula_integrity' && liveScope ? 'Счёт по последней формульной проверке: ' : 'Счёт по снимку: '}{c.details}</p>
                         )}
                         {scopedToFilter && (
                           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 ml-5">
