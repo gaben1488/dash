@@ -57,12 +57,14 @@ import {
   journalNumber as cellNumber,
   type RowDiff,
   type SnapshotRow,
+  type ChangeEntry,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { isDataRow } from '../services/rows-dto.js';
 import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, iterateWeeklySnapshotHistory } from '../services/snapshot.js';
 import { refreshAllSources } from '../services/source-refresh.js';
+import { readSourceRowObservations } from '../services/source-row-observations.js';
 import { orgLabel, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 export { atomsToSnapshotRows, indexHistoricalDepartments, interpretWeeklySnapshotJson, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 
@@ -144,6 +146,23 @@ export interface VanishedBookDto {
   }>;
 }
 
+export interface OperationalAbsenceDto {
+  /** Прежний № не найден после принятой перечитки; причина не установлена. */
+  dept: string;
+  rowSeq: string;
+  wasAtSheetRow: number | null;
+  subject: string;
+  observedAt: string;
+}
+
+export interface OperationalAbsenceReport {
+  since: string;
+  entries: OperationalAbsenceDto[];
+  /** Неизвестность не превращается в нулевое число пропаж. */
+  unavailableBooks: Array<{ dept: string; reason: string }>;
+  error: string | null;
+}
+
 export interface IntegrityResponse {
   asOf: string;
   books: IntegrityBookDto[];
@@ -166,6 +185,8 @@ export interface IntegrityResponse {
   } | null;
   /** Почему сравнения нет — фраза для экрана, а не пустое место. */
   comparisonNote: string;
+  /** Наблюдения принятых перечиток, даже если недельного контроля нет. */
+  operational: OperationalAbsenceReport;
   notes: string[];
 }
 
@@ -314,6 +335,86 @@ export function currentSheetToSnapshotRows(values: readonly unknown[][]): Snapsh
   return result;
 }
 
+
+/**
+ * Оперативный слой использует принятые перечитки SQLite, без второго Google
+ * запроса и без требования двух недельных списков. Наличие прежнего № в текущем
+ * листе снимает кандидат; подтверждать исчезновение самой закупки нельзя.
+ *
+ * Одно состояние на (книга, буквальный № п/п), включая 12/1 и 12/01. Повторные
+ * webhook-наблюдения не удваивают счётчик, но последнее время сохраняется.
+ * Неизвестное/устаревшее чтение явно выводится за пределы проверки.
+ */
+export function selectActiveSourceAbsences(
+  observations: readonly Pick<ChangeEntry, 'book' | 'kind' | 'rowSeq' | 'sheetRow' | 'subject' | 'observedAt'>[],
+  sheetValues: Readonly<Record<string, unknown[][]>>,
+  loadMeta: Readonly<Record<string, { loadedAt: string; rowCount?: number; error?: string }>>,
+  now: number,
+  maxAgeMs: number,
+): Pick<OperationalAbsenceReport, 'entries' | 'unavailableBooks'> {
+  const candidates = new Map<string, typeof observations[number][]>();
+  const unavailable = new Map<string, string>();
+  for (const observation of observations) {
+    if (observation.kind !== 'row-vanished' || !observation.rowSeq?.trim()) continue;
+    const dept = findDept(observation.book)?.id;
+    if (!dept) {
+      unavailable.set(observation.book, 'Имя книги наблюдения не найдено в действующем справочнике');
+      continue;
+    }
+    const group = candidates.get(dept) ?? [];
+    group.push(observation);
+    candidates.set(dept, group);
+  }
+
+  const entries = new Map<string, OperationalAbsenceDto>();
+  for (const [dept, events] of candidates) {
+    const source = Object.entries(sheetValues).find(([name]) => findDept(name)?.id === dept)?.[1];
+    const meta = Object.entries(loadMeta).find(([name]) => findDept(name)?.id === dept)?.[1];
+    const readAt = Date.parse(meta?.loadedAt ?? '');
+    let reason: string | null = null;
+    if (!source || source.length <= DEPT_HEADER_ROWS || !meta || meta.error) {
+      reason = 'Действующая книга не прочитана полностью';
+    } else if (meta.rowCount !== undefined && meta.rowCount !== source.length) {
+      reason = 'Размер прочитанной книги расходится с метаданными';
+    } else if (!Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs) {
+      reason = 'Текущее чтение книги устарело или его время не подтверждено';
+    }
+    if (reason) {
+      unavailable.set(dept, reason);
+      continue;
+    }
+
+    // Проверяем ВСЕ физические строки после шапки, а не только счётные.
+    // Номер в незавершённой позиции не должен казаться удалённым.
+    const present = new Set(source!.slice(DEPT_HEADER_ROWS)
+      .filter((row): row is unknown[] => Array.isArray(row))
+      .map((row) => text(row, DEPT_COLUMNS.ID)).filter(Boolean));
+    for (const observation of events) {
+      const observedAt = Date.parse(observation.observedAt ?? '');
+      if (!Number.isFinite(observedAt) || observedAt > now || readAt < observedAt - 600_000) {
+        unavailable.set(dept, 'Момент оперативного наблюдения нельзя сопоставить с текущим чтением');
+        continue;
+      }
+      const rowSeq = observation.rowSeq!.trim();
+      if (present.has(rowSeq)) continue;
+      const key = JSON.stringify([dept, rowSeq]);
+      const existing = entries.get(key);
+      if (existing && Date.parse(existing.observedAt) >= observedAt) continue;
+      entries.set(key, {
+        dept,
+        rowSeq,
+        wasAtSheetRow: observation.sheetRow,
+        subject: observation.subject ?? '',
+        observedAt: observation.observedAt!,
+      });
+    }
+  }
+
+  return {
+    entries: [...entries.values()].sort((a, b) => b.observedAt.localeCompare(a.observedAt)),
+    unavailableBooks: [...unavailable].map(([dept, reason]) => ({ dept, reason })),
+  };
+}
 
 // ────────────────────────────────────────────────────────────
 // Сборка ответа
@@ -519,6 +620,24 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   }
 
   const { comparison, note: comparisonNote } = buildComparison(now);
+  // Контроль задаёт длинное окно; без него оперативная история доступна за
+  // 14 дней, независимо от сетевых источников.
+  const sinceMs = comparison ? Date.parse(comparison.beforeAt) : now - 14 * 86_400_000;
+  let operational: OperationalAbsenceReport = {
+    since: new Date(sinceMs).toISOString(), entries: [], unavailableBooks: [], error: null,
+  };
+  try {
+    operational = {
+      ...operational,
+      ...selectActiveSourceAbsences(
+        readSourceRowObservations(sinceMs), sheetValues, getDeptLoadMeta(), now,
+        Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
+      ),
+    };
+  } catch (error) {
+    operational.error = 'Не удалось прочитать сохранённые наблюдения: ' +
+      (error instanceof Error ? error.message : String(error));
+  }
 
   const notes: string[] = [
     'Пропуск номера не доказывает удаления строки: он бывает от перенумерации и других изменений. ' +
@@ -542,6 +661,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     totals,
     comparison,
     comparisonNote,
+    operational,
     notes,
   };
 }
