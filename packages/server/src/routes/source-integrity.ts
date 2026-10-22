@@ -47,7 +47,7 @@ interface DeepSourceCheckBook {
   problems: string[];
 }
 
-interface DeepSourceCheck {
+export interface DeepSourceCheck {
   complete: boolean;
   at: string;
   expectedBooks: number;
@@ -114,7 +114,11 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
    * Проверяем фактическую доставку ЭТОГО запуска, а не старые удачные
    * записи в памяти: иначе неответившая книга выглядит как «замечаний нет».
    */
-  app.post('/api/sources/integrity/check', async () => {
+  app.post('/api/sources/integrity/check', async () => performDeepSourceCheck(app));
+}
+
+/** One underlying deep check for legacy route and the combined source run. */
+export async function performDeepSourceCheck(app: FastifyInstance): Promise<DeepSourceCheck> {
     if (!deepCheckInFlight) {
       deepCheckInFlight = (async (): Promise<DeepSourceCheck> => {
         const log = {
@@ -134,7 +138,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           const metadata = metadataResults.find((item) => item.book === book);
           const delivery = deliveries.books.find((item) => item.book === book && item.at === refresh.at);
           const verdict = verdicts.find((item) => item.book === book &&
-            Date.parse(item.at) >= Date.parse(refresh.at));
+            item.at === refresh.at);
           const metadataRead = metadata?.read === true;
           const formulasRead = refresh.loaded.includes(book) && delivery !== undefined;
           const analyzed = formulasRead && delivery.handled && verdict !== undefined;
@@ -154,7 +158,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           };
         });
         return {
-          complete: deliveries.sinkConnected && books.every((book) => book.problems.length === 0),
+          complete: expected.length > 0 && deliveries.sinkConnected && books.every((book) => book.problems.length === 0),
           at: new Date().toISOString(),
           expectedBooks: expected.length,
           books,
@@ -163,6 +167,5 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       })().finally(() => { deepCheckInFlight = null; });
     }
     return deepCheckInFlight;
-  });
 
 }
