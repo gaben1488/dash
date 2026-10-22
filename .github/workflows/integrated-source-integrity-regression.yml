@@ -42,6 +42,8 @@ jobs:
           pnpm --filter @aemr/core exec vitest run src/analytics/vanished-rows.test.ts src/changes/change-story.test.ts
           pnpm --filter @aemr/server exec vitest run src/routes/integrity.test.ts src/services/live-diff.test.ts
           pnpm --filter @aemr/web exec vitest run src/components/analytics-extra/useExtraSignals.test.tsx src/components/live/live-text.test.ts src/hooks/useLiveEvents.test.ts
+      - name: Signal detector and trust-score fail-closed regression
+        run: pnpm --filter @aemr/core exec vitest run src/pipeline/signal-detector-failure.test.ts src/trust/scorer.test.ts
       - name: Lint
         run: pnpm lint
       - name: Production build, without any deployment

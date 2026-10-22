@@ -72,6 +72,43 @@ describe('KBTooltip на координатном устройстве (тач)'
     expect(screen.queryByText(KB_TEXT)).toBeNull();
   });
 
+  it('shows a short explanation first; details are expanded by the user', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip
+          description="Законтрактовано"
+          whatIs="Доля заключённых закупок за выбранный период."
+          thresholdsFull="Порог измеряется относительно плана."
+          scopeMoment="Только книги выбранного года."
+          example="Восемь из десяти — восемьдесят процентов."
+        ><span>80 %</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('80 %'));
+    expect(screen.getByText(/Доля заключённых закупок/)).toBeTruthy();
+    expect(screen.queryByText(/Порог измеряется/)).toBeNull();
+    expect(screen.queryByText(/Только книги выбранного/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Подробнее' }));
+    expect(screen.getByText(/Порог измеряется/)).toBeTruthy();
+    expect(screen.getByText(/Только книги выбранного/)).toBeTruthy();
+    expect(screen.getByText(/Восемь из десяти/)).toBeTruthy();
+  });
+
+  it('does not show a title-only placeholder but shows a known source', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <>
+          <KBTooltip description="Справка не подготовлена"><span>Нет БЗ</span></KBTooltip>
+          <KBTooltip dataSource="Книга управления, лист закупок."><span>Источник</span></KBTooltip>
+        </>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Нет БЗ'));
+    expect(screen.queryByText('Справка не подготовлена')).toBeNull();
+    fireEvent.click(screen.getByText('Источник'));
+    expect(screen.getByText('Книга управления, лист закупок.')).toBeTruthy();
+  });
+
   it('триггер доступен с клавиатуры (tabIndex)', () => {
     renderMetric();
     const trigger = screen.getByText('86,6 %').closest('span[tabindex]');
