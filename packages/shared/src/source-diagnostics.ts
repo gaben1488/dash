@@ -51,6 +51,22 @@ export interface DiagnosticStageBase {
   error: string | null;
 }
 
+export interface SourceTextDiagnosticStage {
+  state: SourceDiagnosticStageState | 'not_run';
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+  reason: string | null;
+  rowsSource: 'live' | 'snapshot' | 'none' | null;
+  asOf: string | null;
+  booksChecked: number;
+  silentBooks: string[];
+  /** Null if the current source was not sufficiently read. */
+  findings: number | null;
+  rowsChecked: number | null;
+  cellsChecked: number | null;
+}
+
 export interface SourceDiagnosticRun {
   schemaVersion: 'sources-diagnostics/v1';
   runId: string;
@@ -70,7 +86,7 @@ export interface SourceDiagnosticRun {
     };
     metrics: { state: 'not_run'; reason: string };
     crossbook: { state: 'not_run'; reason: string };
-    text: { state: 'not_run'; reason: string };
+    text: SourceTextDiagnosticStage;
     history: { state: 'not_run'; reason: string };
   };
 }
