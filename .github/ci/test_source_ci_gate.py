@@ -56,8 +56,8 @@ class SourceGateTests(unittest.TestCase):
         )[0]
         # An early equality pins PR79 before SSH setup; the inequality fails
         # closed during CI polling; a final equality guards later advancement.
-        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"'
-        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then'
+        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"'
+        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" != "$RECOVERY_SHA"; then'
         ci_lookup = 'ci_run=$(gh api'
         self.assertEqual(admission.count(exact_head), 2)
         self.assertIn(superseded, admission)
@@ -67,6 +67,28 @@ class SourceGateTests(unittest.TestCase):
         self.assertIn('echo RELEASE_CANDIDATE_SUPERSEDED', fail_closed)
         self.assertIn('exit 2', fail_closed)
         self.assertGreater(admission.rindex(exact_head), admission.index('test "$ready" = true'))
+        self.assertIn('RECOVERY_PR:', admission)
+        self.assertIn('integrated-modern-production-release-20261023.request', admission)
+        self.assertIn('OWNER_EMERGENCY_RELEASE_REQUEST_VERIFIED', admission)
+
+    def test_explicit_owner_emergency_requires_exact_built_image(self):
+        run = {**self.run, 'event': 'push',
+               'head_branch': 'integration/consolidated-modern-20261023',
+               'actor': {'login': 'gaben1488'},
+               'owner_release_mode': 'emergency-image-only'}
+        jobs = [
+            {'name': 'Production image with report runtime', 'status': 'completed', 'conclusion': 'success'},
+            {'name': 'Report engine, publication and runtime', 'status': 'completed', 'conclusion': 'failure'},
+            {'name': 'Lint, TypeScript, Tests, Build, Audit', 'status': 'completed', 'conclusion': 'failure'},
+        ]
+        self.assertTrue(self.module.source_ci_passed(run, jobs, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**run, 'owner_release_mode': None}, jobs, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**run, 'actor': {'login': 'other'}}, jobs, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**run, 'head_sha': 'b' * 40}, jobs, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**run, 'head_branch': 'main'}, jobs, self.sha))
+        self.assertFalse(self.module.source_ci_passed(run, jobs[1:], self.sha))
+        self.assertFalse(self.module.source_ci_passed(run, [{**jobs[0], 'conclusion': 'failure'}], self.sha))
+        self.assertFalse(self.module.source_ci_passed(run, [jobs[0], jobs[0]], self.sha))
 
     def test_other_sha_repository_or_workflow_never_admits(self):
         for field, value in (('head_sha', 'b' * 40), ('name', 'Other'), ('event', 'push'),
