@@ -146,6 +146,34 @@ describe('назначение строки и составные номера',
     expect(detect([...HEALTHY, { seq: 6, subject: '', cells: { K: 11, AA: 27 } }])).toEqual([]);
   });
 
+  it('номер с пустым G, но реальным способом — остаётся в аудите 11 формул', () => {
+    const { values, formulas } = book([
+      ...HEALTHY, { seq: '173/18', subject: '', cells: { K: 100, Y: '' } },
+    ]);
+    // Исполнитель забыл предмет G, но L содержит настоящий способ закупки.
+    values[8][DEPT_COLUMNS.METHOD] = 'ЕП';
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const defects = detectFormulaIntegrity({
+      book: 'УД', values, formulas, startRow: 1,
+    }, coverage);
+    expect(defects.map(d => [d.rowSeq, d.cell, d.kind])).toEqual([
+      ['173/18', 'K9', 'formula_overwritten'],
+      ['173/18', 'Y9', 'formula_hole'],
+    ]);
+    expect(coverage[0]).toMatchObject({ expected: 66, checked: 66, failed: 2 });
+  });
+
+  it('плановые деньги тоже подтверждают закупку при пустом G и L', () => {
+    const { values, formulas } = book([
+      ...HEALTHY, { seq: '24/1', subject: '', cells: { K: 300 } },
+    ]);
+    values[8][DEPT_COLUMNS.MB_PLAN] = 300;
+    const issues = formulaIntegrityIssues({
+      book: 'УД', values, formulas, startRow: 1,
+    }, 'ud');
+    expect(issues.map(issue => issue.cell)).toEqual(['K9']);
+  });
+
   it('номер колонки и заголовок итога в графе предмета не являются закупкой', () => {
     expect(detect([...HEALTHY,
       { seq: 1, subject: '7', cells: { K: 11 } },

@@ -88,28 +88,58 @@ describe('СВОД — границы разных схем на одном ли
 // ────────────────────────────────────────────────────────────
 
 describe('validateData — basic', () => {
-  it('reports incomplete arithmetic once per rule without alleging a financial mismatch', () => {
+  it('reports nonnumeric inputs as unverified without calling them a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    // A real СВОД validation scope begins with its recognized primary header.
-    // Without that evidence the engine intentionally skips arithmetic, rather
-    // than inventing a financial mismatch for an unidentified sheet layout.
+    // Recognized СВОД primary header must be present for arithmetic to run.
+    // The latest integrated base explicitly gates mixed-layout blocks by this header.
     const header = makeRow({ rowIndex: 3, classification: 'header',
       cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
-    const rows = [header, ...[5, 6].map(rowIndex =>
-      makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, J: 'нечисловое значение', K: 100 } }))];
+    const rows = [header, ...[5, 6].map(rowIndex => makeRow({
+      rowIndex, cells: { A: 'УО', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100 },
+    }))];
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
     expect(issues[0].description).toContain('Не проверено 2 строк');
     expect(issues[0].description).toContain('не установленное расхождение');
     expect(validateData(EMPTY_METRICS, rows.map(r => ({ ...r, cells: { ...r.cells, J: 0 } })), rules, EMPTY_REPORT_MAP)).toEqual([]);
-    // Empty SUM operand is zero in Sheets. Missing evidence is a nonnumeric
-    // nonempty value, not an ordinary blank; never fabricate a mismatch.
-    expect(validateData(EMPTY_METRICS, rows.map(r => {
-      const cells = { ...r.cells };
-      delete cells.J;
-      return { ...r, cells };
-    }), rules, EMPTY_REPORT_MAP)).toEqual([]);
+  });
+
+  it('a genuinely blank SUM operand equals zero; it is not missing evidence', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Работы', H: 100, I: 0, K: 100 },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP, new Date(2026, 9, 22), coverage);
+    expect(issues).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('empty and note rows do not generate false unavailable-financial-check warnings', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const rows = [
+      makeRow({ sheet: 'УД', rowIndex: 4, classification: 'separator', cells: {} }),
+      makeRow({ sheet: 'УД', rowIndex: 5, classification: 'note', cells: { D: 'Пояснение к разделу' } }),
+      makeRow({ sheet: 'УД', rowIndex: 6, classification: 'procurement',
+        cells: { A: '173/18', G: 'Услуги связи', H: 100, I: 0, J: 0, K: 100 } }),
+    ];
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage)).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('a countable composite-ID procurement with a missing total is unverified, never PASS', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Закупка', L: 'ЕП', H: 100, I: 0, J: 0, K: '' },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage);
+    expect(issues.map(issue => issue.category)).toEqual(['rule_execution_failed']);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 0, failed: 0 });
   });
   it('returns empty issues for passing rules', () => {
     const rows = [makeRow({ cells: { A: '1', H: 100000 } })];
