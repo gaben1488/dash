@@ -13,9 +13,10 @@
  * дискриминированный результат с честной причиной отказа.
  */
 import { readDeptSheet } from './google-sheets.js';
-import { getDeptSheetValues } from './snapshot.js';
+import { getDeptLoadMeta, getDeptSheetValues } from './snapshot.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { DEPT_HEADER_ROWS } from '@aemr/shared';
+import { hasVerifiedPrimaryRows } from './cached-primary-source.js';
 
 export type DeptRowsResult =
   | { ok: true; values: unknown[][] }
@@ -26,9 +27,14 @@ export type DeptRowsResult =
 
 /** sheetName сохраняется в контракте отдела; адрес master берётся по nameShort. */
 export async function readDeptRows(dept: { nameShort: string; sheetName: string }): Promise<DeptRowsResult> {
-  // Ступень 1 — кэш отдела.
+  // Ступень 1 — только кэш с доказанным успешным чтением этой книги.
+  // Старые строки могут сохраниться после частичного отказа refresh; глобальное
+  // filledAt не подтверждает загрузку конкретной книги (см. dept-rows.ts).
   const cached = getDeptSheetValues()[dept.nameShort];
-  if (cached && cached.length >= DEPT_HEADER_ROWS) return { ok: true, values: cached };
+  const meta = getDeptLoadMeta()[dept.nameShort];
+  if (hasVerifiedPrimaryRows(cached, meta)) {
+    return { ok: true, values: cached };
+  }
 
   // Ступень 2 — собственная книга управления (живое чтение).
   const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort];

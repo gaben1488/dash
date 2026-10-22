@@ -42,7 +42,7 @@ function makeDeptRow(overrides: {
 let app: FastifyInstance;
 
 beforeAll(async () => {
-  const [{ setDeptSheetCache }, { createApp }] = await Promise.all([
+  const [{ setDeptSheetCache, setDeptLoadMeta }, { createApp }] = await Promise.all([
     import('./services/snapshot.js'),
     import('./app.js'),
   ]);
@@ -71,6 +71,7 @@ beforeAll(async () => {
     },
   });
 
+  setDeptLoadMeta({ УО: { loadedAt: '2026-10-22T05:00:00Z', rowCount: 5, sheetName: 'ВСЕ' } });
   app = await createApp({ logger: false });
   await app.ready();
 }, 60_000);

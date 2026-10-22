@@ -32,7 +32,7 @@ describe('GET /api/rows/:dept — дата-канон в DTO (fidelity §2.2)', 
   beforeAll(async () => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
     setDeptSheetCache({
       'УЭР': {
@@ -46,6 +46,7 @@ describe('GET /api/rows/:dept — дата-канон в DTO (fidelity §2.2)', 
         sheetName: 'УЭР',
       },
     });
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-22T05:00:00Z', rowCount: 6, sheetName: 'УЭР' } });
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
   }, 60_000);
