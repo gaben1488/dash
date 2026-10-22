@@ -37,6 +37,15 @@ export function roundMoneyInText(text: string): string {
  * Each rule in the RULE_BOOK has a `check()` method that is called per-row.
  * Rules are scoped (svod / department / both) and filtered accordingly.
  */
+/**
+ * The four sum checks only apply to financial data. An entirely blank
+ * separator or free-text note is not an unverified purchase: counting it in
+ * the denominator creates false "rule_execution_failed" findings.
+ */
+const BOOK_SUM_RULES = new Set([
+  'budget_sum_plan', 'budget_sum_fact', 'dept_fact_sum', 'dept_economy_sum',
+]);
+
 export function validateData(
   _metrics: Map<string, NormalizedMetric>,
   rows: ClassifiedRow[],
@@ -55,10 +64,9 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
-  // В действующем СВОДе строки 279+ — отдельная аналитика таблицы,
-  // не являющаяся частью закупочных проверок Dash, включая budget_sum_*.
-  // Это жёсткая граница поверх существующего распознавания блоков по шапкам:
-  // их заголовки могут меняться, но проверка не должна захватить эксперимент.
+  // The source sheet's A279:U... is experimental, for Google Sheets alone.
+  // Every rule (including scope='both'), header/layout evidence and allRows
+  // must exclude it. 1–278 remain live; other GRBS sheets are unaffected.
   const scopedRows = sheetClass.kind === 'svod'
     ? rows.filter(row => row.rowIndex <= SVOD_DASHBOARD_LAST_ROW)
     : rows;
@@ -147,6 +155,10 @@ export function validateData(
       if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
+      // Blank separators and explanatory notes have no arithmetic to verify.
+      // Do not count them as checked or claim they lack a financial total.
+      if (BOOK_SUM_RULES.has(rule.id)
+        && (row.classification === 'separator' || row.classification === 'note')) continue;
       if (rule.rowFilter && !rule.rowFilter.includes(row.classification)) continue;
       execution.expected += 1;
       const ctx: import('@aemr/shared').RuleCheckContext = {

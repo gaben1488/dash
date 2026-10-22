@@ -21,6 +21,7 @@ import {
   closeLiveEvents,
   acknowledgeLiveEvents,
   resetLiveEvents,
+  ingestLiveEvent,
   getLiveState as currentState,
   FLASH_MS,
   type LiveState,
@@ -50,6 +51,21 @@ afterEach(() => {
   resetLiveEvents();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+describe('дешёвая перепроверка раздела по событию источника', () => {
+  it('уведомляет об изменённой книге, но не о постороннем событии', () => {
+    const listener = vi.fn();
+    window.addEventListener('department-books-updated', listener);
+    try {
+      ingestLiveEvent(bookEvent(1));
+      expect(listener).toHaveBeenCalledTimes(1);
+      ingestLiveEvent({ kind: 'snapshot-rebuilt', rows: 123, issues: 0, year: null });
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('department-books-updated', listener);
+    }
+  });
 });
 
 describe('разбор записей потока', () => {

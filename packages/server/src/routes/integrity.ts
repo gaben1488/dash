@@ -37,6 +37,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   liveBaselineDay,
+  isoOfDayNumber,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -164,7 +165,19 @@ export interface IntegrityResponse {
     vanishedTotal: number;
     vanishedPlanSum: number;
   } | null;
-  /** Почему сравнения нет — фраза для экрана, а не пустое место. */
+  /** Две законченные соседние контрольные недели: независимая страховка live/webhook. */
+  weeklyComparison: {
+    beforeId: string;
+    afterId: string;
+    beforeAt: string;
+    afterAt: string;
+    books: VanishedBookDto[];
+    vanishedTotal: number;
+    vanishedPlanSum: number;
+  } | null;
+  /** Нет пары / не пройдена проверка полноты — отсутствие результата НЕ ноль. */
+  weeklyComparisonNote: string;
+  /** Почему оперативного сравнения нет — фраза для экрана. */
   comparisonNote: string;
   notes: string[];
 }
@@ -289,6 +302,31 @@ export function pickLatestControlSnapshot(
   return latest;
 }
 
+/**
+ * Недельная страховка: только ДВА СМЕЖНЫХ завершённых четверга Камчатки.
+ * Последний неполный четверг не становится эталоном до следующего понедельника.
+ * Чтения между четвергами и более старые недели пару не подменяют.
+ * Проходим только метаданные; дорогая проверка атомов выполняется после отбора.
+ */
+export function pickAdjacentWeeklySnapshots(
+  snapshots: Iterable<WeeklySnapshotRef>,
+  nowMs: number,
+  utcOffsetHours: number,
+): [WeeklySnapshotRef, WeeklySnapshotRef] | null {
+  const afterDay = liveBaselineDay(new Date(nowMs), utcOffsetHours);
+  const beforeDay = afterDay - 7;
+  let before: WeeklySnapshotRef | null = null;
+  let after: WeeklySnapshotRef | null = null;
+  for (const candidate of snapshots) {
+    const ms = Date.parse(candidate.createdAt);
+    if (!Number.isFinite(ms) || ms > nowMs) continue;
+    const day = productCalendarDay(new Date(ms), utcOffsetHours);
+    if (day === beforeDay && (!before || ms > Date.parse(before.createdAt))) before = candidate;
+    if (day === afterDay && (!after || ms > Date.parse(after.createdAt))) after = candidate;
+  }
+  return before && after ? [before, after] : null;
+}
+
 /** Текущее ЧТЕНИЕ книги: ровно та же геометрия строк, что у SQL-атомов. */
 export function currentSheetToSnapshotRows(values: readonly unknown[][]): SnapshotRow[] {
   const result: SnapshotRow[] = [];
@@ -332,6 +370,46 @@ function unreadNote(dept: DepartmentEntry): string {
     'это отсутствие ответа источника, а не порядок в книге. Действие: обновить данные и ' +
     'открыть раздел снова.'
   );
+}
+
+/** Один набор проверяемых признаков для оперативного и исторического диффа. */
+function hasNotableDiff(diff: RowDiff): boolean {
+  return diff.vanished.length > 0 || diff.moved.length > 0 ||
+    diff.unkeyed.before > 0 || diff.unkeyed.after > 0 ||
+    (diff.identityCandidates?.length ?? 0) > 0 ||
+    (diff.contextChanged?.length ?? 0) > 0 ||
+    (diff.ambiguousKeys?.before.length ?? 0) > 0 ||
+    (diff.ambiguousKeys?.after.length ?? 0) > 0;
+}
+
+function presentDiff(dept: DepartmentEntry, diff: RowDiff, currentAt: string): VanishedBookDto {
+  return {
+    dept: dept.id,
+    deptName: dept.fullName,
+    currentAt,
+    vanished: diff.vanished.map((v) => ({
+      rowSeq: v.rowSeq,
+      wasAtSheetRow: v.wasAtSheetRow,
+      subject: v.subject ?? '',
+      subordinate: v.subordinate ?? '',
+      planSum: v.planSum ?? null,
+      factSum: v.factSum ?? null,
+    })),
+    moved: diff.moved.map((v) => ({
+      rowSeq: v.rowSeq,
+      fromSheetRow: v.fromSheetRow,
+      toSheetRow: v.toSheetRow,
+      subject: v.subject ?? '',
+    })),
+    appeared: diff.appeared.length,
+    vanishedPlanSum: diff.vanishedPlanSum,
+    vanishedFactSum: diff.vanishedFactSum,
+    unkeyed: diff.unkeyed,
+    identityCandidates: diff.identityCandidates ?? [],
+    contextChanged: diff.contextChanged ?? [],
+    ambiguousKeys: diff.ambiguousKeys ?? { before: [], after: [] },
+    note: diff.note,
+  };
 }
 
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
@@ -412,40 +490,8 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     currentReadTimes.push(loadedAt);
     vanishedTotal += diff.vanished.length;
     vanishedPlanSum += diff.vanishedPlanSum;
-    const identityCandidates = diff.identityCandidates ?? [];
-    const contextChanged = diff.contextChanged ?? [];
-    const ambiguousKeys = diff.ambiguousKeys ?? { before: [], after: [] };
-    if (diff.vanished.length === 0 && diff.moved.length === 0 &&
-        diff.unkeyed.before === 0 && diff.unkeyed.after === 0 &&
-        identityCandidates.length === 0 && contextChanged.length === 0 &&
-        ambiguousKeys.before.length === 0 && ambiguousKeys.after.length === 0) continue;
-    books.push({
-      dept: dept.id,
-      deptName: dept.fullName,
-      currentAt: new Date(loadedAt).toISOString(),
-      vanished: diff.vanished.map((v) => ({
-        rowSeq: v.rowSeq,
-        wasAtSheetRow: v.wasAtSheetRow,
-        subject: v.subject ?? '',
-        subordinate: v.subordinate ?? '',
-        planSum: v.planSum ?? null,
-        factSum: v.factSum ?? null,
-      })),
-      moved: diff.moved.map((v) => ({
-        rowSeq: v.rowSeq,
-        fromSheetRow: v.fromSheetRow,
-        toSheetRow: v.toSheetRow,
-        subject: v.subject ?? '',
-      })),
-      appeared: diff.appeared.length,
-      vanishedPlanSum: diff.vanishedPlanSum,
-      vanishedFactSum: diff.vanishedFactSum,
-      unkeyed: diff.unkeyed,
-      identityCandidates,
-      contextChanged,
-      ambiguousKeys,
-      note: diff.note,
-    });
+    if (!hasNotableDiff(diff)) continue;
+    books.push(presentDiff(dept, diff, new Date(loadedAt).toISOString()));
   }
 
   if (currentReadTimes.length === 0) {
@@ -474,6 +520,78 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
       vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
     },
     note,
+  };
+}
+
+/**
+ * Сравнение ЗАПЕЧАТАННЫХ соседних недель — независимый контроль потерь между
+ * вебхуками и перезапусками. Только локальная SQLite; не трогает Sheets,
+ * не создаёт новую историю и не приравнивает отсутствие № к доказанному удалению.
+ */
+export function buildWeeklyComparison(now: number = Date.now()): {
+  weeklyComparison: IntegrityResponse['weeklyComparison'];
+  note: string;
+} {
+  const offset = config.weeklySnapshot.utcOffsetHours;
+  const endDay = liveBaselineDay(new Date(now), offset);
+  const beginDay = endDay - 7;
+  const pair = pickAdjacentWeeklySnapshots(iterateWeeklySnapshotHistory(), now, offset);
+  const window = isoOfDayNumber(beginDay) + ' → ' + isoOfDayNumber(endDay);
+  if (!pair) return {
+    weeklyComparison: null,
+    note: 'Нет пары соседних завершённых четверговых срезов (' + window +
+      '). Более старую неделю и произвольный суточный снимок не подставляем.',
+  };
+
+  let before: ReturnType<typeof verifiedBaselineRows>;
+  let after: ReturnType<typeof verifiedBaselineRows>;
+  try {
+    // Оперативная проверка только что удостоверила after: читаем её первой,
+    // используя существующий verifiedCache; затем проверяем предыдущий четверг.
+    after = verifiedBaselineRows(pair[1]);
+    before = verifiedBaselineRows(pair[0]);
+  } catch {
+    return {
+      weeklyComparison: null,
+      note: 'Недельная пара ' + window +
+        ' не проверена: чтение локальных контрольных доказательств завершилось отказом. Это не ноль пропавших закупок.',
+    };
+  }
+  if (before.error !== null || after.error !== null) return {
+    weeklyComparison: null,
+    note: 'Недельная пара ' + window + ' не прошла проверку полноты: ' +
+      [before.error, after.error].filter(Boolean).join('; ') +
+      '. Отсутствие подтверждённых пропаж не утверждается.',
+  };
+
+  const books: VanishedBookDto[] = [];
+  let vanishedTotal = 0;
+  let vanishedPlanSum = 0;
+  for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
+    const dept = findDept(deptId);
+    const previous = dept ? before.rows.get(dept.latinId) : undefined;
+    const next = dept ? after.rows.get(dept.latinId) : undefined;
+    if (!dept || !previous || !next) return {
+      weeklyComparison: null,
+      note: 'Недельная пара ' + window + ' не содержит сопоставимых строк книги ' +
+        deptId + '. Считать пропажи нулевыми нельзя.',
+    };
+    const diff = diffSnapshots(previous, next);
+    vanishedTotal += diff.vanished.length;
+    vanishedPlanSum += diff.vanishedPlanSum;
+    if (hasNotableDiff(diff)) books.push(presentDiff(dept, diff, pair[1].createdAt));
+  }
+  return {
+    weeklyComparison: {
+      beforeId: pair[0].id,
+      afterId: pair[1].id,
+      beforeAt: pair[0].createdAt,
+      afterAt: pair[1].createdAt,
+      books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
+      vanishedTotal,
+      vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
+    },
+    note: '',
   };
 }
 
@@ -519,6 +637,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   }
 
   const { comparison, note: comparisonNote } = buildComparison(now);
+  const { weeklyComparison, note: weeklyComparisonNote } = buildWeeklyComparison(now);
 
   const notes: string[] = [
     'Пропуск номера не доказывает удаления строки: он бывает от перенумерации и других изменений. ' +
@@ -542,6 +661,8 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     totals,
     comparison,
     comparisonNote,
+    weeklyComparison,
+    weeklyComparisonNote,
     notes,
   };
 }

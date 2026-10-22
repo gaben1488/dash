@@ -88,22 +88,59 @@ describe('СВОД — границы разных схем на одном ли
 // ────────────────────────────────────────────────────────────
 
 describe('validateData — basic', () => {
-  it('reports incomplete arithmetic once per rule without alleging a financial mismatch', () => {
+  it('reports nonnumeric inputs as unverified without calling them a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    // В Sheets пустая ячейка J законно равна нулю: непрочитанное значение
-    // должно быть именно заполненным нечисловым компонентом. А текущая схема
-    // СВОДа подтверждается действующей заголовочной строкой.
-    const header = makeRow({ rowIndex: 3, classification: 'header',
-      cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
-    const rows = [header, ...[5, 6].map(rowIndex => makeRow({ rowIndex,
-      cells: { A: 'УО', H: 100, I: 0, J: 'не число', K: 100 },
-    }))];
+    // Verify unparseable money in an actual department procurement row.
+    // SVOD has a separate multi-layout gate tested above; this isolates the
+    // numeric-input failure contract without inventing a SVOD block.
+    const rows = [5, 6].map(rowIndex => makeRow({
+      sheet: 'УД', rowIndex, cells: {
+        A: '173/18', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100,
+      },
+    }));
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
     expect(issues[0].description).toContain('Не проверено 2 строк');
     expect(issues[0].description).toContain('не установленное расхождение');
     expect(validateData(EMPTY_METRICS, rows.map(r => ({ ...r, cells: { ...r.cells, J: 0 } })), rules, EMPTY_REPORT_MAP)).toEqual([]);
+  });
+
+  it('a genuinely blank SUM operand equals zero; it is not missing evidence', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Работы', H: 100, I: 0, K: 100 },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP, new Date(2026, 9, 22), coverage);
+    expect(issues).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('empty and note rows do not generate false unavailable-financial-check warnings', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const rows = [
+      makeRow({ sheet: 'УД', rowIndex: 4, classification: 'separator', cells: {} }),
+      makeRow({ sheet: 'УД', rowIndex: 5, classification: 'note', cells: { D: 'Пояснение к разделу' } }),
+      makeRow({ sheet: 'УД', rowIndex: 6, classification: 'procurement',
+        cells: { A: '173/18', G: 'Услуги связи', H: 100, I: 0, J: 0, K: 100 } }),
+    ];
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage)).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('a countable composite-ID procurement with a missing total is unverified, never PASS', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Закупка', L: 'ЕП', H: 100, I: 0, J: 0, K: '' },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage);
+    expect(issues.map(issue => issue.category)).toEqual(['rule_execution_failed']);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 0, failed: 0 });
   });
   it('returns empty issues for passing rules', () => {
     const rows = [makeRow({ cells: { A: '1', H: 100000 } })];
@@ -591,7 +628,6 @@ describe('validation execution coverage', () => {
     ]);
   });
 });
-
 
 describe('СВОД — физический периметр Dash до строки 278', () => {
   it('оба вида правил применяются к 278, не к экспериментальным 279 и 284', () => {

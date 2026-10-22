@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -241,5 +241,47 @@ describe('исторические снимки — совместимость �
     expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v2"}}').error).toContain('не поддерживается');
     expect(interpretWeeklySnapshotJson('{invalid').error).toContain('не разбирается');
     expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v1"}}').error).toBeNull();
+  });
+});
+
+
+describe('бережная историческая сверка двух смежных четвергов', () => {
+  const snap = (id: string, createdAt: string) => ({ id, createdAt });
+  const now = Date.parse('2026-10-22T07:00:00Z');
+
+  it('берёт два последних завершённых контрольных четверга, а не суточные/текущий', () => {
+    const pair = pickAdjacentWeeklySnapshots([
+      snap('daily', '2026-10-14T09:00:00Z'),
+      snap('current-week', '2026-10-22T06:00:00Z'),
+      snap('after', '2026-10-15T06:00:00Z'),
+      snap('before', '2026-10-08T06:00:00Z'),
+      snap('older', '2026-10-01T06:00:00Z'),
+    ], now, 12);
+    expect(pair?.map((item) => item.id)).toEqual(['before', 'after']);
+  });
+
+  it('не подменяет отсутствующую неделю более старым четвергом', () => {
+    expect(pickAdjacentWeeklySnapshots([
+      snap('after', '2026-10-15T06:00:00Z'),
+      snap('older', '2026-10-01T06:00:00Z'),
+    ], now, 12)).toBeNull();
+  });
+
+  it('находит четверги Камчатки, даже когда на UTC-сервере ещё среда', () => {
+    const pair = pickAdjacentWeeklySnapshots([
+      snap('after', '2026-10-14T17:00:00Z'),
+      snap('before', '2026-10-07T17:00:00Z'),
+    ], now, 12);
+    expect(pair?.map((item) => item.id)).toEqual(['before', 'after']);
+  });
+
+  it('поздняя контрольная попытка замещает раннюю того же дня, но не соседний день', () => {
+    const pair = pickAdjacentWeeklySnapshots([
+      snap('after-early', '2026-10-15T01:00:00Z'),
+      snap('before', '2026-10-08T06:00:00Z'),
+      snap('after-late', '2026-10-15T09:00:00Z'),
+      snap('future', '2026-10-29T06:00:00Z'),
+    ], now, 12);
+    expect(pair?.map((item) => item.id)).toEqual(['before', 'after-late']);
   });
 });

@@ -37,6 +37,11 @@ jobs:
           src/services/metadata-watch.test.ts
           src/routes/source-integrity.test.ts
           src/db/ddl.test.ts
+      - name: Hybrid vanished procurement regressions (no Google or VPS)
+        run: |
+          pnpm --filter @aemr/core exec vitest run src/analytics/vanished-rows.test.ts src/changes/change-story.test.ts
+          pnpm --filter @aemr/server exec vitest run src/routes/integrity.test.ts src/services/live-diff.test.ts
+          pnpm --filter @aemr/web exec vitest run src/components/analytics-extra/useExtraSignals.test.tsx src/components/live/live-text.test.ts src/hooks/useLiveEvents.test.ts
       - name: Lint
         run: pnpm lint
       - name: Production build, without any deployment
