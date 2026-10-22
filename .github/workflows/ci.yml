@@ -178,14 +178,109 @@ jobs:
             before_sha='${{ github.event.before }}'
             tested_sha='${{ github.sha }}'
             if git cat-file -e "$before_sha^{commit}" 2>/dev/null && git cat-file -e "$tested_sha^{commit}" 2>/dev/null; then
-              only_source_ui=true
-              while IFS= read -r file; do
-                case "$file" in
-                  packages/server/src/routes/source-integrity.ts|packages/server/src/routes/source-integrity.test.ts|packages/web/src/api.ts|packages/web/src/pages/Settings.tsx|packages/web/src/pages/Settings.deep-check.test.tsx|packages/core/package.json|packages/server/package.json|packages/shared/package.json|packages/web/package.json|pnpm-lock.yaml|.github/workflows/source-deep-check.yml|.github/workflows/ci.yml) ;;
-                  *) only_source_ui=false ;;
-                esac
-              done < <(git diff --name-only "$before_sha" "$tested_sha")
-              if [ "$only_source_ui" = true ]; then release_scope=app_only; fi
+              changed_files=$(git diff --name-only "$before_sha" "$tested_sha")
+              # Explicit allowlist. grep -v matches an unrecognized path and
+              # forces the full release gate. Avoid multi-line case/;; in SSH wrappers.
+              app_only_pattern='^(packages/server/src/routes/source-integrity(\.test)?\.ts|packages/web/src/api\.ts|packages/web/src/pages/Settings(\.deep-check\.test)?\.tsx|packages/(core|server|shared|web)/package\.json|pnpm-lock\.yaml|\.github/workflows/(source-deep-check|ci)\.yml)
+            fi
+            echo "Release scope: $release_scope (unknown paths use full gate)."
+            cd deploy
+            previous_worker=
+            if [ "$release_scope" = standard ]; then
+              previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            fi
+            restore_worker_on_failure() {
+              result=$?
+              if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+                docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                  --env-file /home/aemr/dash/deploy/.env.production --profile reports \
+                  start report-worker >/dev/null 2>&1 || true
+              fi
+              exit "$result"
+            }
+            trap restore_worker_on_failure EXIT
+
+            # Storage is a deployment prerequisite, not a post-failure repair.
+            # Keep rollback-tagged images and reusable build layers. Removing
+            # all build cache on every deploy forces a slow full frontend build.
+            if [ "$release_scope" = standard ]; then
+              docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
+            fi
+            docker image prune --force >/dev/null
+            if [ "$release_scope" = standard ] && docker image inspect aemr-server:latest >/dev/null 2>&1; then
+              echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
+              docker compose --env-file .env.production run --rm --no-deps \
+                --entrypoint /opt/report-env/bin/python server -c \
+                'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
+            fi
+            free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            if [ "${free_kb:-0}" -lt 8388608 ]; then
+              echo "Less than 8 GiB free; reclaiming unused build cache."
+              docker builder prune --all --force >/dev/null
+              free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            fi
+            df -h /
+            if [ "${free_kb:-0}" -lt 4194304 ]; then
+              echo "Deployment aborted: less than 4 GiB free after safe recovery." >&2
+              exit 1
+            fi
+            cd ..
+
+            # Do not overwrite the rollback point with a deployment that is
+            # already unhealthy. Preserve the prior :previous images in that case.
+            current_server=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production ps --all --quiet server)
+            current_health=
+            if [ -n "$current_server" ]; then
+              current_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$current_server" 2>/dev/null || true)
+            fi
+            if [ "$current_health" = "healthy" ]; then
+              git rev-parse HEAD > deploy/.last-known-good
+              for img in aemr-server aemr-web; do
+                if docker image inspect "$img:latest" >/dev/null 2>&1; then
+                  docker tag "$img:latest" "$img:previous"
+                fi
+              done
+            else
+              echo "Current server is not healthy; preserving the existing rollback point."
+            fi
+
+            git fetch origin
+            git checkout main
+            tested_commit='${{ github.sha }}'
+            git cat-file -e "$tested_commit^{commit}"
+            git reset --hard "$tested_commit"
+            test "$(git rev-parse HEAD)" = "$tested_commit"
+            git log --oneline -1
+            cd /home/aemr/dash/deploy
+            # Even if COMPOSE_PROFILES=reports is set, preserve the existing
+            # worker until its separate preflight can safely replace it.
+            if ! docker compose --env-file .env.production up -d --build server web caddy; then
+              df -h /
+              server_id=$(docker compose --env-file .env.production ps --all --quiet server)
+              if [ -n "$server_id" ]; then
+                docker inspect --format 'server_state={{.State.Status}} exit_code={{.State.ExitCode}} oom={{.State.OOMKilled}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server_id" || true
+              fi
+              exit 1
+            fi
+            sleep 8
+            # Проверка идёт ВНУТРЬ контейнера, а не через край периметра:
+            # при работе по домену запрос на 127.0.0.1 не совпадает с именем
+            # сайта и получает отказ, а при пароле на периметре — требование
+            # войти. Ни то, ни другое не говорит о здоровье продукта.
+            docker compose --env-file .env.production exec -T server \
+              curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"
+            # Private inputs and audit output stay in server_data, not Actions logs.
+            # Start the scheduler only after a successful service-account release.
+            if [ "$release_scope" = standard ]; then
+              bash enable-reports.sh
+            else
+              echo 'Source inspection UI/API deployed; report worker and weekly evidence unchanged.'
+            fi
+            trap - EXIT
+
+              if [ -n "$changed_files" ] && ! printf '%s\n' "$changed_files" | grep -Eqv "$app_only_pattern"; then
+                release_scope=app_only
+              fi
             fi
             echo "Release scope: $release_scope (unknown paths use full gate)."
             cd deploy
