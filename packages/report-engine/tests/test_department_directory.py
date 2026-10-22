@@ -108,3 +108,21 @@ def test_eight_actual_master_headers_are_accepted_by_the_one_shared_profile():
         invalid[21] = "Цена договора вместо ФБ 2"
         with pytest.raises(ValueError, match="MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V"):
             validate_master_source_header(invalid)
+
+
+def test_master_profile_layout_rejects_unreviewed_field_and_dependency_changes():
+    from copy import deepcopy
+    from procurement_engine.source_contract import master_source_profile, validate_master_profile_layout
+
+    profile = validate_master_profile_layout()
+    assert profile is master_source_profile()
+    assert len(profile['fields']) == 34
+    for field_name, mutation, reason in [
+        ('ID', {'index': 34}, 'MASTER_PROFILE_LAYOUT_INVALID'),
+        ('ID', {'requiredMeaning': None}, 'MASTER_PROFILE_LAYOUT_INVALID'),
+        ('ID', {'dependsOn': ['UNKNOWN']}, 'MASTER_PROFILE_DEPENDENCY_INVALID'),
+    ]:
+        damaged = deepcopy(profile)
+        damaged['fields'][field_name].update(mutation)
+        with pytest.raises(ValueError, match=reason):
+            validate_master_profile_layout(damaged)

@@ -51,3 +51,7 @@ export const MONITORING_ANCESTOR_SHEETS: ReadonlyArray<{
     header: MONITORING_DIRECTORY_HEADER,
   },
 ];
+
+
+/** Canonical reviewed master profile, shared with Python via department_directory.json. */
+export { MASTER_SOURCE_PROFILE } from './department-registry.js';

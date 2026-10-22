@@ -86,6 +86,8 @@ export interface DepartmentEntry {
 // ───────────────────────────────────��────────────────────────
 
 export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = directory.departments as DepartmentEntry[];
+export const MASTER_SOURCE_PROFILE = directory.masterProfile;
+
 
 // ─────────────────────────────────��──────────────────────────
 // 4. Lookup helpers

@@ -36,3 +36,45 @@ def registry_grbs_order(registry: dict) -> list[str]:
         or len(set(order)) != len(order)):
         raise ValueError('INPUT_GRBS_ORDER_INVALID')
     return list(order)
+
+
+def master_source_profile():
+    """The reviewed 34-column contract shared with TypeScript, never a second schema."""
+    from .department_directory import MASTER_SOURCE_PROFILE
+    return MASTER_SOURCE_PROFILE
+
+
+def validate_master_profile_layout(profile=None):
+    """Reject drift in field positions, units, required meanings and dependencies."""
+    profile = master_source_profile() if profile is None else profile
+    if profile.get('id') != 'master-v1' or profile.get('role') != 'master' or profile.get('columns') != 34:
+        raise ValueError('MASTER_PROFILE_LAYOUT_INVALID')
+    fields = profile.get('fields')
+    if not isinstance(fields, dict) or len(fields) != 34:
+        raise ValueError('MASTER_PROFILE_LAYOUT_INVALID')
+    by_key = set(fields)
+    for key, field in fields.items():
+        index = field.get('index')
+        if (type(index) is not int or index < 0 or index >= 34
+            or field.get('column') != _column_name(index)
+            or field.get('kind') not in {'text', 'money', 'date', 'flag', 'number', 'percent'}
+            or field.get('unit') not in {'none', 'thousandRub', 'rub', 'percent', 'fraction', 'date'}
+            or type(field.get('requiredMeaning')) is not bool
+            or not isinstance(field.get('modelField'), str) or not field['modelField']
+            or (field['requiredMeaning'] and not field.get('headerProbe'))):
+            raise ValueError('MASTER_PROFILE_LAYOUT_INVALID:' + key)
+        dependencies = field.get('dependsOn', [])
+        if not isinstance(dependencies, list) or any(dep not in by_key or dep == key for dep in dependencies):
+            raise ValueError('MASTER_PROFILE_DEPENDENCY_INVALID:' + key)
+    if sorted(field['index'] for field in fields.values()) != list(range(34)):
+        raise ValueError('MASTER_PROFILE_LAYOUT_INVALID')
+    return profile
+
+
+def _column_name(index):
+    result = ''
+    while index >= 0:
+        index, digit = divmod(index, 26)
+        result = chr(65 + digit) + result
+        index -= 1
+    return result
