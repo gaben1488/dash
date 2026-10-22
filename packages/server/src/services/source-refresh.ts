@@ -671,7 +671,14 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // (enforced in snapshot.ts). Never accept an explicit failure of any
     // requested unit as a successful delta.
     if (Object.keys(errors).length > 0 || !svodOk) {
-      const failed = Object.keys(errors);
+      const acquisitionErrors = { ...errors };
+      // All *requested and read* books belong to the rejected transaction.
+      // Otherwise webhook queue settlement would acknowledge successfully
+      // fetched books even though the cycle never saved their delta, losing
+      // those notifications forever. Skipped unchanged books are already
+      // represented by the complete accepted baseline and need no retry.
+      const failed = [...new Set([...Object.keys(acquisitionErrors), ...booksToRead])].sort();
+      for (const name of failed) errors[name] ??= 'SOURCE_BUNDLE_NOT_COMMITTED';
       const at = new Date().toISOString();
       // Revision probes may have advanced "seen" before acquisition. Restore
       // the last accepted tokens so the next webhook/queue retry reads again.
@@ -693,7 +700,8 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       log?.warn('SOURCE_FULL_BASE_NOT_UPDATED: an incomplete observation cannot replace the accepted source state');
       return {
         loaded: [], failed,
-        retryableFailures: failed.filter(name => isTransientSourceFailure(errors[name])),
+        retryableFailures: failed.filter(name =>
+          !(name in acquisitionErrors) || isTransientSourceFailure(acquisitionErrors[name])),
         svodRetryable: 'retryable' in svodResult && svodResult.retryable === true,
         svodOk, at, changedBooks: [], svodChanged: false,
         booksRead: booksToRead.length, skipped: gate.skipped, formulaBooks: [],
