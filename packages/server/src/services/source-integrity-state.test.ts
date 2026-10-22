@@ -30,7 +30,7 @@ describe('durable source-integrity state', () => {
     const delivery = { book: 'УО', at: goodAt, cells: 70, handled: true, persisted: true };
     const verdict = {
       book: 'УО', at: goodAt, rowsJudged: 5,
-      defects: [{ kind: 'formula_overwritten', cell: 'K6', column: 'K', row: 6, rowSeq: 3, actual: '12', etalon: '=SUM(H6:J6)', etalonRow: 5 }],
+      defects: [{ book: 'УО', kind: 'formula_overwritten' as const, cell: 'K6', column: 'K' as const, row: 6, rowSeq: '3', actual: '12', etalon: '=SUM(H6:J6)', etalonRow: 5 }],
     };
     saveFormulaAudit(delivery, verdict);
     expect(loadFormulaAudits()).toEqual([{ delivery, verdict }]);
