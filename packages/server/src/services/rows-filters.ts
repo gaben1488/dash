@@ -109,12 +109,14 @@ export function applyStateFilter<T extends FilterableRow>(rows: T[], filterState
 }
 
 /**
- * Фильтр по году плана (колонка P = PLAN_YEAR). Строки без года (planYear=0)
- * остаются видимыми — консистентно с calc-engine.ts:440.
+ * Same strict year cohort as CalcEngine(emptyYearPolicy='bucket'):
+ * an absent/invalid P never appears as a funded purchase in every year.
+ * Callers retain the excluded no-year count as explicit source coverage.
+ * With no year selection the original rows, including no-year, stay visible.
  */
 export function applyYearFilter<T extends FilterableRow>(rows: T[], yearFilter: number | undefined): T[] {
-  if (!yearFilter) return rows;
-  return rows.filter(r => r.planYear === 0 || r.planYear === yearFilter);
+  if (yearFilter === undefined) return rows;
+  return rows.filter(r => r.planYear === yearFilter);
 }
 
 /** Сортировка: числа — численно, иначе локалью 'ru'. Пустой sortCol = порядок не меняется. */
