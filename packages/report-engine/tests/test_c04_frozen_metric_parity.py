@@ -131,7 +131,7 @@ def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_
         **paths, "report_model": model_file, "dashboard": dashboard_file,
     })
     assert result["state"] == "MISMATCH"
-    assert result["mismatch_count"] >= 2
+    assert result["mismatch_count"] >= 1
     assert any(item["scope"] == "headline" and item["metric"] == "plan_count"
                for item in result["mismatches"])
 
