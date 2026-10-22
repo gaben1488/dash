@@ -152,43 +152,25 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
 
       // Prefer calc-engine year-filtered totals (they respect targetYear).
-      // SVOD cells are static and not year-filtered — use only as fallback.
+      // Official SVOD is never substituted into the calculated result.
       const prefix = `grbs.${dept.id}`;
       const calcGet = (key: string) => calc[key]?.numericValue;
-      const svodGet = (key: string) => snapshot.officialMetrics[key]?.numericValue;
 
-      const calcPlanYear = calcGet(`${prefix}.year.plan_total`);
-      const calcFactYear = calcGet(`${prefix}.year.fact_total`);
-      const calcEcoYear = calcGet(`${prefix}.year.economy_total`);
-      const calcKpYear = calcGet(`${prefix}.kp.year.count`);
-      const calcEpYear = calcGet(`${prefix}.ep.year.count`);
-      const calcExecYear = calcGet(`${prefix}.year.execution_pct`); // fraction 0..1
-
-      const planTotalVal = calcPlanYear != null
-        ? calcPlanYear
-        : svodGet(`${prefix}.kp.year.total_plan`) ?? svodGet(`${prefix}.kp.q1.total_plan`) ?? null;
-      const factTotalVal = calcFactYear != null
-        ? calcFactYear
-        : svodGet(`${prefix}.kp.year.total_fact`) ?? svodGet(`${prefix}.kp.q1.total_fact`) ?? null;
-      const ecoTotal = calcEcoYear != null
-        ? calcEcoYear
-        : ((svodGet(`${prefix}.economy.kp`) ?? 0) + (svodGet(`${prefix}.economy.ep`) ?? 0)) || null;
+      // C04.01: one accepted master dataset feeds Dash and Word. Official
+      // SVOD cells are comparison evidence, never a replacement for a missing
+      // calculated year (particularly when the official sheet is for another year).
+      const planTotalVal = calcGet(`${prefix}.year.plan_total`);
+      const factTotalVal = calcGet(`${prefix}.year.fact_total`);
+      const ecoTotal = calcGet(`${prefix}.year.economy_total`);
+      const kpCount = calcGet(`${prefix}.kp.year.count`);
+      const epCount = calcGet(`${prefix}.ep.year.count`);
+      // Keep the existing monetary execution contract. Count execution
+      // remains an independent metric (exec_count_pct), not an alias.
+      const moneyRatio = calcGet(`${prefix}.year.execution_pct`);
+      const executionPct = moneyRatio == null ? null : +(moneyRatio * 100).toFixed(1);
 
       const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
       const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
-      const executionPct = calcExecYear != null
-        ? +(calcExecYear * 100).toFixed(1)
-        : (() => {
-            const p = svodGet(`${prefix}.kp.q1.percent`);
-            return p != null ? +(p * 100).toFixed(1) : null;
-          })();
-
-      const kpCount = calcKpYear != null
-        ? calcKpYear
-        : svodGet(`${prefix}.kp.q1.count`) ?? null;
-      const epCount = calcEpYear != null
-        ? calcEpYear
-        : svodGet(`${prefix}.ep.q1.count`) ?? null;
 
       // Per-department trust score via computeTrustScore
       const deptPrefix = `grbs.${dept.id}.`;
@@ -250,39 +232,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       };
     });
 
-    // Summary-level aggregates by period (1 кв + Year from СВОД, 2 кв-4 кв from calculated)
+    // The same calculated summary from master rows serves every period.
+    // The independent official SVOD is retained in officialMetrics, kpiCards
+    // and reconciliation so a disagreement remains visible, not silently mixed.
     const summaryByPeriod: Record<string, DashboardPeriodSummary> = {};
-
-    // 1 кв + Year from official СВОД metrics
-    for (const p of ['q1', 'year'] as const) {
-      const kpCount = snapshot.officialMetrics[`competitive.${p}.count`]?.numericValue ?? null;
-      const kpFactCount = snapshot.officialMetrics[`competitive.${p}.fact_count`]?.numericValue ?? null;
-      const kpPlan = snapshot.officialMetrics[`competitive.${p}.total_plan`]?.numericValue ?? null;
-      const kpFact = snapshot.officialMetrics[`competitive.${p}.total_fact`]?.numericValue ?? null;
-      const kpPct = snapshot.officialMetrics[`competitive.${p}.percent`]?.numericValue ?? null;
-      const epCount = snapshot.officialMetrics[`sole.${p}.count`]?.numericValue ?? null;
-      const epFactCount = snapshot.officialMetrics[`sole.${p}.fact_count`]?.numericValue ?? null;
-      const epPlan = snapshot.officialMetrics[`sole.${p}.total_plan`]?.numericValue ?? null;
-      const epFact = snapshot.officialMetrics[`sole.${p}.total_fact`]?.numericValue ?? null;
-      const epPct = snapshot.officialMetrics[`sole.${p}.percent`]?.numericValue ?? null;
-      const fbPlan = snapshot.officialMetrics[`competitive.${p}.fb_plan`]?.numericValue ?? null;
-      const kbPlan = snapshot.officialMetrics[`competitive.${p}.kb_plan`]?.numericValue ?? null;
-      const mbPlan = snapshot.officialMetrics[`competitive.${p}.mb_plan`]?.numericValue ?? null;
-      const fbFact = snapshot.officialMetrics[`competitive.${p}.fb_fact`]?.numericValue ?? null;
-      const kbFact = snapshot.officialMetrics[`competitive.${p}.kb_fact`]?.numericValue ?? null;
-      const mbFact = snapshot.officialMetrics[`competitive.${p}.mb_fact`]?.numericValue ?? null;
-      summaryByPeriod[p] = {
-        kpCount, kpFactCount, kpPlan, kpFact, kpPercent: kpPct,
-        epCount, epFactCount, epPlan, epFact, epPercent: epPct,
-        fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
-        source: 'official',
-      };
-    }
-
-    // Q2-Q4 use the same materialized summary as the core and report mapping.
-    // Percent means concluded positions / planned positions, in fractions,
-    // not a second monetary execution calculation in the HTTP route.
-    for (const qk of ['q2', 'q3', 'q4'] as const) {
+    // Count execution is positions concluded / positions planned (fraction).
+    // Do not compute money execution or add up percentages in this HTTP route.
+    for (const qk of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
       const get = (family: 'competitive' | 'sole', field: string): number | null =>
         calc[`${family}.${qk}.${field}`]?.numericValue ?? null;
       summaryByPeriod[qk] = {

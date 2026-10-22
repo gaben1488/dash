@@ -391,6 +391,23 @@ export const DepartmentSummarySchema = z.object({
   economyConflicts: z.number().optional(),
 });
 
+/**
+ * The legacy department type permits optional fields; current Dashboard HTTP
+ * always transmits these fields, even when their numerical contents are null.
+ * Dropping an axis or its quarter structure is a broken DTO, not source absence.
+ */
+const DashboardDepartmentSummarySchema = DepartmentSummarySchema.required({
+  months: true,
+  competitiveCount: true,
+  soleCount: true,
+  trustComponents: true,
+  quarters: true,
+  signalCounts: true,
+  byActivity: true,
+  subordinates: true,
+  economyConflicts: true,
+});
+
 export const DashboardPeriodSummarySchema = z.object({
   kpCount: z.number().nullable(),
   kpFactCount: z.number().nullable(),
@@ -415,6 +432,15 @@ export const DashboardPeriodSummarySchema = z.object({
   epKbFact: z.number().nullable().optional(),
   epMbFact: z.number().nullable().optional(),
   source: z.enum(['official', 'calculated']),
+}).superRefine((summary, ctx) => {
+  // The official Q1/year layout never contained the ЕП budget breakdown;
+  // calculated Q2–Q4 always transmit it, including explicit null values.
+  if (summary.source !== 'calculated') return;
+  for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact'] as const) {
+    if (summary[field] === undefined) {
+      ctx.addIssue({ code: 'custom', path: [field], message: 'Обязательное поле расчётного периода отсутствует' });
+    }
+  }
 });
 
 export const DashboardIssueSummarySchema = z.object({
@@ -429,7 +455,7 @@ export const DashboardIssueSummarySchema = z.object({
 export const DashboardDataSchema = z.object({
   snapshot: DataSnapshotSchema,
   kpiCards: z.array(KPICardSchema),
-  departmentSummaries: z.array(DepartmentSummarySchema),
+  departmentSummaries: z.array(DashboardDepartmentSummarySchema),
   summaryByPeriod: z.record(z.string(), DashboardPeriodSummarySchema),
   recentIssues: z.array(IssueSchema),
   recentIssuesRef: z.literal('snapshot.issues').optional(),

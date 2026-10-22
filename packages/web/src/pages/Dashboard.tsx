@@ -90,8 +90,8 @@ function pointsWord(n: number): string {
  * на дно там, где работы просто не планировалось, а направление динамики
  * считалось бы по выдуманной точке.
  */
-function quarterPct(fact: number, plan: number): number | null {
-  return plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+function quarterPct(fact: number | null | undefined, plan: number | null | undefined): number | null {
+  return fact != null && plan != null && plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
 }
 
 /**
@@ -338,7 +338,7 @@ export function Dashboard() {
       let fbExecPct: number | null = null;
       const q = d.quarters?.[periodKey];
       if (q) {
-        fbExecPct = quarterPct(q.factFB ?? 0, q.planFB ?? 0);
+        fbExecPct = quarterPct(q.factFB, q.planFB);
       }
 
       // Аппарат управления идёт первой строкой, дальше — подведомственные.
@@ -874,7 +874,9 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       let pc = 0, fc = 0;
       for (const d of fd.depts) {
         const q = d.quarters?.[qk];
-        if (q) { pc += q.planCount ?? 0; fc += q.factCount ?? 0; }
+        if (!q || q.planCount == null || q.factCount == null) return null;
+        pc += q.planCount;
+        fc += q.factCount;
       }
       return quarterPct(fc, pc);
     });
@@ -882,7 +884,9 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       let pt = 0, ft = 0;
       for (const d of fd.depts) {
         const q = d.quarters?.[qk];
-        if (q) { pt += q.planTotal ?? 0; ft += q.factTotal ?? 0; }
+        if (!q || q.planTotal == null || q.factTotal == null) return null;
+        pt += q.planTotal;
+        ft += q.factTotal;
       }
       return quarterPct(ft, pt);
     });
@@ -1035,16 +1039,26 @@ function KPIExpandPanel({
     let secondaryValue: number | null | undefined;
     let colorClass: string | undefined;
     let secondaryColor: string | undefined;
+    let emptyReason: string | undefined;
+    let secondaryEmptyReason: string | undefined;
 
     if (kpi.metricKey === 'exec_count_pct') {
-      // Главное измерение — исполнение по количеству процедур
-      value = quarterPct(q?.factCount ?? 0, q?.planCount ?? 0);
+      // Only the selected period can answer; a missing fact is not observed zero.
+      const pc = q?.planCount;
+      const fc = q?.factCount;
+      value = quarterPct(fc, pc);
+      if (value == null) {
+        emptyReason = pc == null ? 'план не прочитан' : pc <= 0 ? 'нет плана' : 'факт не прочитан';
+      }
       colorClass = value != null ? getThresholdColor('dept_exec_count_pct', value) : undefined;
       // Дополнительное измерение — исполнение по сумме
       if (isDualExecution) {
-        const pt = q?.planTotal ?? d.planTotal ?? 0;
-        const ft = q?.factTotal ?? d.factTotal ?? 0;
+        const pt = q?.planTotal;
+        const ft = q?.factTotal;
         secondaryValue = quarterPct(ft, pt);
+        if (secondaryValue == null) {
+          secondaryEmptyReason = pt == null ? 'план не прочитан' : pt <= 0 ? 'нет плана' : 'факт не прочитан';
+        }
         secondaryColor = secondaryValue != null ? getThresholdColor('dept_exec_amount_pct', secondaryValue) : undefined;
       }
     } else if (kpi.metricKey === 'critical_issues') {
@@ -1057,9 +1071,12 @@ function KPIExpandPanel({
       // плитке (getFilteredEconomyTotal). Прежде здесь стояла своя формула
       // (план − факт) / план: она считает недоисполнение, а не экономию, из-за
       // чего плитка и её собственный разворот показывали разные числа.
-      const pt = q?.planTotal ?? d.planTotal ?? 0;
-      const economy = q?.economyTotal ?? d.economyTotal ?? 0;
+      const pt = q?.planTotal;
+      const economy = q?.economyTotal;
       value = quarterPct(economy, pt);
+      if (value == null) {
+        emptyReason = pt == null ? 'план не прочитан' : pt <= 0 ? 'нет плана' : 'экономия не подтверждена';
+      }
     } else {
       value = d.trustScore ?? null;
       colorClass = value != null ? getThresholdColor('dept_trust', value) : undefined;
@@ -1075,6 +1092,8 @@ function KPIExpandPanel({
       secondaryValue,
       color: colorClass,
       secondaryColor,
+      emptyReason,
+      secondaryEmptyReason,
     };
   });
 
