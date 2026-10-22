@@ -242,7 +242,7 @@ export function SettingsPage() {
   /* ── Действия: источники ───────────────────────────────── */
 
   const handleRefreshAll = async () => {
-    if (refreshFeedback.state === 'loading' || deepChecking) return;
+    if (refreshFeedback.state === 'loading' || deepChecking || validatingAll) return;
     setDeepCheck(null); // result of a previous deep read is no longer current
     setDeepCheckError(null);
     setRefreshFeedback({ state: 'loading', message: 'Читаем книги заново…' });
@@ -320,6 +320,7 @@ export function SettingsPage() {
   };
 
   const handleValidateAll = async () => {
+    if (validatingAll || deepChecking || refreshFeedback.state === 'loading') return;
     setValidatingAll(true);
     setValidationResults(prev => {
       const next = { ...prev };
@@ -735,7 +736,7 @@ SQLITE_PATH=./data/aemr.db
               </span>
               <button
                 onClick={handleRefreshAll}
-                disabled={refreshFeedback.state === 'loading' || deepChecking}
+                disabled={refreshFeedback.state === 'loading' || deepChecking || validatingAll}
                 className={clsx(
                   'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition',
                   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
@@ -867,7 +868,7 @@ SQLITE_PATH=./data/aemr.db
                   </span>
                   <button
                     onClick={handleValidateAll}
-                    disabled={validatingAll}
+                    disabled={validatingAll || deepChecking || refreshFeedback.state === 'loading'}
                     className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
                   >
                     {validatingAll
