@@ -25,7 +25,7 @@
  * стояло ни одного дефекта).
  */
 import type { Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS, isPurchaseId, purchaseIdText } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
 /**
@@ -144,12 +144,9 @@ export function normalizeFormula(raw: unknown, sheetRow: number): string {
  * впрок на такие строки, дефектом не считаются тем более.
  */
 function purchaseNumber(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  const text = String(raw).trim();
-  if (text === '') return null;
-  const n = Number(text.replace(',', '.'));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return text;
+  // Numeric and composite text IDs share the same stable, non-coercive gate.
+  // "12/1" must be judged as its own procurement, not skipped or read as 12.
+  return isPurchaseId(raw) ? purchaseIdText(raw) : null;
 }
 
 function isFormulaText(raw: unknown): boolean {
