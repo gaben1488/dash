@@ -2685,6 +2685,8 @@ jobs:
       RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
       RECOVERY_PR: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidated-modern-20261023' && '176') || '79' }}
+      RECOVERY_REF_API: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidated-modern-20261023' && 'repos/gaben1488/dash/git/ref/heads/integration/consolidated-modern-20261023') || 'repos/gaben1488/dash/pulls/79' }}
+      RECOVERY_REF_QUERY: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidated-modern-20261023' && '.object.sha') || '.head.sha' }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
@@ -2702,7 +2704,7 @@ jobs:
           [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"
           if test "$GITHUB_EVENT_NAME" = push; then
             if test "$RECOVERY_PR" = 176; then
               request=.github/ci/integrated-modern-production-release-20261023.request
@@ -2747,7 +2749,7 @@ jobs:
           for attempt in $(seq 1 90); do
             # Do not hold the release lock or wait after the authorized candidate PR advances.
             # Never let an older accepted SHA replace a newer integrated head.
-            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" != "$RECOVERY_SHA"; then
+            if test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" != "$RECOVERY_SHA"; then
               echo RELEASE_CANDIDATE_SUPERSEDED
               exit 2
             fi
@@ -2772,7 +2774,7 @@ jobs:
             sleep 20
           done
           test "$ready" = true
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"
           printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
           python3 - <<'PY'
           import json,os
@@ -3031,7 +3033,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"
           window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
           remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
             > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
@@ -3092,7 +3094,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"
           window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
           done=false
           for attempt in $(seq 1 300); do
@@ -3123,7 +3125,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py deploy-web'" > "$RUNNER_TEMP/release/web-release.log" 2>&1
           remote sudo -n cat /var/lib/aemr/web-release-completed.json > "$RUNNER_TEMP/release/accepted.json"
           curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
