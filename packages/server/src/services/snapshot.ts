@@ -13,6 +13,8 @@ import type { DeptSheetResult } from './google-sheets.js';
 import { publishLiveEvent } from './event-bus.js';
 import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
+import { makeCalculationEvidence, inspectArchivedCalculationEvidence } from './calculation-evidence.js';
+import { lastKnownRevision } from './file-revision.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
@@ -693,7 +695,28 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }
 
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
-    await saveSnapshot(snapshot);
+
+    // C08.02 — hash exactly the inputs passed to THIS calculation, not data
+    // fetched in a second read. Keep the passport beside its snapshot and
+    // label unknown code/old sources as partial, not verified.
+    const observedVersions = Object.fromEntries(
+      Object.entries(DEPARTMENT_SPREADSHEETS).map(([dept, id]) => [
+        dept, lastKnownRevision(id)?.version ?? null,
+      ]),
+    );
+    snapshot.calculationEvidence = makeCalculationEvidence(pipelineInput, snapshot, {
+      sourceIds: DEPARTMENT_SPREADSHEETS,
+      masterNames: Object.keys(cachedDeptSheetData),
+      readMeta: deptLoadMeta,
+      observedDriveVersions: observedVersions,
+      codeCommit: process.env.DASH_CODE_COMMIT ?? process.env.GITHUB_SHA ?? null,
+    });
+    // A newly computed result is not an accepted historical snapshot until
+    // the existing atomic save succeeds. Never show an unpersisted version
+    // as if it could be replayed after a restart.
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_EVIDENCE_OR_STORAGE_NOT_PERSISTED');
+    }
 
     return snapshot;
   } catch (error) {
@@ -742,7 +765,17 @@ function loadLatestSavedSnapshot(): PipelineSnapshot | null {
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-')) {
+          const integrity = inspectArchivedCalculationEvidence(snapshot);
+          if (integrity.status === 'invalid') {
+            logSourceProblem('Сохранённый снимок отклонён: паспорт расчёта не совпал', {
+              snapshotId: snapshot.id,
+              mismatches: integrity.mismatches,
+            });
+            continue;
+          }
+          return snapshot;
+        }
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
       }
@@ -897,6 +930,13 @@ export function saveSnapshotRows(snapshot: DataSnapshot): number {
  */
 export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
+    // Archived atoms and outputs must match their own sealed passport before
+    // the transaction starts. Older snapshots without a passport retain their
+    // explicit 'unverified' legacy state and are not silently rewritten.
+    const checked = inspectArchivedCalculationEvidence(snapshot);
+    if (checked.status === 'invalid') {
+      throw new Error('CALCULATION_EVIDENCE_MISMATCH:' + checked.mismatches.join(','));
+    }
     const dataJson = JSON.stringify(snapshot);
     // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
     // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
@@ -1037,6 +1077,14 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
       if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
+        const integrity = inspectArchivedCalculationEvidence(snapshot);
+        if (integrity.status === 'invalid') {
+          logSourceProblem('Исторический снимок отклонён: паспорт расчёта не совпал', {
+            snapshotId: snapshot.id,
+            mismatches: integrity.mismatches,
+          });
+          continue;
+        }
         return snapshot;
       }
     } catch {

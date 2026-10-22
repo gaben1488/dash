@@ -127,6 +127,64 @@ describe('saveSnapshot — честный boolean-результат (не гл�
   });
 });
 
+describe('C08.02 — reject a snapshot with mismatching evidence before SQL insertion', () => {
+  it('does not save a tampered snapshot or rewrite an older valid one', async () => {
+    const { saveSnapshot, getSnapshotHistory } = await import('./snapshot.js');
+    const valid = snap('evidence-valid-legacy', '2026-10-22T08:00:00Z', { УО: [['original']] });
+    expect(await saveSnapshot(valid)).toBe(true);
+
+    const corrupted: import('@aemr/shared').DataSnapshot = snap('evidence-invalid', '2026-10-22T09:00:00Z', { УО: [['tampered']] });
+    corrupted.calculationEvidence = {
+      contract: 'dash-calculation-evidence-v1',
+      snapshotId: corrupted.id, capturedAt: corrupted.createdAt,
+      spreadsheetId: corrupted.spreadsheetId,
+      outputSha256: 'intentionally-wrong',
+      books: {},
+    } as NonNullable<typeof corrupted.calculationEvidence>;
+    expect(await saveSnapshot(corrupted)).toBe(false);
+    const history = getSnapshotHistory();
+    expect(history.some(row => row.id === 'evidence-invalid')).toBe(false);
+    expect(history.some(row => row.id === 'evidence-valid-legacy')).toBe(true);
+  });
+});
+
+describe('C08.02 — verify archived snapshots during historical readback', () => {
+  it('skips a tampered stored snapshot instead of serving its recalculated data', async () => {
+    const { saveSnapshot, getSnapshotAtOrBefore } = await import('./snapshot.js');
+    const { db, schema } = await import('../db/index.js');
+    const { eq } = await import('drizzle-orm');
+    const { dayNumberOf } = await import('@aemr/shared');
+    const { makeCalculationEvidence } = await import('./calculation-evidence.js');
+
+    const older = snap('older-untampered', '2026-10-21T08:00:00.000Z', { УО: [['old']] });
+    expect(await saveSnapshot(older)).toBe(true);
+
+    const current: import('@aemr/shared').DataSnapshot =
+      snap('newer-attested', '2026-10-22T08:00:00.000Z', { УО: [['new']] });
+    current.calculationEvidence = makeCalculationEvidence({
+      spreadsheetId: current.spreadsheetId,
+      batchGetData: [{ range: 'SVOD!A1', values: [[1]] }],
+      sheetRows: { УО: [['header'], ['new']] },
+      reportMap: [{ id: 'm' }], rules: [{ id: 'r', check: () => true }],
+    } as unknown as import('@aemr/core').PipelineInput, current, {
+      sourceIds: { УО: 'uo-book' }, masterNames: ['УО'],
+      readMeta: { УО: { loadedAt: current.createdAt, rowCount: 2, sheetName: 'ВСЕ' } },
+      codeCommit: 'a'.repeat(40),
+    });
+    expect(await saveSnapshot(current)).toBe(true);
+
+    const saved = db.select({ data: schema.snapshots.data }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, 'newer-attested')).get();
+    const corrupted = JSON.parse(saved!.data!) as import('@aemr/shared').DataSnapshot;
+    corrupted.rowsByDept!.УО[0][0] = 'tampered-after-save';
+    db.update(schema.snapshots).set({ data: JSON.stringify(corrupted) })
+      .where(eq(schema.snapshots.id, 'newer-attested')).run();
+
+    const day = dayNumberOf('2026-10-22')!;
+    expect(getSnapshotAtOrBefore(day)?.id).toBe('older-untampered');
+  });
+});
+
 describe('setDeptSheetCache — replace-per-dept-key при отвалившемся департаменте (B-9)', () => {
   it('не должен молча отдавать старые строки упавшего в этом цикле деп-листа как текущие', async () => {
     const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
