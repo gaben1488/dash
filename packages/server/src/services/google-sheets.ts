@@ -4,7 +4,7 @@ import {
   ALL_SHEETS,
   DEPARTMENT_REGISTRY,
   DEPT_HEADER_ROWS,
-  FORMULA_COLUMNS,
+  MASTER_FORMULA_COLUMN_GROUPS,
   MASTER_SOURCE_PROFILE,
   SHDYU_MONTHLY_SHEET_NAME,
   validateMasterSourceHeader,
@@ -665,21 +665,7 @@ export async function getSheetDataWithFormulas(
  * канонными защитами, поэтому колонка, добавленная в книгу и забытая здесь,
  * падает тестом, а не читается молча мимо.
  */
-export const FORMULA_COLUMN_GROUPS: ReadonlyArray<{ from: string; to: string }> = (() => {
-  // The one source profile owns the formula columns; Google only needs
-  // contiguous A1 ranges to read them efficiently.
-  const columns = [...FORMULA_COLUMNS].sort((a, b) => letterToColumn(a) - letterToColumn(b));
-  const groups: Array<{ from: string; to: string }> = [];
-  for (const column of columns) {
-    const last = groups[groups.length - 1];
-    if (last && letterToColumn(column) === letterToColumn(last.to) + 1) {
-      last.to = column;
-    } else {
-      groups.push({ from: column, to: column });
-    }
-  }
-  return groups;
-})();
+export const FORMULA_COLUMN_GROUPS = MASTER_FORMULA_COLUMN_GROUPS;
 
 /** Те же группы поимённо — для сообщений и стражей. */
 export { FORMULA_COLUMNS } from '@aemr/shared';
