@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
     types: [labeled]
+  push:
+    branches: [codex/dash-audit-integrated-20261010]
+    paths:
+      - '.github/ci/ud-source-refresh-20261022.request'
 
 permissions:
   contents: read
@@ -3162,11 +3166,16 @@ jobs:
 
   ud-source-refresh:
     if: >-
-      github.event.label.name == 'maintenance: ud-source-refresh' &&
-      github.event.sender.login == github.repository_owner &&
-      github.event.pull_request.number == 79 &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'codex/dash-audit-integrated-20261010'
+      (github.event_name == 'pull_request' &&
+       github.event.label.name == 'maintenance: ud-source-refresh' &&
+       github.event.sender.login == github.repository_owner &&
+       github.event.pull_request.number == 79 &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'codex/dash-audit-integrated-20261010') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash')
     runs-on: ubuntu-latest
     timeout-minutes: 16
     concurrency:
