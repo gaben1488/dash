@@ -108,6 +108,16 @@ function renderPage() {
 }
 
 describe('Единый источник диагностики на новой базе', () => {
+  it('объединяет диагностику отдельной книги под одной раскрываемой группой', async () => {
+    renderPage();
+    const items = await screen.findAllByText('Диагностика отдельной книги');
+    expect(items).toHaveLength(2);
+    fireEvent.click(items[0]);
+    expect(screen.getAllByRole('button', { name: 'Проверить связь' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Проверить данные' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Проверить источники' })).toBeTruthy();
+  });
+
   it('вручную запускает одно чтение, показывает охват и не требует исторической недели', async () => {
     renderPage();
     const button = await screen.findByRole('button', { name: 'Проверить источники' });
