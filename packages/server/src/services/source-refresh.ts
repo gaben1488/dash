@@ -484,8 +484,8 @@ async function gateByRevision(
 
 /**
  * Прочитать книги ГРБС и лист СВОД одним циклом и обновить кэши.
- * Ошибка отдельной книги не валит цикл: упавшая книга УДАЛЯЕТСЯ из кэша, а не
- * остаётся под видом свежих данных.
+ * Отказ отдельной книги не меняет принятую полную базу: цикл возвращает
+ * ошибку, оставляет прошлый снимок и не публикует ни одного diff.
  */
 type MasterAcquisition = (books: Readonly<Record<string, string>>) =>
   Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }>;
@@ -660,6 +660,40 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     })();
     const svodOk = svodResult.ok;
 
+    // A webhook delivers a patch to an already accepted FULL base, not a
+    // replacement for that base. Fail the entire acquisition if one requested
+    // book is missing/failed or the required SVOD read failed. Retaining the
+    // last good cache+watermarks is essential: accepting seven new books while
+    // the eighth failed would publish a novel, never-observed mixed revision.
+    for (const name of booksToRead) {
+      if (!data[name] && !errors[name]) errors[name] = 'SOURCE_INCOMPLETE_RESULT';
+    }
+    if (Object.keys(errors).length > 0 || !svodOk) {
+      const failed = Object.keys(errors);
+      const at = new Date().toISOString();
+      // Revision probes may have advanced "seen" before acquisition. Restore
+      // the last accepted tokens so the next webhook/queue retry reads again.
+      for (const name of booksToRead) {
+        const fileId = sourceBooks[name];
+        if (!fileId) continue;
+        forgetRevision(fileId);
+        const prior = previousRevisions.get(fileId);
+        if (prior) seedRevision(fileId, prior);
+      }
+      setDeptLoadMeta(Object.fromEntries(failed.map(name => [name, {
+        loadedAt: at, rowCount: 0, sheetName: name, error: errors[name],
+      }])));
+      invalidateCache(); // Previously published models must be marked stale.
+      log?.warn('SOURCE_FULL_BASE_NOT_UPDATED: an incomplete observation cannot replace the accepted source state');
+      return {
+        loaded: [], failed,
+        retryableFailures: failed.filter(name => isTransientSourceFailure(errors[name])),
+        svodRetryable: 'retryable' in svodResult && svodResult.retryable === true,
+        svodOk, at, changedBooks: [], svodChanged: false,
+        booksRead: booksToRead.length, skipped: gate.skipped, formulaBooks: [],
+      };
+    }
+
     // Отпечатки — дешёвая ступень разбора: они отвечают «изменилось ли», и
     // только для изменившихся книг работает дорогое построчное сравнение.
     // Книга, прочитанная впервые за жизнь процесса, изменившейся НЕ считается.
@@ -733,15 +767,6 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       log?.warn(`Журнал: по книге «${name}» изменение было, содержание не установлено`
         + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''));
     }
-    // Упавшая книга ушла из кэша — её отпечаток больше ничего не описывает.
-    // Заодно забывается отметка версии файла: она снята перед чтением, которого
-    // не было, и без этого книга выпала бы из перечиток до следующей правки.
-    for (const name of Object.keys(errors)) {
-      bookPrints.delete(name);
-      const fileId = sourceBooks[name];
-      if (fileId) forgetRevision(fileId);
-    }
-
     publishBookChanges(before, data, origin, changedBooks);
 
     // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
