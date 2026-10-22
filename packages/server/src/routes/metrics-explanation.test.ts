@@ -59,6 +59,44 @@ describe('calculated metric detail', () => {
       ] });
   });
 
+  it('ties a visible number to its actual grain, scope, dependencies and snapshot', async () => {
+    const value = snapshot();
+    const response = await read(value, 'grbs.uo.q1.exec_count_pct');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().explanation.resultContext).toEqual({
+      grain: 'department_sheet_row',
+      scope: { sourceSheets: ['УО'], department: 'uo', method: null, period: 'q1', year: 2026 },
+      dependencies: ['fact_count', 'plan_count'],
+      version: {
+        snapshotId: value.id, calculationContextId: null, semanticsHash: null,
+        sourceContentHash: null, sourceProfilesHash: null,
+        status: 'legacy_without_context',
+      },
+    });
+    const method = await read(value, 'competitive.m1.count');
+    expect(method.json().explanation.resultContext.scope).toEqual({
+      sourceSheets: ['УО'], department: null, method: 'competitive', period: 'm1', year: 2026,
+    });
+    expect(method.json().explanation.resultContext.dependencies).toEqual([]);
+  });
+
+  it('never assigns current rules to a numerically equal snapshot with a different captured version', async () => {
+    const value = snapshot();
+    value.metadata.calculationContext = {
+      contract: 'aemr-calculation-context-v1', id: 'old-context',
+      sources: { content: 'old-source', profiles: 'old-profiles' },
+      semantics: 'old-executable-rules', thresholds: {},
+      calendar: { asOf: value.createdAt, productDay: 20747, utcOffsetHours: 12, weeklyCutoffHour: 0 },
+      scope: { targetYear: 2026, officialYear: null },
+      decisions: 'not-applied', access: 'full-dataset',
+    };
+    const response = await read(value, 'grbs.uo.q1.exec_count_pct');
+    expect(response.json().calculated.numericValue).toBe(0.5);
+    expect(response.json().explanation).toEqual({
+      status: 'unavailable', reason: 'CALCULATION_CONTEXT_CHANGED',
+    });
+  });
+
   it('keeps money operands in the source unit of thousands of rubles', async () => {
     const response = await read(snapshot(), 'grbs.uo.q1.execution_pct');
     expect(response.json().explanation.operands).toMatchObject([
