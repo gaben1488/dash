@@ -36,7 +36,7 @@ import {
 import clsx from 'clsx';
 import { api, ApiError, humanizeRequestError } from '../api';
 import { useStore } from '../store';
-import { SVOD_SPREADSHEET_ID } from '@aemr/shared';
+import { SVOD_SPREADSHEET_ID, type SourceDiagnosticRun } from '@aemr/shared';
 import { pluralRu } from '../lib/economy-copy';
 import { SkeletonCard, SkeletonTable, SkeletonStatusPanel } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -120,6 +120,7 @@ export function SettingsPage() {
   const [deepChecking, setDeepChecking] = useState(false);
   const [deepCheck, setDeepCheck] = useState<Awaited<ReturnType<typeof api.checkSourceIntegrityDeep>> | null>(null);
   const [deepCheckError, setDeepCheckError] = useState<string | null>(null);
+  const [diagnosticRun, setDiagnosticRun] = useState<SourceDiagnosticRun | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Соответствие ячеек ────────────────────────────────── */
@@ -245,6 +246,9 @@ export function SettingsPage() {
     if (refreshFeedback.state === 'loading' || deepChecking || validatingAll) return;
     setDeepCheck(null); // result of a previous deep read is no longer current
     setDeepCheckError(null);
+    setDiagnosticRun(null);
+    setValidationResults({});
+    setLastCheckedAt(null);
     setRefreshFeedback({ state: 'loading', message: 'Читаем книги заново…' });
     if (refreshTimerRef.current) { clearTimeout(refreshTimerRef.current); refreshTimerRef.current = null; }
 
@@ -275,24 +279,52 @@ export function SettingsPage() {
     }
   };
 
-  const handleDeepCheck = async () => {
-    if (deepChecking || refreshFeedback.state === 'loading' || validatingAll) return;
+  // One server-owned correlation ID; separate source reads are NOT atomic.
+  const handleRunDiagnostics = async () => {
+    if (deepChecking || validatingAll || refreshFeedback.state === 'loading') return;
     setDeepChecking(true);
+    setValidatingAll(true);
     setDeepCheck(null);
     setDeepCheckError(null);
+    setDiagnosticRun(null);
+    setLastCheckedAt(null);
+    setValidationResults(Object.fromEntries(sources.map(source => [source.name, { loading: true }])));
     try {
-      // One explicit, read-only request. Ordinary webhook refreshes stay cheap.
-      const result = await api.checkSourceIntegrityDeep();
-      if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.books)) {
-        throw new Error('Сервер не подтвердил результат углублённой проверки');
+      const result = await api.runSourceDiagnostics();
+      if (result?.schemaVersion !== 'dash-source-diagnostics/v1' ||
+          !result.stages?.deep || !result.stages?.rows ||
+          !Array.isArray(result.stages.rows.results)) {
+        throw new Error('Сервер не подтвердил состав и границы проверки');
       }
-      setDeepCheck(result);
-      // Only refresh the on-screen source status from server memory.
+      setDiagnosticRun(result);
+      setDeepCheck(result.stages.deep.result);
+      if (result.stages.deep.status === 'failed') {
+        setDeepCheckError(result.stages.deep.error ?? 'Глубокая проверка не выполнена');
+      }
+      const checks: Record<string, { loading: boolean; result?: any }> = {};
+      for (const item of result.stages.rows.results) {
+        checks[item.name] = { loading: false, result: item.success ? item
+          : { error: item.error ?? 'Не удалось проверить данные книги' } };
+      }
+      // Omitted results are failures, never a zero-error verdict.
+      for (const source of sources) {
+        if (!checks[source.name] || result.stages.rows.failedSources.includes(source.name)) {
+          checks[source.name] = { loading: false, result: {
+            error: 'Полная проверка источника не подтверждена. См. состав и охват запуска.',
+          } };
+        }
+      }
+      setValidationResults(checks);
+      setLastCheckedAt(result.stages.rows.completedAt);
       await fetchSourcesData();
     } catch (err) {
-      setDeepCheckError(humanizeRequestError(err));
+      const message = humanizeRequestError(err);
+      setDeepCheckError(message);
+      setValidationResults(Object.fromEntries(sources.map(source =>
+        [source.name, { loading: false, result: { error: message } }])));
     } finally {
       setDeepChecking(false);
+      setValidatingAll(false);
     }
   };
 
@@ -319,33 +351,6 @@ export function SettingsPage() {
     }
   };
 
-  const handleValidateAll = async () => {
-    if (validatingAll || deepChecking || refreshFeedback.state === 'loading') return;
-    setValidatingAll(true);
-    setValidationResults(prev => {
-      const next = { ...prev };
-      for (const s of sources) next[s.name] = { loading: true };
-      return next;
-    });
-    try {
-      const { results } = await api.validateAllSources();
-      setValidationResults(() => {
-        const next: Record<string, { loading: boolean; result?: any }> = {};
-        for (const r of results ?? []) next[r.name] = { loading: false, result: r.success ? r : { error: r.error } };
-        return next;
-      });
-      setLastCheckedAt(new Date().toISOString());
-    } catch (err) {
-      const message = humanizeRequestError(err);
-      setValidationResults(prev => {
-        const next = { ...prev };
-        for (const s of sources) next[s.name] = { loading: false, result: { error: message } };
-        return next;
-      });
-    } finally {
-      setValidatingAll(false);
-    }
-  };
 
   const handleSaveSource = async (srcId: string, srcName: string, newSpreadsheetId: string) => {
     const value = newSpreadsheetId.trim();
@@ -558,7 +563,13 @@ SQLITE_PATH=./data/aemr.db
   // Замечания считаются РОВНО один раз — по результатам проверок источников.
   // Прежде тот же итог параллельно копился в отдельном состоянии, и полоса
   // показывала удвоенное число.
-  const checkedSources = Object.values(validationResults).filter(v => !v.loading && v.result && !v.result.error);
+  const checkedSources = Object.values(validationResults).filter(v =>
+    !v.loading && v.result && !v.result.error
+    && v.result.validationPerformed === true && v.result.rowsChecked > 0);
+  const readOnlySources = Object.values(validationResults).filter(v =>
+    !v.loading && v.result && !v.result.error && v.result.validationPerformed === false);
+  const incompleteSources = Object.values(validationResults).filter(v =>
+    !v.loading && v.result?.error).length;
   const issuesFound = checkedSources.reduce((sum, v) => sum + (v.result.summary?.total ?? 0), 0);
   const rowsKnown = sources.filter(s => s.rows !== null);
   const totalRows = rowsKnown.reduce((sum, s) => sum + (s.rows ?? 0), 0);
@@ -669,12 +680,15 @@ SQLITE_PATH=./data/aemr.db
             <span className="font-medium">
               {issuesFound > 0
                 ? `Найдено ${issuesFound} ${pluralRu(issuesFound, 'замечание', 'замечания', 'замечаний')} в ${checkedSources.length} ${pluralRu(checkedSources.length, 'проверенной книге', 'проверенных книгах', 'проверенных книгах')}`
-                : `Замечаний нет — проверено книг: ${checkedSources.length} из ${sources.length}`}
+                : `По ${checkedSources.length} книгам ГРБС построчных замечаний не найдено`}
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs opacity-80">
-            {checkedSources.length < sources.length && (
-              <span>Остальные книги не проверялись — в счёт не вошли</span>
+            {readOnlySources.length > 0 && (
+              <span>Прочитано агрегатных источников: {readOnlySources.length} — правила строк к ним не применялись</span>
+            )}
+            {incompleteSources > 0 && (
+              <span>Неподтверждённых проверок: {incompleteSources}</span>
             )}
             {lastCheckedAt && <span>Проверено: {timeAgo(lastCheckedAt)}</span>}
           </div>
@@ -867,30 +881,39 @@ SQLITE_PATH=./data/aemr.db
                     )}
                   </span>
                   <button
-                    onClick={handleValidateAll}
-                    disabled={validatingAll || deepChecking || refreshFeedback.state === 'loading'}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                  >
-                    {validatingAll
-                      ? <Loader2 size={11} className="animate-spin" aria-hidden="true" />
-                      : <CheckCircle2 size={11} aria-hidden="true" />}
-                    Проверить данные во всех книгах
-                  </button>
-                  <button
                     type="button"
-                    onClick={() => void handleDeepCheck()}
+                    onClick={() => void handleRunDiagnostics()}
                     disabled={deepChecking || validatingAll || refreshFeedback.state === 'loading'}
-                    title="Принудительное чтение значений и 11 формульных колонок, защит, проверок ввода и количества правил оформления. Google Таблицы не изменяются."
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                    title="Одна проверка источников: чтение, построчные сигналы и формулы. Сверка метрик, история и орфография проверяются отдельно."
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
-                    {deepChecking
-                      ? <Loader2 size={11} className="animate-spin" aria-hidden="true" />
-                      : <Search size={11} aria-hidden="true" />}
-                    {deepChecking ? 'Проверяем формулы…' : 'Глубокая проверка книг'}
+                    {deepChecking || validatingAll
+                      ? <><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                      : <><Search size={12} aria-hidden="true" /> Проверить источники</>}
                   </button>
                   {lastRefreshed && <span className="ml-auto">Читались: {timeAgo(lastRefreshed)}</span>}
                   {sourcesLoading && <Loader2 size={12} className="animate-spin text-blue-500 ml-1" aria-label="Обновляем список" />}
                 </div>
+
+                {diagnosticRun && (
+                  <section aria-live="polite" aria-label="Охват диагностики источников" className={clsx('mb-3 rounded-xl border px-4 py-3 text-xs', TILE_SKIN)}>
+                    <p className="font-medium text-zinc-800 dark:text-zinc-100">
+                      {diagnosticRun.status === 'complete' ? 'Этапы проверки источников завершены' : 'Проверка источников неполная'}.
+                      {' '}Построчно: {diagnosticRun.stages.rows.validatedBooks} книг ГРБС;
+                      {' '}доступность агрегатов: {diagnosticRun.stages.rows.accessOnlyBooks}.
+                    </p>
+                    <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+                      Формулы: {diagnosticRun.stages.deep.status === 'complete' ? 'чтение завершено' : 'неполный результат'}.
+                      {' '}Метрики, межкнижные сверки, текст и история этим запуском не проверялись.
+                      {' '}Два чтения не являются единым атомарным снимком.
+                    </p>
+                    {diagnosticRun.stages.rows.failedSources.length > 0 && (
+                      <p className="mt-1 text-amber-700 dark:text-amber-300">
+                        Не подтверждены: {diagnosticRun.stages.rows.failedSources.join(', ')}.
+                      </p>
+                    )}
+                  </section>
+                )}
 
                 {(deepChecking || deepCheckError || deepCheck) && (
                   <section
