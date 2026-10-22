@@ -3,6 +3,7 @@ import { PRODUCT_COPY } from '@aemr/shared';
 import { PERIOD_LABELS } from '@aemr/shared';
 import { useScopedQuery } from '../hooks/useScopedQuery';
 import { scatterScope } from '../lib/scatter-scope';
+import { scatterPointDrill } from '../lib/scatter-point-drill';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
@@ -1316,7 +1317,12 @@ export function Analytics() {
       {/* Recorded plan/fact comparison; financial semantics come from the source. */}
       <AnalyticsCard title={limitReduction !== null ? `Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%` : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
         <SourceCoverageNotice coverage={scatterCoverage} />
-        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают снижение без правовой оценки.</p>
+        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают арифметическую разницу, без правовой оценки. Нажатие на точку переносит период, управление, учреждение, способ и предмет в Реестр.</p>
+        {(scatterQuery.data?.excluded.unknownMethod ?? 0) > 0 && (
+          <p className="text-xs text-[var(--ink-muted)]">
+            {scatterQuery.data?.excluded.unknownMethod} позиций имеют неподтверждённый способ закупки. В конкурсной выборке они исключены; в общем облаке не считаются доказанными торгами.
+          </p>
+        )}
         {scatterTruncated && <p className="text-xs text-[var(--ink-muted)]">Показаны первые {scatterData.length} из {scatterSummary?.count} позиций; взвешенный итог учитывает все позиции.</p>}
         {scatterLoading ? (
           <div
@@ -1381,22 +1387,26 @@ export function Analytics() {
                             <span className="text-zinc-400">Факт:</span>
                             <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
                             <span className="text-zinc-400">Разница с планом:</span>
-                            <span className={`text-right font-bold ${d.limitReductionPercent > 25 ? 'text-red-500' : d.limitReductionPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                            <span className="text-right font-bold text-[var(--ink)]">
                               {d.limitReductionPercent?.toFixed(1)}%
                             </span>
+                            <span className="text-zinc-400">План / факт (даты):</span>
+                            <span className="text-right">{d.planDate} / {d.factDate}</span>
+                            <span className="text-zinc-400">Строка источника:</span>
+                            <span className="text-right">{d.rowIndex}; AD-экономия отдельно: {d.approvedEconomy?.toLocaleString('ru-RU')} тыс. руб.</span>
                           </div>
                         </div>
                       );
                     }}
                   />
-                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
-                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
                   {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
                       высокую экономию» — из тона претензии в информационный. */}
-                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
+                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
+                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
