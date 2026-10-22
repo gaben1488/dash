@@ -1,5 +1,6 @@
-import { CalcEngine, combineMetricSlices, explainMetric, sliceResults, standardRowFilter } from '../pipeline/calc-engine.js';
+import { CalcEngine, explainMetric, standardRowFilter } from '../pipeline/calc-engine.js';
 import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, executableFormula, type DataSnapshot } from '@aemr/shared';
+import { byPeriod } from './published-projection.js'; from '@aemr/shared';
 
 /** Recompute solely to verify evidence for immutable historical snapshots. */
 export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
@@ -18,24 +19,8 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   const grouped = new CalcEngine().compute(sources.flatMap(([, rows]) => rows), standardRowFilter, 0,
     snapshot.metadata.targetYear ?? undefined,
     { asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS) });
-  // Method/month intersections already live in byQuarterMethod as m1..m12.
-  // The historical public month is always a calendar-month slice. The
-  // method axis must never silently turn m1 into an invalid quarter key.
-  // CalcEngine keeps the month×method cross-index under byQuarterMethod.
-  // Use the same period algebra as published-projection. Annual totals are
-  // four planned quarters, not all rows (which include undated/orphan positions).
-  const values = period === 'year'
-    ? combineMetricSlices(['q1', 'q2', 'q3', 'q4'].map(q => ({
-        values: (method ? grouped.byQuarterMethod.get(`${q}.${method}`)
-          : grouped.byQuarter.get(q)) ?? new Map(),
-      })))
-    : period.startsWith('m') && method
-      ? grouped.byQuarterMethod.get(`${period}.${method}`) ?? new Map()
-      : sliceResults(grouped, {
-        ...(period.startsWith('m') ? { months: [Number(period.slice(1))] }
-          : { quarters: [period] }),
-        ...(method ? { methods: [method] } : {}),
-      });
+  // The published projection and evidence use one period/method selector.
+  const values = byPeriod(grouped, period, method ?? undefined);
   const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
