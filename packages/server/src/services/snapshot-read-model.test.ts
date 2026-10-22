@@ -348,7 +348,18 @@ it('reuses a fully accepted saved calculation after restart without a Google rea
     { version: 'fixture-main-v1', modifiedTime: null }, { fileId: config.google.spreadsheetId, values: [] });
   const saved = calculateSnapshot({ spreadsheetId: config.google.spreadsheetId, asOf: new Date('2026-10-21T00:00:00Z'),
     sheetRows: rows, batchGetData: [], reportMap: REPORT_MAP, targetYear: 2026, officialYear: 2026 });
-  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId);
+  // A restart may reuse this snapshot only after each source is independently
+  // admitted with the same verified physical workbook and current 34-column
+  // header. Persisted watermarks alone are not proof of live admissibility.
+  const accepted = Object.fromEntries(Object.entries(rows).map(([book, values]) => [book, {
+    values, formulas: [], sheetName: book, providerId: DEPARTMENT_SPREADSHEETS[book],
+  }]));
+  source.setDeptSheetCache(accepted, [], '2026-10-21T00:00:00Z');
+  source.setSvodGridCache([], '2026-10-21T00:00:00Z');
+  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
+    ...accepted, [SVOD_WATERMARK_KEY]: { values: [] },
+  });
+  expect(saved.metadata.sourceReceipt).toBeTruthy();
   saved.metadata.sourceCoverage = departmentCoverage(Object.keys(rows), Object.keys(rows));
   await source.saveSnapshot(saved);
   const count = db.select().from(schema.snapshots).all().length;
