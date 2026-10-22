@@ -119,6 +119,7 @@ export function SettingsPage() {
   const [deepChecking, setDeepChecking] = useState(false);
   const [deepCheck, setDeepCheck] = useState<Awaited<ReturnType<typeof api.checkSourceIntegrityDeep>> | null>(null);
   const [deepCheckError, setDeepCheckError] = useState<string | null>(null);
+  const [diagnosticRun, setDiagnosticRun] = useState<Awaited<ReturnType<typeof api.runSourceDiagnostics>> | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Соответствие ячеек ────────────────────────────────── */
@@ -242,6 +243,7 @@ export function SettingsPage() {
 
   const handleRefreshAll = async () => {
     if (refreshFeedback.state === 'loading' || deepChecking || validatingAll) return;
+    setDiagnosticRun(null);
     setDeepCheck(null); // result of a previous deep read is no longer current
     setDeepCheckError(null);
     setValidationResults({});
@@ -277,57 +279,54 @@ export function SettingsPage() {
     }
   };
 
-  // One action for source diagnostics, with two independently reported checks.
-  // This is NOT a single atomic data snapshot or a metric-reconciliation verdict.
+  // A single server-owned run correlates source reads across tabs and requests.
+  // It explicitly does NOT attest metrics, text, historical or crossbook checks.
   const handleCheckAllSources = async () => {
     if (deepChecking || validatingAll || refreshFeedback.state === 'loading') return;
     setDeepChecking(true);
     setValidatingAll(true);
+    setDiagnosticRun(null);
     setDeepCheck(null);
     setDeepCheckError(null);
     setLastCheckedAt(null);
-    setValidationResults(prev => {
-      const next = { ...prev };
-      for (const source of sources) next[source.name] = { loading: true };
-      return next;
-    });
-
+    setValidationResults(Object.fromEntries(sources.map(source =>
+      [source.name, { loading: true }])));
     try {
-      // Metadata/formulas read is forced and read-only; it never seals a weekly archive.
-      const result = await api.checkSourceIntegrityDeep();
-      if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.books)) {
-        throw new Error('Сервер не подтвердил результат углублённой проверки');
+      const run = await api.runSourceDiagnostics();
+      if (run?.schemaVersion !== 'sources-diagnostics/v1' || !run.runId
+        || !run.stages?.deep || !run.stages?.rows
+        || !Array.isArray(run.stages.rows.results)) {
+        throw new Error('Сервер не подтвердил выполнение диагностики');
       }
-      setDeepCheck(result);
-      await fetchSourcesData();
-    } catch (err) {
-      setDeepCheckError(humanizeRequestError(err));
-    }
-
-    // Run even if deep inspection failed: one partial failure must not silently
-    // omit the other check. Both results retain their independent coverage.
-    try {
-      const response = await api.validateAllSources();
-      if (!response || !Array.isArray(response.results)) {
-        throw new Error('Сервер не подтвердил построчную проверку данных');
-      }
+      setDiagnosticRun(run);
+      setDeepCheck(run.stages.deep.result);
+      setDeepCheckError(run.stages.deep.error);
+      const { rows } = run.stages;
       setValidationResults(() => {
         const next: Record<string, { loading: boolean; result?: any }> = {};
-        for (const result of response.results) {
-          next[result.name] = { loading: false, result: result.success ? result : { error: result.error || 'Не удалось проверить источник' } };
+        for (const item of rows.results) {
+          const notVerified = rows.failedSources.includes(item.name) || item.success !== true;
+          next[item.name] = {
+            loading: false,
+            result: notVerified
+              ? { error: item.error || 'Проверка не подтверждена сервером: охват либо режим не совпали' }
+              : item,
+          };
         }
-        // Missing results are failures, never zero findings.
         for (const source of sources) {
-          if (!next[source.name]) next[source.name] = { loading: false, result: { error: 'Сервер не вернул проверку этой книги' } };
+          if (!next[source.name]) {
+            next[source.name] = { loading: false, result: { error: 'Результат этой книги отсутствует в данном запуске' } };
+          }
         }
         return next;
       });
-      setLastCheckedAt(new Date().toISOString());
+      setLastCheckedAt(run.completedAt);
+      await fetchSourcesData();
     } catch (err) {
-      const message = humanizeRequestError(err);
-      setValidationResults(() => Object.fromEntries(
-        sources.map(source => [source.name, { loading: false, result: { error: message } }]),
-      ));
+      const reason = humanizeRequestError(err);
+      setDeepCheckError(reason);
+      setValidationResults(Object.fromEntries(sources.map(source =>
+        [source.name, { loading: false, result: { error: reason } }])));
     } finally {
       setValidatingAll(false);
       setDeepChecking(false);
@@ -664,7 +663,7 @@ SQLITE_PATH=./data/aemr.db
         <div
           className={clsx(
             'flex flex-wrap items-center justify-between gap-3 px-5 py-3 rounded-xl border text-sm',
-            issuesFound > 0
+            (issuesFound > 0 || failedValidationCount > 0 || diagnosticRun?.status === 'partial' || diagnosticRun?.status === 'failed')
               ? clsx(NOTE.amber, 'text-amber-800 dark:text-amber-300')
               : clsx(NOTE.emerald, 'text-emerald-800 dark:text-emerald-300')
           )}
@@ -889,6 +888,36 @@ SQLITE_PATH=./data/aemr.db
                   {lastRefreshed && <span className="ml-auto">Читались: {timeAgo(lastRefreshed)}</span>}
                   {sourcesLoading && <Loader2 size={12} className="animate-spin text-blue-500 ml-1" aria-label="Обновляем список" />}
                 </div>
+
+                {diagnosticRun && (
+                  <section
+                    aria-label="Охват единого запуска диагностики"
+                    aria-live="polite"
+                    className={clsx('mb-4 rounded-xl border px-4 py-3 space-y-1.5', TILE_SKIN)}
+                  >
+                    <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+                      {diagnosticRun.status === 'complete'
+                        ? 'Диагностика источников завершена'
+                        : 'Диагностика источников выполнена не полностью'}
+                      {' · '}запуск {diagnosticRun.runId.slice(0, 8)}
+                    </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                      Формулы и настройки: {diagnosticRun.stages.deep.state === 'complete' ? 'полный охват' : 'неполный охват'}.
+                      {' '}Проверка строк: {diagnosticRun.stages.rows.checkedBooks} книг ГРБС;
+                      {' '}доступность агрегатов: {diagnosticRun.stages.rows.accessOnlyBooks}.
+                      {' '}Ожидалось источников: {diagnosticRun.stages.rows.expectedSources}.
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Два этапа читают источники в разное время — это не атомарный исторический срез.
+                      {' '}Метрики, межкнижная сверка, тексты и сравнение истории данным запуском не проверялись.
+                    </p>
+                    {diagnosticRun.stages.rows.failedSources.length > 0 && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Не подтверждены: {diagnosticRun.stages.rows.failedSources.join(', ')}.
+                      </p>
+                    )}
+                  </section>
+                )}
 
                 {(deepChecking || deepCheckError || deepCheck) && (
                   <section
