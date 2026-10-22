@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -283,5 +283,51 @@ describe('бережная историческая сверка двух сме
       snap('future', '2026-10-29T06:00:00Z'),
     ], now, 12);
     expect(pair?.map((item) => item.id)).toEqual(['before', 'after-late']);
+  });
+});
+
+describe('оперативные наблюдения № без недельной пары', () => {
+  const now = Date.parse('2026-10-22T08:02:00Z');
+  const source = { 'УО': [...HEADER, row({ 0: '12/01', 6: 'Другая закупка' })] };
+  const meta = { 'УО': { loadedAt: '2026-10-22T08:00:00Z', rowCount: 4 } };
+  const event = (seq: string, at = '2026-10-22T07:40:00Z') => ({
+    book: 'УО', kind: 'row-vanished' as const, rowSeq: seq, sheetRow: 18,
+    subject: 'Ремонт', observedAt: at,
+  });
+
+  it('сохраняет буквальную идентичность 12/1 и не удваивает повторные события', () => {
+    const result = selectActiveSourceAbsences([
+      event('12/1'), event('12/1', '2026-10-22T07:50:00Z'),
+      event('12/01'), { ...event('13'), kind: 'row-identity-candidate' as const },
+    ], source, meta, now, 3_600_000);
+    expect(result.entries).toEqual([expect.objectContaining({
+      dept: 'УО', rowSeq: '12/1', observedAt: '2026-10-22T07:50:00Z',
+    })]);
+    expect(result.unavailableBooks).toEqual([]);
+  });
+
+  it('снимает отсутствие после возвращения прежнего номера', () => {
+    const result = selectActiveSourceAbsences([event('12/1')], {
+      'УО': [...source['УО'], row({ 0: '12/1', 6: 'Ремонт' })],
+    }, { 'УО': { ...meta['УО'], rowCount: 5 } }, now, 3_600_000);
+    expect(result.entries).toEqual([]);
+  });
+
+  it('устаревшая, неполная или более ранняя книга — неизвестность, не ноль', () => {
+    const cases = [
+      { values: source, meta: { 'УО': { loadedAt: '2026-10-21T08:00:00Z', rowCount: 4 } } },
+      { values: { 'УО': HEADER }, meta: { 'УО': { ...meta['УО'], rowCount: 3 } } },
+      { values: source, meta: { 'УО': { loadedAt: '2026-10-22T07:30:00Z', rowCount: 4 } } },
+    ];
+    for (const sample of cases) {
+      const result = selectActiveSourceAbsences([event('12/1')], sample.values, sample.meta, now, 3_600_000);
+      expect(result.entries).toEqual([]);
+      expect(result.unavailableBooks).toHaveLength(1);
+    }
+  });
+
+  it('пустая история не выдумывает записи', () => {
+    expect(selectActiveSourceAbsences([], source, meta, now, 3_600_000))
+      .toEqual({ entries: [], unavailableBooks: [] });
   });
 });

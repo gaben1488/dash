@@ -58,12 +58,14 @@ import {
   journalNumber as cellNumber,
   type RowDiff,
   type SnapshotRow,
+  type ChangeEntry,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { isDataRow } from '../services/rows-dto.js';
 import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, iterateWeeklySnapshotHistory } from '../services/snapshot.js';
 import { refreshAllSources } from '../services/source-refresh.js';
+import { readSourceRowObservations } from '../services/source-row-observations.js';
 import { orgLabel, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 export { atomsToSnapshotRows, indexHistoricalDepartments, interpretWeeklySnapshotJson, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 
@@ -145,6 +147,20 @@ export interface VanishedBookDto {
   }>;
 }
 
+/** No inferred deletion; only read-only absence of a previously observed number. */
+export interface OperationalAbsenceDto {
+  dept: string;
+  rowSeq: string;
+  wasAtSheetRow: number | null;
+  subject: string;
+  observedAt: string;
+}
+export interface OperationalAbsenceReport {
+  since: string;
+  entries: OperationalAbsenceDto[];
+  unavailableBooks: Array<{ dept: string; reason: string }>;
+  error: string | null;
+}
 export interface IntegrityResponse {
   asOf: string;
   books: IntegrityBookDto[];
@@ -179,6 +195,7 @@ export interface IntegrityResponse {
   weeklyComparisonNote: string;
   /** Почему оперативного сравнения нет — фраза для экрана. */
   comparisonNote: string;
+  operational: OperationalAbsenceReport;
   notes: string[];
 }
 
@@ -595,6 +612,80 @@ export function buildWeeklyComparison(now: number = Date.now()): {
   };
 }
 
+/**
+ * Accepted SQLite observations only. Never invent a weekly pair or interpret
+ * the absence of a number as proof that a procurement has been deleted.
+ * An unread, stale or earlier-than-event book stays UNKNOWN, not zero.
+ */
+export function selectActiveSourceAbsences(
+  observations: readonly Pick<ChangeEntry,
+    'book' | 'kind' | 'rowSeq' | 'sheetRow' | 'subject' | 'observedAt'>[],
+  sheetValues: Readonly<Record<string, unknown[][]>>,
+  loadMeta: Readonly<Record<string, { loadedAt: string; rowCount?: number; error?: string }>>,
+  now: number,
+  maxAgeMs: number,
+): Pick<OperationalAbsenceReport, 'entries' | 'unavailableBooks'> {
+  const candidates = new Map<string, typeof observations[number][]>();
+  const unavailable = new Map<string, string>();
+  for (const event of observations) {
+    if (event.kind !== 'row-vanished' || !event.rowSeq?.trim()) continue;
+    const dept = findDept(event.book)?.id;
+    if (!dept) {
+      unavailable.set(event.book, 'Нельзя подтвердить принадлежность наблюдения книге');
+      continue;
+    }
+    const entries = candidates.get(dept) ?? [];
+    entries.push(event);
+    candidates.set(dept, entries);
+  }
+
+  const active = new Map<string, OperationalAbsenceDto>();
+  for (const [dept, events] of candidates) {
+    const current = Object.entries(sheetValues).find(([name]) => findDept(name)?.id === dept)?.[1];
+    const meta = Object.entries(loadMeta).find(([name]) => findDept(name)?.id === dept)?.[1];
+    const readAt = Date.parse(meta?.loadedAt ?? '');
+    const eventTimes = events.map(event => Date.parse(event.observedAt ?? ''));
+    let reason: string | null = null;
+    if (!current || current.length <= DEPT_HEADER_ROWS || !meta || meta.error ||
+        meta.rowCount !== current.length) {
+      reason = 'Нет подтверждённого полного чтения книги';
+    } else if (!Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs) {
+      reason = 'Текущее чтение книги устарело';
+    } else if (eventTimes.some(at => !Number.isFinite(at) || at > now || at > readAt)) {
+      reason = 'Момент наблюдения новее подтверждённого чтения или неизвестен';
+    }
+    if (reason) {
+      unavailable.set(dept, reason);
+      continue;
+    }
+
+    // A complete raw matrix, including unfinished data positions. A literal
+    // 12/1 cannot be replaced with 12/01 or coerced to a numeric identifier.
+    const present = new Set(current!.slice(DEPT_HEADER_ROWS)
+      .filter((row): row is unknown[] => Array.isArray(row))
+      .map(row => text(row, DEPT_COLUMNS.ID)).filter(Boolean));
+    for (const event of events) {
+      const rowSeq = event.rowSeq!.trim();
+      if (present.has(rowSeq)) continue; // Number returned: no active absence.
+      const key = JSON.stringify([dept, rowSeq]);
+      const previous = active.get(key);
+      if (previous && previous.observedAt >= event.observedAt!) continue;
+      active.set(key, {
+        dept, rowSeq, wasAtSheetRow: event.sheetRow,
+        subject: event.subject ?? '', observedAt: event.observedAt!,
+      });
+    }
+  }
+
+  return {
+    entries: [...active.values()].sort((a, b) =>
+      b.observedAt.localeCompare(a.observedAt) ||
+      a.dept.localeCompare(b.dept) || a.rowSeq.localeCompare(b.rowSeq)),
+    unavailableBooks: [...unavailable].sort(([a], [b]) => a.localeCompare(b))
+      .map(([dept, reason]) => ({ dept, reason })),
+  };
+}
+
 export function buildIntegrityResponse(now: number = Date.now()): IntegrityResponse {
   const sheetValues = getDeptSheetValues();
   const books: IntegrityBookDto[] = [];
@@ -638,6 +729,22 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
 
   const { comparison, note: comparisonNote } = buildComparison(now);
   const { weeklyComparison, note: weeklyComparisonNote } = buildWeeklyComparison(now);
+  const baselineMs = comparison ? Date.parse(comparison.beforeAt) : NaN;
+  const sinceMs = Number.isFinite(baselineMs) ? baselineMs : now - 14 * 86_400_000;
+  let operational: OperationalAbsenceReport = {
+    since: new Date(sinceMs).toISOString(), entries: [], unavailableBooks: [], error: null,
+  };
+  try {
+    operational = {
+      ...operational,
+      ...selectActiveSourceAbsences(
+        readSourceRowObservations(sinceMs), sheetValues, getDeptLoadMeta(), now,
+        Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
+      ),
+    };
+  } catch {
+    operational.error = 'Не удалось прочитать сохранённые оперативные наблюдения';
+  }
 
   const notes: string[] = [
     'Пропуск номера не доказывает удаления строки: он бывает от перенумерации и других изменений. ' +
@@ -663,6 +770,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     comparisonNote,
     weeklyComparison,
     weeklyComparisonNote,
+    operational,
     notes,
   };
 }
