@@ -363,6 +363,21 @@ class ControllerTests(TrialTests):
         self.assertFalse(self.fixture.pending.exists())
         self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
 
+    def test_owner_loss_with_backend_restart_fences_web_recovery_before_mutation(self):
+        self.web_stage()
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=KeyboardInterrupt),
+              self.assertRaises(KeyboardInterrupt)):
+            self.controller.deploy_web()
+        self.assertTrue(self.fixture.pending.exists())
+        self.fixture.records['server']['State']['StartedAt'] = '2026-10-22T00:00:02Z'
+        self.fixture.persist_records()
+        self.fixture.calls.clear()
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED'):
+            self.fixture.executor.recover()
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
     def test_web_failure_restores_only_web_and_retains_concurrent_data(self):
         self.web_stage()
         actual = self.fixture.executor.web_verify
