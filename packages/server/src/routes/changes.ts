@@ -14,17 +14,18 @@
  * рестарте, а молчащая книга выглядела как книга без правок.
  */
 import type { FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
 import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
 import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
-import { readChangelogRows, changelogInputKey } from '../services/changelog-source.js';
-import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
+import { readChangelogReading, changelogInputKey } from '../services/changelog-source.js';
+import { changeRecordKey, changeRecordsFromJournal, changesSinceLocalClock,
+  type ChangeRecord, type ChangeLogCoverage } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDepts: string[] } | null = null;
+let cache: { at: number; key: string | null; records: ChangeRecord[];
+  failedDepts: string[]; coverage: Record<string, ChangeLogCoverage> } | null = null;
 
 /**
  * Журналы всех книг. Книга, которая НЕ ответила, попадает в failedDepts:
@@ -37,20 +38,26 @@ let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDept
  * каждый ходил к Google своей дорогой со своим окном. Разбор остаётся здесь
  * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
-async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
+async function readAllChangeLogs(): Promise<{
+  records: ChangeRecord[];
+  failedDepts: string[];
+  coverage: Record<string, ChangeLogCoverage>;
+  fresh: boolean;
+}> {
   const key = changelogInputKey(DEPARTMENT_SPREADSHEETS);
   if (cache && cache.key === key && (key !== null || Date.now() - cache.at < CACHE_TTL_MS)) {
-    // fresh=false: эти записи уже сохранялись при чтении, наполнившем кэш.
-    // Гонять транзакцию на 37 тыс. записей ради нулевого прироста на каждый
-    // рендер страницы незачем.
-    return { records: cache.records, failedDepts: cache.failedDepts, fresh: false };
+    return { records: cache.records, failedDepts: cache.failedDepts,
+      coverage: cache.coverage, fresh: false };
   }
-  const entries = Object.entries(DEPARTMENT_SPREADSHEETS);
   const failedDepts: string[] = [];
-  const parts = await Promise.all(entries.map(async ([dept, spreadsheetId]) => {
+  const coverage: Record<string, ChangeLogCoverage> = {};
+  const parts = await Promise.all(Object.entries(DEPARTMENT_SPREADSHEETS).map(async ([dept, id]) => {
     try {
-      const rows = await readChangelogRows(dept, spreadsheetId);
-      return parseChangeLog(rows, dept);
+      // Read and decode each source revision once. Both /api/changes and
+      // provenance consume projections of the same acquisition object.
+      const reading = await readChangelogReading(dept, id);
+      coverage[dept] = reading.normalized.coverage;
+      return changeRecordsFromJournal(reading.normalized, dept).records;
     } catch {
       failedDepts.push(dept);
       return [];
@@ -58,9 +65,9 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
   }));
   const records = parts.flat();
   if (failedDepts.length === 0 && changelogInputKey(DEPARTMENT_SPREADSHEETS) === key) {
-    cache = { at: Date.now(), key, records, failedDepts };
+    cache = { at: Date.now(), key, records, failedDepts, coverage };
   }
-  return { records, failedDepts, fresh: true };
+  return { records, failedDepts, coverage, fresh: true };
 }
 
 /**
@@ -71,8 +78,7 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
+  return changeRecordKey(r);
 }
 
 /**
@@ -98,7 +104,7 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   const byKey = new Map<string, typeof schema.changelogEntries.$inferInsert>();
   const legacyKeys = new Map<string, string>();
   for (const r of records) {
-    legacyKeys.set(changeEntryKey(r), `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`);
+    if (!r.eventId) legacyKeys.set(changeEntryKey(r), `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`);
     byKey.set(changeEntryKey(r), {
       id: changeEntryKey(r),
       dept: r.dept,
@@ -108,6 +114,9 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
       oldValue: r.oldValue,
       newValue: r.newValue,
       atMs: r.atMs,
+      timePrecision: r.timePrecision ?? 'unknown',
+      sourceTimeRaw: r.sourceTimeRaw ?? null,
+      sourceJournalRow: r.journalRow ?? null,
       author: r.author,
       recordedAt,
     });
@@ -119,11 +128,16 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
       const batch = values.slice(i, i + ENTRIES_PER_BATCH);
       // Preserve legacy IDs in place. Upgrade must neither duplicate their
       // identical values nor erase a different transition sharing the old ID.
-      const legacy = new Map(tx.select().from(schema.changelogEntries)
-        .where(inArray(schema.changelogEntries.id, batch.map(v => legacyKeys.get(v.id)!)))
-        .all().map(row => [row.id, row]));
+      const historicalKeys = batch.map(v => legacyKeys.get(v.id))
+        .filter((k): k is string => k !== undefined);
+      const legacy = historicalKeys.length > 0
+        ? new Map(tx.select().from(schema.changelogEntries)
+          .where(inArray(schema.changelogEntries.id, historicalKeys))
+          .all().map(row => [row.id, row]))
+        : new Map<string, typeof schema.changelogEntries.$inferSelect>();
       const pending = batch.filter(value => {
-        const old = legacy.get(legacyKeys.get(value.id)!);
+        const historicalKey = legacyKeys.get(value.id);
+        const old = historicalKey ? legacy.get(historicalKey) : undefined;
         return !old || old.oldValue !== value.oldValue || old.newValue !== value.newValue;
       });
       if (pending.length === 0) continue;
@@ -155,6 +169,11 @@ export function readChangeLogEntriesSince(sinceMs: number): ChangeRecord[] {
       newValue: r.newValue ?? '',
       atMs: r.atMs,
       author: r.author ?? '',
+      timePrecision: r.timePrecision === 'day' ? 'day' :
+        r.timePrecision === 'minute' ? 'minute' :
+        r.timePrecision === 'second' ? 'second' : 'unknown',
+      ...(r.sourceTimeRaw ? { sourceTimeRaw: r.sourceTimeRaw } : {}),
+      ...(r.sourceJournalRow !== null ? { journalRow: r.sourceJournalRow } : {}),
     }));
 }
 
@@ -221,10 +240,17 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
       sinceMs = sinceDay * 86400000;
     } else {
       sinceDay = liveBaselineDay(new Date(), config.weeklySnapshot.utcOffsetHours);
-      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours);
+      // Journal at_ms is intentionally a source-local wall-clock key from
+      // historical SQLite, NOT a UTC instant. Convert the verified product
+      // cut-off back to that axis; never shift or re-key old history silently.
+      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours) +
+        config.weeklySnapshot.utcOffsetHours * 3_600_000;
     }
 
-    const { records: all, failedDepts, fresh } = await readAllChangeLogs();
+    const { records: all, failedDepts, coverage, fresh } = await readAllChangeLogs();
+    const dayFloorMs = sinceDay * 86_400_000;
+    // A date-only event on the cut-off day has UNKNOWN ordering relative to
+    // 18:00; include it with 'day' precision rather than invent a clock time.
 
     // Прочитанное кладём в БД и оттуда же отвечаем. Смысл не в скорости:
     // журнал источника — единственный провенанс правок, а жил он кэшем в
@@ -232,11 +258,11 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
     // ответившая в этом цикле, показывает свои прежние правки вместо ложного
     // «ничего не менял». Отказ БД (в том числе ещё не созданная таблица) —
     // не отказ страницы: ответ собирается живым чтением, как раньше.
-    let records = changesSince(all, sinceMs);
+    let records = changesSinceLocalClock(all, dayFloorMs, sinceMs);
     let source: 'db' | 'live' = 'live';
     try {
       if (fresh) saveChangeLogEntries(all);
-      records = readChangeLogEntriesSince(sinceMs);
+      records = changesSinceLocalClock(readChangeLogEntriesSince(dayFloorMs), dayFloorMs, sinceMs);
       source = 'db';
     } catch (error) {
       announceDbFailure(error);
@@ -250,6 +276,11 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
       // чтения книг (только то, что ответило прямо сейчас). Читатель вправе
       // знать, насколько полон список, который он видит.
       source,
+      coverage,
+      /** These entries cannot be proven to precede/follow the 18:00 cutoff. */
+      cutoffDayUnknown: sinceMs > dayFloorMs
+        ? records.filter(r => r.timePrecision === 'day' && r.atMs === dayFloorMs).length
+        : 0,
       // Книги, которые не ответили: страница обязана сказать об этом вслух,
       // иначе «правок нет» неотличимо от «источник молчит». При source='db'
       // их правки в списке есть, но свежесть — на момент последнего удачного

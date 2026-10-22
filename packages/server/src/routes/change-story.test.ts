@@ -91,6 +91,8 @@ interface StoryDto {
     emptiness: string;
   };
   gaps: Array<{ book: string; reason: string; detail: string; count?: number }>;
+  captureCoverage?: Record<string, { rawRows: number; cellRows: number;
+    invalidTime: number; dayOnly: number; nonCell: number; deliveryUnverified: true }>;
   deletionsUnobservable: boolean;
   note: string;
   comparison: { beforeAt: string; afterAt: string } | null;
@@ -175,6 +177,14 @@ describe('GET /api/change-story', () => {
     expect(addedEvents).toHaveLength(1);
     expect(addedEvents[0].rowSeq).toBe('90');
     expect(addedEvents[0].column).toBeNull();
+  });
+
+  it('publishes the same decoded source coverage to the full journal, not only the report fragment', () => {
+    expect(body.captureCoverage?.['УЭР']).toMatchObject({
+      rawRows: h.uerJournal.length, cellRows: h.uerJournal.length - 1,
+      invalidTime: 0, dayOnly: 0, nonCell: 0, deliveryUnverified: true,
+    });
+    expect(body.captureCoverage?.['УО']).toBeUndefined();
   });
 
   it('книга, чей журнал не прочитан, названа по имени, а не молчит', () => {

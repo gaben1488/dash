@@ -812,3 +812,31 @@ describe('planColumnLabel — подписи вместо букв', () => {
     expect(planColumnLabel('K')).toBe('план ИТОГО');
   });
 });
+
+
+describe('source journal clock contract — every consumer shares these rules', () => {
+  it('keeps precision separate from the legacy wall-clock sort key', () => {
+    expect(parseJournalInstant('22.10.2026')).toMatchObject({
+      at: '2026-10-22T00:00:00', precision: 'day',
+    });
+    expect(parseJournalInstant('10.09.2026, 17:21:15')).toMatchObject({
+      at: '2026-09-10T17:21:15', precision: 'second',
+    });
+    expect(parseJournalInstant('08.04.2026 9:09')).toMatchObject({
+      at: '2026-04-08T09:09:00', precision: 'minute',
+    });
+    expect(parseJournalInstant(46238)?.precision).toBe('day');
+    expect(parseJournalInstant(46239.70307990741)?.precision).toBe('second');
+  });
+
+  it('rejects non-calendar dates and foreign offset axes instead of fabricating a timestamp', () => {
+    for (const value of [
+      '31.02.2026', '00.10.2026', '10.13.2026', '30.04.2026 24:00:00',
+      '10.09.2026, 17:61:15', '2026-02-29', '2026-04-05T16:00:00Z',
+      '2026-04-05T16:00:00+12:00', '10.09.2026 17:21:15 garbage',
+    ]) {
+      expect(parseJournalInstant(value), String(value)).toBeNull();
+    }
+    expect(parseJournalInstant('29.02.2024')?.at).toBe('2024-02-29T00:00:00');
+  });
+});

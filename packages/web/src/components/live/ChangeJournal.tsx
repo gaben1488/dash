@@ -106,6 +106,13 @@ export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose
 
   const digest = response?.digest ?? null;
   const gaps = response?.gaps ?? [];
+  const displayedCoverage = Object.entries(response?.captureCoverage ?? {})
+    .filter(([book]) => books.length === 0 || books.includes(book));
+  const captureCounts = displayedCoverage.reduce((a, [, c]) => ({
+    dayOnly: a.dayOnly + c.dayOnly,
+    invalid: a.invalid + c.invalidTime,
+    bulk: a.bulk + c.nonCell,
+  }), { dayOnly: 0, invalid: 0, bulk: 0 });
   const facets = response?.facets ?? { books: [], authors: [] };
   const empty = digest === null ? null : emptinessLine(digest, gaps);
 
@@ -162,6 +169,18 @@ export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose
                   </li>
                 ))}
               </ul>
+            )}
+            {displayedCoverage.length > 0 && (
+              <p role="status" className="mt-1 text-[10px] text-[var(--ink-muted)]">
+                Захваченный журнал: {captureCounts.dayOnly} записей без часов,
+                {captureCounts.invalid} с нечитаемым временем,
+                {captureCounts.bulk} пакетных/неячеечных операций.
+                Доставка изменений Apps Script/API не подтверждается самим журналом.
+                {(response?.cutoffDayUnknown ?? 0) > 0 && (
+                  <> {response?.cutoffDayUnknown} записей относятся к дню
+                  контрольного среза, но не имеют времени для сравнения с 18:00.</>
+                )}
+              </p>
             )}
             <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
               {readAt === null ? 'журнал ещё не прочитан' : `прочитано ${relativeMoment(readAt)}`}

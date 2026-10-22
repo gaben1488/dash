@@ -351,73 +351,92 @@ function readCellState(raw: unknown): CellState {
 const SERIAL_EPOCH_OFFSET = 25569;
 const MS_PER_DAY = 86400000;
 
-/** Разобранный момент правки: подпись времени книги + номер суток. */
-interface ParsedInstant {
+/**
+ * One calendar parser for ALL source journal consumers (history, provenance,
+ * authorship and dashboard). This is a spreadsheet WALL CLOCK, not UTC.
+ *
+ * 'day' means the provider did not give a time: 00:00 is only a sorting anchor
+ * and MUST NOT be displayed/attributed as an exact edit time.
+ */
+export type JournalTimePrecision = 'day' | 'minute' | 'second';
+export interface ParsedInstant {
   at: string;
   atDay: number;
+  precision: JournalTimePrecision;
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
-function instantOf(y: number, mo: number, d: number, h: number, mi: number, s: number): ParsedInstant {
+function instantOf(
+  y: number, mo: number, day: number, hour: number, minute: number, second: number,
+  precision: JournalTimePrecision,
+): ParsedInstant | null {
+  if (!Number.isInteger(y) || y < 1900 || y > 2100 ||
+      !Number.isInteger(hour) || hour < 0 || hour > 23 ||
+      !Number.isInteger(minute) || minute < 0 || minute > 59 ||
+      !Number.isInteger(second) || second < 0 || second > 59) return null;
+  const utc = new Date(Date.UTC(y, mo - 1, day));
+  // Reject invalid source dates; Date.UTC would silently turn 31 February into March.
+  if (utc.getUTCFullYear() !== y || utc.getUTCMonth() !== mo - 1 || utc.getUTCDate() !== day) return null;
   return {
-    at: `${y}-${pad2(mo)}-${pad2(d)}T${pad2(h)}:${pad2(mi)}:${pad2(s)}`,
-    atDay: Date.UTC(y, mo - 1, d) / MS_PER_DAY,
+    at: String(y) + '-' + pad2(mo) + '-' + pad2(day) +
+      'T' + pad2(hour) + ':' + pad2(minute) + ':' + pad2(second),
+    atDay: utc.getTime() / MS_PER_DAY,
+    precision,
   };
 }
 
 /**
- * Разбирает колонку «Время» журнала. Живые формы (замер 18.08): Google-serial с
- * дробью (46248.6623103 = 14.08.2026 15:53:44), «дд.мм.гггг чч:мм:сс»,
- * «дд.мм.гггг». Дополнительно принимаем ISO и Date — так роут может отдать уже
- * разобранное время, не подгоняя его обратно под формат листа.
+ * Live source forms:
+ *   08.04.2026 9:09:54   10.09.2026, 17:21:15   22.10.2026
+ *   46248.6623103        2026-08-05T16:52:26  and JS Date.
+ *
+ * Source-local timestamps have no offset. Explicit offset strings are rejected,
+ * not silently converted to another time axis. An integer Google serial or bare
+ * calendar date has precision='day'.
  */
 export function parseJournalInstant(raw: unknown): ParsedInstant | null {
   if (raw instanceof Date) {
-    if (Number.isNaN(raw.getTime())) return null;
+    if (!Number.isFinite(raw.getTime())) return null;
     return instantOf(
-      raw.getFullYear(), raw.getMonth() + 1, raw.getDate(),
-      raw.getHours(), raw.getMinutes(), raw.getSeconds(),
+      raw.getUTCFullYear(), raw.getUTCMonth() + 1, raw.getUTCDate(),
+      raw.getUTCHours(), raw.getUTCMinutes(), raw.getUTCSeconds(), 'second',
     );
   }
 
   const s = String(raw ?? '').trim();
-  if (s === '') return null;
+  if (!s) return null;
 
-  // «дд.мм.гггг» и «дд.мм.гггг чч:мм[:сс]»
-  const ru = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-  if (ru) {
-    return instantOf(
-      parseInt(ru[3], 10), parseInt(ru[2], 10), parseInt(ru[1], 10),
-      parseInt(ru[4] ?? '0', 10), parseInt(ru[5] ?? '0', 10), parseInt(ru[6] ?? '0', 10),
-    );
-  }
+  const ru = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (ru) return instantOf(
+    Number(ru[3]), Number(ru[2]), Number(ru[1]), Number(ru[4] ?? 0),
+    Number(ru[5] ?? 0), Number(ru[6] ?? 0),
+    ru[4] === undefined ? 'day' : ru[6] === undefined ? 'minute' : 'second',
+  );
 
-  // Google-serial: целая часть — сутки, дробная — доля суток по часам книги.
-  const serial = Number(s);
-  if (Number.isFinite(serial) && serial > 40000 && serial < 60000) {
+  if (/^\d{5}(?:\.\d+)?$/.test(s)) {
+    const serial = Number(s);
+    if (!Number.isFinite(serial) || serial <= 40000 || serial >= 60000) return null;
     const day = Math.floor(serial) - SERIAL_EPOCH_OFFSET;
-    // Дробь считаем в секундах и округляем: Google хранит её с плавающей
-    // ошибкой (…39613097222), и без округления получаются 15:53:43.9999.
-    let secs = Math.round((serial - Math.floor(serial)) * 86400);
-    let dayShift = 0;
-    if (secs >= 86400) { secs -= 86400; dayShift = 1; }
-    const base = new Date((day + dayShift) * MS_PER_DAY);
+    let seconds = Math.round((serial - Math.floor(serial)) * 86400);
+    const dayShift = seconds === 86400 ? 1 : 0;
+    if (dayShift) seconds = 0;
+    const utc = new Date((day + dayShift) * MS_PER_DAY);
     return instantOf(
-      base.getUTCFullYear(), base.getUTCMonth() + 1, base.getUTCDate(),
-      Math.floor(secs / 3600), Math.floor((secs % 3600) / 60), secs % 60,
+      utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(),
+      Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60,
+      serial === Math.floor(serial) ? 'day' : 'second',
     );
   }
 
-  // ISO «YYYY-MM-DD[THH:mm:ss]» — берём компоненты из строки, зону игнорируем.
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (iso) {
-    return instantOf(
-      parseInt(iso[1], 10), parseInt(iso[2], 10), parseInt(iso[3], 10),
-      parseInt(iso[4] ?? '0', 10), parseInt(iso[5] ?? '0', 10), parseInt(iso[6] ?? '0', 10),
-    );
-  }
-
+  // Require the entire ISO-shaped string; an unexamined Z/offset must not be
+  // mistaken for a local spreadsheet clock time.
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (iso) return instantOf(
+    Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4] ?? 0),
+    Number(iso[5] ?? 0), Number(iso[6] ?? 0),
+    iso[4] === undefined ? 'day' : iso[6] === undefined ? 'minute' : 'second',
+  );
   return null;
 }
 
@@ -438,6 +457,10 @@ function parseCellAddress(raw: unknown): { letter: string; row: number } | null 
  */
 export interface JournalRecord {
   source?: PlanEventSource;
+  /** Canonical source identity from one acquisition; never a sheet-row coordinate. */
+  sourceEventIdentity?: string;
+  /** Precision of the source's original clock; not guessed from pseudo-midnight. */
+  sourceTimePrecision?: JournalTimePrecision;
   /**
    * A «Лист» — имя листа книги. ВНИМАНИЕ: имя не совпадает с именем управления
    * во всех книгах — УФБП пишет «УФБП», а УО пишет «ВСЕ» (замер 18.08). Поэтому

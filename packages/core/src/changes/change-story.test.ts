@@ -482,3 +482,43 @@ describe('провенанс изменившегося контекста пр�
   });
 });
 
+
+
+describe('S07 canonical source-event evidence is shared across both journals', () => {
+  it('does not invent 00:00 or fold independent date-only edits into a purchase', () => {
+    const rows = ['G', 'H', 'I', 'J', 'K', 'L'].map(letter => ({
+      ...rec(letter + '19', '№ 12', '', 'value', '22.10.2026'),
+      sourceEventIdentity: 'journal-clock-v3:day-' + letter,
+      sourceTimePrecision: 'day' as const,
+    }));
+    const entries = entriesFromBookJournal('УО', rows).entries;
+    expect(entries).toHaveLength(6);
+    expect(entries[0].timePrecision).toBe('day');
+    expect(entries[0].id).toBe('journal-clock-v3:day-G');
+    expect(foldRowEvents(entries)).toHaveLength(6);
+    expect(foldRowEvents(entries).every(e => e.kind !== 'row-added')).toBe(true);
+  });
+
+  it('keeps repeat same-day occurrences distinct under exact-source identity', () => {
+    const rows = ['a', 'b'].map(ordinal => ({
+      ...rec('N19', '№ 12', 'Х', '01.11.2026', '22.10.2026'),
+      sourceEventIdentity: 'journal-clock-v3:repeat-' + ordinal,
+    }));
+    const story = buildChangeStory([{ book: 'УО', journalAvailable: true, records: rows }]);
+    expect(story.entries).toHaveLength(2);
+    expect(new Set(story.entries.map(e => e.id)).size).toBe(2);
+  });
+
+  it('keeps date-only events from the threshold day as ambiguous, excluding exact earlier edits', () => {
+    const day = Date.UTC(2026, 9, 22);
+    const before = rec('N20', '№ 12', 'Х', '20.11.2026', '22.10.2026 12:00:00');
+    const after = rec('N21', '№ 13', 'Х', '21.11.2026', '22.10.2026 20:00:00');
+    const dayOnly = rec('N22', '№ 14', 'Х', '22.11.2026', '22.10.2026');
+    const story = buildChangeStory([
+      { book: 'УО', journalAvailable: true, records: [before, dayOnly, after] },
+    ], { sinceMs: day + 18 * 3600_000, sinceLocalDayStartMs: day });
+    expect(story.entries.map(e => e.column)).toEqual(['N', 'N']);
+    expect(story.entries.map(e => e.rowSeq).sort()).toEqual(['13', '14']);
+    expect(story.entries.find(e => e.rowSeq === '14')?.timePrecision).toBe('day');
+  });
+});

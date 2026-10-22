@@ -40,6 +40,15 @@ export interface ChangeStoryResponse {
   readonly since: string;
   readonly digest: ChangeDigest;
   readonly gaps: readonly ChangeGap[];
+  readonly cutoffDayUnknown?: number;
+  readonly captureCoverage?: Readonly<Record<string, {
+    readonly rawRows: number;
+    readonly cellRows: number;
+    readonly dayOnly: number;
+    readonly invalidTime: number;
+    readonly nonCell: number;
+    readonly deliveryUnverified: true;
+  }>>;
   readonly deletionsUnobservable: boolean;
   readonly note: string;
   /** Пара снимков, по которой найдены пропажи; null — сравнивать не с чем. */

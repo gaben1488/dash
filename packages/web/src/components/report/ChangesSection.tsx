@@ -28,17 +28,20 @@ interface ChangeRecord {
   oldValue: string;
   newValue: string;
   atMs: number;
+  timePrecision?: 'day' | 'minute' | 'second' | 'unknown';
   author: string;
 }
 
 /** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза.
  *  Экспорт: тем же словом время называет журнал эфира в углу шапки. */
-export function fmtAt(ms: number): string {
+export function fmtAt(ms: number, precision?: ChangeRecord['timePrecision']): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  if (precision === 'day') return `${dd}.${mm} (время не указано)`;
+  if (precision === 'unknown') return `${dd}.${mm} (точность времени неизвестна)`;
   return `${dd}.${mm}, ${hh}:${mi}`;
 }
 
@@ -123,7 +126,7 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
       <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
       <span aria-hidden="true">→</span>{' '}
       <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
-      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs)}</span>
+      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs, r.timePrecision)}</span>
     </p>
   );
 }
@@ -140,7 +143,12 @@ export function ChangesSection({ since, depts = [] }: {
    */
   depts?: readonly string[];
 }) {
-  const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
+  const [data, setData] = useState<{
+    since: string; records: ChangeRecord[]; source: 'db' | 'live';
+    failedDepts?: string[]; cutoffDayUnknown?: number;
+    coverage?: Record<string, { rawRows: number; cellRows: number; invalidTime: number;
+      dayOnly: number; nonCell: number; deliveryUnverified: true }>;
+  } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +221,32 @@ export function ChangesSection({ since, depts = [] }: {
           </span>
         )}
       </div>
+
+
+      {/* An existing _ChangeLog is evidence of CAPTURED entries, not a guarantee
+          that every Apps Script/API/row-structure edit was delivered. */}
+      {(() => {
+        const visible = Object.entries(data.coverage ?? {}).filter(([dept]) =>
+          deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
+        const malformed = visible.reduce((sum, [, v]) => sum + v.invalidTime, 0);
+        const nonCell = visible.reduce((sum, [, v]) => sum + v.nonCell, 0);
+        const dateOnly = visible.reduce((sum, [, v]) => sum + v.dayOnly, 0);
+        const silent = (data.failedDepts ?? []).filter(dept =>
+          deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
+        return (malformed > 0 || nonCell > 0 || dateOnly > 0 || silent.length > 0 ||
+          (data.cutoffDayUnknown ?? 0) > 0) ? (
+          <p className="text-[12px] text-amber-700 dark:text-amber-300" role="status">
+            Границы журнала: {dateOnly} записей без точного времени, {malformed} с
+            неразобранной датой, {nonCell} пакетных/неячеечных операций;
+            источники без ответа: {silent.length}.
+            {(data.cutoffDayUnknown ?? 0) > 0 && (
+              <> {data.cutoffDayUnknown} записей относятся к дню контрольного среза
+              без сведений, были ли они до или после 18:00.</>
+            )}
+            {' '}Полнота доставки Apps Script/API этим журналом не подтверждена.
+          </p>
+        ) : null;
+      })()}
 
       {methodChanges.length > 0 && (
         <div>

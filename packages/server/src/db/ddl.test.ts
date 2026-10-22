@@ -87,7 +87,7 @@ describe('схема базы на пустом месте', () => {
       .sort();
     db.close();
     expect(columns).toEqual(
-      ['at_ms', 'attribute', 'author', 'cell', 'dept', 'id', 'new_value', 'old_value', 'recorded_at', 'sheet'],
+      ['at_ms', 'attribute', 'author', 'cell', 'dept', 'id', 'new_value', 'old_value', 'recorded_at', 'sheet', 'source_journal_row', 'source_time_raw', 'time_precision'],
     );
   });
 
@@ -160,6 +160,41 @@ describe('схема базы на пустом месте', () => {
     const db = freshDatabase('idempotent');
     expect(() => db.exec(SCHEMA_DDL)).not.toThrow();
     expect(() => db.exec(POST_MIGRATION_DDL)).not.toThrow();
+    db.close();
+  });
+});
+
+
+describe('source journal additive migration does not rewrite historical receipts', () => {
+  it('retains older entries and makes their unknown clock precision explicit', () => {
+    const db = new Database(join(dir, 'legacy-changelog-migrate.db'));
+    db.exec([
+      'CREATE TABLE changelog_entries (',
+      'id TEXT PRIMARY KEY, dept TEXT NOT NULL, sheet TEXT NOT NULL, cell TEXT NOT NULL,',
+      'attribute TEXT, old_value TEXT, new_value TEXT, at_ms INTEGER NOT NULL,',
+      'author TEXT, recorded_at TEXT NOT NULL);',
+    ].join(' '));
+    db.prepare([
+      'INSERT INTO changelog_entries',
+      '(id, dept, sheet, cell, at_ms, author, recorded_at)',
+      "VALUES ('legacy', 'УО', 'ВСЕ', 'L178', 12345, 'old-author', '2026-08-01T00:00:00Z')",
+    ].join(' ')).run();
+    db.exec(SCHEMA_DDL);
+    for (const statement of COLUMN_MIGRATIONS) {
+      try { db.exec(statement); } catch (e) {
+        if (!(e as Error).message.includes('duplicate column')) throw e;
+      }
+    }
+    db.exec(POST_MIGRATION_DDL);
+    const rows = db.prepare([
+      'SELECT id, dept, at_ms, time_precision, source_time_raw, source_journal_row',
+      'FROM changelog_entries WHERE id = ?',
+    ].join(' ')).all('legacy') as Array<{
+      id: string; dept: string; at_ms: number; time_precision: string;
+      source_time_raw: string | null; source_journal_row: number | null;
+    }>;
+    expect(rows).toEqual([{ id: 'legacy', dept: 'УО', at_ms: 12345,
+      time_precision: 'unknown', source_time_raw: null, source_journal_row: null }]);
     db.close();
   });
 });

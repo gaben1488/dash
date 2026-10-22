@@ -559,9 +559,15 @@ export const api = {
     return fetchJSON<{
       since: string;
       total: number;
+      source: 'db' | 'live';
+      failedDepts?: string[];
+      cutoffDayUnknown?: number;
+      coverage?: Record<string, { rawRows: number; cellRows: number; invalidTime: number;
+        dayOnly: number; nonCell: number; deliveryUnverified: true }>;
       records: Array<{
         dept: string; sheet: string; cell: string; attribute: string;
         oldValue: string; newValue: string; atMs: number; author: string;
+        timePrecision?: 'day' | 'minute' | 'second' | 'unknown'; sourceTimeRaw?: string;
       }>;
     }>(`/changes${qs}`);
   },
