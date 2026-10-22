@@ -127,6 +127,28 @@ describe('Один запуск диагностики источников', ()
     expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
     expect(validateAllSources).toHaveBeenCalledTimes(1);
   });
+  it('не объявляет проверку доступности свода построчной валидацией', async () => {
+    getSources.mockResolvedValue({
+      sources: [
+        { name: 'УО', status: 'ok', rowCount: 20 },
+        { name: 'УИО', status: 'ok', rowCount: 30 },
+        { name: 'СВОД ТД-ПМ', status: 'ok', rowCount: 40 },
+      ],
+    });
+    validateAllSources.mockResolvedValue({
+      results: [
+        { name: 'УО', success: true, validationMode: 'rows', rowsChecked: 20, summary: { total: 0 } },
+        { name: 'УИО', success: true, validationMode: 'rows', rowsChecked: 30, summary: { total: 0 } },
+        { name: 'СВОД ТД-ПМ', success: true, validationMode: 'access_only', rowsChecked: 40, summary: { total: 0 } },
+      ],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
+    await waitFor(() => expect(document.body.textContent).toContain('Агрегатных источников прочитано: 1'));
+    expect(document.body.textContent).toContain('В построчной проверке 2 книг ГРБС замечаний не найдено');
+    expect(document.body.textContent).toContain('Построчные правила ГРБС к агрегированному листу не применяются');
+  });
+
   it('если глубокое чтение не удалось, не пропускает независимую проверку данных', async () => {
     checkSourceIntegrityDeep.mockRejectedValueOnce(new Error('Google API unavailable'));
     renderPage();
