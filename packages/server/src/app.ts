@@ -41,10 +41,10 @@ import { sourceIntegrityRoutes } from './routes/source-integrity.js';
 import { sourceDiagnosticsRoutes } from './routes/source-diagnostics.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
-import { startNightlyIntegritySweep } from './services/metadata-watch.js';
-import { connectFormulaSink } from './services/formula-sink.js';
+import { startNightlyIntegritySweep, restoreMetadataWatch } from './services/metadata-watch.js';
+import { connectFormulaSink, disconnectFormulaSink, restoreFormulaVerdicts } from './services/formula-sink.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
-import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
+import { refreshAllSources, restoreFormulaDeliveries, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
 import { startWebhookChannels, stopWebhookChannels } from './services/webhook-channel.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
@@ -189,11 +189,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // рядом с процессными стражами, до регистрации маршрутов: чтения начинаются
   // с первого же запроса.
   setSourceLogger(app.log);
+  // Restore independent source evidence before webhook queues and night-cron.
+  // This performs no Google requests and leaves the integrated source-cut
+  // acquisition/persistence barrier unchanged.
+  restoreFormulaDeliveries();
+  restoreFormulaVerdicts();
+  restoreMetadataWatch();
+  connectFormulaSink({ warn: (m) => app.log.warn(m) });
   // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
     shutdownGuards.get(app)?.begin();
     stopWebhookChannels();
+    disconnectFormulaSink();
     setSourceLogger(null);
   });
 
@@ -368,9 +376,6 @@ export function preloadData(app: FastifyInstance): void {
       warn: (m) => app.log.warn(m),
     }, 'request');
   });
-
-  // Formula deliveries can arrive as soon as the recovered queue starts.
-  connectFormulaSink({ warn: (m) => app.log.warn(m) });
 
   // Recover push independently of Google preload. The shared refresh queue
   // serializes notifications arriving during the initial source read.

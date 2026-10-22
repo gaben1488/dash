@@ -25,7 +25,7 @@
  * стояло ни одного дефекта).
  */
 import type { TrustCheckCoverage, Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS, FORMULA_COLUMNS, isMetaRow } from '@aemr/shared';
+import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS, FORMULA_COLUMNS, isMetaRow } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
 // Compatibility export; the shared source contract owns this column set.
@@ -207,13 +207,17 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput, coverage?: 
   const startRow = input.startRow ?? 1;
   const height = Math.max(values.length, formulas.length);
 
-  // Номер без предмета бывает служебной нумерацией колонок или заготовкой.
-  // Такие строки не судятся и не участвуют в выборе формульного эталона.
+  // Геометрия главнее похожих на закупку значений: строки 1–3 — шапка
+  // независимо от номера и текста в A/B. Дополнительно исключаем служебные
+  // и незаполненные строки данных из эталона и статистики покрытия проверки.
+  // Один гейт применяется и к прямой доставке, и к конвейеру снимков.
   const judged: Array<{ index: number; row: number; seq: string }> = [];
   for (let i = 0; i < height; i++) {
+    const row = startRow + i;
+    if (row <= DEPT_HEADER_ROWS) continue;
     const seq = formulaIntegrityRowNumber(values[i] ?? []);
     if (seq === null) continue;
-    judged.push({ index: i, row: startRow + i, seq });
+    judged.push({ index: i, row, seq });
   }
   const execution: TrustCheckCoverage = {
     sheet: input.book, component: 'formula_integrity',

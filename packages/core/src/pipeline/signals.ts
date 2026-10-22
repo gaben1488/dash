@@ -32,6 +32,7 @@ import {
   isFormulaError,
   isInitiativeMarker,
   isProceduralMismatch,
+  readProcurementSequence,
   parseSheetDate,
   isAnnualEpAggregate,
   futureFactDateSeverity,
@@ -627,7 +628,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // or if the plan date is in the past. Pure future-plan rows are expected to have
   // incomplete data (no method, no amounts yet).
   // Текстовые исключения («планирование», «отменена») сняты каноном п.27.
-  let dataQuality = false;
+  // A real purchase ID requires a subject from the planning stage, including
+  // composite IDs such as 173/18; the old gate waited for a late date/fact.
+  // Keep other quality checks gated by their normal business stage.
+  let dataQuality = readProcurementSequence(cells['A']) !== null && cellText(cells, 'G') === '';
   const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
     // Обязательность зависит от вида деятельности (уточнение владельца §22 п.2
@@ -638,7 +642,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     if (cellText(cells, 'F') === PROGRAM_ACTIVITY_TYPE) {
       required.push(PROGRAM_REQUIRED_COLUMN);
     }
-    dataQuality = required.some(col => {
+    dataQuality = dataQuality || required.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
     });

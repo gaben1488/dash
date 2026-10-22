@@ -2518,3 +2518,23 @@ describe('economy mark is evaluated at the supplied snapshot day', () => {
     expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf: new Date(NaN) }).passed).toBe(true);
   });
 });
+
+describe('УФ↔Dash: missing G is checked at plan creation', () => {
+  it('a numbered future procurement 173/18 is not silently ignored when G is empty', () => {
+    const cells = makeCells({
+      A: '173/18', D: '', G: '', H: null, I: null, J: null, K: null,
+      N: '31.12.2026', Q: 'Х',
+    });
+    const s = detectSignals(cells, REF_DATE);
+    expect(s.dataQuality).toBe(true);
+    expect(s.overdue).toBe(false);
+  });
+
+  it('an unnumbered empty draft is not a numbered procurement', () => {
+    const cells = makeCells({
+      A: '', D: '', G: '', H: null, I: null, J: null, K: null,
+      N: '31.12.2026', Q: 'Х',
+    });
+    expect(detectSignals(cells, REF_DATE).dataQuality).toBe(false);
+  });
+});

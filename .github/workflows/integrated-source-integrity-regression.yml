@@ -1,0 +1,43 @@
+name: Integrated source-integrity regression (no VPS)
+
+on:
+  push:
+    branches:
+      - codex/integrated-durable-formula-state-20261022
+  pull_request:
+    branches:
+      - codex/dash-audit-integrated-20261010
+
+permissions:
+  contents: read
+
+jobs:
+  verify-source-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Preserve integrated types and dependencies
+        run: pnpm typecheck
+      - name: Focused no-Google regressions
+        run: >
+          pnpm --filter @aemr/server exec vitest run
+          src/services/source-integrity-state.test.ts
+          src/services/source-refresh-formulas.test.ts
+          src/services/formula-sink.test.ts
+          src/services/metadata-watch.test.ts
+          src/routes/source-integrity.test.ts
+          src/db/ddl.test.ts
+      - name: Lint
+        run: pnpm lint
+      - name: Production build, without any deployment
+        run: pnpm build

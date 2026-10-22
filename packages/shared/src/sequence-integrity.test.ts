@@ -73,6 +73,20 @@ describe('целостность нумерации рабочего листа'
     expect(r.duplicates).toHaveLength(1);
   });
 
+  it('оба пути совпадают по нормализации 94,00 и 94, но сохраняют 00173 отдельно', () => {
+    const report = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '94' }),
+      row({ sheetRow: 5, rowSeq: '94,00' }),
+      row({ sheetRow: 6, rowSeq: '173' }),
+      row({ sheetRow: 7, rowSeq: '00173' }),
+      row({ sheetRow: 8, rowSeq: '173/1' }),
+      row({ sheetRow: 9, rowSeq: '173/18' }),
+    ]);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]).toMatchObject({ rowSeq: '94', sheetRows: [4, 5] });
+    expect(report.range).toEqual({ min: 94, max: 173 });
+  });
+
   it('счётные строки без номера считаются и показываются от крупных денег', () => {
     const r = checkSequenceIntegrity([
       row({ sheetRow: 4, rowSeq: '1' }),

@@ -10,6 +10,7 @@ import {
 import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
 import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
+import { readProcurementSequence } from './sequence-integrity.js';
 import { parseSheetNumber } from './editable-amount.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
@@ -119,6 +120,38 @@ function diffToRubText(diffThousandRub: number): string {
   return (diffThousandRub * 1000).toFixed(2);
 }
 
+/** Same half-away-from-zero boundary as Google Sheets ROUND(diff;2).
+ * In thousand-ruble units a 5-ruble difference already rounds to 0.01.
+ */
+function bookSumDiffers(diffThousandRub: number): boolean {
+  return Math.round(Math.abs(diffThousandRub) / (2 * SUM_TOLERANCE_THOUSAND_RUB) + 1e-9) > 0;
+}
+
+type SumInspection =
+  | { kind: 'unverified'; reason: string }
+  | { kind: 'checked'; total: number; expectedSum: number; diff: number };
+
+/** A blank SUM operand is zero in Sheets. An invalid nonblank value or
+ * unreadable total is UNKNOWN, never a clean result.
+ */
+function inspectBookSum(ctx: RuleCheckContext, totalCol: string, operands: readonly string[]): SumInspection {
+  const total = toNumber(ctx.cells[totalCol]);
+  if (total === null) {
+    return { kind: 'unverified', reason: `Итог ${totalCol}${ctx.rowIndex} отсутствует либо не читается как число.` };
+  }
+  let expectedSum = 0;
+  for (const col of operands) {
+    const raw = ctx.cells[col];
+    if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+    const amount = toNumber(raw);
+    if (amount === null) {
+      return { kind: 'unverified', reason: `Компонент ${col}${ctx.rowIndex} заполнен нечисловым значением; сверка ${totalCol} не завершена.` };
+    }
+    expectedSum += amount;
+  }
+  return { kind: 'checked', total, expectedSum, diff: Math.abs(total - expectedSum) };
+}
+
 // ============================================================
 // ПРАВИЛО 1: Консистентность сумм бюджета
 // K = H + I + J (план), O = L + M + N (факт)
@@ -128,33 +161,24 @@ const budgetSumConsistencyPlan: ValidationRule = {
   name: 'Консистентность плановых сумм бюджета',
   description:
     'K (итого план) должен равняться H + I + J (ФБ + КБ + МБ план). ' +
-    'Допуск: расхождение свыше 5 руб. Работает на СВОД и листах подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Работает на СВОД и листах подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'both',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['K']);
-    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['H', 'I', 'J']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'K', ['H', 'I', 'J']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `K${ctx.rowIndex} (план) = ${total}, ожидалось ${expectedSum} ` +
           `(H + I + J). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `K${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -169,33 +193,24 @@ const budgetSumConsistencyFact: ValidationRule = {
   name: 'Консистентность фактических сумм бюджета (СВОД)',
   description:
     'O (итого факт) должен равняться L + M + N (ФБ + КБ + МБ факт). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['O']);
-    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['L', 'M', 'N']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'O', ['L', 'M', 'N']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `O${ctx.rowIndex} (факт) = ${total}, ожидалось ${expectedSum} ` +
           `(L + M + N). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `O${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -628,33 +643,24 @@ const deptFactSumConsistency: ValidationRule = {
   name: 'Консистентность фактических сумм (подразделения)',
   description:
     'Y (итого факт) = V + W + X (ФБ + КБ + МБ факт). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['Y']);
-    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['V', 'W', 'X']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'Y', ['V', 'W', 'X']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `Y${ctx.rowIndex} (факт итого) = ${total}, ожидалось ${expectedSum} ` +
           `(V + W + X). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `Y${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -673,33 +679,24 @@ const deptEconomySumConsistency: ValidationRule = {
   name: 'Консистентность сумм экономии (подразделения)',
   description:
     'AC (итого экономия) = Z + AA + AB (ФБ + КБ + МБ экономия). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['AC']);
-    if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['Z', 'AA', 'AB']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'AC', ['Z', 'AA', 'AB']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `AC${ctx.rowIndex} (экономия итого) = ${total}, ожидалось ${expectedSum} ` +
           `(Z + AA + AB). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `AC${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -796,13 +793,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      // № п/п is an identifier, NOT an amount: parseFloat('173/1') === 173
-      // would otherwise merge distinct positions and generate false warnings.
-      const parsed = /^\d+$/.test(raw) ? Number(raw) : null;
-      const intNo = parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
-      if (intNo !== null) ints.add(intNo);
-      // Numeric 531 and string "531" share an address; "531/1" is separate.
-      const key = intNo !== null ? String(intNo) : raw;
+      // The same shared parser is used by the independent sequence-integrity
+      // path: numeric 531 = text "531", but 173/1 and 00173 stay distinct.
+      const key = readProcurementSequence(r.cells['A']) ?? raw;
+      const intNo = /^[0-9]+$/.test(key) && Number.isSafeInteger(Number(key))
+        ? Number(key) : null;
+      if (intNo !== null && intNo > 0) ints.add(intNo);
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
       else byNo.set(key, [r.rowIndex]);
@@ -1383,7 +1379,7 @@ const economyComponents: ValidationRule = {
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
+    
 
     // Пустота даты факта — ЕДИНЫЙ ДОМ канона (@aemr/shared fact-date.ts): в
     // книге заглушкой обычно стоит «Х», но канон знает все девять её написаний,
@@ -1410,7 +1406,7 @@ const economyComponents: ValidationRule = {
       }
 
       const diff = Math.abs(restVal - expected);
-      if (diff <= TOLERANCE) continue;
+      if (!bookSumDiffers(diff)) continue;
       bad.push(
         `${rest}${ctx.rowIndex} (${what}) = ${restVal}, ожидалось ${expected}` +
         (factSigned ? ` (${plan} − ${fact})` : ' (даты заключения нет)') +
@@ -1423,7 +1419,7 @@ const economyComponents: ValidationRule = {
       passed: false,
       message:
         `Экономия по компонентам не сходится с «план − факт»: ${bad.join(' ')} ` +
-        `(допуск ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
+        `(порог округления ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
         `(AC = Z + AA + AB) такую строку пропускает: тройка между собой сходится, ` +
         `а сумма в ней вбита не та.`,
       cell: `${ECONOMY_COMPONENT_TRIPLES[0].rest}${ctx.rowIndex}`,

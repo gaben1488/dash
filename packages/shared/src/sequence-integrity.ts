@@ -101,10 +101,11 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
   const countableRows = rows.filter((r) => r.countable);
   const countableNoSeq = countableRows.filter((r) => String(r.rowSeq ?? '').trim() === '');
 
-  // Повторы считаем по нормализованному номеру: «531» и 531 — один адрес.
+  // Both the rule-book card and this independent path use the same
+  // canonical address parser: 94,00 = 94, but 173 and 173/1 are distinct.
   const bySeq = new Map<string, SequenceRow[]>();
   for (const r of numberedRows) {
-    const key = String(r.rowSeq).trim();
+    const key = readProcurementSequence(r.rowSeq) ?? String(r.rowSeq).trim();
     const bucket = bySeq.get(key);
     if (bucket) bucket.push(r);
     else bySeq.set(key, [r]);
@@ -121,8 +122,10 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
 
   const numeric = [...new Set(
     numberedRows
-      .map((r) => Number(String(r.rowSeq).trim()))
-      .filter((n) => Number.isInteger(n) && n > 0),
+      .map((r) => readProcurementSequence(r.rowSeq))
+      .filter((key): key is string => key !== null && /^[0-9]+$/.test(key))
+      .map(Number)
+      .filter((n) => Number.isSafeInteger(n) && n > 0),
   )].sort((a, b) => a - b);
 
   const range = numeric.length > 0 ? { min: numeric[0], max: numeric[numeric.length - 1] } : null;
