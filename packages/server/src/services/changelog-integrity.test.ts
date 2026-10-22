@@ -17,7 +17,7 @@ const row = (number: string, value: string): unknown[] => {
 };
 const reading = (...values: unknown[][]) => [[], [], [], ...values];
 const entry = (overrides: Partial<JournalRecord> = {}): JournalRecord => ({
-  sheet: 'ВСЕ', cell: 'L178', column: 'L', row: '173/18',
+  sheet: 'ВСЕ', cell: 'L178', column: 'L', row: '№ 173/18 · Ремонт',
   was: 'ЕП', became: 'ЭА', at: WHEN, author: 'unknown', ...overrides,
 });
 
@@ -31,6 +31,15 @@ describe('журнал _ChangeLog как дополнительное, не ед
     expect(result.examples[0]).toMatchObject({
       rowSeq: '173/18', sourceCell: 'L178', currentCell: 'L4', status: 'matches-current',
     });
+  });
+
+  it('учитывает название управления на вкладке журнала и время Камчатки, но не утреннюю правку до среза', () => {
+    const result = correlateChangelogWithCurrent('УФБП', [
+      entry({ sheet: 'УФБП', at: '15.10.2026 17:00:00' }),
+      entry({ sheet: 'УФБП', at: '15.10.2026 19:00:00' }),
+    ], reading(row('173/18', 'ЭА')), CONTROL, CURRENT, LIVE_READ);
+    expect(result.entriesSinceControl).toBe(1);
+    expect(result.matchesCurrent).toBe(1);
   });
 
   it('шестиколоночная запись без ключа не приписывается строке по адресу', () => {
