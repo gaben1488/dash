@@ -454,6 +454,8 @@ export function resetAnomaliesCache(): void {
 
 export async function buildAnomaliesResponse(now: number = Date.now()): Promise<AnomaliesResponse> {
   const sheetValues = getDeptSheetValues();
+  // Capture the cache timestamp with the same non-awaiting source selection.
+  const sourceCacheFilledMs = getDeptCacheFilledAt();
   const journals = await readAllBookJournals(now);
   const journalByDept = new Map(journals.map((j) => [j.dept, j]));
 
@@ -582,7 +584,6 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
     );
   }
 
-  const sourceCacheFilledMs = getDeptCacheFilledAt();
   return {
     asOf: new Date(now).toISOString(),
     sourceCacheFilledAt: Number.isFinite(sourceCacheFilledMs) && sourceCacheFilledMs > 0
