@@ -163,6 +163,8 @@ it('civil years 0001 and 0099 keep their year across date forms and ISO readback
     const day = dayNumberOf(iso);
     expect(day).not.toBeNull();
     expect(dayNumberOf(ru)).toBe(day);
+    expect(parseSheetDate(ru)?.getFullYear()).toBe(Number(year));
+    expect(dayNumberOf(parseSheetDate(ru))).toBe(day);
     expect(isoOfDayNumber(day!)).toBe(iso);
   }
   const local = new Date(0);
