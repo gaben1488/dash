@@ -361,7 +361,7 @@ describe('признак: распределение первых цифр', () 
   });
 });
 
-describe('признак: суммы липнут к порогу закона снизу', () => {
+describe('признак: плановые суммы около справочного ориентира', () => {
   it('коридор 540-600 тыс. ₽ вдвое плотнее опорной полосы', () => {
     const rows: AnomalyRow[] = [
       // опорная полоса 300-540: три закупки
@@ -374,9 +374,26 @@ describe('признак: суммы липнут к порогу закона �
     expect(found[0].sign).toBe('threshold-hugging');
     expect(found[0].rows).toBe(6);
     expect(found[0].explanation).toContain('600 тыс. ₽');
+    expect(found[0].title).toContain('справочного ориентира');
+    expect(found[0].note).toContain('не цена одного договора');
     expect(found[0].members).toHaveLength(6);
   });
 
+  it('использует зафиксированные 20 млн, а не прежние 10 млн для котировок', () => {
+    const rows = [...[12_000, 15_100, 16_000, 18_200, 18_600, 19_000, 19_300, 19_700, 19_900]]
+      .map((v, i) => row({ sheetRow: i + 4, method: 'ЭА', planTotal: v }));
+    const frozen = { 'law.quotationPurchaseLimit': {
+      value: 20_000, status: 'verified' as const, edition: '44fz-quotation-279fz-temporary', sourceRef: '44-ФЗ ст.112 ч.87',
+    } };
+    const found = detectThresholdHugging(rows, frozen);
+    expect(found).toHaveLength(1);
+    expect(found[0].rows).toBe(6);
+    expect(found[0].explanation).toContain('20 млн ₽');
+    expect(found[0].note).toContain('не цена одного договора');
+    expect(detectThresholdHugging(rows)).toHaveLength(0);
+    expect(detectAnomalies({ rows, thresholdContext: frozen }).fitted)
+      .toContainEqual(expect.objectContaining({ sign: 'threshold-hugging' }));
+  });
   it('меньше пяти закупок в коридоре — признака нет', () => {
     const rows = [545, 555, 570, 580].map((v, i) => row({ sheetRow: i + 4, planTotal: v }));
     expect(detectThresholdHugging(rows)).toHaveLength(0);

@@ -40,6 +40,41 @@ class ReleaseTransportProjectionTests(unittest.TestCase):
         self.assertEqual(proof['release_transport'][1]['elapsed_ms'], 123.5)
 
 
+class BrowserNetworkTimingTests(unittest.TestCase):
+    def test_real_browser_request_stages_are_inclusive_and_redacted(self):
+        result = verifier.browser_dashboard_timing(
+            {'responseStart': 23100.125, 'responseEnd': 23700.375,
+             'startTime': 123456, 'secret': 'DO_NOT_PUBLISH'},
+            'app;dur=2900.00, google;dur=120.00, serialize;dur=30.00',
+            'req-123')
+        self.assertEqual(result['browserFirstByteMs'], 23100.12)
+        self.assertEqual(result['browserBodyMs'], 600.25)
+        self.assertEqual(result['serverAppMs'], 2900.0)
+        self.assertEqual(result['requestId'], 'req-123')
+        self.assertTrue(result['browserTimingComplete'])
+        self.assertTrue(result['stagesInclusiveNotAdditive'])
+        self.assertNotIn('DO_NOT_PUBLISH', str(result))
+        self.assertNotIn('secret', str(result))
+
+    def test_missing_or_unreliable_timing_does_not_become_zero(self):
+        result = verifier.browser_dashboard_timing(
+            {'responseStart': -1, 'responseEnd': 100},
+            'reader;dur=100', 'PRIVATE_INVALID ID')
+        self.assertIsNone(result['browserFirstByteMs'])
+        self.assertIsNone(result['browserBodyMs'])
+        self.assertIsNone(result['serverAppMs'])
+        self.assertIsNone(result['requestId'])
+        self.assertFalse(result['browserTimingComplete'])
+
+    def test_malformed_browser_duration_is_not_accepted(self):
+        result = verifier.browser_dashboard_timing(
+            {'responseStart': 200, 'responseEnd': 100},
+            'app;dur=nan', 'req-12')
+        self.assertIsNone(result['browserBodyMs'])
+        self.assertFalse(result['browserTimingComplete'])
+        self.assertIsNone(result['serverAppMs'])
+
+
 class BrowserAuthIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_iphone_navigation_uses_touch_controls_and_no_keyboard_shortcut(self):
         async with async_playwright() as driver:

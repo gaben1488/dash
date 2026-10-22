@@ -61,6 +61,58 @@ describe('parseMonitoringDirectory', () => {
     expect(duplicate.entries.every(r => r.institutionId === null)).toBe(true);
     expect(duplicate.identityIssues).toHaveLength(2);
   });
+  it('distinguishes joint groups and liquidated entries with documented historical names', () => {
+    const header = [...CURRENT_GRID[0], 'ID учреждения'];
+    const institution = [...CURRENT_GRID[1], '32e0191e-2ed9-48a7-83da-8a4ade214da2'];
+    institution[1] = 'Подведомственное учреждение';
+    institution[6] = 'Бюджетное учреждение';
+    const group = [...institution];
+    group[0] = 2;
+    group[1] = 'Совместная закупка';
+    group[3] = 'Историческое название группы';
+    group[4] = 'Группа УО';
+    group[6] = 'Группа заказчиков';
+    group[8] = 'Общий аукцион УО';
+    group[9] = 'Группа заказчиков';
+    group[16] = 'Нынешнее название группы';
+    group[17] = 'Группа УО';
+    group[18] = '42e0191e-2ed9-48a7-83da-8a4ade214da2';
+    const liquidated = [...institution];
+    liquidated[0] = 3;
+    liquidated[3] = 'Ликвидированное учреждение';
+    liquidated[4] = 'Ликвидированное учреждение';
+    liquidated[16] = '';
+    liquidated[17] = '';
+    liquidated[9] = 'Ликвидирован';
+    liquidated[18] = '52e0191e-2ed9-48a7-83da-8a4ade214da2';
+    const parsed = parseMonitoringDirectory([header, institution, group, liquidated]);
+    expect(parsed.entries.map(x => x.entityKind)).toEqual(['institution', 'joint_group', 'institution']);
+    expect(parsed.entries.map(x => x.status)).toEqual(['Действующий', 'Группа заказчиков', 'Ликвидирован']);
+    expect(parsed.entries.map(x => x.institutionId)).toEqual([institution[18], group[18], liquidated[18]]);
+    expect(parsed.entries[1].nameEvidence).toContainEqual({
+      name: 'Историческое название группы',
+      role: 'canonical',
+      sourceAddress: 'Справочник заказчиков!D3',
+    });
+    expect(parsed.entries[1].nameEvidence).toContainEqual({
+      name: 'Нынешнее название группы',
+      role: 'current',
+      sourceAddress: 'Справочник заказчиков!Q3',
+    });
+    expect(parsed.entries[1].nameEvidence).toContainEqual({
+      name: 'Общий аукцион УО',
+      role: 'alias',
+      sourceAddress: 'Справочник заказчиков!I3',
+    });
+    expect(parsed.identityIssues).toEqual([]);
+  });
+
+  it('does not infer institution kind or dated history from a four-column legacy sheet', () => {
+    const parsed = parseMonitoringDirectory(GRID);
+    expect(parsed.entries.every(x => x.entityKind === 'unknown')).toBe(true);
+    expect(parsed.entries.every(x => x.nameEvidence?.length === 0)).toBe(true);
+  });
+
   it('accepts clear headers without falling back to the old four-column mapping', () => {
     const header = [...CURRENT_GRID[0]];
     header[3] = 'Полное наименование';

@@ -1020,7 +1020,8 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
                     'calculatedMetrics': {}, 'deltas': [], 'issues': [], 'trust': trust, 'rowCount': 0,
                     'metadata': {'sheetsRead': [], 'cellsRead': 0, 'readDurationMs': 0, 'pipelineDurationMs': 0}}
         period = {key: None for key in ('kpCount', 'kpFactCount', 'kpPlan', 'kpFact', 'kpPercent', 'epCount',
-                  'epFactCount', 'epPlan', 'epFact', 'epPercent', 'fbPlan', 'kbPlan', 'mbPlan', 'fbFact', 'kbFact', 'mbFact')}
+                  'epFactCount', 'epPlan', 'epFact', 'epPercent', 'fbPlan', 'kbPlan', 'mbPlan', 'fbFact', 'kbFact', 'mbFact',
+                  'epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact')}
         period.update(source='calculated', kpCount=1, kpFactCount=1, kpPlan=10, kpFact=10, kpPercent=100)
         dashboard = {'snapshot': snapshot, 'kpiCards': [], 'departmentSummaries': [], 'summaryByPeriod': {'year': period},
                      'recentIssues': [], 'signalCounts': {}, 'issueSummary': {'total': 0, **{key: {} for key in
@@ -1051,6 +1052,8 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
         }
         if broken == 'numerator':
             del dashboard['summaryByPeriod']['year']['kpFactCount']
+        if broken == 'budget':
+            del dashboard['summaryByPeriod']['year']['epFbPlan']
         if broken == 'header':
             del headers['/api/sources']['refresh']['workWindowLabel']
         trace = self.fixture.private / 'live-api-calls.json'
@@ -1106,6 +1109,12 @@ globalThis.fetch=async(raw,options)=>{
                 with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_CANDIDATE_SCHEMA_INVALID'):
                     self.fixture.executor._verify_candidate_schema()
                 self.assertEqual(json.loads(trace.read_text()), ['/api/report-releases'])
+
+    def test_live_gate_rejects_missing_calculated_ep_budget_component(self):
+        trace = self.live_api_driver(padding=0, broken='budget')
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_CANDIDATE_SCHEMA_INVALID'):
+            self.fixture.executor._verify_candidate_schema()
+        self.assertEqual(json.loads(trace.read_text()), ['/api/report-releases', '/api/dashboard'])
 
     def test_live_gate_reads_both_dashboard_scopes_and_all_four_header_contracts(self):
         trace = self.live_api_driver()
