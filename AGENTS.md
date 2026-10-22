@@ -1,7 +1,9 @@
 # AEMR — agent ruleset (ponytail + project carve-outs)
 
 Базовый слой — ponytail (MIT, DietrichGebert/ponytail), instruction-only режим.
-Ниже — он же плюс инварианты AEMR. Этот файл авто-читают Codex/Copilot/Cursor и Claude Code.
+Ниже — он же плюс инварианты AEMR. Codex использует `AGENTS.md`; Claude Code загружает его через явный импорт `@AGENTS.md` в корневом `CLAUDE.md`.
+
+**Общий протокол координации (дополнение, не замена канона):** для задач нескольких агентов, миграций источников, Apps Script, релизов и передач контекста читать `docs/agent-ops/CHANGE_PROTOCOL.md`. Индекс всех 250 исходных Markdown — `docs/agent-ops/READING_LEDGER.csv`; не загружать их целиком без предметной необходимости. Если правило здесь и там расходится, останавливать опасную операцию и предъявлять противоречие, не выбирать молча.
 
 ## Lazy senior dev
 
