@@ -17,6 +17,7 @@ import {
   isOrgItself,
   toNumber as sheetNumber,
   normalizeMethod,
+  GRBS_BOOK_METHODS,
   classifyActivity,
   parseActivityScope,
   matchesActivityScope,
@@ -1067,7 +1068,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         if (year !== undefined && planYear !== year) continue;
         if (months.length > 0 ? !months.includes(month) : query.period && query.period !== 'year' && query.period !== `q${quarter}`) continue;
         if (factDay > asOfDay) { excluded.futureFact++; continue; }
-        const method = normalizeMethod(row[DEPT_COLUMNS.METHOD]);
+        // GRBS master books accept only ЕП/ЭА. Other codes may be valid in
+        // the separate procedures register, but they do not establish a
+        // confirmed competitive method in this source's column L.
+        const normalized = normalizeMethod(row[DEPT_COLUMNS.METHOD]);
+        const method = normalized && GRBS_BOOK_METHODS.some(code => code === normalized)
+          ? normalized : undefined;
         if (!method) { excluded.unknownMethod++; if (query.type) continue; }
         if ((query.type === 'competitive' && method === 'ЕП') || (query.type === 'single' && method !== 'ЕП')) continue;
         const planTotal = sheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]);
