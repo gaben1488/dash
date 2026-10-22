@@ -55,10 +55,12 @@ interface ScatterPoint {
 
 describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)', () => {
   let app: FastifyInstance;
+  let uerSource: string;
   beforeAll(async () => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
     const { setDeptSheetCache } = await import('../services/snapshot.js');
+    uerSource = (await import('../config.js')).DEPARTMENT_SPREADSHEETS['УЭР'];
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
     setDeptSheetCache({
       'УЭР': {
@@ -79,6 +81,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
         ],
         formulas: [],
         sheetName: 'УЭР',
+        providerId: uerSource,
       },
     });
     const { createApp } = await import('../app.js');
@@ -136,7 +139,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       ['other-year', 13, '12.01.2025'], ['other-month', 13, '12.02.2026'],
       ['other-org', 2, 'Школа 2'],
     ].map(([id, column, value]) => { const row = [...valid]; row[0] = id; row[Number(column)] = value; return row; })];
-    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...cases], formulas: [], sheetName: 'УЭР' } });
+    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...cases], formulas: [], sheetName: 'УЭР', providerId: uerSource } });
     const res = await app.inject('/api/rows/scatter?dept=uer&type=competitive&activity=current_program&year=2026&period=q1&months=1&subordinate=' + encodeURIComponent('Школа 1'));
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -157,7 +160,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const rows = Array.from({ length: 2501 }, (_, index) =>
       sheetRow(String(index + 1), index === 2500 ? 100000 : 1000, 46034, 46100, index === 2500 ? 100000 : 900));
-    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...rows], formulas: [], sheetName: 'УЭР' } });
+    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...rows], formulas: [], sheetName: 'УЭР', providerId: uerSource } });
     const response = (await app.inject('/api/rows/scatter?dept=uer&type=competitive')).json();
     expect(response.points).toHaveLength(2500);
     expect(response.total).toBe(2501);
