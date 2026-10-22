@@ -419,9 +419,18 @@ export function IntegritySection() {
 
           <Card bare aria-label="Пропавшие закупки">
             <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
-              <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
-                Пропавшие закупки
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
+                  Пропавшие закупки: контрольный четверг → сейчас
+                </h3>
+                <button type="button" onClick={reload} disabled={loading}
+                  aria-label="Перечитать текущие книги и сверить с четвергом"
+                  className="inline-flex items-center gap-1 ds-text-xs font-[var(--weight-medium)] text-[var(--accent)] hover:underline disabled:opacity-50"
+                >
+                  <RotateCcw size={12} aria-hidden="true" />
+                  {loading ? 'Сверяем…' : 'Сверить сейчас'}
+                </button>
+              </div>
               {data.comparison === null ? (
                 <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
                   {data.comparisonNote}
@@ -429,8 +438,8 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
-                    книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
+                    Проверенный четверговый срез: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    книги перечитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
                     {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
                     удаление закупки; возможна перенумерация.
                   </p>
