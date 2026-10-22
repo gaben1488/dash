@@ -50,6 +50,7 @@
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource, changelogInputKey } from './changelog-source.js';
+import { normalizeSourceJournal, type SourceJournal } from './source-journal.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export { CHANGELOG_SHEET_NAME };
@@ -79,67 +80,43 @@ export interface BookJournal {
   error?: string;
 }
 
-/** Похоже ли значение на адрес ячейки книги («H28», «AC177»). */
-function looksLikeCell(value: unknown): boolean {
-  return /^[A-Z]{1,2}\d+$/i.test(String(value ?? '').trim());
+/**
+ * Plan-provenance projection of the SAME canonical source observations.
+ * The raw row key and original cell values are retained. A six-column
+ * record has no procurement row key and will never be assigned one by guess.
+ */
+export function provenanceFromJournal(
+  journal: SourceJournal,
+  reading?: { spreadsheetId: string; at: number },
+): { records: JournalRecord[]; rowKeyless: number } {
+  let rowKeyless = 0;
+  const records: JournalRecord[] = journal.cells.map(item => {
+    if (item.schema === 'six') rowKeyless++;
+    const source = reading
+      ? { spreadsheetId: reading.spreadsheetId, journalSheet: CHANGELOG_SHEET_NAME,
+        journalRow: item.journalRow, readAt: reading.at }
+      : undefined;
+    return {
+      ...(source ? { source } : {}),
+      sheet: item.sheet,
+      cell: item.cell,
+      column: item.column,
+      row: item.rowKey,
+      was: item.was,
+      became: item.became,
+      at: item.at,
+      author: item.author,
+    };
+  });
+  return { records, rowKeyless };
 }
 
-/**
- * Разбирает сырые строки листа «_ChangeLog» в записи ядра.
- *
- * Ничего не отбрасывает по содержимому значений: решать, читается ли время и
- * есть ли изменение суммы, — дело ядра provenance. Здесь отсекается только то,
- * что вообще не является записью правки (шапка листа, пустые строки): у них ни
- * в первой, ни во второй ячейке нет адреса.
- */
-export function parseProvenanceJournal(rows: readonly unknown[][], reading?: { spreadsheetId: string; at: number }): {
-  records: JournalRecord[];
-  rowKeyless: number;
-} {
-  const records: JournalRecord[] = [];
-  let rowKeyless = 0;
-
-  for (const [index, row] of rows.entries()) {
-    if (!Array.isArray(row) || row.length < 5) continue;
-    const source = reading ? { spreadsheetId: reading.spreadsheetId, journalSheet: CHANGELOG_SHEET_NAME,
-      journalRow: index + 1, readAt: reading.at } : undefined;
-
-    // Схема 8 колонок: адрес во второй ячейке, ключ строки — в четвёртой.
-    if (looksLikeCell(row[1])) {
-      records.push({
-        ...(source ? { source } : {}),
-        sheet: row[0],
-        cell: row[1],
-        column: row[2],
-        row: row[3],
-        was: row[4],
-        became: row[5],
-        at: row[6],
-        author: row[7],
-      });
-      continue;
-    }
-
-    // Схема УАГЗО, 6 колонок: адрес в первой ячейке, поля «Строка» нет вовсе.
-    if (looksLikeCell(row[0])) {
-      rowKeyless += 1;
-      records.push({
-        ...(source ? { source } : {}),
-        sheet: '',
-        cell: row[0],
-        column: '',
-        // Пустой ключ намеренно: ядро посчитает запись в unparsedRowKeys, а не
-        // припишет её закупке, которая сегодня стоит на этом месте листа.
-        row: '',
-        was: row[1],
-        became: row[2],
-        at: row[3],
-        author: row[4],
-      });
-    }
-  }
-
-  return { records, rowKeyless };
+/** Compatibility pure helper, used by existing tests and offline adapters. */
+export function parseProvenanceJournal(
+  rows: readonly unknown[][],
+  reading?: { spreadsheetId: string; at: number },
+): { records: JournalRecord[]; rowKeyless: number } {
+  return provenanceFromJournal(normalizeSourceJournal(rows), reading);
 }
 
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
@@ -176,7 +153,7 @@ export async function readBookJournal(
   if (pending?.spreadsheetId === spreadsheetId && pending.key === key) return pending.request;
 
   const request = readChangelogReading(dept, spreadsheetId, now).then((reading): BookJournal => {
-    const { records, rowKeyless } = parseProvenanceJournal(reading.rows, reading);
+    const { records, rowKeyless } = provenanceFromJournal(reading.normalized, reading);
     const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, readAt: reading.at };
     if (inFlight.get(dept)?.request === request && changelogInputKey({ [dept]: spreadsheetId }) === key) {
       cache.set(dept, { spreadsheetId, key, journal });
