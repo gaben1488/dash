@@ -79,3 +79,23 @@ describe('applySubordinateFilter (извлечено из useFilteredData §2, �
     expect(out[0].planTotal).toBe(1000);
   });
 });
+
+
+describe('verified old/current subordinate name matching', () => {
+  it('current selection matches historical item without dropping amounts', () => {
+    const dept = {
+      department: { id: 'uksimp', nameShort: 'УКСиМП' },
+      subordinates: [{
+        name: 'МБУК «Елизовский районный зоопарк»',
+        planTotal: 117, factTotal: 52, competitiveCount: 1,
+        epCount: 0, economyTotal: 3, rowCount: 1,
+      }],
+    };
+    const result = applySubordinateFilter([dept], new Set(['МБУК ЕРЗ']),
+      { 'УКСиМП': ['МБУК ЕРЗ'] });
+    expect(result).toHaveLength(1);
+    expect(result[0].planTotal).toBe(117);
+    expect(result[0].factTotal).toBe(52);
+    expect(result[0].subordinates).toHaveLength(1);
+  });
+});

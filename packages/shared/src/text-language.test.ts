@@ -16,6 +16,7 @@ import {
   differsOnlyInEnding,
   normalizeWord,
   collectWords,
+  findHouseholdGoodsAbbreviation,
   SPELL_MIN_LENGTH,
   type LanguageFinding,
 } from './text-language.js';
@@ -410,5 +411,23 @@ describe('карточка находки', () => {
       expect(f.explanation.length).toBeGreaterThan(20);
       expect(f.label).not.toMatch(/[A-Za-z]/);
     }
+  });
+});
+
+
+describe('контекстная коррекция сокращения хозяйственных товаров', () => {
+  it('«Покупка хор. Товаров» → «Покупка хоз. Товаров»: подсказка и готовый fix', () => {
+    const raw = 'Покупка хор. Товаров';
+    expect(findHouseholdGoodsAbbreviation(raw)?.suggestion).toBe('хоз.');
+    expect(languageFix(raw, 'высокая', 'наименование')).toBe('Покупка хоз. Товаров');
+    const found = spelling(detectLanguageIssues(raw, 'наименование'));
+    expect(found.some(f => f.fix === 'Покупка хоз. Товаров' && f.confidence === 'высокая')).toBe(true);
+  });
+
+  it('исправляет латинскую p, но не слово «хор» в другом контексте', () => {
+    expect(languageFix('Покупка хоp. товаров', 'высокая', 'наименование')).toBe('Покупка хоз. товаров');
+    expect(findHouseholdGoodsAbbreviation('Костюмы для хора')).toBeNull();
+    expect(findHouseholdGoodsAbbreviation('Репетиция хора. Покупка костюмов')).toBeNull();
+    expect(findHouseholdGoodsAbbreviation('Покупка хор. костюмов')).toBeNull();
   });
 });

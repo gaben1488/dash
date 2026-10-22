@@ -247,6 +247,24 @@ export interface SpellSuggestion {
 const suggestionCache = new Map<string, SpellSuggestion | null>();
 const SUGGESTION_CACHE_CAP = 8192;
 
+/** Contextual typo only: «хор. товаров» → «хоз. товаров». «Хор» alone is valid. */
+const HOUSEHOLD_GOODS_TYPO_RE = /(?<![А-Яа-яЁё])хо[рp]\.(?=\s+товаров(?![А-Яа-яЁё]))/iu;
+const HOUSEHOLD_GOODS_TYPO_RE_GLOBAL = /(?<![А-Яа-яЁё])хо[рp]\.(?=\s+товаров(?![А-Яа-яЁё]))/giu;
+
+/** Short abbreviations fall outside SPELL_MIN_LENGTH, so use a narrow contextual guard. */
+export function findHouseholdGoodsAbbreviation(raw: string):
+  { index: number; word: string; suggestion: string } | null {
+  const match = HOUSEHOLD_GOODS_TYPO_RE.exec(raw);
+  if (!match) return null;
+  return { index: match.index, word: match[0],
+    suggestion: match[0][0] === 'Х' ? 'Хоз.' : 'хоз.' };
+}
+
+function fixHouseholdGoodsAbbreviation(raw: string): string {
+  return raw.replace(HOUSEHOLD_GOODS_TYPO_RE_GLOBAL,
+    found => found[0] === 'Х' ? 'Хоз.' : 'хоз.');
+}
+
 /**
  * Единственный сосед слова на расстоянии одной правки — либо null.
  * null возвращается и когда слово словарю известно, и когда соседей больше
@@ -512,7 +530,7 @@ export function languageFix(
   role: CellTextRole = 'свободный текст',
 ): string {
   const floor = ORDER[minConfidence];
-  let t = raw;
+  let t = fixHouseholdGoodsAbbreviation(raw);
 
   t = t.replace(DOUBLE_SURE_RE_G, '$1');
   t = applyRanges(t, floor);
@@ -577,6 +595,19 @@ export function detectLanguageIssues(
   const raw = value;
   const findings: LanguageFinding[] = [];
   const fixAt = (c: LanguageConfidence) => languageFix(raw, c, role);
+
+  const householdGoods = findHouseholdGoodsAbbreviation(raw);
+  if (householdGoods !== null) {
+    findings.push({
+      kind: 'spelling',
+      label: `опечатка в сокращении «${householdGoods.word}»`,
+      excerpt: excerptAround(raw, householdGoods.index, householdGoods.word.length),
+      fix: fixAt('высокая'),
+      confidence: 'высокая',
+      explanation: `В сочетании с «товаров» требуется «${householdGoods.suggestion}» `
+        + `(хозяйственных товаров), а не «${householdGoods.word}».`,
+    });
+  }
 
   // ── Орфография ──────────────────────────────────────────
   const seen = new Set<string>();

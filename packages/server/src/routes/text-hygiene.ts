@@ -35,6 +35,7 @@ import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
   findDept,
+  findHouseholdGoodsAbbreviation,
   languageFix,
   suggestFromCorpus,
   type LanguageConfidence,
@@ -274,6 +275,28 @@ export async function buildTextHygieneResponse(
       for (const { col, raw, role } of languageCells) {
         if (!isCheckableCell(raw)) continue;
         if (col === 'M') cellsChecked += 1; // G уже посчитана гигиеной выше
+
+        // Пользователь подтвердил «хор. товаров» → «хоз. товаров».
+        // На отдельное слово «хор» контекстное правило не распространяется.
+        const abbreviation = findHouseholdGoodsAbbreviation(raw);
+        if (abbreviation !== null) {
+          language.push({
+            dept: deptId,
+            deptLatin: dept.latinId,
+            sheet: dept.sheetName,
+            cell: `${col}${sheetRow}`,
+            row: sheetRow,
+            rowSeq,
+            col,
+            kind: 'spelling',
+            word: abbreviation.word,
+            context: contextAround(raw, abbreviation.index, abbreviation.word.length),
+            suggestion: abbreviation.suggestion,
+            confidence: 'высокая',
+            fix: languageFix(raw, 'высокая', role),
+          });
+        }
+
         const seen = new Set<string>();
         for (const hit of collectWords(raw)) {
           const suggestion = suggestFromCorpus(hit.word);

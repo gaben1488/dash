@@ -175,13 +175,13 @@ describe('детектор 6 — отступление имени подвед�
   it('живой кейс «Жар-Птица»: № без пробела → канон справочника целиком', () => {
     const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птица»');
     expect(f.kind).toBe('registry_mismatch');
-    expect(f.fix).toBe('МБДОУ ДС № 3 «Жар-Птица»');
+    expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('тот же кейс с кавычками-лапками: нормализация кавычек не мешает найти канон', () => {
     const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птица“');
     expect(f.kind).toBe('registry_mismatch');
-    expect(f.fix).toBe('МБДОУ ДС № 3 «Жар-Птица»');
+    expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('латинская B в «СШОР по ЛBС» правится дословным именем справочника', () => {
@@ -190,16 +190,26 @@ describe('детектор 6 — отступление имени подвед�
     expect(f.fix).toBe('МБУ ДО СШОР по ЛВС');
   });
 
-  it('дословное имя справочника молчит — вид кавычек и «№» правит владелец, не сигнал', () => {
-    expect(detectSubordinateNameHygiene('МБДОУ ДС № 3 «Жар-Птица»')).toEqual([]);
-    expect(detectSubordinateNameHygiene('МБУ ДО "КДМШ"')).toEqual([]);
-    expect(detectSubordinateNameHygiene('МБУ ДО СШОР ЕДИНОБОРСТВ "КРЕЧЕТ"')).toEqual([]);
+  it('подтверждённые прежние имена не рождают замечания в архиве', () => {
+    for (const name of [
+      'МБУ ДО «КДМШ»', 'МБУК «Елизовский районный зоопарк»',
+      'МКУ «ЕДДС»', 'МБДОУ ДС № 3 «Жар-Птица»',
+    ]) {
+      expect(detectSubordinateNameHygiene(name), name).toEqual([]);
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+    }
+  });
+
+  it('дословные имена актуального справочника молчат — вид кавычек правит владелец', () => {
+    expect(detectSubordinateNameHygiene('МБДОУ "Детский сад № 3 "Жар-птица"')).toEqual([]);
+    expect(detectSubordinateNameHygiene('МБУ ДО КДМШ')).toEqual([]);
+    expect(detectSubordinateNameHygiene('МБУ ДО СШОР единоборств "Кречет"')).toEqual([]);
   });
 
   it('каноничное имя с краевым пробелом — только обрезка, имя не переписывается', () => {
-    const [f] = detectSubordinateNameHygiene(' МБДОУ ДС № 3 «Жар-Птица» ');
+    const [f] = detectSubordinateNameHygiene(' МБДОУ "Детский сад № 3 "Жар-птица" ');
     expect(f.kind).toBe('edge_space');
-    expect(f.fix).toBe('МБДОУ ДС № 3 «Жар-Птица»');
+    expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('имя вне справочника и вне потолка не подменяется — только механика', () => {
@@ -215,6 +225,8 @@ describe('детектор 6 — отступление имени подвед�
   });
 
   it('nearestCanonicalSubordinate на каноничном имени возвращает null (нет находки)', () => {
+    expect(nearestCanonicalSubordinate('МБУ ДО ЕДМШ')).toBeNull();
+    // Прежнее официальное написание — известный алиас, а не новый подвед.
     expect(nearestCanonicalSubordinate('МБУ ДО «ЕДМШ»')).toBeNull();
   });
 });
