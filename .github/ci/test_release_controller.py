@@ -390,6 +390,27 @@ class ControllerTests(TrialTests):
         self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
         self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
 
+    def test_web_operator_and_ci_gate_drift_refuse_component_without_docker_mutation(self):
+        self.web_stage()
+        installed = {
+            'controller': Path(self.controller_module.__file__),
+            'recovery': Path(self.fixture.module.__file__),
+            'trial': Path(self.module.__file__),
+            'source_gate': Path(self.module.SOURCE_GATE),
+        }
+        for name, path in installed.items():
+            with self.subTest(changed_tool=name):
+                original = path.read_bytes()
+                try:
+                    path.write_bytes(original + b'\\n# synthetic post-stage drift\\n')
+                    with self.assertRaisesRegex(
+                            self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+                        self.controller.deploy_web()
+                    self.assertFalse(self.fixture.pending.exists())
+                    self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+                finally:
+                    path.write_bytes(original)
+
     def test_changed_backend_environment_selects_full_release_despite_ui_source_diff(self):
         self.web_stage()
         config = self.compose_sources[str(self.controller_module.REVIEWED_COMPOSE)]
