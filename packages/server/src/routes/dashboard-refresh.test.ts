@@ -231,6 +231,9 @@ describe('POST /api/refresh?quick=true', () => {
       // establishing a complete initial base is legitimate, not an omitted read.
       expect(fetchDepartmentSpreadsheets).toHaveBeenCalledTimes(1);
       expect(getSheetData).toHaveBeenCalledTimes(1);
+      // Returning an unchanged accepted read-model is not a fresh rebuild.
+      expect(getSnapshot).toHaveBeenCalledWith(false);
+      expect(getSnapshot).not.toHaveBeenCalledWith(true);
     } finally {
       cycle.mockRestore();
     }
