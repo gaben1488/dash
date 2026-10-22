@@ -107,6 +107,8 @@ function toRef(
   const n = Number.parseInt(nRaw, 10);
   const yy = Number.parseInt(yyRaw, 10);
   const lot = lotRaw !== undefined ? Number.parseInt(lotRaw, 10) : null;
+  // Structural identifiers must never be rounded into a different entity.
+  if (!Number.isSafeInteger(n) || (lot !== null && !Number.isSafeInteger(lot))) return null;
   return {
     code: `${family}${n}${lot !== null ? `/${lot}` : ''}-${yyRaw}`,
     family: family as ProcedureFamily,
