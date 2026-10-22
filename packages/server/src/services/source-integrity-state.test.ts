@@ -6,6 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
+vi.mock('./source-refresh.js', () => ({ setFormulaSink: vi.fn() }));
+
 vi.mock('../config.js', () => ({
   config: { database: { url: 'file::memory:' } },
   DEPARTMENT_SPREADSHEETS: { 'УО': 'file-uo', 'УИО': 'file-uio' },
@@ -47,6 +49,19 @@ describe('durable source-integrity state', () => {
     expect(record.delivery).toMatchObject({ at: failedAt, handled: false, failedBecause: 'ошибка парсера' });
     expect(record.verdict).toEqual(verdict);
     expect(record.verdict?.at).not.toBe(record.delivery.at);
+  });
+
+  it('hydrates the real formula verdict cache after simulating a process restart', async () => {
+    const delivery = { book: 'УО', at: goodAt, cells: 10, handled: true, persisted: true };
+    const verdict = { book: 'УО', at: goodAt, rowsJudged: 5, defects: [] };
+    saveFormulaAudit(delivery, verdict);
+    const { resetFormulaVerdicts, restoreFormulaVerdicts, formulaVerdicts } =
+      await import('./formula-sink.js');
+    resetFormulaVerdicts(); // simulate loss of process-local Map
+    expect(formulaVerdicts()).toEqual([]);
+    restoreFormulaVerdicts(); // no external source access
+    expect(formulaVerdicts()).toEqual([verdict]);
+    resetFormulaVerdicts();
   });
 
   it('remembers metadata read failures, not an invented zero remarks', () => {
