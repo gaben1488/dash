@@ -366,6 +366,15 @@ function instantOf(y: number, mo: number, d: number, h: number, mi: number, s: n
   };
 }
 
+/** Refuse impossible calendar dates instead of Date.UTC normalizing them. */
+function checkedInstantOf(y: number, mo: number, day: number, h: number, mi: number, s: number): ParsedInstant | null {
+  if (y < 1900 || y > 2100 || h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59) return null;
+  const converted = new Date(Date.UTC(y, mo - 1, day));
+  if (converted.getUTCFullYear() !== y || converted.getUTCMonth() + 1 !== mo ||
+      converted.getUTCDate() !== day) return null;
+  return instantOf(y, mo, day, h, mi, s);
+}
+
 /**
  * Разбирает колонку «Время» журнала. Живые формы (замер 18.08): Google-serial с
  * дробью (46248.6623103 = 14.08.2026 15:53:44), «дд.мм.гггг чч:мм:сс»,
@@ -385,9 +394,9 @@ export function parseJournalInstant(raw: unknown): ParsedInstant | null {
   if (s === '') return null;
 
   // «дд.мм.гггг» и «дд.мм.гггг чч:мм[:сс]»
-  const ru = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  const ru = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[,\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (ru) {
-    return instantOf(
+    return checkedInstantOf(
       parseInt(ru[3], 10), parseInt(ru[2], 10), parseInt(ru[1], 10),
       parseInt(ru[4] ?? '0', 10), parseInt(ru[5] ?? '0', 10), parseInt(ru[6] ?? '0', 10),
     );
@@ -412,7 +421,7 @@ export function parseJournalInstant(raw: unknown): ParsedInstant | null {
   // ISO «YYYY-MM-DD[THH:mm:ss]» — берём компоненты из строки, зону игнорируем.
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
   if (iso) {
-    return instantOf(
+    return checkedInstantOf(
       parseInt(iso[1], 10), parseInt(iso[2], 10), parseInt(iso[3], 10),
       parseInt(iso[4] ?? '0', 10), parseInt(iso[5] ?? '0', 10), parseInt(iso[6] ?? '0', 10),
     );
