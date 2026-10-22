@@ -1,5 +1,4 @@
 import pytest
-
 from procurement_engine.department_directory import (
     ALIASES,
     APPROVED_PRIMARY_TITLE_ALIASES,
