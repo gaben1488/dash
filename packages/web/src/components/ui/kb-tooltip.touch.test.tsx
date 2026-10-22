@@ -72,6 +72,45 @@ describe('KBTooltip на координатном устройстве (тач)'
     expect(screen.queryByText(KB_TEXT)).toBeNull();
   });
 
+  it('наведение и тап не перегружают карточку порогами, примерами и техническим происхождением', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip
+          description="Контроль КП" whatIs="Доля распознанных конкурентных закупок."
+          thresholdsFull="Порог выбирается по периоду." example="Десять из двадцати."
+          dataSource="Восемь книг ГРБС." divergence="Неизвестный способ исключается."
+        ><span>50 %</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('50 %'));
+    expect(screen.getByText(/Доля распознанных/)).toBeTruthy();
+    expect(screen.queryByText(/Порог выбирается/)).toBeNull();
+    expect(screen.queryByText(/Десять из двадцати/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Подробнее' }));
+    expect(screen.getByText(/Порог выбирается/)).toBeTruthy();
+    expect(screen.getByText(/Неизвестный способ исключается/)).toBeTruthy();
+  });
+
+  it('не делает всплывающую заглушку из одного заголовка', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip description="Пояснение не готово"><span>Показатель</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Показатель'));
+    expect(screen.queryByText('Пояснение не готово')).toBeNull();
+  });
+
+  it('краткое подтверждённое описание источника показывается и в неполной карточке', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip dataSource="Книга управления, лист ВСЕ."><span>Источник</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Источник'));
+    expect(screen.getByText(/Книга управления, лист ВСЕ/)).toBeTruthy();
+  });
+
   it('триггер доступен с клавиатуры (tabIndex)', () => {
     renderMetric();
     const trigger = screen.getByText('86,6 %').closest('span[tabindex]');
