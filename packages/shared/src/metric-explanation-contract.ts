@@ -17,6 +17,7 @@ export const MetricResultContextSchema = z.object({
     year: z.number().int().nullable(),
   }),
   dependencies: z.array(z.string()),
+  formula: z.string(),
   version: z.object({
     snapshotId: z.string(),
     calculationContextId: z.string().nullable(),
