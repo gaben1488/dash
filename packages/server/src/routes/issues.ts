@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import { readIssueHistory } from '../services/issue-history.js';
+import { signalEvidenceFromSnapshot } from '../services/signal-evidence.js';
 import { db, schema } from '../db/index.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
@@ -130,7 +131,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     // заполняется каждой сменой статуса: карточка замечания показывала «истории
     // нет» там, где история есть. Читаем тот же источник, что и /:id/history.
     try {
-      return reply.send({ issue, history: readIssueHistory(id), signalPassport: signalPassportForIssue(issue) });
+      return reply.send({ issue, history: readIssueHistory(id), signalPassport: signalPassportForIssue(issue),
+        sourceEvidence: signalEvidenceFromSnapshot(snapshot, issue) });
     } catch (err) {
       app.log.warn({ err, issueId: id }, 'issues/history: read failed');
       return reply.status(503).send(HISTORY_UNAVAILABLE);

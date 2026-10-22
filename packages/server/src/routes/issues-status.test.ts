@@ -181,6 +181,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect(detail.signalPassport).toMatchObject({
       disposition: 'excluded_false_positive', status: 'false_positive',
     });
+    expect(detail.sourceEvidence).toMatchObject({ source: 'sealed_snapshot', status: 'identity_not_verified' });
     // A decision changes the case, but cannot create evidence in an empty source.
     expect(after.trust.overall).toBeNull();
     expect((await app.inject({ method: 'GET', url: '/api/trust' })).json().overall).toBe(after.trust.overall);

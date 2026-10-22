@@ -108,6 +108,7 @@ const HISTORY_ICON: Record<string, typeof GitCommit> = {
 
 function IssueTimeline({ issueId }: { issueId: string }) {
   const [history, setHistory] = useState<IssueHistoryEvent[]>([]);
+  const [sourceEvidence, setSourceEvidence] = useState<Awaited<ReturnType<typeof api.getIssueDetail>>['sourceEvidence']>();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -117,9 +118,11 @@ function IssueTimeline({ issueId }: { issueId: string }) {
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
+    setSourceEvidence(undefined);
     try {
-      const data = await api.getIssueHistory(issueId);
+      const data = await api.getIssueDetail(issueId);
       setHistory(data.history);
+      setSourceEvidence(data.sourceEvidence);
       setLoadError(null);
     } catch (err) {
       // Молчаливый провал показывал «Нет записей в истории» — то есть выдавал
@@ -166,6 +169,22 @@ function IssueTimeline({ issueId }: { issueId: string }) {
 
   return (
     <div>
+      {sourceEvidence && (
+        <div className="mb-4 rounded-lg bg-white dark:bg-zinc-800/60 px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-300" aria-label="Свидетельства исходной строки">
+          <p className="font-medium text-zinc-800 dark:text-zinc-100">Исходные значения для проверки</p>
+          <p>{sourceEvidence.explanation}</p>
+          {sourceEvidence.answer.rows.map(row => (
+            <div key={row.address} className="mt-1.5">
+              <p>{row.address}</p>
+              <ul className="mt-1 space-y-0.5">
+                {row.cells.map(cell => (
+                  <li key={cell.column}>{cell.label} ({cell.column}): {cell.value}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
       <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 mb-3">История и комментарии</p>
 
       {loadError ? (
