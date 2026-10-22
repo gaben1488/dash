@@ -711,7 +711,12 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       observedDriveVersions: observedVersions,
       codeCommit: process.env.DASH_CODE_COMMIT ?? process.env.GITHUB_SHA ?? null,
     });
-    await saveSnapshot(snapshot);
+    // A newly computed result is not an accepted historical snapshot until
+    // the existing atomic save succeeds. Never show an unpersisted version
+    // as if it could be replayed after a restart.
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_EVIDENCE_OR_STORAGE_NOT_PERSISTED');
+    }
 
     return snapshot;
   } catch (error) {
