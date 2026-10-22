@@ -37,6 +37,23 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
 }
 
 describe('computeTrustScore', () => {
+  it('withholds quality and overall grade when signal detection did not run for some rows', () => {
+    const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+    const issue = makeIssue({
+      origin: 'runtime_error', category: 'signal_detection_failed', severity: 'error',
+      sheet: 'УО', row: 5, departmentId: 'uo',
+    });
+    const result = computeTrustScore(metrics, [issue], [], 'signal-check-incomplete');
+    const dq = result.components.find(component => component.name === 'data_quality');
+    expect(dq?.score).toBeNull();
+    expect(dq?.issues).toBeGreaterThan(0);
+    expect(dq?.details).toContain('не подтверждено');
+    expect(result.overall).toBeNull();
+    expect(result.grade).toBeNull();
+    const control = computeTrustScore(metrics, [], [], 'signal-check-complete');
+    expect(control.components.find(component => component.name === 'data_quality')?.score).not.toBeNull();
+  });
+
   it('does not assign an agreement score without comparable pairs', () => {
     const result = computeTrustScore(new Map([['m1', makeMetric('m1', 100)]]), [], [], 'snapshot');
     expect(result.components.find(c => c.name === 'mapping_consistency')?.score).toBeNull();

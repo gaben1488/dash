@@ -181,3 +181,5 @@ export { MetricDetailSchema, MetricExplanationSchema, type MetricExplanation } f
 
 export { MASTER_SOURCE_PROFILE, MONITORING_SOURCE_SCHEMA, validateMasterSourceHeader } from './column-map.js';
 export * from './procurement-guidance.js';
+// Source diagnostic run: bounded coverage, per-stage timestamps, honest not_run.
+export type { SourceStageStatus, SourceDeepBookEvidence, SourceDeepEvidence, SourceRowValidationEvidence, SourceDiagnosticRun } from './source-diagnostics.js';
