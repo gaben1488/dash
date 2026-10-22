@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { RULE_BOOK, CHECK_REGISTRY } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ReportMapEntry } from '@aemr/shared';
 import { validateData } from './validate.js';
+import { classifyRows } from './classify.js';
 
 const EMPTY_METRICS = new Map<string, NormalizedMetric>();
 const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
@@ -63,6 +64,56 @@ describe('row_numbering — дубли', () => {
     expect(issue).toBeDefined();
     expect(issue.description).toContain('№ 531');
     expect(issue.description).toContain('4, 5');
+  });
+});
+
+
+describe('row_numbering — составные номера и формульный хвост', () => {
+  it('173, 173/1, 173/18 — три разных номера, без ложных повторов', () => {
+    expect(run([
+      procRow(4, 173),
+      procRow(5, '173/1'),
+      procRow(6, '173/18'),
+    ])).toHaveLength(0);
+  });
+
+  it('два одинаковых 173/18 — настоящий повтор именно полного номера', () => {
+    const [issue] = run([
+      procRow(4, 173),
+      procRow(5, '173/18'),
+      procRow(6, '173/18'),
+    ]);
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain('5, 6');
+    expect(issue.description).not.toContain('№ 173 —');
+  });
+
+  it('23/1, 23/2, 24/1 не превращаются в 23 и 24', () => {
+    expect(run([
+      procRow(4, '23/1'),
+      procRow(5, '23/2'),
+      procRow(6, '24/1'),
+    ])).toHaveLength(0);
+  });
+
+  it('нулевой хвост формул — не закупки без номера', () => {
+    const rows = classifyRows('УД', [
+      { rowIndex: 4, cells: { A: 1, C: 'Х', G: 'Реальная закупка', K: 100, L: 'ЭА' } },
+      { rowIndex: 5, cells: { A: '', H: 0, I: 0, J: 0, K: 0, V: 0, W: 0, X: 0, Y: 0 } },
+      { rowIndex: 6, cells: { A: '', H: 0, I: 0, J: 0, K: 0, V: 0, W: 0, X: 0, Y: 0 } },
+    ]);
+    expect(run(rows)).toHaveLength(0);
+  });
+
+  it('реальная строка с предметом и нулевым планом без A остаётся нарушением', () => {
+    const rows = classifyRows('УД', [
+      { rowIndex: 4, cells: { A: 1, C: 'Х', G: 'Закупка 1', K: 100, L: 'ЭА' } },
+      { rowIndex: 5, cells: { A: '', C: 'Х', G: 'Закупка 2', K: 0, L: 'Х' } },
+    ]);
+    const [issue] = run(rows);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('без номера');
+    expect(issue.description).toContain('5');
   });
 });
 
