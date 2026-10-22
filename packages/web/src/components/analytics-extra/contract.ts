@@ -191,6 +191,17 @@ export interface IntegrityResponse {
     vanishedPlanSum: number;
   } | null;
   comparisonNote: string;
+  /** Независимая сверка двух последних СМЕЖНЫХ завершённых четвергов. */
+  weeklyComparison: {
+    beforeId: string;
+    afterId: string;
+    beforeAt: string;
+    afterAt: string;
+    books: VanishedBookDto[];
+    vanishedTotal: number;
+    vanishedPlanSum: number;
+  } | null;
+  weeklyComparisonNote: string;
   notes: string[];
 }
 
