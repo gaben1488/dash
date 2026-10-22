@@ -1,0 +1,120 @@
+name: VPS runtime comparison diagnostic (read-only)
+on:
+  push:
+    branches: [fix/runtime-stage-compare-20261023]
+    paths: [.github/workflows/vps-runtime-compare-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare Compose configuration and actual container runtime without disclosing values
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n python3 - <<'PYDIAG'
+            import json, subprocess, shlex
+            from pathlib import Path
+            root=Path('/home/aemr/dash/deploy')
+            services=('caddy','web','server','report-worker')
+            def cmd(*args):
+                return subprocess.check_output(args, text=True, timeout=30, stderr=subprocess.DEVNULL).strip()
+            def environment(v):
+                if not isinstance(v,list) or any(not isinstance(s,str) or '=' not in s for s in v):
+                    return None
+                pairs=[s.split('=',1) for s in v]
+                if len(pairs)!=len({p[0] for p in pairs}):return None
+                return dict(pairs)
+            def compare(config):
+                output={}
+                for service in services:
+                    declared=config.get('services',{}).get(service,{})
+                    if not declared:output[service]={'error':'NO_COMPOSE_SERVICE'};continue
+                    try:
+                        record=json.loads(cmd('docker','inspect',f'aemr-{service}-1'))[0]
+                        im=json.loads(cmd('docker','image','inspect',record['Image']))[0]['Config']
+                        actual=record['Config']
+                        expected_env=environment(im.get('Env') or [])
+                        actual_env=environment(actual.get('Env') or [])
+                        supplied=declared.get('environment') or {}
+                        result={'image_revision':(im.get('Labels') or {}).get('org.opencontainers.image.revision','ABSENT')}
+                        if expected_env is None or actual_env is None or not isinstance(supplied,dict):
+                            result['environment']='MALFORMED'
+                        elif any(not isinstance(v,str) for v in supplied.values()):
+                            result['environment']='NON_STRING_COMPOSE_VALUE'
+                        else:
+                            expected_env.update(supplied)
+                            result['environment']='MATCH' if expected_env==actual_env else {
+                                'missing_keys':sorted(set(expected_env)-set(actual_env)),
+                                'extra_keys':sorted(set(actual_env)-set(expected_env)),
+                                'different_keys':sorted(k for k in expected_env.keys() & actual_env.keys() if expected_env[k]!=actual_env[k])
+                            }
+                        fields={}
+                        for ck,dk in [('command','Cmd'),('entrypoint','Entrypoint'),('user','User'),('working_dir','WorkingDir')]:
+                            expected=declared.get(ck)
+                            if expected is None:
+                                expected=None if ck=='command' and declared.get('entrypoint') is not None else im.get(dk)
+                            if isinstance(expected,str) and ck in ('command','entrypoint'):expected=shlex.split(expected)
+                            actual_value=actual.get(dk)
+                            if ck in ('command','entrypoint'):
+                                expected=[] if expected is None else expected
+                                actual_value=[] if actual_value is None else actual_value
+                            else:
+                                expected='' if expected is None else expected
+                                actual_value='' if actual_value is None else actual_value
+                            fields[ck]='MATCH' if expected==actual_value else 'MISMATCH'
+                        result['commands']=fields
+                        mounts=declared.get('volumes',[])
+                        target={m.get('target') for m in mounts}
+                        im_target=set(im.get('Volumes') or {})
+                        actual_target={m.get('Destination') for m in record.get('Mounts',[])}
+                        result['mount_targets']='MATCH' if target|im_target==actual_target else {
+                           'expected_count':len(target|im_target),'actual_count':len(actual_target),
+                           'missing_target_count':len((target|im_target)-actual_target),'extra_target_count':len(actual_target-(target|im_target))}
+                        entry=config.get('volumes',{})
+                        mount_diffs=[]
+                        for m in mounts:
+                            actuals=[a for a in record['Mounts'] if a.get('Destination')==m.get('target')]
+                            if len(actuals)!=1:mount_diffs.append({'target':m.get('target'),'reason':'NOT_ONE'});continue
+                            a=actuals[0]
+                            if m.get('type')=='volume':
+                                source=(entry.get(m['source']) or {}).get('name','aemr_'+m['source'])
+                                ok=a.get('Type')=='volume' and a.get('Name')==source
+                            else:
+                                ok=a.get('Type')=='bind' and a.get('Source')==m.get('source')
+                            if not ok:mount_diffs.append({'target':m.get('target'),'reason':'SOURCE_OR_TYPE'})
+                            if bool(m.get('read_only',False)) != (a.get('RW',True) is False):
+                                mount_diffs.append({'target':m.get('target'),'reason':'READ_ONLY'})
+                        result['mount_differences']=mount_diffs
+                        output[service]=result
+                    except Exception as error:
+                        output[service]={'error':type(error).__name__}
+                return output
+            candidates=[('operator',root/'docker-compose.yml'),
+                ('runtime-compose',Path('/var/lib/aemr/release-runtime/compose.json')),
+                ('runtime-recovery',Path('/var/lib/aemr/release-runtime/recovery-compose.json')),
+                ('runtime-candidate-resume',Path('/var/lib/aemr/release-runtime/candidate-resume.json')),
+                ('runtime-candidate',Path('/var/lib/aemr/release-runtime/candidate-compose.json'))]
+            print('READ_ONLY_RUNTIME_SOURCE_COMPARISON_BEGIN')
+            for label,path in candidates:
+                if not path.is_file():
+                    print(json.dumps({'source':label,'available':False},sort_keys=True));continue
+                try:
+                    output=cmd('docker','compose','--project-directory',str(root),
+                       '--env-file',str(root/'.env.production'),'-f',str(path),
+                       '--profile','reports','config','--format','json')
+                    config=json.loads(output.replace('$$','$'))
+                    print(json.dumps({'source':label,'available':True,'services':compare(config)},
+                        sort_keys=True,ensure_ascii=True))
+                except Exception as error:
+                    print(json.dumps({'source':label,'error':type(error).__name__},sort_keys=True))
+            print('READ_ONLY_RUNTIME_SOURCE_COMPARISON_END')
+            PYDIAG
