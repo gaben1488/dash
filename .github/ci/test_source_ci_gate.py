@@ -51,12 +51,22 @@ class SourceGateTests(unittest.TestCase):
     def test_queued_production_release_refuses_superseded_pr79_head(self):
         workflow = Path(__file__).resolve().parents[1] / 'workflows' / 'vps-cache-cleanup.yml'
         source = workflow.read_text(encoding='utf-8')
-        job = source.split('  controlled-candidate-release:', 1)[1]
-        check = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then'
-        self.assertIn(check, job)
-        self.assertIn('RELEASE_CANDIDATE_SUPERSEDED', job)
-        self.assertLess(job.index(check), job.index('ci_run=$(gh api'))
-        self.assertIn('test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"', job)
+        admission = source.split('  controlled-candidate-release:', 1)[1].split(
+            '      - name: Match the production Docker engine', 1
+        )[0]
+        # An early equality pins PR79 before SSH setup; the inequality fails
+        # closed during CI polling; a final equality guards later advancement.
+        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"'
+        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then'
+        ci_lookup = 'ci_run=$(gh api'
+        self.assertEqual(admission.count(exact_head), 2)
+        self.assertIn(superseded, admission)
+        self.assertLess(admission.index(exact_head), admission.index('mkdir -m 700 "$RUNNER_TEMP/release"'))
+        self.assertLess(admission.index(superseded), admission.index(ci_lookup))
+        fail_closed = admission[admission.index(superseded):admission.index(ci_lookup)]
+        self.assertIn('echo RELEASE_CANDIDATE_SUPERSEDED', fail_closed)
+        self.assertIn('exit 2', fail_closed)
+        self.assertGreater(admission.rindex(exact_head), admission.index('test "$ready" = true'))
 
     def test_other_sha_repository_or_workflow_never_admits(self):
         for field, value in (('head_sha', 'b' * 40), ('name', 'Other'), ('event', 'push'),
