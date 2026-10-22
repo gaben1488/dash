@@ -12,6 +12,8 @@ import { findDept } from './department-registry.js';
  */
 export const MASTER_SOURCE_PROFILE = directory.masterProfile;
 export const MONITORING_SOURCE_SCHEMA = directory.monitoringSchema;
+/** Canonical groups used by formula reads, metadata checks and etalon-sync. */
+export const MASTER_FORMULA_COLUMN_GROUPS = MASTER_SOURCE_PROFILE.formulaColumnGroups;
 export const DEPT_COLUMNS = Object.fromEntries(
   Object.entries(MASTER_SOURCE_PROFILE.fields).map(([key, field]) => [key, field.index]),
 ) as { readonly [K in keyof typeof directory.masterProfile.fields]: number };
