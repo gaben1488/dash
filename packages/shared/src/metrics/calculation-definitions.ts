@@ -187,3 +187,20 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   { key: 'ep_exec_count_pct', label: METRIC_LABELS['ep_exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_count', denominator: 'ep_count' } },
 ];
 
+
+/** O(1) lookup; the source definitions are never copied or modified. */
+export const EXECUTABLE_METRICS: ReadonlyMap<string, MetricDefinition | DerivedMetricDefinition> =
+  new Map([...STANDARD_METRICS, ...STANDARD_DERIVED].map(def => [def.key, def]));
+export const BASE_METRIC_KEYS: ReadonlySet<string> = new Set(STANDARD_METRICS.map(def => def.key));
+
+/** Dependencies come from the executable registry, including intermediate totals. */
+export function metricDependencies(d: DerivedMetricDefinition): string[] {
+  const f = d.formula;
+  switch (f.op) {
+    case 'ratio': case 'pct': return [f.numerator, f.denominator];
+    case 'diff': return [f.a, f.b];
+    case 'sum': return f.operands;
+  }
+}
+
+
