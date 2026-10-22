@@ -4,38 +4,16 @@ import { resolve } from 'path';
 import { config } from '../config.js';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
-import { PROCUREMENT_GUIDANCE_VERSION, procurementEditableGuidance } from '@aemr/shared';
-import { db, schema } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import {
+  changeDomainGuidance, knownDomainGuidanceKey, readDomainGuidance,
+} from '../services/domain-guidance.js';
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
-  /**
-   * C06.03: editorial supplements to the canonical rule and reason catalogs.
-   * These edits affect help text and the exported guide ONLY; numeric limits,
-   * EP classification regexes, source Google rows and frozen reports never
-   * change implicitly.  They are durable SQLite records, not browser storage.
-   */
-  const guidance = procurementEditableGuidance();
-  const guidanceByKey = new Map(guidance.map(item => [item.key, item]));
-
+  // Routes are transport only; the single transaction/read model lives in
+  // services/domain-guidance and the executable domain rules in @aemr/shared.
   app.get('/api/settings/guidance', async (_request, reply) => {
     try {
-      const revisions = db.select().from(schema.domainGuidanceEdits).all();
-      const saved = new Map(revisions.map(item => [item.key, item]));
-      return reply.send({
-        version: PROCUREMENT_GUIDANCE_VERSION,
-        calculationRulesChanged: false,
-        entries: guidance.map(item => {
-          const edit = saved.get(item.key);
-          return {
-            ...item,
-            text: edit?.editorialText ?? item.defaultText,
-            overridden: edit?.editorialText !== null && edit?.editorialText !== undefined,
-            revision: edit?.revision ?? 0,
-            updatedAt: edit?.updatedAt ?? null,
-          };
-        }),
-      });
+      return reply.send(readDomainGuidance());
     } catch (err) {
       app.log.error({ err }, 'guidance: read failed');
       return reply.status(503).send({ error: 'Справочник недоступен. Сохранённые правки не подтверждены.' });
@@ -50,43 +28,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/api/settings/guidance/:key', async (request, reply) => {
     const key = (request.params as { key: string }).key;
-    const original = guidanceByKey.get(key);
-    if (!original) return reply.status(404).send({ error: 'Неизвестный ключ предметного справочника' });
+    if (!knownDomainGuidanceKey(key)) return reply.status(404).send({ error: 'Неизвестный ключ предметного справочника' });
     const body = parseBody(EditorialUpdate, request, reply);
     if (!body) return;
-    const now = new Date().toISOString();
 
     try {
-      const result = db.transaction(tx => {
-        const previous = tx.select().from(schema.domainGuidanceEdits)
-          .where(eq(schema.domainGuidanceEdits.key, key)).get();
-        const revision = previous?.revision ?? 0;
-        if (revision !== body.expectedRevision) return { conflict: true, revision } as const;
-
-        const editorialText = body.text === original.defaultText ? null : body.text;
-        const next = revision + 1;
-        if (previous) {
-          tx.update(schema.domainGuidanceEdits)
-            .set({ editorialText, comment: body.comment, revision: next, updatedAt: now })
-            .where(eq(schema.domainGuidanceEdits.key, key)).run();
-        } else {
-          tx.insert(schema.domainGuidanceEdits)
-            .values({ key, editorialText, comment: body.comment, revision: next, updatedAt: now }).run();
-        }
-        // Audit and the actual text revision must succeed or fail together.
-        tx.insert(schema.auditLog).values({
-          action: 'domain_guidance_edit', entity: 'domain_dictionary', entityId: key,
-          oldValue: previous?.editorialText ?? original.defaultText,
-          newValue: editorialText ?? original.defaultText,
-          details: JSON.stringify({ comment: body.comment, revision: next, reset: editorialText === null }),
-          timestamp: now,
-        }).run();
-        return {
-          conflict: false, revision: next, updatedAt: now,
-          text: editorialText ?? original.defaultText,
-          overridden: editorialText !== null,
-        } as const;
-      });
+      const result = changeDomainGuidance(key, body);
       if (result.conflict) return reply.status(409).send({
         error: 'Справочник изменён в другой сессии. Перечитайте актуальную редакцию.',
         revision: result.revision,
@@ -97,7 +44,6 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({ error: 'Правка не записана: хранилище или журнал недоступны.' });
     }
   });
-
 
   /** GET /api/settings/status — текущий статус credentials */
   app.get('/api/settings/status', async (_request, reply) => {
