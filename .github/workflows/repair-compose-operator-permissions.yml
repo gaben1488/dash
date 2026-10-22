@@ -1,0 +1,109 @@
+name: Repair live Compose permissions and verify stage (no deployment)
+on:
+  push:
+    branches: [fix/runtime-stage-compare-20261023]
+    paths: [.github/workflows/repair-compose-operator-permissions.yml]
+permissions:
+  contents: read
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Restore secure operator Compose permissions, verify exact runtime admission
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            sudo -n python3 -I - <<'PYFIX'
+            import fcntl,hashlib,importlib.util,json,os,stat,subprocess,sys
+            from pathlib import Path
+            root=Path('/home/aemr/dash/deploy')
+            path=root/'docker-compose.yml'
+            lock=Path('/run/lock/aemr-maintenance.lock')
+            state=Path('/var/lib/aemr')
+            def fail(code):
+                raise SystemExit(code)
+            def docker(*args):
+                return subprocess.check_output(['docker',*args],text=True,stderr=subprocess.DEVNULL,timeout=35).strip()
+            fd=os.open(lock,os.O_RDWR|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:
+                fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:
+                fail('REPAIR_REJECTED_MAINTENANCE_BUSY')
+            with os.fdopen(fd,'r+') as locked:
+                if any(os.path.lexists(state/name) for name in ('pending-release.json','release-recovery-progress.json')):
+                    fail('REPAIR_REJECTED_PENDING_RELEASE')
+                if any(item.is_symlink() for item in (path,*path.parents)):
+                    fail('REPAIR_REJECTED_SYMLINK')
+                if not root.is_dir():
+                    fail('REPAIR_REJECTED_OPERATOR_ROOT')
+                original=os.lstat(path)
+                if (not stat.S_ISREG(original.st_mode) or original.st_nlink!=1
+                      or original.st_uid not in (0,root.stat().st_uid)
+                      or original.st_size>1024*1024
+                      or stat.S_IMODE(original.st_mode) not in (0o644,0o664)):
+                    fail('REPAIR_REJECTED_OPERATOR_FILE')
+                image_roles=('caddy','server','web','report-worker')
+                original_records={s:json.loads(docker('inspect','aemr-'+s+'-1'))[0] for s in image_roles}
+                if (original_records['server']['State']['Status']!='running'
+                    or original_records['server']['State'].get('Health',{}).get('Status')!='healthy'):
+                    fail('REPAIR_REJECTED_UNHEALTHY_RUNTIME')
+                for item in original_records.values():
+                    if item['State']['Status']!='running':
+                        fail('REPAIR_REJECTED_UNHEALTHY_RUNTIME')
+                f=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+                try:
+                    info=os.fstat(f)
+                    if (info.st_ino!=original.st_ino or info.st_dev!=original.st_dev
+                        or info.st_uid!=original.st_uid or stat.S_IMODE(info.st_mode)!=stat.S_IMODE(original.st_mode)):
+                        fail('REPAIR_REJECTED_RACE')
+                    original_bytes=os.read(f,1024*1024+1)
+                    if len(original_bytes)!=info.st_size:fail('REPAIR_REJECTED_SOURCE_CHANGED')
+                    original_sha=hashlib.sha256(original_bytes).hexdigest()
+                    if stat.S_IMODE(info.st_mode)==0o664:
+                        os.fchmod(f,0o644)
+                    final_info=os.fstat(f)
+                    if (stat.S_IMODE(final_info.st_mode)!=0o644 or final_info.st_ino!=info.st_ino
+                        or final_info.st_uid!=info.st_uid or final_info.st_size!=info.st_size):
+                        fail('REPAIR_REJECTED_FILE_CHANGED')
+                    os.lseek(f,0,os.SEEK_SET)
+                    if hashlib.sha256(os.read(f,1024*1024+1)).hexdigest()!=original_sha:
+                        fail('REPAIR_REJECTED_SOURCE_CHANGED')
+                finally:
+                    os.close(f)
+                sys.path.insert(0,'/usr/local/libexec/aemr')
+                spec=importlib.util.spec_from_file_location('reviewed_release_controller','/usr/local/libexec/aemr/release-controller.py')
+                module=importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                module.ReleaseController._operator_file(path)
+                config=json.loads(subprocess.check_output(
+                    ['docker','compose','--project-directory',str(root),'--env-file',str(root/'.env.production'),
+                     '-f',str(path),'--profile','reports','config','--format','json'],
+                     text=True,stderr=subprocess.DEVNULL,timeout=35).replace('$$','$'))
+                class ImageOnly:
+                    def command(self,args,**kwargs):
+                        if args[:2]!=['image','inspect']:fail('REPAIR_REJECTED_UNKNOWN_DOCKER_COMMAND')
+                        return docker(*args)
+                module.ReleaseController(ImageOnly())._saved_runtime(
+                   {'images':{s:v['Image'] for s,v in original_records.items()}},original_records,config)
+                current={s:json.loads(docker('inspect','aemr-'+s+'-1'))[0] for s in image_roles}
+                for service in image_roles:
+                    a,b=original_records[service],current[service]
+                    if (a['Id']!=b['Id'] or a['Image']!=b['Image']
+                        or a.get('Mounts')!=b.get('Mounts') or b['State']['Status']!='running'):
+                        fail('REPAIR_REJECTED_RUNTIME_CHANGED')
+                if current['server']['State'].get('Health',{}).get('Status')!='healthy':
+                    fail('REPAIR_REJECTED_HEALTH_CHANGED')
+                docker('exec','aemr-server-1','curl','-fsS','--max-time','5','http://127.0.0.1:3000/api/health')
+                docker('exec','aemr-web-1','wget','-q','-T','5','-O','/dev/null','http://127.0.0.1/index.html')
+                print('OPERATOR_COMPOSE_MODE_0644_AND_CONTENT_UNCHANGED')
+                print('EXACT_RELEASE_RUNTIME_ADMISSION_PASS')
+                print('ALL_SERVICE_IDS_IMAGES_AND_MOUNTS_UNCHANGED')
+                print('SERVER_WEB_HEALTH_PASS')
+            PYFIX
