@@ -27,7 +27,7 @@ Production row-level calculations use department workbooks. The same layout is m
 | Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Row number / source ID | `DEPT_COLUMNS.ID` | row identity | `rows[].rowIndex` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
 | Department workbook | same | `D` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | program context only (does not split ТД) | `rows[].programName` where present | Program |
-| Department workbook | same | `E` | Subprogram | `DEPT_COLUMNS.SUBPROGRAM` | reference context, not activity classifier | detail where present | Subprogram |
+| Department workbook | same | `E` | Subprogram | `DEPT_COLUMNS.SUBPROGRAM` | reference context, not activity classifier | not in current `RowDto` | Source-only detail |
 | Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
