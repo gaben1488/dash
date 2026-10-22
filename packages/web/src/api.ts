@@ -1,4 +1,4 @@
-import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun, SavedProcurementGuidance, SavedProcurementGuidanceEntry } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -61,21 +61,9 @@ export interface LedgerSaveResponse {
   record: LedgerRecommendation | null;
 }
 
-/** Revisioned, presentation-only C06.03 guidance (not calculation policy). */
-export interface EditorialGuidanceEntry {
-  key: string;
-  section: 'field' | 'ep' | 'stage' | 'seasonal';
-  defaultText: string;
-  text: string;
-  overridden: boolean;
-  revision: number;
-  updatedAt: string | null;
-}
-export interface EditorialGuidanceResponse {
-  version: 'C06.03-editorial-v1';
-  calculationRulesChanged: false;
-  entries: EditorialGuidanceEntry[];
-}
+/** Same verified catalog shape as server/shared; no web-only copy of its contract. */
+export type EditorialGuidanceEntry = SavedProcurementGuidanceEntry;
+export type EditorialGuidanceResponse = SavedProcurementGuidance;
 
 const API_BASE = '/api';
 
