@@ -18,6 +18,8 @@ import {
   threshold,
   thresholdValue,
   thresholdAt,
+  freezeThresholds,
+  legalThresholdsVerifiedForContext,
   thresholdsByDomain,
   thresholdsBySource,
 } from './threshold-registry.js';
@@ -171,6 +173,28 @@ describe('обращение к реестру', () => {
 
 
 describe('dated threshold evidence', () => {
+  it('uses 10m before October 2026 and 20m during the temporary 279-FZ interval (thousandRub)', () => {
+    const september = thresholdAt('law.quotationPurchaseLimit', '2026-09-30');
+    expect(september).toMatchObject({ value: 10_000, status: 'verified', edition: '44fz-quotation-2026-before-279fz' });
+    const october = thresholdAt('law.quotationPurchaseLimit', '2026-10-01');
+    expect(october).toMatchObject({ value: 20_000, status: 'verified', edition: '44fz-quotation-279fz-temporary' });
+    expect(thresholdAt('law.quotationPurchaseLimit', '2027-12-31').value).toBe(20_000);
+    expect(thresholdAt('law.quotationPurchaseLimit', '2028-01-01'))
+      .toMatchObject({ value: 10_000, status: 'unverified', edition: null });
+    expect(freezeThresholds('2026-10-22')['law.quotationPurchaseLimit'].value).toBe(20_000);
+  });
+  it('never promotes one verified quotation threshold to full legal coverage', () => {
+    const captured = freezeThresholds('2026-10-22');
+    expect(captured['law.quotationPurchaseLimit'].status).toBe('verified');
+    expect(legalThresholdsVerifiedForContext(captured)).toBe(false);
+    expect(legalThresholdsVerifiedForContext(null)).toBe(false);
+    const pretendAll = Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
+      value: thresholdValue(id), status: 'verified' as const, edition: 'test', sourceRef: 'test',
+    }]));
+    expect(legalThresholdsVerifiedForContext(pretendAll)).toBe(true);
+    delete pretendAll['law.quotationPurchaseLimit'];
+    expect(legalThresholdsVerifiedForContext(pretendAll)).toBe(false);
+  });
   it('does not treat an undated legal reference as a verified rule for a date', () => {
     expect(thresholdAt('law.epSmallSingleContract', '2026-10-21').status).toBe('unverified');
     expect(thresholdAt('economy.highSharePct', '2026-10-21').status).toBe('internal');

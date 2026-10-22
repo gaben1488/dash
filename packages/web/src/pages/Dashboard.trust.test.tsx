@@ -116,3 +116,34 @@ it('selects the Russian department filter from the rating and carries the same q
   expect(useStore.getState().period).toBe('q4');
   expect(useStore.getState().year).toBe(2026);
 });
+
+it('does not borrow annual values or create 0% when the selected quarter is incomplete', () => {
+  const q4 = {
+    planTotal: 1000, factTotal: null, planCount: 2, factCount: null, economyTotal: null,
+    planFB: 0, planKB: 0, planMB: 1000, factFB: null, factKB: null, factMB: null,
+    economyFB: null, economyKB: null, economyMB: null,
+    executionPct: null, execCountPct: null, compExecCountPct: null, epExecCountPct: null,
+    kpCount: 2, epCount: 0, kpPlanTotal: 1000, kpFactTotal: null,
+    epPlanTotal: 0, epFactTotal: null, kpFactCount: null, epFactCount: null,
+  };
+  const summary = DepartmentSummarySchema.parse({
+    department: { id: 'uo', name: 'УО', nameShort: 'УО', sheetName: 'УО',
+      svodRange: { startRow: 1, endRow: 2 }, controlCells: {} },
+    planTotal: 1000, factTotal: 500, executionPercent: 50, economyTotal: 250,
+    competitiveCount: 2, soleCount: 0, issueCount: 0, criticalIssueCount: 0,
+    trustScore: 90, status: 'normal', quarters: { q4, year: { ...q4, economyTotal: 250 } },
+    subordinates: [],
+  });
+  const data = useStore.getState().dashboardData!;
+  useStore.setState({
+    year: 2026, period: 'q4', periodMode: 'explicit', activeMonths: new Set(), monthsByYear: {},
+    dashboardData: { ...data, departmentSummaries: [summary] },
+  });
+
+  render(<TooltipProvider><Dashboard /></TooltipProvider>);
+  const tiles = screen.getByRole('region', { name: 'Ключевые показатели за выбранный период' });
+  fireEvent.click(within(tiles).getByRole('button', { name: /Экономия/ }));
+  expect(screen.getByRole('button', { name: 'УО: экономия не подтверждена' })).toBeTruthy();
+  fireEvent.click(within(tiles).getByRole('button', { name: /Исполнение/ }));
+  expect(screen.getByRole('button', { name: 'УО: факт не прочитан' })).toBeTruthy();
+});

@@ -132,7 +132,9 @@ Production row-level calculations use department workbooks. The same layout is m
 | Department workbook | same | `V/W/X/Y` | Fact budget: FB/KB/MB/total | `FB_FACT`, `KB_FACT`, `MB_FACT`, `TOTAL_FACT` | `fact_fb`, `fact_kb`, `fact_mb`, `fact_total` | `factFB`, `factKB`, `factMB`, `factTotal` | `Факт`, budget slices |
 | Department workbook | same | `Z/AA/AB/AC` | Approved economy: FB/KB/MB/total | `ECONOMY_FB`, `ECONOMY_KB`, `ECONOMY_MB`, `ECONOMY_TOTAL` | `economy_fb`, `economy_kb`, `economy_mb`, `economy_total` | `economyFB`, `economyKB`, `economyMB`, `economyTotal` | `Экономия` |
 | Department workbook | same | `AD` | Economy approval flag | `DEPT_COLUMNS.FLAG` | gate for economy metrics | included in calculated metrics | Economy gate |
-| `СВОД_ДЛЯ_GOOGLE` | `СВОД ТД-ПМ` | `D/E/F/G/H:U` by configured rows | Official summary cells | `REPORT_MAP` | official metrics and fallback | `kpiCards`, `summaryByPeriod` | Svod/Reconciliation |
+| `СВОД_ДЛЯ_GOOGLE` | `СВОД ТД-ПМ` | `D/E/F/G/H:U` by configured rows | Official summary cells | `REPORT_MAP` | independent comparison; never fallback for missing master rows | `kpiCards`, `officialMetrics`, reconciliation (not the calculated `summaryByPeriod`) | Svod/Reconciliation |
+
+**C04.01, единый вход новой версии.** `summaryByPeriod` (`q1`–`q4`, `year`) и `departmentSummaries` в `/api/dashboard` используют только `snapshot.calculatedMetrics` из принятых книг ГРБС. Генератор получает те же значения исходных master через запечатанный `source_revision` и строит Word от своего неизменяемого `report_model`. Официальный лист `СВОД` остаётся **отдельным наблюдением** для `officialMetrics`, KPI и сверки; он не подставляется в пустые вычисленные поля, особенно для другого года. Отсутствующий расчёт не превращается в ноль, в официальный показатель или в успешную приёмку; два движка продолжают проверяться независимым frozen-паритетом C04.01.
 
 ## Key Metrics
 
