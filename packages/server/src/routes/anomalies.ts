@@ -63,7 +63,7 @@ import {
   type SystemicAnomaly,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptCacheFilledAt, getSnapshot } from '../services/snapshot.js';
 import { readAllBookJournals, type BookJournal } from '../services/provenance-journal.js';
 import { toJournalEntries } from './workload.js';
 
@@ -202,8 +202,12 @@ export interface NoiseGroupDto {
 }
 
 export interface AnomaliesResponse {
-  /** Момент чтения (ISO) — канон п.58. */
+  /** Момент построения ответа (ISO); НЕ доказательство свежести каждой книги. */
   asOf: string;
+  /** Последний зафиксированный момент обновления кэша (не каждой книги отдельно). */
+  sourceCacheFilledAt: string | null;
+  /** Момент расчёта отдельного frozen-датасета. */
+  datasetCapturedAt: string | null;
   /** Книги, чьи строки прочитаны. */
   booksRead: string[];
   /** Книги без строк: признаков по ним нет, потому что смотреть было нечего. */
@@ -455,11 +459,13 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
 
   let snapshotAnalyses: Record<string, unknown> = {};
   let capturedRowsByDept: Record<string, unknown[][]> | undefined;
+  let datasetCapturedAt: string | null = null;
   let datasetAvailable = false;
   let thresholdContext: Readonly<Record<string, DatedThreshold>> | null = null;
   try {
     const snapshot = await getSnapshot();
     capturedRowsByDept = snapshot.rowsByDept;
+    datasetCapturedAt = snapshot.createdAt;
     thresholdContext = snapshot.metadata.calculationContext?.thresholds ?? null;
     const analyses = (snapshot as { datasetAnalyses?: Record<string, unknown> }).datasetAnalyses;
     if (analyses && typeof analyses === 'object') {
@@ -559,6 +565,12 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
         'после факта» по этим книгам не проверялись.'),
     );
   }
+  if (datasetAvailable) {
+    notes.push('Находки датасета рассчитаны по сохранённому снимку ' +
+      (datasetCapturedAt ?? 'с неизвестной датой') +
+      '; построчные признаки построены отдельно по живому кэшу и журналам. ' +
+      'Источники нельзя считать одним атомарным наблюдением.');
+  }
   if (datasetAvailable && !capturedRowsByDept) {
     notes.push('Строковая база сохранённого снимка недоступна: адреса находок показаны без ' +
       'подстановки № закупки, предмета или учреждения из другого наблюдения.');
@@ -570,8 +582,12 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
     );
   }
 
+  const sourceCacheFilledMs = getDeptCacheFilledAt();
   return {
     asOf: new Date(now).toISOString(),
+    sourceCacheFilledAt: Number.isFinite(sourceCacheFilledMs) && sourceCacheFilledMs > 0
+      ? new Date(sourceCacheFilledMs).toISOString() : null,
+    datasetCapturedAt,
     booksRead,
     booksSilent,
     journalsSilent,
