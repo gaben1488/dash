@@ -39,6 +39,17 @@ describe('calculated metric detail', () => {
     }
   });
 
+  it('explains the actual month-by-method intersection rather than a quarter fallback', async () => {
+    const value = snapshot();
+    const result = await read(value, 'grbs.uo.kp.m1.count');
+    expect(result.statusCode).toBe(200);
+    expect(result.json().explanation).toMatchObject({
+      status: 'available', value: 2,
+      resultContext: { scope: { department: 'uo', method: 'competitive', period: 'm1' } },
+      rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }],
+    });
+  });
+
   it('rejects a changed snapshot and malformed year before attaching evidence', async () => {
     const value = snapshot();
     expect((await read(value, 'grbs.uo.q1.exec_count_pct?snapshotId=older')).statusCode).toBe(409);
