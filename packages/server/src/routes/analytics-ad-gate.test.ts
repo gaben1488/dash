@@ -124,7 +124,13 @@ it.each(['нет', 'да'])('does not infer competition or initial price from ec
   expect(result).toBeDefined();
   expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
   expect(result.disciplinaryPenalty).toBe(0);
-  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+  // The source lacks evidence for price/competition, independently of other
+  // unavailable indicators (EP limit and annual share). Do not mistake those
+  // additional unknowns for a fabricated competition or price verdict.
+  const unavailable = result.unavailableIndicators.map((f: { indicator: string }) => f.indicator);
+  expect(unavailable).toEqual(expect.arrayContaining(['zero_competition', 'price_inflation']));
+  expect(unavailable.every((indicator: string) =>
+    ['ep_over_limit', 'ep_annual_share', 'zero_competition', 'price_inflation'].includes(indicator))).toBe(true);
 }, 30_000);
 
 
