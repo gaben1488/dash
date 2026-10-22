@@ -14,17 +14,18 @@
  * рестарте, а молчащая книга выглядела как книга без правок.
  */
 import type { FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
 import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
 import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
 import { readChangelogRows, changelogInputKey } from '../services/changelog-source.js';
-import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
+import { changeEntryIdentity, changesSince, parseChangeLogDetailed, type ChangeRecord, type ChangeLogCoverage } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDepts: string[] } | null = null;
+type CoverageByBook = Record<string, ChangeLogCoverage>;
+let cache: { at: number; key: string | null; records: ChangeRecord[];
+  failedDepts: string[]; coverage: CoverageByBook } | null = null;
 
 /**
  * Журналы всех книг. Книга, которая НЕ ответила, попадает в failedDepts:
@@ -37,20 +38,21 @@ let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDept
  * каждый ходил к Google своей дорогой со своим окном. Разбор остаётся здесь
  * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
-async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
+async function readAllChangeLogs(): Promise<{
+  records: ChangeRecord[]; failedDepts: string[]; coverage: CoverageByBook; fresh: boolean;
+}> {
   const key = changelogInputKey(DEPARTMENT_SPREADSHEETS);
   if (cache && cache.key === key && (key !== null || Date.now() - cache.at < CACHE_TTL_MS)) {
-    // fresh=false: эти записи уже сохранялись при чтении, наполнившем кэш.
-    // Гонять транзакцию на 37 тыс. записей ради нулевого прироста на каждый
-    // рендер страницы незачем.
-    return { records: cache.records, failedDepts: cache.failedDepts, fresh: false };
+    return { records: cache.records, failedDepts: cache.failedDepts,
+      coverage: cache.coverage, fresh: false };
   }
-  const entries = Object.entries(DEPARTMENT_SPREADSHEETS);
   const failedDepts: string[] = [];
-  const parts = await Promise.all(entries.map(async ([dept, spreadsheetId]) => {
+  const coverage: CoverageByBook = {};
+  const parts = await Promise.all(Object.entries(DEPARTMENT_SPREADSHEETS).map(async ([dept, spreadsheetId]) => {
     try {
-      const rows = await readChangelogRows(dept, spreadsheetId);
-      return parseChangeLog(rows, dept);
+      const result = parseChangeLogDetailed(await readChangelogRows(dept, spreadsheetId), dept);
+      coverage[dept] = result.coverage;
+      return result.records;
     } catch {
       failedDepts.push(dept);
       return [];
@@ -58,9 +60,9 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
   }));
   const records = parts.flat();
   if (failedDepts.length === 0 && changelogInputKey(DEPARTMENT_SPREADSHEETS) === key) {
-    cache = { at: Date.now(), key, records, failedDepts };
+    cache = { at: Date.now(), key, records, failedDepts, coverage };
   }
-  return { records, failedDepts, fresh: true };
+  return { records, failedDepts, coverage, fresh: true };
 }
 
 /**
@@ -71,8 +73,7 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
+  return changeEntryIdentity(r);
 }
 
 /**
@@ -96,66 +97,75 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   if (records.length === 0) return 0;
   const recordedAt = now.toISOString();
   const byKey = new Map<string, typeof schema.changelogEntries.$inferInsert>();
-  const legacyKeys = new Map<string, string>();
+  const ancestors = new Map<string, { modern: string; ancient: string; occurrence: number }>();
   for (const r of records) {
-    legacyKeys.set(changeEntryKey(r), `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`);
-    byKey.set(changeEntryKey(r), {
-      id: changeEntryKey(r),
-      dept: r.dept,
-      sheet: r.sheet,
-      cell: r.cell,
-      attribute: r.attribute,
-      oldValue: r.oldValue,
-      newValue: r.newValue,
-      atMs: r.atMs,
-      author: r.author,
-      recordedAt,
+    const id = changeEntryKey(r);
+    const modern = changeEntryIdentity({ ...r, timePrecision: undefined, sourceOccurrence: 0 });
+    ancestors.set(id, {
+      modern,
+      ancient: [r.dept, r.sheet, r.cell, r.atMs, r.author].join('|'),
+      occurrence: r.sourceOccurrence ?? 0,
+    });
+    byKey.set(id, {
+      id, dept: r.dept, sheet: r.sheet, cell: r.cell, attribute: r.attribute,
+      oldValue: r.oldValue, newValue: r.newValue, atMs: r.atMs,
+      author: r.author, recordedAt,
     });
   }
-  const values = [...byKey.values()];
+
   let written = 0;
-  db.transaction((tx) => {
+  const values = [...byKey.values()];
+  db.transaction(tx => {
     for (let i = 0; i < values.length; i += ENTRIES_PER_BATCH) {
       const batch = values.slice(i, i + ENTRIES_PER_BATCH);
-      // Preserve legacy IDs in place. Upgrade must neither duplicate their
-      // identical values nor erase a different transition sharing the old ID.
-      const legacy = new Map(tx.select().from(schema.changelogEntries)
-        .where(inArray(schema.changelogEntries.id, batch.map(v => legacyKeys.get(v.id)!)))
+      const priorIds = [...new Set(batch.flatMap(value => {
+        const previous = ancestors.get(value.id)!;
+        return [previous.modern, previous.ancient];
+      }))];
+      const existing = new Map(tx.select().from(schema.changelogEntries)
+        .where(inArray(schema.changelogEntries.id, priorIds))
         .all().map(row => [row.id, row]));
       const pending = batch.filter(value => {
-        const old = legacy.get(legacyKeys.get(value.id)!);
-        return !old || old.oldValue !== value.oldValue || old.newValue !== value.newValue;
+        const prior = ancestors.get(value.id)!;
+        // An older release could persist only one of indistinguishable events.
+        // Preserve that occurrence, but do NOT discard later identical events.
+        if (prior.occurrence > 0) return true;
+        for (const id of [prior.modern, prior.ancient]) {
+          const row = existing.get(id);
+          if (row && row.oldValue === value.oldValue && row.newValue === value.newValue) {
+            return false;
+          }
+        }
+        return true;
       });
-      if (pending.length === 0) continue;
-      const res = tx
-        .insert(schema.changelogEntries)
-        .values(pending)
-        .onConflictDoNothing()
-        .run();
-      written += res.changes;
+      if (!pending.length) continue;
+      const result = tx.insert(schema.changelogEntries).values(pending).onConflictDoNothing().run();
+      written += result.changes;
     }
   });
   return written;
 }
 
 /** Правки из БД начиная с момента среза, свежие сверху (порядок как у changesSince). */
-export function readChangeLogEntriesSince(sinceMs: number): ChangeRecord[] {
-  return db
-    .select()
-    .from(schema.changelogEntries)
-    .where(gte(schema.changelogEntries.atMs, sinceMs))
-    .orderBy(desc(schema.changelogEntries.atMs))
-    .all()
-    .map((r) => ({
-      dept: r.dept,
-      sheet: r.sheet,
-      cell: r.cell,
-      attribute: r.attribute ?? '',
-      oldValue: r.oldValue ?? '',
-      newValue: r.newValue ?? '',
-      atMs: r.atMs,
-      author: r.author ?? '',
-    }));
+/**
+ * DB time uses the source's local wall clock encoded in UTC fields.
+ * A date-only event at 00:00 on the cutoff day may have occurred later;
+ * query from that day's start, then apply a precision-aware final filter.
+ */
+export function readChangeLogEntriesSince(sinceSourceLocalMs: number): ChangeRecord[] {
+  const DAY = 86400000;
+  const dayStart = Math.floor(sinceSourceLocalMs / DAY) * DAY;
+  const rows = db.select().from(schema.changelogEntries)
+    .where(gte(schema.changelogEntries.atMs, dayStart))
+    .orderBy(desc(schema.changelogEntries.atMs)).all();
+  return changesSince(rows.map(r => ({
+    dept: r.dept, sheet: r.sheet, cell: r.cell,
+    attribute: r.attribute ?? '', oldValue: r.oldValue ?? '',
+    newValue: r.newValue ?? '', atMs: r.atMs, author: r.author ?? '',
+    ...(r.id.startsWith('journal-day-v2:')
+      ? { timePrecision: 'day' as const }
+      : r.atMs % DAY === 0 ? { timePrecision: 'unknown' as const } : {}),
+  })), sinceSourceLocalMs);
 }
 
 /**
@@ -221,10 +231,14 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
       sinceMs = sinceDay * 86400000;
     } else {
       sinceDay = liveBaselineDay(new Date(), config.weeklySnapshot.utcOffsetHours);
-      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours);
+      // weeklyCutoffMs is an absolute UTC instant; existing _ChangeLog atMs
+      // stores source-local wall time encoded in UTC components. Compare
+      // within ONE clock domain, without changing persisted legacy IDs.
+      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours)
+        + config.weeklySnapshot.utcOffsetHours * 3600000;
     }
 
-    const { records: all, failedDepts, fresh } = await readAllChangeLogs();
+    const { records: all, failedDepts, coverage, fresh } = await readAllChangeLogs();
 
     // Прочитанное кладём в БД и оттуда же отвечаем. Смысл не в скорости:
     // журнал источника — единственный провенанс правок, а жил он кэшем в
@@ -250,6 +264,7 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
       // чтения книг (только то, что ответило прямо сейчас). Читатель вправе
       // знать, насколько полон список, который он видит.
       source,
+      coverage,
       // Книги, которые не ответили: страница обязана сказать об этом вслух,
       // иначе «правок нет» неотличимо от «источник молчит». При source='db'
       // их правки в списке есть, но свежесть — на момент последнего удачного

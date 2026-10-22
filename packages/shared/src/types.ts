@@ -475,9 +475,32 @@ export interface WeeklyTableContext {
   monitoring: WeeklyMonitoringTableEvidence;
 }
 
+/**
+ * A checksum of the EXISTING immutable CalculationContext and archived output.
+ * This is a consistency check against accidental/stale mutations, not an
+ * externally signed proof that Google, CI, Word and installed binaries agree.
+ * Weekly inputs are appended later to the same snapshot and get their own hash.
+ */
+export interface CalculationArchiveSeal {
+  contract: 'aemr-calculation-archive-seal-v1';
+  contextId: string;
+  snapshotId: string;
+  outputSha256: string;
+  rowsSha256: string | null;
+  weeklySha256: string | null;
+  sourceReceipt: string | null;
+  sourceRevision: string | null;
+  sourceCoverageSha256: string | null;
+  scope: 'source-bound' | 'partial';
+  blockers: string[];
+  fullReplayVerified: false;
+}
+
 export interface CalculationContext {
   contract: 'aemr-calculation-context-v1';
   id: string;
+  /** Same existing context, with optional archival consistency proof. */
+  archiveSeal?: CalculationArchiveSeal;
   sources: { content: string; profiles: string };
   semantics: string;
   thresholds: Record<string, import('./threshold-registry.js').DatedThreshold>;

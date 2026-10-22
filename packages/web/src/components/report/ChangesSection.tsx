@@ -28,17 +28,20 @@ interface ChangeRecord {
   oldValue: string;
   newValue: string;
   atMs: number;
+  timePrecision?: 'day' | 'unknown';
   author: string;
 }
 
 /** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза.
  *  Экспорт: тем же словом время называет журнал эфира в углу шапки. */
-export function fmtAt(ms: number): string {
+export function fmtAt(ms: number, precision?: 'day' | 'unknown'): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  if (precision === 'day') return `${dd}.${mm} (время не указано)`;
+  if (precision === 'unknown') return `${dd}.${mm} (время не подтверждено)`;
   return `${dd}.${mm}, ${hh}:${mi}`;
 }
 
@@ -123,7 +126,7 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
       <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
       <span aria-hidden="true">→</span>{' '}
       <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
-      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs)}</span>
+      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs, r.timePrecision)}</span>
     </p>
   );
 }
@@ -140,7 +143,11 @@ export function ChangesSection({ since, depts = [] }: {
    */
   depts?: readonly string[];
 }) {
-  const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
+  const [data, setData] = useState<{
+    since: string; records: ChangeRecord[]; source?: 'db' | 'live'; failedDepts?: string[];
+    coverage?: Record<string, { rawRows: number; parsed: number; dayOnly: number;
+      unparsed: number; nonCell: number; invalidTime: number; indistinguishableDuplicates: number }>;
+  } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +203,14 @@ export function ChangesSection({ since, depts = [] }: {
     return <p className="text-[12px] text-zinc-400 dark:text-zinc-500">Журнал правок загружается…</p>;
   }
 
+  // The list may be an old persisted snapshot, not proof that every book
+  // delivered every edit. Filter warnings to the SAME department scope.
+  const selected = (dept: string) => deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept));
+  const sourceFailures = (data.failedDepts ?? []).filter(selected);
+  const limitedCoverage = Object.entries(data.coverage ?? {}).filter(([dept]) => selected(dept))
+    .filter(([, c]) => c.unparsed > 0 || c.indistinguishableDuplicates > 0);
+  const dateOnlyCount = Object.entries(data.coverage ?? {}).filter(([dept]) => selected(dept))
+    .reduce((total, [, c]) => total + c.dayOnly, 0);
   const sinceRu = formatDateCell(data.since);
   // Паспорт периметра ленты: чьи книги, с какого момента и сколько правок в
   // этом периметре (канон п.58а — подпись строится из ДАННЫХ, по которым
@@ -214,6 +229,26 @@ export function ChangesSection({ since, depts = [] }: {
         )}
       </div>
 
+      {sourceFailures.length > 0 && (
+        <p role="status" className="text-[12px] text-amber-700 dark:text-amber-300">
+          Не прочитаны журналы: {sourceFailures.map(productLabel).join(', ')}.
+          Предыдущая сохранённая история не подтверждает отсутствие новых правок.
+        </p>
+      )}
+      {limitedCoverage.length > 0 && (
+        <p role="status" className="text-[12px] text-amber-700 dark:text-amber-300">
+          Журнал покрывает не все операции: {limitedCoverage.map(([dept, c]) =>
+            `${productLabel(dept)} — ${c.unparsed} неподтверждённых,
+            ${c.indistinguishableDuplicates} неразличимых`).join('; ')}.
+          Массовые изменения и удаления нужно сверять со снимками.
+        </p>
+      )}
+      {dateOnlyCount > 0 && (
+        <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+          Записей без точного времени: {dateOnlyCount}. Для них невозможно
+          доказать порядок внутри дня или относительно времени среза.
+        </p>
+      )}
       {methodChanges.length > 0 && (
         <div>
           <div className="mb-1 text-[12px] font-medium text-violet-700 dark:text-violet-400">
