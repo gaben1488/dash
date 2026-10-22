@@ -34,7 +34,10 @@ function classifyRow(
   }
 
   // Проверяем наличие числового идентификатора (столбец A или B)
-  const hasId = isNumeric(cells['A']) || isNumeric(cells['B']);
+  const hasId = isNumeric(cells['A'])
+    || (typeof cells['A'] === 'string'
+      && /^[1-9]\d*\/[1-9]\d*$/.test(cells['A'].trim()))
+    || isNumeric(cells['B']);
 
   // Проверяем наличие суммовых столбцов
   const hasAmounts = isNumeric(cells['H']) || isNumeric(cells['I']) ||
