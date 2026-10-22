@@ -408,13 +408,27 @@ export function IntegritySection() {
         />
       ) : (
         <div className="space-y-[var(--space-4)]">
-          <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
-            <Hash size={12} aria-hidden="true" />
-            <span>
-              пропущено номеров: {visibleTotals.gapCount.toLocaleString('ru-RU')} · строк без
-              номера: {visibleTotals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
-              номера: {visibleTotals.duplicates}
-            </span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
+              <Hash size={12} aria-hidden="true" />
+              <span>
+                {visibleTotals.checkedBooks === 0 ? (
+                  'Нумерация выбранных книг не проверена — нет прочитанных данных.'
+                ) : (
+                  <>
+                    пропущено номеров: {visibleTotals.gapCount.toLocaleString('ru-RU')} · строк без
+                    номера: {visibleTotals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
+                    номера: {visibleTotals.duplicates}
+                  </>
+                )}
+              </span>
+            </div>
+            {visibleTotals.unreadBooks > 0 && (
+              <p className="ds-text-3xs text-[var(--data-warn)]">
+                Охват: {visibleTotals.checkedBooks} из {books.length} выбранных книг.
+                Непрочитанные книги не считаются проверенными и не входят в итоги.
+              </p>
+            )}
           </div>
 
           {books.map((book) => <BookCard key={book.dept} book={book} />)}
