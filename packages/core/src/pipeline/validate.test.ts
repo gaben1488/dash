@@ -523,3 +523,27 @@ describe('validateData — hasProgramName via activityType', () => {
     expect(issue.activityType).toBe('current_non_program');
   });
 });
+
+
+describe('validation rule execution failures are observable', () => {
+  it('emits an error issue while continuing to evaluate independent rules', () => {
+    const rows = [makeRow({ rowIndex: 7, cells: { A: '1' } })];
+    const broken = makeRule({
+      id: 'broken_rule',
+      check: () => { throw new Error('broken calculation'); },
+    });
+    const issues = validateData(
+      EMPTY_METRICS, rows, [broken, makeFailingRule()], EMPTY_REPORT_MAP,
+    );
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toMatchObject({
+      category: 'rule_execution_error',
+      severity: 'error',
+      row: 7,
+      sheet: 'СВОД ТД-ПМ',
+      detectedBy: 'rule:broken_rule',
+    });
+    expect(issues[0].description).toContain('broken calculation');
+    expect(issues[1].category).toBe('failing_rule');
+  });
+});
