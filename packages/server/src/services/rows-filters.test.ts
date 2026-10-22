@@ -12,6 +12,8 @@ import {
   applyYearFilter,
   paginateRows,
   parseYearFilter,
+  parseTypeFilterParam,
+  parseActivityFilterParam,
   sortRows,
   type FilterableRow,
 } from './rows-filters.js';
@@ -57,6 +59,26 @@ describe('applySearchFilter', () => {
     expect(applySearchFilter(rows, 'подписан')).toEqual([rows[2]]);
     expect(applySearchFilter(rows, 'спорт')).toEqual([rows[3]]);
     expect(applySearchFilter(rows, 'ничего')).toEqual([]);
+  });
+});
+
+describe('HTTP method/activity scope — reject unknown, preserve aliases', () => {
+  it('method accepts previous API spellings and refuses unknown explicit values', () => {
+    for (const value of [undefined, '', 'all']) expect(parseTypeFilterParam(value)).toBe('all');
+    for (const value of ['competitive', 'КП', 'single', 'ЕП']) expect(parseTypeFilterParam(value)).toBe(value);
+    for (const bad of ['foo', 'ЭА', ['single', 'competitive'], 12]) {
+      expect(() => parseTypeFilterParam(bad)).toThrow(/Недопустимый фильтр type/);
+    }
+  });
+  it('activity uses shared canonical TD/PM semantics, never a substring fallback', () => {
+    for (const value of [undefined, '', 'all', '*']) expect(parseActivityFilterParam(value)).toBe('');
+    for (const value of ['current_program', 'current_non_program', 'тд', 'Текущая деятельность'])
+      expect(parseActivityFilterParam(value)).toBe('current_non_program');
+    for (const value of ['program', 'пм', 'Программное мероприятие'])
+      expect(parseActivityFilterParam(value)).toBe('program');
+    for (const bad of ['something', ['program', 'current'], 'not-an-activity']) {
+      expect(() => parseActivityFilterParam(bad)).toThrow(/Недопустимый фильтр activity/);
+    }
   });
 });
 
@@ -160,8 +182,11 @@ describe('applyYearFilter', () => {
     expect(applyYearFilter([y2025, y2026, noYear], undefined)).toEqual([y2025, y2026, noYear]);
   });
 
-  it('строки без года (planYear=0) остаются видимыми при любом годе', () => {
-    expect(applyYearFilter([y2025, y2026, noYear], 2026)).toEqual([y2026, noYear]);
+  it('один год не присваивает неизвестный год всем выбранным годам', () => {
+    expect(applyYearFilter([y2025, y2026, noYear], 2026)).toEqual([y2026]);
+    expect(applyYearFilter([y2025, y2026, noYear], 2025)).toEqual([y2025]);
+    // The remainder is measured independently by the API before scoping.
+    expect([y2025, y2026, noYear].filter(r => r.planYear === 0)).toEqual([noYear]);
   });
 });
 

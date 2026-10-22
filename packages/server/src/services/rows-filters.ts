@@ -12,6 +12,7 @@ import {
   isOrgItself,
   subordinateNameMatchKey,
   matchesActivityScope,
+  parseActivityScope,
 } from '@aemr/shared';
 
 /** Минимальная форма строки, которую режут фильтры (RowDto ей удовлетворяет). */
@@ -49,10 +50,32 @@ const METHODS_BY_TYPE_FILTER: Record<string, readonly string[]> = {
   'ЕП': METHOD_FAMILY_MAP.EP,
 };
 
+/**
+ * Route boundary validation. Explicit invalid scope must NEVER widen a query
+ * to all rows. Keep legacy aliases that existed in the previous GET contract.
+ */
+function invalidAxis(axis: string): never {
+  throw Object.assign(new Error(`Недопустимый фильтр ${axis}.`),
+    { statusCode: 400, code: 'INVALID_SCOPE' });
+}
+export function parseTypeFilterParam(raw: unknown): string {
+  if (raw === undefined || raw === null || raw === '' || raw === 'all') return 'all';
+  if (typeof raw !== 'string' || !Object.hasOwn(METHODS_BY_TYPE_FILTER, raw)) return invalidAxis('type');
+  return raw;
+}
+export function parseActivityFilterParam(raw: unknown): string {
+  if (raw === undefined || raw === null || raw === '') return '';
+  const activity = parseActivityScope(raw);
+  if (activity === null) return invalidAxis('activity');
+  if (activity === 'all') return '';
+  return activity === 'pm' ? 'program' : 'current_non_program';
+}
+
 /** Тип закупки по колонке L = METHOD: ЭА/ЭК/ЭЗК = КП (competitive); ЕП = single. */
 export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: string): T[] {
   const codes = METHODS_BY_TYPE_FILTER[filterType];
-  if (!codes) return rows; // пусто или нераспознанное значение — всё проходит
+  if (filterType === '' || filterType === 'all') return rows;
+  if (!codes) return invalidAxis('type');
   return rows.filter(r => codes.includes(r.method.toUpperCase()));
 }
 
@@ -89,6 +112,9 @@ export function applySubordinateFilter<T extends Pick<FilterableRow, 'subordinat
  */
 export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterActivity: string): T[] {
   if (!filterActivity) return rows;
+  const scope = parseActivityScope(filterActivity);
+  if (scope === null) return invalidAxis('activity');
+  if (scope === 'all') return rows;
   return rows.filter(r => {
     switch (filterActivity) {
       case 'program':
@@ -97,7 +123,7 @@ export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterAc
       case 'current_non_program':
         return matchesActivityScope('td', r.type);
       default:
-        return String(r.type).toLowerCase().includes(filterActivity);
+        return matchesActivityScope(parseActivityScope(filterActivity) === 'pm' ? 'pm' : 'td', r.type);
     }
   });
 }
@@ -109,12 +135,14 @@ export function applyStateFilter<T extends FilterableRow>(rows: T[], filterState
 }
 
 /**
- * Фильтр по году плана (колонка P = PLAN_YEAR). Строки без года (planYear=0)
- * остаются видимыми — консистентно с calc-engine.ts:440.
+ * Same strict year cohort as CalcEngine(emptyYearPolicy='bucket'):
+ * an absent/invalid P never appears as a funded purchase in every year.
+ * Callers retain the excluded no-year count as explicit source coverage.
+ * With no year selection the original rows, including no-year, stay visible.
  */
 export function applyYearFilter<T extends FilterableRow>(rows: T[], yearFilter: number | undefined): T[] {
-  if (!yearFilter) return rows;
-  return rows.filter(r => r.planYear === 0 || r.planYear === yearFilter);
+  if (yearFilter === undefined) return rows;
+  return rows.filter(r => r.planYear === yearFilter);
 }
 
 /** Сортировка: числа — численно, иначе локалью 'ru'. Пустой sortCol = порядок не меняется. */

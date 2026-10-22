@@ -83,6 +83,16 @@ describe('buildRowDto — маппинг строки листа в DTO', () => 
     expect(dto.planYear).toBe(2026);
   });
 
+  it('историческая P с мусором не превращается в год выбранного среза', () => {
+    for (const bad of ['2026abc', '2026.5', '46045', '2099?', '']) {
+      const dto = buildRowDto(makeRow({ G: 'Закупка', L: 'ЭА', P: bad, N: '01.01.2026' }), 0, { deptId: 'uo' });
+      expect(dto.planYear, String(bad)).toBe(0);
+      // N preserves its independent known calendar date; P remains unknown.
+      expect(dto.planDate).toBe('2026-01-01');
+    }
+    expect(buildRowDto(makeRow({ G: 'Закупка', L: 'ЭА', P: 2026 }), 0, { deptId: 'uo' }).planYear).toBe(2026);
+  });
+
   it('деньги: пустые ячейки → 0, числовые значения проходят как есть', () => {
     const dto = buildRowDto(makeRow({ G: 'x', K: 2000.5 }), 0, { deptId: 'uo' });
     expect(dto.planSum).toBe(2000.5);
