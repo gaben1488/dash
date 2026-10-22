@@ -466,6 +466,42 @@ export const DashboardDataSchema = z.object({
   year: z.number().int(),
 });
 
+/**
+ * C05.02: the Svod transport is a structured grid, not an arbitrary JSON
+ * object. A missing cell field is a software/DTO defect; absence of source
+ * records is represented by an actually empty grid, never by dropped metrics.
+ * Existing zero-valued cells remain valid evidence.
+ */
+export const UnifiedSvodCellSchema = z.object({
+  planCount: z.number().finite(),
+  factCount: z.number().finite(),
+  planFB: z.number().finite(),
+  planKB: z.number().finite(),
+  planMB: z.number().finite(),
+  factFB: z.number().finite(),
+  factKB: z.number().finite(),
+  factMB: z.number().finite(),
+  economyFB: z.number().finite(),
+  economyKB: z.number().finite(),
+  economyMB: z.number().finite(),
+});
+
+export const UnifiedSvodResponseSchema = z.object({
+  grid: z.object({
+    cells: z.record(z.string(), UnifiedSvodCellSchema),
+    grbsIds: z.array(z.string()),
+    scopes: z.array(z.enum(['all', 'pm', 'td'])),
+  }),
+  reconciliation: z.array(z.object({
+    key: z.string(),
+    calc: z.number().finite(),
+    official: z.number().finite(),
+    deltaPct: z.number().finite(),
+    status: z.enum(['ok', 'warning', 'high']),
+  })),
+  year: z.number().int().optional(),
+});
+
 /** Generic API envelope */
 export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
   z.object({
