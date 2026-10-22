@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS, DEPT_HEADER_LABELS, isMetaRow, validateMasterSourceHeader } from './column-map';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, MASTER_SOURCE_PROFILE, buildCellDict, isMetaRow, validateMasterSourceHeader } from './column-map';
 
 /**
  * Фикстура: строка 3 (шапка) листа ГРБС — снято с живой книги УЭР 2026-07-29,
@@ -81,6 +81,15 @@ describe('column-map canon (DEPT_COLUMNS)', () => {
   });
 });
 
+it('master source field indices are the sole mapping for all A:AH cells, including comments', () => {
+  const fields = Object.values(MASTER_SOURCE_PROFILE.fields);
+  expect(COL_LETTER_INDEX).toEqual(Object.fromEntries(fields.map(field => [field.column, field.index])));
+  const example = Array.from({ length: MASTER_SOURCE_PROFILE.columns }, (_, index) => `field-${index}`);
+  expect(buildCellDict(example)).toEqual(
+    Object.fromEntries(fields.map(field => [field.column, example[field.index]])),
+  );
+});
+
 /**
  * Страж «карта ↔ живая шапка». Каждый ключ карты обязан указывать на колонку
  * с той подписью, которую он обещает: сдвиг индекса или новый ключ без
@@ -157,5 +166,7 @@ it('rejects a changed required meaning while allowing optional comment captions'
   header[DEPT_COLUMNS.COMMENT_UFBP] = 'Рабочее примечание';
   expect(() => validateMasterSourceHeader(header)).not.toThrow();
   header[DEPT_COLUMNS.FB_FACT] = 'Иной денежный показатель';
+  expect(() => validateMasterSourceHeader(header)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
+  header[DEPT_COLUMNS.FB_FACT] = 'Цена договора вместо ФБ 2';
   expect(() => validateMasterSourceHeader(header)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
 });

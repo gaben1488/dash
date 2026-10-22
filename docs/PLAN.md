@@ -234,6 +234,22 @@ economic-metrics PASS, включая отсутствие истории и п�
 закрывают задачу. До выполнения всех критериев двадцати задач новый кандидат
 и новый production-выпуск не запускать; продолжать реализацию в рабочей ветке.
 
+**C04.01, шестая из выбранных20, реализация 22.10 в PR#79 (не production):**
+единый принятый full capture восьми master передаётся одновременно в кэш
+Dash и генератор Word без второй перечитки тех же master. HTTP Dashboard
+читает `summaryByPeriod` за год и Q1–Q4 из одного materialized CalcEngine
+вместо смешивания с «СВОД»; официальный СВОД остаётся отдельной сверкой.
+Метка `snapshot.metadata.sourceRevision` утверждается только если все
+восемь providerId и source_revision совпали, и снимается после адресной
+правки. ReportModel и новые versioned projections используют тот же
+`source_revision`; исторический `dashboard.json` не переписывается.
+Проверки source/revision, 480 TS/Python, 560 model/dashboard значений,
+Word-content и HTTP DTO закреплены в
+[доказательствах C04.01](SELECTED20_ACCEPTANCE_2026-10-21.md).
+Это **IMPLEMENTED_IN_BRANCH**: final exact-head CI, парный live
+Dash/API/3Word readback после общей установки и отдельные выпускные гейты
+#93/#119 ещё не приняты. Новых баз, Google-колонок, worker и cron нет.
+
 Продолжение C06.01/K02.01/C05.02 от21.10: шесть арифметических проверок
 RuleBook различают passed=true/false/null. Непрочитанное слагаемое или итог
 больше не даёт PASS; validateData сообщает ограничение один раз на правило/лист,

@@ -756,6 +756,21 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceReceipt = inputReceipt;
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
+    // The report generator's source_revision is a claim about one complete
+    // accepted capture, not a hash inferred from current values. Expose it only
+    // when every configured master still belongs to that exact capture.
+    const masters = Object.entries(DEPARTMENT_SPREADSHEETS);
+    const revisions = masters.map(([name, providerId]) => {
+      const reading = deptSources[name];
+      return reading?.providerId === providerId && reading.values.length >= DEPT_HEADER_ROWS
+        ? reading.sourceRevision : undefined;
+    });
+    const sharedRevision = revisions[0];
+    if (snapshot.metadata.sourceCoverage.complete && masters.length === DEPARTMENTS.length
+        && typeof sharedRevision === 'string' && /^SRC-[a-f0-9]{64}$/.test(sharedRevision)
+        && revisions.every(revision => revision === sharedRevision)) {
+      snapshot.metadata.sourceRevision = sharedRevision;
+    }
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
     // сохраняется вместе со снимком и видно в продукте. Без него подстановка
