@@ -4,6 +4,8 @@ import cases from '../fixtures/source-value-cases.json';
 import { parseEditableAmount, parsePercentage } from './editable-amount.js';
 import { dayNumberOf, isoOfDayNumber } from './parse-sheet-date.js';
 import { convertMoney } from './money-units.js';
+import { normalizeMethod } from './dictionaries/method-families.js';
+import { classifyActivity, matchesActivityScope } from './activity-scope.js';
 
 it('reads the whole finite number instead of accepting a numeric prefix', () => {
   for (const raw of ['123abc', 'Infinity', '1 23', '1,2,3', Infinity, -Infinity, NaN, true]) {
@@ -53,4 +55,17 @@ it.each(cases.percentScales)('shared explicit percent encoding: $raw ($encoding)
     ok: true,
     value: testCase.value === null ? null : Number(testCase.value),
   });
+});
+
+it.each(cases.methods)('shared source method: $raw', testCase => {
+  // TS preserves procurement method codes, while Python groups competition
+  // into the report engine's "ЭА" bucket. Both must preserve ЕП vs auction.
+  expect(normalizeMethod(testCase.raw) ?? null).toBe(testCase.ts);
+});
+
+it('program D/E does not change activity derived from F', () => {
+  expect(classifyActivity('Текущая деятельность', 'Программа')).toBe('current_non_program');
+  expect(matchesActivityScope('pm', 'Текущая деятельность', 'Программа')).toBe(false);
+  expect(matchesActivityScope('td', 'Текущая деятельность', 'Программа')).toBe(true);
+  expect(classifyActivity('Программное мероприятие')).toBe('program');
 });
