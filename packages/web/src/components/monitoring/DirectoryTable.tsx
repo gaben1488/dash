@@ -1,6 +1,6 @@
 import { productLabel } from '@aemr/shared';
 /**
- * Режим «Справочник учреждений» — лист «Перечень ГРБС» (спека §2.4).
+ * Режим «Справочник организаций» — лист «Справочник заказчиков» (спека §2.4).
  *
  * ДВЕ ДОБАВЛЕННЫЕ КОЛОНКИ И ОДИН СПИСОК — ради них режим и существует.
  *
@@ -33,7 +33,7 @@ export interface DirectoryTableProps {
   onPickCustomer?: (name: string) => void;
 }
 
-export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceSheetName = 'Перечень ГРБС', sourceBookName = 'Ежедневный мониторинг' }: DirectoryTableProps) {
+export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceSheetName = 'Справочник заказчиков', sourceBookName = 'План-реестр процедур определения поставщика' }: DirectoryTableProps) {
   const shortMissing = directory.rows.filter((r) => r.shortMissing).length;
   const unused = directory.rows.filter((r) => r.usedInBook === 0).length;
   const jointGroups = directory.rows.filter((r) => r.entityKind === 'joint_group').length;
@@ -41,7 +41,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceS
   return (
     <div className="space-y-3">
       <section
-        aria-label="Справочник учреждений"
+        aria-label="Справочник организаций и групп заказчиков"
         className={`${CARD} p-3 sm:p-4 space-y-3`}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -88,7 +88,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceS
                   </td>
                   <td className="px-2 py-1.5 max-w-[24rem] text-zinc-700 dark:text-zinc-200">{r.fullName ?? '—'}
                     {r.sourceAddress && <p className="mt-1 text-xs text-[var(--ink-muted)]">{r.sourceAddress}</p>}
-                    {r.institutionId && <details className="mt-1 text-xs text-[var(--ink-muted)]"><summary className="cursor-pointer">Идентификатор учреждения</summary><p className="mt-1 break-all font-mono">{r.institutionId}</p></details>}
+                    {r.institutionId && <details className="mt-1 text-xs text-[var(--ink-muted)]"><summary className="cursor-pointer">Идентификатор записи</summary><p className="mt-1 break-all font-mono">{r.institutionId}</p></details>}
                     {(r.nameEvidence?.length ?? 0) > 0 ? (
                       <details className="mt-1 text-xs">
                         <summary className="cursor-pointer">Названия и источники</summary>
