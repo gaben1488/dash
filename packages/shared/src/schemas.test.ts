@@ -24,6 +24,7 @@
  * internal BI project: switching cost > realized gain).
  */
 import { describe, it, expect } from 'vitest';
+import { capturedThreshold, freezeThresholds } from './threshold-registry.js';
 import {
   KPICardSchema,
   ApiResponseSchema,
@@ -526,4 +527,46 @@ it('preserves captured scope and transient read state at the snapshot boundary w
   }
   expect(DataSnapshotSchema.shape.metadata.parse(metadata)).toEqual(metadata);
   expect(DataSnapshotSchema.shape.metadata.safeParse({ ...metadata, readModel: { state: 'complete' } }).success).toBe(false);
+});
+
+describe('C06.02 metadata contract — captured law and internal thresholds', () => {
+  const base = { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 };
+  function snapshotMetadata(thresholds: ReturnType<typeof freezeThresholds>) {
+    return { ...base, calculationContext: {
+      contract: 'aemr-calculation-context-v1' as const, id: 'historical-calculation',
+      sources: { content: 'source-hash', profiles: 'profile-hash' }, semantics: 'semantic-hash',
+      thresholds,
+      calendar: { asOf: '2026-10-21T12:00:00.000Z', productDay: 20747,
+        utcOffsetHours: 12, weeklyCutoffHour: 9 },
+      scope: { targetYear: 2026, officialYear: 2026 },
+      decisions: 'not-applied' as const, access: 'full-dataset' as const,
+    } };
+  }
+
+  it('roundtrips captured unit, source, date and legal verification status', () => {
+    const input = snapshotMetadata(freezeThresholds('2026-10-21'));
+    const parsed = DataSnapshotSchema.shape.metadata.parse(input);
+    expect(parsed.calculationContext?.thresholds).toEqual(input.calculationContext.thresholds);
+    expect(parsed.calculationContext?.thresholds['law.epSmallSingleContract']).toMatchObject({
+      value: 600, unit: 'thousandRub', source: 'law44', status: 'unverified',
+    });
+    expect(parsed.calculationContext?.thresholds['economy.highSharePct']).toMatchObject({
+      unit: 'percent', source: 'own', status: 'internal',
+    });
+  });
+
+  it('can deserialize an old context but refuses to use missing-unit law evidence', () => {
+    const old = freezeThresholds('2026-10-21');
+    const { unit: _unit, source: _source, ...legacy } = old['law.epSmallSingleContract']!;
+    const metadata = snapshotMetadata({ ...old, 'law.epSmallSingleContract': legacy as typeof old[string] });
+    const parsed = DataSnapshotSchema.shape.metadata.parse(metadata);
+    expect(capturedThreshold(parsed.calculationContext?.thresholds,
+      'law.epSmallSingleContract', 'thousandRub')).toBeUndefined();
+    const corrupted = { ...metadata, calculationContext: {
+      ...metadata.calculationContext,
+      thresholds: { ...metadata.calculationContext.thresholds,
+        'law.epSmallSingleContract': { ...legacy, unit: 'rub' } },
+    } };
+    expect(DataSnapshotSchema.shape.metadata.safeParse(corrupted).success).toBe(false);
+  });
 });
