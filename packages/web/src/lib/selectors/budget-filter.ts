@@ -1,3 +1,4 @@
+import { completeSum, observedNumber } from '@aemr/shared';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
 
@@ -9,7 +10,7 @@ import { aggregateNodeTotals } from './totals-aggregation';
  * разрез E11-1. budgetPlanFact — «выживший» по спеке
  * filter-system-target-2026-07-16 §3.4.
  */
-export interface PlanFact { plan: number; fact: number }
+export interface PlanFact { plan: number; fact: number; complete: boolean }
 export type BudgetPlanFactFn = (q: any) => PlanFact;
 
 /**
@@ -22,14 +23,30 @@ export function makeBudgetPlanFact(selectedBudgets: Set<string>): BudgetPlanFact
   const budgetShowKB = !isBudgetFiltered || selectedBudgets.has('kb');
   const budgetShowMB = !isBudgetFiltered || selectedBudgets.has('mb');
 
-  /** Sum plan/fact from quarter's per-budget fields, respecting budget filter */
+  /** Numbers remain a legacy projection; complete controls whether the
+   * figure is publishable. Do not confuse a missing selected budget with 0. */
   return (q: any): PlanFact => {
-    if (!q || !isBudgetFiltered) return { plan: q?.planTotal ?? 0, fact: q?.factTotal ?? 0 };
-    let plan = 0, fact = 0;
-    if (budgetShowFB) { plan += q.planFB ?? 0; fact += q.factFB ?? 0; }
-    if (budgetShowKB) { plan += q.planKB ?? 0; fact += q.factKB ?? 0; }
-    if (budgetShowMB) { plan += q.planMB ?? 0; fact += q.factMB ?? 0; }
-    return { plan, fact };
+    const planValues = isBudgetFiltered
+      ? [
+          ...(budgetShowFB ? [q?.planFB] : []),
+          ...(budgetShowKB ? [q?.planKB] : []),
+          ...(budgetShowMB ? [q?.planMB] : []),
+        ]
+      : [q?.planTotal];
+    const factValues = isBudgetFiltered
+      ? [
+          ...(budgetShowFB ? [q?.factFB] : []),
+          ...(budgetShowKB ? [q?.factKB] : []),
+          ...(budgetShowMB ? [q?.factMB] : []),
+        ]
+      : [q?.factTotal];
+    const observedPlan = completeSum(planValues.map(observedNumber));
+    const observedFact = completeSum(factValues.map(observedNumber));
+    return {
+      plan: observedPlan ?? 0,
+      fact: observedFact ?? 0,
+      complete: observedPlan !== null && observedFact !== null,
+    };
   };
 }
 
@@ -48,10 +65,11 @@ export function recalcTotalsByBudget(depts: any[], opts: {
   /** Полная резолюция периода — подвед-ветвь считается общим ядром (баг #4). */
   resolution: PeriodResolution;
   hasMonthData: boolean;
-}): { totalPlan: number; totalFact: number } {
+}): { totalPlan: number; totalFact: number; complete: boolean } {
   const { budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey, resolution, hasMonthData } = opts;
   let totalPlan = 0;
   let totalFact = 0;
+  let complete = depts.length > 0;
   for (const d of depts) {
     if (d._subFiltered) {
       // Баг #4 реестра охоты 08.08: раньше здесь суммировались ВСЕ 4 квартала
@@ -60,21 +78,24 @@ export function recalcTotalsByBudget(depts: any[], opts: {
       // Теперь узел идёт через то же ядро, что итоги (aggregateNodeTotals),
       // а бюджет выбирается из его периодной разбивки.
       const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
-      const { plan, fact } = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
-      totalPlan += plan; totalFact += fact;
+      const projected = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
+      if (!projected.complete || (!n.periodApplied && periodKey !== 'year')) complete = false;
+      totalPlan += projected.plan; totalFact += projected.fact;
     } else if (useMonthLevel) {
       for (const monthNum of activeMonths) {
-        const { plan, fact } = budgetPlanFact(d.months?.[monthNum]);
-        totalPlan += plan; totalFact += fact;
+        const projected = budgetPlanFact(d.months?.[monthNum]);
+        if (!projected.complete) complete = false;
+        totalPlan += projected.plan; totalFact += projected.fact;
       }
     } else {
       const aggregateQuarters = hasActiveMonths && coveredQuarters.length > 0
         ? coveredQuarters : [periodKey];
       for (const qKey of aggregateQuarters) {
-        const { plan, fact } = budgetPlanFact(d.quarters?.[qKey]);
-        totalPlan += plan; totalFact += fact;
+        const projected = budgetPlanFact(d.quarters?.[qKey] ?? (qKey === 'year' ? d : undefined));
+        if (!projected.complete) complete = false;
+        totalPlan += projected.plan; totalFact += projected.fact;
       }
     }
   }
-  return { totalPlan, totalFact };
+  return { totalPlan, totalFact, complete };
 }

@@ -11,7 +11,7 @@ const q1 = {
 const depts = [{ quarters: { q1 } }];
 
 describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)', () => {
-  it('квартальная ветвь: суммирует поля кварталов, периоды без данных — нули', () => {
+  it('квартальная ветвь: суммирует полученные поля, непрочитанные периоды остаются неизвестными', () => {
     const s = recalcSummaryByPeriod(depts, {
       isActivityFiltered: false, actKeys: [], budgetPlanFact: noBudget, showKP: true, showEP: true,
     });
@@ -21,10 +21,52 @@ describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)',
       fbPlan: 90, kbPlan: 30, mbPlan: 20,
       source: 'filtered',
     });
-    expect(s.q2.kpCount).toBe(0);
+    expect(s.q2.kpCount).toBeNull();
+    expect(s.q2.kpPlan).toBeNull();
+    expect(s.q2.fbPlan).toBeNull();
     expect(s.q2.kpPercent).toBeNull();
     expect(s.q2.epPercent).toBeNull();
     expect(Object.keys(s)).toEqual(['q1', 'q2', 'q3', 'q4', 'year']);
+  });
+
+  it('C05.02 prevents partial totals when one of several departments is unread', () => {
+    const two = [depts[0], { quarters: { q1: {
+      ...q1, kpCount: null, kpPlanTotal: null, epCount: 0, epPlanTotal: 0,
+    } } }];
+    const s = recalcSummaryByPeriod(two, {
+      isActivityFiltered: false, actKeys: [], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
+    });
+    expect(s.q1.kpCount).toBeNull();
+    expect(s.q1.kpPlan).toBeNull();
+    expect(s.q1.epCount).toBe(1);
+    expect(s.q1.epPlan).toBe(40);
+    expect(s.q1.kpPercent).toBeNull();
+  });
+
+  it('C05.02 keeps an explicit zero even when the next period is unread', () => {
+    const s = recalcSummaryByPeriod([{ quarters: { q1: {
+      ...q1, kpCount: 0, kpFactCount: 0, kpPlanTotal: 0, kpFactTotal: 0,
+    } } }], {
+      isActivityFiltered: false, actKeys: [], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
+    });
+    expect(s.q1.kpCount).toBe(0);
+    expect(s.q1.kpPercent).toBeNull();
+    expect(s.q2.kpCount).toBeNull();
+  });
+
+  it('C05.02 method coverage missing does not publish partial filtered money or a zero', () => {
+    const partial = [{ quarters: { q1: { ...q1, planCount: 3, factCount: 2 } } }];
+    const s = recalcSummaryByPeriod(partial, {
+      isActivityFiltered: false, actKeys: [], budgetPlanFact: noBudget,
+      showKP: false, showEP: true,
+    });
+    expect(s.q1.kpCount).toBe(0);
+    expect(s.q1.epCount).toBeNull();
+    expect(s.q1.epPlan).toBeNull();
+    expect(s.q1.fbPlan).toBeNull();
+    expect(s.q1.source).toBe('unverified_activity_method');
   });
 
   it('способ: невыбранный тип обнуляется (показываем только ЕП)', () => {

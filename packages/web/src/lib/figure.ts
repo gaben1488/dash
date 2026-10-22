@@ -1,4 +1,4 @@
-import { PRODUCT_COPY } from '@aemr/shared';
+import { PRODUCT_COPY, observedNumber, completeSum, percentOf } from '@aemr/shared';
 // ── Число с паспортом: значение, единица, периметр, происхождение ──────────
 //
 //    Требование владельца дословно: «гарантии нужны, что в UI/UX правильно
@@ -117,8 +117,8 @@ export function figure(input: {
  * не среднее долей.
  */
 export interface RatioFigure {
-  readonly numerator: number;
-  readonly denominator: number;
+  readonly numerator: number | null;
+  readonly denominator: number | null;
   /** Единица числителя и знаменателя — она же попадает в подпись при разборе. */
   readonly unit: FigureUnit;
   readonly perimeter: Perimeter;
@@ -128,16 +128,16 @@ export interface RatioFigure {
 }
 
 export function ratio(input: {
-  numerator: number;
-  denominator: number;
+  numerator: number | null | undefined;
+  denominator: number | null | undefined;
   unit: FigureUnit;
   perimeter: Perimeter;
   provenance: FigureProvenance;
   nullReason?: string;
 }): RatioFigure {
   return {
-    numerator: input.numerator,
-    denominator: input.denominator,
+    numerator: observedNumber(input.numerator),
+    denominator: observedNumber(input.denominator),
     unit: input.unit,
     perimeter: input.perimeter,
     provenance: input.provenance,
@@ -152,14 +152,16 @@ export function ratio(input: {
  */
 export function toPercent(r: RatioFigure, opts?: { decimals?: number }): Figure {
   const decimals = opts?.decimals ?? UNIT_DECIMALS['%'];
-  const hasBase = Number.isFinite(r.denominator) && r.denominator > 0 && Number.isFinite(r.numerator);
-  const pct = hasBase ? +((r.numerator / r.denominator) * 100).toFixed(decimals) : null;
+  const pct = percentOf(r.numerator, r.denominator, decimals);
+  const nullReason = r.nullReason ??
+    (r.numerator === null ? 'числитель не прочитан'
+      : r.denominator === null ? 'знаменатель не прочитан' : NO_PLAN_REASON);
   return figure({
     value: pct,
     unit: '%',
     perimeter: r.perimeter,
     provenance: r.provenance,
-    nullReason: r.nullReason ?? NO_PLAN_REASON,
+    nullReason,
   });
 }
 
@@ -171,12 +173,10 @@ export function toPercent(r: RatioFigure, opts?: { decimals?: number }): Figure 
  */
 export function sumRatios(parts: readonly RatioFigure[], fallback: RatioFigure): RatioFigure {
   const head = parts[0] ?? fallback;
-  let numerator = 0;
-  let denominator = 0;
-  for (const p of parts) {
-    if (Number.isFinite(p.numerator)) numerator += p.numerator;
-    if (Number.isFinite(p.denominator)) denominator += p.denominator;
-  }
+  // A missing term invalidates the whole ratio. Never silently drop a
+  // department from a numerator or a denominator.
+  const numerator = completeSum(parts.map(p => p.numerator));
+  const denominator = completeSum(parts.map(p => p.denominator));
   return { ...head, numerator, denominator };
 }
 

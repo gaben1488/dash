@@ -50,6 +50,13 @@ describe('доступность сверки объясняется, а не м
     expect(reconAvailability({ ...OPEN, period: null }).code).toBe('period');
   });
 
+  it('не сформированная сверка не подменяется массивом без расхождений', () => {
+    const a = reconAvailability({ ...OPEN, reconciliationMaterialized: false });
+    expect(a.available).toBe(false);
+    expect(a.code).toBe('not_ready');
+    expect(a.reason).toContain('не сформирован');
+  });
+
   it('пустой ответ сверки — отдельная причина, а не «всё сошлось»', () => {
     expect(reconAvailability({ ...OPEN, hasRows: false }).code).toBe('absent');
   });

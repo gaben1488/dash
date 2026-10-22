@@ -38,6 +38,7 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
+import { completeAverage, completeSum, cumulativePercentOfYear, latestAdjacentObservedDelta, materializedCategoryAmount, observedNumber, percentOf } from '@aemr/shared';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 
@@ -191,27 +192,28 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
 
 /** Progress bar for budget execution */
 function BudgetProgress({ label, plan, fact, color, formatMoney }: {
-  label: string; plan: number; fact: number; color: string; formatMoney: (v: number) => string;
+  label: string; plan: number | null; fact: number | null; color: string; formatMoney: (v: number) => string;
 }) {
-  const pct = plan > 0 ? Math.min((fact / plan) * 100, 150) : 0;
+  const pct = percentOf(fact, plan);
+  const displayPct = pct !== null ? Math.min(pct, 150) : null;
   return (
     <div className="mb-2">
       <div className="flex justify-between text-[10px] mb-0.5">
         <span className="font-medium text-zinc-500 dark:text-zinc-400">{label}</span>
-        <span className="text-zinc-400">{plan > 0 ? `${pct.toFixed(0)}%` : '—'}</span>
+        <span className="text-zinc-400">{displayPct !== null ? `${displayPct.toFixed(0)}%` : plan === 0 ? 'нет плана' : 'нет данных'}</span>
       </div>
       <div className="h-3 bg-zinc-100 dark:bg-zinc-700/50 rounded-full overflow-hidden relative">
         <div
           className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }}
+          style={{ width: `${Math.max(0, Math.min(displayPct ?? 0, 100))}%`, backgroundColor: color }}
         />
-        {pct > 100 && (
-          <div className="absolute top-0 right-0 h-full w-[2px] bg-red-500" style={{ left: `${(100 / pct) * 100}%` }} />
+        {displayPct !== null && displayPct > 100 && (
+          <div className="absolute top-0 right-0 h-full w-[2px] bg-red-500" style={{ left: `${(100 / displayPct) * 100}%` }} />
         )}
       </div>
       <div className="flex justify-between text-[9px] mt-0.5 text-zinc-400">
-        <span>Факт: {formatMoney(fact)}</span>
-        <span>План: {formatMoney(plan)}</span>
+        <span>Факт: {fact === null ? 'не прочитан' : formatMoney(fact)}</span>
+        <span>План: {plan === null ? 'не прочитан' : formatMoney(plan)}</span>
       </div>
     </div>
   );
@@ -286,7 +288,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
     return MONTH_LABELS.map((name, i) => {
       const point: Record<string, any> = { name };
       for (const sc of forecast.scenarios) {
-        point[sc.label] = sc.monthlyProjection?.[i] ?? 0;
+        point[sc.label] = observedNumber(sc.monthlyProjection?.[i]);
       }
       return point;
     });
@@ -319,7 +321,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
           <span className="text-[10px] text-zinc-400 underline decoration-dotted cursor-help">как строится прогноз</span>
         </KBTooltip>
       </div>
-      {chartData.length > 0 && forecast?.scenarios?.length > 0 ? (
+      {chartData.some(point => forecast?.scenarios?.some((sc: { label: string }) => point[sc.label] !== null)) ? (
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
@@ -422,17 +424,13 @@ export function Analytics() {
   // ── Quarterly trend: КП vs ЕП by quarter ──
   const quarterlyTrend = useMemo(() => {
     const quarters = ['q1', 'q2', 'q3', 'q4'] as const;
-    return quarters.map(qk => {
-      let kp = 0, ep = 0, plan = 0, fact = 0;
-      for (const d of filteredDepts) {
-        const q = d.quarters?.[qk];
-        kp += q?.kpCount ?? 0;
-        ep += q?.epCount ?? 0;
-        plan += q?.planTotal ?? 0;
-        fact += q?.factTotal ?? 0;
-      }
-      return { name: PERIOD_LABELS[qk], kp, ep, plan, fact };
-    });
+    return quarters.map(qk => ({
+      name: PERIOD_LABELS[qk],
+      kp: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.kpCount)),
+      ep: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.epCount)),
+      plan: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.planTotal)),
+      fact: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.factTotal)),
+    }));
   }, [filteredDepts]);
 
   // ── Execution trend by quarter per department (line chart) ──
@@ -467,11 +465,10 @@ export function Analytics() {
   const execTrendClaim = useMemo(() => {
     let rising = 0, falling = 0, flat = 0;
     for (const name of deptNames) {
-      const series = execTrend
-        .map((p: Record<string, unknown>) => p[name])
-        .filter((v): v is number => typeof v === 'number');
-      if (series.length < 2) continue;
-      const delta = series[series.length - 1] - series[0];
+      const series = execTrend.map((p: Record<string, unknown>) =>
+        typeof p[name] === 'number' ? p[name] as number : null);
+      const delta = latestAdjacentObservedDelta(series);
+      if (delta === null) continue;
       if (delta > 1) rising += 1;
       else if (delta < -1) falling += 1;
       else flat += 1;
@@ -496,10 +493,11 @@ export function Analytics() {
       return {
         name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
-        planFB: q.planFB ?? 0, planKB: q.planKB ?? 0, planMB: q.planMB ?? 0,
-        factFB: q.factFB ?? 0, factKB: q.factKB ?? 0, factMB: q.factMB ?? 0,
-        planTotal: q.planTotal ?? d.planTotal ?? 0,
-        factTotal: q.factTotal ?? d.factTotal ?? 0,
+        planFB: observedNumber(q.planFB), planKB: observedNumber(q.planKB), planMB: observedNumber(q.planMB),
+        factFB: observedNumber(q.factFB), factKB: observedNumber(q.factKB), factMB: observedNumber(q.factMB),
+        // Never borrow the annual value when the selected quarter is unread.
+        planTotal: observedNumber(q.planTotal),
+        factTotal: observedNumber(q.factTotal),
         color: chartColors[i % chartColors.length],
       };
     });
@@ -508,12 +506,12 @@ export function Analytics() {
   // ── Department shares (% of total) ──
   const deptShares = useMemo(() => {
     if (!hasDeptData) return [];
-    const totalPlan = budgetByDept.reduce((s: number, d: typeof budgetByDept[0]) => s + d.planTotal, 0);
-    const totalFact = budgetByDept.reduce((s: number, d: typeof budgetByDept[0]) => s + d.factTotal, 0);
+    const totalPlan = completeSum(budgetByDept.map(d => d.planTotal));
+    const totalFact = completeSum(budgetByDept.map(d => d.factTotal));
     return budgetByDept.map((d: typeof budgetByDept[0]) => ({
       ...d,
-      planShare: totalPlan > 0 ? +((d.planTotal / totalPlan) * 100).toFixed(1) : 0,
-      factShare: totalFact > 0 ? +((d.factTotal / totalFact) * 100).toFixed(1) : 0,
+      planShare: percentOf(d.planTotal, totalPlan),
+      factShare: percentOf(d.factTotal, totalFact),
     }));
   }, [budgetByDept, hasDeptData]);
 
@@ -535,7 +533,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => ({
       name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
       id: d.department?.id,
-      trust: d.trustScore ?? 0,
+      trust: observedNumber(d.trustScore),
     }));
   }, [filteredDepts, hasDeptData]);
 
@@ -547,12 +545,12 @@ export function Analytics() {
       return {
         dept: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
-        execPct: q.executionPct ?? d.executionPercent ?? 0,
-        planTotal: q.planTotal ?? d.planTotal,
-        factTotal: q.factTotal ?? d.factTotal,
-        issues: d.issueCount ?? 0,
-        kpCount: q.kpCount ?? d.competitiveCount ?? 0,
-        epCount: q.epCount ?? d.soleCount ?? 0,
+        execPct: observedNumber(q.executionPct),
+        planTotal: observedNumber(q.planTotal),
+        factTotal: observedNumber(q.factTotal),
+        issues: observedNumber(d.issueCount),
+        kpCount: observedNumber(q.kpCount),
+        epCount: observedNumber(q.epCount),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
@@ -561,17 +559,23 @@ export function Analytics() {
   const activityData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => {
-      const ba = d.byActivity?.[periodKey] ?? {};
+      const ba = d.byActivity?.[periodKey];
+      // A category absent from a materialized period has no rows, but a
+      // missing period or amount is not an observed zero. Historical
+      // current_program (when present) remains part of the same TD total.
       return {
         name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         id: d.department?.id,
-        // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
-        // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
-        // рядом: иначе на графике разложение не сходится с фильтром на экране.
-        program: ba.program?.planTotal ?? 0,
-        current: (ba.current_program?.planTotal ?? 0) + (ba.current_non_program?.planTotal ?? 0),
-        programFact: ba.program?.factTotal ?? 0,
-        currentFact: (ba.current_program?.factTotal ?? 0) + (ba.current_non_program?.factTotal ?? 0),
+        program: materializedCategoryAmount(ba, 'program', 'planTotal'),
+        current: completeSum([
+          materializedCategoryAmount(ba, 'current_program', 'planTotal'),
+          materializedCategoryAmount(ba, 'current_non_program', 'planTotal'),
+        ]),
+        programFact: materializedCategoryAmount(ba, 'program', 'factTotal'),
+        currentFact: completeSum([
+          materializedCategoryAmount(ba, 'current_program', 'factTotal'),
+          materializedCategoryAmount(ba, 'current_non_program', 'factTotal'),
+        ]),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
@@ -580,18 +584,16 @@ export function Analytics() {
   const velocityData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => {
-      const q1f = d.quarters?.q1?.factTotal ?? 0;
-      const q2f = d.quarters?.q2?.factTotal ?? 0;
-      const q3f = d.quarters?.q3?.factTotal ?? 0;
-      const q4f = d.quarters?.q4?.factTotal ?? 0;
-      const cumulative = [q1f, q1f + q2f, q1f + q2f + q3f, q1f + q2f + q3f + q4f];
-      const yearPlan = d.quarters?.year?.planTotal ?? 1;
+      const cumulative = cumulativePercentOfYear(
+        ['q1', 'q2', 'q3', 'q4'].map(qk => d.quarters?.[qk]?.factTotal),
+        d.quarters?.year?.planTotal,
+      );
       return {
         name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
-        q1: yearPlan > 0 ? +((cumulative[0] / yearPlan) * 100).toFixed(1) : 0,
-        q2: yearPlan > 0 ? +((cumulative[1] / yearPlan) * 100).toFixed(1) : 0,
-        q3: yearPlan > 0 ? +((cumulative[2] / yearPlan) * 100).toFixed(1) : 0,
-        q4: yearPlan > 0 ? +((cumulative[3] / yearPlan) * 100).toFixed(1) : 0,
+        q1: cumulative[0],
+        q2: cumulative[1],
+        q3: cumulative[2],
+        q4: cumulative[3],
       };
     });
   }, [filteredDepts, hasDeptData]);
@@ -599,19 +601,19 @@ export function Analytics() {
   // ── Subordinate rankings ──
   const topSubordinates = useMemo(() => {
     if (!hasDeptData) return [];
-    const all: { name: string; dept: string; executionPct: number; planTotal: number; factTotal: number }[] = [];
+    const all: { name: string; dept: string; executionPct: number | null; planTotal: number | null; factTotal: number | null }[] = [];
     for (const d of filteredDepts) {
       for (const sub of (d.subordinates ?? [])) {
         all.push({
           name: sub.name,
           dept: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
-          executionPct: sub.executionPct ?? 0,
-          planTotal: sub.planTotal ?? 0,
-          factTotal: sub.factTotal ?? 0,
+          executionPct: observedNumber(sub.executionPct),
+          planTotal: observedNumber(sub.planTotal),
+          factTotal: observedNumber(sub.factTotal),
         });
       }
     }
-    return all.sort((a, b) => b.planTotal - a.planTotal).slice(0, 15);
+    return all.sort((a, b) => (b.planTotal ?? -Infinity) - (a.planTotal ?? -Infinity)).slice(0, 15);
   }, [filteredDepts, hasDeptData]);
 
   /**
@@ -658,10 +660,10 @@ export function Analytics() {
         key: r.key,
         name: r.label,
         color: chartColors[i % chartColors.length],
-        planTotal: r.planTotal ?? 0,
-        factTotal: r.factTotal ?? 0,
-        planShare: plan > 0 ? +(((r.planTotal ?? 0) / plan) * 100).toFixed(1) : 0,
-        factShare: fact > 0 ? +(((r.factTotal ?? 0) / fact) * 100).toFixed(1) : 0,
+        planTotal: r.hasRows ? r.planTotal : 0,
+        factTotal: r.hasRows ? r.factTotal : 0,
+        planShare: percentOf(r.hasRows ? r.planTotal : 0, plan),
+        factShare: percentOf(r.hasRows ? r.factTotal : 0, fact),
         open: () => openOrgRows(r.key),
       }));
     }
@@ -669,60 +671,70 @@ export function Analytics() {
       key: String(d.id ?? i),
       name: d.name as string,
       color: d.color as string,
-      planTotal: d.planTotal as number,
-      factTotal: d.factTotal as number,
-      planShare: d.planShare as number,
-      factShare: d.factShare as number,
+      planTotal: observedNumber(d.planTotal),
+      factTotal: observedNumber(d.factTotal),
+      planShare: observedNumber(d.planShare),
+      factShare: observedNumber(d.factShare),
       open: () => { if (d.id) navigateTo('data', { department: d.id }); },
     }));
   }, [orgScope.mode, subBreakdown, subTotals, deptShares, chartColors, navigateTo, openOrgRows]);
 
-  const topShare = shareRows.length > 0
-    ? shareRows.reduce((max, r) => (r.planShare > max.planShare ? r : max), shareRows[0])
+  const sharesIncomplete = shareRows.some(r => r.planTotal === null || r.factTotal === null);
+  const topShare = shareRows.length > 0 && shareRows.every(r => r.planShare !== null)
+    ? shareRows.reduce((max, r) => ((r.planShare ?? -1) > (max.planShare ?? -1) ? r : max), shareRows[0])
     : null;
 
   // ── Assertion-driven title data ──
-  const epTotal = quarterlyTrend.reduce((s, q) => s + q.ep, 0);
-  const kpTotal = quarterlyTrend.reduce((s, q) => s + q.kp, 0);
-  const epSharePct = (epTotal + kpTotal) > 0 ? (epTotal / (epTotal + kpTotal)) * 100 : 0;
+  const epTotal = completeSum(quarterlyTrend.map(q => q.ep));
+  const kpTotal = completeSum(quarterlyTrend.map(q => q.kp));
+  const epSharePct = percentOf(epTotal, completeSum([epTotal, kpTotal]));
 
-  const totalPlan = budgetByDept.reduce((s, d) => s + d.planTotal, 0);
-  const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
-  const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
+  const totalPlan = completeSum(budgetByDept.map(d => d.planTotal));
+  const totalFact = completeSum(budgetByDept.map(d => d.factTotal));
+  const overallExecPct = percentOf(totalFact, totalPlan);
 
   const limitReduction = scatterSummary?.limitReductionPercent ?? null;
 
-  const avgExecHeatmap = heatmapData.length > 0
-    ? heatmapData.reduce((s: number, d: any) => s + (d.execPct ?? 0), 0) / heatmapData.length
-    : 0;
-
-  const avgTrust = trustData.length > 0
-    ? trustData.reduce((s, d) => s + d.trust, 0) / trustData.length
-    : 0;
-  const lowTrustCount = trustData.filter(d => d.trust < 60).length;
+  const avgExecHeatmap = completeAverage(heatmapData.map(d => d.execPct));
+  const avgTrust = completeAverage(trustData.map(d => d.trust));
+  const knownTrustCount = trustData.filter(d => d.trust !== null).length;
+  const lowTrustCount = trustData.filter(d => d.trust !== null && d.trust < 60).length;
 
   const totalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0) + ((d as any).significant ?? 0) + ((d as any).warning ?? 0) + ((d as any).info ?? 0), 0);
   const criticalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0), 0);
 
   // ── Treemap: spend hierarchy by department ──
+  const treemapIncomplete = hasDeptData && filteredDepts.some((d: any) => observedNumber(d.quarters?.[periodKey]?.factTotal) === null);
   const treemapData = useMemo(() => {
-    if (!hasDeptData) return [];
+    if (!hasDeptData || treemapIncomplete) return [];
     return filteredDepts
       .map((d: any, i: number) => {
         const q = d.quarters?.[periodKey] ?? {};
-        const fact = q.factTotal ?? d.factTotal ?? 0;
+        const fact = observedNumber(q.factTotal);
         return {
           name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           id: d.department?.id,
-          size: Math.max(fact, 0),
+          size: fact === null ? null : Math.max(fact, 0),
           fill: chartColors[i % chartColors.length],
         };
       })
-      .filter(d => d.size > 0);
-  }, [filteredDepts, hasDeptData, periodKey, chartColors]);
+      .filter(d => d.size !== null && d.size > 0);
+  }, [filteredDepts, hasDeptData, periodKey, chartColors, treemapIncomplete]);
+
+  const hasUnconfirmedMetrics =
+    quarterlyTrend.some(q => q.kp === null || q.ep === null || q.plan === null || q.fact === null) ||
+    budgetByDept.some(d => d.planTotal === null || d.factTotal === null) ||
+    trustData.some(d => d.trust === null);
 
   return (
     <div className="space-y-4">
+      {hasUnconfirmedMetrics && (
+        <p role="status" className="rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--ink-muted)]">
+          Часть показателей за выбранные периоды не подтверждена или ещё не оценена.
+          Пропуски не равны нулю: они не включены в доли, итоговые проценты и сравнение рейтингов.
+          Для сверки откройте соответствующие строки Реестра и раздел контроля.
+        </p>
+      )}
       {/* Что делает выбор организаций с этой страницей — сказано до чисел,
           а не после (канон п.53: механизм, адрес, действие). */}
       {selectedSubordinates.size > 0 && (
@@ -820,8 +832,8 @@ export function Analytics() {
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated" perimeter={perimeters.quarterlyTrend}>
-          {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
+        <AnalyticsCard title={epSharePct !== null && epSharePct > 30 ? `Доля ЕП — ${epSharePct.toFixed(0)}% закупок (требует анализа)` : epSharePct !== null ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${completeSum([epTotal, kpTotal])})` : 'Динамика закупок по кварталам: доля по неполным данным не рассчитана'} icon={BarChart3} source="calculated" perimeter={perimeters.quarterlyTrend}>
+          {quarterlyTrend.some(q => q.kp !== null || q.ep !== null) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
@@ -839,8 +851,8 @@ export function Analytics() {
             </ResponsiveContainer>
           ) : (
             <CardEmpty
-              title="Закупок по кварталам не нашлось"
-              description="В книгах выбранных управлений нет ни одной строки с распознанным кварталом за этот год: сравнивать конкурентные и единственного поставщика не по чему."
+              title="Квартальные данные не подтверждены"
+              description="За выбранный период нет полного ряда данных КП и ЕП. Отсутствующее значение нельзя выдавать за ноль закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           )}
@@ -856,7 +868,7 @@ export function Analytics() {
                 <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {deptNames.map((name, i) => (
-                  <Line key={name} type="monotone" dataKey={name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line key={name} type="monotone" dataKey={name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -870,8 +882,8 @@ export function Analytics() {
       </div>
 
       {/* Row 2: Plan vs Fact comparison by department */}
-      <AnalyticsCard title={overallExecPct > 0 ? `Исполнение ${overallExecPct.toFixed(0)}% — ${overallExecPct < 25 ? 'отставание от графика' : overallExecPct > 90 ? 'на уровне плана' : 'в работе'} (${periodLabel})` : `Сравнение План / Факт по управлениям (${periodLabel})`} icon={Layers} source="calculated">
-        {budgetByDept.length > 0 ? (
+      <AnalyticsCard title={overallExecPct !== null ? `Исполнение ${overallExecPct.toFixed(0)}% — ${overallExecPct < 25 ? 'отставание от графика' : overallExecPct > 90 ? 'на уровне плана' : 'в работе'} (${periodLabel})` : `Сравнение План / Факт: неполные данные (${periodLabel})`} icon={Layers} source="calculated">
+        {budgetByDept.some(d => d.planTotal !== null || d.factTotal !== null) ? (
           <div>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={budgetByDept} barCategoryGap="15%">
@@ -932,11 +944,11 @@ export function Analytics() {
                         <div className="mt-2 border-t border-[var(--line-soft)] pt-2">
                           <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого план:</span>
-                            <span className="font-semibold tabular-nums">{formatMoney(dept.planTotal)}</span>
+                            <span className="font-semibold tabular-nums">{dept.planTotal === null ? 'не прочитан' : formatMoney(dept.planTotal)}</span>
                           </div>
                           <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого факт:</span>
-                            <span className="font-semibold tabular-nums">{formatMoney(dept.factTotal)}</span>
+                            <span className="font-semibold tabular-nums">{dept.factTotal === null ? 'не прочитан' : formatMoney(dept.factTotal)}</span>
                           </div>
                         </div>
                         {subs.length > 0 && (
@@ -967,8 +979,8 @@ export function Analytics() {
           </div>
         ) : (
           <CardEmpty
-              title="Плановых сумм по бюджетам нет"
-              description="Ни у одного выбранного управления не заполнены федеральный, краевой и муниципальный планы за этот период — столбцы складывать не из чего."
+              title="План и факт за выбранный период не прочитаны"
+              description="Нет подтверждённых расчётных значений для выбранного периода. Это не означает нулевую потребность или отсутствие закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
         )}
@@ -984,7 +996,7 @@ export function Analytics() {
           : `Доли в закупках (${periodLabel})`}
       >
         <OrgScopeNote scope={orgScope} whatSplits="долей" />
-        {shareRows.length > 0 ? (
+        {shareRows.some(d => d.planShare !== null || d.factShare !== null) ? (
           <div>
             <p className="mb-2 text-[11px] text-[var(--ink-muted)]">
               {orgScope.mode === 'withSubs'
@@ -995,16 +1007,16 @@ export function Analytics() {
             <div className="mb-4">
               <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По плану</div>
               <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
-                {shareRows.filter((d) => d.planShare > 0).map((d) => (
+                {shareRows.filter((d) => d.planShare !== null && d.planShare > 0).map((d) => (
                   <button
                     type="button"
                     key={`plan-${d.key}`}
                     className="relative cursor-pointer transition-opacity hover:opacity-80"
-                    style={{ width: `${d.planShare}%`, backgroundColor: d.color }}
+                    style={{ width: `${d.planShare ?? 0}%`, backgroundColor: d.color }}
                     onClick={d.open}
-                    title={`${d.name}: ${formatMoney(d.planTotal)} — ${d.planShare} % плана`}
+                    title={`${d.name}: ${d.planTotal === null ? 'не прочитан' : formatMoney(d.planTotal)} — ${d.planShare} % плана`}
                   >
-                    {d.planShare > 6 && (
+                    {d.planShare !== null && d.planShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.planShare}%
                       </span>
@@ -1017,16 +1029,16 @@ export function Analytics() {
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По факту</div>
               <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
-                {shareRows.filter((d) => d.factShare > 0).map((d) => (
+                {shareRows.filter((d) => d.factShare !== null && d.factShare > 0).map((d) => (
                   <button
                     type="button"
                     key={`fact-${d.key}`}
                     className="relative cursor-pointer transition-opacity hover:opacity-80"
-                    style={{ width: `${d.factShare}%`, backgroundColor: d.color, opacity: 0.85 }}
+                    style={{ width: `${d.factShare ?? 0}%`, backgroundColor: d.color, opacity: 0.85 }}
                     onClick={d.open}
-                    title={`${d.name}: ${formatMoney(d.factTotal)} — ${d.factShare} % факта`}
+                    title={`${d.name}: ${d.factTotal === null ? 'не прочитан' : formatMoney(d.factTotal)} — ${d.factShare} % факта`}
                   >
-                    {d.factShare > 6 && (
+                    {d.factShare !== null && d.factShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.factShare}%
                       </span>
@@ -1043,7 +1055,7 @@ export function Analytics() {
                   <span className="h-2.5 w-2.5 rounded" style={{ backgroundColor: d.color }} aria-hidden="true" />
                   <span>{d.name}</span>
                   <span className="tabular-nums text-[var(--ink-faint)]">
-                    {d.planShare > 0 ? `${d.planShare} % плана` : 'плана нет'}
+                    {d.planShare === null ? 'доля не рассчитана' : `${d.planShare} % плана`}
                   </span>
                 </li>
               ))}
@@ -1051,14 +1063,14 @@ export function Analytics() {
           </div>
         ) : orgScope.mode === 'withSubs' ? (
           <CardEmpty
-            title={`У управления ${orgDeptLabel} нет сумм для разбивки`}
-            description="Ни у аппарата, ни у учреждений за выбранный период не заполнены план и факт — доли считать не от чего."
+            title={sharesIncomplete ? `Доли управления ${orgDeptLabel} не рассчитаны: неполные суммы` : `У управления ${orgDeptLabel} нет плановой базы для долей`}
+            description={sharesIncomplete ? 'Часть плановых или фактических значений не прочитана — неизвестное не заменяется нулём в знаменателе.' : 'При подтверждённой нулевой базе доля не вычисляется.'}
             action={{ label: 'Открыть строки управления', onClick: () => openOrgRows(ORG_ITSELF_SENTINEL) }}
           />
         ) : (
           <CardEmpty
-            title="Долей нет: план и факт по управлениям пусты"
-            description="Доля считается от суммы по всем показанным управлениям; пока сумма равна нулю, любая доля была бы делением на ноль."
+            title={sharesIncomplete ? 'Доли по управлениям не рассчитаны: источник неполон' : 'Доли по управлениям: нет положительной базы'}
+            description={sharesIncomplete ? 'Как минимум одна сумма выбранного управления не прочитана. Уменьшать знаменатель за счёт пропущенных данных нельзя.' : 'При подтверждённой нулевой базе доли не определены; ноль процентов не подставляется.'}
           />
         )}
       </AnalyticsCard>
@@ -1075,8 +1087,8 @@ export function Analytics() {
           </p>
           {treemapData.length === 0 ? (
             <CardEmpty
-              title="Платежей за период нет"
-              description="Ни одно управление не показало факта за выбранный период: структуру расходов складывать не из чего."
+              title={treemapIncomplete ? 'Структура расходов не рассчитана: часть факта не прочитана' : 'Подтверждённый факт за период равен нулю'}
+              description={treemapIncomplete ? 'Нельзя рассчитывать доли от неполной суммы: отсутствующее управление нельзя исключать из знаменателя.' : 'При подтверждённом нулевом факте структуру долей строить не из чего.'}
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           ) : (
@@ -1112,10 +1124,10 @@ export function Analytics() {
       {/* Виды деятельности: программная против текущей */}
       {(
         <AnalyticsCard title={`Разбивка по видам деятельности (${periodLabel})`} icon={Layers} source="calculated">
-          {!activityData.some(d => d.program > 0 || d.current > 0) ? (
+          {!activityData.some(d => d.program !== null || d.current !== null) ? (
             <CardEmpty
-              title="Вид деятельности в строках не проставлен"
-              description="Разбивка строится по колонке вида деятельности книги: за выбранный период ни программных, ни текущих сумм в ней нет."
+              title="Суммы по видам деятельности не прочитаны"
+              description="Пока источник не предоставил расчёт, отсутствие показателя не доказывает отсутствие программных и текущих закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           ) : (
@@ -1148,7 +1160,7 @@ export function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {(
           <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter={perimeters.velocity}>
-            {velocityData.length === 0 ? (
+            {!velocityData.some(d => d.q1 !== null || d.q2 !== null || d.q3 !== null || d.q4 !== null) ? (
               <CardEmpty
                 title="Скорость исполнения не построена"
                 description="Кумулятивная линия считается от годового плана управления: пока плана нет, накопленный процент был бы делением на ноль."
@@ -1167,7 +1179,7 @@ export function Analytics() {
                 <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {velocityData.map((d, i) => (
-                  <Line key={d.name} type="monotone" dataKey={d.name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line key={d.name} type="monotone" dataKey={d.name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -1280,10 +1292,10 @@ export function Analytics() {
                         <td className="py-1.5 text-[10px] tabular-nums text-[var(--ink-faint)]">{idx + 1}</td>
                         <td className="max-w-[180px] truncate py-1.5 text-xs text-[var(--ink)]" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
                         <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{productLabel(sub.dept)}</td>
-                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.planTotal)}</td>
-                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.factTotal)}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{sub.planTotal === null ? 'не прочитан' : formatMoney(sub.planTotal)}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{sub.factTotal === null ? 'не прочитан' : formatMoney(sub.factTotal)}</td>
                         <td className="py-1.5 text-center">
-                          {sub.executionPct > 0 ? (
+                          {sub.executionPct !== null ? (
                             <span
                               className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
                               style={{ backgroundColor: getExecutionHeatBg(sub.executionPct, isDark), color: getExecutionHeatText(sub.executionPct, isDark) }}
@@ -1291,8 +1303,8 @@ export function Analytics() {
                               {sub.executionPct.toFixed(0)}%
                             </span>
                           ) : (
-                            <span className="text-[10px] text-[var(--ink-faint)]" title="Плана за период нет — исполнять нечего">
-                              нет базы
+                            <span className="text-[10px] text-[var(--ink-faint)]" title={sub.planTotal === 0 ? 'За период нет плана' : sub.planTotal === null ? 'План не прочитан' : 'Факт или процент исполнения не подтверждён'}>
+                              {sub.planTotal === 0 ? 'нет плана' : sub.planTotal === null ? 'план не прочитан' : 'не оценено'}
                             </span>
                           )}
                         </td>
@@ -1421,7 +1433,7 @@ export function Analytics() {
           source="calculated"
           title={orgScope.mode === 'withSubs'
             ? `Сводка управления ${orgDeptLabel} по организациям (${periodLabel})`
-            : avgExecHeatmap > 0
+            : avgExecHeatmap !== null && avgExecHeatmap > 0
               ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)} % по ${heatmapData.length} управлениям (${periodLabel})`
               : `Сводка по управлениям (${periodLabel})`}
         >
@@ -1474,8 +1486,8 @@ export function Analytics() {
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount === null ? 'не прочитано' : row.kpCount}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount === null ? 'не прочитано' : row.epCount}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1508,12 +1520,18 @@ export function Analytics() {
                     >
                       <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{productLabel(row.dept)}</td>
                       <td className="py-1.5 text-center">
-                        <span
-                          className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
-                          style={{ backgroundColor: getExecutionHeatBg(row.execPct, isDark), color: getExecutionHeatText(row.execPct, isDark) }}
-                        >
-                          {row.execPct > 0 ? `${typeof row.execPct === 'number' ? row.execPct.toFixed(0) : row.execPct}%` : '—'}
-                        </span>
+                        {row.execPct !== null ? (
+                          <span
+                            className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
+                            style={{ backgroundColor: getExecutionHeatBg(row.execPct, isDark), color: getExecutionHeatText(row.execPct, isDark) }}
+                          >
+                            {row.execPct.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[var(--ink-faint)]" title={row.planTotal === null ? 'План не прочитан' : row.planTotal === 0 ? 'Нет плановой базы' : 'Факт не прочитан'}>
+                            не оценено
+                          </span>
+                        )}
                       </td>
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.planTotal != null ? formatMoney(row.planTotal) : '—'}
@@ -1521,14 +1539,14 @@ export function Analytics() {
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount === null ? 'не прочитано' : row.kpCount}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount === null ? 'не прочитано' : row.epCount}</td>
                       <td className="py-1.5 text-center" onClick={(e) => { e.stopPropagation(); if (row.id && row.issues > 0) navigateTo('quality', { qualityTab: 'issues', department: row.id }); }}>
                         <span
                           className={`text-[10px] font-bold tabular-nums ${row.issues > 0 ? 'cursor-pointer text-[var(--data-bad)] hover:underline' : 'text-[var(--ink-faint)]'}`}
-                          title={row.issues > 0 ? 'Открыть замечания этого управления' : 'Замечаний к книге нет'}
+                          title={row.issues === null ? 'Число замечаний не прочитано' : row.issues > 0 ? 'Открыть замечания этого управления' : 'Замечаний к книге нет'}
                         >
-                          {row.issues}
+                          {row.issues === null ? 'не прочитано' : row.issues}
                         </span>
                       </td>
                     </tr>
@@ -1538,16 +1556,16 @@ export function Analytics() {
             </div>
           ) : (
             <CardEmpty
-              title="Сводка пуста: строк под текущий отбор нет"
-              description="Ни одно управление не дало строк за выбранный период и фильтры шапки — складывать нечего."
+              title="Сводка по управлениям не рассчитана"
+              description="Нет подтверждённых расчётных показателей за выбранный период. Отсутствующий источник нельзя назвать пустым отбором."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           )}
         </AnalyticsCard>
 
         {/* Качество заполнения книг по управлениям (термин «доверие» снят — п.88/26б) */}
-        <AnalyticsCard title={avgTrust > 0 ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Качество заполнения книг'} icon={TrendingUp} source="hybrid" perimeter={perimeters.fillQuality}>
-          {trustData.length > 0 ? (
+        <AnalyticsCard title={avgTrust !== null ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : `Качество заполнения: оценено ${knownTrustCount} из ${trustData.length} управлений`} icon={TrendingUp} source="hybrid" perimeter={perimeters.fillQuality}>
+          {knownTrustCount > 0 ? (
             <>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2">
               <KBTooltip metric="analytics_fill_quality" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_fill_quality)}>
@@ -1565,7 +1583,7 @@ export function Analytics() {
                   onClick={(data: any) => { if (data?.id) navigateTo('quality', { qualityTab: 'trust', department: data.id }); }}
                 >
                   {trustData.map((d: any, i: number) => (
-                    <Cell key={i} fill={d.trust >= 80 ? (isDark ? '#34d399' : '#10b981') : d.trust >= 60 ? (isDark ? '#fbbf24' : '#f59e0b') : (isDark ? '#f87171' : '#ef4444')} />
+                    <Cell key={i} fill={d.trust === null ? (isDark ? '#52525b' : '#d4d4d8') : d.trust >= 80 ? (isDark ? '#34d399' : '#10b981') : d.trust >= 60 ? (isDark ? '#fbbf24' : '#f59e0b') : (isDark ? '#f87171' : '#ef4444')} />
                   ))}
                 </Bar>
               </BarChart>
@@ -1670,11 +1688,14 @@ const BENFORD_TONE_CLS: Record<'ok' | 'warn' | 'bad', string> = {
 function BenfordBreakdown({ row, isDark }: { row: DatasetAuditRow; isDark: boolean }) {
   const { contentStyle, itemStyle, labelStyle } = getTooltipStyle(isDark);
   const chartData = useMemo(() => {
-    if (!row.benfordObserved || !row.benfordExpected) return [];
+    if (!row.benfordObserved || !row.benfordExpected ||
+      row.benfordObserved.length !== 9 || row.benfordExpected.length !== 9 ||
+      row.benfordObserved.some(n => observedNumber(n) === null) ||
+      row.benfordExpected.some(n => observedNumber(n) === null)) return [];
     return row.benfordObserved.map((obs, i) => ({
       digit: String(i + 1),
       fact: +(obs * 100).toFixed(1),
-      expected: +((row.benfordExpected?.[i] ?? 0) * 100).toFixed(1),
+      expected: +((row.benfordExpected![i] as number) * 100).toFixed(1),
     }));
   }, [row]);
 

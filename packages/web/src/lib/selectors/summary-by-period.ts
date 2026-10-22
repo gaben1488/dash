@@ -1,5 +1,6 @@
+import { completeSum, observedNumber } from '@aemr/shared';
 import type { BudgetPlanFactFn } from './budget-filter';
-import { ALL_ACTIVITY_KEYS, methodPlanFact, selectActivityMethods } from './activity-aggregation';
+import { ALL_ACTIVITY_KEYS, selectActivityMethods } from './activity-aggregation';
 
 /**
  * Пересчёт summaryByPeriod (сводка q1..q4/year: КП/ЕП счётчики, план/факт,
@@ -18,11 +19,10 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
 }): Record<string, any> {
   const { isActivityFiltered, actKeys, budgetPlanFact, showKP, showEP } = opts;
   const filteredSummary: Record<string, any> = {};
-  const periodKeys = ['q1', 'q2', 'q3', 'q4', 'year'];
+  const periodKeys = ['q1', 'q2', 'q3', 'q4', 'year'] as const;
+  const moneyKeys = ['fbPlan', 'kbPlan', 'mbPlan', 'fbFact', 'kbFact', 'mbFact'] as const;
+
   for (const pk of periodKeys) {
-    let kpCount = 0, kpFactCount = 0, kpPlan = 0, kpFact = 0;
-    let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
-    let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
     const methodRestricted = showKP !== showEP;
     const selected = isActivityFiltered || methodRestricted || depts.some(d => d._subFiltered)
       ? selectActivityMethods(depts, {
@@ -30,73 +30,72 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
           periodKeys: [pk], showKP, showEP,
         })
       : null;
-    const coverageComplete = selected?.complete ?? true;
+    const kp = selected ? selected.entries.filter(e => e.method === 'competitive') : [];
+    const ep = selected ? selected.entries.filter(e => e.method === 'ep') : [];
+    const budgetFor = (entry: (typeof kp)[number]) => budgetPlanFact({
+      ...entry.value, planTotal: entry.value.planSum, factTotal: entry.value.factSum,
+    });
+    const kpBudget = kp.map(budgetFor);
+    const epBudget = ep.map(budgetFor);
+    const verified = (!selected || selected.complete) &&
+      [...kpBudget, ...epBudget].every(projected => projected.complete);
+    // Under a proven complete activity/method projection, no entries of a
+    // selected group can legitimately mean zero. Under an unproven projection
+    // it is NOT proof of zero; no percentage or money may be published.
+    const sumSelected = (values: Array<number | null | undefined>): number | null =>
+      verified ? (values.length === 0 ? 0 : completeSum(values)) : null;
+    const sumDepts = (key: string): number | null =>
+      completeSum(depts.map(d => observedNumber(d.quarters?.[pk]?.[key])));
 
-    if (selected && (isActivityFiltered || selected.complete)) {
-      for (const { method, value } of selected.entries) {
-        const money = methodPlanFact(value, budgetPlanFact);
-        if (method === 'competitive') {
-          kpCount += value.plan;
-          kpFactCount += value.fact;
-          kpPlan += money.plan;
-          kpFact += money.fact;
-        } else {
-          epCount += value.plan;
-          epFactCount += value.fact;
-          epPlan += money.plan;
-          epFact += money.fact;
+    const totals = selected
+      ? {
+          kpCount: sumSelected(kp.map(e => e.value.plan)),
+          kpFactCount: sumSelected(kp.map(e => e.value.fact)),
+          kpPlan: sumSelected(kpBudget.map(e => e.complete ? e.plan : null)),
+          kpFact: sumSelected(kpBudget.map(e => e.complete ? e.fact : null)),
+          epCount: sumSelected(ep.map(e => e.value.plan)),
+          epFactCount: sumSelected(ep.map(e => e.value.fact)),
+          epPlan: sumSelected(epBudget.map(e => e.complete ? e.plan : null)),
+          epFact: sumSelected(epBudget.map(e => e.complete ? e.fact : null)),
+          ...Object.fromEntries(moneyKeys.map(key => [
+            key,
+            sumSelected(selected.entries.map(e => observedNumber(e.value[key]))),
+          ])),
         }
-        fbPlan += value.planFB ?? 0;
-        kbPlan += value.planKB ?? 0;
-        mbPlan += value.planMB ?? 0;
-        fbFact += value.factFB ?? 0;
-        kbFact += value.factKB ?? 0;
-        mbFact += value.factMB ?? 0;
-      }
-    } else {
-      for (const d of depts) {
-        const q = d.quarters?.[pk];
-        if (!q) continue;
-        kpCount += q.kpCount ?? 0;
-        kpFactCount += q.kpFactCount ?? 0;
-        kpPlan += q.kpPlanTotal ?? 0;
-        kpFact += q.kpFactTotal ?? 0;
-        epCount += q.epCount ?? 0;
-        epFactCount += q.epFactCount ?? 0;
-        epPlan += q.epPlanTotal ?? 0;
-        epFact += q.epFactTotal ?? 0;
-        fbPlan += q.planFB ?? 0;
-        kbPlan += q.planKB ?? 0;
-        mbPlan += q.planMB ?? 0;
-        fbFact += q.factFB ?? 0;
-        kbFact += q.factKB ?? 0;
-        mbFact += q.factMB ?? 0;
-      }
-    }
+      : {
+          kpCount: sumDepts('kpCount'),
+          kpFactCount: sumDepts('kpFactCount'),
+          kpPlan: sumDepts('kpPlanTotal'),
+          kpFact: sumDepts('kpFactTotal'),
+          epCount: sumDepts('epCount'),
+          epFactCount: sumDepts('epFactCount'),
+          epPlan: sumDepts('epPlanTotal'),
+          epFact: sumDepts('epFactTotal'),
+          ...Object.fromEntries(moneyKeys.map(key => [key, sumDepts(key)])),
+        };
 
-    // Apply procurement filter: zero out excluded type (multi-select)
-    if (!showKP) {
-      kpCount = 0; kpFactCount = 0; kpPlan = 0; kpFact = 0;
-    }
-    if (!showEP) {
-      epCount = 0; epFactCount = 0; epPlan = 0; epFact = 0;
-    }
+    const kpCount = showKP ? totals.kpCount : 0;
+    const kpFactCount = showKP ? totals.kpFactCount : 0;
+    const kpPlan = showKP ? totals.kpPlan : 0;
+    const kpFact = showKP ? totals.kpFact : 0;
+    const epCount = showEP ? totals.epCount : 0;
+    const epFactCount = showEP ? totals.epFactCount : 0;
+    const epPlan = showEP ? totals.epPlan : 0;
+    const epFact = showEP ? totals.epFact : 0;
 
-    // Without per-method provenance the *combined* budget breakdown
-    // cannot be attributed to only EP/KP. A null is not a computed zero.
-    const unknownBudget = methodRestricted && !coverageComplete;
+    // A filtered-out method is a known excluded zero; missing included
+    // source fields and partial cross-index reads remain null, without
+    // inheriting annual or all-method values.
     filteredSummary[pk] = {
       kpCount, kpFactCount, kpPlan, kpFact,
-      kpPercent: kpCount > 0 ? kpFactCount / kpCount : null,
+      kpPercent: kpCount != null && kpFactCount != null && kpCount > 0
+        ? kpFactCount / kpCount : null,
       epCount, epFactCount, epPlan, epFact,
-      epPercent: epCount > 0 ? epFactCount / epCount : null,
-      fbPlan: unknownBudget ? null : fbPlan,
-      kbPlan: unknownBudget ? null : kbPlan,
-      mbPlan: unknownBudget ? null : mbPlan,
-      fbFact: unknownBudget ? null : fbFact,
-      kbFact: unknownBudget ? null : kbFact,
-      mbFact: unknownBudget ? null : mbFact,
-      source: coverageComplete ? 'filtered' : 'unverified_activity_method',
+      epPercent: epCount != null && epFactCount != null && epCount > 0
+        ? epFactCount / epCount : null,
+      ...Object.fromEntries(moneyKeys.map(key => [key, totals[key]])),
+      source: verified ? 'filtered' : 'unverified_activity_method',
+      completeness: verified ? 'complete' : 'incomplete',
     };
   }
   return filteredSummary;

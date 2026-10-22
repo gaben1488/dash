@@ -138,6 +138,8 @@ export function computeFilteredData(input: FilterInputs) {
   // реальных строк с методом, а не сохраняются глобальными.
   let { totalPlanCount, totalFactCount } = aggregated;
   let { totalKP, totalEP, totalPlan, totalFact } = aggregated;
+  let sourceCountComplete = aggregated.sourceCountComplete;
+  let sourceMoneyComplete = aggregated.sourceMoneyComplete;
 
   // ── Оси бюджета и вида деятельности (пересчёт тоталов при активном фильтре) ──
   const isBudgetFiltered = selectedBudgets.size > 0;
@@ -147,6 +149,7 @@ export function computeFilteredData(input: FilterInputs) {
 
   const methodRestricted = showKP !== showEP;
   let activityMethodCoverage = true;
+  let budgetCoverageComplete = true;
   if (isActivityFiltered || methodRestricted) {
     const activityTotals = recalcTotalsByActivity(depts, {
       actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
@@ -154,6 +157,12 @@ export function computeFilteredData(input: FilterInputs) {
       budgetPlanFact, showKP, showEP,
     });
     activityMethodCoverage = activityTotals.complete;
+    budgetCoverageComplete = activityTotals.complete;
+    // The filtered cross-index, not unfiltered annual fields, is the proof
+    // for a selected activity/method. Count scope remains independent when
+    // only procurement method changes.
+    sourceMoneyComplete = activityTotals.complete;
+    if (isActivityFiltered) sourceCountComplete = activityTotals.complete;
     // Never label an unverifiable historical method slice as exact. Keep
     // separately known whole/method totals and tell the user provenance lacks.
     if (activityTotals.complete || isActivityFiltered) {
@@ -170,14 +179,18 @@ export function computeFilteredData(input: FilterInputs) {
     }
   }
   if (isBudgetFiltered && !isActivityFiltered && !methodRestricted) {
-    ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
+    const projectedBudget = recalcTotalsByBudget(depts, {
       budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
       resolution, hasMonthData,
-    }));
+    });
+    totalPlan = projectedBudget.totalPlan;
+    totalFact = projectedBudget.totalFact;
+    budgetCoverageComplete = projectedBudget.complete;
+    sourceMoneyComplete &&= projectedBudget.complete;
   }
 
   // ── Бар-чарт исполнения per-департамент ──
-  const overallExecCountPct = totalPlanCount > 0
+  const overallExecCountPct = sourceCountComplete && totalPlanCount > 0
     ? +((totalFactCount / totalPlanCount) * 100).toFixed(1) : null;
   const barData = buildBarData(depts, {
     budgetPlanFact, isBudgetFiltered, isActivityFiltered, actKeys,
@@ -294,6 +307,9 @@ export function computeFilteredData(input: FilterInputs) {
     totalPlanCount,
     totalFactCount,
     activityMethodCoverage,
+    budgetCoverageComplete,
+    sourceCountComplete,
+    sourceMoneyComplete,
     criticalIssues,
     warningIssues,
     periodKey,

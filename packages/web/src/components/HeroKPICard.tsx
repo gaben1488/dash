@@ -53,7 +53,7 @@ export function formatMetricValue(value: number, unit?: string): string {
 export interface HeroKPICardProps {
   metricKey: string;
   label: string;
-  value: number;
+  value: number | null;
   /**
    * Число по контракту `Figure` — значение вместе с единицей, периметром и
    * происхождением. Задано — плитка печатает главное значение ТОЛЬКО через
@@ -401,6 +401,10 @@ export function HeroKPICard({
                   // приговор там, где проверка вообще не отрабатывала.
                   <p className="text-sm font-semibold text-zinc-400 dark:text-zinc-500 leading-snug">
                     {emptyReason}
+                  </p>
+                ) : value === null ? (
+                  <p className="text-sm font-semibold text-zinc-400 dark:text-zinc-500 leading-snug">
+                    Показатель не оценён
                   </p>
                 ) : isBinaryTrust ? (
                   // ── Двоичный вердикт доверия ──────────────────

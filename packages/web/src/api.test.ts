@@ -79,6 +79,76 @@ it('rejects dropped calculated-period budget fields but accepts an explicit unkn
   await expect(api.getDashboard()).rejects.toThrow(/формат|контракт|обновите/i);
 });
 
+describe('C05.02: unified Svod HTTP transport required fields', () => {
+  const zeroCell = {
+    planCount: 0, factCount: 0,
+    planFB: 0, planKB: 0, planMB: 0,
+    factFB: 0, factKB: 0, factMB: 0,
+    economyFB: 0, economyKB: 0, economyMB: 0,
+  };
+
+  function responseWithCell() {
+    return {
+      year: 2026, grid: {
+        cells: { 'uo|all|kp|year': { ...zeroCell } },
+        grbsIds: ['uo'], scopes: ['all', 'td', 'pm'],
+      },
+      reconciliation: [],
+      reconciliationState: 'materialized' as const,
+      snapshotId: 'fixture-svod',
+      createdAt: '2026-10-22T00:00:00Z',
+      sourceRevision: null,
+    };
+  }
+
+  it('preserves a complete measured-zero cell and a genuinely empty grid', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(responseWithCell())));
+    const full = await api.getSvodUnified(2026);
+    expect(full.grid.cells['uo|all|kp|year'].planCount).toBe(0);
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({
+      year: 2026, grid: { cells: {}, grbsIds: [], scopes: [] }, reconciliation: [],
+      reconciliationState: 'materialized', snapshotId: 'empty-svod',
+      createdAt: '2026-10-22T00:00:00Z', sourceRevision: null,
+    })));
+    await expect(api.getSvodUnified()).resolves.toMatchObject({ grid: { cells: {} } });
+  });
+
+  it.each(['planCount', 'factCount', 'planFB', 'planKB', 'planMB',
+    'factFB', 'factKB', 'factMB', 'economyFB', 'economyKB', 'economyMB'])(
+    'rejects a dropped mandatory Svod cell field: %s', async field => {
+      const body = responseWithCell();
+      Reflect.deleteProperty(body.grid.cells['uo|all|kp|year'], field);
+      vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+      await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
+    },
+  );
+
+  it('requires provenance and differentiates missing comparison from an empty comparison', async () => {
+    const body = responseWithCell();
+    Reflect.deleteProperty(body, 'snapshotId');
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
+
+    const unavailable = { ...responseWithCell(), reconciliationState: 'not_materialized' as const };
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(unavailable)));
+    await expect(api.getSvodUnified()).resolves.toMatchObject({
+      reconciliationState: 'not_materialized', reconciliation: [],
+    });
+  });
+
+  it('rejects a broken grid axis or missing reconciliation collection', async () => {
+    const body = responseWithCell();
+    Reflect.deleteProperty(body.grid, 'grbsIds');
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
+
+    const body2 = responseWithCell();
+    Reflect.deleteProperty(body2, 'reconciliation');
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body2)));
+    await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
+  });
+});
+
 describe('скачивание опубликованного документа', () => {
   it('сохраняет авторизацию и возвращает байты, не пытаясь разобрать DOCX как JSON', async () => {
     vi.stubGlobal('localStorage', { getItem: () => 'test-token' });

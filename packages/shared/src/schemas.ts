@@ -467,6 +467,52 @@ export const DashboardDataSchema = z.object({
   year: z.number().int(),
 });
 
+/**
+ * C05.02: the Svod transport is a structured grid, not an arbitrary JSON
+ * object. A missing cell field is a software/DTO defect; absence of source
+ * records is represented by an actually empty grid, never by dropped metrics.
+ * Existing zero-valued cells remain valid evidence.
+ */
+export const UnifiedSvodCellSchema = z.object({
+  planCount: z.number().finite(),
+  factCount: z.number().finite(),
+  planFB: z.number().finite(),
+  planKB: z.number().finite(),
+  planMB: z.number().finite(),
+  factFB: z.number().finite(),
+  factKB: z.number().finite(),
+  factMB: z.number().finite(),
+  economyFB: z.number().finite(),
+  economyKB: z.number().finite(),
+  economyMB: z.number().finite(),
+});
+
+export const UnifiedSvodResponseSchema = z.object({
+  grid: z.object({
+    cells: z.record(z.string(), UnifiedSvodCellSchema),
+    grbsIds: z.array(z.string()),
+    scopes: z.array(z.enum(['all', 'pm', 'td'])),
+  }),
+  reconciliation: z.array(z.object({
+    key: z.string(),
+    calc: z.number().finite(),
+    official: z.number().finite(),
+    deltaPct: z.number().finite(),
+    status: z.enum(['ok', 'warning', 'high']),
+  })),
+  snapshotId: z.string().min(1),
+  createdAt: z.string().min(1),
+  sourceRevision: z.string().regex(/^SRC-[a-f0-9]{64}$/).nullable(),
+  reconciliationState: z.enum(['materialized', 'not_materialized']),
+  year: z.number().int(),
+}).superRefine((response, ctx) => {
+  if (response.reconciliationState === 'not_materialized' && response.reconciliation.length !== 0) {
+    ctx.addIssue({ code: 'custom', path: ['reconciliation'], message: 'Не готовая сверка не может содержать подтверждённые результаты' });
+  }
+});
+
+export type UnifiedSvodResponse = z.infer<typeof UnifiedSvodResponseSchema>;
+
 /** Generic API envelope */
 export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
   z.object({

@@ -42,6 +42,15 @@ describe('разбивка управления по организациям', 
     expect(school?.planTotal).toBeNull();
   });
 
+  it('C05.02 does not invent a department share if a known institution has unread quarter amounts', () => {
+    const rows = buildSubBreakdown({ groups, subordinates, periodKey: 'q1' });
+    const totals = subBreakdownTotals(rows);
+    expect(totals.plan).toBeNull();
+    expect(totals.fact).toBeNull();
+    expect(totals.withRows).toBe(1);
+    expect(subBreakdownTotals([])).toEqual({ plan: null, fact: null, withRows: 0 });
+  });
+
   it('итоги считают организации, которые действительно ведут закупки', () => {
     const totals = subBreakdownTotals(buildSubBreakdown({ groups, subordinates, periodKey: 'year' }));
     expect(totals.plan).toBe(1500);

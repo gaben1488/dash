@@ -1,3 +1,4 @@
+import { observedNumber } from '@aemr/shared';
 import type { PeriodResolution } from './period-resolution';
 import { ALL_ACTIVITY_KEYS, activityPeriodKeys, selectActivityMethods } from './activity-aggregation';
 
@@ -44,6 +45,9 @@ export interface AggregatedTotals {
   /** count-based исполнение: totalFactCount / totalPlanCount */
   totalPlanCount: number;
   totalFactCount: number;
+  /** True only if every required source period supplied the measured inputs. */
+  sourceCountComplete: boolean;
+  sourceMoneyComplete: boolean;
 }
 
 export interface AggregateOpts {
@@ -341,6 +345,46 @@ function aggregatePeriodTotals(
   return t;
 }
 
+/**
+ * Evidence policy for the SAME node and period used by aggregateNodeTotals.
+ * Annual values are allowed only for an annual request; a missing selected
+ * quarter cannot inherit the annual value. Missing selected months cannot
+ * turn into a fabricated zero. The observed numeric 0 is valid.
+ */
+export function nodeSourceCoverage(node: any, resolution: PeriodResolution): {
+  count: boolean;
+  money: boolean;
+} {
+  if (!node) return { count: false, money: false };
+  let sources: any[] = [];
+  if (resolution.hasActiveMonths) {
+    if (resolution.partialMonths.length && !resolution.useMonthLevel) {
+      return { count: false, money: false };
+    }
+    if (resolution.useMonthLevel) {
+      sources = [
+        ...resolution.fullQuarters.map(key => node.quarters?.[key]),
+        ...resolution.partialMonths.map(month => node.months?.[month]),
+      ];
+      if (sources.length === 0) sources = [...resolution.coveredQuarters.map(key => node.quarters?.[key])];
+    } else {
+      sources = resolution.coveredQuarters.map(key => node.quarters?.[key]);
+    }
+  } else if (resolution.periodKey === 'year') {
+    if (node.quarters?.year) sources = [node.quarters.year];
+    else if (QUARTER_KEYS.every(key => node.quarters?.[key])) sources = QUARTER_KEYS.map(key => node.quarters[key]);
+    else sources = [node];
+  } else {
+    sources = [node.quarters?.[resolution.periodKey]];
+  }
+  const complete = (keys: readonly string[]) => sources.length > 0 && sources.every(source =>
+    source && keys.every(key => observedNumber(source[key]) !== null));
+  return {
+    count: complete(['planCount', 'factCount']),
+    money: complete(['planTotal', 'factTotal']),
+  };
+}
+
 /** Итог по всем управлениям = сумма узлов, посчитанных тем же правилом периода. */
 export function aggregateTotals(
   depts: any[],
@@ -350,8 +394,13 @@ export function aggregateTotals(
   let totalKP = 0, totalEP = 0;
   let totalPlan = 0, totalFact = 0;
   let totalPlanCount = 0, totalFactCount = 0;
+  let sourceCountComplete = depts.length > 0;
+  let sourceMoneyComplete = depts.length > 0;
 
   for (const d of depts) {
+    const evidence = nodeSourceCoverage(d, resolution);
+    sourceCountComplete &&= evidence.count;
+    sourceMoneyComplete &&= evidence.money;
     const n = aggregateNodeTotals(d, resolution, opts);
     totalKP += n.kp;
     totalEP += n.ep;
@@ -361,5 +410,6 @@ export function aggregateTotals(
     totalFactCount += n.factCount;
   }
 
-  return { totalKP, totalEP, totalPlan, totalFact, totalPlanCount, totalFactCount };
+  return { totalKP, totalEP, totalPlan, totalFact, totalPlanCount, totalFactCount,
+    sourceCountComplete, sourceMoneyComplete };
 }

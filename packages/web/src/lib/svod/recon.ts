@@ -29,7 +29,7 @@ export interface ReconRow {
 }
 
 /** Почему сверка недоступна. `ok` — доступна. */
-export type ReconBlockCode = 'ok' | 'activity' | 'department' | 'budget' | 'period' | 'absent';
+export type ReconBlockCode = 'ok' | 'activity' | 'department' | 'budget' | 'period' | 'absent' | 'not_ready';
 
 export interface ReconAvailability {
   code: ReconBlockCode;
@@ -43,7 +43,8 @@ const REASON: Readonly<Record<Exclude<ReconBlockCode, 'ok'>, string>> = {
   department: 'Официальный лист сверялся по всем управлениям сразу — на выбранное подмножество эталона нет.',
   budget: 'Официальный лист ведёт суммы по всем бюджетам сразу — при выбранном бюджете сверять нечего.',
   period: 'Официальный лист ведётся за 1 кв и за год — за выбранный период эталона нет.',
-  absent: 'Официальный лист не прочитан — сверять не с чем.',
+  absent: 'Официальных значений для выбранной сверки нет — подтвердить совпадение нельзя.',
+  not_ready: 'Расчёт сверки не сформирован — нельзя считать отсутствие расхождений подтверждением.',
 };
 
 /** Периоды, за которые официальный лист вообще существует. */
@@ -60,6 +61,8 @@ export interface ReconAvailabilityInput {
   period: SvodPeriodKey | null;
   /** Пришли ли вообще строки сверки от сервера. */
   hasRows: boolean;
+  /** Was the comparison materialized for this exact source snapshot? */
+  reconciliationMaterialized?: boolean;
 }
 
 /** Доступна ли сверка для текущего среза, и если нет — почему. */
@@ -69,6 +72,7 @@ export function reconAvailability(input: ReconAvailabilityInput): ReconAvailabil
     available: false,
     reason: REASON[code],
   });
+  if (input.reconciliationMaterialized === false) return block('not_ready');
   if (!input.activityIsAll) return block('activity');
   if (input.deptFiltered) return block('department');
   if (input.budgetFiltered) return block('budget');

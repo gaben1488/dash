@@ -117,6 +117,12 @@ it('selects the Russian department filter from the rating and carries the same q
   expect(useStore.getState().year).toBe(2026);
 });
 
+it('does not fabricate a zero-plan statement when quarterly summary cells are missing', () => {
+  render(<TooltipProvider><Dashboard /></TooltipProvider>);
+  expect(screen.getByText(/Часть квартальных сумм не прочитана/)).toBeTruthy();
+  expect(screen.queryByText(/ни плановых, ни фактических сумм в книгах нет/)).toBeNull();
+});
+
 it('does not borrow annual values or create 0% when the selected quarter is incomplete', () => {
   const q4 = {
     planTotal: 1000, factTotal: null, planCount: 2, factCount: null, economyTotal: null,
