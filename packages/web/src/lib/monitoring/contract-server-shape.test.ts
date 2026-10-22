@@ -120,6 +120,33 @@ describe('normalizeMonitoring — форма живого ответа серв�
     expect(p.svod!.notes[0]).toContain('непустых строк');
   });
 
+  it('не теряет тип группы и адрес истории названий при декодировании API', () => {
+    const result = normalizeMonitoring({
+      directory: {
+        entries: [
+          { sheet: 'Справочник заказчиков', row: 2, ordinal: 1,
+            institutionId: '32e0191e-2ed9-48a7-83da-8a4ade214da2',
+            entityKind: 'joint_group', status: 'Группа заказчиков',
+            fullName: 'Совместная закупка УО', shortName: 'СЗ УО',
+            nameEvidence: [
+              { name: 'Совместные закупки УО АЕМР', role: 'canonical', sourceAddress: 'Справочник заказчиков!D2' },
+              { name: 'Совместная закупка УО', role: 'current', sourceAddress: 'Справочник заказчиков!Q2' },
+            ],
+          },
+        ],
+        customersOutside: [], customersMatched: 0, withoutShortName: 0,
+      },
+    });
+    expect(result.directory?.rows[0]).toMatchObject({
+      entityKind: 'joint_group', status: 'Группа заказчиков',
+      institutionId: '32e0191e-2ed9-48a7-83da-8a4ade214da2',
+      nameEvidence: [
+        { name: 'Совместные закупки УО АЕМР', role: 'canonical', sourceAddress: 'Справочник заказчиков!D2' },
+        { name: 'Совместная закупка УО', role: 'current', sourceAddress: 'Справочник заказчиков!Q2' },
+      ],
+    });
+  });
+
   it('справочник из entries/customersOutside не превращается в null', () => {
     expect(p.directory).not.toBeNull();
     expect(p.directory!.rows).toHaveLength(1);
