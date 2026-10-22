@@ -25,6 +25,8 @@ export interface BookFormulaVerdict {
   at: string;
   /** Сколько строк судилось (номер закупки — число больше нуля). */
   rowsJudged: number;
+  /** Complete denominator from the SAME source read. Absent in older records: no numeric grade. */
+  checks?: TrustCheckCounts;
   /** Дефекты книги: затёртые формулы, мутанты, непротянутые. */
   defects: FormulaDefect[];
 }
