@@ -14,6 +14,18 @@ describe('C08.02 mixed analytics source boundary', () => {
     expect(snapshot.rowsByDept?.УЭР).toBe(rows);
   });
 
+  it('resolves approved historical department labels but refuses ambiguous duplicate captures', () => {
+    const oldNameRows: unknown[][] = [['signed-row']];
+    const snapshot: Pick<DataSnapshot, 'rowsByDept'> = { rowsByDept: { УФ: oldNameRows } };
+    expect(capturedAnalyticsRows(snapshot, 'УФБП')).toBe(oldNameRows);
+    expect(capturedAnalyticsRows(snapshot, 'УФ')).toBe(oldNameRows);
+    expect(() => capturedAnalyticsRows({
+      rowsByDept: { УФ: oldNameRows, УФБП: oldNameRows },
+    }, 'УФБП')).toThrow('ANALYTICS_CAPTURE_AMBIGUOUS_DEPARTMENT');
+    expect(() => capturedAnalyticsRows(snapshot, 'Неизвестное управление'))
+      .toThrow('ANALYTICS_UNKNOWN_DEPARTMENT');
+  });
+
   it('distinguishes a captured known-empty department from a missing or corrupt source', () => {
     const snapshot: Pick<DataSnapshot, 'rowsByDept'> = { rowsByDept: { УЭР: [] } };
     expect(capturedAnalyticsRows(snapshot, 'УЭР')).toEqual([]);
