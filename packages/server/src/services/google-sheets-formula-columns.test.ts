@@ -283,6 +283,23 @@ describe('R05.01 — one resolver for reads, writes and metadata', () => {
   });
 });
 
+describe('R05.01 — source profile is the single implementation across consumers', () => {
+  it('one object reference supplies read ranges and metadata protected groups', async () => {
+    const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
+    const { METADATA_CANON } = await import('./metadata-canon.js');
+    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_SOURCE_PROFILE.formulaColumnGroups);
+    expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
+    expect(FORMULA_COLUMNS).toEqual(
+      Object.values(MASTER_SOURCE_PROFILE.fields)
+        .filter(field => 'formula' in field).map(field => field.column),
+    );
+    expect(FORMULA_COLUMN_GROUPS).toEqual([
+      { from: 'K', to: 'K' }, { from: 'O', to: 'P' },
+      { from: 'R', to: 'T' }, { from: 'Y', to: 'AC' },
+    ]);
+  });
+});
+
 describe('R05.01 — source-profile contract is the single reviewed graph', () => {
   it('all eight masters have unique source identities and the same role/profile', () => {
     expect(DEPARTMENT_REGISTRY).toHaveLength(8);
