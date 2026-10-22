@@ -1,6 +1,6 @@
 import { CalcEngine, explainMetric, standardRowFilter } from '../pipeline/calc-engine.js';
 import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, executableFormula, type DataSnapshot } from '@aemr/shared';
-import { byPeriod } from './published-projection.js'; from '@aemr/shared';
+import { byPeriod } from './published-projection.js';
 
 /** Recompute solely to verify evidence for immutable historical snapshots. */
 export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
