@@ -62,7 +62,7 @@ def publication_identity(payload):
         raise ValueError('publication snapshot')
     instant(value['cutoff_at'])
     for field in ('rules_version', 'renderer_version'):
-        if not isinstance(value[field], str) or not 0 < len(value[field]) <= 512 or '\\n' in value[field]:
+        if not isinstance(value[field], str) or not 0 < len(value[field]) <= 512 or any(ord(ch) < 32 for ch in value[field]):
             raise ValueError('publication version')
     return value
 

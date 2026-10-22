@@ -75,6 +75,36 @@ class RuntimePassportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.read_snapshot_identity(lambda *_a, **_kw: good, 0)
 
+    def test_report_passport_uses_one_minimal_verified_publication_read(self):
+        expected = {'release_id': 'REL-' + 'a' * 64, 'snapshot_id': 'snapshot-previous',
+                    'rules_version': 'old', 'renderer_version': 'r1',
+                    'cutoff_at': '2026-10-17T23:00:00Z'}
+        calls = []
+        def get(path, *, limit):
+            calls.append((path, limit))
+            return {'latest': expected}
+        self.assertEqual(self.module.read_publication_identity(get), expected)
+        self.assertEqual(calls, [('/api/report-releases?identity=1', 2048)])
+        self.assertIsNone(self.module.publication_identity({'latest': None}))
+
+    def test_publication_passport_rejects_partial_stale_or_expanded_receipts(self):
+        valid = {'release_id': 'REL-' + 'a' * 64, 'snapshot_id': 'snapshot-previous',
+                 'rules_version': 'old', 'renderer_version': 'r1',
+                 'cutoff_at': '2026-10-17T23:00:00Z'}
+        for bad in (
+            {'latest': {**valid, 'automation_assurance': {}}},
+            {'latest': {key: val for key, val in valid.items() if key != 'snapshot_id'}},
+            {'latest': {**valid, 'release_id': 'not-a-verified-release'}},
+            {'latest': {**valid, 'snapshot_id': ''}},
+            {'latest': {**valid, 'cutoff_at': '2026-10-17T23:00:00'}},
+            {'latest': {**valid, 'rules_version': ''}},
+            {'latest': {**valid, 'renderer_version': 'bad' + chr(10) + 'revision'}},
+            {'latest': valid, 'attempt': {'status': 'RUNNING'}},
+            {'latest': []},
+        ):
+            with self.subTest(payload=bad), self.assertRaises((ValueError, TypeError)):
+                self.module.publication_identity(bad)
+
     def test_actual_runtime_and_observed_data_keep_distinct_versions_without_copying_env(self):
         value = self.build()
         self.assertEqual(value['data']['dashboard']['snapshot_id'], 'snapshot-new')

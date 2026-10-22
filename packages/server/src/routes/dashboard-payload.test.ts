@@ -310,6 +310,25 @@ describe('представление снимка для HTTP Dashboard', () => 
       fixture.snapshot = previous;
     }
   });
+  it('never signs a stale or still refreshing snapshot as installed runtime evidence', async () => {
+    const previous = fixture.snapshot;
+    try {
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, readModel: { state: 'refreshing', reason: 'SOURCE_CHANGED' },
+      } } as DataSnapshot;
+      const pending = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(pending.statusCode).toBe(503);
+      expect(pending.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, sourceCoverage: { complete: false },
+      } } as DataSnapshot;
+      const incomplete = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(incomplete.statusCode).toBe(503);
+      expect(incomplete.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('transmits the complete issue set once when the workspace opts into references', async () => {
     const response = await app.inject('/api/dashboard?year=2026&compact=1');
     expect(response.statusCode).toBe(200);
