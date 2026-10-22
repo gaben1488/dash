@@ -121,6 +121,11 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           || !snapshot.metadata || typeof snapshot.metadata !== 'object') {
         return reply.status(500).send({ code: 'SNAPSHOT_IDENTITY_INVALID' });
       }
+      // Readiness is part of the passport: an obsolete or incomplete materialization
+      // may be displayed with a warning, but cannot be attested as installed evidence.
+      if (snapshot.metadata.readModel || snapshot.metadata.sourceCoverage?.complete === false) {
+        return reply.status(503).send({ code: 'SNAPSHOT_IDENTITY_NOT_READY' });
+      }
       reply.header('Cache-Control', 'private, no-store');
       return reply.send({ snapshot: { id, createdAt } });
     }

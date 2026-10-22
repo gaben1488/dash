@@ -100,6 +100,22 @@ def _read_publication(state_dir, view, release_id=None, *, selection=None):
     root = state / 'published'
     exists = _catalog_available(root)
     store = PublicationStore(root, readonly=True) if exists else None
+    if view == 'identity':
+        # Release passport uses the SAME publication verification as normal status,
+        # but must not read live attempts, operational health or serialize assurance.
+        # The three published Word artifacts are still checked on every read.
+        if release_id is not None or selection is not None:
+            raise PublicationError('PUBLICATION_CONTEXT_INVALID')
+        verified = store.latest(artifacts=_STATUS_DOCUMENTS) if store else None
+        if verified is None:
+            latest = None
+        else:
+            fields = ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')
+            if any(not isinstance(verified.get(field), str) or not verified[field]
+                   for field in fields):
+                raise PublicationError('PUBLICATION_IDENTITY_INVALID')
+            latest = {field: verified[field] for field in fields}
+        return json.dumps({'latest': latest}, ensure_ascii=False, allow_nan=False).encode()
     if view == 'history':
         rows = store.history_summaries(limit=51, before=release_id) if store else []
         return json.dumps({'releases': rows[:50], 'next': rows[49]['release_id'] if len(rows) > 50 else None},

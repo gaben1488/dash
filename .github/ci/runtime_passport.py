@@ -46,6 +46,31 @@ def read_snapshot_identity(get, year):
     return snapshot_identity(get('/api/dashboard?identity=1&year=' + str(year), limit=2048))
 
 
+def publication_identity(payload):
+    """Latest verified Word release, not the full live attempt/status/assurance."""
+    if not isinstance(payload, dict) or set(payload) != {'latest'}:
+        raise ValueError('publication payload')
+    value = payload['latest']
+    if value is None:
+        return None
+    fields = ('release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')
+    if not isinstance(value, dict) or set(value) != set(fields):
+        raise ValueError('publication fields')
+    if not isinstance(value['release_id'], str) or not re.fullmatch(r'REL-[a-f0-9]{64}', value['release_id']):
+        raise ValueError('publication release')
+    if not isinstance(value['snapshot_id'], str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', value['snapshot_id']):
+        raise ValueError('publication snapshot')
+    instant(value['cutoff_at'])
+    for field in ('rules_version', 'renderer_version'):
+        if not isinstance(value[field], str) or not 0 < len(value[field]) <= 512 or '\\n' in value[field]:
+            raise ValueError('publication version')
+    return value
+
+
+def read_publication_identity(get):
+    return publication_identity(get('/api/report-releases?identity=1', limit=2048))
+
+
 def capture():
     from procurement_engine.raw_pipeline import RAW_RULES_VERSION, RENDERER_VERSION
 
@@ -64,7 +89,7 @@ def capture():
 
     year = datetime.now(timezone(timedelta(hours=12))).year
     snapshot = read_snapshot_identity(get, year)
-    receipt = get('/api/report-releases')['latest']
+    receipt = read_publication_identity(get)
     path = Path(os.environ['SQLITE_PATH']).resolve()
     with closing(sqlite3.connect('file:' + urllib.parse.quote(str(path)) + '?mode=ro', uri=True, timeout=5)) as db:
         db.execute('BEGIN')

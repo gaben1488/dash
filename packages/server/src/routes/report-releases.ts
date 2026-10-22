@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { ReportCommandSchema } from '@aemr/shared';
 import { requestStage } from '../plugins/request-timing.js';
 
-type View = 'history' | 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
+type View = 'history' | 'status' | 'identity' | 'dashboard' | 'main' | 'supplement' | 'operational';
 const execute = promisify(execFile);
 const ContextSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
@@ -45,7 +45,7 @@ async function readStoredRelease(view: View, releaseId?: string, context?: Conte
   if (releaseId) args.push('--release-id', releaseId);
   if (context) args.push('--report-date', context.date, '--report-year', String(context.year), '--quarter', String(context.quarter));
   const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', args,
-    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false, signal });
+    { encoding: 'buffer', timeout: 30_000, maxBuffer: view === 'identity' ? 4096 : 32 * 1024 * 1024, shell: false, signal });
   return result.stdout;
 }
 
@@ -289,8 +289,11 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         if ((view !== 'status' || id !== undefined) && view !== 'history' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
           return reply.code(400).send({ code: 'PUBLICATION_ID_INVALID', message: 'Некорректный идентификатор выпуска.' });
         }
+        const params = request.query as Record<string, unknown>;
+        const identity = view === 'status' && id === undefined
+          && Object.keys(params).length === 1 && params.identity === '1';
         let context: Context | undefined;
-        if (view !== 'history' && Object.keys(request.query as object).length > 0) {
+        if (view !== 'history' && Object.keys(params).length > 0 && !identity) {
           const parsed = ContextSchema.safeParse(request.query);
           if (view !== 'status' || id !== undefined || !parsed.success) {
             return reply.code(400).send({ code: 'PUBLICATION_CONTEXT_INVALID', message: 'Укажите дату среза, год и квартал отчёта.' });
@@ -306,7 +309,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         reply.raw.once('close', responseClosed);
         if (request.raw.aborted || reply.raw.destroyed) abortRead();
         try {
-          const data = await requestStage(request, 'reader', () => read(view, id, context, controller.signal));
+          const data = await requestStage(request, 'reader', () => read(identity ? 'identity' : view, id, context, controller.signal));
           if (view === 'main' || view === 'supplement' || view === 'operational') {
             reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);
