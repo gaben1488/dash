@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./snapshot.js', () => mocks);
 import { readDeptRows, readDeptRowsById } from './dept-rows.js';
-import { DEPARTMENTS } from '@aemr/shared';
+import { DEPARTMENTS, departmentCoverage } from '@aemr/shared';
+
+const savedCoverage = () => departmentCoverage(DEPARTMENTS.map(d => d.nameShort), ['УО']);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -25,7 +27,8 @@ describe('readDeptRows source time', () => {
   });
   it('preserves historical snapshot time on fallback', async () => {
     mocks.getDeptSheetValues.mockReturnValue({});
-    mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['1']] }, createdAt: '2026-10-09T12:00:00Z' });
+    mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['1']] }, createdAt: '2026-10-09T12:00:00Z',
+      metadata: { sourceCoverage: savedCoverage() } });
     expect((await readDeptRows()).asOf).toBe('2026-10-09T12:00:00Z');
   });
   it('a missing book is explicit coverage rather than a complete zero', async () => {
@@ -60,7 +63,8 @@ describe('readDeptRows source time', () => {
     mocks.getDeptSheetValues.mockReturnValue({ УО: [[], [], [], ['1']] });
     mocks.getDeptCacheFilledAt.mockReturnValue(0);
     mocks.getDeptLoadMeta.mockReturnValue({});
-    mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['2']] }, createdAt: '2026-10-09T12:00:00Z' });
+    mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['2']] }, createdAt: '2026-10-09T12:00:00Z',
+      metadata: { sourceCoverage: savedCoverage() } });
     expect(await readDeptRows()).toMatchObject({
       rowsByDept: { УО: [['2']] }, asOf: '2026-10-09T12:00:00Z', source: 'snapshot',
     });
@@ -73,4 +77,32 @@ describe('readDeptRows source time', () => {
     });
     expect((await readDeptRows()).asOf).toBe('2026-10-10T12:00:00.000Z');
   });
+});
+
+it('never promotes raw arrays from a legacy snapshot without accepted source coverage', async () => {
+  mocks.getDeptSheetValues.mockReturnValue({});
+  mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['old unverified']] },
+    createdAt: '2026-10-09T12:00:00Z', metadata: {} });
+  const reading = await readDeptRows();
+  expect(reading.rowsByDept).toEqual({});
+  expect(reading.coverage.complete).toBe(false);
+});
+
+it('rejects forged full coverage on a partial saved snapshot', async () => {
+  mocks.getDeptSheetValues.mockReturnValue({});
+  const partial = savedCoverage();
+  mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['old unverified']] },
+    createdAt: '2026-10-09T12:00:00Z', metadata: { sourceCoverage: { ...partial, complete: true } } });
+  const reading = await readDeptRows();
+  expect(reading.rowsByDept).toEqual({});
+  expect(reading.coverage.readDepartments).toEqual([]);
+});
+
+it('cannot elevate an unread book merely because it has a stored row array', async () => {
+  mocks.getDeptSheetValues.mockReturnValue({});
+  mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['confirmed']], УД: [['legacy']] },
+    createdAt: '2026-10-09T12:00:00Z', metadata: { sourceCoverage: savedCoverage() } });
+  const reading = await readDeptRows();
+  expect(reading.rowsByDept).toEqual({ УО: [['confirmed']] });
+  expect(reading.coverage.readDepartments).toEqual(['УО']);
 });
