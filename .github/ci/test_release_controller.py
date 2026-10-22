@@ -411,6 +411,20 @@ class ControllerTests(TrialTests):
                 finally:
                     path.write_bytes(original)
 
+    def test_component_fingerprint_rejects_missing_or_partial_legacy_receipt(self):
+        self.web_stage()
+        path = self.fixture.runtime / 'component.json'
+        original = json.loads(path.read_text())
+        for invalid in (None, {}, {'controller': original['tools_sha256']['controller']}):
+            with self.subTest(fingerprint=invalid):
+                changed = {**original, 'tools_sha256': invalid}
+                path.write_text(json.dumps(changed))
+                with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+                    self.controller.deploy_web()
+                self.assertFalse(self.fixture.pending.exists())
+                self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        path.write_text(json.dumps(original))
+
     def test_changed_backend_environment_selects_full_release_despite_ui_source_diff(self):
         self.web_stage()
         config = self.compose_sources[str(self.controller_module.REVIEWED_COMPOSE)]
