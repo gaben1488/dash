@@ -548,7 +548,8 @@ export function IntegritySection() {
                                 : entry.status === 'ambiguous-number' ? 'номер неоднозначен'
                                   : entry.status === 'row-not-found' ? 'номер не найден'
                                     : entry.status === 'conflicting-log' ? 'записи журнала противоречат'
-                                      : 'значение сейчас отличается'}
+                                      : entry.status === 'context-unverified' ? 'предмет закупки не подтверждён'
+                                        : 'значение сейчас отличается'}
                             </li>
                           ))}
                         </ul>
