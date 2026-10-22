@@ -37,6 +37,23 @@ describe('source validation coverage is explicit', () => {
     expect(validateRows([[], [], [], row], 'УКСиМП').issues.find(x => x.message.includes('Годовой объём ЕП:')))
       .toMatchObject({ severity: 'info' });
   });
+  it('uses canonical number coercion for type, negative amount and row coverage', () => {
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '6'; row[DEPT_COLUMNS.SUBJECT] = 'Услуги';
+    row[DEPT_COLUMNS.METHOD] = 'ЭА'; row[DEPT_COLUMNS.TOTAL_PLAN] = '1 234,56';
+    row[DEPT_COLUMNS.TOTAL_FACT] = '1 100,00'; row[DEPT_COLUMNS.FB_PLAN] = '-12,5';
+    const result = validateRows([[], [], [], row], 'УО');
+    expect(result.rowsChecked).toBe(1);
+    expect(result.issues.filter(issue => issue.type === 'data_type')).toHaveLength(0);
+    expect(result.issues.filter(issue => issue.type === 'negative_money' && issue.field === 'H')).toHaveLength(1);
+
+    row[DEPT_COLUMNS.SUBJECT] = '';
+    expect(validateRows([[], [], [], row], 'УО').rowsChecked).toBe(1);
+    row[DEPT_COLUMNS.TOTAL_PLAN] = 'сломано';
+    row[DEPT_COLUMNS.SUBJECT] = 'Услуги';
+    expect(validateRows([[], [], [], row], 'УО').issues.some(issue =>
+      issue.type === 'data_type' && issue.field === 'K')).toBe(true);
+  });
   it('a recognized reason stays an actionable warning in source validation', () => {
     const row: unknown[] = new Array(34).fill('');
     row[DEPT_COLUMNS.ID] = '4'; row[DEPT_COLUMNS.SUBJECT] = 'Разовая закупка';
