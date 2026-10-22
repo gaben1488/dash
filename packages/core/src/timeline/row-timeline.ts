@@ -25,7 +25,7 @@
  * ретроспективу.
  */
 
-import { dayNumberOf, hasFactDate, isoOfDayNumber } from '@aemr/shared';
+import { dayNumberOf, hasFactDate, isoOfDayNumber, toNumber as parseBookNumber } from '@aemr/shared';
 
 /** Откуда известно событие. Значения — подписи продукта, не внутренние ключи. */
 export type TimelineSource = 'журнал' | 'снимок' | 'срез недели';
@@ -137,20 +137,14 @@ const SUM_LETTERS = new Set(['H', 'I', 'J', 'K', 'V', 'W', 'X', 'Y', 'Z', 'AA', 
  * server/services/rows-dto.toNumber; нечисло → null (не ноль: «пусто» и «0»
  * в диффе денег — разные состояния).
  *
- * Экспортировано как ЕДИНСТВЕННАЯ null-коэрция ядра (чистка 20.08.2026,
- * зона В): к ней сведены прежние копии upcoming.ts («мусор → 0» =
- * `sheetNumber(v) ?? 0`), pipeline/normalize.ts, pipeline/normalizer-rules.ts
- * и pipeline/signals.ts (toNumber = `sheetNumber(v) ?? NaN`). Дом коэрции
- * монорепы — shared/svod-grid (см. страж canon-homes.test.ts); туда эта
- * функция переедет волной В0, когда в доме появится вариант с
- * null-семантикой — дом сейчас отдаёт 0 и на пустоту, и на мусор.
+ * Делегирует разбор к единому `@aemr/shared.toNumber` (RULE_BOOK).
+ * `sheetNumber` сохраняется как совместимый экспорт для сигналов, истории
+ * и существующих потребителей; второй самостоятельный parseFloat запрещён.
  */
 export function sheetNumber(val: unknown): number | null {
-  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
-  const s = String(val ?? '').trim();
-  if (s === '') return null;
-  const parsed = parseFloat(s.replace(/\s/g, '').replace(/,/g, '.'));
-  return Number.isFinite(parsed) ? parsed : null;
+  // Shared whole-cell parser: never read "12abc" as 12 or "12/1" as money.
+  // The same contract governs RULE_BOOK, signals, and timeline differences.
+  return parseBookNumber(val);
 }
 
 /**
