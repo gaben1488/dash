@@ -14,7 +14,7 @@ vi.mock('../config.js', () => ({
 import { db, schema } from '../db/index.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import {
-  loadFormulaAudits, loadMetadataResults, saveFormulaAudit, saveMetadataResult,
+  loadFormulaAudits, loadMetadataAudits, loadMetadataResults, saveFormulaAudit, saveMetadataResult,
 } from './source-integrity-state.js';
 
 const goodAt = '2026-10-22T02:00:00.000Z';
@@ -53,6 +53,31 @@ describe('durable source-integrity state', () => {
     const failed = { book: 'УИО', at: failedAt, read: false, skippedBecause: 'Google 403', remarks: [], persisted: true };
     saveMetadataResult(failed);
     expect(loadMetadataResults()).toEqual([failed]);
+  });
+
+  it('preserves a confirmed metadata drift across later Google failure', () => {
+    const confirmed = {
+      book: 'УО', at: goodAt, read: true, persisted: true,
+      remarks: [{
+        book: 'УО', kind: 'protection_removed' as const, column: 'Y',
+        expected: 'защищено', actual: 'защиты нет', text: 'нет защиты Y',
+      }],
+    };
+    const failed = {
+      book: 'УО', at: failedAt, read: false, persisted: true,
+      skippedBecause: 'временная ошибка Google', remarks: [],
+    };
+    saveMetadataResult(confirmed);
+    saveMetadataResult(failed);
+    expect(loadMetadataResults()).toEqual([failed]);
+    expect(loadMetadataAudits()).toEqual([{ attempt: failed, lastConfirmed: confirmed }]);
+  });
+
+  it('restores metadata as unknown when the checker contract changes', () => {
+    saveMetadataResult({ book: 'УО', at: goodAt, read: true, persisted: true, remarks: [] });
+    db.update(schema.sourceIntegrityState).set({ checkerVersion: 'metadata-canon/old' })
+      .where(eq(schema.sourceIntegrityState.id, 'metadata:УО')).run();
+    expect(loadMetadataAudits()).toEqual([]);
   });
 
   it('refuses to restore evidence from a different source ID', () => {
