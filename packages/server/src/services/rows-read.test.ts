@@ -4,14 +4,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getSheetData, readDeptSheet, getDeptSheetValues } = vi.hoisted(() => ({
+const { getSheetData, readDeptSheet, getDeptSheetValues, getDeptLoadMeta } = vi.hoisted(() => ({
   getSheetData: vi.fn(),
   readDeptSheet: vi.fn(),
   getDeptSheetValues: vi.fn(),
+  getDeptLoadMeta: vi.fn(),
 }));
 
 vi.mock('./google-sheets.js', () => ({ getSheetData, readDeptSheet }));
-vi.mock('./snapshot.js', () => ({ getDeptSheetValues }));
+vi.mock('./snapshot.js', () => ({ getDeptSheetValues, getDeptLoadMeta }));
 vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: { УО: 'ss-uo' } }));
 
 import { readDeptRows } from './rows-read.js';
@@ -22,6 +23,7 @@ const values = [['шапка 1'], ['шапка 2'], ['шапка 3'], ['1', 'Р�
 beforeEach(() => {
   vi.resetAllMocks();
   getDeptSheetValues.mockReturnValue({});
+  getDeptLoadMeta.mockReturnValue({ УО: { loadedAt: '2026-10-22T05:00:00Z' } });
 });
 
 describe('readDeptRows — каскад чтения', () => {
@@ -31,6 +33,36 @@ describe('readDeptRows — каскад чтения', () => {
     expect(await readDeptRows(dept)).toEqual({ ok: true, values });
     expect(getSheetData).not.toHaveBeenCalled();
     expect(readDeptSheet).not.toHaveBeenCalled();
+  });
+
+  it('не использует сохранённый кэш, если последнее чтение книги завершилось ошибкой', async () => {
+    const fresh = [...values.slice(0, 3), ['2', 'РН-2']];
+    getDeptSheetValues.mockReturnValue({ УО: values });
+    getDeptLoadMeta.mockReturnValue({ УО: { loadedAt: '2026-10-22T05:00:00Z', error: 'quota 429' } });
+    readDeptSheet.mockResolvedValue({ values: fresh });
+
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values: fresh });
+    expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
+    expect(getSheetData).not.toHaveBeenCalled();
+  });
+
+  it('не выдаёт бездоказательный кэш за свежую книгу без момента чтения', async () => {
+    getDeptSheetValues.mockReturnValue({ УО: values });
+    getDeptLoadMeta.mockReturnValue({});
+    readDeptSheet.mockResolvedValue({ values });
+
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+    expect(readDeptSheet).toHaveBeenCalledOnce();
+  });
+
+  it('отказ master после отказа кэша остаётся отказом, а не ложным успехом', async () => {
+    const error = new Error('Google 403');
+    getDeptSheetValues.mockReturnValue({ УО: values });
+    getDeptLoadMeta.mockReturnValue({ УО: { loadedAt: '2026-10-22T05:00:00Z', error: 'read failed' } });
+    readDeptSheet.mockRejectedValue(error);
+
+    expect(await readDeptRows(dept)).toEqual({ ok: false, reason: 'read-error', error });
+    expect(getSheetData).not.toHaveBeenCalled();
   });
 
   it('при пустом кэше читает master, даже когда зеркало непустое и отличается', async () => {
