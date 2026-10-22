@@ -42,7 +42,7 @@ import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@a
 import { config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { readAllBookJournals } from '../services/provenance-journal.js';
-import { buildComparison } from './integrity.js';
+import { buildComparison } from '../services/procurement-absence.js';
 
 /**
  * Потолок подробного списка. Свод считается по ВСЕМУ окну — обрезается только
