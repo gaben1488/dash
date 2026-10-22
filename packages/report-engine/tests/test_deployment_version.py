@@ -10,10 +10,21 @@ def test_main_workflow_does_not_cancel_state_changing_deployment():
     # Production main and the reviewed integration candidate must both be
     # allowed to complete exact-head CI; rapid follow-up pushes may supersede
     # queued runs but must not cancel an active validation or stateful release.
+    refs = (
+        'refs/heads/main',
+        'refs/heads/codex/dash-audit-integrated-20261010',
+        'refs/heads/integration/consolidated-modern-20261023',
+    )
+    expected = "cancel-in-progress: ${{ " + " && ".join(
+        f"github.ref != '{ref}'" for ref in refs
+    ) + " }}"
+    assert expected in top_concurrency
+    # Exact-head push checks must run on the consolidation branch too.
+    push_rules = workflow.split('  pull_request:', 1)[0]
     assert (
-        "cancel-in-progress: ${{ github.ref != 'refs/heads/main' && "
-        "github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' }}"
-    ) in top_concurrency
+        'branches: [main, master, codex/dash-audit-integrated-20261010, '
+        'integration/consolidated-modern-20261023]'
+    ) in push_rules
 
 
 def test_deploy_resets_to_tested_sha_and_checks_it_before_building():

@@ -4,7 +4,7 @@ on:
   push:
     # Validate the actual integration head without merging its code into old main.
     # The deploy job below remains restricted to an approved main dispatch.
-    branches: [main, master, codex/dash-audit-integrated-20261010]
+    branches: [main, master, codex/dash-audit-integrated-20261010, integration/consolidated-modern-20261023]
   pull_request:
     branches: [main, master, codex/dash-audit-integrated-20261010]
   workflow_dispatch:
@@ -24,10 +24,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Keep exact-SHA CI running on the integration branch while other fixes
-  # arrive; cancelling every run prevented any candidate from proving itself.
+  # Keep exact-SHA CI running on the modern integration branches as fixes arrive;
+  # cancelling every run prevents a candidate from proving itself.
   # Other PR branches keep fast supersession; no automatic deployment is added.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' && github.ref != 'refs/heads/integration/consolidated-modern-20261023' }}
 
 jobs:
   source-diagnostics-candidate:
