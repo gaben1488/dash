@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .normalize import clean_text
 from .department_directory import department_id
+from .normalize import clean_text
 
 if TYPE_CHECKING:
     from .models import ProcurementRow
