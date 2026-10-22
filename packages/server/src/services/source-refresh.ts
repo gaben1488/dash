@@ -799,8 +799,19 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // «Ничего не сдвинулось» — это ОДНОВРЕМЕННО: ни одна книга не изменилась,
     // ни одна не прочитана впервые, лист СВОД тот же и никто не отказал.
     // Достаточно любому условию не выполниться — снимок обязан пересобраться.
-    const formulaInputsChanged = Object.entries(data).some(([book, reading]) => reading.formulasRead
-      && (!cachedBefore[book]?.formulasRead || sheetFingerprint(reading.formulas) !== sheetFingerprint(cachedBefore[book].formulas)));
+    // Compare actual accepted formula evidence, not only whether THIS cycle
+    // requested formulas: losing proof on a changed/unknown source revision
+    // must invalidate the old score even if all displayed values stayed equal.
+    const acceptedBooks = getDeptSheetCache();
+    const formulaInputsChanged = Object.entries(data).some(([book, reading]) => {
+      const previous = cachedBefore[book];
+      const accepted = acceptedBooks[book];
+      const hadProof = Boolean((previous?.formulasRead || previous?.retainedFormulas) && previous.formulas?.length);
+      const hasProof = Boolean((accepted?.formulasRead || accepted?.retainedFormulas) && accepted.formulas?.length);
+      return hadProof !== hasProof
+        || (reading.formulasRead && hasProof
+          && sheetFingerprint(reading.formulas) !== sheetFingerprint(previous?.formulas));
+    });
     const nothingChanged =
       changedBooks.length === 0
       && firstReads === 0

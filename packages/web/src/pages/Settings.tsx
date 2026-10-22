@@ -120,6 +120,7 @@ export function SettingsPage() {
   const [deepChecking, setDeepChecking] = useState(false);
   const [deepCheck, setDeepCheck] = useState<Awaited<ReturnType<typeof api.checkSourceIntegrityDeep>> | null>(null);
   const [deepCheckError, setDeepCheckError] = useState<string | null>(null);
+  const [trustUpdateError, setTrustUpdateError] = useState<string | null>(null);
   const [diagnosticRun, setDiagnosticRun] = useState<SourceDiagnosticRun | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,6 +169,7 @@ export function SettingsPage() {
   const storeError = useStore(s => s.error);
   const storeLoading = useStore(s => s.loading);
   const hasDashboardData = useStore(s => s.dashboardData !== null);
+  const fetchDashboard = useStore(s => s.fetchDashboard);
 
   /* ── Чтение источников ─────────────────────────────────── */
 
@@ -246,6 +248,7 @@ export function SettingsPage() {
     if (refreshFeedback.state === 'loading' || deepChecking || validatingAll) return;
     setDeepCheck(null); // result of a previous deep read is no longer current
     setDeepCheckError(null);
+    setTrustUpdateError(null);
     setDiagnosticRun(null);
     setValidationResults({});
     setLastCheckedAt(null);
@@ -286,6 +289,7 @@ export function SettingsPage() {
     setValidatingAll(true);
     setDeepCheck(null);
     setDeepCheckError(null);
+    setTrustUpdateError(null);
     setDiagnosticRun(null);
     setLastCheckedAt(null);
     setValidationResults(Object.fromEntries(sources.map(source => [source.name, { loading: true }])));
@@ -316,6 +320,19 @@ export function SettingsPage() {
       }
       setValidationResults(checks);
       setLastCheckedAt(result.stages.rows.completedAt);
+      // Deep inspection refreshes source/formula evidence but does not rebuild
+      // the dashboard on its own. Recompute the LIVE trust snapshot now, while
+      // the checked formula grids are still in the source cache.
+      if (result.stages.deep.status !== 'failed' && result.stages.deep.result) {
+        try {
+          const updated = await fetchDashboard(true);
+          if (!updated) {
+            setTrustUpdateError('Формулы прочитаны, но оценка надёжности не обновилась. Повторите чтение на вкладке «Надёжность».');
+          }
+        } catch (err) {
+          setTrustUpdateError(`Формулы прочитаны, но оценку не удалось обновить: ${humanizeRequestError(err)}`);
+        }
+      }
       await fetchSourcesData();
     } catch (err) {
       const message = humanizeRequestError(err);
@@ -927,6 +944,9 @@ SQLITE_PATH=./data/aemr.db
                       <p className="text-red-700 dark:text-red-300">
                         Проверка не выполнена: {deepCheckError}. Предыдущее состояние не считается новым результатом.
                       </p>
+                    )}
+                    {trustUpdateError && (
+                      <p className="text-amber-700 dark:text-amber-300">{trustUpdateError}</p>
                     )}
                     {deepCheck && (
                       <>

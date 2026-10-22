@@ -7,10 +7,13 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { SettingsPage } from './Settings';
+import { useStore } from '../store';
 
 const getSources = vi.fn();
 const settingsStatus = vi.fn();
 const runSourceDiagnostics = vi.fn();
+const fetchDashboard = vi.fn(async () => true);
+const originalFetchDashboard = useStore.getState().fetchDashboard;
 
 vi.mock('../components/RuleReference', () => ({ RuleReference: () => null }));
 vi.mock('../api', async (importOriginal) => {
@@ -91,9 +94,12 @@ beforeEach(() => {
   });
   settingsStatus.mockResolvedValue({ configured: true });
   runSourceDiagnostics.mockResolvedValue(result(true));
+  fetchDashboard.mockResolvedValue(true);
+  useStore.setState({ fetchDashboard });
 });
 
 afterEach(() => {
+  useStore.setState({ fetchDashboard: originalFetchDashboard });
   cleanup();
   vi.clearAllMocks();
   window.localStorage.clear();
@@ -125,11 +131,20 @@ describe('Единый источник диагностики на новой �
     await screen.findByText(/Этапы проверки источников завершены/);
     expect(document.body.textContent).toContain('Метрики, межкнижные сверки, текст и история этим запуском не проверялись.');
     expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(fetchDashboard).toHaveBeenCalledWith(true));
     expect(document.body.textContent).toContain('2 из 2 книг');
     expect(document.body.textContent).toContain('отсутствие первого недельного среза проверке не мешает');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
     expect(document.body.textContent).toContain('УО:');
     expect(document.body.textContent).toContain('УИО:');
+  });
+
+  it('reports a dashboard rebuild failure separately from a successful formula read', async () => {
+    fetchDashboard.mockResolvedValueOnce(false);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
+    await screen.findByText(/Формулы прочитаны, но оценка надёжности не обновилась/);
+    expect(document.body.textContent).toContain('2 из 2 книг');
   });
 
   it('непрочитанная книга не объявляется здоровой с нулём дефектов', async () => {

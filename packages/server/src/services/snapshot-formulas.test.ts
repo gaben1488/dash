@@ -150,6 +150,44 @@ describe('формулы книг во входе конвейера', () => {
     expect(formulas?.['УО']?.[3]?.[10]).toBe('=H4+I4+J4');
   }, 30_000);
 
+
+  it('keeps checked formulas through a values-only read of the identical provider revision', async () => {
+    const { getSnapshot, setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    const sameSource = { providerId: 'file-uo', sourceVersion: 'rev-42', sheetName: 'ВСЕ' };
+    setDeptSheetCache({ УО: {
+      ...sameSource, values: bookValues, formulas: formulaGrid(), formulasRead: true,
+    } });
+    setDeptSheetCache({ УО: {
+      ...sameSource, values: bookValues.map(row => row.slice()), formulas: [], formulasRead: false,
+    } });
+    expect(getDeptSheetCache()['УО']).toMatchObject({ formulasRead: false, retainedFormulas: true });
+    await getSnapshot(true);
+    expect(seenInputs[0].sheetFormulas?.['УО']).toEqual(formulaGrid());
+  }, 30_000);
+
+  it('never reuses checked formulas after changing values, revision, tab, provider or losing proof of revision', async () => {
+    const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    const old = { providerId: 'file-uo', sourceVersion: 'rev-42', sheetName: 'ВСЕ',
+      values: bookValues, formulas: formulaGrid(), formulasRead: true };
+    const changed = [
+      { values: [[], [], [], [1, 'другая закупка']] },
+      { sourceVersion: 'rev-43' },
+      { sourceVersion: undefined },
+      { sheetName: 'Другая вкладка' },
+      { providerId: 'another-provider' },
+    ];
+    for (const difference of changed) {
+      setDeptSheetCache({ УО: old });
+      setDeptSheetCache({ УО: {
+        ...old, ...difference, values: difference.values ?? bookValues,
+        formulas: [], formulasRead: false,
+      } });
+      const current = getDeptSheetCache()['УО'];
+      expect(current.retainedFormulas).toBeUndefined();
+      expect(current.formulas).toEqual([]);
+    }
+  });
+
   it('книга без чтения формул поля не создаёт вовсе', async () => {
     const { getSnapshot, setDeptSheetCache } = await import('./snapshot.js');
     setDeptSheetCache(
