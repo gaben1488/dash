@@ -578,7 +578,17 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(snapshotUnavailable(err));
     }
 
-    const grid = snapshot.unifiedGrid ?? { cells: {}, grbsIds: [], scopes: [] };
+    // A missing projection indicates the source pipeline did not materialize
+    // its mandatory output. Do not return a synthetic empty grid as "no rows".
+    if (!snapshot.unifiedGrid) {
+      app.log.warn({ snapshotId: snapshot.id }, 'svod/unified: grid projection missing');
+      return reply.status(503).send({
+        code: 'SVOD_GRID_NOT_READY',
+        error: 'Сводная сетка не сформирована. Повторите чтение или проверьте состояние источников.',
+      });
+    }
+
+    const grid = snapshot.unifiedGrid;
     const reconciliation = snapshot.unifiedReconciliation ?? [];
 
     return reply.send({
