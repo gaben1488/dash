@@ -765,11 +765,11 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       return reading?.providerId === providerId && reading.values.length >= DEPT_HEADER_ROWS
         ? reading.sourceRevision : undefined;
     });
+    const sharedRevision = revisions[0];
     if (snapshot.metadata.sourceCoverage.complete && masters.length === DEPARTMENTS.length
-        && revisions.length > 0 && revisions.every(revision =>
-          typeof revision === 'string' && /^SRC-[a-f0-9]{64}$/.test(revision)
-          && revision === revisions[0])) {
-      snapshot.metadata.sourceRevision = revisions[0];
+        && typeof sharedRevision === 'string' && /^SRC-[a-f0-9]{64}$/.test(sharedRevision)
+        && revisions.every(revision => revision === sharedRevision)) {
+      snapshot.metadata.sourceRevision = sharedRevision;
     }
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
