@@ -151,6 +151,7 @@ describe('чтение формул в цикле источников', () => {
     expect(state.sinkConnected).toBe(true);
     expect(state.books[0].handled).toBe(true);
     expect(state.books[0].cells).toBe(2);
+    expect(state.books[0].formulasRead).toBe(true);
   });
 
   it('разбор не подключён — след говорит об этом, а не молчит', async () => {
@@ -197,7 +198,7 @@ describe('чтение формул в цикле источников', () => {
     expect(refresh.formulaBooks).toEqual([]);
     expect(refresh.failed).toEqual(['УО']);
     expect(formulaDeliveryState().books[0]).toMatchObject({
-      book: 'УО', handled: false, persisted: true, cells: 0,
+      book: 'УО', handled: false, persisted: true, cells: 0, formulasRead: false,
     });
     expect(formulaDeliveryState().books[0].failedBecause).toContain('книга не прочитана');
     expect(vi.mocked(saveFormulaAudit).mock.lastCall?.[1]).toBeNull();
@@ -211,7 +212,8 @@ describe('чтение формул в цикле источников', () => {
     const { refreshAllSources, formulaDeliveryState } = await import('./source-refresh.js');
     await refreshAllSources(log, 'webhook', { withFormulas: true });
     expect(formulaDeliveryState().books).toMatchObject([
-      { book: 'УО', handled: false, persisted: true, failedBecause: 'формулы не получены в этом чтении' },
+      { book: 'УО', handled: false, persisted: true, formulasRead: false,
+        failedBecause: 'формулы не получены в этом чтении' },
     ]);
   });
 

@@ -36,6 +36,7 @@ function validDelivery(value: unknown, book: string): value is FormulaDeliveryNo
     && value.book === book && validAt(value.at)
     && Number.isSafeInteger(value.cells) && (value.cells as number) >= 0
     && typeof value.handled === 'boolean' && value.persisted === true
+    && (value.formulasRead === undefined || typeof value.formulasRead === 'boolean')
     && (value.failedBecause === undefined || typeof value.failedBecause === 'string');
 }
 function validVerdict(value: unknown, book: string): value is BookFormulaVerdict {

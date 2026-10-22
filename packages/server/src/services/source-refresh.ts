@@ -163,6 +163,8 @@ export interface FormulaDeliveryNote {
   cells: number;
   /** Принял ли разбор эту посылку (розетка занята и не отказала). */
   handled: boolean;
+  /** Успешно ли получена сетка формул; отказ Google и ошибка парсера — разные случаи. */
+  formulasRead?: boolean;
   /** Зафиксирован ли этот исход на диске; false запрещает подтверждать проверку. */
   persisted?: boolean;
   /** Почему не принял, если не принял. */
@@ -245,7 +247,8 @@ function deliverFormulas(
     if (!result.formulasRead) {
       // A normal values-only refresh MUST NOT replace the last formula check.
       if (requested) remember({
-        book, at, cells: 0, handled: false, failedBecause: 'формулы не получены в этом чтении',
+        book, at, cells: 0, handled: false, formulasRead: false,
+        failedBecause: 'формулы не получены в этом чтении',
       }, null);
       continue;
     }
@@ -255,6 +258,7 @@ function deliverFormulas(
       at,
       cells: countFormulaCells(result.formulas),
       handled: false,
+      formulasRead: true,
     };
     let verdict: BookFormulaVerdict | null = null;
     if (formulaSink) {
@@ -285,6 +289,7 @@ function deliverFormulas(
         at,
         cells: 0,
         handled: false,
+        formulasRead: false,
         failedBecause: `книга не прочитана: ${classifySourceFailure(error)}`,
       }, null);
     }

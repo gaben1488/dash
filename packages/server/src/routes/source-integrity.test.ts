@@ -9,7 +9,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const REFRESH_AT = '2026-10-22T04:00:00.000Z';
-type DeliveryState = { sinkConnected: boolean; books: Array<{ book: string; at: string; cells: number; handled: boolean; persisted?: boolean; failedBecause?: string }> };
+type DeliveryState = { sinkConnected: boolean; books: Array<{ book: string; at: string; cells: number; handled: boolean; formulasRead?: boolean; persisted?: boolean; failedBecause?: string }> };
 const defaultDeliveries = (): DeliveryState => ({
   sinkConnected: false,
   books: [{ book: 'УО', at: '2026-08-30T12:00:00.000Z', cells: 29_700, handled: false, failedBecause: 'разбор формул не подключён' }],
@@ -130,6 +130,18 @@ describe('GET /api/sources/integrity', () => {
     // Книга, которой дозор не касался, названа отдельно от «замечаний нет».
     expect(body.metadata.notWatched).toEqual(['УИО']);
   }, 30_000);
+});
+
+describe('GET failed formula reads', () => {
+  it('does not mark a Google read failure as successfully read', async () => {
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
+      { book: 'УО', at: REFRESH_AT, cells: 0, handled: false, formulasRead: false,
+        failedBecause: 'книга не прочитана' },
+    ] });
+    const response = (await app.inject({ method: 'GET', url: '/api/sources/integrity' })).json();
+    expect(response.formulas.notRead).toEqual(['УИО', 'УО']);
+    expect(response.formulas.books[0].failedBecause).toContain('не прочитана');
+  });
 });
 
 describe('POST /api/sources/integrity/check', () => {

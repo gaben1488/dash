@@ -61,7 +61,9 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
   app.get('/api/sources/integrity', async () => {
     const formulas = formulaDeliveryState();
     const metadata = metadataWatchState();
-    const readBooks = new Set(formulas.books.map((b) => b.book));
+    const readBooks = new Set(formulas.books
+      .filter((b) => b.formulasRead !== false)
+      .map((b) => b.book));
 
     return {
       at: new Date().toISOString(),
@@ -98,8 +100,8 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           })),
         })),
         /**
-         * Книги, по которым формулы не читались НИ РАЗУ за жизнь службы.
-         * Отдельным полем, а не пропуском: пропуск читается как «чисто».
+         * Книги, по которым последняя попытка не подтверждает чтения формул.
+         * Ошибки Google и непрочитанные источники не считаются проверенными.
          */
         notRead: Object.keys(DEPARTMENT_SPREADSHEETS)
           .filter((book) => !readBooks.has(book))
