@@ -39,6 +39,7 @@ import {
   type SvodOrder,
 } from '../lib/svod/order';
 import { collapsePeriods, hasCellsForPeriods, isGridEmpty } from '../lib/svod/grid';
+import { isConfirmedEmptySvod, svodCountsState } from '../lib/svod/count-availability';
 import {
   epShareByCount,
   methodShares,
@@ -344,8 +345,7 @@ export function SvodView() {
     () => (sliced ? methodShares(sliced.summary) : null),
     [sliced],
   );
-  const sliceEmpty =
-    headRow !== null && (headRow.planCount ?? 0) === 0 && (headRow.factCount ?? 0) === 0;
+  const sliceEmpty = isConfirmedEmptySvod(headRow);
   const periodMissing =
     grid !== undefined && !isGridEmpty(grid) && !hasCellsForPeriods(grid, periodSel.keys);
 
@@ -833,10 +833,11 @@ export function SvodView() {
  * как поломка, хотя это осмысленное состояние данных.
  */
 function headline(row: SvodRow): string {
-  const plan = row.planCount ?? 0;
-  const fact = row.factCount ?? 0;
-  if (plan === 0) return `Плана нет, а закупок состоялось ${countText(fact)}`;
-  return `Исполнение ${pctText(row.executionPct)} — ${countText(fact)} из ${countText(plan)} закупок`;
+  const availability = svodCountsState(row);
+  if (availability === 'unread-plan') return 'План не прочитан — исполнение не оценено';
+  if (availability === 'unread-fact') return `Факт не прочитан — запланировано ${countText(row.planCount)} закупок`;
+  if (availability === 'no-plan') return `Плана нет, а закупок состоялось ${countText(row.factCount)}`;
+  return `Исполнение ${pctText(row.executionPct)} — ${countText(row.factCount)} из ${countText(row.planCount)} закупок`;
 }
 
 /**
