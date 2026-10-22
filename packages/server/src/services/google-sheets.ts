@@ -4,6 +4,7 @@ import {
   ALL_SHEETS,
   DEPARTMENT_REGISTRY,
   DEPT_HEADER_ROWS,
+  FORMULA_COLUMNS,
   MASTER_SOURCE_PROFILE,
   SHDYU_MONTHLY_SHEET_NAME,
   validateMasterSourceHeader,
@@ -664,12 +665,21 @@ export async function getSheetDataWithFormulas(
  * канонными защитами, поэтому колонка, добавленная в книгу и забытая здесь,
  * падает тестом, а не читается молча мимо.
  */
-export const FORMULA_COLUMN_GROUPS = [
-  { from: 'K', to: 'K' },
-  { from: 'O', to: 'P' },
-  { from: 'R', to: 'T' },
-  { from: 'Y', to: 'AC' },
-] as const;
+export const FORMULA_COLUMN_GROUPS: ReadonlyArray<{ from: string; to: string }> = (() => {
+  // The one source profile owns the formula columns; Google only needs
+  // contiguous A1 ranges to read them efficiently.
+  const columns = [...FORMULA_COLUMNS].sort((a, b) => letterToColumn(a) - letterToColumn(b));
+  const groups: Array<{ from: string; to: string }> = [];
+  for (const column of columns) {
+    const last = groups[groups.length - 1];
+    if (last && letterToColumn(column) === letterToColumn(last.to) + 1) {
+      last.to = column;
+    } else {
+      groups.push({ from: column, to: column });
+    }
+  }
+  return groups;
+})();
 
 /** Те же группы поимённо — для сообщений и стражей. */
 export { FORMULA_COLUMNS } from '@aemr/shared';
@@ -813,40 +823,62 @@ export interface DeptSheetResult {
  */
 const resolvedSheetNameCache = new Map<string, string>();
 
+/** The existing name resolver is the single admission boundary for reading,
+ * editing and source-metadata inspections of department master tabs.
+ * Unknown standalone tabs retain the former best-effort resolver, but a
+ * configured master must be found by its reviewed stable sheetId (gid).
+ */
 export async function resolveDeptSheetName(deptName: string, ssId: string): Promise<string> {
+  const department = DEPARTMENT_REGISTRY.find(d => d.id === deptName || d.shortName === deptName);
+  if (department && (department.source.role !== MASTER_SOURCE_PROFILE.role
+      || department.source.profile !== MASTER_SOURCE_PROFILE.id)) {
+    throw new Error('MASTER_SOURCE_PROFILE_BINDING_INVALID');
+  }
+
   const cacheKey = `${ssId}:${deptName}`;
-  const cached = resolvedSheetNameCache.get(cacheKey);
-  if (cached) return cached;
+  if (!department) {
+    const cached = resolvedSheetNameCache.get(cacheKey);
+    if (cached) return cached;
+  }
 
-  const registryName = DEPARTMENT_REGISTRY.find(d => (d.id === deptName || d.shortName === deptName))?.sheetName ?? deptName;
-  const candidates = departmentSheetNameCandidates(registryName, deptName);
-
+  const registryName = department?.source.sheet ?? deptName;
   try {
     const meta = await readWithRetry(`чтение состава книги «${deptName}»`, async () => {
       const api = await getSheetsApi();
       return api.spreadsheets.get(
-        {
-          spreadsheetId: ssId,
-          fields: 'sheets.properties.title',
-        },
+        { spreadsheetId: ssId, fields: 'sheets.properties' },
         { timeout: SHEETS_TIMEOUT_MS },
       );
     });
+
+    if (department) {
+      const reviewed = (meta.data.sheets ?? []).find(
+        s => s.properties?.sheetId === department.source.sheetId,
+      )?.properties;
+      if (!reviewed) throw new Error('MASTER_SOURCE_SHEET_ID_CHANGED');
+      const title = reviewed.title;
+      if (!title || (title !== department.source.sheet
+          && !(department.approvedPrimaryRename && title === department.shortName))) {
+        throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+      }
+      if ((reviewed.gridProperties?.columnCount ?? 0) < MASTER_SOURCE_PROFILE.columns) {
+        throw new Error('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH');
+      }
+      return title;
+    }
+
     const existing = new Set(
       (meta.data.sheets ?? []).map(s => s.properties?.title).filter((t): t is string => !!t),
     );
-    const resolved = candidates.find(c => existing.has(c)) ?? registryName;
+    const resolved = departmentSheetNameCandidates(registryName, deptName).find(c => existing.has(c))
+      ?? registryName;
     resolvedSheetNameCache.set(cacheKey, resolved);
     return resolved;
   } catch (err) {
-    // Метаданные недоступны (rate-limit/сеть/мок в тестах) — деградация к
-    // реестровому имени (поведение до фикса), НЕ валим запись. Не кэшируем,
-    // чтобы следующий вызов снова попробовал резолв.
-    //
-    // Но и молчать нельзя: если реальная вкладка называется иначе, правка
-    // уйдёт в лист, которого нет, а причина останется неизвестной. Раньше
-    // здесь стоял пустой перехват — ровно тот приём, из-за которого «слишком
-    // часто» когда-то выдавалось за «листа нет».
+    // A failed identity check or missing Google metadata must never authorize
+    // a write to a lookalike master. Only unknown legacy tab names retain the
+    // previous fallback, and an actual read/write still has to succeed.
+    if (department) throw err;
     logSourceFailure(`определение имени вкладки книги «${deptName}»`, {
       ms: 0,
       reason: classifySourceFailure((err as Error)?.message ?? String(err)),
@@ -895,63 +927,39 @@ export async function readDeptSheet(
   options: DeptReadOptions = {},
 ): Promise<DeptSheetResult> {
   const department = DEPARTMENT_REGISTRY.find(d => d.id === deptName || d.shortName === deptName);
-  const sheetName = department?.source.sheet ?? deptName;
-  const candidates = departmentSheetNameCandidates(sheetName, department?.id ?? deptName);
+
+  if (department) {
+    // Resolve the reviewed gid BEFORE reading any values. The write path and
+    // metadata watch use this same binding decision, not separate fallbacks.
+    const sheetName = await resolveDeptSheetName(deptName, ssId);
+    const values = await getSheetDataFromSpreadsheet(ssId, sheetName);
+    // A missing or truncated header is NOT a known-empty workbook.
+    validateMasterSourceHeader(values[DEPT_HEADER_ROWS - 1] ?? []);
+    const formulas = options.withFormulas
+      ? (await getSheetFormulaColumns(ssId, sheetName)).formulas
+      : [];
+    return { providerId: ssId, values, formulas, sheetName, readAt: new Date().toISOString(),
+      startRow: 1, formulasRead: options.withFormulas === true };
+  }
+
+  // Unknown old sources have no canonical master identity to verify. Preserve
+  // their original name probing for backward compatibility without weakening
+  // the reviewed eight-master path.
+  const candidates = departmentSheetNameCandidates(deptName, deptName);
   let lastError: unknown;
-  for (const candidate of candidates) {
-    // Only a missing tab belongs in this catch. A changed header, wrong sheetId
-    // or formula failure cannot justify silently selecting another master.
-    let values: unknown[][];
+  for (const sheetName of candidates) {
     try {
-      values = await getSheetDataFromSpreadsheet(ssId, candidate);
+      const values = await getSheetDataFromSpreadsheet(ssId, sheetName);
+      if (values.length === 0) continue;
+      const formulas = options.withFormulas
+        ? (await getSheetFormulaColumns(ssId, sheetName)).formulas
+        : [];
+      return { providerId: ssId, values, formulas, sheetName, readAt: new Date().toISOString(),
+        startRow: 1, formulasRead: options.withFormulas === true };
     } catch (err) {
       lastError = err;
       if (isNonRecoverableSheetError(err)) throw err;
-      continue;
     }
-    if (values.length === 0) continue;
-
-    if (department) {
-      if (department.source.role !== MASTER_SOURCE_PROFILE.role
-          || department.source.profile !== MASTER_SOURCE_PROFILE.id) {
-        throw new Error('MASTER_SOURCE_PROFILE_BINDING_INVALID');
-      }
-      // Both lightweight cache reading and full report acquisition reject
-      // unknown required meanings; optional aliases remain field-local.
-      validateMasterSourceHeader(values[DEPT_HEADER_ROWS - 1] ?? []);
-
-      // A lookalike subordinate tab can have the same 34-column header. The
-      // reviewed gid, not a matching title, identifies the canonical master.
-      const metadata = await readWithRetry(`проверка источника ГРБС «${deptName}»`, async () => {
-        const api = await getSheetsApi();
-        return api.spreadsheets.get({
-          spreadsheetId: ssId,
-          fields: 'sheets.properties',
-        }, { timeout: SHEETS_TIMEOUT_MS });
-      });
-      const selected = (metadata.data.sheets ?? []).find(
-        sheet => sheet.properties?.sheetId === department.source.sheetId,
-      );
-      if (!selected) throw new Error('MASTER_SOURCE_SHEET_ID_CHANGED');
-      if (selected.properties?.title !== candidate
-          || (candidate !== department.source.sheet
-              && !(department.approvedPrimaryRename && candidate === department.shortName))) {
-        throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
-      }
-      if ((selected.properties?.gridProperties?.columnCount ?? 0) < MASTER_SOURCE_PROFILE.columns) {
-        throw new Error('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH');
-      }
-    }
-
-    if (!options.withFormulas) {
-      return { providerId: ssId, values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
-        startRow: 1, formulasRead: false,
-      };
-    }
-    const { formulas } = await getSheetFormulaColumns(ssId, candidate);
-    return { providerId: ssId, values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
-      startRow: 1, formulasRead: true,
-    };
   }
   const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
   throw new Error(
