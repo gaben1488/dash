@@ -1,6 +1,6 @@
 {
   "purpose": "integrated-durable-source-state-production-release",
-  "approved_parent": "e6f937aad3143aa34fd9b9376e30174e03ef31a6",
+  "approved_parent": "a7337035e1597256aab6bc3b0cc58fbe908a86cc",
   "preserve_current_sources": true,
   "write_google_sheets": false
 }
