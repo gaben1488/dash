@@ -1,4 +1,4 @@
-import { FIELD_GUIDANCE, PROCUREMENT_METHODS, checkedProcurementGuidanceResponse } from '@aemr/shared';
+import { FIELD_GUIDANCE, GRBS_BOOK_METHODS, checkedProcurementGuidanceResponse, epReasonEditorGuidance } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -541,7 +541,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     { key: 'id', label: '№', type: 'text', width: 'w-14', editable: false },
     { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
-    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...PROCUREMENT_METHODS], guidance: savedGuidance['field:method'] ?? FIELD_GUIDANCE.method },
+    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...GRBS_BOOK_METHODS], guidance: savedGuidance['field:method'] ?? FIELD_GUIDANCE.method },
+    { key: 'epReason', label: 'Обоснование ЕП', type: 'text', width: 'w-72',
+      guidance: savedGuidance['field:epReason'] ?? FIELD_GUIDANCE.epReason,
+      guidanceForRow: row => epReasonEditorGuidance(row.method, row.epReason, savedGuidance['field:epReason'] ?? FIELD_GUIDANCE.epReason) },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
     { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
     { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
@@ -566,7 +569,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   useEffect(() => {
     if (guidanceStatus !== 'ready') return;
     const keyForField: Record<string, keyof typeof FIELD_GUIDANCE> = {
-      method: 'method', planFB: 'money', planKB: 'money', planMB: 'money',
+      method: 'method', epReason: 'epReason', planFB: 'money', planKB: 'money', planMB: 'money',
       factFB: 'money', factKB: 'money', factMB: 'money',
       planDate: 'planDate', factDate: 'factDate',
       flag: 'flag', commentGRBS: 'commentGRBS',
@@ -575,6 +578,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       const key = keyForField[col.key];
       if (!key) return col;
       const guidance = savedGuidance[`field:${key}`] ?? FIELD_GUIDANCE[key];
+      if (key === 'epReason') {
+        // The selected row supplies the live method and M value. No second
+        // EP classifier or extra data model in the browser.
+        return { ...col, guidance,
+          guidanceForRow: (row: RowData) => epReasonEditorGuidance(row.method, row.epReason, guidance) };
+      }
       return col.guidance === guidance ? col : { ...col, guidance };
     }));
   }, [savedGuidance, guidanceStatus]);
@@ -621,7 +630,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
     // формула книги, запись затёрла бы её значением.
     const FIELD_TO_COL: Record<string, string> = {
-      subject: 'G', method: 'L',
+      subject: 'G', method: 'L', epReason: 'M',
       planFB: 'H', planKB: 'I', planMB: 'J',
       factFB: 'V', factKB: 'W', factMB: 'X',
       planDate: 'N', factDate: 'Q',
@@ -938,6 +947,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       dept: deptDisplayName(r.dept),
       subject: r.subject,
       method: r.method,
+      epReason: r.epReason,
       planFB: r.planFB,
       planKB: r.planKB,
       planMB: r.planMB,
