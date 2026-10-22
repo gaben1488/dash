@@ -988,16 +988,16 @@ export function Analytics() {
             <div className="mb-4">
               <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По плану</div>
               <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
-                {shareRows.filter((d) => d.planShare > 0).map((d) => (
+                {shareRows.filter((d) => d.planShare !== null && d.planShare > 0).map((d) => (
                   <button
                     type="button"
                     key={`plan-${d.key}`}
                     className="relative cursor-pointer transition-opacity hover:opacity-80"
-                    style={{ width: `${d.planShare}%`, backgroundColor: d.color }}
+                    style={{ width: `${d.planShare ?? 0}%`, backgroundColor: d.color }}
                     onClick={d.open}
-                    title={`${d.name}: ${formatMoney(d.planTotal)} — ${d.planShare} % плана`}
+                    title={`${d.name}: ${d.planTotal === null ? 'не прочитан' : formatMoney(d.planTotal)} — ${d.planShare} % плана`}
                   >
-                    {d.planShare > 6 && (
+                    {d.planShare !== null && d.planShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.planShare}%
                       </span>
@@ -1010,16 +1010,16 @@ export function Analytics() {
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По факту</div>
               <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
-                {shareRows.filter((d) => d.factShare > 0).map((d) => (
+                {shareRows.filter((d) => d.factShare !== null && d.factShare > 0).map((d) => (
                   <button
                     type="button"
                     key={`fact-${d.key}`}
                     className="relative cursor-pointer transition-opacity hover:opacity-80"
-                    style={{ width: `${d.factShare}%`, backgroundColor: d.color, opacity: 0.85 }}
+                    style={{ width: `${d.factShare ?? 0}%`, backgroundColor: d.color, opacity: 0.85 }}
                     onClick={d.open}
-                    title={`${d.name}: ${formatMoney(d.factTotal)} — ${d.factShare} % факта`}
+                    title={`${d.name}: ${d.factTotal === null ? 'не прочитан' : formatMoney(d.factTotal)} — ${d.factShare} % факта`}
                   >
-                    {d.factShare > 6 && (
+                    {d.factShare !== null && d.factShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.factShare}%
                       </span>
@@ -1467,8 +1467,8 @@ export function Analytics() {
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount === null ? 'не прочитано' : row.kpCount}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount === null ? 'не прочитано' : row.epCount}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1514,14 +1514,14 @@ export function Analytics() {
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
-                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount === null ? 'не прочитано' : row.kpCount}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount === null ? 'не прочитано' : row.epCount}</td>
                       <td className="py-1.5 text-center" onClick={(e) => { e.stopPropagation(); if (row.id && row.issues > 0) navigateTo('quality', { qualityTab: 'issues', department: row.id }); }}>
                         <span
                           className={`text-[10px] font-bold tabular-nums ${row.issues > 0 ? 'cursor-pointer text-[var(--data-bad)] hover:underline' : 'text-[var(--ink-faint)]'}`}
-                          title={row.issues > 0 ? 'Открыть замечания этого управления' : 'Замечаний к книге нет'}
+                          title={row.issues === null ? 'Число замечаний не прочитано' : row.issues > 0 ? 'Открыть замечания этого управления' : 'Замечаний к книге нет'}
                         >
-                          {row.issues}
+                          {row.issues === null ? 'не прочитано' : row.issues}
                         </span>
                       </td>
                     </tr>
