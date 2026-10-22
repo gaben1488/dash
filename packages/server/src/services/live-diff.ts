@@ -11,8 +11,8 @@
  * номера и смена предмета/учреждения остаются в недельном контексте для проверки,
  * а не превращаются в доказанную правку чужой закупки.
  */
-import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS, equivalentSheetDate } from '@aemr/shared';
-import { diffSnapshots, entriesFromRowDiff, type ChangeEntry } from '@aemr/core';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS, equivalentSheetDate, parseSheetNumber } from '@aemr/shared';
+import { diffSnapshots, entriesFromRowDiff, type ChangeEntry, type SnapshotRow } from '@aemr/core';
 import { currentSheetToSnapshotRows } from './procurement-row-view.js';
 import type { RowChangedEvent } from './event-bus.js';
 
@@ -78,9 +78,21 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     return { book, changedRows: 0, addedRows: 0, removedRows: 0, rowsTotal, rows: [] };
   }
 
-  // The SSE/webhook path must classify exactly the same real procurement
-  // rows as the Thursday-to-current and stored-history comparisons.
-  const comparison = diffSnapshots(currentSheetToSnapshotRows(beforeRows), currentSheetToSnapshotRows(afterRows));
+  // The live feed also reports unfinished numbered positions and cell edits.
+  // That is an observation stream, not proof of a deleted procurement.
+  // Procurement-absence evidence below uses the exact Thursday row classifier.
+  const indexed = (values: unknown[][]): SnapshotRow[] => values
+    .slice(DEPT_HEADER_ROWS)
+    .map((row, i) => ({
+      rowSeq: cellText(row[DEPT_COLUMNS.ID]),
+      sheetRow: i + DEPT_HEADER_ROWS + 1,
+      subject: cellText(row[DEPT_COLUMNS.SUBJECT]),
+      subordinate: cellText(row[DEPT_COLUMNS.SUBORDINATE]),
+      method: cellText(row[DEPT_COLUMNS.METHOD]),
+      planSum: parseSheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]) ?? undefined,
+    }))
+    .filter(row => row.rowSeq !== '');
+  const comparison = diffSnapshots(indexed(beforeRows), indexed(afterRows));
   const ambiguous = new Set([
     ...(comparison.ambiguousKeys?.before ?? []),
     ...(comparison.ambiguousKeys?.after ?? []),
@@ -88,7 +100,7 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
   const changedContext = new Set((comparison.contextChanged ?? []).map((row) => row.rowSeq));
   const addedRows = comparison.appeared.length;
   const removedRows = comparison.vanished.length;
-  const previous = new Map(currentSheetToSnapshotRows(beforeRows)
+  const previous = new Map(indexed(beforeRows)
     .filter((row) => !ambiguous.has(row.rowSeq))
     .map((row) => [row.rowSeq, row.sheetRow]));
 
@@ -134,7 +146,10 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     if (rowChanged) changedRows++;
   }
 
-  const structuralChanges = entriesFromRowDiff(book, comparison)
+  const procurementComparison = diffSnapshots(
+    currentSheetToSnapshotRows(beforeRows), currentSheetToSnapshotRows(afterRows),
+  );
+  const structuralChanges = entriesFromRowDiff(book, procurementComparison)
     .filter(entry => entry.kind === 'row-vanished' || entry.kind === 'row-identity-candidate');
   return { book, changedRows, addedRows, removedRows, rowsTotal, rows,
     ...(structuralChanges.length ? { structuralChanges } : {}),
