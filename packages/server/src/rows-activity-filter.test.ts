@@ -117,6 +117,17 @@ describe('GET /api/rows/:deptId activity filter', () => {
     expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
   }, 30_000);
 
+  it('ошибочный фильтр API не расширяет выборку до всех закупок', async () => {
+    for (const query of ['type=no_such_method', 'activity=unknown_activity']) {
+      const response = await app.inject({ method: 'GET', url: `/api/rows/uo?${query}` });
+      expect(response.statusCode, query).toBe(400);
+      expect(response.json().code, query).toBe('INVALID_SCOPE');
+    }
+    const ep = await app.inject({ method: 'GET', url: '/api/rows/uo?type=single&limit=100' });
+    expect(ep.statusCode).toBe(200);
+    expect(ep.json<RowsResponse>().signals.total).toBe(3);
+  }, 30_000);
+
   it('годовой API и CalcEngine согласованы: незаполненная/битая P не попадает в каждый год', async () => {
     const result = await app.inject({ method: 'GET', url: '/api/rows/uo?year=2026&limit=100' });
     expect(result.statusCode).toBe(200);
