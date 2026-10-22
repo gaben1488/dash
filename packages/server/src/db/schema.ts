@@ -242,6 +242,21 @@ export const bookWatermarks = sqliteTable('book_watermarks', {
   readingJson: text('reading_json'),
 });
 
+
+/**
+ * Последнее проверенное состояние источника, независимо от RAM и недельных снимков.
+ * По книге сохраняется лишь диагностический исход, а не сетка формул.
+ */
+export const sourceIntegrityState = sqliteTable('source_integrity_state', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  book: text('book').notNull(),
+  sourceId: text('source_id').notNull(),
+  checkerVersion: text('checker_version').notNull(),
+  observedAt: text('observed_at').notNull(),
+  stateJson: text('state_json').notNull(),
+});
+
 /**
  * Честные пропуски журнала (правило полноты, проект §2.2): отметка времени
  * файла сказала «менялся», а все содержательные свидетели молчат — пишется

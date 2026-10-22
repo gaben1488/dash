@@ -40,6 +40,11 @@ vi.mock('./file-revision.js', () => ({
   seedRevision: vi.fn(),
 }));
 
+vi.mock('./source-integrity-state.js', () => ({
+  saveFormulaAudit: vi.fn(),
+  loadFormulaAudits: vi.fn(() => []),
+}));
+
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
   loadAcceptedReadings: () => new Map(),
@@ -89,6 +94,8 @@ beforeEach(async () => {
     error: (_f, msg) => { journal.push(msg); },
   });
   fetchDepartmentSpreadsheets.mockReset();
+  const { saveFormulaAudit } = await import('./source-integrity-state.js');
+  vi.mocked(saveFormulaAudit).mockReset();
   fetchDepartmentSpreadsheets.mockResolvedValue({ data: {}, errors: {} });
   const { resetSourcePrints, resetFormulaDeliveries, setFormulaSink } =
     await import('./source-refresh.js');
@@ -132,7 +139,7 @@ describe('чтение формул в цикле источников', () => {
       await import('./source-refresh.js');
 
     const seen: Array<{ book: string; startRow: number; formulas: unknown[][]; values: unknown[][] }> = [];
-    setFormulaSink((delivery) => { seen.push(delivery); });
+    setFormulaSink((delivery) => { seen.push(delivery); return undefined; });
     await refreshAllSources(log, 'webhook', { withFormulas: true });
 
     expect(seen).toHaveLength(1);
@@ -145,6 +152,7 @@ describe('чтение формул в цикле источников', () => {
     expect(state.sinkConnected).toBe(true);
     expect(state.books[0].handled).toBe(true);
     expect(state.books[0].cells).toBe(2);
+    expect(state.books[0].formulasRead).toBe(true);
   });
 
   it('разбор не подключён — след говорит об этом, а не молчит', async () => {
@@ -169,6 +177,60 @@ describe('чтение формул в цикле источников', () => {
     // Ни следа доставки, ни книги в итоге: молчание про формулы означает
     // «не читали», и выдать его за «дефектов нет» нечему.
     expect(formulaDeliveryState().books).toEqual([]);
+  });
+
+  it('ошибка чтения Google не выдаётся за свежую успешную доставку', async () => {
+    const { refreshAllSources, setFormulaSink, formulaDeliveryState } =
+      await import('./source-refresh.js');
+    const { saveFormulaAudit } = await import('./source-integrity-state.js');
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: bookWithFormulas(), errors: {} });
+    setFormulaSink(delivery => ({
+      book: delivery.book, at: delivery.at!, rowsJudged: 2, defects: [],
+    }));
+    await refreshAllSources(log, 'webhook', { withFormulas: true });
+    expect(formulaDeliveryState().books[0]).toMatchObject({ handled: true, persisted: true });
+
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: {}, errors: { 'УО': '403 permission denied' },
+    });
+    const refresh = await refreshAllSources(log, 'webhook', {
+      withFormulas: true, fresh: true, svod: false, askDrive: false,
+    });
+    expect(refresh.formulaBooks).toEqual([]);
+    expect(refresh.failed).toEqual(['УО']);
+    expect(formulaDeliveryState().books[0]).toMatchObject({
+      book: 'УО', handled: false, persisted: true, cells: 0, formulasRead: false,
+    });
+    expect(formulaDeliveryState().books[0].failedBecause).toContain('книга не прочитана');
+    expect(vi.mocked(saveFormulaAudit).mock.lastCall?.[1]).toBeNull();
+  });
+
+  it('не сохраняет отсутствие формул как ноль дефектов', async () => {
+    fetchDepartmentSpreadsheets.mockResolvedValue({
+      data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ', formulasRead: false } },
+      errors: {},
+    });
+    const { refreshAllSources, formulaDeliveryState } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'webhook', { withFormulas: true });
+    expect(formulaDeliveryState().books).toMatchObject([
+      { book: 'УО', handled: false, persisted: true, formulasRead: false,
+        failedBecause: 'формулы не получены в этом чтении' },
+    ]);
+  });
+
+  it('SQLite READONLY оставляет видимый отказ даже при успешном чтении Google', async () => {
+    const { saveFormulaAudit } = await import('./source-integrity-state.js');
+    vi.mocked(saveFormulaAudit).mockImplementationOnce(() => { throw new Error('SQLITE_READONLY'); });
+    fetchDepartmentSpreadsheets.mockResolvedValue({ data: bookWithFormulas(), errors: {} });
+    const { refreshAllSources, formulaDeliveryState, setFormulaSink } = await import('./source-refresh.js');
+    setFormulaSink(delivery => ({
+      book: delivery.book, at: delivery.at!, rowsJudged: 2, defects: [],
+    }));
+    await refreshAllSources(log, 'webhook', { withFormulas: true });
+    expect(formulaDeliveryState().books[0]).toMatchObject({
+      book: 'УО', handled: true, persisted: false,
+    });
+    expect(formulaDeliveryState().books[0].failedBecause).toContain('SQLITE_READONLY');
   });
 
   it('просьба о формулах складывается в обещанном цикле', async () => {

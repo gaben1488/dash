@@ -181,6 +181,17 @@ export const SCHEMA_DDL = `
     reading_json TEXT
   );
 
+
+  CREATE TABLE IF NOT EXISTS source_integrity_state (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    book TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    checker_version TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    state_json TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS journal_gaps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     book TEXT NOT NULL,
