@@ -171,8 +171,28 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/aemr/dash
+            # Only this exact source inspection UI/API release may bypass report
+            # migrations. Any unknown file takes the established full deploy gate.
+            git fetch origin
+            release_scope=standard
+            before_sha='${{ github.event.before }}'
+            tested_sha='${{ github.sha }}'
+            if git cat-file -e "$before_sha^{commit}" 2>/dev/null && git cat-file -e "$tested_sha^{commit}" 2>/dev/null; then
+              only_source_ui=true
+              while IFS= read -r file; do
+                case "$file" in
+                  packages/server/src/routes/source-integrity.ts|packages/server/src/routes/source-integrity.test.ts|packages/web/src/api.ts|packages/web/src/pages/Settings.tsx|packages/web/src/pages/Settings.deep-check.test.tsx|packages/core/package.json|packages/server/package.json|packages/shared/package.json|packages/web/package.json|pnpm-lock.yaml|.github/workflows/source-deep-check.yml|.github/workflows/ci.yml) ;;
+                  *) only_source_ui=false ;;
+                esac
+              done < <(git diff --name-only "$before_sha" "$tested_sha")
+              if [ "$only_source_ui" = true ]; then release_scope=app_only; fi
+            fi
+            echo "Release scope: $release_scope (unknown paths use full gate)."
             cd deploy
-            previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            previous_worker=
+            if [ "$release_scope" = standard ]; then
+              previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            fi
             restore_worker_on_failure() {
               result=$?
               if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
@@ -187,9 +207,11 @@ jobs:
             # Storage is a deployment prerequisite, not a post-failure repair.
             # Keep rollback-tagged images and reusable build layers. Removing
             # all build cache on every deploy forces a slow full frontend build.
-            docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
+            if [ "$release_scope" = standard ]; then
+              docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
+            fi
             docker image prune --force >/dev/null
-            if docker image inspect aemr-server:latest >/dev/null 2>&1; then
+            if [ "$release_scope" = standard ] && docker image inspect aemr-server:latest >/dev/null 2>&1; then
               echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
               docker compose --env-file .env.production run --rm --no-deps \
                 --entrypoint /opt/report-env/bin/python server -c \
@@ -253,5 +275,9 @@ jobs:
               curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"
             # Private inputs and audit output stay in server_data, not Actions logs.
             # Start the scheduler only after a successful service-account release.
-            bash enable-reports.sh
+            if [ "$release_scope" = standard ]; then
+              bash enable-reports.sh
+            else
+              echo 'Source inspection UI/API deployed; report worker and weekly evidence unchanged.'
+            fi
             trap - EXIT

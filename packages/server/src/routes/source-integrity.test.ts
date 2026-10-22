@@ -6,14 +6,29 @@
  * не касались, подключён ли разбор формул и какие колонки вообще читаются.
  */
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const formulaDeliveryState = vi.fn(() => ({
+const REFRESH_AT = '2026-10-22T04:00:00.000Z';
+type DeliveryState = { sinkConnected: boolean; books: Array<{ book: string; at: string; cells: number; handled: boolean; failedBecause?: string }> };
+const defaultDeliveries = (): DeliveryState => ({
   sinkConnected: false,
-  books: [
-    { book: 'УО', at: '2026-08-30T12:00:00.000Z', cells: 29_700, handled: false, failedBecause: 'разбор формул не подключён' },
-  ],
+  books: [{ book: 'УО', at: '2026-08-30T12:00:00.000Z', cells: 29_700, handled: false, failedBecause: 'разбор формул не подключён' }],
+});
+const formulaDeliveryState = vi.fn(defaultDeliveries);
+const refreshAllSources = vi.fn(async () => ({
+  loaded: ['УО', 'УИО'], failed: [], at: REFRESH_AT, changedBooks: [],
+  formulaBooks: ['УО', 'УИО'], svodOk: true, svodChanged: false, booksRead: 2, skipped: [],
 }));
+const sweepMetadata = vi.fn(async () => [
+  { book: 'УО', read: true, at: REFRESH_AT, remarks: [] },
+  { book: 'УИО', read: true, at: REFRESH_AT, remarks: [] },
+]);
+const formulaVerdicts = vi.fn(() => [
+  { book: 'УО', at: REFRESH_AT, rowsJudged: 2, defects: [] },
+  { book: 'УИО', at: REFRESH_AT, rowsJudged: 1, defects: [] },
+]);
+
+/* Existing GET fixture deliberately represents an incomplete last observation. */
 
 const metadataWatchState = vi.fn(() => ({
   canonSyncedAt: '2026-08-30',
@@ -39,10 +54,16 @@ const metadataWatchState = vi.fn(() => ({
 
 vi.mock('../services/source-refresh.js', () => ({
   formulaDeliveryState: () => formulaDeliveryState(),
+  refreshAllSources: (...args: unknown[]) => refreshAllSources(...(args as [])),
 }));
 
 vi.mock('../services/metadata-watch.js', () => ({
   metadataWatchState: () => metadataWatchState(),
+  sweepMetadata: (...args: unknown[]) => sweepMetadata(...(args as [])),
+}));
+
+vi.mock('../services/formula-sink.js', () => ({
+  formulaVerdicts: () => formulaVerdicts(),
 }));
 
 vi.mock('../config.js', () => ({
@@ -67,6 +88,12 @@ afterAll(async () => {
   await app.close();
 });
 
+beforeEach(() => {
+  formulaDeliveryState.mockImplementation(defaultDeliveries);
+  refreshAllSources.mockClear();
+  sweepMetadata.mockClear();
+  formulaVerdicts.mockClear();
+});
 describe('GET /api/sources/integrity', () => {
   it('называет границу знания, а не только замечания', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/sources/integrity' });
@@ -98,4 +125,50 @@ describe('GET /api/sources/integrity', () => {
     // Книга, которой дозор не касался, названа отдельно от «замечаний нет».
     expect(body.metadata.notWatched).toEqual(['УИО']);
   }, 30_000);
+});
+
+describe('POST /api/sources/integrity/check', () => {
+  it('forces all books, bypasses revision gating, but does not take a weekly snapshot', async () => {
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
+      { book: 'УО', at: REFRESH_AT, cells: 22, handled: true },
+      { book: 'УИО', at: REFRESH_AT, cells: 11, handled: true },
+    ] });
+    const reply = await app.inject({ method: 'POST', url: '/api/sources/integrity/check' });
+    expect(reply.statusCode).toBe(200);
+    expect(sweepMetadata).toHaveBeenCalledTimes(1);
+    expect(refreshAllSources).toHaveBeenCalledWith(expect.anything(), 'request', {
+      withFormulas: true, fresh: true, askDrive: false, svod: false,
+    });
+    expect(reply.json()).toMatchObject({
+      complete: true, expectedBooks: 2, changedValueBooks: [],
+      books: [
+        { book: 'УИО', metadataRead: true, formulasRead: true, analyzed: true, rowsJudged: 1, formulaDefects: 0 },
+        { book: 'УО', metadataRead: true, formulasRead: true, analyzed: true, rowsJudged: 2, formulaDefects: 0 },
+      ],
+    });
+    // There is no history lookup or snapshot creation in this route: an empty
+    // first-week archive is a supported starting state, not a precondition.
+  });
+
+  it('reports an unhandled or unread book as unknown, never as zero defects', async () => {
+    const reply = await app.inject({ method: 'POST', url: '/api/sources/integrity/check' });
+    const data = reply.json();
+    expect(reply.statusCode).toBe(200);
+    expect(data.complete).toBe(false);
+    expect(data.books.find((book: { book: string }) => book.book === 'УИО')).toMatchObject({
+      formulasRead: false, analyzed: false, rowsJudged: null, formulaDefects: null,
+    });
+    expect(data.books.find((book: { book: string }) => book.book === 'УО').problems)
+      .toContain('формулы этого запуска не прочитаны');
+  });
+  it('coalesces simultaneous manual checks into one expensive Google read', async () => {
+    const [first, second] = await Promise.all([
+      app.inject({ method: 'POST', url: '/api/sources/integrity/check' }),
+      app.inject({ method: 'POST', url: '/api/sources/integrity/check' }),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
+    expect(sweepMetadata).toHaveBeenCalledTimes(1);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+  });
 });
