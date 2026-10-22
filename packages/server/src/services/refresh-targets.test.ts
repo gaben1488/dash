@@ -14,10 +14,10 @@ const [firstBook, firstBookId] = Object.entries(DEPARTMENT_SPREADSHEETS)[0];
 const [secondBook, secondBookId] = Object.entries(DEPARTMENT_SPREADSHEETS)[1];
 
 describe('цель одного уведомления', () => {
-  it('книга ГРБС — только эта книга, без СВОДа и мониторинга', () => {
+  it('книга ГРБС — сама книга и производный СВОД, без семи чужих книг и мониторинга', () => {
     expect(planForFile(firstBookId)).toEqual({
       books: [firstBook],
-      svod: false,
+      svod: true,
       monitoring: false,
       full: false,
     });
@@ -52,7 +52,7 @@ describe('склейка серии уведомлений', () => {
     const merged = mergePlans([planForFile(firstBookId), planForFile(secondBookId)]);
     expect(merged.books.sort()).toEqual([firstBook, secondBook].sort());
     expect(merged.full).toBe(false);
-    expect(merged.svod).toBe(false);
+    expect(merged.svod).toBe(true);
   });
 
   it('повтор по одной книге не удваивает работу', () => {

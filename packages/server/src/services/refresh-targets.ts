@@ -13,7 +13,9 @@
  *
  * ЧТО ИЗ ЭТОГО СЛЕДУЕТ. Точность уведомления — файл. Значит, и перечитка
  * обязана быть до файла: правка в книге УО не имеет права стоить чтения ещё
- * семи книг, листа СВОД и одиннадцати листов мониторинга. Дальше файла разницу
+ * семи книг и одиннадцати листов мониторинга. Зависимый СВОД при этом
+ * сверяется: его IMPORTRANGE способен пересчитаться без изменения версии
+ * собственной книги. Дальше файла разницу
  * считает продукт сам — отпечатками листов (sheet-fingerprint.ts) и построчным
  * сравнением (live-diff.ts).
  *
@@ -57,7 +59,11 @@ export function planForFile(fileId: string | null | undefined): RefreshPlan {
   if (!fileId) return FULL_PLAN;
 
   for (const [book, id] of Object.entries(DEPARTMENT_SPREADSHEETS)) {
-    if (id === fileId) return { books: [book], svod: false, monitoring: false, full: false };
+    // Source master changes may asynchronously recalculate imported SVOD.
+    // Its Drive file revision is not a valid dependency barrier, therefore
+    // acquire the derived SVOD with the touched master without reading seven
+    // unrelated masters or the monitoring workbook.
+    if (id === fileId) return { books: [book], svod: true, monitoring: false, full: false };
   }
   if (fileId === MONITORING_SPREADSHEET_ID) {
     return { books: [], svod: false, monitoring: true, full: false };

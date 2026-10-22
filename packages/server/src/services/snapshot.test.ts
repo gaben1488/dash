@@ -127,27 +127,24 @@ describe('saveSnapshot — честный boolean-результат (не гл�
   });
 });
 
-describe('setDeptSheetCache — replace-per-dept-key при отвалившемся департаменте (B-9)', () => {
-  it('не должен молча отдавать старые строки упавшего в этом цикле деп-листа как текущие', async () => {
+describe('setDeptSheetCache — never replace an accepted full base with a partial source update', () => {
+  it('rejects mixed success/failure without deleting or changing the old accepted books', async () => {
     const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
 
-    // Цикл 1: оба ГРБС загрузились успешно.
     setDeptSheetCache({
       УО: { values: [['old-uo-row']], formulas: [], sheetName: 'ВСЕ' },
       УИО: { values: [['uio-row']], formulas: [], sheetName: 'УИО' },
     });
+    const previous = getDeptSheetCache();
 
-    // Цикл 2: УО провалился (его нет в data), УИО обновился. Вызывающий код обязан
-    // явно сообщить кэшу, какие депы провалились в этом цикле.
-    setDeptSheetCache(
+    expect(() => setDeptSheetCache(
       { УИО: { values: [['uio-row-fresh']], formulas: [], sheetName: 'УИО' } },
       ['УО'],
-    );
+    )).toThrow('SOURCE_FULL_BASE_NOT_UPDATED');
 
-    const cache = getDeptSheetCache();
-    // Провалившийся в этом цикле УО не должен молча отдавать старые строки как текущие.
-    expect(cache.УО).toBeUndefined();
-    // Успешно обновлённый УИО должен отражать новые данные.
-    expect(cache.УИО?.values).toEqual([['uio-row-fresh']]);
+    // No partial commit, no dropped book, no falsely fresh replacement.
+    expect(getDeptSheetCache()).toBe(previous);
+    expect(getDeptSheetCache().УО?.values).toEqual([['old-uo-row']]);
+    expect(getDeptSheetCache().УИО?.values).toEqual([['uio-row']]);
   });
 });

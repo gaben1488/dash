@@ -70,9 +70,9 @@ async function fileIds(): Promise<{ uo: string; uksimp: string; monitoring: stri
   };
 }
 
-/** План цикла, читавшего названные книги (без листа СВОД и полной перечитки). */
+/** A changed master depends on a separately read derived SVOD. */
 function cycleOf(...books: string[]): { full: boolean; books: string[]; svod: boolean } {
-  return { full: false, books, svod: false };
+  return { full: false, books, svod: true };
 }
 
 function enqueueUO(fileId: string): number {
@@ -151,19 +151,49 @@ describe('очередь уведомлений', () => {
     expect(queue.pendingNotifications()).toHaveLength(0);
   });
 
-  it('чужой отказ не закрывает и не наказывает запись другой книги', async () => {
+  it('rejected multi-book source+SVOD bundle never acknowledges even a fetched master', async () => {
     const { uo } = await fileIds();
     enqueueUO(uo);
 
-    // Цикл читал обе книги; упала УКСиМП — запись про УО выполнена, попыток
-    // по ней не считается.
+    // Another master failed; none of this group was committed. The settlement
+    // contract must not falsely acknowledge successfully fetched but discarded
+    // source bytes, or the notification is lost after a retry.
     const settled = queue.settleAfterRefresh(
       queue.pendingNotifications(),
-      { failed: ['УКСиМП'], svodOk: false },
+      { failed: ['УКСиМП', 'УО'], svodOk: false, retryableFailures: ['УКСиМП', 'УО'], svodRetryable: true },
       cycleOf('УО', 'УКСиМП'),
     );
-    expect(settled.done).toHaveLength(1);
+    expect(settled.done).toEqual([]);
+    expect(settled.kept).toHaveLength(1);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    expect(queue.pendingNotifications()[0].attempts).toBe(1);
+  });
+
+  it('does not finish a master notification when its dependent SVOD failed', async () => {
+    const { uo } = await fileIds();
+    const id = enqueueUO(uo);
+    const pending = queue.pendingNotifications();
+    const result = queue.settleAfterRefresh(pending,
+      { failed: [], svodOk: false, svodRetryable: true },
+      cycleOf('УО'));
+    expect(result.done).toEqual([]);
+    expect(result.kept).toEqual([id]);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    const retry = queue.settleAfterRefresh(queue.pendingNotifications(),
+      { failed: [], svodOk: true }, cycleOf('УО'));
+    expect(retry.done).toEqual([id]);
     expect(queue.pendingNotifications()).toHaveLength(0);
+  });
+
+  it('does not settle master webhook if only its source was read, not SVOD', async () => {
+    const { uo } = await fileIds();
+    const id = enqueueUO(uo);
+    const result = queue.settleAfterRefresh(queue.pendingNotifications(),
+      { failed: [], svodOk: true },
+      { full: false, books: ['УО'], svod: false });
+    expect(result.done).toEqual([]);
+    expect(result.skipped).toEqual([id]);
+    expect(queue.pendingNotifications()[0].attempts).toBe(0);
   });
 
   it('цикл, читавший только книгу А, не судит запись книги Б — она остаётся ждать', async () => {
