@@ -70,8 +70,9 @@ function load<T>(kind: Kind, guard: (data: unknown, book: string) => data is T):
   try {
     observations = db.select().from(schema.sourceIntegrityState)
       .where(eq(schema.sourceIntegrityState.kind, kind)).all();
-  } catch (err) {
-    warnings.add(`${kind}: SQLite read failed — integrity state unavailable: ${(err as Error).message}`);
+  } catch {
+    // No database paths or SQL internals in the API response.
+    warnings.add(`${kind}: SQLite недоступна — результаты контроля не восстановлены`);
     return [];
   }
   const result: T[] = [];
