@@ -154,7 +154,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // Prefer calc-engine year-filtered totals (they respect targetYear).
       // Official SVOD is never substituted into the calculated result.
       const prefix = `grbs.${dept.id}`;
-      const calcGet = (key: string) => calc[key]?.numericValue;
+      const calcGet = (key: string): number | null => calc[key]?.numericValue ?? null;
 
       // C04.01: one accepted master dataset feeds Dash and Word. Official
       // SVOD cells are comparison evidence, never a replacement for a missing

@@ -39,16 +39,28 @@ describe('anticorruption — splitting (#1 дробление)', () => {
 });
 
 describe('anticorruption — ep_over_limit (#8)', () => {
-  it('ЕП >600К → ep_over_limit high', () => {
-    const flags = detectEpOverLimit([row({ rowIndex: 1, method: 'ЕП', planTotal: 750_000 })]);
+  it('ЕП: большая плановая позиция — лишь справочный сигнал, не доказанный лимит договора', () => {
+    const flags = detectEpOverLimit([row({ rowIndex: 1, method: 'Ед. поставщик', planTotal: 750_000 })]);
     expect(flags).toHaveLength(1);
-    expect(flags[0].severity).toBe('high');
+    expect(flags[0].severity).toBe('low');
+    expect(flags[0].message).toContain('превышение нормы не доказано');
+    expect(flags[0].message).toContain('не подтверждена');
+  });
+  it('версия из снимка определяет число, но не доказывает применимость к договору', () => {
+    const captured = { value: 800, status: 'verified' as const, edition: 'test', sourceRef: 'fixture' };
+    expect(detectEpOverLimit([row({ method: 'ЕП', planTotal: 750 })], captured)).toHaveLength(0);
+    const detected = detectEpOverLimit([row({ method: 'ЕП', planTotal: 801 })], captured);
+    expect(detected).toHaveLength(1);
+    expect(detected[0].message).toContain('применимость основания — нет');
   });
 });
 
 describe('anticorruption — annual share (#9) + concentration (#10 pluggable)', () => {
   it('доля ЕП > порога → флаг; ниже → нет', () => {
-    expect(detectAnnualEpShare(6_000_000, 10_000_000, 0.5)).toHaveLength(1);
+    const flags = detectAnnualEpShare(6_000_000, 10_000_000, 0.5);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ severity: 'low' });
+    expect(flags[0].message).toContain('неподтверждённого внутреннего ориентира');
     expect(detectAnnualEpShare(4_000_000, 10_000_000, 0.5)).toHaveLength(0);
   });
   it('#10 без ИНН → спит (пусто)', () => {

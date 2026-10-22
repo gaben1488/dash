@@ -361,7 +361,7 @@ describe('признак: распределение первых цифр', () 
   });
 });
 
-describe('признак: суммы липнут к порогу закона снизу', () => {
+describe('признак: плановые суммы около справочного ориентира', () => {
   it('коридор 540-600 тыс. ₽ вдвое плотнее опорной полосы', () => {
     const rows: AnomalyRow[] = [
       // опорная полоса 300-540: три закупки
@@ -374,6 +374,8 @@ describe('признак: суммы липнут к порогу закона �
     expect(found[0].sign).toBe('threshold-hugging');
     expect(found[0].rows).toBe(6);
     expect(found[0].explanation).toContain('600 тыс. ₽');
+    expect(found[0].title).toContain('справочного ориентира');
+    expect(found[0].note).toContain('не цена одного договора');
     expect(found[0].members).toHaveLength(6);
   });
 
