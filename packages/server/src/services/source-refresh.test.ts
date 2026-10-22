@@ -347,8 +347,10 @@ describe('перечитка источников одним циклом', () =
     const r = await refreshAllSources(log, 'webhook', { books: ['УКСиМП', 'УО'], svod: false, askDrive: false });
 
     expect(r.loaded).toEqual([]);
-    expect(r.failed).toEqual(['УКСиМП']);
-    expect(r.retryableFailures).toEqual(['УКСиМП']);
+    // Both books were part of a rejected atomic group: neither notification
+    // may be acknowledged until their deltas are committed together.
+    expect(r.failed).toEqual(['УКСиМП', 'УО']);
+    expect(r.retryableFailures).toEqual(['УКСиМП', 'УО']);
     expect(r.changedBooks).toEqual([]);
     expect(cachedBooks).toBe(base);
     expect(setDeptSheetCache).not.toHaveBeenCalled();
@@ -595,8 +597,10 @@ it('keeps source permission/schema failures out of the automatic retry set', asy
   fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {}, errors: { 'УО': '403 permission denied', 'УКСиМП': 'SOURCE_SCHEMA_MISMATCH' } });
   getSheetData.mockRejectedValueOnce(Object.assign(new Error('permission'), { code: 403 }));
   const { refreshAllSources } = await import('./source-refresh.js');
-  const result = await refreshAllSources(log);
-  expect(result.failed).toEqual(['УО', 'УКСиМП']);
+  const result = await refreshAllSources(log, 'cycle', {
+    books: ['УО', 'УКСиМП'], askDrive: false,
+  });
+  expect(result.failed).toEqual(['УКСиМП', 'УО']);
   expect(result.retryableFailures).toEqual([]);
   expect(result.svodRetryable).toBe(false);
 });
