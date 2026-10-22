@@ -44,6 +44,7 @@ import {
   addressText,
   fmtTys,
   uniqueOperationalAbsences,
+  scopedIntegrityTotals,
   type IntegrityBookDto,
   type VanishedBookDto,
 } from './contract';
@@ -282,6 +283,7 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const visibleTotals = useMemo(() => scopedIntegrityTotals(books), [books]);
   const vanishedBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
@@ -409,9 +411,9 @@ export function IntegritySection() {
           <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
             <Hash size={12} aria-hidden="true" />
             <span>
-              пропущено номеров: {data.totals.gapCount.toLocaleString('ru-RU')} · строк без
-              номера: {data.totals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
-              номера: {data.totals.duplicates}
+              пропущено номеров: {visibleTotals.gapCount.toLocaleString('ru-RU')} · строк без
+              номера: {visibleTotals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
+              номера: {visibleTotals.duplicates}
             </span>
           </div>
 
