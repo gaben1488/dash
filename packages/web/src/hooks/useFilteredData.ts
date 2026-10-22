@@ -5,7 +5,7 @@ import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import { aggregateSignalCounts } from '../lib/signal-counts';
 import { shouldShowYearMismatch } from '../lib/year-mismatch';
-import { resolvePeriodSelection, activePeriodKeys } from '../lib/selectors/period-resolution';
+import { resolvePeriodSelection } from '../lib/selectors/period-resolution';
 import { filterDeptsByDepartments, markDeptOnlyMode, filterDeptsBySearch } from '../lib/selectors/dept-filtering';
 import { applySubordinateFilter } from '../lib/selectors/subordinate-override';
 import { filterIssues, splitIssuesBySeverity } from '../lib/selectors/issues-filtering';
@@ -13,7 +13,7 @@ import { filterDeltas } from '../lib/selectors/deltas-filtering';
 import { filterKpiCards, selectTopKpis } from '../lib/selectors/kpi-filtering';
 import { aggregateTotals } from '../lib/selectors/totals-aggregation';
 import { makeBudgetPlanFact, recalcTotalsByBudget } from '../lib/selectors/budget-filter';
-import { resolveActivityKeys, recalcTotalsByActivity } from '../lib/selectors/activity-aggregation';
+import { resolveActivityKeys, recalcTotalsByActivity, activityPeriodKeys } from '../lib/selectors/activity-aggregation';
 import { buildBarData, buildDeptCardOverrides } from '../lib/selectors/bar-data';
 import { recalcSummaryByPeriod, applyBudgetZeroing } from '../lib/selectors/summary-by-period';
 import { buildExecCountKpiCard, buildEconomyKpiCard, buildCompetitiveRatioKpiCard } from '../lib/selectors/derived-kpis';
@@ -134,9 +134,9 @@ export function computeFilteredData(input: FilterInputs) {
   const showKP = selectedMethods.size === 0 || selectedMethods.has('competitive');
   const showEP = selectedMethods.size === 0 || selectedMethods.has('single');
   const aggregated = aggregateTotals(depts, resolution, { showKP, showEP, activeMonths, hasMonthData });
-  // Счётчики процедур фильтры по бюджету и виду деятельности не пересчитывают —
-  // ниже правятся только суммы, поэтому счётчики объявлены неизменяемыми.
-  const { totalPlanCount, totalFactCount } = aggregated;
+  // При выборе вида деятельности счётчики пересчитываются из пересечения
+  // реальных строк с методом, а не сохраняются глобальными.
+  let { totalPlanCount, totalFactCount } = aggregated;
   let { totalKP, totalEP, totalPlan, totalFact } = aggregated;
 
   // ── Оси бюджета и вида деятельности (пересчёт тоталов при активном фильтре) ──
@@ -145,10 +145,16 @@ export function computeFilteredData(input: FilterInputs) {
   const isActivityFiltered = selectedActivities.size > 0;
   const actKeys = resolveActivityKeys(selectedActivities);
 
+  let activityMethodCoverage = true;
   if (isActivityFiltered) {
-    ({ totalPlan, totalFact, totalKP, totalEP } = recalcTotalsByActivity(depts, {
-      actKeys, periodKeys: activePeriodKeys(resolution), budgetPlanFact,
-    }));
+    const activityTotals = recalcTotalsByActivity(depts, {
+      actKeys, periodKeys: activityPeriodKeys(resolution, hasMonthData),
+      budgetPlanFact, showKP, showEP,
+    });
+    ({ totalPlan, totalFact, totalKP, totalEP } = activityTotals);
+    totalPlanCount = activityTotals.planCount;
+    totalFactCount = activityTotals.factCount;
+    activityMethodCoverage = activityTotals.complete;
   }
   if (isBudgetFiltered && !isActivityFiltered) {
     ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
@@ -236,7 +242,7 @@ export function computeFilteredData(input: FilterInputs) {
   if (topKpis.length < 6 && totalPlan > 0) {
     topKpis.push(buildEconomyKpiCard({ totalPlan, economyTotal: totalEconomy, periodKey }));
   }
-  if (topKpis.length < 6 && (totalKP + totalEP) > 0) {
+  if (activityMethodCoverage && topKpis.length < 6 && (totalKP + totalEP) > 0) {
     topKpis.push(buildCompetitiveRatioKpiCard({ totalKP, totalEP, periodKey }));
   }
 
@@ -271,6 +277,7 @@ export function computeFilteredData(input: FilterInputs) {
     overallExecCountPct,
     totalPlanCount,
     totalFactCount,
+    activityMethodCoverage,
     criticalIssues,
     warningIssues,
     periodKey,

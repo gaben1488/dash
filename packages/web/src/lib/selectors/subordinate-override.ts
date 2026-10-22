@@ -9,6 +9,9 @@
  *
  * Пустой выбор подведов = депты возвращаются без изменений.
  */
+import { ORG_ITSELF_SENTINEL, subordinateNameMatchKey } from '@aemr/shared';
+import { mergeSubordinateActivityPeriods } from './activity-aggregation';
+
 export function applySubordinateFilter(
   depts: any[],
   selectedSubordinates: Set<string>,
@@ -16,16 +19,17 @@ export function applySubordinateFilter(
 ): any[] {
   if (selectedSubordinates.size === 0) return depts;
 
+  const selectedKeys = new Set([...selectedSubordinates].map(subordinateNameMatchKey));
   const deptIdsWithSubs = new Set<string>();
   for (const [deptId, subs] of Object.entries(subordinatesMap)) {
-    if (subs.some((s: string) => selectedSubordinates.has(s))) {
+    if (subs.some((s: string) => selectedKeys.has(subordinateNameMatchKey(s)))) {
       deptIdsWithSubs.add(deptId);
     }
   }
   // «Аппарат управления» (_org_itself) не обязан присутствовать в
   // subordinatesMap (Б4): он валиден для ЛЮБОГО выбранного управления —
   // не сужаем депты по нему, если выбраны и управления.
-  if (selectedSubordinates.has('_org_itself') && deptIdsWithSubs.size === 0) {
+  if (selectedKeys.has(ORG_ITSELF_SENTINEL) && deptIdsWithSubs.size === 0) {
     for (const deptId of Object.keys(subordinatesMap)) deptIdsWithSubs.add(deptId);
   }
   // Bug fix: subordinatesMap keys are Russian short names (e.g. 'УЭР') while
@@ -39,7 +43,7 @@ export function applySubordinateFilter(
   // SubordinateMetrics now includes quarters{}, months{}, byMethod{} for full drill-down.
   result = result.map((d: any) => {
     const subList: any[] = d.subordinates ?? [];
-    const matchedSubs = subList.filter((s: any) => selectedSubordinates.has(s.name));
+    const matchedSubs = subList.filter((s: any) => selectedKeys.has(subordinateNameMatchKey(s.name)));
     if (matchedSubs.length === 0) return d;
 
     // Sum matched subordinate year-level metrics
@@ -131,6 +135,7 @@ export function applySubordinateFilter(
       quarters,
       months,
       subordinates: matchedSubs,
+      byActivity: mergeSubordinateActivityPeriods(matchedSubs),
       _subFiltered: true,
       _subRowCount: subRows,
     };

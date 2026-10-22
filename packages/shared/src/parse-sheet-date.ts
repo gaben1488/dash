@@ -11,6 +11,18 @@
  * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), ISO/прочие строки new Date().
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
+/** Reject impossible calendar days rather than relying on Date rollover. */
+function validCalendarDate(year: number, month: number, day: number): boolean {
+  if (!Number.isInteger(year) || year < 1 || year > 9999 ||
+      !Number.isInteger(month) || month < 1 || month > 12 ||
+      !Number.isInteger(day) || day < 1 || day > 31) return false;
+  // setUTCFullYear supports years 1..99 correctly (Date.UTC maps them to 19xx).
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+}
+
 export function parseSheetDate(val: unknown): Date | null {
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   if (val === null || val === undefined || val === '') return null;
@@ -21,6 +33,7 @@ export function parseSheetDate(val: unknown): Date | null {
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
     return isNaN(d.getTime()) ? null : d;
   }
@@ -32,7 +45,9 @@ export function parseSheetDate(val: unknown): Date | null {
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // ISO yyyy-mm-dd или полная ISO-строка
+  // ISO yyyy-mm-dd or full ISO timestamp, with real calendar day validation.
+  const isoDay = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (isoDay && !validCalendarDate(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]))) return null;
   const iso = new Date(s);
   return isNaN(iso.getTime()) ? null : iso;
 }
@@ -78,19 +93,22 @@ export function dayNumberOf(val: unknown): number | null {
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
   }
 
   // Google/Excel serial — уже число суток, только сместить эпоху
   const serial = Number(s);
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    return Math.round(serial) - SERIAL_EPOCH_OFFSET;
+    // Fractions represent time within this day; rounding shifts dates after noon.
+    return Math.floor(serial) - SERIAL_EPOCH_OFFSET;
   }
 
   // ISO «YYYY-MM-DD» или «YYYY-MM-DDTHH:mm:ss…» — компоненты даты из строки
   const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
   }
 

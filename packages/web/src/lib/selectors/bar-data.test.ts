@@ -95,6 +95,21 @@ describe('buildBarData (извлечено из useFilteredData §10)', () => {
     expect(b.execCountPct).toBe(50);
   });
 
+  it('activity + ЕП: бар показывает именно закупки ЕП, а не все как КП', () => {
+    const metric = (plan: number, fact: number, amount: number) => ({
+      plan, fact, planSum: amount, factSum: amount / 2,
+      planFB: amount, planKB: 0, planMB: 0,
+      factFB: amount / 2, factKB: 0, factMB: 0,
+    });
+    const split = { ...dept, byActivity: { q1: { program: {
+      planCount: 3, byMethod: { competitive: metric(2, 1, 80), ep: metric(1, 1, 20) },
+    } } } };
+    const [b] = buildBarData([split], makeOpts({
+      isActivityFiltered: true, actKeys: ['program'], showKP: false, showEP: true,
+    }));
+    expect(b).toMatchObject({ kpCount: 0, epCount: 1, planTotal: 20, factTotal: 10, execCountPct: 100 });
+  });
+
   it('_subFiltered без периода: значения уже-оверрайднутого депта (год)', () => {
     const sub = {
       department: { id: 'uer', nameShort: 'УЭР' },

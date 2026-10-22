@@ -47,12 +47,10 @@ function detectGroup(name: string): { label: string; tint: string } | null {
   return null;
 }
 
-/** Check if a sub name is actually the department itself (self-reference).
- *  "Администрирование", "Опека", or when sub name contains the dept abbreviation.
- *  П.51 (14.08.2026): плейсхолдеры колонки C («X/x/Х/х», тире, «н/д», пусто)
- *  = закупка самого управления — канон-предикат isOrgItself (@aemr/shared),
- *  а не свой regex: разъехавшиеся копии предиката и рождали фейковые подведы. */
-const SELF_REF_PATTERNS = /^администрир|^опека$|^управлен/i;
+/** Only actual self-references belong to the department itself.
+ * «Опека» and «Администрирование» are real УО business categories with
+ * rows in source C; they must remain selectable, like «Совместные закупки». */
+const SELF_REF_PATTERNS = /^управлен/i;
 export function isSelfReference(subName: string, deptId: string): boolean {
   if (subName === '_org_itself') return true;
   if (isOrgItself(subName)) return true;

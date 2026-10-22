@@ -34,7 +34,7 @@ describe('п.51: счётчик подведов УКСиМП', () => {
   });
 });
 
-describe('isSelfReference — канон «сама организация» (isOrgItself + категории аппарата)', () => {
+describe('isSelfReference — аппарат vs учреждение и категории строк', () => {
   it('заглушки колонки C = само управление: X/x/Х/х, тире, н/д, пусто', () => {
     for (const v of ['X', 'x', 'Х', 'х', '-', '—', 'н/д', 'нет', '']) {
       expect(isSelfReference(v, 'УКСиМП'), `«${v}» должен быть самоссылкой`).toBe(true);
@@ -45,6 +45,14 @@ describe('isSelfReference — канон «сама организация» (is
     expect(isSelfReference('_org_itself', 'УО')).toBe(true);
     expect(isSelfReference('УО', 'УО')).toBe(true);
     expect(isSelfReference('МКУ "УО"', 'УО')).toBe(true);
+  });
+
+  it('категории УО не исчезают как ошибочные «самоссылки»', () => {
+    expect(isSelfReference('Опека', 'УО')).toBe(false);
+    expect(isSelfReference('Администрирование', 'УО')).toBe(false);
+    const subs = (SUBORDINATES_FALLBACK['УО'] ?? []).filter(s => !isSelfReference(s, 'УО'));
+    expect(subs).toHaveLength(46);
+    expect(deptPositionsCount(subs.length)).toBe(47);
   });
 
   it('реальный подвед и категория «Совместная закупка» самоссылками НЕ являются', () => {
