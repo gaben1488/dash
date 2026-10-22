@@ -222,6 +222,11 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       records: j.records,
     }));
     const story = buildChangeStory(inputs, { sinceMs });
+    // Same decoded source observations as /api/changes and plan provenance.
+    // A captured journal cannot prove that a script/API edit was delivered.
+    const captureCoverage = Object.fromEntries(journals
+      .filter(j => j.available && j.coverage !== undefined)
+      .map(j => [j.dept, j.coverage!]));
     // Один список: правки книги и пропажи из сравнения снимков. Порядок
     // держит ядро — записи без момента впереди, дальше свежие сверху.
     const all = [...story.entries, ...vanished.entries, ...readSourceRowObservations(sinceMs)].sort((a, b) => {
@@ -247,6 +252,7 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       since: isoOfDayNumber(sinceDay),
       digest,
       gaps,
+      captureCoverage,
       // Свойство источника, а не итог подсчёта: удаление строки через меню
       // таблицы правок ячеек не создаёт, и журнал книги его не видит.
       deletionsUnobservable: true as const,
