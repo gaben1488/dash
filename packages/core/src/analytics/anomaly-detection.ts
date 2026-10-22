@@ -893,7 +893,7 @@ export function detectThresholdHugging(
         smallSample: inReference.length < ANOMALY_LIMITS.thresholdMinRows,
         note:
           inReference.length < ANOMALY_LIMITS.thresholdMinRows
-            ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво.'
+            ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво. Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужны подтверждённые условия и документы.'
             : 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
         members: inCorridor.map(r => addressOf(r, `K${r.sheetRow}`)),
       });

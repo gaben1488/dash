@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS, DEPT_HEADER_LABELS, isMetaRow, validateMasterSourceHeader } from './column-map';
+import reviewedHeaders from '../fixtures/master-headers-reviewed-20261022.json';
+import { DEPARTMENT_REGISTRY } from './department-registry';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, MASTER_SOURCE_PROFILE, buildCellDict, isMetaRow, validateMasterSourceHeader } from './column-map';
 
 /**
  * Фикстура: строка 3 (шапка) листа ГРБС — снято с живой книги УЭР 2026-07-29,
@@ -78,6 +80,35 @@ describe('column-map canon (DEPT_COLUMNS)', () => {
     expect([DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT, DEPT_COLUMNS.MB_FACT]).toEqual([21, 22, 23]);
     expect([DEPT_COLUMNS.ECONOMY_FB, DEPT_COLUMNS.ECONOMY_KB, DEPT_COLUMNS.ECONOMY_MB]).toEqual([25, 26, 27]);
     expect(DEPT_COLUMNS.FLAG).toBe(29);
+  });
+});
+
+it('master source field indices are the sole mapping for all A:AH cells, including comments', () => {
+  const fields = Object.values(MASTER_SOURCE_PROFILE.fields);
+  expect(COL_LETTER_INDEX).toEqual(Object.fromEntries(fields.map(field => [field.column, field.index])));
+  const example = Array.from({ length: MASTER_SOURCE_PROFILE.columns }, (_, index) => `field-${index}`);
+  expect(buildCellDict(example)).toEqual(
+    Object.fromEntries(fields.map(field => [field.column, example[field.index]])),
+  );
+});
+
+describe('R05.01 reviewed primary headers: 8 master sources, one shared validator', () => {
+  it('keeps all observed 2026-10-22 masters compatible with the one 34-field profile', () => {
+    expect(reviewedHeaders.profile).toBe(MASTER_SOURCE_PROFILE.id);
+    expect(reviewedHeaders.headers.map(item => item.department).sort())
+      .toEqual(DEPARTMENT_REGISTRY.map(item => item.id).sort());
+    for (const source of reviewedHeaders.headers) {
+      expect(source.header).toHaveLength(MASTER_SOURCE_PROFILE.columns);
+      expect(() => validateMasterSourceHeader(source.header), source.department).not.toThrow();
+    }
+  });
+  it('rejects a mandatory meaning swap in every observed source independently', () => {
+    for (const source of reviewedHeaders.headers) {
+      const changed = [...source.header];
+      changed[DEPT_COLUMNS.FB_FACT] = 'Цена договора вместо ФБ 2';
+      expect(() => validateMasterSourceHeader(changed), source.department)
+        .toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
+    }
   });
 });
 

@@ -539,6 +539,8 @@ export interface DataSnapshot {
     readModel?: { state: 'refreshing' | 'stale' };
     calculationContext?: CalculationContext;
     sourceReceipt?: string | null;
+    /** Same accepted complete capture as report_model.snapshot.source_revision; absent for mixed/incremental edits. */
+    sourceRevision?: string;
     decisionView?: { basedOnContext: string | null; revision: string };
     sourceCoverage?: import('./source-coverage.js').SourceCoverage;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */

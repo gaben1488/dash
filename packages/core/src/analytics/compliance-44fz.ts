@@ -6,7 +6,7 @@
 
 import type { DatedThreshold } from '@aemr/shared';
 import type { GRBSRole } from './grbs-profile.js';
-import { INTERNAL_EP_SHARE_BY_ROLE, LAW_44FZ_THRESHOLDS, normalizeMethod } from '@aemr/shared';
+import { INTERNAL_EP_SHARE_BY_ROLE, LAW_44FZ_THRESHOLDS, normalizeMethod, capturedThresholdValue } from '@aemr/shared';
 
 export interface ComplianceIssue {
   grbsId: string;
@@ -96,7 +96,9 @@ interface RowData {
  * БАГ #1): оно предполагало planTotal в рублях и превращало «600 тыс.» в «0.6».
  */
 export function checkEPContractLimits(rows: RowData[], grbsId: string, context?: DatedThreshold): ComplianceIssue[] {
-  const limit = context?.value ?? LAW_44FZ.epSingleContractLimit;
+  const limit = capturedThresholdValue(context, 'thousandRub');
+  // Old snapshots without a captured unit cannot silently apply current law.
+  if (limit === null) return [];
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
     if (normalizeMethod(row.method) !== 'ЕП') continue;
@@ -152,9 +154,11 @@ export function checkEPShareLimits(
   _yearPlanTotal: number,
   role: GRBSRole,
   grbsId: string,
+  captured?: DatedThreshold,
 ): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
-  const roleLimit = EP_SHARE_BY_ROLE[role];
+  const roleLimit = capturedThresholdValue(captured, 'ratio');
+  if (roleLimit === null) return [];
 
   if (totalCount > 0) {
     const epShareByCount = epCount / totalCount;

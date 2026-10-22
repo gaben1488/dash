@@ -290,6 +290,7 @@ export const DataSnapshotSchema = z.object({
     targetYear: z.number().int().nullable().optional(),
     readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
     sourceReceipt: z.string().nullable().optional(),
+    sourceRevision: z.string().regex(/^SRC-[a-f0-9]{64}$/).optional(),
     calculationContext: z.object({
       contract: z.literal('aemr-calculation-context-v1'), id: z.string(),
       sources: z.object({ content: z.string(), profiles: z.string() }), semantics: z.string(),

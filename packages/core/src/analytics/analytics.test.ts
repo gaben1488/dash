@@ -4,6 +4,7 @@
  * grbs-profile.ts, subject-classify.ts
  */
 import { describe, it, expect } from 'vitest';
+import { EP_ROLE_THRESHOLD_IDS, freezeThresholds } from '@aemr/shared';
 
 import {
   benfordAnalysis,
@@ -404,12 +405,17 @@ describe('forecast — buildScenarios', () => {
 // compliance-44fz.ts
 // ===========================================================================
 describe('compliance — checkEPContractLimits', () => {
-  it('flags EP contract above 600K', () => {
-    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700_000, factTotal: 0, economy: 0, subject: 'test' }];
-    const issues = checkEPContractLimits(rows, 'dept1');
+  it('marks a planned EP position above a frozen 600K reference as needing contract detail', () => {
+    // The master row is in thousand RUB; neither plan nor flag proves
+    // an individual contract is over the legal limit.
+    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700, factTotal: 0, economy: 0, subject: 'test' }];
+    const captured = freezeThresholds('2026-09-30')['law.epSmallSingleContract'];
+    const issues = checkEPContractLimits(rows, 'dept1', captured);
     expect(issues).toHaveLength(1);
     expect(issues[0].severity).toBe('info');
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
+    expect(issues[0].description).toContain('не доказано');
+    expect(checkEPContractLimits(rows, 'dept1')).toEqual([]);
   });
 
   it('does not flag EP contract at exactly 600K', () => {
@@ -457,10 +463,13 @@ describe('compliance — checkAntiDumping', () => {
 });
 
 describe('compliance — checkEPShareLimits', () => {
-  it('flags EP share exceeding role limit', () => {
-    // ОПЕРАЦИОННЫЙ role limit = 50%
-    const issues = checkEPShareLimits(60, 100, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
-    expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(true);
+  it('shows an informational EP share finding only with the captured role reference', () => {
+    // Internal reference is 50% and not a legal compliance threshold.
+    const captured = freezeThresholds('2026-09-30')[EP_ROLE_THRESHOLD_IDS.ОПЕРАЦИОННЫЙ];
+    const issues = checkEPShareLimits(60, 100, 50_000, 200_000, 'ОПЕРАЦИОННЫЙ', 'dept1', captured);
+    expect(issues.some(i => i.ruleCode === 'ep_share_role' && i.severity === 'info')).toBe(true);
+    expect(issues.find(i => i.ruleCode === 'ep_share_role')?.description).toContain('не правовая норма');
+    expect(checkEPShareLimits(60, 100, 50_000, 200_000, 'ОПЕРАЦИОННЫЙ', 'dept1')).toEqual([]);
   });
 
   it('does not flag EP share within role limit', () => {

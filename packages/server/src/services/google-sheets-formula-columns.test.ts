@@ -18,13 +18,14 @@ import { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE } from '@aemr/shared';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
+const valuesUpdate = vi.fn();
 const gridGet = vi.fn();
 
 vi.mock('googleapis', () => ({
   google: {
     sheets: vi.fn(() => ({
       spreadsheets: {
-        values: { get: valuesGet, batchGet: valuesBatchGet, update: vi.fn() },
+        values: { get: valuesGet, batchGet: valuesBatchGet, update: valuesUpdate },
         get: gridGet,
       },
     })),
@@ -71,6 +72,7 @@ function formulaRanges(): Array<{ range: string; values: unknown[][] }> {
 beforeEach(async () => {
   valuesGet.mockReset();
   valuesBatchGet.mockReset();
+  valuesUpdate.mockReset();
   gridGet.mockReset();
   const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
   gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
@@ -262,6 +264,22 @@ describe('R05.01 — реестр профилей охраняет каждый
   });
 });
 
+describe('R05.01 — registered historical aliases cannot bypass master identity', () => {
+  it('a recognized former department label resolves to the same approved gid', async () => {
+    const dept = DEPARTMENT_REGISTRY.find(entry => entry.id === 'УФБП')!;
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: dept.source.sheetId, title: 'УФБП',
+      gridProperties: { columnCount: 34 },
+    } }] } });
+    const { readDeptSheet, resolveDeptSheetName } = await import('./google-sheets.js');
+    expect(await resolveDeptSheetName('УФБР', 'file-ufbp')).toBe('УФБП');
+    await expect(readDeptSheet('УФБР', 'file-ufbp')).resolves.toMatchObject({
+      sheetName: 'УФБП', formulasRead: false,
+    });
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('R05.01 — one resolver for reads, writes and metadata', () => {
   it('the same reviewed gid and title admit read/write, without a stale cache', async () => {
     const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
@@ -287,7 +305,7 @@ describe('R05.01 — source profile is the single implementation across consumer
   it('one object reference supplies read ranges and metadata protected groups', async () => {
     const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
     const { METADATA_CANON } = await import('./metadata-canon.js');
-    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_SOURCE_PROFILE.formulaColumnGroups);
+    expect(FORMULA_COLUMN_GROUPS).toEqual(MASTER_SOURCE_PROFILE.formulaColumnGroups);
     expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
     expect(FORMULA_COLUMNS).toEqual(
       Object.values(MASTER_SOURCE_PROFILE.fields)
@@ -339,4 +357,42 @@ describe('R05.01 — source-profile contract is the single reviewed graph', () =
       );
     }
   }, 30_000);
+});
+
+describe('R05.01 — guarded source mutation uses the same profile as every read', () => {
+  it('never writes into a changed required column even when the gid and column count still match', async () => {
+    const header = [...sheetValues()[2]];
+    header[21] = 'Цена договора вместо ФБ 2';
+    valuesGet.mockResolvedValue({ data: { values: [header] } });
+    const { writeCellValue } = await import('./google-sheets.js');
+    await expect(writeCellValue('file-uo', 'ВСЕ', 'V4', 42))
+      .rejects.toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
+    expect(valuesUpdate).not.toHaveBeenCalled();
+    const request = valuesGet.mock.calls[0][0] as { range: string };
+    expect(request.range).toContain('A3:AH3');
+  });
+
+  it('writes to the accepted gid after a bounded header read, without reloading the master grid', async () => {
+    valuesGet.mockResolvedValue({ data: { values: [sheetValues()[2]] } });
+    valuesUpdate.mockResolvedValue({ data: { updatedCells: 1, updatedRange: "'ВСЕ'!V4" } });
+    const { writeCellValue } = await import('./google-sheets.js');
+    await expect(writeCellValue('file-uo', 'ВСЕ', 'V4', 42))
+      .resolves.toMatchObject({ updatedCells: 1 });
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+    expect(valuesUpdate).toHaveBeenCalledTimes(1);
+    expect((valuesGet.mock.calls[0][0] as { range: string }).range).toContain('A3:AH3');
+  });
+
+  it('cannot update another tab with a lookalike header or an unreviewed gid', async () => {
+    const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+    gridGet.mockResolvedValue({ data: { sheets: [
+      { properties: { sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 34 } },
+      },
+    ] } });
+    const { writeCellValue } = await import('./google-sheets.js');
+    await expect(writeCellValue('file-uo', 'УО', 'V4', 42))
+      .rejects.toThrow('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+    expect(valuesGet).not.toHaveBeenCalled();
+    expect(valuesUpdate).not.toHaveBeenCalled();
+  });
 });

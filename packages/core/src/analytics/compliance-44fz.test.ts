@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { checkEPContractLimits, checkAntiDumping, analyzeEPReasons } from './compliance-44fz';
+import { thresholdAt } from '@aemr/shared';
+
+const EP_LIMIT = thresholdAt('law.epSmallSingleContract', '2026-10-22');
+import { checkEPContractLimits, checkEPShareLimits, checkAntiDumping, analyzeEPReasons } from './compliance-44fz';
 
 /** Минимальная RowData (структурно совпадает с внутренним интерфейсом). */
 function row(over: Partial<{
@@ -12,7 +15,7 @@ function row(over: Partial<{
 // («Ед. поставщик», «ЭЕП», «еп», «ЕП (ст.93)») молча выпадают из проверок.
 describe('compliance-44fz — нормализация способа (алиасы ЕП)', () => {
   it('checkEPContractLimits ловит превышение по ЕП-алиасу «Ед. поставщик»', () => {
-    const issues = checkEPContractLimits([row({ method: 'Ед. поставщик', planTotal: 50_000_000 })], 'УО');
+    const issues = checkEPContractLimits([row({ method: 'Ед. поставщик', planTotal: 50_000_000 })], 'УО', EP_LIMIT);
     expect(issues).toHaveLength(1);
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
     expect(issues[0].severity).toBe('info');
@@ -20,7 +23,28 @@ describe('compliance-44fz — нормализация способа (алиа�
   });
 
   it('checkEPContractLimits — канонический ЕП по-прежнему ловится (без регресса)', () => {
-    expect(checkEPContractLimits([row({ method: 'ЕП', planTotal: 50_000_000 })], 'УО')).toHaveLength(1);
+    expect(checkEPContractLimits([row({ method: 'ЕП', planTotal: 50_000_000 })], 'УО', EP_LIMIT)).toHaveLength(1);
+  });
+
+  it('does not use current values for missing or unitless historical contexts', () => {
+    const rows = [row({ planTotal: 1_000 })];
+    expect(checkEPContractLimits(rows, 'УО')).toEqual([]);
+    expect(checkEPContractLimits(rows, 'УО', { ...EP_LIMIT, unit: 'ratio' })).toEqual([]);
+    expect(checkEPContractLimits(rows, 'УО', { ...EP_LIMIT, unit: undefined })).toEqual([]);
+    expect(checkEPContractLimits(rows, 'УО', { ...EP_LIMIT, value: 1_200 })).toEqual([]);
+    expect(checkEPContractLimits(rows, 'УО', EP_LIMIT)).toHaveLength(1);
+  });
+
+  it('applies a captured role reference only, not a current or legal percentage', () => {
+    const captured = thresholdAt('competition.epRoleInvestmentShare', '2026-10-22');
+    const check = (value?: typeof captured) => checkEPShareLimits(4, 10, 4_000, 10_000, 'ИНВЕСТИЦИОННЫЙ', 'УАГЗО', value);
+    const issues = check(captured);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ ruleCode: 'ep_share_role', severity: 'info' });
+    expect(issues[0].description).toContain('не правовая норма');
+    expect(check()).toEqual([]);
+    expect(check({ ...captured, unit: 'percent' })).toEqual([]);
+    expect(check({ ...captured, value: 0.8 })).toEqual([]);
   });
 
   it('analyzeEPReasons считает ЕП-алиасы (ЭЕП, еп, Ед. поставщик), но не конкурентные', () => {
