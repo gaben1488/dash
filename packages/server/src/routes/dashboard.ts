@@ -5,7 +5,7 @@ import { getSheetData } from '../services/google-sheets.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, observedNumber, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, UnifiedSvodResponseSchema, SVOD_SHEET_NAME, observedNumber, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 import { parseYearFilterParam } from '../services/period-params.js';
@@ -588,16 +588,27 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const grid = snapshot.unifiedGrid;
-    const reconciliation = snapshot.unifiedReconciliation ?? [];
-
-    return reply.send({
-      grid,
-      reconciliation,
+    const response = {
+      grid: snapshot.unifiedGrid,
+      reconciliation: snapshot.unifiedReconciliation ?? [],
+      reconciliationState: snapshot.unifiedReconciliation ? 'materialized' as const : 'not_materialized' as const,
       snapshotId: snapshot.id,
       createdAt: snapshot.createdAt,
+      sourceRevision: snapshot.metadata.sourceRevision ?? null,
       year: targetYear ?? new Date().getFullYear(),
-    });
+    };
+    const validated = await requestStage(request, 'contract', async () => UnifiedSvodResponseSchema.safeParse(response));
+    if (!validated.success) {
+      app.log.error(
+        { snapshotId: snapshot.id, issues: validated.error.issues.slice(0, 5).map(issue => ({ path: issue.path, code: issue.code })) },
+        'Svod grid response contract invalid',
+      );
+      return reply.status(500).send({
+        code: 'SVOD_CONTRACT_INVALID',
+        error: 'Поля расчётной сетки не прошли проверку. Обновите данные или сообщите администратору.',
+      });
+    }
+    return reply.send(response);
   });
 
 }

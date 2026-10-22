@@ -264,11 +264,46 @@ describe('представление снимка для HTTP Dashboard', () => 
       expect(empty.statusCode).toBe(200);
       expect(empty.json()).toMatchObject({
         grid: { cells: {}, grbsIds: [], scopes: [] },
-        reconciliation: [], year: 2026,
+        reconciliation: [], reconciliationState: 'materialized', year: 2026,
+        snapshotId: previous.id, sourceRevision: null,
       });
     } finally {
       fixture.snapshot = previous;
     }
+  });
+
+  it('rejects a malformed Svod cell before publishing a successful HTTP response', async () => {
+    const previous = fixture.snapshot;
+    fixture.snapshot = {
+      ...previous,
+      unifiedGrid: {
+        grbsIds: ['uo'], scopes: ['all'],
+        cells: { 'uo|all|kp|year': { planCount: 0 } },
+      },
+      unifiedReconciliation: [],
+    } as unknown as DataSnapshot;
+    try {
+      const response = await app.inject('/api/svod/unified?year=2026');
+      expect(response.statusCode).toBe(500);
+      expect(response.json().code).toBe('SVOD_CONTRACT_INVALID');
+      expect(response.json()).not.toHaveProperty('grid');
+    } finally { fixture.snapshot = previous; }
+  });
+
+  it('preserves unavailable reconciliation as a distinct source state', async () => {
+    const previous = fixture.snapshot;
+    fixture.snapshot = {
+      ...previous,
+      unifiedGrid: { cells: {}, grbsIds: [], scopes: [] },
+    };
+    Reflect.deleteProperty(fixture.snapshot, 'unifiedReconciliation');
+    try {
+      const response = await app.inject('/api/svod/unified?year=2026');
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        reconciliationState: 'not_materialized', reconciliation: [],
+      });
+    } finally { fixture.snapshot = previous; }
   });
 
   it('does not publish an incomplete snapshot as a successful dashboard response', async () => {

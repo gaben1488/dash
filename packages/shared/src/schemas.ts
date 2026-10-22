@@ -500,8 +500,18 @@ export const UnifiedSvodResponseSchema = z.object({
     deltaPct: z.number().finite(),
     status: z.enum(['ok', 'warning', 'high']),
   })),
-  year: z.number().int().optional(),
+  snapshotId: z.string().min(1),
+  createdAt: z.string().min(1),
+  sourceRevision: z.string().regex(/^SRC-[a-f0-9]{64}$/).nullable(),
+  reconciliationState: z.enum(['materialized', 'not_materialized']),
+  year: z.number().int(),
+}).superRefine((response, ctx) => {
+  if (response.reconciliationState === 'not_materialized' && response.reconciliation.length !== 0) {
+    ctx.addIssue({ code: 'custom', path: ['reconciliation'], message: 'Не готовая сверка не может содержать подтверждённые результаты' });
+  }
 });
+
+export type UnifiedSvodResponse = z.infer<typeof UnifiedSvodResponseSchema>;
 
 /** Generic API envelope */
 export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>

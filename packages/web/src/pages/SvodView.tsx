@@ -16,7 +16,7 @@ import {
   type SvodRow,
   type SvodBlock,
   type SvodView as SvodViewShape,
-  type UnifiedGrid,
+  type UnifiedSvodResponse,
 } from '@aemr/shared';
 import { sliceUnified, type BudgetKey } from '../lib/unified-svod-view';
 import { fmtCount, fmtPct } from '../lib/report/mappers';
@@ -142,12 +142,7 @@ const FOCUS_RING =
 
 // ── Ответ сервера ────────────────────────────────────────────────────
 
-interface UnifiedResp {
-  grid: UnifiedGrid;
-  reconciliation: ReconRow[];
-  /** Год, за который сервер посчитал сетку. */
-  year?: number;
-}
+type UnifiedResp = UnifiedSvodResponse;
 
 // ── Разделы таблицы ──────────────────────────────────────────────────
 
@@ -317,6 +312,7 @@ export function SvodView() {
       budgetFiltered,
       period: periodSel.single,
       hasRows: (resp?.reconciliation ?? []).length > 0,
+      reconciliationMaterialized: resp?.reconciliationState === 'materialized',
     }),
     [activityIsAll, deptFilterActive, budgetFiltered, periodSel, resp],
   );

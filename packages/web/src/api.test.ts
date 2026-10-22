@@ -94,6 +94,10 @@ describe('C05.02: unified Svod HTTP transport required fields', () => {
         grbsIds: ['uo'], scopes: ['all', 'td', 'pm'],
       },
       reconciliation: [],
+      reconciliationState: 'materialized' as const,
+      snapshotId: 'fixture-svod',
+      createdAt: '2026-10-22T00:00:00Z',
+      sourceRevision: null,
     };
   }
 
@@ -103,6 +107,8 @@ describe('C05.02: unified Svod HTTP transport required fields', () => {
     expect(full.grid.cells['uo|all|kp|year'].planCount).toBe(0);
     vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({
       year: 2026, grid: { cells: {}, grbsIds: [], scopes: [] }, reconciliation: [],
+      reconciliationState: 'materialized', snapshotId: 'empty-svod',
+      createdAt: '2026-10-22T00:00:00Z', sourceRevision: null,
     })));
     await expect(api.getSvodUnified()).resolves.toMatchObject({ grid: { cells: {} } });
   });
@@ -116,6 +122,20 @@ describe('C05.02: unified Svod HTTP transport required fields', () => {
       await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
     },
   );
+
+  it('requires provenance and differentiates missing comparison from an empty comparison', async () => {
+    const body = responseWithCell();
+    Reflect.deleteProperty(body, 'snapshotId');
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
+
+    const unavailable = responseWithCell();
+    unavailable.reconciliationState = 'not_materialized';
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(unavailable)));
+    await expect(api.getSvodUnified()).resolves.toMatchObject({
+      reconciliationState: 'not_materialized', reconciliation: [],
+    });
+  });
 
   it('rejects a broken grid axis or missing reconciliation collection', async () => {
     const body = responseWithCell();
