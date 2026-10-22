@@ -3223,6 +3223,26 @@ jobs:
                 (issue.departmentId === 'ud' || issue.sheet === 'УД') &&
                 issue.status !== 'false_positive' && issue.status !== 'resolved'
               );
+              // Inspect exactly the same department through the running registry
+              // API, output only column-A labels and row positions.
+              const liveRowsResponse = await read('GET', '/api/rows/ud?page=1&limit=500');
+              const seenRows = (liveRowsResponse.rows || [])
+                .map(entry => ({ row: entry.rowIndex, id: String(entry.id ?? '').trim() }))
+                .filter(entry => entry.id !== '');
+              const byId = new Map();
+              for (const entry of seenRows) byId.set(entry.id, [...(byId.get(entry.id) || []), entry.row]);
+              const sampleRows = new Set([11, 28, 54, 57, 68, 73, 74, 79, 84, 103, 123, 166, 175, 184, 192, 194, 205, 208, 228, 233, 235, 240]);
+              const sourceFile = require('node:fs').readFileSync('/app/packages/shared/src/rule-book.ts','utf8');
+              const installedRuleSha256 = require('node:crypto').createHash('sha256').update(sourceFile).digest('hex');
+              console.log('UD_RUNTIME_IDS=' + JSON.stringify({
+                rowsRead: seenRows.length,
+                sourceFileHash: installedRuleSha256,
+                strictSequenceCompare: sourceFile.includes("const parsed = /^\\d+$/.test(raw)"),
+                unsafeToNumber: sourceFile.includes("const n = toNumber(raw)"),
+                examples: seenRows.filter(item => sampleRows.has(item.row)),
+                compositeCount: seenRows.filter(item => item.id.includes('/')).length,
+                exactDupes: [...byId].filter(item => item[1].length > 1)
+              }));
               // Only numbering labels and positions may enter a public CI log;
               // no subjects, amounts, free text, or authentication metadata.
               const diagnostics = currentNumbering.map(issue => {
