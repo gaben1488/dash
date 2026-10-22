@@ -27,6 +27,7 @@
 
 import { isAbsentCell } from './absence.js';
 import { SUBORDINATE_REGISTRY } from './dictionaries/subordinate-registry.js';
+import { subordinateNameMatchKey } from './org-itself.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Модель находки
@@ -207,6 +208,10 @@ export function hygieneFix(raw: string): string {
   t = t.replace(/ {2,}/g, ' ');
   t = t.replace(SPACE_BEFORE_PUNCT_RE, '$1');
   t = t.replace(MISSING_AFTER_RE, '$1 ');
+  // Подтверждённый предмет закупки (УО, G2702): латинская p в «хоp.»
+  // не превращается просто в «хор.» — здесь имеется в виду «хоз. товаров».
+  // Меняем ТОЛЬКО узкий контекст, не трогаем настоящий хор в других фразах.
+  t = t.replace(/(^|\s)(покупка\s+)хор\.(?=\s+товаров(?=$|[\s,.;!?]))/giu, '$1$2хоз.');
   return t.trim();
 }
 
@@ -365,6 +370,9 @@ const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_NAMES);
 /** Подтверждённые прежние названия допустимы в исторических срезах. */
 const HISTORIC_SET: ReadonlySet<string> = new Set(SUBORDINATE_REGISTRY.flatMap((e) => e.legacyCanonicalName ? [e.legacyCanonicalName] : []));
 const ACCEPTED_NAMES: ReadonlySet<string> = new Set([...CANONICAL_SET, ...HISTORIC_SET]);
+// Тот же канон идентичности, что у фильтров/каталога: R→E, алиасы,
+// е/ё, кавычки и пробелы. Визуальная типографика не равна новой организации.
+const ACCEPTED_NAME_KEYS: ReadonlySet<string> = new Set([...ACCEPTED_NAMES].map(subordinateNameMatchKey));
 const MATCHABLE_NAMES = SUBORDINATE_REGISTRY.flatMap((entry) => [
   { spelling: entry.canonicalName, canonical: entry.canonicalName },
   ...(entry.legacyCanonicalName ? [{ spelling: entry.legacyCanonicalName, canonical: entry.canonicalName }] : []),
@@ -393,7 +401,7 @@ export function nearestCanonicalSubordinate(name: string): string | null {
   if (cached !== undefined) return cached;
 
   let result: string | null = null;
-  if (!ACCEPTED_NAMES.has(name)) {
+  if (!ACCEPTED_NAME_KEYS.has(subordinateNameMatchKey(name))) {
     const norm = normalizeQuotes(name);
     let best: number | null = null;
     let bestName: string | null = null;
@@ -439,7 +447,7 @@ export function detectSubordinateNameHygiene(value: unknown): TextHygieneFinding
 
   const trimmed = value.trim();
 
-  if (ACCEPTED_NAMES.has(trimmed)) {
+  if (ACCEPTED_NAME_KEYS.has(subordinateNameMatchKey(trimmed))) {
     // Имя каноничное; дефектом остаются только края самой ячейки.
     if (trimmed !== value) {
       return [{
