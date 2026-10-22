@@ -241,7 +241,7 @@ describe('контрольная сверка с действующими кни
       const result = integrity.buildComparison(NOW);
       expect(result.comparison?.baselineId).toBe(id);
       expect(result.comparison?.vanishedTotal).toBe(1);
-      expect(result.comparison?.unavailableBooks).toEqual([]);
+      expect(result.comparison?.unavailableBooks).toHaveLength(0);
       expect(result.comparison?.books.find(book => book.dept === 'УО')?.vanished)
         .toEqual([expect.objectContaining({ rowSeq: '11', wasAtSheetRow: 5 })]);
     } finally {
