@@ -122,9 +122,12 @@ it.each(['нет', 'да'])('does not infer competition or initial price from ec
   expect(response.statusCode).toBe(200);
   const result = response.json().uo;
   expect(result).toBeDefined();
-  expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
+  expect(result.flags.some((f: { indicator: string }) => ['ep_over_limit', 'ep_annual_share', 'zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
   expect(result.disciplinaryPenalty).toBe(0);
-  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+  // Undetermined EP legal thresholds must remain unavailable, not a silent PASS.
+  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual([
+    'ep_over_limit', 'ep_annual_share', 'zero_competition', 'price_inflation',
+  ]);
 }, 30_000);
 
 

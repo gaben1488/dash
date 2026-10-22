@@ -348,7 +348,17 @@ it('reuses a fully accepted saved calculation after restart without a Google rea
     { version: 'fixture-main-v1', modifiedTime: null }, { fileId: config.google.spreadsheetId, values: [] });
   const saved = calculateSnapshot({ spreadsheetId: config.google.spreadsheetId, asOf: new Date('2026-10-21T00:00:00Z'),
     sheetRows: rows, batchGetData: [], reportMap: REPORT_MAP, targetYear: 2026, officialYear: 2026 });
-  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId);
+  // The restart fixture supplies admitted matrices as well as durable watermarks.
+  // Watermark-only archives cannot prove the source is currently usable.
+  const accepted = Object.fromEntries(Object.entries(rows).map(([book, values]) => [book, {
+    values, formulas: [], sheetName: 'ВСЕ',
+  }]));
+  source.setDeptSheetCache(accepted);
+  source.setSvodGridCache([], '2026-10-21T00:00:00Z');
+  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
+    ...accepted, [SVOD_WATERMARK_KEY]: { values: [] },
+  });
+  expect(saved.metadata.sourceReceipt).toEqual(expect.any(String));
   saved.metadata.sourceCoverage = departmentCoverage(Object.keys(rows), Object.keys(rows));
   await source.saveSnapshot(saved);
   const count = db.select().from(schema.snapshots).all().length;
