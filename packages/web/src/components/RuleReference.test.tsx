@@ -96,5 +96,22 @@ describe('C06.03 guide and export', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить и проверить' }));
     await screen.findByText(/Сервер не подтвердил сохранённую редакцию/);
     expect(screen.queryByText(/Редакция сохранена и повторно прочитана/)).toBeNull();
+    // The PUT may have succeeded; the cached pre-write revision must be revoked.
+    expect(screen.getByRole('button', { name: 'Скачать Markdown' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Скачать Word' }).hasAttribute('disabled')).toBe(true);
   });
+
+  it('rechecks the saved revision on download and blocks exports if it cannot be read', async () => {
+    getEditorialGuidance.mockResolvedValueOnce(response(entries()));
+    getEditorialGuidance.mockRejectedValueOnce(new Error('503 read unavailable'));
+    render(<RuleReference />);
+    fireEvent.click(screen.getByText('Правила и подсказки заполнения'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Скачать Markdown' }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Скачать Markdown' }));
+    await screen.findByText(/Сохранённая редакция не прочитана/);
+    expect(getEditorialGuidance).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Скачать Markdown' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Скачать Word' }).hasAttribute('disabled')).toBe(true);
+  });
+
 });
