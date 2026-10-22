@@ -563,7 +563,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
     { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...GRBS_BOOK_METHODS], guidance: savedGuidance['field:method'] ?? FIELD_GUIDANCE.method },
-    { key: 'epReason', label: 'Обоснование ЕП', type: 'text', width: 'w-72',
+    { key: 'epReason', label: 'Обоснование ЕП', type: 'multiline', width: 'w-96',
       guidance: savedGuidance['field:epReason'] ?? FIELD_GUIDANCE.epReason,
       guidanceForRow: row => epReasonEditorGuidance(row.method, row.epReason, savedGuidance['field:epReason'] ?? FIELD_GUIDANCE.epReason) },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
