@@ -132,7 +132,9 @@ function normHeader(value: unknown): string {
  */
 const HEADER_ANCHORS = Object.values(MASTER_SOURCE_PROFILE.fields)
   .filter((field): field is typeof field & { headerProbe: string } => field.requiredMeaning && field.headerProbe !== null)
-  .map(field => ({ index: field.index, probe: field.headerProbe, aliases: field.headerAliases as string[] }));
+  .map(field => ({ index: field.index, probe: field.headerProbe, aliases: field.headerAliases as string[],
+    anchored: normHeader(field.label) === normHeader(field.headerProbe),
+  }));
 
 /**
  * Проверка якорей шапки книги ГРБС (реестр багов 09.07.2026, п.11
@@ -204,7 +206,12 @@ export function isMetaRow(text: string): boolean {
 export function validateMasterSourceHeader(header: readonly unknown[]): void {
   const normalized = header.map(normHeader);
   for (const anchor of HEADER_ANCHORS) {
-    if (![anchor.probe, ...anchor.aliases].some(probe => normalized[anchor.index]?.includes(normHeader(probe))))
-      throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
+    const actual = normalized[anchor.index] ?? '';
+    if (![anchor.probe, ...anchor.aliases].some(probe => {
+      const expected = normHeader(probe);
+      // A short, whole-field anchor (e.g. "ФБ 2") must lead the caption.
+      // "Цена договора вместо ФБ 2" contains the token but changes its meaning.
+      return anchor.anchored ? actual.startsWith(expected) : actual.includes(expected);
+    })) throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
   }
 }
