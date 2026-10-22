@@ -81,7 +81,12 @@ export interface NoiseGroupDto {
 }
 
 export interface AnomaliesResponse {
+  /** Момент формирования ответа — не время последнего чтения каждой книги. */
   asOf: string;
+  /** Момент последнего обновления кэша исходных строк, null без свидетельства. */
+  sourceCacheFilledAt: string | null;
+  /** Момент расчёта отдельной сохранённой модели датасета. */
+  datasetCapturedAt: string | null;
   booksRead: string[];
   booksSilent: string[];
   journalsSilent: string[];
