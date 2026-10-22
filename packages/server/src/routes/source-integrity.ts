@@ -78,7 +78,8 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
          * Книги нет в перечне — её формулы не разбирались ни разу; это не
          * то же самое, что «дефектов нет» (различие сторожит страж).
          */
-        assessment: assessFormulaResults(Object.keys(DEPARTMENT_SPREADSHEETS), formulas.books, formulaVerdicts()),
+        assessment: assessFormulaResults(Object.keys(DEPARTMENT_SPREADSHEETS), formulas.books,
+          formulaVerdicts(), currentFormulaSourceProof()),
         verdicts: formulaVerdicts().map((v) => ({
           book: v.book,
           at: v.at,
