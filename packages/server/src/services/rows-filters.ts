@@ -74,7 +74,8 @@ export function parseActivityFilterParam(raw: unknown): string {
 /** Тип закупки по колонке L = METHOD: ЭА/ЭК/ЭЗК = КП (competitive); ЕП = single. */
 export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: string): T[] {
   const codes = METHODS_BY_TYPE_FILTER[filterType];
-  if (!codes) return rows; // пусто или нераспознанное значение — всё проходит
+  if (filterType === '' || filterType === 'all') return rows;
+  if (!codes) return invalidAxis('type');
   return rows.filter(r => codes.includes(r.method.toUpperCase()));
 }
 
@@ -111,6 +112,9 @@ export function applySubordinateFilter<T extends Pick<FilterableRow, 'subordinat
  */
 export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterActivity: string): T[] {
   if (!filterActivity) return rows;
+  const scope = parseActivityScope(filterActivity);
+  if (scope === null) return invalidAxis('activity');
+  if (scope === 'all') return rows;
   return rows.filter(r => {
     switch (filterActivity) {
       case 'program':
@@ -119,7 +123,7 @@ export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterAc
       case 'current_non_program':
         return matchesActivityScope('td', r.type);
       default:
-        return String(r.type).toLowerCase().includes(filterActivity);
+        return matchesActivityScope(parseActivityScope(filterActivity) === 'pm' ? 'pm' : 'td', r.type);
     }
   });
 }
