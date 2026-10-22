@@ -703,6 +703,9 @@ interface DeptBreakdownProps {
     secondaryValue?: number | null;
     color?: string;
     secondaryColor?: string;
+    /** Why the main value is unavailable, not a fabricated zero. */
+    emptyReason?: string;
+    secondaryEmptyReason?: string;
   }>;
   unit?: string;
   secondaryUnit?: string;
@@ -778,7 +781,7 @@ export function DeptBreakdown({
             key={d.id}
             type="button"
             onClick={() => onDeptClick?.(d.id)}
-            aria-label={`${d.name}: ${hasValue ? formatMetricValue(v, unit) : emptyLabel}`}
+            aria-label={`${d.name}: ${hasValue ? formatMetricValue(v, unit) : (d.emptyReason ?? emptyLabel)}`}
             className={cn(
               'w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-left',
               'hover:bg-zinc-50 dark:hover:bg-zinc-800/60',
@@ -802,8 +805,8 @@ export function DeptBreakdown({
                 {formatMetricValue(v, unit)}
               </span>
             ) : (
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-500 w-14 text-right">
-                {emptyLabel}
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-500 min-w-14 text-right" title={d.emptyReason ?? emptyLabel}>
+                {d.emptyReason ?? emptyLabel}
               </span>
             )}
             {d.secondaryValue !== undefined && (
@@ -812,8 +815,8 @@ export function DeptBreakdown({
                   {formatMetricValue(d.secondaryValue, secondaryUnit ?? unit)}
                 </span>
               ) : (
-                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 w-14 text-right">
-                  {emptyLabel}
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 min-w-14 text-right" title={d.secondaryEmptyReason ?? emptyLabel}>
+                  {d.secondaryEmptyReason ?? emptyLabel}
                 </span>
               )
             )}
