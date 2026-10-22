@@ -22,7 +22,7 @@ const OLD_NON_PUNITIVE = new Set([
   'foreignYearExecution','factWithoutDate','factDateBeforePlan',
   'economyDecisionUpcoming','financeDelay','singleParticipant',
 ]);
-export function isNonPunitiveSignal(issue: Pick<Case,'checkId'|'signal'|'category'>): boolean {
+export function isNonPunitiveSignal(issue: { checkId?: unknown; signal?: unknown; category?: unknown }): boolean {
   if (NON_PUNITIVE.has(String(issue.checkId ?? ''))) return true;
   const signal = String(issue.signal ?? String(issue.category ?? '').replace(/^signal:/, ''));
   return OLD_NON_PUNITIVE.has(signal);
