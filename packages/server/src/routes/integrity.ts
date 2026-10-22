@@ -61,7 +61,7 @@ import {
 } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptLoadMeta, getDeptCacheFilledAt, getWeeklySnapshotHistory } from '../services/snapshot.js';
 
 /** Номер строки книги = индекс в массиве листа + 1 (кэш несёт шапку). */
 const SHEET_ROW_FROM_INDEX = 1;
@@ -69,8 +69,8 @@ const SHEET_ROW_FROM_INDEX = 1;
 /** Сколько строк со сбитым видом даты показывать поимённо. */
 const SHOWN_DATE_ROWS = 20;
 
-/** Сколько снимков просматривать в поисках двух со строками. */
-const SNAPSHOT_LOOKBACK = 10;
+/** Контрольные четверги хранятся постоянно; проверяем только метаданные последних недель. */
+const SNAPSHOT_LOOKBACK = 52;
 
 // ────────────────────────────────────────────────────────────
 // Формы ответа
@@ -123,7 +123,21 @@ export interface VanishedBookDto {
   vanishedPlanSum: number;
   vanishedFactSum: number;
   unkeyed: { before: number; after: number };
+  /** Неоднозначные повторные № п/п исключены из выводов. */
+  ambiguousKeys: string[];
   note: string;
+}
+
+/** Проверка текущих прочитанных книг относительно последнего контрольного четверга. */
+export interface OperationalComparisonDto {
+  baselineAt: string;
+  /** Самое раннее из новых успешных чтений: весь результат не новее его. */
+  checkedAt: string | null;
+  checkedBooks: number;
+  expectedBooks: number;
+  unavailableDepts: string[];
+  books: VanishedBookDto[];
+  missingCandidatesTotal: number;
 }
 
 export interface IntegrityResponse {
@@ -141,6 +155,9 @@ export interface IntegrityResponse {
   } | null;
   /** Почему сравнения нет — фраза для экрана, а не пустое место. */
   comparisonNote: string;
+  /** Кандидаты из новых чтений после принятого контрольного среза, не доказанное удаление. */
+  operational: OperationalComparisonDto | null;
+  operationalNote: string;
   notes: string[];
 }
 
@@ -273,24 +290,24 @@ export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, Snap
   return byDept;
 }
 
-/** Два последних снимка, у которых строки-атомы записаны. */
-function findComparableSnapshots(): Array<{ id: string; createdAt: string }> {
-  const recent = db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
-    .from(schema.snapshots)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK)
-    .all();
-  const withRows: Array<{ id: string; createdAt: string }> = [];
-  for (const snap of recent) {
-    const probe = db.select({ id: schema.procurementRows.id })
+/**
+ * Только запечатанные контрольные четверги. Обычный force-refresh между
+ * четвергами НЕ должен подменять эталон и незаметно обнулять пропажи.
+ * SQL здесь читает метаданные, а не многомегабайтные JSON снимков.
+ */
+function findComparableSnapshots(limit = 2): Array<{ id: string; createdAt: string }> {
+  const candidates = getWeeklySnapshotHistory(SNAPSHOT_LOOKBACK);
+  const ready: Array<{ id: string; createdAt: string }> = [];
+  for (const snap of candidates) {
+    const atom = db.select({ id: schema.procurementRows.id })
       .from(schema.procurementRows)
       .where(eq(schema.procurementRows.snapshotId, snap.id))
       .limit(1)
-      .all();
-    if (probe.length > 0) withRows.push(snap);
-    if (withRows.length === 2) break;
+      .get();
+    if (atom) ready.push(snap);
+    if (ready.length === limit) break;
   }
-  return withRows;
+  return ready;
 }
 
 function readAtoms(snapshotIds: readonly string[]): AtomRow[] {
@@ -314,7 +331,7 @@ function readAtoms(snapshotIds: readonly string[]): AtomRow[] {
 // ────────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cached: { at: number; response: IntegrityResponse } | null = null;
+let cached: { at: number; sourceAt: number; response: IntegrityResponse } | null = null;
 
 export function resetIntegrityCache(): void {
   cached = null;
@@ -328,68 +345,157 @@ function unreadNote(dept: DepartmentEntry): string {
   );
 }
 
-/** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
+/** Общая проекция детектора на существующий контракт экрана. */
+function toVanishedBookDto(key: string, diff: RowDiff): VanishedBookDto {
+  const dept = findDept(key);
+  return {
+    dept: dept?.id ?? key,
+    deptName: dept?.fullName ?? key,
+    vanished: diff.vanished.map((v) => ({
+      rowSeq: v.rowSeq,
+      wasAtSheetRow: v.wasAtSheetRow,
+      subject: v.subject ?? '',
+      subordinate: v.subordinate ?? '',
+      planSum: v.planSum ?? null,
+      factSum: v.factSum ?? null,
+    })),
+    moved: diff.moved.map((m) => ({
+      rowSeq: m.rowSeq, fromSheetRow: m.fromSheetRow,
+      toSheetRow: m.toSheetRow, subject: m.subject ?? '',
+    })),
+    appeared: diff.appeared.length,
+    vanishedPlanSum: diff.vanishedPlanSum,
+    vanishedFactSum: diff.vanishedFactSum,
+    unkeyed: diff.unkeyed,
+    ambiguousKeys: diff.ambiguousKeys ?? [],
+    note: diff.note,
+  };
+}
+
+/** Два подтверждённых четверга, со старым содержимым и точными датами. */
 export function buildComparison(): { comparison: IntegrityResponse['comparison']; note: string } {
   const snaps = findComparableSnapshots();
   if (snaps.length < 2) {
     return {
       comparison: null,
       note: snaps.length === 0
-        ? 'Строк-атомов нет ни в одном сохранённом снимке: сравнивать нечего. Пропажу строки ' +
-          'иначе не увидеть — журнал книги удаление не записывает.'
-        : 'Сохранён только один снимок со строками. Пропажи видны сравнением двух — ' +
-          'следующий недельный снимок даст первую пару.',
+        ? 'Нет сохранённого полного контрольного среза четверга со строками — сверять пока не с чем.'
+        : 'Есть только один полный контрольный срез четверга; до следующего подтверждённого среза недельной пары нет.',
     };
   }
   const [after, before] = snaps;
   const atoms = readAtoms([before.id, after.id]);
   const beforeRows = atomsToSnapshotRows(atoms.filter((a) => a.snapshotId === before.id));
   const afterRows = atomsToSnapshotRows(atoms.filter((a) => a.snapshotId === after.id));
+  // Частично потерянная таблица procurement_rows в БД — не доказательство
+  // исчезновения всех закупок ГРБС. Нельзя сравнивать неполные атомы с пустотой.
+  const expected = Object.keys(DEPARTMENT_SPREADSHEETS);
+  const absent = expected.filter((name) => {
+    const id = findDept(name)?.latinId ?? name;
+    return !beforeRows.has(id) || !afterRows.has(id);
+  });
+  if (absent.length > 0) {
+    return { comparison: null,
+      note: `Снимки четверга найдены, но строки некоторых книг в архиве неполны (${absent.join(', ')}). Вывод о пропажах запрещён.` };
+  }
 
   const books: VanishedBookDto[] = [];
   let vanishedTotal = 0;
   let vanishedPlanSum = 0;
-  const deptKeys = new Set([...beforeRows.keys(), ...afterRows.keys()]);
-  for (const key of deptKeys) {
-    const dept = findDept(key);
-    const diff: RowDiff = diffSnapshots(beforeRows.get(key) ?? [], afterRows.get(key) ?? []);
-    if (diff.vanished.length === 0 && diff.moved.length === 0 && diff.unkeyed.before === 0) continue;
+  for (const name of expected) {
+    const id = findDept(name)?.latinId ?? name;
+    const diff = diffSnapshots(beforeRows.get(id) ?? [], afterRows.get(id) ?? []);
+    if (!diff.vanished.length && !diff.moved.length && !diff.unkeyed.before
+        && !(diff.ambiguousKeys?.length)) continue;
     vanishedTotal += diff.vanished.length;
     vanishedPlanSum += diff.vanishedPlanSum;
-    books.push({
-      dept: dept?.id ?? key,
-      deptName: dept?.fullName ?? key,
-      vanished: diff.vanished.map((v) => ({
-        rowSeq: v.rowSeq,
-        wasAtSheetRow: v.wasAtSheetRow,
-        subject: v.subject ?? '',
-        subordinate: v.subordinate ?? '',
-        planSum: v.planSum ?? null,
-        factSum: v.factSum ?? null,
-      })),
-      moved: diff.moved.map((m) => ({
-        rowSeq: m.rowSeq,
-        fromSheetRow: m.fromSheetRow,
-        toSheetRow: m.toSheetRow,
-        subject: m.subject ?? '',
-      })),
-      appeared: diff.appeared.length,
-      vanishedPlanSum: diff.vanishedPlanSum,
-      vanishedFactSum: diff.vanishedFactSum,
-      unkeyed: diff.unkeyed,
-      note: diff.note,
-    });
+    books.push(toVanishedBookDto(id, diff));
   }
-
   return {
     comparison: {
-      beforeAt: before.createdAt,
-      afterAt: after.createdAt,
+      beforeAt: before.createdAt, afterAt: after.createdAt,
       books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
       vanishedTotal,
       vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
     },
     note: '',
+  };
+}
+
+/** То же представление, что у исторических атомов: все непустые строки после шапки. */
+export function liveRowsFromReading(values: readonly unknown[][]): SnapshotRow[] {
+  const out: SnapshotRow[] = [];
+  for (let i = DEPT_HEADER_ROWS; i < values.length; i++) {
+    const row = values[i];
+    if (!Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '')) continue;
+    out.push({
+      rowSeq: text(row, DEPT_COLUMNS.ID),
+      sheetRow: i + 1,
+      subject: text(row, DEPT_COLUMNS.SUBJECT),
+      subordinate: orgLabel(row[DEPT_COLUMNS.SUBORDINATE]),
+      ...(money(row, DEPT_COLUMNS.TOTAL_PLAN) === null ? {} : { planSum: money(row, DEPT_COLUMNS.TOTAL_PLAN)! }),
+      ...(money(row, DEPT_COLUMNS.TOTAL_FACT) === null ? {} : { factSum: money(row, DEPT_COLUMNS.TOTAL_FACT)! }),
+    });
+  }
+  return out;
+}
+
+/** Отказ, неверная метка или чтение до четверга — сравнивать нельзя. */
+export function liveReadAfterBaseline(loadedAt: string | undefined, baselineAt: string, error?: string): boolean {
+  const read = Date.parse(loadedAt ?? '');
+  const baseline = Date.parse(baselineAt);
+  return !error && Number.isFinite(read) && Number.isFinite(baseline) && read > baseline;
+}
+
+/**
+ * Оперативный кандидат: сравнение ПОСЛЕДНЕГО принятого четверга с реально
+ * перечитанной после него книгой. Не вызывает Google, не опирается на
+ * нестойкую память вебхука, не объявляет отказ источника нулём пропаж.
+ */
+export function buildOperationalComparison(): { operational: OperationalComparisonDto | null; note: string } {
+  const baseline = findComparableSnapshots(1)[0];
+  if (!baseline) return { operational: null, note: 'Нет подтверждённого контрольного четверга для оперативной сверки.' };
+  const was = atomsToSnapshotRows(readAtoms([baseline.id]));
+  const current = getDeptSheetValues();
+  const meta = getDeptLoadMeta();
+  const expected = Object.keys(DEPARTMENT_SPREADSHEETS);
+  const unavailableDepts: string[] = [];
+  const books: VanishedBookDto[] = [];
+  let checkedBooks = 0;
+  let earliestRead = Infinity;
+  let missingCandidatesTotal = 0;
+
+  for (const name of expected) {
+    const dept = findDept(name);
+    const id = dept?.latinId ?? name;
+    const matched = Object.entries(current).find(([source]) => (findDept(source)?.latinId ?? source) === id);
+    const source = matched?.[0] ?? name;
+    const values = matched?.[1];
+    const sourceMeta = meta[source];
+    if (!values || values.length <= DEPT_HEADER_ROWS || !was.has(id)
+        || !liveReadAfterBaseline(sourceMeta?.loadedAt, baseline.createdAt, sourceMeta?.error)) {
+      unavailableDepts.push(dept?.id ?? name);
+      continue;
+    }
+    checkedBooks++;
+    earliestRead = Math.min(earliestRead, Date.parse(sourceMeta.loadedAt));
+    const diff = diffSnapshots(was.get(id)!, liveRowsFromReading(values));
+    missingCandidatesTotal += diff.vanished.length;
+    if (diff.vanished.length || diff.moved.length || diff.unkeyed.before
+        || (diff.ambiguousKeys?.length ?? 0) > 0) books.push(toVanishedBookDto(id, diff));
+  }
+
+  return {
+    operational: {
+      baselineAt: baseline.createdAt,
+      checkedAt: Number.isFinite(earliestRead) ? new Date(earliestRead).toISOString() : null,
+      checkedBooks, expectedBooks: expected.length, unavailableDepts,
+      books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
+      missingCandidatesTotal,
+    },
+    note: checkedBooks === 0
+      ? 'После последнего контрольного четверга ещё нет сравнимых успешных чтений книг. Это не ноль пропаж.'
+      : '',
   };
 }
 
@@ -435,10 +541,11 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   }
 
   const { comparison, note: comparisonNote } = buildComparison();
+  const { operational, note: operationalNote } = buildOperationalComparison();
 
   const notes: string[] = [
-    'Пропуск номера — след удалённой строки: журнал книги удаление не записывает, и ' +
-    'нумерация остаётся единственным его следом.',
+    'Пропуск номера — повод проверить историю, но не доказательство удаления. ' +
+    'Вебхук обнаруживает кандидатов, контрольные четверги дают независимую сверку.',
     'Вид ячейки проверяется только там, где код даты лежит ТЕКСТОМ: книги читаются в ' +
     'необработанном виде, и дату с правильным форматом от даты с числовым отличить нечем. ' +
     'Пустой список здесь означает «текстовых кодов не найдено», а не «формат везде верен».',
@@ -458,6 +565,8 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     totals,
     comparison,
     comparisonNote,
+    operational,
+    operationalNote,
     notes,
   };
 }
@@ -472,11 +581,12 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/integrity', async (request, reply) => {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
     const now = Date.now();
-    if (!fresh && cached && now - cached.at < CACHE_TTL_MS) {
+    if (!fresh && cached && cached.sourceAt === getDeptCacheFilledAt()
+        && now - cached.at < CACHE_TTL_MS) {
       return reply.send(cached.response);
     }
     const response = buildIntegrityResponse(now);
-    cached = { at: now, response };
+    cached = { at: now, sourceAt: getDeptCacheFilledAt(), response };
     return reply.send(response);
   });
 }

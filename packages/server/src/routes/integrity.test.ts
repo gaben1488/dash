@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, liveRowsFromReading, liveReadAfterBaseline } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -132,5 +132,26 @@ describe('atomsToSnapshotRows + diffSnapshots — пропажа строки', 
     ]);
     expect(rows.get('uer')).toHaveLength(1);
     expect(rows.get('uer')?.[0].rowSeq).toBe('13');
+  });
+});
+
+describe('бережная гибридная сверка после вебхука', () => {
+  it('сопоставляет книгу по № п/п: переезд строки не пропажа, замена в том же месте — кандидат', () => {
+    const reference = atomsToSnapshotRows([
+      { snapshotId: 's1', departmentId: 'uer', rowIndex: 4,
+        cellsJson: JSON.stringify({ A: '22', C: 'Школа', G: 'Кровля' }),
+        subject: 'Кровля', planAmount: 120, factAmount: null },
+    ]);
+    const shifted = liveRowsFromReading([...HEADER, row({ 0: '99', 6: 'Окна' }), row({ 0: '22', 2: 'Школа', 6: 'Кровля', 10: 120 })]);
+    expect(diffSnapshots(reference.get('uer') ?? [], shifted).vanished).toEqual([]);
+    const replaced = liveRowsFromReading([...HEADER, row({ 0: '99', 6: 'Окна' })]);
+    expect(diffSnapshots(reference.get('uer') ?? [], replaced).vanished.map(v => v.rowSeq)).toEqual(['22']);
+  });
+
+  it('не сравнивает неполное, ошибочное или старое чтение с новым четвергом', () => {
+    expect(liveReadAfterBaseline(undefined, '2026-10-22T00:00:00Z')).toBe(false);
+    expect(liveReadAfterBaseline('2026-10-15T00:00:00Z', '2026-10-22T00:00:00Z')).toBe(false);
+    expect(liveReadAfterBaseline('2026-10-22T01:00:00Z', '2026-10-22T00:00:00Z', 'Google 403')).toBe(false);
+    expect(liveReadAfterBaseline('2026-10-22T01:00:00Z', '2026-10-22T00:00:00Z')).toBe(true);
   });
 });
