@@ -365,6 +365,15 @@ const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_NAMES);
 /** Подтверждённые прежние названия допустимы в исторических срезах. */
 const HISTORIC_SET: ReadonlySet<string> = new Set(SUBORDINATE_REGISTRY.flatMap((e) => e.legacyCanonicalName ? [e.legacyCanonicalName] : []));
 const ACCEPTED_NAMES: ReadonlySet<string> = new Set([...CANONICAL_SET, ...HISTORIC_SET]);
+/**
+ * Каноническое и подтверждённое архивное имя остаётся тем же учреждением
+ * при иной форме кавычек. Это не ошибка справочника и не повод предлагать
+ * переименовать источник: типографские варианты проходят без замечаний,
+ * реальные опечатки и несогласованные названия по-прежнему проверяются.
+ */
+const ACCEPTED_QUOTE_FORMS: ReadonlySet<string> = new Set(
+  [...ACCEPTED_NAMES].map(normalizeQuotes),
+);
 const MATCHABLE_NAMES = SUBORDINATE_REGISTRY.flatMap((entry) => [
   { spelling: entry.canonicalName, canonical: entry.canonicalName },
   ...(entry.legacyCanonicalName ? [{ spelling: entry.legacyCanonicalName, canonical: entry.canonicalName }] : []),
@@ -393,7 +402,7 @@ export function nearestCanonicalSubordinate(name: string): string | null {
   if (cached !== undefined) return cached;
 
   let result: string | null = null;
-  if (!ACCEPTED_NAMES.has(name)) {
+  if (!ACCEPTED_QUOTE_FORMS.has(normalizeQuotes(name))) {
     const norm = normalizeQuotes(name);
     let best: number | null = null;
     let bestName: string | null = null;
@@ -439,7 +448,7 @@ export function detectSubordinateNameHygiene(value: unknown): TextHygieneFinding
 
   const trimmed = value.trim();
 
-  if (ACCEPTED_NAMES.has(trimmed)) {
+  if (ACCEPTED_QUOTE_FORMS.has(normalizeQuotes(trimmed))) {
     // Имя каноничное; дефектом остаются только края самой ячейки.
     if (trimmed !== value) {
       return [{
