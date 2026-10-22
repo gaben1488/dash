@@ -781,6 +781,15 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // журнала: разбор не имеет права задержать обновление экрана, а его исход
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
     const formulaBooks = deliverFormulas(data, errors, options.withFormulas ?? false, at, log);
+    // A formula result changes the trust assessment even if values and formulas
+    // match the prior read. Do not fake a rebuilt snapshot or read Google again.
+    if (options.withFormulas && (Object.keys(data).length > 0 || Object.keys(errors).length > 0)) {
+      publishLiveEvent({
+        kind: 'formula-check-updated',
+        books: [...new Set([...Object.keys(data), ...Object.keys(errors)])].sort(),
+        origin,
+      }, at);
+    }
 
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string; sourceRevision?: string }> = {};
     for (const [name, result] of Object.entries(data)) {
