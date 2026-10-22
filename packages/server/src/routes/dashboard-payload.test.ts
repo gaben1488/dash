@@ -65,6 +65,42 @@ describe('представление снимка для HTTP Dashboard', () => 
       expect(data.summaryByPeriod.q2.fbPlan).toBeNull();
     } finally { fixture.snapshot = previous; }
   });
+  it.each([
+    { name: 'observed zero in both official sources', kp: 0, ep: 0, computed: undefined, expected: 0 },
+    { name: 'observed zero plus positive official value', kp: 0, ep: 7, computed: undefined, expected: 7 },
+    { name: 'one unread official component', kp: 4, ep: undefined, computed: undefined, expected: null },
+    { name: 'no observed official components', kp: undefined, ep: undefined, computed: undefined, expected: null },
+    { name: 'computed zero taking precedence over partial official data', kp: 4, ep: undefined, computed: 0, expected: 0 },
+  ])('distinguishes annual economy source states: $name', async ({ kp, ep, computed, expected }) => {
+    const previous = fixture.snapshot;
+    const base = Object.values(previous.officialMetrics)[0]!;
+    const officialMetrics = { ...previous.officialMetrics };
+    const calculatedMetrics = { ...previous.calculatedMetrics };
+    if (kp !== undefined) {
+      const metricKey = 'grbs.uo.economy.kp';
+      officialMetrics[metricKey] = { ...base, metricKey, numericValue: kp, value: kp };
+    }
+    if (ep !== undefined) {
+      const metricKey = 'grbs.uo.economy.ep';
+      officialMetrics[metricKey] = { ...base, metricKey, numericValue: ep, value: ep };
+    }
+    if (computed !== undefined) {
+      const metricKey = 'grbs.uo.year.economy_total';
+      calculatedMetrics[metricKey] = { ...base, metricKey, numericValue: computed, value: computed, origin: 'calculated' };
+    }
+    fixture.snapshot = { ...previous, officialMetrics, calculatedMetrics };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const summary = response.json().departmentSummaries.find(
+        (d: { department: { id: string } }) => d.department.id === 'uo',
+      );
+      expect(summary?.economyTotal).toBe(expected);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
+
   it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {
     const response = await app.inject('/api/dashboard?year=2026');
     expect(response.statusCode).toBe(200);
@@ -84,6 +120,37 @@ describe('представление снимка для HTTP Dashboard', () => 
     delete period.factTotal;
     expect(DashboardDataSchema.safeParse(data).success).toBe(false);
   });
+  it('rejects a missing modern Dashboard axis or calculated budget field without confusing it with null', async () => {
+    const response = await app.inject('/api/dashboard?year=2026');
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+    const department = data.departmentSummaries.find((d: { department: { id: string } }) => d.department.id === 'uo');
+    expect(department).toBeDefined();
+    for (const field of ['months', 'quarters', 'competitiveCount', 'soleCount', 'trustComponents',
+      'signalCounts', 'byActivity', 'subordinates', 'economyConflicts']) {
+      const original = department[field];
+      Reflect.deleteProperty(department, field);
+      expect(DashboardDataSchema.safeParse(data).success).toBe(false);
+      department[field] = original;
+    }
+
+    // Unlike calculated Q2–Q4, the official Q1/year schema has no ЕП budget breakdown.
+    expect(data.summaryByPeriod.q1.source).toBe('official');
+    expect(data.summaryByPeriod.q1).not.toHaveProperty('epFbPlan');
+    const calculated = data.summaryByPeriod.q2;
+    expect(calculated.source).toBe('calculated');
+    for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact']) {
+      const original = calculated[field];
+      calculated[field] = null;
+      expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+      Reflect.deleteProperty(calculated, field);
+      expect(DashboardDataSchema.safeParse(data).success).toBe(false);
+      calculated[field] = original;
+    }
+    expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+  });
+
   it('does not publish an incomplete snapshot as a successful dashboard response', async () => {
     const previous = fixture.snapshot;
     fixture.snapshot = { ...previous };
