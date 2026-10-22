@@ -1,4 +1,4 @@
-import { FIELD_GUIDANCE, GRBS_BOOK_METHODS, checkedProcurementGuidanceResponse, epReasonEditorGuidance } from '@aemr/shared';
+import { FIELD_GUIDANCE, GRBS_BOOK_METHODS, MASTER_SOURCE_PROFILE, checkedProcurementGuidanceResponse, epReasonEditorGuidance } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -110,6 +110,27 @@ import {
   formulaRowKey,
   indexFormulaDefectsByRow,
 } from '../lib/formulas/formula-defects';
+
+/**
+ * One typed bridge between the editor's UI names and the canonical 34-column
+ * master profile. No independent G/M/AF letter table; source-profile changes
+ * stay at the adapter boundary, while UI fields keep their stable names.
+ */
+const REGISTRY_EDITOR_COLUMN_MAP = {
+  subject: MASTER_SOURCE_PROFILE.fields.SUBJECT.column,
+  method: MASTER_SOURCE_PROFILE.fields.METHOD.column,
+  epReason: MASTER_SOURCE_PROFILE.fields.EP_REASON.column,
+  planFB: MASTER_SOURCE_PROFILE.fields.FB_PLAN.column,
+  planKB: MASTER_SOURCE_PROFILE.fields.KB_PLAN.column,
+  planMB: MASTER_SOURCE_PROFILE.fields.MB_PLAN.column,
+  factFB: MASTER_SOURCE_PROFILE.fields.FB_FACT.column,
+  factKB: MASTER_SOURCE_PROFILE.fields.KB_FACT.column,
+  factMB: MASTER_SOURCE_PROFILE.fields.MB_FACT.column,
+  planDate: MASTER_SOURCE_PROFILE.fields.PLAN_DATE.column,
+  factDate: MASTER_SOURCE_PROFILE.fields.FACT_DATE.column,
+  flag: MASTER_SOURCE_PROFILE.fields.FLAG.column,
+  commentGRBS: MASTER_SOURCE_PROFILE.fields.COMMENT_GRBS.column,
+} as const;
 
 type ViewMode = 'browse' | 'editor';
 
@@ -629,19 +650,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
     // формула книги, запись затёрла бы её значением.
-    const FIELD_TO_COL: Record<string, string> = {
-      subject: 'G', method: 'L', epReason: 'M',
-      planFB: 'H', planKB: 'I', planMB: 'J',
-      factFB: 'V', factKB: 'W', factMB: 'X',
-      planDate: 'N', factDate: 'Q',
-      // AF, не AE: по живой шапке книг AE — «Обоснование необходимости»,
-      // комментарий управления лежит в AF. Запись в AE затирала обоснование
-      // в прод-книге (аудит 30.07: AE заполнено в 409 строках, AF — в 3 523).
-      flag: 'AD', commentGRBS: 'AF',
-    };
-
     const changes: Record<string, unknown> = {};
-    for (const [editorKey, sheetCol] of Object.entries(FIELD_TO_COL)) {
+    for (const [editorKey, sheetCol] of Object.entries(REGISTRY_EDITOR_COLUMN_MAP)) {
       if (data[editorKey] !== original[editorKey]) {
         changes[sheetCol] = data[editorKey];
       }
