@@ -565,11 +565,21 @@ export function formatThreshold(id: string): string {
 }
 
 
-export interface DatedThreshold {
-  value: number;
-  status: 'verified' | 'internal' | 'unverified';
-  edition: string | null;
-  sourceRef: string | null;
+/** A persisted threshold may originate from a legacy snapshot without units.
+ * Such a record is readable as evidence, but cannot safely drive legal checks. */
+export interface CapturedThreshold {
+  readonly value: number;
+  readonly status: 'verified' | 'internal' | 'unverified';
+  readonly edition: string | null;
+  readonly sourceRef: string | null;
+  readonly unit?: ThresholdUnit;
+  readonly source?: MetricSourceId;
+}
+
+/** Newly captured thresholds always carry their exact comparison units and origin. */
+export interface DatedThreshold extends CapturedThreshold {
+  readonly unit: ThresholdUnit;
+  readonly source: MetricSourceId;
 }
 
 /** Frozen definitions override today's dictionary only when explicitly supplied. */
@@ -598,11 +608,33 @@ export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry
     status: selected?.verification === 'verified' ? 'verified'
       : entry.source === 'own' && editions.length === 0 ? 'internal' : 'unverified',
     edition: selected?.id ?? null, sourceRef: selected?.sourceRef ?? entry.sourceRef ?? null,
+    unit: entry.unit, source: entry.source,
   };
 }
 
 export function freezeThresholds(asOfDay: string): Record<string, DatedThreshold> {
   return Object.fromEntries(THRESHOLD_IDS.map(id => [id, thresholdAt(id, asOfDay)]));
+}
+
+/**
+ * Read the version pinned to a persisted snapshot, never today's registry value.
+ * Historical snapshots without recorded units/origin are intentionally UNKNOWN:
+ * guessing the unit from today's dictionary would silently change old verdicts.
+ * The caller must emit an unavailable check instead of a legal PASS.
+ */
+export function capturedThreshold(
+  frozen: Readonly<Record<string, CapturedThreshold>> | null | undefined,
+  id: string,
+  expectedUnit: ThresholdUnit,
+): DatedThreshold | undefined {
+  const evidence = frozen?.[id];
+  if (!evidence || !Number.isFinite(evidence.value) || evidence.value <= 0
+    || evidence.unit !== expectedUnit || typeof evidence.source !== 'string'
+    || evidence.source.length === 0
+    || !['verified', 'internal', 'unverified'].includes(evidence.status)
+    || (evidence.status === 'verified' && (!evidence.edition || !evidence.sourceRef))
+    || (evidence.source === 'law44' && evidence.status === 'internal')) return undefined;
+  return evidence as DatedThreshold;
 }
 
 
