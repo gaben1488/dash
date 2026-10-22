@@ -70,10 +70,10 @@ export interface DerivedMetricDefinition {
 
 
 /** Standard gates used across metrics. */
-const GATE_HAS_FACT: GateCondition = { column: COL.FACT_DATE, op: 'notEmpty' };
+export const GATE_HAS_FACT: GateCondition = { column: COL.FACT_DATE, op: 'notEmpty' };
 /** Зеркало GATE_HAS_FACT: процедура ещё не заключена на дату среза. */
 const GATE_NO_FACT: GateCondition = { column: COL.FACT_DATE, op: 'isEmpty' };
-const GATE_ECONOMY_APPROVED: GateCondition = { column: COL.FLAG, op: 'eq', value: 'да' };
+export const GATE_ECONOMY_APPROVED: GateCondition = { column: COL.FLAG, op: 'eq', value: 'да' };
 const GATE_METHOD_COMPETITIVE: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'competitive' };
 const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'ep' };
 
