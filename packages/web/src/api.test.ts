@@ -129,8 +129,7 @@ describe('C05.02: unified Svod HTTP transport required fields', () => {
     vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
     await expect(api.getSvodUnified()).rejects.toThrow(/формат|контракт|обновите/i);
 
-    const unavailable = responseWithCell();
-    unavailable.reconciliationState = 'not_materialized';
+    const unavailable = { ...responseWithCell(), reconciliationState: 'not_materialized' as const };
     vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(unavailable)));
     await expect(api.getSvodUnified()).resolves.toMatchObject({
       reconciliationState: 'not_materialized', reconciliation: [],
