@@ -1,0 +1,23 @@
+name: Integrated Dash owner maintenance bridge
+
+# This file only admits a GitHub owner-triggered event into the existing
+# integrated release-controller workflow. It does NOT deploy legacy main.
+on:
+  pull_request:
+    branches: [main]
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  owner-maintenance:
+    if: >-
+      github.event.sender.login == github.repository_owner &&
+      github.event.pull_request.number == 79 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010' &&
+      contains(fromJSON('["maintenance: runtime-readback", "maintenance: controlled-candidate-release"]'), github.event.label.name)
+    uses: gaben1488/dash/.github/workflows/vps-cache-cleanup.yml@codex/dash-audit-integrated-20261010
+    secrets: inherit
