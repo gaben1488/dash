@@ -41,6 +41,7 @@ export function assessFormulaResults(
     const confirmed = Boolean(attempt && verdict && checks
       && attempt.handled && attempt.persisted === true && attempt.formulasRead !== false
       && verdict.at === attempt.at
+      && (currentProof === null || currentProof[book] === true)
       && checked && checked.score !== null && checks.failed === verdict.defects.length);
     return {
       book,
