@@ -75,8 +75,7 @@ class ReleaseController:
 
     @staticmethod
     def _web_toolchain():
-        # Bind the actual trusted operator/recovery/CI-gate bytes, not only the
-        # checked-out Git diff. A host-side tool replacement invalidates web-only.
+        # Actual installed bytes, not a repository-only compatibility assertion.
         return {name: recovery.digest(recovery.read_owned(path, private=False))
                 for name, path in {
                     'controller': Path(__file__),
@@ -84,6 +83,13 @@ class ReleaseController:
                     'trial': Path(trial.__file__),
                     'source_gate': SOURCE_GATE,
                 }.items()}
+
+    @staticmethod
+    def _web_toolchain_matches(expected):
+        if not isinstance(expected, dict) or set(expected) != {
+                'controller', 'recovery', 'trial', 'source_gate'}:
+            return False
+        return expected == ReleaseController._web_toolchain()
 
     def _images(self, plan):
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
@@ -333,7 +339,7 @@ class ReleaseController:
                 json.dumps(stage, sort_keys=True, allow_nan=False).encode())
                 or self._web_source(stage['images'], stage['release_sha']) != component.get('backend_sha')
                 or self._source(stage) != stage['source_ci_sha256']
-                or component.get('tools_sha256') != self._web_toolchain()
+                or not self._web_toolchain_matches(component.get('tools_sha256'))
                 # The privileged tool is a stage-bound input, even for web-only.
                 # A changed installed tool cannot inherit the prior component proof.
                 or stage['tool_sha256'] != recovery.digest(recovery.read_owned(recovery.TOOL, private=False))):
