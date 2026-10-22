@@ -50,6 +50,10 @@ jobs:
         run: pnpm --filter @aemr/web exec vitest run src/pages/Settings.deep-check.test.tsx
       - name: Preserve new pipeline check coverage
         run: pnpm --filter @aemr/core exec vitest run src/pipeline/validate.test.ts
+      - name: Shared KB classifications match calculations
+        run: pnpm --filter @aemr/shared exec vitest run src/metrics/registry.verified-copy.test.ts
+      - name: Tooltip text and details on touch
+        run: pnpm --filter @aemr/web exec vitest run src/pages/kb-additions.test.ts src/components/ui/kb-tooltip.touch.test.tsx src/lib/help/help-content.test.ts
 
   verify:
     name: Lint, TypeScript, Tests, Build, Audit
