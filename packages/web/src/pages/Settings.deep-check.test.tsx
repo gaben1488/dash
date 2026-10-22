@@ -112,6 +112,8 @@ describe('Кнопка глубокой проверки', () => {
     fireEvent.click(button);
     expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Проверить данные во всех книгах' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Прочитать книги заново' }) as HTMLButtonElement).disabled).toBe(true);
     finish(result(true));
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
