@@ -50,7 +50,7 @@
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource, changelogInputKey } from './changelog-source.js';
-import { normalizeSourceJournal, type SourceJournal } from './source-journal.js';
+import { normalizeSourceJournal, type SourceJournal, type SourceJournalCoverage } from './source-journal.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export { CHANGELOG_SHEET_NAME };
@@ -74,6 +74,8 @@ export interface BookJournal {
   rowKeyless: number;
   /** Строк листа всего (включая шапку и нераспознанные) — мера объёма журнала. */
   rawRows: number;
+  /** Source capture gaps from the SAME revision as records; absent for unread books. */
+  coverage?: SourceJournalCoverage;
   /** Момент чтения (мс эпохи). */
   readAt: number;
   /** Причина отказа книги, если available=false. */
@@ -154,7 +156,7 @@ export async function readBookJournal(
 
   const request = readChangelogReading(dept, spreadsheetId, now).then((reading): BookJournal => {
     const { records, rowKeyless } = provenanceFromJournal(reading.normalized, reading);
-    const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, readAt: reading.at };
+    const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, coverage: reading.normalized.coverage, readAt: reading.at };
     if (inFlight.get(dept)?.request === request && changelogInputKey({ [dept]: spreadsheetId }) === key) {
       cache.set(dept, { spreadsheetId, key, journal });
     }
