@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requestStage } from '../plugins/request-timing.js';
-import { getSnapshot, invalidateCache, setSvodGridCache, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
-import { getSheetData } from '../services/google-sheets.js';
+import { getSnapshot, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
