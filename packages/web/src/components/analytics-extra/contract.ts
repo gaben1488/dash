@@ -175,6 +175,39 @@ export interface VanishedBookDto {
   note: string;
 }
 
+/** Only the absence of an earlier number, not a verified procurement deletion. */
+export interface OperationalAbsenceDto {
+  dept: string;
+  rowSeq: string;
+  wasAtSheetRow: number | null;
+  subject: string;
+  observedAt: string;
+}
+export interface OperationalAbsenceReport {
+  since: string;
+  entries: OperationalAbsenceDto[];
+  unavailableBooks: Array<{ dept: string; reason: string }>;
+  error: string | null;
+}
+
+/** Avoid counting a single literal number twice in live and weekly evidence. */
+export function uniqueOperationalAbsences(
+  observations: readonly OperationalAbsenceDto[],
+  comparisons: readonly { dept: string; vanished: readonly { rowSeq: string }[] }[],
+): { only: OperationalAbsenceDto[]; corroboratedCount: number } {
+  const weekly = new Set(comparisons.flatMap(book =>
+    book.vanished.map(row => JSON.stringify([book.dept, row.rowSeq]))));
+  const unique = new Map<string, OperationalAbsenceDto>();
+  let corroboratedCount = 0;
+  for (const event of observations) {
+    const key = JSON.stringify([event.dept, event.rowSeq]);
+    if (weekly.has(key)) { corroboratedCount++; continue; }
+    const previous = unique.get(key);
+    if (!previous || event.observedAt > previous.observedAt) unique.set(key, event);
+  }
+  return { only: [...unique.values()], corroboratedCount };
+}
+
 export interface IntegrityResponse {
   asOf: string;
   books: IntegrityBookDto[];
@@ -202,6 +235,8 @@ export interface IntegrityResponse {
     vanishedPlanSum: number;
   } | null;
   weeklyComparisonNote: string;
+  /** Optional so old installed servers continue to render honestly. */
+  operational?: OperationalAbsenceReport;
   notes: string[];
 }
 

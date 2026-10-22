@@ -43,6 +43,7 @@ import {
   INTEGRITY_KB,
   addressText,
   fmtTys,
+  uniqueOperationalAbsences,
   type IntegrityBookDto,
   type VanishedBookDto,
 } from './contract';
@@ -293,6 +294,11 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.weeklyComparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const operationalEntries = filterByDeptScope(data?.operational?.entries ?? [], deptScope, entry => entry.dept);
+  const operationalUnavailable = filterByDeptScope(
+    data?.operational?.unavailableBooks ?? [], deptScope, item => item.dept);
+  const operationalView = uniqueOperationalAbsences(
+    operationalEntries, [...vanishedBooks, ...weeklyBooks]);
 
   /**
    * Разбивки по подведам здесь нет — и это ответ, а не пропуск: нумерация и
@@ -484,6 +490,61 @@ export function IntegritySection() {
                   </>
                 )}
               </div>
+              {data.operational && (
+                <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
+                  <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                    Оперативные наблюдения между недельными срезами
+                  </h4>
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                    Записаны с {fmtMoment(data.operational.since)}. Сопоставлены с последним
+                    принятым чтением без нового обращения к Google. Отсутствие прежнего
+                    номера не доказывает удаления закупки.
+                  </p>
+                  {data.operational.error && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      {data.operational.error}. Отсутствие пропаж не подтверждено.
+                    </p>
+                  )}
+                  {operationalUnavailable.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Не проверено: {operationalUnavailable
+                        .map(item => item.dept + ' — ' + item.reason).join('; ')}.
+                      Не считаем эти книги чистыми.
+                    </p>
+                  )}
+                  {operationalView.only.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {operationalView.only.map(entry => (
+                        <li key={entry.dept + ':' + entry.rowSeq}
+                            className="ds-text-xs text-[var(--ink-muted)]">
+                          <span className="font-mono ds-text-3xs">
+                            {entry.dept} · прежний № {entry.rowSeq}
+                            {entry.wasAtSheetRow !== null ? ' · была строка ' + entry.wasAtSheetRow : ''}
+                          </span>
+                          {entry.subject ? ' — ' + entry.subject : ''}
+                          {' · наблюдалось '}{fmtMoment(entry.observedAt)}
+                          {' · причина не установлена'}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {operationalView.corroboratedCount > 0 && (
+                    <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
+                      С недельной сверкой совпало {operationalView.corroboratedCount} наблюдений.
+                      Повторно не считаем.
+                    </p>
+                  )}
+                  {operationalView.only.length === 0 &&
+                    operationalView.corroboratedCount === 0 &&
+                    operationalUnavailable.length === 0 &&
+                    !data.operational.error && (
+                      <p className="mt-1 ds-text-xs text-[var(--ink-faint)]">
+                        Записанных кандидатов за это окно нет. Это не подтверждение отсутствия
+                        изменений в исходных книгах.
+                      </p>
+                    )}
+                </div>
+              )}
             </div>
           </Card>
 
