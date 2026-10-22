@@ -47,30 +47,22 @@ const SUMMARY_KEY = new RegExp('^(competitive|sole)\\.' + PERIOD + '\\.([a-z_]+)
  * Unsupported keys must not inherit evidence from a vaguely similar metric.
  */
 export function resolvePublishedMetricKey(key: string): PublishedMetricAddress | null {
-  // Historical annual EP monetary share: distinct from count-based EP share.
-  const legacyEP = new RegExp('^grbs[.]([a-z0-9_-]+)[.]ep[.]percent
-  if (!dept && !summary) return null;
-  const publishedName = (dept ? dept[4] : summary![3])!;
-  const definitionKey = ALIASES[publishedName] ?? publishedName;
-  if (!EXECUTABLE_METRICS.has(definitionKey)) return null;
-  const method = dept
-    ? dept[2] === 'kp' ? 'competitive' : dept[2] === 'ep' ? 'ep' : null
-    : summary![1] === 'competitive' ? 'competitive' : 'ep';
-  return {
-    publishedKey: key,
-    definitionKey,
-    grain: 'department_sheet_row',
-    departmentId: dept?.[1] ?? null,
-    method,
-    period: (dept ? dept[3] : summary![2]) as PublishedMetricPeriod,
-  };
-}
-).exec(key);
-  if (legacyEP) return {
-    publishedKey: key, definitionKey: 'share_ep_money',
-    grain: 'department_sheet_row', departmentId: legacyEP[1],
-    method: null, period: 'year',
-  };
+  // Historical annual EP *monetary* share is not the ordinary
+  // count-based execution percentage. Resolve it explicitly rather than
+  // treating both values as the same published metric.
+  const legacyEP = /^grbs\.([a-z0-9_-]+)\.ep\.percent$/.exec(key);
+  if (legacyEP) {
+    if (!EXECUTABLE_METRICS.has('share_ep_money')) return null;
+    return {
+      publishedKey: key,
+      definitionKey: 'share_ep_money',
+      grain: 'department_sheet_row',
+      departmentId: legacyEP[1],
+      method: null,
+      period: 'year',
+    };
+  }
+
   const dept = DEPARTMENT_KEY.exec(key);
   const summary = SUMMARY_KEY.exec(key);
   if (!dept && !summary) return null;
