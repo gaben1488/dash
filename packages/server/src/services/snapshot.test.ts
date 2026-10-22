@@ -196,7 +196,7 @@ describe('C08.02 — archived calculation context is enforced by the actual SQLi
     const untrusted = snap('c0802-must-not-write', AT, { УО: [['another']] });
     untrusted.metadata = {
       ...current.metadata,
-      calculationContext: current.metadata.calculationContext,
+      calculationContext: (current.metadata as import('@aemr/shared').DataSnapshot['metadata']).calculationContext,
     };
     expect(await saveSnapshot(untrusted)).toBe(false);
     expect(db.select({ data: schema.snapshots.data }).from(schema.snapshots)
