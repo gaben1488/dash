@@ -110,6 +110,16 @@ describe('KBTooltip на координатном устройстве (тач)'
     expect(screen.queryByText('Справка ещё не подготовлена')).toBeNull();
   });
 
+  it('показывает реальное описание источника даже без полного набора полей БЗ', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip dataSource="Книга управления, вкладка закупок."><span>Источник</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Источник'));
+    expect(screen.getByText('Книга управления, вкладка закупок.')).toBeTruthy();
+  });
+
   it('триггер доступен с клавиатуры (tabIndex)', () => {
     renderMetric();
     const trigger = screen.getByText('86,6 %').closest('span[tabindex]');
