@@ -263,6 +263,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleContractReference: capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+            'law.epSmallSingleContract', 'thousandRub'),
         });
       }
       return result;
@@ -303,6 +305,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleContractReference: capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+            'law.epSmallSingleContract', 'thousandRub'),
         });
 
         // Волна 0: профиль честно отдаёт null, когда счётной базы нет
