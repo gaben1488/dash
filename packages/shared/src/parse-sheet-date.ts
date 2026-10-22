@@ -11,6 +11,10 @@
  * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), строгие ISO-даты.
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
+// One strict ISO grammar for both date parsing and the TZ-invariant day key.
+// A trailing note ("2026-02-28 comment") or invalid time must not look dated.
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$)/;
+
 /** True calendar day: 31 February must never silently become 3 March. */
 function strictCalendarDay(year: number, month: number, day: number): number | null {
   if (![year, month, day].every(Number.isInteger)
@@ -41,7 +45,7 @@ export function parseSheetDate(val: unknown): Date | null {
     return new Date((serial - 25569) * 86400000);
   }
 
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  const iso = s.match(ISO_DATE_PATTERN);
   if (iso) {
     if (strictCalendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3])) === null) return null;
     const parsed = new Date(s);
@@ -103,10 +107,15 @@ export function dayNumberOf(val: unknown): number | null {
   }
 
   // ISO «YYYY-MM-DD» или «YYYY-MM-DDTHH:mm:ss…» — компоненты даты из строки
-  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  const isoMatch = s.match(ISO_DATE_PATTERN);
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
-    return strictCalendarDay(Number(yyyy), Number(mm), Number(dd));
+    const day = strictCalendarDay(Number(yyyy), Number(mm), Number(dd));
+    if (day === null) return null;
+    // Time-of-day/offset does not change the calendar day, but its syntax
+    // and values must still be valid (e.g. T25:00 is never a valid instant).
+    if (s.length > 10 && parseSheetDate(s) === null) return null;
+    return day;
   }
 
   return null;
