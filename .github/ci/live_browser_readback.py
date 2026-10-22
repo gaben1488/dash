@@ -94,18 +94,18 @@ def browser_dashboard_timing(timing, server_header, request_id):
     def ms(value):
         return round(value, 2) if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
 
-    first_byte = ms(timing.get('responseStart'))
-    complete = ms(timing.get('responseEnd'))
+    raw_first_byte, raw_complete = timing.get('responseStart'), timing.get('responseEnd')
+    first_byte, complete = ms(raw_first_byte), ms(raw_complete)
+    valid = first_byte is not None and complete is not None and raw_complete >= raw_first_byte
     match = re.search(r'(?:^|,)\s*app;dur=([0-9]+(?:\.[0-9]+)?)(?:\s*,|\s*$)', server_header)
     app = ms(float(match.group(1))) if match else None
     valid_id = request_id if re.fullmatch(r'[A-Za-z0-9_-]{1,128}', request_id) else None
     return {
         'browserFirstByteMs': first_byte,
         'browserResponseEndMs': complete,
-        'browserBodyMs': round(complete - first_byte, 2)
-            if first_byte is not None and complete is not None and complete >= first_byte else None,
+        'browserBodyMs': ms(raw_complete - raw_first_byte) if valid else None,
         'serverAppMs': app, 'requestId': valid_id,
-        'browserTimingComplete': first_byte is not None and complete is not None and complete >= first_byte,
+        'browserTimingComplete': valid,
         'stagesInclusiveNotAdditive': True,
         'scope': 'single_browser_request_not_a_cold_warm_worker_comparison',
     }
