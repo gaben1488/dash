@@ -107,12 +107,12 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceS
                           ))}
                         </ul>
                       </details>
-                    ) : (r.aliases?.length ?? 0) > 1 && (
+                    ) : (r.aliases?.length ?? 0) > 1 ? (
                       <details className="mt-1 text-xs">
                         <summary className="cursor-pointer">Названия и алиасы</summary>
                         <ul>{r.aliases!.map(name => <li key={name}>{name}</li>)}</ul>
                       </details>
-                    )</td>
+                    ) : null}</td>
                   <td className="px-2 py-1.5 max-w-[16rem] text-zinc-600 dark:text-zinc-300">
                     {r.shortMissing
                       ? (
