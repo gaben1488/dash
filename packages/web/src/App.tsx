@@ -3,7 +3,7 @@ import { useStore } from './store';
 import { useThemeInit } from './components/ThemeProvider';
 import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
-import { OrgStrip } from './components/OrgStrip';
+import { ResponsiveOrganizations } from './components/ResponsiveOrganizations';
 import { Dashboard } from './pages/Dashboard';
 // Разделы приезжают по требованию — см. pages/lazy-pages.tsx. Отчёт++ (бриф
 // 2026-08-01): страница-документ, собранная из того же mainReportBlocks, что и
@@ -207,8 +207,8 @@ export function App() {
           {/* Below header: OrgStrip + main content side by side.
               report — фикс-документ 1:1 с .docx, орг-фильтр там не режет контент;
               навигация по ГРБС — шапка-оглавление внутри страницы (Report.tsx:703). */}
-          <div className="flex flex-1 overflow-hidden">
-            {page !== 'report' && <OrgStrip />}
+          <div className="dash-workspace flex flex-1 overflow-hidden">
+            {page !== 'report' && <ResponsiveOrganizations />}
             {/* min-w-0 — чтобы широкая таблица внутри прокручивалась сама, а не
                 распирала строку и не выдавливала полосу организаций за край. */}
             <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto">
