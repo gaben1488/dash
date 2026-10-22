@@ -294,7 +294,10 @@ export const DataSnapshotSchema = z.object({
       contract: z.literal('aemr-calculation-context-v1'), id: z.string(),
       sources: z.object({ content: z.string(), profiles: z.string() }), semantics: z.string(),
       thresholds: z.record(z.string(), z.object({ value: z.number(),
-        status: z.enum(['verified', 'internal', 'unverified']), edition: z.string().nullable(), sourceRef: z.string().nullable() })),
+        status: z.enum(['verified', 'internal', 'unverified']), edition: z.string().nullable(), sourceRef: z.string().nullable(),
+        // Optional only for reading old frozen releases; new captures MUST contain both.
+        unit: z.enum(['percent', 'ratio', 'count', 'thousandRub', 'editsPerRow']).optional(),
+        source: z.string().optional() })),
       calendar: z.object({ asOf: z.string(), productDay: z.number().int(),
         utcOffsetHours: z.number(), weeklyCutoffHour: z.number() }),
       scope: z.object({ targetYear: z.number().nullable(), officialYear: z.number().nullable() }),
