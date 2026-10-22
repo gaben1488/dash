@@ -5,7 +5,7 @@
  * Все данные теста вымышленные; Google и production не используются.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -217,6 +217,40 @@ describe('контрольная сверка с действующими кни
       expect(result.note).toContain('неполных');
     } finally {
       dbModule.db.delete(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).run();
+    }
+  });
+
+  it('убранная физическая строка выявляется четверговым proof без доставки webhook', async () => {
+    const id = 'control-latest';
+    const original = dbModule.db.select({ data: dbModule.schema.snapshots.data })
+      .from(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).get()?.data;
+    expect(original).toBeTruthy();
+    const parsed = JSON.parse(original!) as { rowsByDept: Record<string, unknown[][]> };
+    const raw = sheet('11')[3];
+    const shared = await import('@aemr/shared');
+    dbModule.db.update(dbModule.schema.snapshots).set({
+      data: JSON.stringify({ ...parsed, rowsByDept: { ...parsed.rowsByDept, УО: [...parsed.rowsByDept['УО'], raw] } }),
+    }).where(eq(dbModule.schema.snapshots.id, id)).run();
+    dbModule.db.insert(dbModule.schema.procurementRows).values({
+      snapshotId: id, departmentId: shared.findDept('УО')!.latinId, rowIndex: 5,
+      cellsJson: JSON.stringify(shared.buildCellDict(raw)), subject: 'Ремонт кровли',
+      planAmount: 100, factAmount: null, createdAt: CONTROL_AT,
+    }).run();
+    try {
+      snapshot.setDeptSheetCache({ УО: { sheetName: 'ВСЕ', values: sheet('10'), formulas: [] } });
+      const result = integrity.buildComparison(NOW);
+      expect(result.comparison?.baselineId).toBe(id);
+      expect(result.comparison?.vanishedTotal).toBe(1);
+      expect(result.comparison?.unavailableBooks).toEqual([]);
+      expect(result.comparison?.books.find(book => book.dept === 'УО')?.vanished)
+        .toEqual([expect.objectContaining({ rowSeq: '11', wasAtSheetRow: 5 })]);
+    } finally {
+      dbModule.db.delete(dbModule.schema.procurementRows).where(and(
+        eq(dbModule.schema.procurementRows.snapshotId, id),
+        eq(dbModule.schema.procurementRows.rowIndex, 5),
+      )).run();
+      dbModule.db.update(dbModule.schema.snapshots).set({ data: original! })
+        .where(eq(dbModule.schema.snapshots.id, id)).run();
     }
   });
 
