@@ -158,4 +158,6 @@ it('rejects a changed required meaning while allowing optional comment captions'
   expect(() => validateMasterSourceHeader(header)).not.toThrow();
   header[DEPT_COLUMNS.FB_FACT] = 'Иной денежный показатель';
   expect(() => validateMasterSourceHeader(header)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
+  header[DEPT_COLUMNS.FB_FACT] = 'Цена договора вместо ФБ 2';
+  expect(() => validateMasterSourceHeader(header)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
 });
