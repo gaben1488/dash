@@ -221,7 +221,16 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       journalAvailable: j.available,
       records: j.records,
     }));
-    const story = buildChangeStory(inputs, { sinceMs });
+    // The journal stores source-local wall-clock keys (legacy) whereas the
+    // accepted comparison timestamps are UTC observations. Convert ONLY
+    // the journal window back to the Kamchatka clock; snapshot observations
+    // and stored-control evidence continue to use their real UTC instants.
+    const sourceSinceMs = request.query.since === undefined
+      ? sinceMs + config.weeklySnapshot.utcOffsetHours * 3600_000 : sinceMs;
+    const sourceDayStartMs = sinceDay * 86400_000;
+    const story = buildChangeStory(inputs, {
+      sinceMs: sourceSinceMs, sinceLocalDayStartMs: sourceDayStartMs,
+    });
     // Same decoded source observations as /api/changes and plan provenance.
     // A captured journal cannot prove that a script/API edit was delivered.
     const captureCoverage = Object.fromEntries(journals
@@ -236,6 +245,10 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       return a.id.localeCompare(b.id, 'ru');
     });
     const gaps = [...story.gaps, ...vanished.gaps];
+    const cutoffDayUnknown = sourceSinceMs > sourceDayStartMs
+      ? story.entries.filter(e => e.origin === 'book-journal' &&
+        e.timePrecision === 'day' && e.atMs === sourceDayStartMs).length
+      : 0;
 
     // Свод — по ВСЕМУ окну, до отбора: краткая глубина отвечает на вопрос
     // «что вообще случилось», а не «что осталось после моих фильтров».
@@ -253,6 +266,7 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       digest,
       gaps,
       captureCoverage,
+      cutoffDayUnknown,
       // Свойство источника, а не итог подсчёта: удаление строки через меню
       // таблицы правок ячеек не создаёт, и журнал книги его не видит.
       deletionsUnobservable: true as const,
