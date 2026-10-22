@@ -26,10 +26,35 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { formulaDeliveryState } from '../services/source-refresh.js';
-import { metadataWatchState } from '../services/metadata-watch.js';
+import { formulaDeliveryState, refreshAllSources } from '../services/source-refresh.js';
+import { metadataWatchState, sweepMetadata } from '../services/metadata-watch.js';
 import { formulaVerdicts } from '../services/formula-sink.js';
 import { FORMULA_COLUMNS } from '../services/google-sheets.js';
+
+// A manual deep check has one in-flight run for all callers: two clicks must not
+// generate two simultaneous bursts of Google Sheets requests.
+let deepCheckInFlight: Promise<DeepSourceCheck> | null = null;
+
+interface DeepSourceCheckBook {
+  book: string;
+  metadataRead: boolean;
+  metadataRemarks: number | null;
+  formulasRead: boolean;
+  analyzed: boolean;
+  formulaCells: number | null;
+  rowsJudged: number | null;
+  formulaDefects: number | null;
+  problems: string[];
+}
+
+interface DeepSourceCheck {
+  complete: boolean;
+  at: string;
+  expectedBooks: number;
+  books: DeepSourceCheckBook[];
+  changedValueBooks: string[];
+  // Deliberately no snapshot ID: manual verification never seals a historical week.
+}
 
 export function sourceIntegrityRoutes(app: FastifyInstance): void {
   app.get('/api/sources/integrity', async () => {
@@ -81,4 +106,63 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       },
     };
   });
+  /**
+   * Ручная углублённая проверка — только чтение. Штатные webhook и
+   * недельная фиксация живут отдельно. Не вызываем getSnapshot(true),
+   * не создаём исторический срез и не требуем существования первого четверга.
+   *
+   * Проверяем фактическую доставку ЭТОГО запуска, а не старые удачные
+   * записи в памяти: иначе неответившая книга выглядит как «замечаний нет».
+   */
+  app.post('/api/sources/integrity/check', async () => {
+    if (!deepCheckInFlight) {
+      deepCheckInFlight = (async (): Promise<DeepSourceCheck> => {
+        const log = {
+          info: (message: string) => app.log.info(message),
+          warn: (message: string) => app.log.warn(message),
+        };
+        const metadataResults = await sweepMetadata(log);
+        // askDrive:false is essential: withFormulas:true alone is a hint, not
+        // a forced read on the current refresh contract.
+        const refresh = await refreshAllSources(log, 'request', {
+          withFormulas: true, fresh: true, askDrive: false, svod: false,
+        });
+        const deliveries = formulaDeliveryState();
+        const verdicts = formulaVerdicts();
+        const expected = Object.keys(DEPARTMENT_SPREADSHEETS).sort();
+        const books: DeepSourceCheckBook[] = expected.map((book) => {
+          const metadata = metadataResults.find((item) => item.book === book);
+          const delivery = deliveries.books.find((item) => item.book === book && item.at === refresh.at);
+          const verdict = verdicts.find((item) => item.book === book &&
+            Date.parse(item.at) >= Date.parse(refresh.at));
+          const metadataRead = metadata?.read === true;
+          const formulasRead = refresh.loaded.includes(book) && delivery !== undefined;
+          const analyzed = formulasRead && delivery.handled && verdict !== undefined;
+          const problems: string[] = [];
+          if (!metadataRead) problems.push(metadata?.skippedBecause ?? 'настройки не прочитаны');
+          if (refresh.failed.includes(book)) problems.push('значения или формулы книги не получены');
+          if (!formulasRead) problems.push('формулы этого запуска не прочитаны');
+          else if (!delivery.handled) problems.push(delivery.failedBecause ?? 'разбор формул не выполнен');
+          else if (!analyzed) problems.push('вердикт разбора формул не подтверждён');
+          return {
+            book, metadataRead, metadataRemarks: metadataRead ? metadata.remarks.length : null,
+            formulasRead, analyzed,
+            formulaCells: formulasRead ? delivery.cells : null,
+            rowsJudged: analyzed ? verdict.rowsJudged : null,
+            formulaDefects: analyzed ? verdict.defects.length : null,
+            problems,
+          };
+        });
+        return {
+          complete: deliveries.sinkConnected && books.every((book) => book.problems.length === 0),
+          at: new Date().toISOString(),
+          expectedBooks: expected.length,
+          books,
+          changedValueBooks: refresh.changedBooks,
+        };
+      })().finally(() => { deepCheckInFlight = null; });
+    }
+    return deepCheckInFlight;
+  });
+
 }
