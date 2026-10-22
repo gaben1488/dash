@@ -64,10 +64,18 @@ function validMetadata(value: unknown, book: string): value is BookWatchResult {
 
 /** Validation is done on read, not merely on write: DB might predate this code. */
 function load<T>(kind: Kind, guard: (data: unknown, book: string) => data is T): T[] {
-  const rows = db.select().from(schema.sourceIntegrityState)
-    .where(eq(schema.sourceIntegrityState.kind, kind)).all();
+  // A read failure must not take the entire dashboard down. It must also not
+  // create a false 'healthy' state from an empty array.
+  let observations: (typeof schema.sourceIntegrityState.$inferSelect)[];
+  try {
+    observations = db.select().from(schema.sourceIntegrityState)
+      .where(eq(schema.sourceIntegrityState.kind, kind)).all();
+  } catch (err) {
+    warnings.add(`${kind}: SQLite read failed — integrity state unavailable: ${(err as Error).message}`);
+    return [];
+  }
   const result: T[] = [];
-  for (const row of rows) {
+  for (const row of observations) {
     const sourceId = DEPARTMENT_SPREADSHEETS[row.book];
     if (!sourceId || sourceId !== row.sourceId || row.checkerVersion !== version(kind)) {
       warnings.add(`${kind}/${row.book}: прежний источник или версия контроля — требуется новая проверка`);
