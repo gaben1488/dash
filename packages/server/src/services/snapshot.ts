@@ -63,13 +63,30 @@ export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
   acceptedAt?: string,
+  confirmedUnchanged: readonly string[] = [],
 ): void {
   const next = { ...cachedDeptSheetData, ...data };
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
   cachedDeptSheetData = next;
-  deptCacheFilledAt = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
+
+  // This is a WHOLE-PERIMETER freshness watermark, not the time of the last
+  // individual webhook. A one-book patch (or an empty/no-op refresh) cannot
+  // renew the other seven books. Drive-attested unchanged books count only
+  // when their previously accepted grid still belongs to that provider.
+  const expectedBooks = Object.entries(DEPARTMENT_SPREADSHEETS);
+  const checked = new Set([...Object.keys(data), ...confirmedUnchanged]);
+  const allBoundAndPresent = expectedBooks.length > 0
+    && expectedBooks.every(([name, providerId]) => next[name]?.providerId === providerId
+      && Array.isArray(next[name]?.values) && next[name].values.length >= DEPT_HEADER_ROWS);
+  if (!allBoundAndPresent || failedDeptNames.length > 0) {
+    deptCacheFilledAt = 0;
+  } else if (expectedBooks.every(([name]) => checked.has(name))) {
+    const observed = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
+    deptCacheFilledAt = Number.isFinite(observed) ? observed : 0;
+  }
+  // A successful targeted refresh keeps the previous full-perimeter timestamp.
 }
 
 /**
@@ -470,7 +487,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const unchanged = !isDemoMode && cached && cached.timestamp > 0
     && cached.generation === cacheGeneration
     && !cached.snapshot.metadata.readModel
-    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
+    && cached.snapshot.metadata.sourceCoverage?.complete === true;
   if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
     return recordSnapshotRead(cached.snapshot);
   }

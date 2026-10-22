@@ -753,7 +753,11 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       const revision = acquisitionRevisions.get(name);
       if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
     }
-    setDeptSheetCache(data, Object.keys(errors));
+    if (gate.skipped.length > 0) {
+      setDeptSheetCache(data, Object.keys(errors), undefined, gate.skipped);
+    } else {
+      setDeptSheetCache(data, Object.keys(errors));
+    }
     for (const [name, print] of nextPrints) {
       bookPrints.set(name, print);
       restoredReadings.delete(name);
