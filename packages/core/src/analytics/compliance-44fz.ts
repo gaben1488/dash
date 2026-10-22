@@ -96,7 +96,11 @@ interface RowData {
  * БАГ #1): оно предполагало planTotal в рублях и превращало «600 тыс.» в «0.6».
  */
 export function checkEPContractLimits(rows: RowData[], grbsId: string, context?: DatedThreshold): ComplianceIssue[] {
-  const limit = context?.value ?? LAW_44FZ.epSingleContractLimit;
+  // A live constant is not evidence for the version used by a historical snapshot.
+  // Older snapshots without a unit-bearing capture must stay UNAVAILABLE.
+  if (!context || context.unit !== 'thousandRub' || context.source !== 'law44'
+    || !Number.isFinite(context.value) || context.value <= 0) return [];
+  const limit = context.value;
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
     if (normalizeMethod(row.method) !== 'ЕП') continue;
@@ -106,7 +110,7 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string, context?:
         ruleCode: 'ep_contract_limit',
         severity: 'info',
         title: `Недостаточно данных для проверки сумм отдельных договоров (строка ${row.rowIndex})`,
-        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного порога ${limit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
+        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше ${context.status === 'verified' ? 'порога из зафиксированной редакции' : 'неподтверждённого справочного порога'} ${limit.toFixed(0)} тыс. ₽. ${context.status === 'verified' ? '' : 'Применимость редакции нормы на дату среза не подтверждена. '}Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
         article: 'ст. 93 ч.1 п.4',
         threshold: limit,
         actualValue: row.planTotal,
