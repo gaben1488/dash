@@ -4,7 +4,7 @@ import { resolve } from 'path';
 import { config } from '../config.js';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
-import { procurementEditableGuidance } from '@aemr/shared';
+import { PROCUREMENT_GUIDANCE_VERSION, procurementEditableGuidance } from '@aemr/shared';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 
@@ -23,7 +23,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       const revisions = db.select().from(schema.domainGuidanceEdits).all();
       const saved = new Map(revisions.map(item => [item.key, item]));
       return reply.send({
-        version: 'C06.03-editorial-v1',
+        version: PROCUREMENT_GUIDANCE_VERSION,
         calculationRulesChanged: false,
         entries: guidance.map(item => {
           const edit = saved.get(item.key);
