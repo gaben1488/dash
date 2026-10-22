@@ -53,7 +53,7 @@ describe('разрез деятельности × способа закупки
   });
   it('C05.02 declares an unread selected budget component incomplete despite known totals', () => {
     const partial = structuredClone(dept);
-    partial.byActivity.q1.program.byMethod.ep.planFB = null;
+    Reflect.set(partial.byActivity.q1.program.byMethod.ep, 'planFB', null);
     const result = recalcTotalsByActivity([partial], {
       actKeys: ['program'], periodKeys: ['q1'],
       budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
