@@ -74,6 +74,28 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
                 self.assertEqual(json.loads(result.stdout)['candidate_schema_history'], 'PASS' if accepted else 'FAIL')
                 self.assertNotIn(assurance['meaning'], result.stdout)
 
+    def test_candidate_fails_closed_on_missing_directory_and_unknown_import(self):
+        envelope = {name: (ROOT / source).read_text() for name, source in (
+            ('schemas', 'packages/shared/src/schemas.ts'),
+            ('registry', 'packages/shared/src/department-registry.ts'),
+            ('coverage', 'packages/shared/src/source-coverage.ts'),
+            ('directory', 'packages/report-engine/src/procurement_engine/department_directory.json'))}
+        program = ("const p=require('./.github/ci/report-schema-probe.cjs');"
+                   "const x=JSON.parse(require('node:fs').readFileSync(0,'utf8'));"
+                   "p.loadCandidate(x,require('node:path').resolve('packages/shared/package.json'));")
+        bad_import = dict(envelope, registry=envelope['registry'] +
+                          "\nimport badDependency from 'unapproved-runtime-module';\n"
+                          "console.log(badDependency);\n")
+        for input_data, expected in [
+            ({key: val for key, val in envelope.items() if key != 'directory'}, 'PROBE_DIRECTORY_MISSING'),
+            (bad_import, 'UNAPPROVED_PROBE_IMPORT'),
+        ]:
+            result = subprocess.run(['node', '-e', program], cwd=ROOT,
+                                    input=json.dumps(input_data), text=True,
+                                    capture_output=True, timeout=15, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(expected, result.stderr)
+
     def test_candidate_schema_preserves_historical_versions_and_fails_closed(self):
         common = {'fully_automated': False, 'user_action_count': 0, 'engine_action_count': 1,
                   'active_recommendations': 159, 'link_status_counts': {}, 'action_status_counts': {},
