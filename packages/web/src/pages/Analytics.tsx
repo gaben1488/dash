@@ -716,8 +716,20 @@ export function Analytics() {
       .filter(d => d.size !== null && d.size > 0);
   }, [filteredDepts, hasDeptData, periodKey, chartColors, treemapIncomplete]);
 
+  const hasUnconfirmedMetrics =
+    quarterlyTrend.some(q => q.kp === null || q.ep === null || q.plan === null || q.fact === null) ||
+    budgetByDept.some(d => d.planTotal === null || d.factTotal === null) ||
+    trustData.some(d => d.trust === null);
+
   return (
     <div className="space-y-4">
+      {hasUnconfirmedMetrics && (
+        <p role="status" className="rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--ink-muted)]">
+          Часть показателей за выбранные периоды не подтверждена или ещё не оценена.
+          Пропуски не равны нулю: они не включены в доли, итоговые проценты и сравнение рейтингов.
+          Для сверки откройте соответствующие строки Реестра и раздел контроля.
+        </p>
+      )}
       {/* Что делает выбор организаций с этой страницей — сказано до чисел,
           а не после (канон п.53: механизм, адрес, действие). */}
       {selectedSubordinates.size > 0 && (
