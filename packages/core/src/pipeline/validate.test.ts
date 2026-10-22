@@ -93,7 +93,9 @@ describe('validateData — basic', () => {
     // A real СВОД validation scope begins with its recognized primary header.
     // Without that evidence the engine intentionally skips arithmetic, rather
     // than inventing a financial mismatch for an unidentified sheet layout.
-    const rows = [primaryHeader, ...[5, 6].map(rowIndex =>
+    const header = makeRow({ rowIndex: 3, classification: 'header',
+      cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
+    const rows = [header, ...[5, 6].map(rowIndex =>
       makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, K: 100 } }))];
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
