@@ -112,7 +112,10 @@ def test_eight_actual_master_headers_are_accepted_by_the_one_shared_profile():
 
 def test_master_profile_layout_rejects_unreviewed_field_and_dependency_changes():
     from copy import deepcopy
-    from procurement_engine.source_contract import master_source_profile, validate_master_profile_layout
+    from procurement_engine.source_contract import (
+        master_source_profile,
+        validate_master_profile_layout,
+    )
 
     profile = validate_master_profile_layout()
     assert profile is master_source_profile()
