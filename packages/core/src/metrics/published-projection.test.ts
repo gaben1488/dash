@@ -101,7 +101,7 @@ describe('one product metric projection over the executable CalcEngine', () => {
       'grbs.uer.year.fact_count': 2,
       'grbs.uer.year.plan_total': 150,
       'grbs.uer.year.fact_total': 100,
-      'competitive.year.plan_total': 600,
+      'competitive.year.total_plan': 600,
       'competitive.year.total_fact': 220,
       'sole.year.total_plan': 150,
       'sole.year.total_fact': 120,
