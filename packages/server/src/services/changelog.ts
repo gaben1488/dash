@@ -57,7 +57,7 @@ export interface ChangeRecord {
  */
 function parseRuDateTime(raw: unknown): { atMs: number; precision: 'exact' | 'day' } | null {
   const s = String(raw ?? '').trim();
-  const m = s.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})(?:[ ,T]+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$/);
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (!m) return null;
   const [, dd, mm, yyyy, hh, mi, ss] = m;
   const day = Number(dd), month = Number(mm), year = Number(yyyy);
@@ -101,7 +101,7 @@ export function parseChangeLog(rows: unknown[][], dept: string): ChangeRecord[] 
     // Eight-column source schema: 'Лист | Ячейка | ... | Время | Автор'.
     const cell8 = s(1).toUpperCase();
     const time8 = parseRuDateTime(row[6]);
-    if (time8 && /^[A-Z]{1,2}\\d+$/i.test(cell8)) {
+    if (time8 && /^[A-Z]{1,2}\d+$/i.test(cell8)) {
       out.push({
         dept, sheet: s(0) || 'ВСЕ', cell: cell8,
         attribute: attributeOf(cell8), oldValue: s(4), newValue: s(5),
@@ -111,7 +111,7 @@ export function parseChangeLog(rows: unknown[][], dept: string): ChangeRecord[] 
     }
 
     // Six-column source schema, including 'УАГЗО!B48' cell references.
-    const sixCell = s(0).match(/^(?:(.+)!)?([A-Z]{1,2}\\d+)$/i);
+    const sixCell = s(0).match(/^(?:(.+)!)?([A-Z]{1,2}\d+)$/i);
     const time6 = parseRuDateTime(row[3]);
     if (time6 && sixCell) {
       const cell = sixCell[2].toUpperCase();
