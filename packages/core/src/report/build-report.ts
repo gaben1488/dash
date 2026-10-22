@@ -18,6 +18,7 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   type DepartmentEntry,
+  isCurrentSignal,
   canonicalizeDeviation,
   canonicalizeReasonEp,
   dayNumberOf,
@@ -321,7 +322,7 @@ function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: st
     // False positives remain in case history, not in the list of active report signals.
     // Resolved/wont-fix cases remain visible with their decision status: closure is not proof
     // that the underlying source row was corrected.
-    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId) && i.status !== 'false_positive')
+    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId) && isCurrentSignal(i))
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
     .map((i) => ({
       id: i.id,

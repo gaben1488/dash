@@ -192,3 +192,20 @@ describe('прочитанный, но пустой лист не выдаётс
     expect(p.directory).toBeNull();
   });
 });
+
+
+it('не приписывает сигналам другой книги ложное закрытие', () => {
+  const model = normalizeMonitoring({
+    signals: [{
+      kind: 'monitoring_source_warning', title: 'Диагностика строки',
+      severity: 'medium', mechanism: 'Проверка', action: 'Сверить', count: 1,
+      addresses: [{ address: 'Рабочий реестр процедур!N3', note: 'Исходная строка' }],
+      caseReview: { status: 'not_linked', source: 'monitoring_book',
+        explanation: 'Чужое решение не снимает сигнал' },
+    }],
+  });
+  expect(model.signals?.[0]).toMatchObject({
+    caseReview: { status: 'not_linked', explanation: 'Чужое решение не снимает сигнал' },
+  });
+  expect(model.signals?.[0]?.addresses[0]).toContain('Рабочий реестр процедур!N3');
+});

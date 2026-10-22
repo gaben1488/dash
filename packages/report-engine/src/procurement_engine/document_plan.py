@@ -12,6 +12,7 @@ from functools import wraps
 from typing import Any
 
 from .renderer_guard import assert_renderer_inputs
+from .narrative import is_current_issue
 
 BLUE = "95B3D7"
 ORANGE = "E36C0A"
@@ -554,7 +555,8 @@ def _add_data_notices(doc, model):
         'MONETARY_FACT_WITHOUT_COMPLETION_DATE': 'Указана фактическая сумма, но отсутствует дата факта.',
         'COMPLETION_DATE_WITH_ZERO_FACT': 'Указана дата факта, но фактическая сумма равна нулю.',
     }
-    warnings = [x for x in model.get('issues', []) if x.get('severity') == 'WARN' and x.get('code') in explanations]
+    warnings = [x for x in model.get('issues', [])
+                if is_current_issue(x) and x.get('severity') == 'WARN' and x.get('code') in explanations]
     if warnings:
         _paragraph(doc, "Сведения, требующие уточнения", bold=True, keep_with_next=True)
         details = {r['physical_row_key']: r for r in model.get('details', [])}

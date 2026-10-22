@@ -8,6 +8,16 @@ from typing import Any
 from .context import NarrativeNote
 from .traceability import TraceRecord
 
+
+def is_current_issue(issue: dict) -> bool:
+    """Use the status frozen with the source, never the current live SQLite decision.
+
+    False positives stay in the evidence archive but cannot resurrect as active
+    risk. Resolved / wont-fix remain observable until source re-verification.
+    """
+    return str(issue.get('status') or '').strip().lower() != 'false_positive'
+
+
 GENERIC_TEMPLATE = "GENERIC_TEMPLATE"
 SMART_NARRATIVE = "SMART_NARRATIVE"
 NARRATIVE_MODES = {GENERIC_TEMPLATE, SMART_NARRATIVE}
@@ -179,7 +189,8 @@ def build_smart_narrative(report_model: dict, *, diff_events: Iterable[dict] = (
                                      "smart:diff-summary", trace, profile_id))
 
     issue_rows = list(issues)
-    serious = [x for x in issue_rows if str(x.get("severity") or "").upper() in {"ERROR", "BLOCKER", "HIGH"}]
+    serious = [x for x in issue_rows if is_current_issue(x)
+               and str(x.get("severity") or "").upper() in {"ERROR", "BLOCKER", "HIGH"}]
     if serious:
         ids = [str(x.get("id") or x.get("code") or f"issue-{i}") for i, x in enumerate(serious, 1)]
         bid = "nar.judge.release-risk"

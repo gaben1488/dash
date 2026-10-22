@@ -331,6 +331,8 @@ export interface MonitoringSignal {
   count: number;
   /** Адреса «лист!ячейка» либо «лист · строка N». */
   addresses: string[];
+  /** Separate monitoring-book signal; does not inherit decisions from GRBS cases. */
+  caseReview?: { status: 'not_linked'; explanation: string };
 }
 
 // ── Сверка с книгами ГРБС ────────────────────────────────────────────
@@ -875,6 +877,9 @@ function readSignals(raw: unknown): MonitoringSignal[] | null {
       action: text(s.action),
       count: num(s.count) ?? addresses.length,
       addresses,
+      ...(text(rec(s.caseReview).status) === 'not_linked'
+        ? { caseReview: { status: 'not_linked' as const, explanation: text(rec(s.caseReview).explanation) } }
+        : {}),
     };
   }).filter((s) => s.title !== '');
   return list.length > 0 ? list : null;
