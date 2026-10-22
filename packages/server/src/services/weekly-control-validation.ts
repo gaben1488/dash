@@ -205,7 +205,14 @@ function validateBaselineRows(baseline: WeeklySnapshotRef):
   return { rows: atomsToSnapshotRows(normalizedAtoms), error: null };
 }
 
-let verifiedCache: { id: string; version: string; rows: Map<string, SnapshotRow[]> } | undefined;
+/**
+ * Live→Thursday and Thursday→Thursday share the same two certified controls.
+ * Keep only these two immutable, verified projections. An external SQLite
+ * write changes data_version; a write on this connection changes total_changes.
+ * Never cache failed proof and never use cache while inside a transaction.
+ */
+const MAX_VERIFIED_CONTROLS = 2;
+const verifiedControls = new Map<string, { version: string; rows: Map<string, SnapshotRow[]> }>();
 
 function databaseVersion(): string {
   return JSON.stringify(db.$client.prepare(`
@@ -214,19 +221,24 @@ function databaseVersion(): string {
   `).get());
 }
 
-/** Reuse only a successfully verified, unchanged database state. */
 export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
   { rows: Map<string, SnapshotRow[]>; error: string | null } {
   if (db.$client.inTransaction) return validateBaselineRows(baseline);
   const version = databaseVersion();
-  if (verifiedCache?.id === baseline.id && verifiedCache.version === version) {
-    return { rows: structuredClone(verifiedCache.rows), error: null };
+  const cached = verifiedControls.get(baseline.id);
+  if (cached && cached.version === version) {
+    verifiedControls.delete(baseline.id);
+    verifiedControls.set(baseline.id, cached);
+    return { rows: structuredClone(cached.rows), error: null };
   }
-  const result = validateBaselineRows(baseline);
-  // ponytail: one baseline, invalidated by any DB write; use per-snapshot revisions
-  // only if unrelated writes demonstrably prevent useful reuse.
-  verifiedCache = result.error === null && databaseVersion() === version
-    ? { id: baseline.id, version, rows: structuredClone(result.rows) }
-    : undefined;
-  return result;
+  verifiedControls.delete(baseline.id);
+  const checked = validateBaselineRows(baseline);
+  if (checked.error !== null || databaseVersion() !== version) return checked;
+
+  verifiedControls.set(baseline.id, { version, rows: structuredClone(checked.rows) });
+  if (verifiedControls.size > MAX_VERIFIED_CONTROLS) {
+    const oldest = verifiedControls.keys().next().value;
+    if (oldest !== undefined) verifiedControls.delete(oldest);
+  }
+  return checked;
 }
