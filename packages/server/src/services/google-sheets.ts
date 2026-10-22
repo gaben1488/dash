@@ -435,6 +435,70 @@ export async function getMonitoringMasterCells(spreadsheetId: string): Promise<s
   return (data.rowData ?? []).map(row => row.values ?? []);
 }
 
+/**
+ * Column A is a procurement ADDRESS, not money or a date. Google Sheets can
+ * store an entered "23/1" as DATE serial 46045 while displaying "23/1".
+ * Only suspicious numeric A values trigger a small, same-source grid read;
+ * money and date columns retain their unformatted numeric representations.
+ *
+ * A second read is verified against the first (fail-closed on concurrent edits).
+ * This same function is used by snapshots and read-before-write row guards.
+ */
+async function restoreDateFormattedProcurementAddresses(
+  spreadsheetId: string,
+  sheetName: string,
+  rows: unknown[][],
+  firstSheetRow = 1,
+): Promise<unknown[][]> {
+  const suspected = rows.flatMap((cells, i) => {
+    const raw = cells[0];
+    const hasSubjectOrMethod = String(cells[6] ?? '').trim() !== '' ||
+      String(cells[11] ?? '').trim() !== '';
+    // This range is only a cheap lookup trigger, not a rule interpreting IDs:
+    // the actual override requires Google's DATE format AND the same raw value.
+    return firstSheetRow + i >= 4 && typeof raw === 'number' && Number.isSafeInteger(raw) &&
+      raw >= 10_000 && hasSubjectOrMethod ? [firstSheetRow + i] : [];
+  });
+  if (suspected.length === 0) return rows;
+
+  // For a few suspicious A cells request exact ranges, not a whole 34-column grid.
+  // Large imports use a bounded contiguous range rather than thousands of ranges.
+  const ranges = suspected.length <= 100
+    ? suspected.map((n) => sheetValuesRange(sheetName, `A${n}:A${n}`))
+    : [sheetValuesRange(sheetName, `A${suspected[0]}:A${suspected[suspected.length - 1]}`)];
+  const response = await readWithRetry('чтение видимого номера закупки', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.get({
+      spreadsheetId,
+      ranges,
+      fields: 'sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue),formattedValue,effectiveFormat(numberFormat(type))))))',
+    }, { timeout: SHEETS_TIMEOUT_MS });
+  });
+
+  const required = new Set(suspected);
+  for (const segment of response.data.sheets?.[0]?.data ?? []) {
+    if (segment.startRow === null || segment.startRow === undefined ||
+        (segment.startColumn ?? 0) !== 0) throw new Error('SOURCE_SEQUENCE_GRID_INCOMPLETE');
+    for (const [offset, gridRow] of (segment.rowData ?? []).entries()) {
+      const sheetRow = segment.startRow + offset + 1;
+      if (!required.has(sheetRow)) continue;
+      const original = rows[sheetRow - firstSheetRow];
+      const cell = gridRow.values?.[0];
+      if (!original || typeof cell?.effectiveValue?.numberValue !== 'number' ||
+          original[0] !== cell.effectiveValue.numberValue)
+        throw new Error('SOURCE_SEQUENCE_CHANGED_DURING_READ');
+      if (cell.effectiveFormat?.numberFormat?.type === 'DATE') {
+        const visible = (cell.formattedValue ?? '').trim();
+        if (!/^\\d+\\/\\d+$/.test(visible)) throw new Error('SOURCE_SEQUENCE_DATE_LABEL_INVALID');
+        original[0] = visible;
+      }
+      required.delete(sheetRow);
+    }
+  }
+  if (required.size > 0) throw new Error('SOURCE_SEQUENCE_GRID_INCOMPLETE');
+  return rows;
+}
+
 export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
@@ -484,7 +548,9 @@ export async function getSheetDataFromSpreadsheet(
     (r) => (r.data.values as unknown[][] | undefined)?.length ?? 0,
   );
 
-  return (response.data.values as unknown[][]) ?? [];
+  return restoreDateFormattedProcurementAddresses(
+    spreadsheetId, sheetName, (response.data.values as unknown[][]) ?? [],
+  );
 }
 
 /**
@@ -534,7 +600,11 @@ async function readDeptRow(
     },
     (r) => r.data.values?.[0]?.length ?? 0,
   );
-  return (response.data.values as unknown[][] | undefined)?.[0] ?? [];
+  const rows = (response.data.values as unknown[][] | undefined) ?? [];
+  if (valueRenderOption === 'UNFORMATTED_VALUE') {
+    await restoreDateFormattedProcurementAddresses(spreadsheetId, sheetName, rows, rowIndex);
+  }
+  return rows[0] ?? [];
 }
 
 export async function getSheetDataWithFormulas(
@@ -572,7 +642,9 @@ export async function getSheetDataWithFormulas(
   );
 
   return {
-    values: (valResp.data.values as unknown[][]) ?? [],
+    values: await restoreDateFormattedProcurementAddresses(
+      spreadsheetId, sheetName, (valResp.data.values as unknown[][]) ?? [],
+    ),
     formulas: (fmlResp.data.values as unknown[][]) ?? [],
   };
 }
