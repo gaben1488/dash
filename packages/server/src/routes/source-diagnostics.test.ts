@@ -96,12 +96,19 @@ describe('POST /api/sources/diagnostics/run — Dash79', () => {
   });
 
   it('two overlapping clicks share one run and do not duplicate reads', async () => {
-    let resolve!: (value: ReturnType<typeof deepResult>) => void;
-    deepCheck.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    let release!: () => void;
+    let signalEntered!: () => void;
+    const entered = new Promise<void>(resolve => { signalEntered = resolve; });
+    deepCheck.mockImplementationOnce(async () => {
+      signalEntered();
+      await new Promise<void>(resolve => { release = resolve; });
+      return deepResult();
+    });
     const first = app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' });
     const second = app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' });
-    await Promise.resolve();
-    resolve(deepResult());
+    await entered;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    release();
     const [a, b] = await Promise.all([first, second]);
     expect(a.statusCode).toBe(200);
     expect(a.json().runId).toBe(b.json().runId);
