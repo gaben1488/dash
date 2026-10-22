@@ -1,4 +1,4 @@
-import { parseSheetDate } from '@aemr/shared';
+import { dayNumberOf, parseSheetDate } from '@aemr/shared';
 
 /**
  * period-coverage.ts — покрытие периодов данными (недели, месяцы, годы).
@@ -57,10 +57,17 @@ export function dayPartsOfDateValue(value: unknown): DayParts | null {
   const s = String(value).trim();
 
   const iso = s.match(ISO_RE);
-  if (iso) return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
+  if (iso) {
+    // The canonical parser rejects impossible days; regex-only extraction did not.
+    if (dayNumberOf(`${iso[1]}-${iso[2]}-${iso[3]}`) === null) return null;
+    return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
+  }
 
   const ru = s.match(RU_RE);
-  if (ru) return { y: Number(ru[3]), m: Number(ru[2]), d: Number(ru[1]) };
+  if (ru) {
+    if (dayNumberOf(`${ru[1]}.${ru[2]}.${ru[3]}`) === null) return null;
+    return { y: Number(ru[3]), m: Number(ru[2]), d: Number(ru[1]) };
+  }
 
   // Фоллбэк на канон. Сюда доходят только строки, не разобранные регулярками
   // выше, — у parseSheetDate для них остаются серийники (UTC-полночь) и общий

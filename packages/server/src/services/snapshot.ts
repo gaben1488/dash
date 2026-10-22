@@ -693,7 +693,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }
 
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
-    await saveSnapshot(snapshot);
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_PERSIST_FAILED');
+    }
 
     return snapshot;
   } catch (error) {

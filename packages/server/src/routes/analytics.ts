@@ -24,7 +24,7 @@ import {
   type AntiCorruptionRow,
   type AntiCorruptionResult,
 } from '@aemr/core';
-import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
 
 /**
@@ -113,7 +113,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-        })).filter((r: any) => r.method === 'ЕП' || r.method === 'ЭА' || r.method === 'ЭК' || r.method === 'ЭЗК');
+        })).filter((r: any) => normalizeMethod(r.method) !== undefined);
 
         // Run checks
         allIssues.push(...checkEPContractLimits(rowData, dept.id));
@@ -274,8 +274,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
         // нарушения 44-ФЗ (для грейда + complianceScore)
         const violations =
-          checkEPContractLimits(rowData.filter(r => r.method === 'ЕП'), profile.grbsId).length +
-          checkAntiDumping(rowData.filter(r => r.method !== 'ЕП'), profile.grbsId).length;
+          checkEPContractLimits(rowData.filter(r => normalizeMethod(r.method) === 'ЕП'), profile.grbsId).length +
+          checkAntiDumping(rowData.filter(r => normalizeMethod(r.method) !== 'ЕП'), profile.grbsId).length;
 
         // аномалии (Бенфорд по суммам, p<0.05 = значимое отклонение)
         const amounts = rowData.map(r => r.planTotal).filter(v => v > 0);

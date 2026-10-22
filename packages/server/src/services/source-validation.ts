@@ -50,6 +50,9 @@ export interface SourceValidationResult {
   resolvedSheetName: string;
   /** Строк-позиций проверено (не сырых строк листа). */
   rowsChecked: number;
+  /** A readable aggregate is not the same as a content-validated source. */
+  validationPerformed?: boolean;
+  rowsRead?: number;
   issues: SourceIssue[];
   summary: { total: number; critical: number; warning: number; info: number };
   error?: string;
@@ -160,14 +163,14 @@ export async function validateSource(name: string): Promise<SourceValidationResu
       resolvedSheetName = SVOD_SHEET_NAME;
       // СВОД — агрегатный лист, построчные сигналы ГРБС-формата к нему неприменимы:
       // проверяем только читаемость.
-      return { success: true, name, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name, resolvedSheetName, ...empty, rowsRead: rawRows.length, validationPerformed: false };
     }
 
     if (name === SHDYU_MONTHLY_SHEET_NAME || name === 'ШДЮ' /* легаси-имя карточки */) {
       rawRows = await getSheetData(SHDYU_MONTHLY_SHEET_NAME, SHDYU_SPREADSHEET_ID);
       resolvedSheetName = SHDYU_MONTHLY_SHEET_NAME;
       // Помесячный свод — тоже агрегат, не ГРБС-строки.
-      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, ...empty, rowsRead: rawRows.length, validationPerformed: false };
     }
 
     const ssId = DEPARTMENT_SPREADSHEETS[name];
@@ -177,7 +180,8 @@ export async function validateSource(name: string): Promise<SourceValidationResu
     // ТОТ ЖЕ резолвер, что у загрузчика (кандидаты ВСЕ/Все/имя, честные 429/403).
     const sheet = await readDeptSheet(name, ssId);
     const checked = validateRows(sheet.values);
-    return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked };
+    return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked,
+      rowsRead: sheet.values.length, validationPerformed: true };
   } catch (err) {
     return {
       success: false,
