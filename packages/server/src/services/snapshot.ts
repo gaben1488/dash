@@ -54,21 +54,18 @@ let materializationTail: Promise<void> = Promise.resolve();
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
 /**
- * Обновляет кэш деп-листов. `data` — успешно загруженные в этом цикле депы,
- * применяются как replace по ключу. `failedDeptNames` — депы, упавшие в этом
- * цикле: их запись УДАЛЯЕТСЯ из кэша, а не остаётся молча от предыдущей
- * успешной загрузки под видом свежих данных (маскировка отказа, B-9).
+ * Publish only a successfully acquired source delta over the retained full
+ * baseline. An incomplete update must never remove the last accepted book
+ * or mix a new subset with an unverified source. The caller records failures
+ * in load metadata and invalidates public read-model freshness separately.
  */
 export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
   acceptedAt?: string,
 ): void {
-  const next = { ...cachedDeptSheetData, ...data };
-  for (const name of failedDeptNames) {
-    Reflect.deleteProperty(next, name);
-  }
-  cachedDeptSheetData = next;
+  if (failedDeptNames.length > 0) throw new Error('SOURCE_FULL_BASE_NOT_UPDATED');
+  cachedDeptSheetData = { ...cachedDeptSheetData, ...data };
   deptCacheFilledAt = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
 }
 
@@ -464,11 +461,13 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   // A valid calculation belongs to an input generation, not a five-minute TTL.
   // Source/decision changes explicitly invalidate it. Retrying a failed or
   // interrupted build still uses TTL; a page visit alone never creates data.
+  const sourceUnavailable = Object.values(deptLoadMeta).some(meta => !!meta.error) || svodLoadFailure !== null;
+  const completeCached = isDemoMode || cached?.snapshot.metadata.sourceCoverage?.complete === true;
   const unchanged = !isDemoMode && cached && cached.timestamp > 0
     && cached.generation === cacheGeneration
     && !cached.snapshot.metadata.readModel
-    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
-  if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
+    && completeCached && !sourceUnavailable;
+  if (!force && cached && completeCached && !sourceUnavailable && (unchanged || (now - cached.timestamp) < ttl)) {
     return recordSnapshotRead(cached.snapshot);
   }
 
@@ -499,7 +498,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
         });
       });
     }
-    if (previous) return recordSnapshotRead(readState(previous, 'refreshing'));
+    if (previous) return recordSnapshotRead(readState(previous, sourceUnavailable ? 'stale' : 'refreshing'));
     throw Object.assign(new Error('Срез этого периода ещё готовится. Повторите чтение после обновления.'),
       { code: 'SNAPSHOT_NOT_READY', statusCode: 503 });
   }
@@ -616,6 +615,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       batchGetFormulas(cellAddresses),
     ]);
 
+    if (!isDemoMode && (batchValues.length !== cellAddresses.length || batchFormulas.length !== cellAddresses.length)) {
+      throw new Error('OFFICIAL_CELLS_READ_INCOMPLETE');
+    }
     const batchGetData = batchValues.map((v, i) => ({
       range: v.range,
       values: v.values,
@@ -671,6 +673,12 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     });
 
     await Promise.all([sheetsPromise, monthlyPromise]);
+    // All required main-book sheets must have returned a value range. A
+    // failed batch followed by an unsuccessful individual fallback is NOT a
+    // zero-valued but complete workbook.
+    if (!isDemoMode && (ALL_SHEETS as readonly string[]).some(name => !(name in sheetRows))) {
+      throw new Error('MAIN_BOOK_READ_INCOMPLETE');
+    }
 
     // ОДИН ПЕРИМЕТР СТРОК (аудит 30.07 №14). Первоисточник — собственные
     // книги ГРБС: зеркала в сводной — производные IMPORTRANGE, они отстают
@@ -753,9 +761,17 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       providerId: reading.providerId ?? null, sheetName: reading.sheetName,
       version: reading.sourceVersion ?? null, readAt: reading.readAt ?? null,
     }]));
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
+    // Fail closed BEFORE calculating or publishing. A missing master, missing
+    // accepted source receipt, or a failed webhook cannot become an accepted
+    // partial base with reassuring zeroes, even if old mirror data exists.
+    if (!isDemoMode && (!coverage.complete || !inputReceipt
+        || Object.values(deptLoadMeta).some(meta => !!meta.error) || svodLoadFailure)) {
+      throw new Error('SOURCE_FULL_BASE_NOT_VERIFIED');
+    }
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceReceipt = inputReceipt;
-    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
+    snapshot.metadata.sourceCoverage = coverage;
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
     // сохраняется вместе со снимком и видно в продукте. Без него подстановка
@@ -850,7 +866,9 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
         if (!row.data) continue;
         try {
           const snapshot = measureReadStage('decode', () => JSON.parse(row.data!)) as PipelineSnapshot;
-          if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+          if (snapshot?.id && !snapshot.id.startsWith('demo-')
+            && snapshot.metadata?.sourceCoverage?.complete === true
+            && sameSnapshotYearScope(snapshot, targetYear)) {
             // The current fallback must not revive an obsolete perfect grade.
             // Reassess its captured evidence without changing data/time or writing
             // history; getStoredSnapshotById still returns the original record.
