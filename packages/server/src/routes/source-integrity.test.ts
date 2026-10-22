@@ -62,6 +62,10 @@ vi.mock('../services/metadata-watch.js', () => ({
   sweepMetadata: (...args: unknown[]) => sweepMetadata(...(args as [])),
 }));
 
+vi.mock('../services/source-integrity-state.js', () => ({
+  sourceIntegrityStorageWarnings: () => [],
+}));
+
 vi.mock('../services/formula-sink.js', () => ({
   formulaVerdicts: () => formulaVerdicts(),
 }));
