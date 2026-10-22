@@ -150,15 +150,22 @@ export interface IntegrityBookDto {
  */
 export function scopedIntegrityTotals(
   books: readonly Pick<IntegrityBookDto, 'sequence'>[],
-): Pick<IntegrityResponse['totals'], 'gapCount' | 'duplicates' | 'countableWithoutSeq'> {
+): Pick<IntegrityResponse['totals'], 'gapCount' | 'duplicates' | 'countableWithoutSeq'> & {
+  checkedBooks: number;
+  unreadBooks: number;
+} {
   return books.reduce((total, book) => {
     const sequence = book.sequence;
-    if (sequence === null) return total;
+    if (sequence === null) {
+      total.unreadBooks++;
+      return total;
+    }
+    total.checkedBooks++;
     total.gapCount += sequence.gapCount;
     total.duplicates += sequence.duplicates.length;
     total.countableWithoutSeq += sequence.countableWithoutSeq;
     return total;
-  }, { gapCount: 0, duplicates: 0, countableWithoutSeq: 0 });
+  }, { gapCount: 0, duplicates: 0, countableWithoutSeq: 0, checkedBooks: 0, unreadBooks: 0 });
 }
 
 export interface VanishedBookDto {
