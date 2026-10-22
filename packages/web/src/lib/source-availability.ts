@@ -49,6 +49,22 @@ export function completeAverage(values: readonly SourceNumber[]): number | null 
   return sum === null ? null : sum / values.length;
 }
 
+/**
+ * An accepted activity-period map is complete: a category absent from that
+ * map has no rows. But a missing entire map or a present category whose
+ * amount was not read is unknown, not zero.
+ */
+export function materializedCategoryAmount(
+  period: Record<string, { planTotal?: SourceNumber; factTotal?: SourceNumber } | undefined> | null | undefined,
+  group: string,
+  field: 'planTotal' | 'factTotal',
+): number | null {
+  if (!period) return null;
+  const category = period[group];
+  if (category === undefined) return 0;
+  return observedNumber(category[field]);
+}
+
 export function confirmedEmptyCounts(plan: SourceNumber, fact: SourceNumber): boolean {
   return observedNumber(plan) === 0 && observedNumber(fact) === 0;
 }
