@@ -68,7 +68,14 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`;
+  const base = `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`;
+  if (r.timePrecision !== 'day') return base; // preserve existing exact-time DB IDs
+  if (!Number.isInteger(r.sourceRow) || (r.sourceRow ?? 0) < 1) {
+    throw new Error('Date-only journal event is missing its source row');
+  }
+  // Date-only events can edit the same cell several times in one day.
+  // Distinguish them by their append-only journal row, not fabricated time.
+  return `${base}|day-row-${r.sourceRow}`;
 }
 
 /**
@@ -138,6 +145,7 @@ export function readChangeLogEntriesSince(sinceMs: number): ChangeRecord[] {
       newValue: r.newValue ?? '',
       atMs: r.atMs,
       author: r.author ?? '',
+      ...(r.id.includes('|day-row-') ? { timePrecision: 'day' as const } : {}),
     }));
 }
 
