@@ -25,7 +25,10 @@
  * стояло ни одного дефекта).
  */
 import type { TrustCheckCoverage, Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS, FORMULA_COLUMNS, isMetaRow } from '@aemr/shared';
+import {
+  CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS, FORMULA_COLUMNS,
+  isMetaRow, parseSheetNumber, readProcurementSequence,
+} from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
 // Compatibility export; the shared source contract owns this column set.
@@ -134,21 +137,34 @@ export function normalizeFormula(raw: unknown, sheetRow: number): string {
  * сумма. Подпись шапки и пустой хвост номером не являются. Назначение строки
  * дополнительно проверяется по предмету закупки перед построением эталона.
  */
-function purchaseNumber(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  const text = String(raw).trim();
-  if (text === '') return null;
-  if (/^[1-9]\d*\/[1-9]\d*$/.test(text)) return text;
-  const n = Number(text.replace(',', '.'));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return text;
-}
-
-/** Номер закупки судимой строки; служебные строки не судятся и не дают эталон. */
+/**
+ * Keep procurement A as a textual address (including 173/18); do not infer
+ * identity from a monetary or floating-point parser.
+ *
+ * A missing subject G is itself a data-quality defect. It must NOT exempt a
+ * real procurement from formula auditing when its method or budget already
+ * proves that a procurement exists. Numeric headings without these business
+ * fields remain excluded so they cannot poison the modal formula baseline.
+ */
 export function formulaIntegrityRowNumber(row: ReadonlyArray<unknown>): string | null {
+  const seq = readProcurementSequence(row[DEPT_COLUMNS.ID]);
+  if (seq === null) return null;
   const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
-  if (subject === '' || isMetaRow(subject) || Number.isFinite(Number(subject))) return null;
-  return purchaseNumber(row[DEPT_COLUMNS.ID]);
+  if (subject !== '' && (isMetaRow(subject) || Number.isFinite(Number(subject)))) return null;
+
+  if (subject === '') {
+    const method = String(row[DEPT_COLUMNS.METHOD] ?? '').trim();
+    const hasBudget = [
+      DEPT_COLUMNS.FB_PLAN, DEPT_COLUMNS.KB_PLAN, DEPT_COLUMNS.MB_PLAN,
+      DEPT_COLUMNS.TOTAL_PLAN, DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT,
+      DEPT_COLUMNS.MB_FACT, DEPT_COLUMNS.TOTAL_FACT,
+    ].some((index) => {
+      const amount = parseSheetNumber(row[index]);
+      return amount !== null && amount !== 0;
+    });
+    if (method === '' && !hasBudget) return null;
+  }
+  return seq;
 }
 
 function isFormulaText(raw: unknown): boolean {
