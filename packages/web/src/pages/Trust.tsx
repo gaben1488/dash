@@ -226,7 +226,12 @@ export function TrustPage() {
     };
     read();
     window.addEventListener('source-formulas-updated', read);
-    return () => { active = false; window.removeEventListener('source-formulas-updated', read); };
+    window.addEventListener('department-books-updated', read);
+    return () => {
+      active = false;
+      window.removeEventListener('source-formulas-updated', read);
+      window.removeEventListener('department-books-updated', read);
+    };
   }, []);
 
   if (!dashboardData) {
