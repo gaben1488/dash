@@ -321,8 +321,15 @@ export const api = {
     });
   },
 
-  refresh: (quick = false) =>
-    fetchJSON<any>(`/refresh${quick ? '?quick=true' : ''}`, { method: 'POST' }),
+  refresh: (quick = false, withFormulas = false) => {
+    const params = new URLSearchParams();
+    if (quick) params.set('quick', 'true');
+    // Formula grids are an explicit, user-requested manual read; routine
+    // SVOD-only refreshes must not consume eight additional Sheets reads.
+    if (!quick && withFormulas) params.set('formulas', 'true');
+    const qs = params.toString();
+    return fetchJSON<any>(`/refresh${qs ? `?${qs}` : ''}`, { method: 'POST' });
+  },
 
   // Metrics
   getMetrics: () =>
