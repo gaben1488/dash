@@ -177,6 +177,10 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect(falsePositive.statusCode).toBe(200);
     const after = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
     expect(after.recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('false_positive');
+    const detail = (await app.inject({ method: 'GET', url: '/api/issues/seed-issue-003' })).json();
+    expect(detail.signalPassport).toMatchObject({
+      disposition: 'excluded_false_positive', status: 'false_positive',
+    });
     // A decision changes the case, but cannot create evidence in an empty source.
     expect(after.trust.overall).toBeNull();
     expect((await app.inject({ method: 'GET', url: '/api/trust' })).json().overall).toBe(after.trust.overall);

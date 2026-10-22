@@ -87,6 +87,22 @@ export interface MonitoringSource {
   schema: 'canonical';
 }
 
+/** Monitoring diagnostics and GRBS ControlCases belong to different sources.
+ * Never borrow a human false-positive decision across unproved identities. */
+export interface MonitoringSignalWithBoundary extends MonitoringSignal {
+  caseReview: { status: 'not_linked'; source: 'monitoring_book'; explanation: string };
+}
+
+function withoutUnprovenCaseLink(signals: MonitoringSignal[]): MonitoringSignalWithBoundary[] {
+  return signals.map(signal => ({
+    ...signal,
+    caseReview: {
+      status: 'not_linked', source: 'monitoring_book',
+      explanation: 'Наблюдение исходной книги мониторинга: подтверждённой связи с делом Dash нет. Чужое решение не снимает сигнал; после исправления нужен новый проверенный срез.',
+    },
+  }));
+}
+
 export interface MonitoringResponsePayload {
   source: MonitoringSource;
   procedures: MonitoringProcedure[];
@@ -107,7 +123,7 @@ export interface MonitoringResponsePayload {
     sheets: typeof MONITORING_ANCESTOR_SHEETS;
     missingFields: readonly string[];
   };
-  signals: MonitoringSignal[];
+  signals: MonitoringSignalWithBoundary[];
   unparsedCodes: UnparsedCodeRef[];
   notes: string[];
 }
@@ -221,7 +237,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
         sheets: MONITORING_ANCESTOR_SHEETS,
         missingFields: MONITORING_MISSING_FIELDS,
       },
-      signals,
+      signals: withoutUnprovenCaseLink(signals),
       unparsedCodes: registry.unparsedCodes,
       notes,
     } satisfies MonitoringResponsePayload;
@@ -332,7 +348,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       ambiguous: result.ambiguous,
       listCells: result.listCells,
       internal,
-      signals: mappingSignals(result),
+      signals: withoutUnprovenCaseLink(mappingSignals(result)),
       notes,
     };
   });
