@@ -11,7 +11,7 @@ import { SHDYU_MONTHLY_SHEET_NAME, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { SourceDiagnosticRun, SourceDiagnosticStageState } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { redactFieldValue } from '../services/source-log.js';
-import { validateAllSources } from '../services/source-validation.js';
+import { validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
 import { checkSourcesDeep } from './source-integrity.js';
 
 type StageState = SourceDiagnosticStageState;
