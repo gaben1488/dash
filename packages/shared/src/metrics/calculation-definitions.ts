@@ -204,3 +204,51 @@ export function metricDependencies(d: DerivedMetricDefinition): string[] {
 }
 
 
+
+/** Technical formula rendered from the same executable definition as the value.
+ *  Literary explanations stay in METRIC_KB, but executable mathematics cannot
+ *  drift when the source column, gate or dependency changes. */
+function a1Column(index: number): string {
+  let n = index + 1, text = '';
+  while (n > 0) {
+    n--; text = String.fromCharCode(65 + n % 26) + text;
+    n = Math.floor(n / 26);
+  }
+  return text;
+}
+
+function gateExpression(gate: GateCondition): string {
+  const col = a1Column(gate.column);
+  switch (gate.op) {
+    case 'notEmpty': return col + ' дата факта подтверждена к моменту среза';
+    case 'isEmpty': return col + ' не подтверждена к моменту среза';
+    case 'eq': return col + ' = ' + String(gate.value);
+    case 'neq': return col + ' ≠ ' + String(gate.value);
+    case 'gt': return col + ' > ' + String(gate.value);
+    case 'gte': return col + ' ≥ ' + String(gate.value);
+    case 'inSet': return col + ' ∈ {' + [...(gate.values ?? [])].join(', ') + '}';
+    case 'methodGroup': return col + ' ∈ ' + String(gate.methodGroup);
+  }
+}
+
+export function executableFormula(key: string): string | null {
+  const definition = EXECUTABLE_METRICS.get(key);
+  if (!definition) return null;
+  if ('formula' in definition) {
+    const expression = definition.formula;
+    switch (expression.op) {
+      case 'diff': return expression.a + ' − ' + expression.b;
+      case 'sum': return expression.operands.join(' + ');
+      case 'ratio': case 'pct':
+        return expression.numerator + ' / ' + expression.denominator + ' (нет базы → null; результат — доля 0..1)';
+    }
+  }
+  const source = definition.source;
+  const column = source.column === undefined ? '' : a1Column(source.column);
+  const aggregation = source.aggregation === 'sum'
+    ? 'SUM(' + column + (source.fallbackColumns?.length
+      ? '; при нуле ' + source.fallbackColumns.map(a1Column).join('+') : '') + ')'
+    : 'COUNT(строк)';
+  return aggregation + (definition.gates.length
+    ? ' WHERE ' + definition.gates.map(gateExpression).join(' AND ') : '');
+}
