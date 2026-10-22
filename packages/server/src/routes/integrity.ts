@@ -641,16 +641,26 @@ export function selectActiveSourceAbsences(
 
   const active = new Map<string, OperationalAbsenceDto>();
   for (const [dept, events] of candidates) {
-    const current = Object.entries(sheetValues).find(([name]) => findDept(name)?.id === dept)?.[1];
-    const meta = Object.entries(loadMeta).find(([name]) => findDept(name)?.id === dept)?.[1];
+    // The source cache can contain aliases; first-match would silently pick
+    // one revision and claim an absence from the wrong book.
+    const sourceMatches = Object.entries(sheetValues)
+      .filter(([name]) => findDept(name)?.id === dept);
+    const metaMatches = Object.entries(loadMeta)
+      .filter(([name]) => findDept(name)?.id === dept);
+    const current = sourceMatches.length === 1 ? sourceMatches[0][1] : undefined;
+    const meta = metaMatches.length === 1 ? metaMatches[0][1] : undefined;
     const readAt = Date.parse(meta?.loadedAt ?? '');
     const eventTimes = events.map(event => Date.parse(event.observedAt ?? ''));
     let reason: string | null = null;
-    if (!current || current.length <= DEPT_HEADER_ROWS || !meta || meta.error ||
-        meta.rowCount !== current.length) {
-      reason = 'Нет подтверждённого полного чтения книги';
-    } else if (!Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs) {
-      reason = 'Текущее чтение книги устарело';
+    if (sourceMatches.length !== 1 || metaMatches.length !== 1) {
+      reason = 'Нет однозначного чтения книги: совпало несколько алиасов либо источник отсутствует';
+    } else if (!current || current.length <= DEPT_HEADER_ROWS ||
+        current.some(row => !Array.isArray(row)) || !meta || meta.error ||
+        !Number.isInteger(meta.rowCount) || meta.rowCount !== current.length) {
+      reason = 'Нет подтверждённой полной матрицы книги';
+    } else if (!Number.isFinite(now) || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0 ||
+        !Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs) {
+      reason = 'Текущее чтение книги устарело или время не подтверждено';
     } else if (eventTimes.some(at => !Number.isFinite(at) || at > now || at > readAt)) {
       reason = 'Момент наблюдения новее подтверждённого чтения или неизвестен';
     }

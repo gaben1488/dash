@@ -326,6 +326,29 @@ describe('оперативные наблюдения № без недельн�
     }
   });
 
+
+  it('не выбирает произвольный первый alias одной книги', () => {
+    const sameDept = { ...source, uo: source['УО'] };
+    const result = selectActiveSourceAbsences([event('12/1')], sameDept, meta, now, 3_600_000);
+    expect(result.entries).toEqual([]);
+    expect(result.unavailableBooks).toEqual([
+      expect.objectContaining({ dept: 'УО', reason: expect.stringContaining('однозначного') }),
+    ]);
+  });
+
+  it('повреждённая физическая строка и неопределённое время не доказывают пропажу', () => {
+    const invalidMatrix = { 'УО': [...HEADER, null as unknown as unknown[]] };
+    const cases = [
+      selectActiveSourceAbsences([event('12/1')], invalidMatrix, meta, now, 3_600_000),
+      selectActiveSourceAbsences([event('12/1')], source, meta, Number.NaN, 3_600_000),
+      selectActiveSourceAbsences([event('12/1')], source, meta, now, Number.NaN),
+    ];
+    for (const result of cases) {
+      expect(result.entries).toEqual([]);
+      expect(result.unavailableBooks).toEqual([expect.objectContaining({ dept: 'УО' })]);
+    }
+  });
+
   it('пустая история не выдумывает записи', () => {
     expect(selectActiveSourceAbsences([], source, meta, now, 3_600_000))
       .toEqual({ entries: [], unavailableBooks: [] });
