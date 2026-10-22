@@ -84,12 +84,19 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
 
     // Without per-method provenance the *combined* budget breakdown
     // cannot be attributed to only EP/KP. A null is not a computed zero.
+    const unknownSubordinateMethod = !coverageComplete && depts.some(d => d._subFiltered);
     const unknownBudget = methodRestricted && !coverageComplete;
     filteredSummary[pk] = {
-      kpCount, kpFactCount, kpPlan, kpFact,
-      kpPercent: kpCount > 0 ? kpFactCount / kpCount : null,
-      epCount, epFactCount, epPlan, epFact,
-      epPercent: epCount > 0 ? epFactCount / epCount : null,
+      kpCount: unknownSubordinateMethod ? null : kpCount,
+      kpFactCount: unknownSubordinateMethod ? null : kpFactCount,
+      kpPlan: unknownSubordinateMethod ? null : kpPlan,
+      kpFact: unknownSubordinateMethod ? null : kpFact,
+      kpPercent: unknownSubordinateMethod ? null : kpCount > 0 ? kpFactCount / kpCount : null,
+      epCount: unknownSubordinateMethod ? null : epCount,
+      epFactCount: unknownSubordinateMethod ? null : epFactCount,
+      epPlan: unknownSubordinateMethod ? null : epPlan,
+      epFact: unknownSubordinateMethod ? null : epFact,
+      epPercent: unknownSubordinateMethod ? null : epCount > 0 ? epFactCount / epCount : null,
       fbPlan: unknownBudget ? null : fbPlan,
       kbPlan: unknownBudget ? null : kbPlan,
       mbPlan: unknownBudget ? null : mbPlan,
