@@ -1,104 +1,103 @@
 /**
- * Raw rows must come from the department cache or its configured primary book.
- * A nonempty legacy mirror does not prove freshness or source completeness.
+ * R05.03: a cache hit needs an exact master binding; failed primary reads
+ * never silently fall back to a mirror or to a differently bound cached grid.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getSheetData, readDeptSheet, getDeptSheetValues } = vi.hoisted(() => ({
+const { getSheetData, readDeptSheet, getDeptSheetCache } = vi.hoisted(() => ({
   getSheetData: vi.fn(),
   readDeptSheet: vi.fn(),
-  getDeptSheetValues: vi.fn(),
+  getDeptSheetCache: vi.fn(),
 }));
-
 vi.mock('./google-sheets.js', () => ({ getSheetData, readDeptSheet }));
-vi.mock('./snapshot.js', () => ({ getDeptSheetValues }));
+vi.mock('./snapshot.js', () => ({ getDeptSheetCache }));
 vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: { УО: 'ss-uo' } }));
-
 import { readDeptRows } from './rows-read.js';
 
 const dept = { nameShort: 'УО', sheetName: 'УО-лист' };
 const values = [['шапка 1'], ['шапка 2'], ['шапка 3'], ['1', 'РН-1']];
+const observedAt = '2026-10-22T02:03:04.000Z';
+const source = (kind: 'accepted-cache' | 'live-primary') => ({
+  kind, providerId: 'ss-uo', sheetName: 'ВСЕ', readAt: observedAt,
+  sourceVersion: null, sourceRevision: null,
+});
+const reading = (rows = values) => ({ providerId: 'ss-uo', sheetName: 'ВСЕ', values: rows,
+  readAt: observedAt, formulas: [] });
 
 beforeEach(() => {
   vi.resetAllMocks();
-  getDeptSheetValues.mockReturnValue({});
+  getDeptSheetCache.mockReturnValue({});
+  readDeptSheet.mockResolvedValue(reading());
 });
 
-describe('readDeptRows — каскад чтения', () => {
-  it('ступень 1: непустой кэш отдела возвращается без обращений к API', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: values });
-
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
-    expect(getSheetData).not.toHaveBeenCalled();
+describe('readDeptRows — one primary-source decision', () => {
+  it('returns the accepted cache only when its provider binding matches', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: reading() });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values, source: source('accepted-cache') });
     expect(readDeptSheet).not.toHaveBeenCalled();
+    expect(getSheetData).not.toHaveBeenCalled();
   });
 
-  it('при пустом кэше читает master, даже когда зеркало непустое и отличается', async () => {
-    getSheetData.mockResolvedValue([['stale mirror']]);
-    readDeptSheet.mockResolvedValue({ values });
-
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+  it('rejects a cached workbook from an old binding, reads the configured primary', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: { ...reading([['old'],['old'],['old']]), providerId: 'old-master' } });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values, source: source('live-primary') });
     expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
     expect(getSheetData).not.toHaveBeenCalled();
   });
 
-  it('пустой кэш ([]) не считается данными — каскад идёт дальше', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: [] });
-    getSheetData.mockResolvedValue([['stale mirror']]);
-    readDeptSheet.mockResolvedValue({ values });
-
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+  it('does not accept a legacy cached grid with no provider identity', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: { values, sheetName: 'ВСЕ' } });
+    expect(await readDeptRows(dept)).toMatchObject({ ok: true, source: { kind: 'live-primary' } });
+    expect(readDeptSheet).toHaveBeenCalledOnce();
   });
 
-  it('пустое зеркало не является условием чтения основной книги', async () => {
-    getSheetData.mockResolvedValue([]);
-    readDeptSheet.mockResolvedValue({ values });
-
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
-    expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
-  });
-
-  it('не запрашивает зеркало и не зависит от его доступности', async () => {
-    getSheetData.mockRejectedValue(new Error('нет листа СВОД'));
-    readDeptSheet.mockResolvedValue({ values });
-
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+  it('reads the verified primary even if a legacy mirror would have values', async () => {
+    getSheetData.mockResolvedValue([['outdated mirror']]);
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values, source: source('live-primary') });
     expect(getSheetData).not.toHaveBeenCalled();
   });
 
-  it('no-source: отсутствие master не маскируется непустым зеркалом', async () => {
-    getSheetData.mockResolvedValue([['unverified mirror']]);
+  it('preserves a known-empty primary with three header rows', async () => {
+    const headers = values.slice(0, 3);
+    readDeptSheet.mockResolvedValue(reading(headers));
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values: headers, source: source('live-primary') });
+  });
 
-    expect(await readDeptRows({ nameShort: 'БЕЗКНИГИ', sheetName: 'X' }))
+  it('does not fabricate a timestamp when an accepted reading has none', async () => {
+    readDeptSheet.mockResolvedValue({ ...reading(), readAt: undefined });
+    expect(await readDeptRows(dept)).toMatchObject({ ok: true, source: { readAt: null } });
+  });
+
+  it('reports no-source even when an old cached grid exists', async () => {
+    getDeptSheetCache.mockReturnValue({ БЕЗКНИГИ: reading() });
+    expect(await readDeptRows({ nameShort: 'БЕЗКНИГИ', sheetName: 'Х' }))
       .toEqual({ ok: false, reason: 'no-source' });
     expect(readDeptSheet).not.toHaveBeenCalled();
-    expect(getSheetData).not.toHaveBeenCalled();
   });
 
-  it('read-error: живое чтение упало — ошибка отдаётся роуту для лога', async () => {
-    getSheetData.mockResolvedValue([['unverified mirror']]);
-    const boom = new Error('quota 429');
+  it('never substitutes a mirror or stale binding after a primary error', async () => {
+    const boom = new Error('429 quota');
+    getDeptSheetCache.mockReturnValue({ УО: { ...reading(), providerId: 'old-master' } });
     readDeptSheet.mockRejectedValue(boom);
-
     expect(await readDeptRows(dept)).toEqual({ ok: false, reason: 'read-error', error: boom });
     expect(getSheetData).not.toHaveBeenCalled();
   });
 
-  it('основная книга с шапкой без закупок не подменяется строками зеркала', async () => {
-    const headers = [['шапка 1'], ['шапка 2'], ['шапка 3']];
-    getSheetData.mockResolvedValue([['removed purchase']]);
-    readDeptSheet.mockResolvedValue({ values: headers });
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values: headers });
-    expect(getSheetData).not.toHaveBeenCalled();
-  });
-  it('обрыв чтения master не выдаётся за успешный пустой реестр', async () => {
-    readDeptSheet.mockResolvedValue({ values: [['#REF!']] });
+  it('refuses an incomplete primary, including a #REF! sheet', async () => {
+    readDeptSheet.mockResolvedValue(reading([['#REF!']]));
     expect(await readDeptRows(dept)).toMatchObject({ ok: false, reason: 'read-error' });
   });
-  it('обрывочный кэш не подменяет пригодное чтение master', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: [['#REF!']] });
-    readDeptSheet.mockResolvedValue({ values });
-    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
-    expect(readDeptSheet).toHaveBeenCalled();
+
+  it('refuses a primary reader that returned an unexpected provider', async () => {
+    readDeptSheet.mockResolvedValue({ ...reading(), providerId: 'wrong-id' });
+    expect(await readDeptRows(dept)).toMatchObject({ ok: false, reason: 'read-error' });
+  });
+
+  it('preserves a sealed source revision instead of treating it as request time', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: { ...reading(), sourceVersion: 'drive-v2',
+      sourceRevision: 'SRC-' + 'a'.repeat(64) } });
+    expect(await readDeptRows(dept)).toMatchObject({ ok: true, source: {
+      kind: 'accepted-cache', sourceVersion: 'drive-v2', sourceRevision: 'SRC-' + 'a'.repeat(64),
+    } });
   });
 });

@@ -110,3 +110,15 @@ describe('сборка снимка: чтение листов сводной к
     expect(getSheetData).toHaveBeenCalledTimes(ALL_SHEETS.length);
   }, 20000);
 });
+
+it('excludes a mismatched primary binding from the snapshot even if the old cache has rows', async () => {
+  const { getSnapshot, setDeptSheetCache } = await import('./snapshot.js');
+  const vals = [[], [], [], ['1', '', '', '', '', '', 'Закупка', 100]];
+  setDeptSheetCache({ УЭР: { providerId: 'old-master-id', values: vals,
+    sheetName: 'ВСЕ', formulas: [], formulasRead: false } });
+  const snapshot = await getSnapshot(true);
+  expect(snapshot.rowsByDept?.['УЭР']).toBeUndefined();
+  expect(snapshot.metadata.sourceCoverage?.unreadDepartments).toEqual(
+    expect.arrayContaining([expect.objectContaining({ department: 'УЭР' })]),
+  );
+}, 20000);

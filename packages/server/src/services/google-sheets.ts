@@ -982,8 +982,15 @@ export async function fetchDepartmentSpreadsheets(
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
     if (result.status === 'fulfilled') {
-      const { deptName, values, formulas, sheetName, startRow, formulasRead } = result.value;
-      data[deptName] = { values, formulas, sheetName, startRow, formulasRead };
+      // Preserve the exact primary-read identity and observation time. Losing
+      // them here made a successful read indistinguishable from an undated grid.
+      const { deptName, values, formulas, sheetName, startRow, formulasRead,
+        providerId, sourceVersion, sourceRevision, readAt } = result.value;
+      data[deptName] = { values, formulas, sheetName, startRow, formulasRead,
+        ...(providerId !== undefined ? { providerId } : {}),
+        ...(sourceVersion !== undefined ? { sourceVersion } : {}),
+        ...(sourceRevision !== undefined ? { sourceRevision } : {}),
+        ...(readAt !== undefined ? { readAt } : {}) };
     } else {
       const deptName = entries[i][0];
       errors[deptName] = result.reason instanceof Error ? result.reason.message : String(result.reason);

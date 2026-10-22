@@ -317,6 +317,9 @@ async function sealWeeklyTableContextNow(
 export function getDeptSheetValues(): Record<string, unknown[][]> {
   const result: Record<string, unknown[][]> = {};
   for (const [key, val] of Object.entries(cachedDeptSheetData)) {
+    const providerId = DEPARTMENT_SPREADSHEETS[key];
+    if (!providerId || (val.providerId !== undefined && val.providerId !== providerId)
+        || !Array.isArray(val.values) || val.values.length < DEPT_HEADER_ROWS) continue;
     result[key] = val.values;
   }
   return result;
@@ -690,13 +693,22 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const sheetFormulas: Record<string, unknown[][]> = {};
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
+    const coverageFailures: Record<string, string> = {};
     for (const dept of DEPARTMENTS) {
       if (!deptSources[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
     }
     for (const [deptName, deptResult] of Object.entries(deptSources)) {
       const mirror = sheetRows[deptName];
-      if (deptResult.values.length < DEPT_HEADER_ROWS) {
+      const expectedProvider = DEPARTMENT_SPREADSHEETS[deptName];
+      if (!expectedProvider || (deptResult.providerId !== undefined
+          && deptResult.providerId !== expectedProvider)) {
         Reflect.deleteProperty(sheetRows, deptName);
+        coverageFailures[deptName] = 'Привязка к основной книге не подтверждена.';
+        continue;
+      }
+      if (!Array.isArray(deptResult.values) || deptResult.values.length < DEPT_HEADER_ROWS) {
+        Reflect.deleteProperty(sheetRows, deptName);
+        coverageFailures[deptName] = 'Основная книга не содержит полной шапки.';
         continue;
       }
       if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
@@ -777,7 +789,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }]));
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceReceipt = inputReceipt;
-    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
+    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort),
+      perimeter.map(dept => dept.dept), coverageFailures);
     if (sharedCapture && snapshot.metadata.sourceCoverage.complete) {
       snapshot.metadata.sourceRevision = sharedCapture.sourceRevision;
     }
