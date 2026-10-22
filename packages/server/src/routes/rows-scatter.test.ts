@@ -196,4 +196,84 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     expect(afterBoundary.summary.approvedEconomy).toBe(100);
     expect((await app.inject('/api/rows/scatter?dept=uer&snapshot_id=missing')).statusCode).toBe(404);
   });
+
+  it('C04.03 source row → frozen API → cloud: independent K/Y oracle, no-AD, unknown method and future Q', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const noAd = sheetRow('173/18', 1200, '08.02.2026', '15.02.2026', 900);
+    noAd[2] = 'Школа 1'; noAd[5] = 'Текущая деятельность';
+    noAd[25] = 100; noAd[26] = -5; noAd[27] = 10; noAd[29] = 'нет';
+
+    const adYes = sheetRow('173/19', 2000, '10.02.2026', '20.02.2026', 1600);
+    adYes[2] = 'Школа 1'; adYes[5] = 'Текущая деятельность';
+    adYes[11] = 'ЭЗК'; adYes[25] = -20; adYes[26] = -10; adYes[27] = 0; adYes[29] = 'да';
+
+    const unknown = sheetRow('173/20', 500, '11.02.2026', '20.02.2026', 300);
+    unknown[2] = 'Школа 1'; unknown[5] = 'Текущая деятельность';
+    unknown[11] = 'неизвестный способ';
+
+    const future = sheetRow('173/21', 400, '12.02.2026', '21.10.2026', 300);
+    future[2] = 'Школа 1'; future[5] = 'Текущая деятельность';
+    future[25] = 90; future[29] = 'да';
+
+    const missingQ = sheetRow('173/22', 350, '12.02.2026', '', 0);
+    missingQ[2] = 'Школа 1'; missingQ[5] = 'Текущая деятельность';
+
+    const snapshot = {
+      id: 'c04-03-frozen-rows', createdAt: '2026-10-18T20:00:00Z',
+      rowsByDept: { 'УЭР': [noAd, adYes, unknown, future, missingQ] },
+      metadata: { sourceCoverage: {
+        expectedDepartments: ['УЭР'], readDepartments: ['УЭР'],
+        unreadDepartments: [], complete: true,
+      } },
+    };
+    db.insert(schema.snapshots).values({
+      id: snapshot.id, spreadsheetId: 'synthetic', createdAt: snapshot.createdAt,
+      data: JSON.stringify(snapshot),
+    }).run();
+
+    const perimeter = '?snapshot_id=c04-03-frozen-rows&dept=uer&year=2026&months=2'
+      + '&activity=current_program&subordinate=' + encodeURIComponent('Школа 1');
+    const competitive = await app.inject('/api/rows/scatter' + perimeter + '&type=competitive');
+    expect(competitive.statusCode).toBe(200);
+    const body = competitive.json();
+
+    // Recalculate independently from raw K/Y, not from the implementation's
+    // displayed percentages: (1200 + 2000 - 900 - 1600) / 3200 = 21.875%.
+    expect(body.basis).toBe('plan_K_vs_recorded_fact_Y');
+    expect(body.unit).toBe('thousand_rubles');
+    expect(body.asOf).toBe('2026-10-19'); // Snapshot instant, Kamchatka day.
+    expect(body.sourceSnapshotId).toBe(snapshot.id);
+    expect(body.coverage.complete).toBe(true);
+    expect(body.points.map((p: ScatterPoint) => p.id)).toEqual(['173/18', '173/19']);
+    expect(body.points[0]).toMatchObject({
+      rowIndex: 4, department: 'УЭР', subordinate: 'Школа 1',
+      planDate: '2026-02-08', factDate: '2026-02-15',
+      planYear: 2026, month: 2, quarter: 1, procurementType: 'ЭА',
+      planTotal: 1200, factTotal: 900, limitReductionPercent: 25,
+      approvedEconomy: 0, // AD='нет', despite nonzero recorded Z/AA/AB.
+    });
+    expect(body.points[1]).toMatchObject({
+      rowIndex: 5, procurementType: 'ЭЗК',
+      planTotal: 2000, factTotal: 1600, limitReductionPercent: 20,
+      approvedEconomy: -30, // Signed Z+AA+AB, independent of K/Y difference.
+    });
+    expect(body.summary).toMatchObject({
+      count: 2, limitTotal: 3200, contractTotal: 2500, approvedEconomy: -30,
+      limitReductionPercent: 21.875,
+    });
+    expect(body.excluded).toMatchObject({ unknownMethod: 1, futureFact: 1, invalidDate: 1 });
+    expect(body.points.some((p: ScatterPoint) => p.id === '173/21')).toBe(false);
+
+    // The total-row/no-EP side of the SVOD is not a proof of tenders: without a
+    // method filter the unknown remains visible and explicitly marked unknown.
+    const allMethods = await app.inject('/api/rows/scatter' + perimeter);
+    expect(allMethods.statusCode).toBe(200);
+    const unknownPoint = allMethods.json().points.find((p: ScatterPoint) => p.id === '173/20');
+    expect(unknownPoint).toMatchObject({
+      procurementType: 'unknown', planTotal: 500, factTotal: 300,
+      approvedEconomy: 0,
+    });
+    expect(allMethods.json().summary.count).toBe(3);
+  });
+
 });
