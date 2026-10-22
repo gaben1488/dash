@@ -720,15 +720,17 @@ const deptEconomySumConsistency: ValidationRule = {
 const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
   'procurement',
   'procurement_derived',
-  'service',
 ]);
 
 function isNumberedRow(row: ClassifiedRow): boolean {
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
-  // проверку всего листа — поэтому header из страховки исключён.
-  if (row.classification === 'header') return false;
-  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+  // A service row can be an actual purchase without a number, but an empty
+  // formula tail (H:K = 0 with no subject or method) must stay silent.
+  if (row.classification === 'header' || row.classification === 'summary' ||
+      row.classification === 'separator' || row.classification === 'note') return false;
+  const hasBusinessText = String(row.cells['G'] ?? '').trim() !== '' ||
+    String(row.cells['L'] ?? '').trim() !== '';
+  return hasBusinessText || (toNumber(row.cells['K']) ?? 0) > 0;
 }
 
 /**
@@ -787,10 +789,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      // № п/п is an identifier, NOT an amount: parseFloat('173/1') === 173
+      // would otherwise merge distinct positions and generate false warnings.
+      const parsed = /^\d+$/.test(raw) ? Number(raw) : null;
+      const intNo = parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
       if (intNo !== null) ints.add(intNo);
-      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
+      // Numeric 531 and string "531" share an address; "531/1" is separate.
       const key = intNo !== null ? String(intNo) : raw;
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);

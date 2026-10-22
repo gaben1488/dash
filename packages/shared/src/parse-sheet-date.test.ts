@@ -38,6 +38,13 @@ describe('parseSheetDate — единый парсер даты из ячейк�
     expect(d!.getUTCFullYear()).toBe(2026);
   });
 
+  it('несуществующие календарные даты не превращаются в март', () => {
+    expect(parseSheetDate('31.02.2026')).toBeNull();
+    expect(parseSheetDate('2026-02-31')).toBeNull();
+    expect(parseSheetDate('29.02.2024')).not.toBeNull();
+    expect(parseSheetDate('29.02.2026')).toBeNull();
+  });
+
   it('мусор → null', () => {
     expect(parseSheetDate('не дата')).toBeNull();
   });
@@ -68,6 +75,20 @@ describe('dayNumberOf — TZ-инвариантный номер календа�
     expect(dayNumberOf('2026-07-13')).toBe(dayNumberOf('13.07.2026'));
     // полная ISO-строка со временем — время суток не влияет на номер суток
     expect(dayNumberOf('2026-07-13T23:59:59Z')).toBe(dayNumberOf('13.07.2026'));
+  });
+
+  it('время в Google serial остаётся в исходных календарных сутках', () => {
+    const serial = 46023; // 01.01.2026
+    expect(dayNumberOf(serial + 0.75)).toBe(dayNumberOf(serial));
+    expect(dayNumberOf(serial + 0.99999)).toBe(dayNumberOf(serial));
+    expect(dayNumberOf(serial + 1)).toBe(dayNumberOf(serial)! + 1);
+  });
+
+  it('некорректные даты не становятся другим днём', () => {
+    for (const s of ['31.02.2026', '2026-02-31', '29.02.2026', '2026-13-01']) {
+      expect(dayNumberOf(s)).toBeNull();
+    }
+    expect(dayNumberOf('29.02.2024')).not.toBeNull();
   });
 
   it('(г) null/мусор → null', () => {
