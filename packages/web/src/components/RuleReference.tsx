@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  procurementEditableGuidance, procurementRuleSections, procurementRulesMarkdown,
+  checkedProcurementGuidanceResponse, procurementRuleSections, procurementRulesMarkdown,
   RULE_REFERENCE_COPY as COPY,
 } from '@aemr/shared';
-import { api, humanizeRequestError, type EditorialGuidanceEntry, type EditorialGuidanceResponse } from '../api';
+import { api, humanizeRequestError, type EditorialGuidanceEntry } from '../api';
 
 const GROUPS: Record<EditorialGuidanceEntry['section'], string> = {
   field: 'Правила заполнения',
@@ -12,31 +12,8 @@ const GROUPS: Record<EditorialGuidanceEntry['section'], string> = {
   seasonal: 'Сезонные ориентиры',
 };
 
-/** Never treat an incomplete/old HTTP response as the saved catalog. */
-export function checkedGuidanceResponse(data: EditorialGuidanceResponse): EditorialGuidanceEntry[] {
-  const baseline = procurementEditableGuidance();
-  if (data?.version !== 'C06.03-editorial-v1' || data.calculationRulesChanged !== false ||
-      !Array.isArray(data.entries) || data.entries.length !== baseline.length) {
-    throw new Error('Сервер не подтвердил полную редакцию справочника');
-  }
-  const expected = new Map(baseline.map(entry => [entry.key, entry]));
-  const unique = new Set<string>();
-  for (const item of data.entries) {
-    const origin = expected.get(item.key);
-    if (!origin || unique.has(item.key) || item.defaultText !== origin.defaultText ||
-        item.section !== origin.section || typeof item.text !== 'string' ||
-        item.text.trim() === '' || !Number.isSafeInteger(item.revision) || item.revision < 0 ||
-        typeof item.overridden !== 'boolean' ||
-        (!item.overridden && item.text !== item.defaultText) ||
-        (item.overridden && item.revision < 1) ||
-        (item.revision > 0 && item.updatedAt === null) ||
-        (item.updatedAt !== null && typeof item.updatedAt !== 'string')) {
-      throw new Error('Редакция справочника несовместима с текущей версией приложения');
-    }
-    unique.add(item.key);
-  }
-  return data.entries;
-}
+/** The editor and the reference view share one runtime validation contract. */
+export const checkedGuidanceResponse = checkedProcurementGuidanceResponse;
 
 export function RuleReference() {
   const [entries, setEntries] = useState<EditorialGuidanceEntry[] | null>(null);
@@ -79,23 +56,49 @@ export function RuleReference() {
   ), [entries]);
   const sections = useMemo(() => procurementRuleSections(overlays), [overlays]);
 
-  function markdown() {
-    if (entries === null) return;
-    const url = URL.createObjectURL(new Blob([procurementRulesMarkdown(overlays)], { type: 'text/markdown;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'pravila-dash.md'; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+  // Refresh for EACH export: another operator may have edited the catalog since
+  // this page opened. Never label an older screen revision as the current guide.
+  async function freshGuidanceForExport() {
+    const latest = checkedGuidanceResponse(await api.getEditorialGuidance());
+    const latestOverrides = Object.fromEntries(
+      latest.filter(entry => entry.overridden).map(entry => [entry.key, entry.text]),
+    );
+    setEntries(latest); setLoadError(null);
+    return { sections: procurementRuleSections(latestOverrides), markdown: procurementRulesMarkdown(latestOverrides) };
   }
-  async function word() {
-    if (entries === null) return;
+
+  function invalidateUnverifiedCatalog(err: unknown) {
+    setEntries(null);
+    setLoadError(humanizeRequestError(err));
+    setExportError(true);
+  }
+
+  async function markdown() {
+    if (!entries || pending || saving || reloading) return;
     setPending(true); setExportError(false);
     try {
-      const { buildDocument, downloadDocx } = await import('../lib/report/docx/build-docx');
-      const blocks = sections.flatMap(section => [
-        { kind: 'heading' as const, text: section.title },
-        ...section.paragraphs.map(text => ({ kind: 'text' as const, text })),
-      ]);
-      await downloadDocx(buildDocument(blocks, COPY.title), 'pravila-dash.docx');
-    } catch { setExportError(true); } finally { setPending(false); }
+      const latest = await freshGuidanceForExport();
+      const url = URL.createObjectURL(new Blob([latest.markdown], { type: 'text/markdown;charset=utf-8' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'pravila-dash.md'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) { invalidateUnverifiedCatalog(err); }
+    finally { setPending(false); }
+  }
+  async function word() {
+    if (!entries || pending || saving || reloading) return;
+    setPending(true); setExportError(false);
+    try {
+      const latest = await freshGuidanceForExport();
+      try {
+        const { buildDocument, downloadDocx } = await import('../lib/report/docx/build-docx');
+        const blocks = latest.sections.flatMap(section => [
+          { kind: 'heading' as const, text: section.title },
+          ...section.paragraphs.map(text => ({ kind: 'text' as const, text })),
+        ]);
+        await downloadDocx(buildDocument(blocks, COPY.title), 'pravila-dash.docx');
+      } catch { setExportError(true); }
+    } catch (err) { invalidateUnverifiedCatalog(err); }
+    finally { setPending(false); }
   }
 
   async function saveEntry() {
@@ -111,9 +114,13 @@ export function RuleReference() {
           verified.overridden !== response.overridden) {
         throw new Error('Сервер не подтвердил сохранённую редакцию. Перечитайте справочник.');
       }
-      setEntries(received); setEditing(null); setReason('');
+      setEntries(received); setEditing(null); setReason(''); setLoadError(null);
       setSaveMessage('Редакция сохранена и повторно прочитана. Расчёты и прошлые отчёты не изменены.');
     } catch (err) {
+      // The write may have succeeded even if its readback failed. The old
+      // entries are no longer safe to export or edit until a new GET succeeds.
+      setEntries(null);
+      setLoadError('Состояние записи не подтверждено. Перечитайте справочник.');
       setSaveMessage(humanizeRequestError(err));
     } finally {
       setSaving(false);
@@ -133,8 +140,9 @@ export function RuleReference() {
     <div className="flex flex-wrap gap-4 py-3 text-sm">
       <button type="button" className="underline disabled:opacity-40" disabled={reloading || saving}
         onClick={() => void reloadEditorialCatalog()}>{reloading ? 'Читаем редакцию…' : 'Перечитать справочник'}</button>
-      <button type="button" className="underline disabled:opacity-40" disabled={!entries || reloading} onClick={markdown}>{COPY.markdown}</button>
-      <button type="button" className="underline disabled:opacity-40" disabled={!entries || pending || reloading}
+      <button type="button" className="underline disabled:opacity-40" disabled={!entries || pending || saving || reloading}
+        onClick={() => void markdown()}>{COPY.markdown}</button>
+      <button type="button" className="underline disabled:opacity-40" disabled={!entries || pending || saving || reloading}
         onClick={() => void word()}>{pending ? COPY.pending : COPY.docx}</button>
     </div>
     {exportError && <p role="alert" className="text-sm text-red-700">{COPY.failure}</p>}
