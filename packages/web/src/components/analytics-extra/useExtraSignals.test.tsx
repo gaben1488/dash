@@ -14,11 +14,12 @@ afterEach(() => {
   vi.mocked(fetchJSON).mockReset();
 });
 
-it('webhook rechecks only local API (debounced); manual reload alone forces Google', async () => {
+it('opens with an independent current-vs-Thursday source read; SSE uses local cache and manual refresh re-reads', async () => {
   vi.mocked(fetchJSON).mockResolvedValue({} as never);
   const { result } = renderHook(() => useIntegrity());
   await waitFor(() => expect(fetchJSON).toHaveBeenCalledTimes(1));
-  expect(fetchJSON).toHaveBeenLastCalledWith('/integrity');
+  // No Drive webhook was delivered; opening Control itself verifies current books.
+  expect(fetchJSON).toHaveBeenLastCalledWith('/integrity?refresh=true');
 
   act(() => {
     window.dispatchEvent(new Event('department-books-updated'));
