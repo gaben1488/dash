@@ -321,7 +321,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
           <span className="text-[10px] text-zinc-400 underline decoration-dotted cursor-help">как строится прогноз</span>
         </KBTooltip>
       </div>
-      {chartData.length > 0 && forecast?.scenarios?.length > 0 ? (
+      {chartData.some(point => forecast?.scenarios?.some((sc: { label: string }) => point[sc.label] !== null)) ? (
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
@@ -1501,12 +1501,18 @@ export function Analytics() {
                     >
                       <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{productLabel(row.dept)}</td>
                       <td className="py-1.5 text-center">
-                        <span
-                          className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
-                          style={{ backgroundColor: getExecutionHeatBg(row.execPct, isDark), color: getExecutionHeatText(row.execPct, isDark) }}
-                        >
-                          {row.execPct > 0 ? `${typeof row.execPct === 'number' ? row.execPct.toFixed(0) : row.execPct}%` : '—'}
-                        </span>
+                        {row.execPct !== null ? (
+                          <span
+                            className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
+                            style={{ backgroundColor: getExecutionHeatBg(row.execPct, isDark), color: getExecutionHeatText(row.execPct, isDark) }}
+                          >
+                            {row.execPct.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[var(--ink-faint)]" title={row.planTotal === null ? 'План не прочитан' : row.planTotal === 0 ? 'Нет плановой базы' : 'Факт не прочитан'}>
+                            не оценено
+                          </span>
+                        )}
                       </td>
                       <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
                         {row.planTotal != null ? formatMoney(row.planTotal) : '—'}
