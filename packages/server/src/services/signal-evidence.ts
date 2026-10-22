@@ -28,7 +28,8 @@ export function signalEvidenceFromSnapshot(
         const position = COL_LETTER_INDEX[column];
         if (typeof position !== 'number') return null;
         const cell = sourceRow?.[position];
-        return cell === undefined || cell === null ? '' : String(cell);
+        // Absent indexed column is NOT the same evidence as an actual empty cell.
+        return cell === undefined ? null : cell === null ? '' : String(cell);
       },
     } : {}),
   }, 1);

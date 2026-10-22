@@ -869,9 +869,9 @@ export function IssuesPage() {
                           return (
                             <div className="mb-3 space-y-1 text-[11px] text-zinc-600 dark:text-zinc-300" aria-label="Паспорт проверки">
                               <p>Применимость: {passport.applicability}</p>
-                              <p>Свидетельство: {passport.evidence.readableFromIssue
+                              <p>Адрес для проверки (не доказательство значения): {passport.evidence.readableFromIssue
                                 ? passport.evidence.address + '; графы ' + passport.evidence.columns.join(', ')
-                                : 'проверенная исходная строка не установлена'}</p>
+                                : 'не установлен'}</p>
                               <p>Адресат: {passport.addressee}</p>
                               <p>Действие: {passport.action}</p>
                               <p>Решение: {passport.closure}</p>
