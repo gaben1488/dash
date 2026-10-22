@@ -685,6 +685,10 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       setDeptLoadMeta(Object.fromEntries(failed.map(name => [name, {
         loadedAt: at, rowCount: 0, sheetName: name, error: errors[name],
       }])));
+      // Failed formula acquisition is still a diagnostic fact. Record failed
+      // attempts only; never submit the successfully read portion to the sink,
+      // because the new complete bundle was not accepted.
+      deliverFormulas({}, errors, options.withFormulas ?? false, at, log);
       invalidateCache(); // Previously published models must be marked stale.
       log?.warn('SOURCE_FULL_BASE_NOT_UPDATED: an incomplete observation cannot replace the accepted source state');
       return {
