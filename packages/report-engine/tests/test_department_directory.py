@@ -56,7 +56,10 @@ def test_master_fields_and_required_meanings_come_from_shared_profile():
 
 def test_known_master_binding_cannot_skip_the_single_profile_after_provider_change():
     from procurement_engine.department_directory import MASTER_FIELDS
-    from procurement_engine.google_adapter import GoogleReadError, GoogleSheetSourceAdapter
+    from procurement_engine.google_adapter import (
+        GoogleReadError,
+        GoogleSheetSourceAdapter,
+    )
 
     header = [field['label'] for field in MASTER_FIELDS.values()]
     header[21] = 'Другая сумма вместо ФБ 2'
