@@ -272,7 +272,7 @@ describe('POST /api/webhook/drive', () => {
       'webhook',
       // Формулы читаются по уведомлению (решение владельца §22 п.7): книгу
       // трогали рукой, а формулу перебивают именно рукой.
-      { fresh: true, books: ['УО'], svod: false, withFormulas: true },
+      { fresh: true, books: ['УО'], svod: true, withFormulas: true },
     );
   });
 
