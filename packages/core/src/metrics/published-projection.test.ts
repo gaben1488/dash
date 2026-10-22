@@ -41,7 +41,9 @@ function setup() {
 }
 
 describe('one product metric projection over the executable CalcEngine', () => {
-  it('preserves every previously published key and value without a second arithmetic path', () => {
+  it('publishes the same deterministic values through the pipeline and its canonical projection', () => {
+    // This is a present-time integration invariant, NOT an independent
+    // historical release comparison; the original manual path was removed.
     const { books, fresh } = setup();
     const old = runPipeline({
       sheetRows: books, batchGetData: [], reportMap: [], rules: [],
@@ -78,6 +80,38 @@ describe('one product metric projection over the executable CalcEngine', () => {
     expect(get('grbs.uo.year.economy_total')).toBe(3);
     // Honest no-denominator result is absent, not persisted as false 0%.
     expect(fresh.has('grbs.uo.kp.q4.percent')).toBe(false);
+
+    // Independent expected values from six literal fixture rows, rather than
+    // comparing two routes that now intentionally call the same projection.
+    const golden: Record<string, number> = {
+      'grbs.uo.q1.plan_count': 2,
+      'grbs.uo.q1.fact_count': 2,
+      'grbs.uo.q1.plan_total': 300,
+      'grbs.uo.q1.fact_total': 240,
+      'grbs.uo.q1.economy_total': 3,
+      'grbs.uo.q2.plan_count': 1,
+      'grbs.uo.q2.fact_count': 0,
+      'grbs.uo.year.plan_count': 3,
+      'grbs.uo.year.fact_count': 2,
+      'grbs.uo.year.plan_total': 600,
+      'grbs.uo.year.fact_total': 240,
+      'grbs.uo.m5.plan_total': 70, // independent month includes orphan
+      'grbs.uo.m5.fact_total': 60,
+      'grbs.uer.year.plan_count': 2,
+      'grbs.uer.year.fact_count': 2,
+      'grbs.uer.year.plan_total': 150,
+      'grbs.uer.year.fact_total': 100,
+      'competitive.year.plan_total': 600,
+      'competitive.year.total_fact': 220,
+      'sole.year.total_plan': 150,
+      'sole.year.total_fact': 120,
+      'sole.year.economy_total': 5,
+    };
+    for (const [key, value] of Object.entries(golden)) {
+      expect(fresh.get(key)?.numericValue, key).toBeCloseTo(value, 8);
+    }
+    expect(fresh.has('grbs.uo.economy.conflicts')).toBe(true);
+    expect(fresh.get('grbs.uo.economy.conflicts')?.numericValue).toBeGreaterThanOrEqual(1);
   });
 
   it('combines independent source row coordinates while deriving one rate from bases', () => {
