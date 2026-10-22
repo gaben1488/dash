@@ -28,7 +28,7 @@ const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
 const HYGIENE_RULES = RULE_BOOK.filter((r) => r.id === 'text_hygiene');
 
 const ZHAR_CANON = 'МБДОУ "Детский сад № 3 "Жар-птица"';
-const ZHAR_VARIANT = 'МБДОУ "Детский сад №3 "Жар-птица"';
+const ZHAR_VARIANT = 'МБДОУ "Детский сад №3 "Жар-птиица"';
 
 /** Счётная строка листа управления: подвед (C), предмет (G), способ, план. */
 function row(rowIndex: number, c: unknown, g: unknown, overrides: Partial<ClassifiedRow> = {}): ClassifiedRow {
@@ -137,7 +137,7 @@ describe('text_hygiene — одна карточка на лист (каскад
 
 describe('text_hygiene — живой кейс «Жар-Птица» (лист ВСЕ книги УО)', () => {
   /**
-   * 43 строки канона против 5 строк варианта «№3» — доля не защищает вариант:
+   * 43 строки канона против 5 строк с подлинной опечаткой имени — доля не защищает вариант:
    * истина не в большинстве строк, а в справочнике подведов.
    */
   const VARIANT_ROWS = [2309, 2521, 2647, 2648, 2649];

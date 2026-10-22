@@ -17,7 +17,11 @@ function payload(rows: number, cols: number): unknown[][] {
   );
 }
 
+// Procurement identifiers are not date serials. Preserve the actual scope of
+// this benchmark (individual vs batch reads) instead of triggering an unrelated
+// fail-closed verification with impossible mock grid data.
 const GRID = payload(3000, 40);
+for (let i = 0; i < GRID.length; i++) GRID[i][0] = i + 1;
 
 const valuesGet = vi.fn(async (params: { range?: string }) => {
   calls.push(`values.get ${params.range ?? ''}`);

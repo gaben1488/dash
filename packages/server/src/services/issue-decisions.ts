@@ -68,7 +68,7 @@ export function withPersistedDecisions<T extends DataSnapshot>(snapshot: T): T {
   const issues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
   // Recompute the request view using current rules; sealed source/history is unchanged.
   return { ...snapshot, issues, metadata: { ...snapshot.metadata,
-    decisionView: { basedOnContext: snapshot.metadata.calculationContext?.id ?? null,
+    decisionView: { basedOnContext: snapshot.metadata?.calculationContext?.id ?? null,
       revision: calculationDigest(issues.map(i => ({ id: i.id, status: i.status }))) } }, trust:
     computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)), issues, snapshot.deltas ?? [], snapshot.id, snapshot.trust?.coverage) };
 }

@@ -16,6 +16,7 @@ import {
   differsOnlyInEnding,
   normalizeWord,
   collectWords,
+  findHouseholdGoodsAbbreviation,
   SPELL_MIN_LENGTH,
   type LanguageFinding,
 } from './text-language.js';
@@ -516,4 +517,21 @@ it.each(['миши', 'мороженной', 'погашеное', 'Данные
 
 it('сохраняет причастие с зависимыми словами', () => {
   expect(languageFix('Поставка рыбы, мороженной в рефрижераторе')).toBe('Поставка рыбы, мороженной в рефрижераторе');
+});
+
+
+describe('контекстная опечатка хозяйственных товаров', () => {
+  it('показывает правильное сокращение и готовое исправление', () => {
+    const raw = 'Покупка хор. Товаров';
+    expect(findHouseholdGoodsAbbreviation(raw)?.suggestion).toBe('хоз.');
+    expect(languageFix(raw, 'высокая', 'наименование')).toBe('Покупка хоз. Товаров');
+    expect(detectLanguageIssues(raw, 'наименование')
+      .some(issue => issue.kind === 'spelling' && issue.fix === 'Покупка хоз. Товаров')).toBe(true);
+  });
+  it('распознаёт латинскую p, но не трогает слово «хор» вне контекста товаров', () => {
+    expect(languageFix('Покупка хоp. товаров', 'высокая', 'наименование')).toBe('Покупка хоз. товаров');
+    expect(findHouseholdGoodsAbbreviation('Костюмы для хора')).toBeNull();
+    expect(findHouseholdGoodsAbbreviation('Репетиция хора. Покупка костюмов')).toBeNull();
+    expect(findHouseholdGoodsAbbreviation('Покупка хор. костюмов')).toBeNull();
+  });
 });

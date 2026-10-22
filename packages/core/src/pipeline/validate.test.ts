@@ -628,3 +628,39 @@ describe('validation execution coverage', () => {
     ]);
   });
 });
+
+describe('СВОД — физический периметр Dash до строки 278', () => {
+  it('оба вида правил применяются к 278, не к экспериментальным 279 и 284', () => {
+    const bad = { A: 'УД', H: 1, I: 2, J: 3, K: 100, L: 2, M: 3, N: 4, O: 100 };
+    const rows = [278, 279, 284].map(rowIndex => makeRow({ rowIndex, cells: bad }));
+    const rules = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact'].includes(r.id));
+    const issues = validateData(EMPTY_METRICS, rows, rules, REPORT_MAP);
+    expect(issues.filter(i => ['budget_sum_plan', 'budget_sum_fact'].includes(i.category)).map(i => i.row))
+      .toEqual([278, 278]);
+  });
+
+  it('исключает 279+ из контекста всех правил, включая scope both', () => {
+    const seen: number[][] = [];
+    const rules = [
+      makeRule({ id: 'svod_context', scope: 'svod', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
+        return { passed: true };
+      }}),
+      makeRule({ id: 'both_context', scope: 'both', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
+        return { passed: true };
+      }}),
+    ];
+    const rows = [278, 279, 324].map(rowIndex => makeRow({ rowIndex }));
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP)).toEqual([]);
+    expect(seen).toEqual([[278], [278]]);
+  });
+
+  it('не урезает строки книг ГРБС после 278', () => {
+    const rows = [makeRow({ sheet: 'УО', rowIndex: 284 })];
+    const issues = validateData(EMPTY_METRICS, rows,
+      [makeFailingRule({ id: 'department_tail', scope: 'both' })], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].row).toBe(284);
+  });
+});
