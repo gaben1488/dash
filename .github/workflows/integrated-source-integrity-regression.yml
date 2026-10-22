@@ -37,6 +37,8 @@ jobs:
           src/services/metadata-watch.test.ts
           src/routes/source-integrity.test.ts
           src/db/ddl.test.ts
+      - name: Validate offline SQLite recovery helper (no VPS)
+        run: python3 -m unittest discover -s .github/ci -p 'test_source_integrity_release.py' -v
       - name: Lint
         run: pnpm lint
       - name: Production build, without any deployment
