@@ -450,7 +450,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           // a successful refresh.
           const failed = new Set(acquisition.failed);
           const meta = getDeptLoadMeta();
-          const declined = Object.keys(DEPARTMENT_SPREADSHEETS).map(name => ({
+          const declined: SourceStatus[] = Object.keys(DEPARTMENT_SPREADSHEETS).map(name => ({
             name,
             type: 'department' as const,
             loaded: false,
