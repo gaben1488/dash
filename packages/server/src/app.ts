@@ -40,10 +40,10 @@ import { commentsRoutes } from './routes/comments.js';
 import { sourceIntegrityRoutes } from './routes/source-integrity.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
-import { startNightlyIntegritySweep } from './services/metadata-watch.js';
-import { connectFormulaSink } from './services/formula-sink.js';
+import { startNightlyIntegritySweep, restoreMetadataWatch } from './services/metadata-watch.js';
+import { connectFormulaSink, disconnectFormulaSink, restoreFormulaVerdicts } from './services/formula-sink.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
-import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
+import { refreshAllSources, restoreFormulaDeliveries, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
 import { startDriveWatch } from './services/drive-watch.js';
 import { setChangeAuthorResolver } from './services/live-diff.js';
@@ -187,9 +187,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // рядом с процессными стражами, до регистрации маршрутов: чтения начинаются
   // с первого же запроса.
   setSourceLogger(app.log);
+  // Восстановление до webhook-роутов/cron, без сетевых запросов к Google.
+  // Подключить анализ сразу: уведомление, пришедшее пока грузится первый
+  // снимок, теперь не теряет разбор формул.
+  restoreFormulaDeliveries();
+  restoreFormulaVerdicts();
+  restoreMetadataWatch();
+  connectFormulaSink({ warn: (m) => app.log.warn(m) });
   // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
+    disconnectFormulaSink();
     setSourceLogger(null);
   });
 
@@ -396,10 +404,6 @@ export function preloadData(app: FastifyInstance): void {
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
-
-    // Приёмник формул: разбор целостности идёт и тогда, когда снимок не
-    // пересобирается (правка формулы значений строк не меняет).
-    connectFormulaSink({ warn: (m) => app.log.warn(m) });
 
     // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
     // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
