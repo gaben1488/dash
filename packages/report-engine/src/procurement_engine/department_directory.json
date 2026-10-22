@@ -350,6 +350,24 @@
     "role": "master",
     "headerRows": 3,
     "columns": 34,
+    "formulaColumnGroups": [
+      {
+        "from": "K",
+        "to": "K"
+      },
+      {
+        "from": "O",
+        "to": "P"
+      },
+      {
+        "from": "R",
+        "to": "T"
+      },
+      {
+        "from": "Y",
+        "to": "AC"
+      }
+    ],
     "fields": {
       "ID": {
         "index": 0,
