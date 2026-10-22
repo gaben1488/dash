@@ -56,6 +56,8 @@ describe('C08.02: one attested CalculationContext, no additional passport store'
     expect(inspectSnapshotCalculationResult(snap).status).toBe('matching');
     const restored = JSON.parse(JSON.stringify(snap)) as DataSnapshot;
     expect(inspectSnapshotCalculationResult(restored).status).toBe('matching');
+    restored.rowsByDept!.УО[0][1] = 999;
+    expect(inspectSnapshotCalculationResult(restored).mismatches).toContain('archived_department_rows');
     expect(inspectSnapshotCalculationResult({ ...restored, calculatedMetrics: {
       ...restored.calculatedMetrics, amount: { numericValue: 99 } as never,
     } }).mismatches).toContain('output_hash');
