@@ -36,3 +36,21 @@ it('has explicit financial and percentage scales', () => {
   expect(parsePercentage(1.5, 'points')).toEqual({ ok: true, value: 0.015 });
   expect(parsePercentage('%', 'points')).toEqual({ ok: false });
 });
+
+// Identical source test vectors are exercised independently in TS and Python.
+it.each(cases.moneyScales)('shared money scale: $raw ($from → $to)', testCase => {
+  const parsed = parseEditableAmount(testCase.raw);
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok || parsed.value === null) throw new Error('Expected a source amount');
+  const source = testCase.from as 'rubles' | 'thousand_rubles' | 'million_rubles';
+  const target = testCase.to as 'rubles' | 'thousand_rubles' | 'million_rubles';
+  expect(convertMoney(parsed.value, source, target)).toBeCloseTo(Number(testCase.value), 8);
+});
+
+it.each(cases.percentScales)('shared explicit percent encoding: $raw ($encoding)', testCase => {
+  const source = testCase.encoding as 'fraction' | 'points';
+  expect(parsePercentage(testCase.raw, source)).toEqual({
+    ok: true,
+    value: testCase.value === null ? null : Number(testCase.value),
+  });
+});
