@@ -86,6 +86,9 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): BookFormulaVer
     book: delivery.book,
     at: delivery.at ?? new Date().toISOString(),
     rowsJudged,
+    ...(coverage[0] ? { checks: {
+      expected: coverage[0].expected, checked: coverage[0].checked, failed: coverage[0].failed,
+    } } : {}),
     defects,
   };
   verdicts.set(delivery.book, verdict);
