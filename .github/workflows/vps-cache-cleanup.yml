@@ -1,6 +1,9 @@
 name: Owner-authorized VPS maintenance
 
 on:
+  # Main-branch owner-only bridge calls this reviewed integrated release workflow.
+  # The existing event/sender/PR/exact-SHA/CI gates inside jobs are unchanged.
+  workflow_call:
   pull_request:
     branches: [main]
     types: [labeled]
