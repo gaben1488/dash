@@ -672,7 +672,8 @@ console.log('CANDIDATE_SCHEMA_PASS');
     def web_config(self, plan, *, candidate=False):
         """Validate the bounded web transition without opening the business volume."""
         keys = {'format', 'release_sha', 'images', 'candidate_images', 'volume', 'config_sha256',
-                'tool_sha256', 'source_ci_sha256', 'word', 'original_running', 'container_ids', 'backend_sha'}
+                'tool_sha256', 'source_ci_sha256', 'word', 'original_running', 'container_ids', 'backend_sha',
+                'backend_runtime'}
         if (not isinstance(plan, dict) or set(plan) != keys or plan['format'] != 'aemr-web-release-v1'
                 or not re.fullmatch('[a-f0-9]{40}', plan['release_sha'])
                 or not re.fullmatch('[a-f0-9]{40}', plan['backend_sha'])
@@ -717,13 +718,23 @@ console.log('CANDIDATE_SCHEMA_PASS');
         return literal(config)
 
     def web_unchanged(self, plan, records):
+        # The immutable image/container alone does not prove a running process
+        # survived. Guard every web-only transition, including owner-loss recovery.
+        expected = plan.get('backend_runtime')
+        if not isinstance(expected, dict) or set(expected) != {'server', 'report-worker', 'caddy'}:
+            fail('RELEASE_WEB_BACKEND_CHANGED')
         for service in SERVICES:
             if service == 'web':
                 continue
             record = records[service]
-            if (record['Id'] != plan['container_ids'][service]
+            state = record['State']
+            actual = {'container': record['Id'], 'image': record['Image'],
+                      'status': state['Status'], 'started_at': state.get('StartedAt'),
+                      'restart_count': record.get('RestartCount')}
+            if (actual != expected[service]
+                    or record['Id'] != plan['container_ids'][service]
                     or record['Image'] != plan['images'][service]
-                    or (record['State']['Status'] == 'running') != plan['original_running'][service]):
+                    or (state['Status'] == 'running') != plan['original_running'][service]):
                 fail('RELEASE_WEB_BACKEND_CHANGED')
 
     def web_start(self, plan, *, candidate):
