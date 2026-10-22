@@ -14,11 +14,12 @@ afterEach(() => {
   vi.mocked(fetchJSON).mockReset();
 });
 
-it('webhook rechecks only local API (debounced); manual reload alone forces Google', async () => {
+it('initial Control visit reads actual Google sources; SSE is debounced and cache-only', async () => {
   vi.mocked(fetchJSON).mockResolvedValue({} as never);
   const { result } = renderHook(() => useIntegrity());
   await waitFor(() => expect(fetchJSON).toHaveBeenCalledTimes(1));
-  expect(fetchJSON).toHaveBeenLastCalledWith('/integrity');
+  // No webhook was delivered; the first visit still starts an independent source read.
+  expect(fetchJSON).toHaveBeenLastCalledWith('/integrity?refresh=true');
 
   act(() => {
     window.dispatchEvent(new Event('department-books-updated'));
