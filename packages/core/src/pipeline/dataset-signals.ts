@@ -561,6 +561,8 @@ export interface DatasetAnalysisInput {
   deptId?: string;
   /** Reference date for time-based checks (defaults to current date) */
   referenceDate?: Date;
+  /** Dated snapshot reference in thousand rubles; absence is unavailable, not zero flagged groups. */
+  epSingleContractReference?: import('@aemr/shared').DatedThreshold | undefined;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -654,7 +656,7 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
   const seasonalAnomalies = detectSeasonalAnomalies(rows, input.deptId, input.referenceDate);
 
   // 11. Suspicious splitting (44-ФЗ anti-splitting)
-  const suspiciousSplitting = detectSuspiciousSplitting(rows);
+  const suspiciousSplitting = detectSuspiciousSplitting(rows, input.epSingleContractReference);
 
   return {
     benford,
