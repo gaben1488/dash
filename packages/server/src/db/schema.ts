@@ -346,8 +346,13 @@ export const changelogEntries = sqliteTable('changelog_entries', {
   attribute: text('attribute'),
   oldValue: text('old_value'),
   newValue: text('new_value'),
-  /** Момент правки (мс эпохи) — из отметки времени журнала. */
+  /** Legacy source-local wall-clock numerical key; NOT a UTC instant. */
   atMs: integer('at_ms').notNull(),
+  /** Exactness is data, not a heuristic inferred from an event ID. */
+  timePrecision: text('time_precision').notNull().default('unknown'),
+  sourceTimeRaw: text('source_time_raw'),
+  /** Physical journal row is diagnostic only; not a business/event identity. */
+  sourceJournalRow: integer('source_journal_row'),
   /** Почта автора, как её записал источник. */
   author: text('author'),
   /** Когда запись прочитана нами: момент правки и момент чтения — не одно и то же. */
