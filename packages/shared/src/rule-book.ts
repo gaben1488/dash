@@ -37,7 +37,7 @@ import {
  */
 export function toNumber(val: unknown): number | null {
   if (val === null || val === undefined || val === '') return null;
-  if (typeof val === 'number' && !isNaN(val)) return val;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
   if (typeof val === 'string') {
     const cleaned = val.replace(/\s/g, '').replace(',', '.');
     // The whole text must be a number. parseFloat('12abc') === 12 previously
