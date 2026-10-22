@@ -39,7 +39,8 @@ const TABS: { id: QualityTab; label: string; icon: typeof ShieldCheck; descripti
 ];
 
 export function QualityPage() {
-  const { qualityTab, setQualityTab } = useStore();
+  const qualityTab = useStore(s => s.qualityTab);
+  const setQualityTab = useStore(s => s.setQualityTab);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const activeIndex = Math.max(0, TABS.findIndex((t) => t.id === qualityTab));

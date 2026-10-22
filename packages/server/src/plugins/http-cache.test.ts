@@ -29,6 +29,10 @@ beforeAll(async () => {
     reply.header('etag', '"own-tag"');
     return BODY;
   });
+  app.get('/api/no-store', async (_req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return BODY;
+  });
   await app.ready();
 });
 
@@ -109,6 +113,17 @@ describe('кому отпечаток не ставится', () => {
   it('обращению не к /api (страница приложения и статика)', async () => {
     const res = await app.inject({ method: 'GET', url: '/not-api' });
     expect(res.headers.etag).toBeUndefined();
+  });
+
+  it('does not hash private no-store report responses or invent reusable 304', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/no-store',
+      headers: { 'if-none-match': '*' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers.etag).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(res.json()).toEqual(BODY);
   });
 
   it('ответу, который назвал свой отпечаток сам', async () => {

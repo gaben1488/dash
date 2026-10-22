@@ -16,6 +16,8 @@ import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { COMPRESS_MIN_BYTES, appendVary, pickEncoding, registerCompression } from './compression.js';
+import { registerHttpCache } from './http-cache.js';
+import { registerRequestTiming } from './request-timing.js';
 
 /** Похоже на настоящий ответ продукта: длинный однородный список записей. */
 const RECORDS = Array.from({ length: 400 }, (_, i) => ({
@@ -135,5 +137,42 @@ describe('выбор кодировки по объявлению клиента
     expect(appendVary('Accept-Encoding', 'Accept-Encoding')).toBe('Accept-Encoding');
     expect(appendVary('Origin', 'Accept-Encoding')).toBe('Origin, Accept-Encoding');
     expect(appendVary(undefined, 'Accept-Encoding')).toBe('Accept-Encoding');
+  });
+});
+
+
+describe('complete response timing: no compression hidden in proxy residual', () => {
+  it('includes compression in app timing, keeps exact bodies and ETag/304 semantics', async () => {
+    const measured = Fastify({ logger: false });
+    registerHttpCache(measured);
+    registerCompression(measured);
+    registerRequestTiming(measured);
+    measured.get('/api/changes', async () => ({ items: RECORDS }));
+    try {
+      const first = await measured.inject({ method: 'GET', url: '/api/changes',
+        headers: { 'accept-encoding': 'br' } });
+      expect(first.statusCode).toBe(200);
+      expect(first.headers['content-encoding']).toBe('br');
+      expect(JSON.parse(brotliDecompressSync(first.rawPayload).toString('utf8'))).toEqual({ items: RECORDS });
+      const timings = String(first.headers['server-timing']);
+      const appMs = Number(timings.match(/app;dur=([\d.]+)/)?.[1]);
+      const compressMs = Number(timings.match(/compress;dur=([\d.]+)/)?.[1]);
+      expect(Number.isFinite(appMs)).toBe(true);
+      expect(Number.isFinite(compressMs)).toBe(true);
+      expect(compressMs).toBeGreaterThan(0);
+      // The old hook order measured app before compression and could report app < compress.
+      expect(appMs).toBeGreaterThanOrEqual(compressMs);
+      const serializeMs = Number(timings.match(/serialize;dur=([\d.]+)/)?.[1]);
+      expect(Number.isFinite(serializeMs)).toBe(true);
+      // These stages must not double-charge Brotli to JSON serialization.
+      expect(serializeMs + compressMs).toBeLessThanOrEqual(appMs + 0.05);
+
+      const conditional = await measured.inject({ method: 'GET', url: '/api/changes',
+        headers: { 'accept-encoding': 'br', 'if-none-match': String(first.headers.etag) } });
+      expect(conditional.statusCode).toBe(304);
+      expect(conditional.rawPayload.length).toBe(0);
+      expect(conditional.headers['content-encoding']).toBeUndefined();
+      expect(String(conditional.headers['server-timing'])).not.toContain('compress;dur=');
+    } finally { await measured.close(); }
   });
 });

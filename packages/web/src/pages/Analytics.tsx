@@ -384,7 +384,22 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 }
 
 export function Analytics() {
-  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced, dashboardData } = useStore();
+  const formatMoney = useStore(s => s.formatMoney);
+  useStore(s => s.moneyUnit); // formatMoney uses getState; re-render for changed display units.
+  const navigateTo = useStore(s => s.navigateTo);
+  const subordinatesMap = useStore(s => s.subordinatesMap);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const procurementFilter = useStore(s => s.procurementFilter);
+  const activityFilter = useStore(s => s.activityFilter);
+  const period = useStore(s => s.period);
+  const activeMonths = useStore(s => s.activeMonths);
+  const year = useStore(s => s.year);
+  const periodMode = useStore(s => s.periodMode);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const deptOnlyMode = useStore(s => s.deptOnlyMode);
+  const searchQueryDebounced = useStore(s => s.searchQueryDebounced);
+  const dashboardData = useStore(s => s.dashboardData);
   const fd = useFilteredData();
   // Режим организаций (приказ владельца 20.08): «с подведомственными» —
   // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
@@ -1892,7 +1907,9 @@ function DatasetAuditCard() {
   // Паспорт периметра — из общего дома, а не строкой: карточка считает по
   // книгам целиком, и подпись обязана сама называть неприменимые оси.
   const perimeters = useAnalyticsPerimeters();
-  const { dashboardData, navigateTo, selectedDepartments } = useStore();
+  const dashboardData = useStore(s => s.dashboardData);
+  const navigateTo = useStore(s => s.navigateTo);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
   const isDark = useTheme(s => s.theme) === 'dark';
   const orgScope = useOrgScope();
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
@@ -2078,7 +2095,8 @@ function CentralizationCard() {
   // Тот же дом паспорта: разрез идёт по книгам целиком, период и подведы к
   // нему не применяются, и об этом говорит подпись, а не молчание.
   const perimeters = useAnalyticsPerimeters();
-  const { navigateTo, selectedDepartments } = useStore();
+  const navigateTo = useStore(s => s.navigateTo);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
   const [data, setData] = useState<{
     opportunities: CentralizationOpportunityDTO[];
     totalOpportunities: number;

@@ -77,21 +77,35 @@ export function SelectionTokens({compact = false, style}: {compact?: boolean; st
     document.addEventListener('keydown',dismiss,true);
     return ()=>document.removeEventListener('keydown',dismiss,true);
   },[undo]);
-  const {
-    page,
-    year, setYear, periodMode, activeMonths, monthsByYear, period,
-    focusedWeekStart, shiftFocusedWeek, clearAllPeriods,
-    selectedMethods, clearMethods,
-    selectedActivities, clearActivities,
-    selectedBudgets, clearBudgets,
-    selectedDepartments, selectAllDepartments,
-    selectedSubordinates,
-    searchQuery, setSearchQuery,
-    moneyUnit, setMoneyUnit,
-    stavkaMode, setStavkaMode, liveStavka,
-    dashboardData, formatMoney,
-    resetAllFilters,
-  } = useStore();
+  const page = useStore(s => s.page);
+  const year = useStore(s => s.year);
+  const setYear = useStore(s => s.setYear);
+  const periodMode = useStore(s => s.periodMode);
+  const activeMonths = useStore(s => s.activeMonths);
+  const monthsByYear = useStore(s => s.monthsByYear);
+  const period = useStore(s => s.period);
+  const focusedWeekStart = useStore(s => s.focusedWeekStart);
+  const shiftFocusedWeek = useStore(s => s.shiftFocusedWeek);
+  const clearAllPeriods = useStore(s => s.clearAllPeriods);
+  const selectedMethods = useStore(s => s.selectedMethods);
+  const clearMethods = useStore(s => s.clearMethods);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const clearActivities = useStore(s => s.clearActivities);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const clearBudgets = useStore(s => s.clearBudgets);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const selectAllDepartments = useStore(s => s.selectAllDepartments);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const searchQuery = useStore(s => s.searchQuery);
+  const setSearchQuery = useStore(s => s.setSearchQuery);
+  const moneyUnit = useStore(s => s.moneyUnit);
+  const setMoneyUnit = useStore(s => s.setMoneyUnit);
+  const stavkaMode = useStore(s => s.stavkaMode);
+  const setStavkaMode = useStore(s => s.setStavkaMode);
+  const liveStavka = useStore(s => s.liveStavka);
+  const dashboardData = useStore(s => s.dashboardData);
+  const formatMoney = useStore(s => s.formatMoney);
+  const resetAllFilters = useStore(s => s.resetAllFilters);
 
   // Гейт страницей: та же карта осей, что у барабанов шапки (PAGE_FILTERS,
   // дом — store.ts). Ось не действует на вкладке — жетон о ней молчит.

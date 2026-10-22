@@ -81,7 +81,10 @@ function pageWindow(current: number, total: number): number[] {
 }
 
 export function JournalPage() {
-  const { selectedDepartments, year, period, activeMonths } = useStore();
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const year = useStore(s => s.year);
+  const period = useStore(s => s.period);
+  const activeMonths = useStore(s => s.activeMonths);
   const [search, setSearch] = useState('');
   /**
    * Тип события — ОДИН на запрос. `/api/journal` принимает единственный

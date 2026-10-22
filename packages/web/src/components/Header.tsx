@@ -241,7 +241,14 @@ function monthCoverageNote(kind: PeriodCoverageKind, count: number): string {
 }
 
 export function TimeDrum() {
-  const { year, setYear, monthsByYear, toggleMonthInYear, toggleQuarterInYear, toggleYearFull, clearAllPeriods, focusedWeekStart } = useStore();
+  const year = useStore(s => s.year);
+  const setYear = useStore(s => s.setYear);
+  const monthsByYear = useStore(s => s.monthsByYear);
+  const toggleMonthInYear = useStore(s => s.toggleMonthInYear);
+  const toggleQuarterInYear = useStore(s => s.toggleQuarterInYear);
+  const toggleYearFull = useStore(s => s.toggleYearFull);
+  const clearAllPeriods = useStore(s => s.clearAllPeriods);
+  const focusedWeekStart = useStore(s => s.focusedWeekStart);
   const coverage = usePeriodCoverage();
   const covReady = coverage.status === 'ready';
   const currentMonth = productDayParts().m;
@@ -387,7 +394,10 @@ export function TimeDrum() {
 // и жетону «срез недели» в правом углу, а импорт из Header дал бы кольцо.
 
 function WeekRoller() {
-  const { focusedWeekStart, shiftFocusedWeek, monthsByYear, periodMode } = useStore();
+  const focusedWeekStart = useStore(s => s.focusedWeekStart);
+  const shiftFocusedWeek = useStore(s => s.shiftFocusedWeek);
+  const monthsByYear = useStore(s => s.monthsByYear);
+  const periodMode = useStore(s => s.periodMode);
   const coverage = usePeriodCoverage();
   const covReady = coverage.status === 'ready';
   const wrRef = useRef<HTMLDivElement>(null);
@@ -852,14 +862,24 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
    ═══════════════════════════════════════════════════════════════════ */
 
 export function Header() {
-  const {
-    loading, error, isDemo, page, setPage,
-    moneyUnit, setMoneyUnit,
-    selectedMethods, toggleMethod, clearMethods,
-    selectedActivities, toggleActivity,
-    selectedBudgets, toggleBudget,
-    searchQuery, setSearchQuery,
-  } = useStore();
+  // This header is mounted throughout the product. Subscribe only to its
+  // actual controls, not to every row/editor/worker status update in the store.
+  const loading = useStore(s => s.loading);
+  const error = useStore(s => s.error);
+  const isDemo = useStore(s => s.isDemo);
+  const page = useStore(s => s.page);
+  const setPage = useStore(s => s.setPage);
+  const moneyUnit = useStore(s => s.moneyUnit);
+  const setMoneyUnit = useStore(s => s.setMoneyUnit);
+  const selectedMethods = useStore(s => s.selectedMethods);
+  const toggleMethod = useStore(s => s.toggleMethod);
+  const clearMethods = useStore(s => s.clearMethods);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const toggleActivity = useStore(s => s.toggleActivity);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const toggleBudget = useStore(s => s.toggleBudget);
+  const searchQuery = useStore(s => s.searchQuery);
+  const setSearchQuery = useStore(s => s.setSearchQuery);
   const { theme, toggleTheme } = useTheme();
   const { connected } = useLiveEvents();
   const isOnline = connected && !error;

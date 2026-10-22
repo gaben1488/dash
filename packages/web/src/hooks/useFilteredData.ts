@@ -350,9 +350,10 @@ export type FilteredData = ReturnType<typeof computeFilteredData>;
 let cachedInputs: unknown[] | null = null;
 let cachedResult: FilteredData | null = null;
 
-function sameInputs(a: unknown[], b: unknown[]): boolean {
+function sameInputsExceptLoading(a: unknown[], b: unknown[]): boolean {
   if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
+  // Loading affects only yearMismatch, not the expensive department/metric selection.
+  for (let i = 0; i < a.length - 1; i++) {
     if (!Object.is(a[i], b[i])) return false;
   }
   return true;
@@ -387,7 +388,11 @@ export function useFilteredData(): FilteredData {
       subordinatesMap, period, activeMonths, periodMode, selectedMethods, selectedActivities,
       selectedBudgets, activityFilter, searchQuery, year, dataYear, loading,
     ];
-    if (cachedResult !== null && cachedInputs !== null && sameInputs(cachedInputs, inputs)) {
+    if (cachedResult !== null && cachedInputs !== null && sameInputsExceptLoading(cachedInputs, inputs)) {
+      const yearMismatch = shouldShowYearMismatch(year, dataYear, loading);
+      cachedInputs = inputs;
+      // Preserve expensive derived arrays even when the loading banner changes.
+      if (cachedResult.yearMismatch !== yearMismatch) cachedResult = { ...cachedResult, yearMismatch };
       return cachedResult;
     }
     const result = computeFilteredData({

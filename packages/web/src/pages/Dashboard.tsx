@@ -180,7 +180,17 @@ function StatusLine({ data, fd }: { data: StatusLineData; fd: ReturnType<typeof 
 }
 
 export function Dashboard() {
-  const { dashboardData, loading, error, navigateTo, formatMoney, procurementFilter, toggleDepartment, selectedDepartments } = useStore();
+  // Subscribe to the data actually used here, not every unrelated store update.
+  const dashboardData = useStore(s => s.dashboardData);
+  const loading = useStore(s => s.loading);
+  const error = useStore(s => s.error);
+  const navigateTo = useStore(s => s.navigateTo);
+  const formatMoney = useStore(s => s.formatMoney);
+  const procurementFilter = useStore(s => s.procurementFilter);
+  const toggleDepartment = useStore(s => s.toggleDepartment);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  // formatMoney reads this setting through get(); keep its render dependency.
+  useStore(s => s.moneyUnit);
   const fd = useFilteredData();
   const mdm = useMultiDimMetrics();
   const isDark = useTheme(s => s.theme) === 'dark';
