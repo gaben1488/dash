@@ -205,7 +205,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
 
     const adYes = sheetRow('173/19', 2000, '10.02.2026', '20.02.2026', 1600);
     adYes[2] = 'Школа 1'; adYes[5] = 'Текущая деятельность';
-    adYes[11] = 'ЭЗК'; adYes[25] = -20; adYes[26] = -10; adYes[27] = 0; adYes[29] = 'да';
+    adYes[11] = 'ЭА'; adYes[25] = -20; adYes[26] = -10; adYes[27] = 0; adYes[29] = 'да';
 
     const unknown = sheetRow('173/20', 500, '11.02.2026', '20.02.2026', 300);
     unknown[2] = 'Школа 1'; unknown[5] = 'Текущая деятельность';
@@ -218,9 +218,13 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     const missingQ = sheetRow('173/22', 350, '12.02.2026', '', 0);
     missingQ[2] = 'Школа 1'; missingQ[5] = 'Текущая деятельность';
 
+    const foreignCode = sheetRow('173/23', 250, '12.02.2026', '15.02.2026', 200);
+    foreignCode[2] = 'Школа 1'; foreignCode[5] = 'Текущая деятельность';
+    foreignCode[11] = 'ЭЗК'; // Recognized in monitoring, forbidden in GRBS books.
+
     const snapshot = {
       id: 'c04-03-frozen-rows', createdAt: '2026-10-18T20:00:00Z',
-      rowsByDept: { 'УЭР': [noAd, adYes, unknown, future, missingQ] },
+      rowsByDept: { 'УЭР': [noAd, adYes, unknown, future, missingQ, foreignCode] },
       metadata: { sourceCoverage: {
         expectedDepartments: ['УЭР'], readDepartments: ['УЭР'],
         unreadDepartments: [], complete: true,
@@ -253,7 +257,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       approvedEconomy: 0, // AD='нет', despite nonzero recorded Z/AA/AB.
     });
     expect(body.points[1]).toMatchObject({
-      rowIndex: 5, procurementType: 'ЭЗК',
+      rowIndex: 5, procurementType: 'ЭА',
       planTotal: 2000, factTotal: 1600, limitReductionPercent: 20,
       approvedEconomy: -30, // Signed Z+AA+AB, independent of K/Y difference.
     });
@@ -261,7 +265,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       count: 2, limitTotal: 3200, contractTotal: 2500, approvedEconomy: -30,
       limitReductionPercent: 21.875,
     });
-    expect(body.excluded).toMatchObject({ unknownMethod: 1, futureFact: 1, invalidDate: 1 });
+    expect(body.excluded).toMatchObject({ unknownMethod: 2, futureFact: 1, invalidDate: 1 });
     expect(body.points.some((p: ScatterPoint) => p.id === '173/21')).toBe(false);
 
     // The total-row/no-EP side of the SVOD is not a proof of tenders: without a
@@ -273,7 +277,9 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       procurementType: 'unknown', planTotal: 500, factTotal: 300,
       approvedEconomy: 0,
     });
-    expect(allMethods.json().summary.count).toBe(3);
+    expect(allMethods.json().summary.count).toBe(4);
+    expect(allMethods.json().points.find((p: ScatterPoint) => p.id === '173/23'))
+      .toMatchObject({ procurementType: 'unknown' });
   });
 
 });
