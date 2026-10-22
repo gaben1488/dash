@@ -1,4 +1,5 @@
-import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
+import { currentCalculationContextMatches, inspectSnapshotCalculationResult,
+  sealSnapshotCalculationResult } from './snapshot-calculation-context.js';
 import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
 import { measureReadStage, withoutRequestTiming } from '../plugins/request-timing.js';
 import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
@@ -803,6 +804,11 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     if (monthlyData) {
       snapshot.shdyuData = monthlyData;
     }
+    // Seal after ALL output-affecting materialization steps (mirror issues,
+    // monthly data, unified grid) and before a single SQLite save. No second
+    // calculation context, no new event store or extra Google read.
+    sealSnapshotCalculationResult(snapshot, process.env.DASH_CODE_COMMIT ??
+      process.env.GITHUB_SHA ?? null);
     if (!(await saveSnapshot(snapshot))) {
       throw new Error('SNAPSHOT_PERSIST_FAILED');
     }
@@ -866,6 +872,13 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
         try {
           const snapshot = measureReadStage('decode', () => JSON.parse(row.data!)) as PipelineSnapshot;
           if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+            const checked = inspectSnapshotCalculationResult(snapshot);
+            if (checked.status === 'invalid') {
+              logSourceProblem('Saved snapshot rejected: calculation output differs from its context', {
+                snapshotId: snapshot.id, mismatches: checked.mismatches,
+              });
+              continue;
+            }
             // The current fallback must not revive an obsolete perfect grade.
             // Reassess its captured evidence without changing data/time or writing
             // history; getStoredSnapshotById still returns the original record.
@@ -893,6 +906,10 @@ export function saveSnapshotRows(snapshot: DataSnapshot): number {
 }
 
 async function persistSnapshot(snapshot: DataSnapshot, operation: 'insert' | 'weekly'): Promise<void> {
+  const inspected = inspectSnapshotCalculationResult(snapshot);
+  if (inspected.status === 'invalid') {
+    throw new Error('CALCULATION_OUTPUT_MISMATCH:' + inspected.mismatches.join(','));
+  }
   const today = new Date();
   if (operation === 'insert' && db.select({ id: schema.snapshots.id }).from(schema.snapshots)
     .where(eq(schema.snapshots.id, snapshot.id)).get()) throw new Error('SNAPSHOT_ALREADY_EXISTS');
@@ -951,6 +968,9 @@ export function getStoredSnapshotById(id: string): PipelineSnapshot | null {
   try {
     const snapshot = JSON.parse(row.data) as PipelineSnapshot;
     if (snapshot.id !== id || !snapshot.metadata || !snapshot.createdAt) throw new Error('invalid stored snapshot');
+    if (inspectSnapshotCalculationResult(snapshot).status === 'invalid') {
+      throw new Error('CALCULATION_OUTPUT_MISMATCH');
+    }
     return snapshot;
   } catch {
     throw new Error('STORED_SNAPSHOT_INVALID');
@@ -989,6 +1009,13 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
       if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
+        const inspected = inspectSnapshotCalculationResult(snapshot);
+        if (inspected.status === 'invalid') {
+          logSourceProblem('Historical snapshot skipped: calculation output mismatch', {
+            snapshotId: snapshot.id, mismatches: inspected.mismatches,
+          });
+          continue;
+        }
         return snapshot;
       }
     } catch {
