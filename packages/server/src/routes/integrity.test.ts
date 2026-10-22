@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, latestDueThursdayDay, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -168,13 +168,13 @@ describe('единая классификация строк для истори
 describe('текущие книги против последнего контрольного четверга', () => {
   const snap = (id: string, createdAt: string) => ({ id, createdAt });
 
-  it('в воскресенье сохраняет базу предыдущей календарной недели', () => {
+  it('в воскресенье сравнивает с последним завершённым четвергом, а не с позапрошлым', () => {
     const latest = pickLatestControlSnapshot([
       snap('daily', '2026-10-10T09:00:00Z'),
       snap('control', '2026-10-08T06:00:00Z'),
       snap('older-control', '2026-10-01T06:00:00Z'),
     ], Date.parse('2026-10-11T10:00:00Z'), 12);
-    expect(latest?.id).toBe('older-control');
+    expect(latest?.id).toBe('control');
   });
 
   it('не подменяет пропущенную базовую неделю более старой', () => {
@@ -183,26 +183,29 @@ describe('текущие книги против последнего контр
     ], Date.parse('2026-10-11T09:00:00Z'), 12)).toBeNull();
   });
 
-  it('четверг Камчатки ещё в среду UTC и не пропускается', () => {
+  it('раннюю попытку четверга до 18:00 не выдаёт за завершённый контроль', () => {
     expect(pickLatestControlSnapshot([
-      snap('kamchatka-thursday', '2026-07-22T17:00:00Z'),
-    ], Date.parse('2026-07-26T12:00:00Z'), 12)?.id).toBe('kamchatka-thursday');
+      snap('early', '2026-07-22T17:00:00Z'),
+    ], Date.parse('2026-07-26T12:00:00Z'), 12)).toBeNull();
+    expect(pickLatestControlSnapshot([
+      snap('sealed', '2026-07-23T06:00:00Z'),
+    ], Date.parse('2026-07-26T12:00:00Z'), 12)?.id).toBe('sealed');
   });
 
   it.each([
     ['2026-10-22T05:59:59Z', 'previous'],
-    ['2026-10-22T06:00:00Z', 'previous'],
-    ['2026-10-23T00:00:00Z', 'previous'],
-    ['2026-10-25T11:59:59Z', 'previous'],
+    ['2026-10-22T06:00:00Z', 'current'],
+    ['2026-10-23T00:00:00Z', 'current'],
+    ['2026-10-25T11:59:59Z', 'current'],
     ['2026-10-25T12:00:00Z', 'current'],
-  ])('сдвигает LIVE-базу только в понедельник Камчатки: %s', (now, expected) => {
+  ])('сдвигает LIVE-базу в четверг после 18:00, а не в понедельник: %s', (now, expected) => {
     expect(pickLatestControlSnapshot([
       snap('previous', '2026-10-15T06:00:00Z'),
       snap('current', '2026-10-22T06:00:00Z'),
     ], Date.parse(now), 12)?.id).toBe(expected);
   });
 
-  it('будущий, недатированный или недатированный контроль не подставляется', () => {
+  it('будущий или недатированный контроль не подставляется', () => {
     expect(pickLatestControlSnapshot([
       snap('future', '2026-10-15T06:00:00Z'),
       snap('broken', 'нет даты'),
@@ -249,7 +252,7 @@ describe('бережная историческая сверка двух сме
   const snap = (id: string, createdAt: string) => ({ id, createdAt });
   const now = Date.parse('2026-10-22T07:00:00Z');
 
-  it('берёт два последних завершённых контрольных четверга, а не суточные/текущий', () => {
+  it('берёт два последних завершённых вечерних контроля, включая сегодняшний после seal', () => {
     const pair = pickAdjacentWeeklySnapshots([
       snap('daily', '2026-10-14T09:00:00Z'),
       snap('current-week', '2026-10-22T06:00:00Z'),
@@ -257,7 +260,7 @@ describe('бережная историческая сверка двух сме
       snap('before', '2026-10-08T06:00:00Z'),
       snap('older', '2026-10-01T06:00:00Z'),
     ], now, 12);
-    expect(pair?.map((item) => item.id)).toEqual(['before', 'after']);
+    expect(pair?.map((item) => item.id)).toEqual(['after', 'current-week']);
   });
 
   it('не подменяет отсутствующую неделю более старым четвергом', () => {
@@ -267,22 +270,29 @@ describe('бережная историческая сверка двух сме
     ], now, 12)).toBeNull();
   });
 
-  it('находит четверги Камчатки, даже когда на UTC-сервере ещё среда', () => {
+  it('не выдаёт утренние четверги (среда UTC) за состоявшийся вечерний контроль', () => {
     const pair = pickAdjacentWeeklySnapshots([
-      snap('after', '2026-10-14T17:00:00Z'),
-      snap('before', '2026-10-07T17:00:00Z'),
+      snap('today-early', '2026-10-21T17:00:00Z'),
+      snap('previous-early', '2026-10-14T17:00:00Z'),
     ], now, 12);
-    expect(pair?.map((item) => item.id)).toEqual(['before', 'after']);
+    expect(pair).toBeNull();
   });
 
-  it('поздняя контрольная попытка замещает раннюю того же дня, но не соседний день', () => {
+  it('из двух завершённых контрольных попыток выбирает позднюю и не подставляет будущую', () => {
     const pair = pickAdjacentWeeklySnapshots([
-      snap('after-early', '2026-10-15T01:00:00Z'),
-      snap('before', '2026-10-08T06:00:00Z'),
-      snap('after-late', '2026-10-15T09:00:00Z'),
+      snap('today-early', '2026-10-22T06:00:00Z'),
+      snap('before', '2026-10-15T06:00:00Z'),
+      snap('today-late', '2026-10-22T07:00:00Z'),
       snap('future', '2026-10-29T06:00:00Z'),
     ], now, 12);
-    expect(pair?.map((item) => item.id)).toEqual(['before', 'after-late']);
+    expect(pair?.map((item) => item.id)).toEqual(['before', 'today-late']);
+  });
+
+  it('не подменяет отсутствующий сегодняшний контроль старой контрольной неделей', () => {
+    expect(latestDueThursdayDay(now, 12)).toBe(latestDueThursdayDay(Date.parse('2026-10-25T11:00:00Z'), 12));
+    expect(pickLatestControlSnapshot([
+      snap('previous', '2026-10-15T06:00:00Z'),
+    ], now, 12)).toBeNull();
   });
 });
 
