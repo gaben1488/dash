@@ -270,6 +270,10 @@ export function ingestLiveEvent(event: Record<string, unknown>): void {
     // to read LOCAL API only, without forcing another Google read.
     window.dispatchEvent(new Event('department-books-updated'));
   }
+  if (event.kind === 'formula-check-updated' && typeof window !== 'undefined') {
+    // Re-read persisted local verdicts; never launch another Google poll.
+    window.dispatchEvent(new Event('source-formulas-updated'));
+  }
   if (event.kind === 'monitoring-updated') {
     useStore.getState().invalidateLiveStavka();
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('monitoring-updated'));
@@ -309,7 +313,10 @@ async function runStream(): Promise<void> {
       useStore.getState().invalidateLiveStavka();
       // SSE ring may have expired during disconnect: restore the open view
       // from the existing API rather than trusting absence of replayed events.
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('department-books-updated'));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('department-books-updated'));
+        window.dispatchEvent(new Event('source-formulas-updated'));
+      }
     }
     attempt = 0;
 
