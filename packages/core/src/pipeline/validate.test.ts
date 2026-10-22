@@ -90,13 +90,14 @@ describe('СВОД — границы разных схем на одном ли
 describe('validateData — basic', () => {
   it('reports nonnumeric inputs as unverified without calling them a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    // Recognized СВОД primary header must be present for arithmetic to run.
-    // The latest integrated base explicitly gates mixed-layout blocks by this header.
-    const header = makeRow({ rowIndex: 3, classification: 'header',
-      cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
-    const rows = [header, ...[5, 6].map(rowIndex => makeRow({
-      rowIndex, cells: { A: 'УО', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100 },
-    }))];
+    // Verify unparseable money in an actual department procurement row.
+    // SVOD has a separate multi-layout gate tested above; this isolates the
+    // numeric-input failure contract without inventing a SVOD block.
+    const rows = [5, 6].map(rowIndex => makeRow({
+      sheet: 'УД', rowIndex, cells: {
+        A: '173/18', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100,
+      },
+    }));
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
