@@ -16,10 +16,10 @@ export function isCurrentSignal(issue: { status?: unknown }): boolean {
 }
 const NON_PUNITIVE = new Set([
   'foreign_year_execution','fact_without_date','fact_date_before_plan',
-  'future_economy_decision','finance_delay','single_participant',
+  'future_economy_decision','plan_year_missing','finance_delay','single_participant',
 ]);
 const OLD_NON_PUNITIVE = new Set([
-  'foreignYearExecution','factWithoutDate','factDateBeforePlan',
+  'foreignYearExecution','factWithoutDate','factDateBeforePlan','planYearMissing',
   'economyDecisionUpcoming','financeDelay','singleParticipant',
 ]);
 export function isNonPunitiveSignal(issue: { checkId?: unknown; signal?: unknown; category?: unknown }): boolean {
