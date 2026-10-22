@@ -57,10 +57,37 @@ function calculationSemantics(rules: PipelineInput['rules']): string {
     rules: rules.map(({ check: _check, ...definition }) => definition) });
 }
 
-/** Reuse only a captured context under exactly the installed source/rule profiles. */
-export function currentCalculationContextMatches(snapshot: DataSnapshot): boolean {
-  const context = snapshot.metadata.calculationContext;
-  return !!context && context.semantics === calculationSemantics(getActiveRules())
+/** Verify the recorded *base calculation* before calling a live cache entry ready.
+ *
+ * This is not a user-specific authorization check: access and human decisions
+ * are deliberately represented by request-local projections, not baked into
+ * the sealed input hash. A saved historical result remains readable unchanged.
+ * The caller must also compare its real source-state receipt before reuse.
+ */
+export function currentCalculationContextMatches(snapshot: DataSnapshot, now: Date = new Date()): boolean {
+  const context = snapshot.metadata?.calculationContext;
+  if (!context || context.contract !== 'aemr-calculation-context-v1'
+    || !context.sources?.content || !context.sources.profiles
+    || !context.thresholds || !context.calendar || !context.scope
+    || context.decisions !== 'not-applied' || context.access !== 'full-dataset') return false;
+  if (typeof context.calendar.asOf !== 'string' || !Number.isFinite(now.getTime())) return false;
+
+  const captured = new Date(context.calendar.asOf);
+  if (!Number.isFinite(captured.getTime())
+    || captured.toISOString() !== context.calendar.asOf
+    || snapshot.createdAt !== context.calendar.asOf
+    || captured.getTime() > now.getTime()
+    || context.calendar.utcOffsetHours !== PRODUCT_UTC_OFFSET_HOURS
+    || context.calendar.weeklyCutoffHour !== WEEKLY_CUTOFF_HOUR
+    || context.calendar.productDay !== productCalendarDay(captured, PRODUCT_UTC_OFFSET_HOURS)
+    || context.calendar.productDay !== productCalendarDay(now, PRODUCT_UTC_OFFSET_HOURS)
+    || context.scope.targetYear !== (snapshot.metadata.targetYear ?? null)) return false;
+
+  // The digest protects the context from partial/accidental rewrites. It is not
+  // an authentication signature; source provenance is independently checked.
+  const { id, ...evidence } = context;
+  return id === calculationDigest(evidence)
+    && context.semantics === calculationSemantics(getActiveRules())
     && context.sources.profiles === calculationDigest({ departments: DEPARTMENT_REGISTRY, reportMap: REPORT_MAP })
     && calculationDigest(context.thresholds) === calculationDigest(freezeThresholds(isoOfDayNumber(context.calendar.productDay)));
 }
