@@ -1136,36 +1136,50 @@ SQLITE_PATH=./data/aemr.db
                           </p>
                         )}
 
-                        <div className={clsx('flex gap-2 mt-3 pt-3 border-t', RULE_HEAD)}>
-                          <button
-                            onClick={() => void handleTestSource(src.name)}
-                            disabled={test?.loading}
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
-                          >
-                            {test?.loading
-                              ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
-                              : <><Wifi size={10} aria-hidden="true" /> Проверить связь</>}
-                          </button>
-                          <button
-                            onClick={() => void handleValidateSource(src.name)}
-                            disabled={check?.loading}
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-500"
-                          >
-                            {check?.loading
-                              ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
-                              : <><CheckCircle2 size={10} aria-hidden="true" /> Проверить данные</>}
-                          </button>
-                          {src.spreadsheetId && (
-                            <a
-                              href={`https://docs.google.com/spreadsheets/d/${src.spreadsheetId}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              aria-label={`Открыть книгу «${src.name}» в Google Таблицах (в новой вкладке)`}
-                              className="flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-700/50 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-600/50 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
-                            >
-                              <ExternalLink size={10} aria-hidden="true" /> Открыть
-                            </a>
-                          )}
+                        <div className={clsx('mt-3 pt-3 border-t', RULE_HEAD)}>
+                          <details className="w-full">
+                            <summary className="cursor-pointer select-none text-[11px] font-medium text-zinc-600 dark:text-zinc-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">
+                              Диагностика отдельной книги
+                            </summary>
+                            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                              Доступ, содержимое и исходный лист проверяются отдельно; результаты основной проверки показаны выше.
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleTestSource(src.name)}
+                                disabled={test?.loading || deepChecking || validatingAll}
+                                title="Проверить доступ и список листов, без проверки закупочных строк"
+                                className="flex items-center justify-center gap-1 px-3 min-h-8 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
+                              >
+                                {test?.loading
+                                  ? <><Loader2 size={11} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                                  : <><Wifi size={11} aria-hidden="true" /> Проверить связь</>}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleValidateSource(src.name)}
+                                disabled={check?.loading || deepChecking || validatingAll}
+                                title="Проверить строки только этой книги, без формул и межкнижных сверок"
+                                className="flex items-center justify-center gap-1 px-3 min-h-8 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
+                              >
+                                {check?.loading
+                                  ? <><Loader2 size={11} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                                  : <><CheckCircle2 size={11} aria-hidden="true" /> Проверить данные</>}
+                              </button>
+                              {src.spreadsheetId && (
+                                <a
+                                  href={`https://docs.google.com/spreadsheets/d/${src.spreadsheetId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-label={`Открыть книгу «${src.name}» в Google Таблицах (в новой вкладке)`}
+                                  className="flex items-center justify-center gap-1 px-3 min-h-8 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
+                                >
+                                  <ExternalLink size={11} aria-hidden="true" /> Открыть книгу
+                                </a>
+                              )}
+                            </div>
+                          </details>
                         </div>
                       </div>
                     );
