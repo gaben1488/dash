@@ -506,13 +506,15 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const { REPORT_MAP } = await import('@aemr/shared');
 
       const spreadsheetId = snapshot.spreadsheetId;
+      const activeIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot)
+        .filter(issue => issue.status !== 'false_positive');
       const refs = REPORT_MAP
         .filter((entry: any) => !deptFilter || entry.metricKey.includes(deptFilter))
         .map((entry: any) => {
           const official = snapshot.officialMetrics[entry.metricKey];
           const calculated = snapshot.calculatedMetrics?.[entry.metricKey];
           const delta = snapshot.deltas.find((d: any) => d.metricKey === entry.metricKey);
-          const issues = snapshot.issues.filter((i: any) => i.metricKey === entry.metricKey);
+          const issues = activeIssues.filter(i => i.metricKey === entry.metricKey);
 
           let status: 'ok' | 'warning' | 'error' | 'missing' = 'ok';
           if (!official) status = 'missing';

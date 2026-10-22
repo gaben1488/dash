@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
   SEVERITY_LABELS,
+  ISSUE_STATUS_LABELS,
   SVOD_SHEET_NAME,
   buildSheetUrl,
   SVOD_SPREADSHEET_ID,
@@ -209,6 +210,11 @@ function SignalRow({ s, dept }: { s: ReportSignal; dept: string }) {
           {SEVERITY_LABELS[s.severity]?.label ?? s.severity}
         </span>
         <span className="text-zinc-700 dark:text-zinc-200">{s.title}</span>
+        {s.status && s.status !== 'open' && (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400" aria-label="Статус решения">
+            {ISSUE_STATUS_LABELS[s.status] ?? productLabel(s.status)}
+          </span>
+        )}
       </div>
       {(s.description || s.sheet || s.cell) && (
         <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">
