@@ -66,12 +66,12 @@ describe('представление снимка для HTTP Dashboard', () => 
     } finally { fixture.snapshot = previous; }
   });
   it.each([
-    { name: 'observed zero in both official sources', kp: 0, ep: 0, computed: undefined, expected: 0 },
-    { name: 'observed zero plus positive official value', kp: 0, ep: 7, computed: undefined, expected: 7 },
-    { name: 'one unread official component', kp: 4, ep: undefined, computed: undefined, expected: null },
-    { name: 'no observed official components', kp: undefined, ep: undefined, computed: undefined, expected: null },
-    { name: 'computed zero taking precedence over partial official data', kp: 4, ep: undefined, computed: 0, expected: 0 },
-  ])('distinguishes annual economy source states: $name', async ({ kp, ep, computed, expected }) => {
+    { name: 'master zero must survive contradictory official positives', kp: 4, ep: 8, computed: 0, expected: 0 },
+    { name: 'master positive with unread official components', kp: undefined, ep: undefined, computed: 7, expected: 7 },
+    { name: 'official zero and positive cannot fill missing master result', kp: 0, ep: 7, computed: undefined, expected: null },
+    { name: 'two official zeros do not fabricate a computed zero', kp: 0, ep: 0, computed: undefined, expected: null },
+    { name: 'no observation in either source', kp: undefined, ep: undefined, computed: undefined, expected: null },
+  ])('keeps accepted master economy separate from incomplete official comparison: $name', async ({ kp, ep, computed, expected }) => {
     const previous = fixture.snapshot;
     const base = Object.values(previous.officialMetrics)[0]!;
     const officialMetrics = { ...previous.officialMetrics };
@@ -130,7 +130,8 @@ describe('представление снимка для HTTP Dashboard', () => 
         'sole.year.total_plan': 70, 'sole.year.total_fact': 30,
         'sole.year.percent': 0.5,
         'grbs.uo.year.plan_total': 370, 'grbs.uo.year.fact_total': 230,
-        'grbs.uo.year.economy_total': -5, 'grbs.uo.year.exec_count_pct': 0.5,
+        'grbs.uo.year.economy_total': -5, 'grbs.uo.year.execution_pct': 0.35,
+        'grbs.uo.year.exec_count_pct': 0.5,
         'grbs.uo.kp.year.count': 8, 'grbs.uo.ep.year.count': 2,
       }),
     };
@@ -151,7 +152,7 @@ describe('представление снимка для HTTP Dashboard', () => 
       expect(data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo'))
         .toMatchObject({
           planTotal: 370, factTotal: 230, economyTotal: -5,
-          competitiveCount: 8, soleCount: 2, executionPercent: 50,
+          competitiveCount: 8, soleCount: 2, executionPercent: 35,
         });
       expect(data.snapshot.officialMetrics['competitive.q1.count'].numericValue).toBe(999);
     } finally {
@@ -220,20 +221,29 @@ describe('представление снимка для HTTP Dashboard', () => 
       department[field] = original;
     }
 
-    // Unlike calculated Q2–Q4, the official Q1/year schema has no ЕП budget breakdown.
-    expect(data.summaryByPeriod.q1.source).toBe('official');
-    expect(data.summaryByPeriod.q1).not.toHaveProperty('epFbPlan');
-    const calculated = data.summaryByPeriod.q2;
-    expect(calculated.source).toBe('calculated');
-    for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact']) {
-      const original = calculated[field];
-      calculated[field] = null;
-      expect(DashboardDataSchema.safeParse(data).success).toBe(true);
-      Reflect.deleteProperty(calculated, field);
-      expect(DashboardDataSchema.safeParse(data).success).toBe(false);
-      calculated[field] = original;
+    // C04.01 now materializes every period from master. Every calculated
+    // budget slice is present, even when its observed value is unknown.
+    for (const period of ['q1', 'q2', 'year']) {
+      const calculated = data.summaryByPeriod[period];
+      expect(calculated.source).toBe('calculated');
+      for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact']) {
+        const original = calculated[field];
+        calculated[field] = null;
+        expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+        Reflect.deleteProperty(calculated, field);
+        expect(DashboardDataSchema.safeParse(data).success).toBe(false);
+        calculated[field] = original;
+      }
     }
     expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+    // Older official payloads remain parseable without a synthetic EP breakdown.
+    const originalQ1 = data.summaryByPeriod.q1;
+    data.summaryByPeriod.q1 = { ...originalQ1, source: 'official' };
+    for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact']) {
+      Reflect.deleteProperty(data.summaryByPeriod.q1, field);
+    }
+    expect(DashboardDataSchema.safeParse(data).success).toBe(true);
+    data.summaryByPeriod.q1 = originalQ1;
   });
 
   it('does not publish an incomplete snapshot as a successful dashboard response', async () => {
