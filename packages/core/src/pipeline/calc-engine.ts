@@ -781,6 +781,37 @@ function evaluateDerivedFormula(
 /** Ключи производных метрик канона: при слиянии срезов их суммировать нельзя. */
 const STANDARD_DERIVED_KEYS = new Set(STANDARD_DERIVED.map((d) => d.key));
 
+/**
+ * The domain's one additive algebra for period, department and method scopes.
+ * It never sums ratios. rowOffset can namespace row indices from separate
+ * source books; omit it only when all operands share the same source layout.
+ * This is the same evaluator used in CalcEngine and in all rollups.
+ */
+export function combineMetricSlices(
+  parts: ReadonlyArray<{ values: ReadonlyMap<string, AccumulatedValue>; rowOffset?: number }>,
+): Map<string, AccumulatedValue> {
+  const result = new Map<string, AccumulatedValue>();
+  for (const { values, rowOffset = 0 } of parts) {
+    for (const [key, acc] of values) {
+      if (STANDARD_DERIVED_KEYS.has(key)) continue;
+      if (acc.value === null) throw new Error(`NON_ADDITIVE_BASE_UNKNOWN:${key}`);
+      const indices = acc.contributingRows.map(index => index + rowOffset);
+      const existing = result.get(key);
+      if (existing) {
+        existing.value = (existing.value ?? 0) + acc.value;
+        existing.contributingRows.push(...indices);
+      } else {
+        result.set(key, { value: acc.value, contributingRows: indices });
+      }
+    }
+  }
+  for (const definition of STANDARD_DERIVED) {
+    result.set(definition.key, evaluateDerivedMetric(definition, result));
+  }
+  return result;
+}
+
+
 // ── Factory: Standard row filter with classification scoring ─────────
 
 const SKIP_PREFIXES = ['итого', 'всего', 'справочно'];
@@ -1001,26 +1032,10 @@ export function sliceResults(
     );
   }
 
-  const result = new Map<string, AccumulatedValue>();
-
-  // Производные (проценты/доли/разности) при слиянии НЕ суммируются —
-  // пересчитываются ниже из слитых базовых аккумуляторов (§3.2 пирамиды:
-  // сложение процентов — запрещённая операция).
-  function merge(source: Map<string, AccumulatedValue> | undefined): void {
-    if (!source) return;
-    for (const [key, acc] of source) {
-      if (STANDARD_DERIVED_KEYS.has(key)) continue;
-      const existing = result.get(key);
-      if (existing) {
-        // Слагаемые здесь только базовые (производные отфильтрованы выше и
-        // пересчитываются заново) — `?? 0` сужает общий тип, а не прячет null.
-        existing.value = (existing.value ?? 0) + (acc.value ?? 0);
-        existing.contributingRows.push(...acc.contributingRows);
-      } else {
-        result.set(key, { value: acc.value, contributingRows: [...acc.contributingRows] });
-      }
-    }
-  }
+  const parts: Array<{ values: ReadonlyMap<string, AccumulatedValue> }> = [];
+  const merge = (values: Map<string, AccumulatedValue> | undefined) => {
+    if (values) parts.push({ values });
+  };
 
   if (hasQ && hasMeth) {
     // Cross-dimension: quarter × method
@@ -1048,12 +1063,8 @@ export function sliceResults(
     for (const a of filter.activities!) merge(grouped.byActivity.get(a));
   }
 
-  // Производные — заново по слитым базам (единый вычислитель с compute()).
-  for (const d of STANDARD_DERIVED) {
-    result.set(d.key, evaluateDerivedMetric(d, result));
-  }
-
-  return result;
+  // Merge only additive bases; compute every derived metric exactly once.
+  return combineMetricSlices(parts);
 }
 
 /**
@@ -1076,23 +1087,10 @@ export function slicePeriods(
   keys: readonly import('@aemr/shared').PeriodKey[],
   opts?: { includeOrphan?: boolean },
 ): Map<string, AccumulatedValue> {
-  const result = new Map<string, AccumulatedValue>();
-
-  function merge(source: Map<string, AccumulatedValue> | undefined): void {
-    if (!source) return;
-    for (const [key, acc] of source) {
-      if (STANDARD_DERIVED_KEYS.has(key)) continue;
-      const existing = result.get(key);
-      if (existing) {
-        // Слагаемые здесь только базовые (производные отфильтрованы выше и
-        // пересчитываются заново) — `?? 0` сужает общий тип, а не прячет null.
-        existing.value = (existing.value ?? 0) + (acc.value ?? 0);
-        existing.contributingRows.push(...acc.contributingRows);
-      } else {
-        result.set(key, { value: acc.value, contributingRows: [...acc.contributingRows] });
-      }
-    }
-  }
+  const parts: Array<{ values: ReadonlyMap<string, AccumulatedValue> }> = [];
+  const merge = (values: Map<string, AccumulatedValue> | undefined) => {
+    if (values) parts.push({ values });
+  };
 
   for (const k of keys) {
     if (k.kind === 'month') {
@@ -1109,9 +1107,5 @@ export function slicePeriods(
     }
   }
 
-  for (const d of STANDARD_DERIVED) {
-    result.set(d.key, evaluateDerivedMetric(d, result));
-  }
-
-  return result;
+  return combineMetricSlices(parts);
 }
