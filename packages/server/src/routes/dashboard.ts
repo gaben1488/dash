@@ -105,17 +105,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(snapshotUnavailable(err));
     }
 
-    // Decisions are read on every request; never mutate the historical snapshot.
-    // Returning the previous accepted read-model is useful to GET readers,
-    // but an explicit POST refresh must never advertise it as a new success.
-    if (snapshot.metadata?.readModel?.state || snapshot.metadata?.sourceCoverage?.complete === false) {
-      return reply.status(503).send({
-        success: false,
-        quick,
-        error: 'SOURCE_FULL_BASE_NOT_UPDATED',
-        lastAcceptedUnchanged: true,
-      });
-    }
+    // GET may display a stale but complete last-known-good model together with
+    // its true capture time and freshness indicator. The stricter refresh
+    // admission below applies only to the explicit POST operation.
     snapshot = withPersistedDecisions(snapshot);
 
     // Формируем KPI-карточки
