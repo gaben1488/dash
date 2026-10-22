@@ -3202,6 +3202,12 @@ jobs:
             cd /home/aemr/dash/deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            image_sha=$(docker inspect --format '{{.Image}}' "$server")
+            image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_sha" 2>/dev/null || true)
+            checkout_rev=$(git -C /home/aemr/dash rev-parse HEAD 2>/dev/null || true)
+            latest_sha=$(docker image inspect --format '{{.Id}}' aemr-server:latest 2>/dev/null || true)
+            previous_sha=$(docker image inspect --format '{{.Id}}' aemr-server:previous 2>/dev/null || true)
+            echo "UD_DEPLOY_LINEAGE server_image=$image_sha revision_label=$image_revision checkout=$checkout_rev latest_image=$latest_sha previous_image=$previous_sha"
             docker compose --env-file .env.production exec -T server node - <<'NODE'
             const base = 'http://127.0.0.1:3000';
             const key = process.env.AEMR_API_KEY;
