@@ -60,6 +60,18 @@ describe('слепок канона оформления', () => {
     expect(fromSnapshot).toEqual(fromCanon);
   }, 30_000);
 
+  it('канон A разрешает составные номера 12/1 без преобразования в число или дату', () => {
+    const canon = loadCanon();
+    const validation = canon.goldenValidation('УД АЕМР') as Record<string, any>;
+    const a = validation.A;
+    expect(a.condition.type).toBe('CUSTOM_FORMULA');
+    expect(a.strict).toBe(true);
+    const formula = a.condition.values[0].userEnteredValue as string;
+    expect(formula).toContain('TO_TEXT($A4)');
+    expect(formula).toContain('([1-9][0-9]*)?');
+    expect(a.inputMessage).toContain('12/1');
+  }, 30_000);
+
   it('перечни колонок проверки данных совпадают с каноном', () => {
     const canon = loadCanon();
     // Имя ГРБС передаётся непустым: у колонки B проверка данных появляется
