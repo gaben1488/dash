@@ -60,7 +60,7 @@ def capture():
                                  'python': '.'.join(map(str, sys.version_info[:3])), 'rules': RAW_RULES_VERSION, 'renderer': RENDERER_VERSION}}
 
 
-def seal(artifact, metadata, stage, accepted, containers, ops, observed):
+def seal(artifact, metadata, stage, accepted, containers, ops, observed, component=None):
     from runtime_artifact import require, validate
 
     sha = artifact['source_sha']
@@ -86,6 +86,25 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed):
             and acceptance['images' if web_only else 'candidate_images'] == wanted
             and acceptance['config_sha256'] == stage['config_sha256']
             and re.fullmatch(r'[a-f0-9]{64}', accepted['plan_sha256']) is not None)
+    # Web-only releases have a separate staged identity witness: installed
+    # backend processes must survive, including their original restart count.
+    if web_only:
+        expected_stage_sha = hashlib.sha256(json.dumps(
+            stage, sort_keys=True, allow_nan=False).encode()).hexdigest()
+        require(isinstance(component, dict)
+                and component.get('mode') == 'web'
+                and component.get('backend_sha') == backend_sha
+                and component.get('stage_sha256') == expected_stage_sha
+                and isinstance(component.get('tools_sha256'), dict)
+                and set(component['tools_sha256']) ==
+                    {'controller', 'recovery', 'trial', 'source_gate', 'runtime_guard', 'runtime_policy'}
+                and isinstance(component.get('backend_runtime'), dict)
+                and set(component['backend_runtime']) == {'server', 'report-worker', 'caddy'})
+        for role, name in (('controller', 'release-controller.py'), ('recovery', 'release_recovery.py'),
+                           ('trial', 'release_trial.py'), ('source_gate', 'source_ci_gate.py')):
+            require(component['tools_sha256'][role] == ops.get(name))
+        require(all(isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value)
+                    for value in component['tools_sha256'].values()))
     actual = {}
     require(len(containers) == 4)
     for role in ROLES:
@@ -94,7 +113,9 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed):
         row = rows[0]
         state = row['State']
         labels = row['Config'].get('Labels') or {}
-        require(row['Image'] == wanted[role] and row['RestartCount'] == 0 and state['Status'] == 'running'
+        require(row['Image'] == wanted[role] and state['Status'] == 'running'
+                and type(row['RestartCount']) is int and row['RestartCount'] >= 0
+                and (web_only and role != 'web' or row['RestartCount'] == 0)
                 and state['OOMKilled'] is False and labels.get('com.docker.compose.project') == 'aemr'
                 and labels.get('com.docker.compose.service') == role
                 and (role == 'caddy' or labels.get('org.opencontainers.image.revision') ==
@@ -105,7 +126,13 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed):
         if web_only:
             require(row['Id'] == accepted['container_ids'][role]
                     and (role == 'web' or row['Id'] == stage['container_ids'][role]))
-        actual[role] = {'image_id': row['Image'], 'container_id': row['Id'], 'started_at': state['StartedAt'], 'restarts': 0}
+            if role != 'web':
+                require(component['backend_runtime'][role] == {
+                    'container': row['Id'], 'image': row['Image'], 'status': state['Status'],
+                    'started_at': state['StartedAt'], 'restart_count': row['RestartCount'],
+                })
+        actual[role] = {'image_id': row['Image'], 'container_id': row['Id'],
+                        'started_at': state['StartedAt'], 'restarts': row['RestartCount']}
     expected_ops = {Path(name).name: digest for name, digest in artifact['source_files'].items() if name.startswith(('deploy/', '.github/'))}
     require(ops == expected_ops)
     versions = observed['runtime_versions']
@@ -152,10 +179,11 @@ def main():
             print(json.dumps(capture()))
             return 0
         parser = argparse.ArgumentParser()
-        for name in ('artifact', 'metadata', 'stage', 'accepted', 'containers', 'ops', 'observed'):
-            parser.add_argument('--' + name, type=Path, required=True)
+        for name in ('artifact', 'metadata', 'stage', 'accepted', 'containers', 'ops', 'observed', 'component'):
+            parser.add_argument('--' + name, type=Path, required=name != 'component')
         args = parser.parse_args()
-        value = seal(**{name: read(path) for name, path in vars(args).items()})
+        value = seal(**{name: read(path) if path is not None else None
+                        for name, path in vars(args).items()})
         print(json.dumps(value, sort_keys=True, separators=(',', ':')))
         return 0
     except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError, ImportError, sqlite3.Error, subprocess.SubprocessError):
