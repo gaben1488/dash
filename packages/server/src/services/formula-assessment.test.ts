@@ -59,6 +59,14 @@ describe('assessment after independent formula reading', () => {
     expect(previousVersion.score).toBeNull();
   });
 
+  it('invalidates last good grade after a later changed-source values-only read', () => {
+    const good = assessFormulaResults(['УО'], [delivery('УО')], [verdict('УО')], { 'УО': true });
+    const changed = assessFormulaResults(['УО'], [delivery('УО')], [verdict('УО')], { 'УО': false });
+    expect(good.score).toBe(100);
+    expect(changed.score).toBeNull();
+    expect(changed.checkedBooks).toBe(0);
+  });
+
   it('does not invent a clean score for an empty book set', () => {
     expect(assessFormulaResults([], [], [])).toMatchObject({
       expectedBooks: 0, checkedBooks: 0, score: null,
