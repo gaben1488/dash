@@ -142,6 +142,30 @@ export interface IntegrityBookDto {
   note: string;
 }
 
+
+/** Visible source scope is the only valid denominator for displayed counters. */
+export function scopedIntegrityTotals(
+  books: readonly Pick<IntegrityBookDto, 'sequence'>[],
+): {
+  gapCount: number;
+  duplicates: number;
+  countableWithoutSeq: number;
+  checkedBooks: number;
+  unreadBooks: number;
+} {
+  return books.reduce((total, book) => {
+    if (!book.sequence) {
+      total.unreadBooks++;
+      return total;
+    }
+    total.checkedBooks++;
+    total.gapCount += book.sequence.gapCount;
+    total.duplicates += book.sequence.duplicates.length;
+    total.countableWithoutSeq += book.sequence.countableWithoutSeq;
+    return total;
+  }, { gapCount: 0, duplicates: 0, countableWithoutSeq: 0, checkedBooks: 0, unreadBooks: 0 });
+}
+
 export interface VanishedBookDto {
   dept: string;
   deptName: string;
