@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FIELD_GUIDANCE, SEASONAL_RULES, procurementEditableGuidance,
+  FIELD_GUIDANCE, SEASONAL_RULES, PROCUREMENT_GUIDANCE_VERSION,
+  checkedProcurementGuidanceResponse, procurementEditableGuidance,
   procurementRuleSections, procurementRulesMarkdown,
 } from './procurement-guidance.js';
 
@@ -56,4 +57,34 @@ describe('C06.03 editable editorial catalog', () => {
     expect(FIELD_GUIDANCE.flag).toContain('AD —');
     expect(SEASONAL_RULES.WINTER_ROAD_WORK.label).toBe(winter);
   });
+
+  it('applies one strict saved-catalog contract for all screens and exports', () => {
+    const entries = procurementEditableGuidance().map(item => ({
+      ...item, text: item.defaultText, overridden: false, revision: 0, updatedAt: null as string | null,
+    }));
+    const response = { version: PROCUREMENT_GUIDANCE_VERSION, calculationRulesChanged: false, entries };
+    expect(checkedProcurementGuidanceResponse(response)).toEqual(entries);
+    const updated = entries.map(item => item.key === 'field:planDate' ? {
+      ...item, text: 'Проверьте N по первичному документу', overridden: true,
+      revision: 1, updatedAt: '2026-10-22T08:00:00.000Z',
+    } : item);
+    expect(checkedProcurementGuidanceResponse({ ...response, entries: updated })).toEqual(updated);
+
+    const wrong = [
+      null,
+      { ...response, version: 'old-v0' },
+      { ...response, calculationRulesChanged: true },
+      { ...response, entries: entries.slice(0, -1) },
+      { ...response, entries: [...entries.slice(0, -1), entries[0]] },
+      { ...response, entries: [{ ...entries[0], section: 'wrong' }, ...entries.slice(1)] },
+      { ...response, entries: [{ ...entries[0], defaultText: 'Иной исходный текст' }, ...entries.slice(1)] },
+      { ...response, entries: [{ ...entries[0], text: 'Правка без флага' }, ...entries.slice(1)] },
+      { ...response, entries: [{ ...entries[0], overridden: true }, ...entries.slice(1)] },
+      { ...response, entries: [{ ...entries[0], revision: 1 }, ...entries.slice(1)] },
+      { ...response, entries: [{ ...entries[0], updatedAt: 'вчера' }, ...entries.slice(1)] },
+      { ...response, entries: [null, ...entries.slice(1)] },
+    ];
+    for (const candidate of wrong) expect(() => checkedProcurementGuidanceResponse(candidate)).toThrow();
+  });
+
 });
