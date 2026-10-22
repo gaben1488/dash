@@ -119,6 +119,15 @@ function diffToRubText(diffThousandRub: number): string {
   return (diffThousandRub * 1000).toFixed(2);
 }
 
+/**
+ * Same decision boundary as Google Sheets' ROUND(diff;2)<>0 in thousands of
+ * rubles: an exact 0.005 thousand (5 rubles) rounds to 0.01 and is a mismatch.
+ * The small epsilon acts only on binary representation noise at that boundary.
+ */
+function bookSumMismatch(diffThousandRub: number): boolean {
+  return Math.round(Math.abs(diffThousandRub) * 100 + 1e-9) > 0;
+}
+
 // ============================================================
 // ПРАВИЛО 1: Консистентность сумм бюджета
 // K = H + I + J (план), O = L + M + N (факт)
@@ -134,21 +143,24 @@ const budgetSumConsistencyPlan: ValidationRule = {
   scope: 'both',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['K']);
     if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
     for (const col of ['H', 'I', 'J']) {
-      const val = toNumber(ctx.cells[col]);
+      const raw = ctx.cells[col];
+      // Google Sheets SUM(...) treats empty components as zero. An invalid
+      // nonempty component remains unverified, never a confirmed PASS.
+      const val = raw === null || raw === undefined || String(raw).trim() === ''
+        ? 0 : toNumber(raw);
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
     if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    if (bookSumMismatch(diff)) {
       return {
         passed: false,
         message:
@@ -175,21 +187,24 @@ const budgetSumConsistencyFact: ValidationRule = {
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['O']);
     if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
     for (const col of ['L', 'M', 'N']) {
-      const val = toNumber(ctx.cells[col]);
+      const raw = ctx.cells[col];
+      // Google Sheets SUM(...) treats empty components as zero. An invalid
+      // nonempty component remains unverified, never a confirmed PASS.
+      const val = raw === null || raw === undefined || String(raw).trim() === ''
+        ? 0 : toNumber(raw);
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
     if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    if (bookSumMismatch(diff)) {
       return {
         passed: false,
         message:
@@ -634,21 +649,24 @@ const deptFactSumConsistency: ValidationRule = {
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['Y']);
     if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
     for (const col of ['V', 'W', 'X']) {
-      const val = toNumber(ctx.cells[col]);
+      const raw = ctx.cells[col];
+      // Google Sheets SUM(...) treats empty components as zero. An invalid
+      // nonempty component remains unverified, never a confirmed PASS.
+      const val = raw === null || raw === undefined || String(raw).trim() === ''
+        ? 0 : toNumber(raw);
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
     if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    if (bookSumMismatch(diff)) {
       return {
         passed: false,
         message:
@@ -679,21 +697,24 @@ const deptEconomySumConsistency: ValidationRule = {
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['AC']);
     if (total === null) return { passed: null, message: 'Итог отсутствует или не читается как число.' };
 
     let expectedSum = 0;
     let allPresent = true;
     for (const col of ['Z', 'AA', 'AB']) {
-      const val = toNumber(ctx.cells[col]);
+      const raw = ctx.cells[col];
+      // Google Sheets SUM(...) treats empty components as zero. An invalid
+      // nonempty component remains unverified, never a confirmed PASS.
+      const val = raw === null || raw === undefined || String(raw).trim() === ''
+        ? 0 : toNumber(raw);
       if (val === null) { allPresent = false; break; }
       expectedSum += val;
     }
     if (!allPresent) return { passed: null, message: 'Не все слагаемые прочитаны как числа.' };
 
     const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    if (bookSumMismatch(diff)) {
       return {
         passed: false,
         message:
