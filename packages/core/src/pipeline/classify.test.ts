@@ -356,3 +356,15 @@ describe('classifyRows — edge cases', () => {
     expect(r.classificationReasons.length).toBeGreaterThan(0);
   });
 });
+
+describe('composite procurement IDs in the integrated Dash classification', () => {
+  it('does not mistake 173/18 with small amounts and missing G/L for a header', () => {
+    const item = classifySingle(24, makeCells({ A: '173/18', H: 80, K: 80, G: '', L: '' }));
+    expect(item.classification).toBe('procurement');
+    expect(item.cells.A).toBe('173/18');
+  });
+  it('recognises composite ID alone as a procurement draft but preserves numeric legacy header heuristics', () => {
+    expect(classifySingle(25, makeCells({ A: '173/18' })).classification).toBe('procurement_derived');
+    expect(classifySingle(25, makeCells({ A: '173' })).classification).toBe('header');
+  });
+});
