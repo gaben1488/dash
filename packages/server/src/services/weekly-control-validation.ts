@@ -1,19 +1,16 @@
 /** Неизменённая проверка сохранённых недельных доказательств; без чтения live-кэша. */
 import { eq, inArray } from 'drizzle-orm';
-import { buildCellDict, DEPT_HEADER_ROWS, findDept, toGrbsId, GRBS_ID_TO_DEPARTMENT_ID, subordinateKey, ORG_ITSELF_SENTINEL } from '@aemr/shared';
+import { buildCellDict, DEPT_HEADER_ROWS, findDept, toGrbsId, GRBS_ID_TO_DEPARTMENT_ID } from '@aemr/shared';
 import { MONITORING_DATA_SHEETS, type SnapshotRow } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { isDataRow } from './rows-dto.js';
+import { orgLabel } from './procurement-row-view.js';
+export { orgLabel } from './procurement-row-view.js';
 
 export interface WeeklySnapshotRef {
   id: string;
   createdAt: string;
-}
-
-export function orgLabel(raw: unknown): string {
-  const key = subordinateKey(raw);
-  return key === ORG_ITSELF_SENTINEL ? 'Аппарат управления' : key;
 }
 
 interface AtomRow {
