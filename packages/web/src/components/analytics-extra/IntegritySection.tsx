@@ -285,6 +285,16 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+
+  // Оперативный источник независим от недельного контроля. Если оба видят
+  // отсутствие того же буквального № п/п, показываем одну строку, не два сигнала.
+  const operationalEntries = filterByDeptScope(data?.operational?.entries ?? [], deptScope, (e) => e.dept);
+  const observedUnavailable = filterByDeptScope(data?.operational?.unavailableBooks ?? [], deptScope, (e) => e.dept);
+  const weeklyKeys = new Set(vanishedBooks.flatMap((book) =>
+    book.vanished.map((row) => JSON.stringify([book.dept, row.rowSeq]))));
+  const operationalOnly = operationalEntries.filter((entry) =>
+    !weeklyKeys.has(JSON.stringify([entry.dept, entry.rowSeq])));
+  const corroboratedCount = operationalEntries.length - operationalOnly.length;
   const unavailableBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.unavailableBooks ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
@@ -443,6 +453,57 @@ export function IntegritySection() {
                     </ul>
                   )}
                 </>
+              )}
+
+              {data.operational && (
+                <div className="mt-3 border-t border-[var(--line-soft)] pt-3">
+                  <h4 className="ds-text-xs font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                    Оперативный дозор по таблице и № п/п
+                  </h4>
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                    Наблюдения принятых перечиток с {fmtMoment(data.operational.since)}.
+                    Проверяем сохранённый № в текущей книге без нового обращения к Google.
+                    Отсутствие номера не доказывает удаление закупки.
+                  </p>
+                  {data.operational.error && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">{data.operational.error}</p>
+                  )}
+                  {observedUnavailable.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Не проверено по текущему чтению: {observedUnavailable
+                        .map((book) => book.dept + ' — ' + book.reason).join('; ')}.
+                      По этим книгам нельзя считать число исчезновений нулём.
+                    </p>
+                  )}
+                  {operationalOnly.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {operationalOnly.map((entry) => (
+                        <li key={entry.dept + ':' + entry.rowSeq}
+                            className="ds-text-xs text-[var(--ink-muted)]">
+                          <span className="font-mono ds-text-3xs">
+                            {entry.dept} · прежний № {entry.rowSeq}
+                            {entry.wasAtSheetRow !== null ? ' · была строка ' + entry.wasAtSheetRow : ''}
+                          </span>
+                          {entry.subject ? ' — ' + entry.subject : ''}
+                          {' · наблюдалось '}{fmtMoment(entry.observedAt)}
+                          {' · причина не установлена'}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {corroboratedCount > 0 && (
+                    <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
+                      Оперативных наблюдений, совпавших с недельной сверкой: {corroboratedCount}.
+                      Они не считаются повторно.
+                    </p>
+                  )}
+                  {operationalOnly.length === 0 && corroboratedCount === 0 &&
+                    observedUnavailable.length === 0 && !data.operational.error && (
+                      <p className="mt-1 ds-text-xs text-[var(--ink-faint)]">
+                        Актуальных наблюдений отсутствия прежних номеров за это окно нет.
+                      </p>
+                    )}
+                </div>
               )}
             </div>
           </Card>

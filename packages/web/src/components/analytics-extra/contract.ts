@@ -175,6 +175,21 @@ export interface VanishedBookDto {
   note: string;
 }
 
+export interface OperationalAbsenceDto {
+  dept: string;
+  rowSeq: string;
+  wasAtSheetRow: number | null;
+  subject: string;
+  observedAt: string;
+}
+
+export interface OperationalAbsenceReport {
+  since: string;
+  entries: OperationalAbsenceDto[];
+  unavailableBooks: Array<{ dept: string; reason: string }>;
+  error: string | null;
+}
+
 export interface IntegrityResponse {
   asOf: string;
   books: IntegrityBookDto[];
@@ -191,6 +206,8 @@ export interface IntegrityResponse {
     vanishedPlanSum: number;
   } | null;
   comparisonNote: string;
+  /** Older servers without the hybrid hotfix remain readable. */
+  operational?: OperationalAbsenceReport;
   notes: string[];
 }
 

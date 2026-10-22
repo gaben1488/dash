@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -241,5 +241,53 @@ describe('исторические снимки — совместимость �
     expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v2"}}').error).toContain('не поддерживается');
     expect(interpretWeeklySnapshotJson('{invalid').error).toContain('не разбирается');
     expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v1"}}').error).toBeNull();
+  });
+});
+
+describe('гибридный дозор прежнего № п/п между принятыми чтениями', () => {
+  const observedAt = '2026-10-22T07:40:00.000Z';
+  const now = Date.parse('2026-10-22T08:02:00.000Z');
+  const source = {
+    'УО': [...HEADER, row({ 0: '12/01', 2: 'Школа', 6: 'Другая закупка', 10: 100, 11: 'ЕП' })],
+  };
+  const meta = { 'УО': { loadedAt: '2026-10-22T08:00:00.000Z', rowCount: 4 } };
+  const event = (rowSeq: string, at = observedAt) => ({
+    book: 'УО', kind: 'row-vanished' as const, rowSeq, sheetRow: 18,
+    subject: 'Ремонт', observedAt: at,
+  });
+
+  it('без недельного снимка видит отсутствие 12/1, не путая с 12/01 и не удваивая webhook', () => {
+    const result = selectActiveSourceAbsences([
+      event('12/1'), event('12/1', '2026-10-22T07:50:00.000Z'), event('12/01'),
+      { ...event('13'), kind: 'row-identity-candidate' as const },
+    ], source, meta, now, 3_600_000);
+    expect(result.entries).toEqual([expect.objectContaining({
+      dept: 'УО', rowSeq: '12/1', wasAtSheetRow: 18,
+      observedAt: '2026-10-22T07:50:00.000Z',
+    })]);
+    expect(result.unavailableBooks).toEqual([]);
+  });
+
+  it('вернувшийся прежний номер больше не числится пропавшим', () => {
+    const result = selectActiveSourceAbsences([event('12/1')], {
+      'УО': [...source['УО'], row({ 0: '12/1', 6: 'Ремонт' })],
+    }, { 'УО': { ...meta['УО'], rowCount: 5 } }, now, 3_600_000);
+    expect(result.entries).toEqual([]);
+    expect(result.unavailableBooks).toEqual([]);
+  });
+
+  it('неполный и устаревший источник означает неизвестность, а не ноль пропаж', () => {
+    const stale = selectActiveSourceAbsences([event('12/1')], source, {
+      'УО': { loadedAt: '2026-10-21T08:00:00.000Z', rowCount: 4 },
+    }, now, 3_600_000);
+    expect(stale.entries).toEqual([]);
+    expect(stale.unavailableBooks).toEqual([
+      expect.objectContaining({ dept: 'УО', reason: expect.stringContaining('устарел') }),
+    ]);
+    const incomplete = selectActiveSourceAbsences([event('12/1')], {
+      'УО': HEADER,
+    }, { 'УО': { ...meta['УО'], rowCount: 3 } }, now, 3_600_000);
+    expect(incomplete.entries).toEqual([]);
+    expect(incomplete.unavailableBooks).toHaveLength(1);
   });
 });
