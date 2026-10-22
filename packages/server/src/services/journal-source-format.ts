@@ -55,17 +55,9 @@ export function decodeSourceJournal(rows: readonly (readonly unknown[])[]): Sour
       return;
     }
 
-    const eight = address(row[1]);
-    if (eight && row.length >= 6) {
-      cells.push({
-        schema: 'eight', journalRow: index + 1,
-        sheet: eight.sheet || s(0), cell: eight.cell,
-        column: row[2], rowKey: row[3], was: row[4], became: row[5],
-        at: row[6], author: row[7],
-      });
-      return;
-    }
-
+    // In six-column history an OLD VALUE may itself resemble "B48".
+    // Prefer the explicitly located source address in the first column;
+    // otherwise an old cell-looking value would rewrite event identity.
     const six = address(row[0]);
     if (six && row.length >= 5) {
       rowKeyless++;
@@ -74,6 +66,17 @@ export function decodeSourceJournal(rows: readonly (readonly unknown[])[]): Sour
         sheet: six.sheet, cell: six.cell,
         column: '', rowKey: '', was: row[1], became: row[2],
         at: row[3], author: row[4],
+      });
+      return;
+    }
+
+    const eight = address(row[1]);
+    if (eight && row.length >= 6) {
+      cells.push({
+        schema: 'eight', journalRow: index + 1,
+        sheet: eight.sheet || s(0), cell: eight.cell,
+        column: row[2], rowKey: row[3], was: row[4], became: row[5],
+        at: row[6], author: row[7],
       });
       return;
     }
