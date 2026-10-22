@@ -275,6 +275,31 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
     expect((await app.inject('/api/dashboard?year=all')).statusCode).toBe(200);
   });
+  it('gives release readback the exact active snapshot identity without a second source or full DTO', async () => {
+    const response = await app.inject('/api/dashboard?year=2026&identity=1');
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.json()).toEqual({ snapshot: { id: fixture.snapshot.id, createdAt: fixture.snapshot.createdAt } });
+    expect(Buffer.byteLength(response.body)).toBeLessThan(200);
+    expect(response.body).not.toContain('privateHistory');
+    const normal = (await app.inject('/api/dashboard?year=2026')).json();
+    expect(normal.snapshot.id).toBe(response.json().snapshot.id);
+    expect(normal.snapshot.createdAt).toBe(response.json().snapshot.createdAt);
+  });
+  it('fails closed for a malformed or forced identity read, without downgrading full dashboard validation', async () => {
+    for (const query of ['identity=0', 'identity=1&refresh=true', 'identity=1&year=2026junk']) {
+      expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
+    }
+    const previous = fixture.snapshot;
+    fixture.snapshot = { ...previous, rowCount: -1 };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(response.statusCode).toBe(500);
+      expect(response.json().code).toBe('SNAPSHOT_IDENTITY_INVALID');
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('transmits the complete issue set once when the workspace opts into references', async () => {
     const response = await app.inject('/api/dashboard?year=2026&compact=1');
     expect(response.statusCode).toBe(200);
