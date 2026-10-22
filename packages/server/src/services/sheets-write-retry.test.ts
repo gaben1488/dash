@@ -92,6 +92,22 @@ describe('запись в ячейку книги', () => {
     expect(failed?.fields.reason).toBe('нет доступа к книге');
   }, 30_000);
 
+  it('нулевой updatedCells — отказ, а не фиктивно успешная запись', async () => {
+    update.mockResolvedValue({ data: { updatedRange: 'ВСЕ!G4', updatedCells: 0 } });
+    const { writeCellValue } = await import('./google-sheets.js');
+    await expect(writeCellValue('book-1', 'ВСЕ', 'G4', 'новое значение')).rejects.toThrow('не подтвердили');
+  }, 30_000);
+
+  it('очистка ячейки отправляет пустую строку, а не пропускаемый Google null', async () => {
+    update.mockResolvedValue(okResponse);
+    const { writeCellValue } = await import('./google-sheets.js');
+    await writeCellValue('book-1', 'ВСЕ', 'H4', null);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ requestBody: { values: [['']] } }),
+      expect.anything(),
+    );
+  }, 30_000);
+
   it('удачная правка оставляет след в журнале — без самого значения', async () => {
     update.mockResolvedValue(okResponse);
     const { writeCellValue } = await import('./google-sheets.js');

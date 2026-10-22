@@ -264,7 +264,19 @@ function subPeriodBlock(rows: Row[]): Record<string, number | null> {
 
 function activityBlock(rows: Row[]) {
   const of = (kind: Activity) => {
-    const a = agg(rows.filter(r => r.activity === kind));
+    // Method × activity numbers come from the independent source rows, not
+    // planCount guessed as competitive. Preserve the legacy debt-state grid.
+    const selected = rows.filter(r => r.activity === kind);
+    const a = agg(selected);
+    const byMethod = (method: Method) => {
+      const m = agg(selected.filter(r => r.method === method));
+      return {
+        plan: m.planCount, fact: m.factCount,
+        planSum: m.planTotal, factSum: m.factTotal,
+        planFB: m.planFB, planKB: m.planKB, planMB: m.planMB,
+        factFB: m.factFB, factKB: m.factKB, factMB: m.factMB,
+      };
+    };
     return {
       planCount: a.planCount, factCount: a.factCount,
       planTotal: a.planTotal, factTotal: a.factTotal,
@@ -273,6 +285,7 @@ function activityBlock(rows: Row[]) {
       economyTotal: a.economyTotal,
       economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
       execCountPct: pct1(a.factCount, a.planCount),
+      byMethod: { competitive: byMethod('kp'), ep: byMethod('ep') },
     };
   };
   const zero = of('pm');

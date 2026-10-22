@@ -19,7 +19,7 @@ import { getISOWeekNumber } from '../lib/week-number';
 import { fmtPct2 } from '../lib/report/mappers';
 import { usePeriodCoverage } from '../hooks/usePeriodCoverage';
 import {
-  classifyPeriod, classifyQuarter, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf,
+  classifyPeriod, classifyQuarter, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf, productDayParts,
   type PeriodCoverageKind,
 } from '../lib/period-coverage';
 
@@ -306,8 +306,8 @@ export function TimeDrum() {
   const { year, setYear, monthsByYear, toggleMonthInYear, toggleQuarterInYear, toggleYearFull, clearAllPeriods, focusedWeekStart } = useStore();
   const coverage = usePeriodCoverage();
   const covReady = coverage.status === 'ready';
-  const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
+  const currentMonth = productDayParts().m;
+  const currentYear = productDayParts().y;
   const drumRef = useRef<HTMLDivElement>(null);
   const focusedWMonth = focusedWeekStart.getMonth() + 1;
   const focusedWYear = focusedWeekStart.getFullYear();
@@ -842,7 +842,7 @@ export function Header() {
   })();
 
   const activeCount = getActiveFilterCount({
-    yearChanged: year !== new Date().getFullYear(),
+    yearChanged: year !== productDayParts().y,
     moneyUnitChanged: moneyUnit !== 'тыс',
     stavkaChanged: stavkaMode !== 'norm',
     // Срез недели — тем же предикатом, что жетон угла (страж схождения):
