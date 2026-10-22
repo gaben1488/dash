@@ -200,6 +200,19 @@ describe('детектор 6 — отступление имени подвед�
     }
   });
 
+  it('действующие R/E-имена и подтверждённые исторические имена не расходятся со справочником из-за кавычек', () => {
+    const accepted = [
+      'МБУ ДО СШ "Лидер"',    // текущий канон
+      'МБУ ДО СШ «Лидер»',    // подтверждённый исторический
+      'МБУ ДО "КДМШ"',       // типографический вариант проверенного исторического имени
+      'МБУК "Елизовский районный зоопарк"', // кавычки вместо «»
+    ];
+    for (const name of accepted) {
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+      expect(detectSubordinateNameHygiene(name).filter(f => f.kind === 'registry_mismatch'), name).toEqual([]);
+    }
+  });
+
   it('дословные имена актуального справочника молчат — вид кавычек правит владелец', () => {
     expect(detectSubordinateNameHygiene('МБДОУ "Детский сад № 3 "Жар-птица"')).toEqual([]);
     expect(detectSubordinateNameHygiene('МБУ ДО КДМШ')).toEqual([]);
