@@ -26,6 +26,26 @@ def instant(value):
     return parsed
 
 
+def snapshot_identity(payload):
+    """Only the tiny live-model identity is evidence for the release passport."""
+    if not isinstance(payload, dict) or set(payload) != {'snapshot'}:
+        raise ValueError('snapshot payload')
+    snapshot = payload['snapshot']
+    if not isinstance(snapshot, dict) or set(snapshot) != {'id', 'createdAt'}:
+        raise ValueError('snapshot fields')
+    if not isinstance(snapshot['id'], str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', snapshot['id']):
+        raise ValueError('snapshot id')
+    instant(snapshot['createdAt'])
+    return snapshot
+
+
+def read_snapshot_identity(get, year):
+    """One request to the canonical model, not a second SQLite/history reader."""
+    if type(year) is not int or not 2000 <= year <= 2100:
+        raise ValueError('snapshot year')
+    return snapshot_identity(get('/api/dashboard?identity=1&year=' + str(year), limit=2048))
+
+
 def capture():
     from procurement_engine.raw_pipeline import RAW_RULES_VERSION, RENDERER_VERSION
 
@@ -34,16 +54,16 @@ def capture():
     if not key:
         raise ValueError('auth')
 
-    def get(path):
+    def get(path, *, limit=32 * 1024**2):
         request = urllib.request.Request('http://127.0.0.1:3000' + path, headers={'Authorization': 'Bearer ' + key})
         with urllib.request.urlopen(request, timeout=25) as response:
-            data = response.read(32 * 1024**2 + 1)
-        if len(data) > 32 * 1024**2:
+            data = response.read(limit + 1)
+        if len(data) > limit:
             raise ValueError('size')
         return json.loads(data)
 
     year = datetime.now(timezone(timedelta(hours=12))).year
-    snapshot = get('/api/dashboard?compact=1&year=' + str(year))['snapshot']
+    snapshot = read_snapshot_identity(get, year)
     receipt = get('/api/report-releases')['latest']
     path = Path(os.environ['SQLITE_PATH']).resolve()
     with closing(sqlite3.connect('file:' + urllib.parse.quote(str(path)) + '?mode=ro', uri=True, timeout=5)) as db:
