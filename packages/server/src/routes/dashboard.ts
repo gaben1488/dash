@@ -170,9 +170,15 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const factTotalVal = calcFactYear != null
         ? calcFactYear
         : svodGet(`${prefix}.kp.year.total_fact`) ?? svodGet(`${prefix}.kp.q1.total_fact`) ?? null;
+      // A measured zero is a valid amount. A missing КП or ЕП component is
+      // incomplete evidence, not an implicit zero in the fallback sum.
+      const officialKpEconomy = svodGet(`${prefix}.economy.kp`);
+      const officialEpEconomy = svodGet(`${prefix}.economy.ep`);
       const ecoTotal = calcEcoYear != null
         ? calcEcoYear
-        : ((svodGet(`${prefix}.economy.kp`) ?? 0) + (svodGet(`${prefix}.economy.ep`) ?? 0)) || null;
+        : officialKpEconomy != null && officialEpEconomy != null
+          ? officialKpEconomy + officialEpEconomy
+          : null;
 
       const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
       const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
