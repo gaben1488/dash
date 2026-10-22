@@ -1,0 +1,22 @@
+name: Main controlled release
+
+# An owner-authored one-file release request on main, not every main push.
+# Deployment is delegated to the existing stateful controller with full trial.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/ci/main-controlled-release-20261023.request'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  candidate:
+    if: >-
+      github.repository == 'gaben1488/dash' &&
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/vps-cache-cleanup.yml
+    secrets: inherit
