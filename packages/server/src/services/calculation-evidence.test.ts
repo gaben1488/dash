@@ -58,6 +58,12 @@ describe('calculation evidence: deterministic capture', () => {
       .not.toBe(calculationSha256([['2'], ['1']]));
   });
 
+  it('matches the exact JSON storage roundtrip for undefined values, dates and non-finite numbers', () => {
+    const value = { date: new Date('2026-10-22T08:00:00Z'), omitted: undefined, amount: NaN };
+    const stored = JSON.parse(JSON.stringify(value)) as unknown;
+    expect(calculationSha256(value)).toBe(calculationSha256(stored));
+  });
+
   it('captures source IDs, dates, rules and full input hashes without duplicating rows', () => {
     const evidence = makeCalculationEvidence(input(), snapshot(), evidenceSources());
     expect(evidence).toMatchObject({
