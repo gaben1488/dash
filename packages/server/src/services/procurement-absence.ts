@@ -115,16 +115,22 @@ interface VerifiedControl {
 function verifiedThursday(day: number, now: number, offset: number): VerifiedControl {
   let skipped = 0;
   let error: string | null = null;
-  for (const ref of iterateWeeklySnapshotHistory()) {
-    if (!isControlOn(ref, day, now, offset)) continue;
-    try {
-      const checked = verifiedBaselineRows(ref);
-      if (checked.error === null) return { ref, rows: checked.rows, skipped, error };
-      error = checked.error;
-    } catch {
-      error = 'Чтение контрольных свидетельств завершилось отказом';
+  try {
+    for (const ref of iterateWeeklySnapshotHistory()) {
+      if (!isControlOn(ref, day, now, offset)) continue;
+      try {
+        const checked = verifiedBaselineRows(ref);
+        if (checked.error === null) return { ref, rows: checked.rows, skipped, error };
+        error = checked.error;
+      } catch {
+        error = 'Чтение контрольных свидетельств завершилось отказом';
+      }
+      skipped++;
     }
-    skipped++;
+  } catch {
+    // An unavailable SQLite cursor cannot mean there was no prior procurement.
+    return { ref: null, rows: null, skipped,
+      error: 'Не удалось прочитать историю завершённых четверговых снимков' };
   }
   return { ref: null, rows: null, skipped, error };
 }
@@ -218,7 +224,7 @@ function acceptedCurrentBook(
 
 /** Один набор проверяемых признаков для оперативного и исторического диффа. */
 function hasNotableDiff(diff: RowDiff): boolean {
-  return diff.vanished.length > 0 || diff.moved.length > 0 ||
+  return diff.vanished.length > 0 || diff.appeared.length > 0 || diff.moved.length > 0 ||
     diff.unkeyed.before > 0 || diff.unkeyed.after > 0 ||
     (diff.identityCandidates?.length ?? 0) > 0 ||
     (diff.contextChanged?.length ?? 0) > 0 ||
