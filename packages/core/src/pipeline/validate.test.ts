@@ -584,3 +584,56 @@ describe('validation execution coverage', () => {
     ]);
   });
 });
+
+describe('СВОД — хотфикс: эксперимент с 279-й строки только для Google Sheets', () => {
+  const arithmetic = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact'].includes(r.id));
+  const wrongTotals = { A: 'УО', H: 100, I: 20, J: 30, K: 1, L: 70, M: 20, N: 10, O: 1 };
+
+  it('сохраняет обе проверки сумм в строке 278, но не на 279 и 324', () => {
+    const rows = [
+      makeRow({ rowIndex: 278, cells: wrongTotals }),
+      makeRow({ rowIndex: 279, cells: wrongTotals }),
+      makeRow({ rowIndex: 324, cells: wrongTotals }),
+    ];
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP, new Date('2026-10-22T00:00:00Z'), coverage);
+    expect(issues.map(i => [i.category, i.row])).toEqual([
+      ['budget_sum_plan', 278],
+      ['budget_sum_fact', 278],
+    ]);
+    expect(coverage[0]).toMatchObject({ expected: 2, checked: 2, failed: 2 });
+  });
+
+  it('все правила scope=both и svod игнорируют эксперимент, включая контекст allRows', () => {
+    const seen: number[][] = [];
+    const rule = makeRule({
+      scope: 'both',
+      check: ctx => {
+        seen.push(ctx.allRows.map(row => row.rowIndex));
+        return { passed: true };
+      },
+    });
+    const issues = validateData(EMPTY_METRICS, [
+      makeRow({ rowIndex: 278 }),
+      makeRow({ rowIndex: 279 }),
+      makeRow({ rowIndex: 324 }),
+    ], [rule, makeFailingRule({ id: 'svod_extra', scope: 'svod', rowFilter: ['procurement'] })], EMPTY_REPORT_MAP);
+    expect(seen).toEqual([[278]]);
+    expect(issues.map(i => i.row)).toEqual([278]);
+  });
+
+  it('не трактует новую шапку эксперимента как ошибку схемы основного СВОДа', () => {
+    const issues = validateData(EMPTY_METRICS, [
+      makeRow({ rowIndex: 278 }),
+      makeRow({ rowIndex: 279, cells: { A: 'ГРБС', B: 'Пульт эксперимента', C: 'мера' } }),
+    ], [makeRule()], EMPTY_REPORT_MAP);
+    expect(issues).toEqual([]);
+  });
+
+  it('сохраняет проверки закупок ГРБС после 278-й строки', () => {
+    const issues = validateData(EMPTY_METRICS, [
+      makeRow({ sheet: 'УО', rowIndex: 279, cells: wrongTotals }),
+    ], arithmetic, REPORT_MAP);
+    expect(issues.map(i => [i.category, i.row])).toEqual([['budget_sum_plan', 279]]);
+  });
+});
