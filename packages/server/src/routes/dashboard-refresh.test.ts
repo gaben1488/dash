@@ -122,6 +122,7 @@ beforeAll(async () => {
 beforeEach(() => {
   fetchDepartmentSpreadsheets.mockClear();
   getSheetData.mockClear();
+  getSnapshot.mockClear();
   deptSheetCache = {};
   deptLoadMeta = {};
   spans.length = 0;
@@ -183,7 +184,19 @@ describe('POST /api/refresh — полный цикл', () => {
     expect(body.departmentRowCounts).toMatchObject({ 'УО': 3, 'УКСиМП': 2 });
   });
 
-  it('упавшая книга видна в ответе с причиной, остальные — прочитаны', async () => {
+  it('an unreadable SVOD prevents publishing even when all eight masters were read', async () => {
+    getSheetData.mockRejectedValueOnce(new Error('Synthetic SVOD 429'));
+    const response = await refresh();
+    expect(response.statusCode).toBe(503);
+    const body = response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ success: false, error: 'SOURCE_FULL_BASE_NOT_UPDATED' });
+    const sources = body.sources as Array<Record<string, unknown>>;
+    expect(sources.every(item => item.loaded === false)).toBe(true);
+    expect(sources.find(item => item.type === 'svod')?.error).toBe('SVOD_READ_FAILED');
+    expect(getSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('an incomplete source cycle is 503 and cannot publish the successful subset as a refreshed base', async () => {
     fetchDepartmentSpreadsheets.mockImplementationOnce(async () => {
       await sleep(5);
       return {
@@ -191,13 +204,17 @@ describe('POST /api/refresh — полный цикл', () => {
         errors: { 'УКСиМП': 'Request failed with status code 429' },
       };
     });
-    const body = refreshBody(await refresh());
-
+    const response = await refresh();
+    expect(response.statusCode).toBe(503);
+    const body = response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ success: false, error: 'SOURCE_FULL_BASE_NOT_UPDATED',
+      lastAcceptedUnchanged: true });
     const failed = (body.sources as Array<Record<string, unknown>>).find((s) => s.name === 'УКСиМП');
     expect(failed).toMatchObject({ loaded: false });
     expect(String(failed?.error ?? '')).not.toBe('');
-    const ok = (body.sources as Array<Record<string, unknown>>).find((s) => s.name === 'УО');
-    expect(ok).toMatchObject({ loaded: true, rowCount: 1 });
+    const observedOnly = (body.sources as Array<Record<string, unknown>>).find((s) => s.name === 'УО');
+    expect(observedOnly).toMatchObject({ loaded: false, error: 'SOURCE_FULL_BASE_NOT_UPDATED' });
+    expect(getSnapshot).not.toHaveBeenCalled();
   });
 });
 
