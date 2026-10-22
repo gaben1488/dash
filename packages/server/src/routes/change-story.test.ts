@@ -195,8 +195,10 @@ describe('GET /api/change-story', () => {
   });
 
   it('объяснение API различает текущие чтения и последний контроль, не две прошлые недели', () => {
-    expect(body.note).toContain('последнему подтверждённому недельному');
-    expect(body.note).toContain('текущим достоверным чтениям');
+    // No preceding Thursday snapshot exists in this fixture: saying that an
+    // actual verified weekly comparison happened would be a false assurance.
+    expect(body.note).toContain('Нет подтверждённого среза четверга');
+    expect(body.note).toContain('Сравнивать текущее состояние');
     expect(body.note).not.toContain('двух соседних');
     expect(body.note).toContain('требуются дополнительные свидетельства');
   });

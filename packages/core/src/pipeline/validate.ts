@@ -1,6 +1,6 @@
 import { issueIdentity, ruleIssueIdentityParts, nextOccurrence, SEP } from './issue-identity.js';
 import type { TrustCheckCoverage, Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
-import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
+import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet, SVOD_DASHBOARD_LAST_ROW } from '@aemr/shared';
 
 /**
  * Вид деятельности строки — канон classifyActivity (@aemr/shared): F +
@@ -64,6 +64,12 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
+  // The source sheet's A279:U... is experimental, for Google Sheets alone.
+  // Every rule (including scope='both'), header/layout evidence and allRows
+  // must exclude it. 1–278 remain live; other GRBS sheets are unaffected.
+  const scopedRows = sheetClass.kind === 'svod'
+    ? rows.filter(row => row.rowIndex <= SVOD_DASHBOARD_LAST_ROW)
+    : rows;
   const execution: TrustCheckCoverage = { sheet: sheetName, component: 'rule_compliance', expected: 0, checked: 0, failed: 0 };
   coverage?.push(execution);
   // Один лист содержит несколько таблиц с разными значениями D:U. Граница
@@ -77,7 +83,7 @@ export function validateData(
   if (sheetClass.kind === 'svod') {
     let layout: 'primary' | 'analytics' | 'unknown' = 'primary';
     const label = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-    for (const row of [...rows].sort((a, b) => a.rowIndex - b.rowIndex)) {
+    for (const row of [...scopedRows].sort((a, b) => a.rowIndex - b.rowIndex)) {
       const a = label(row.cells.A);
       if (['анализ экономии', 'операционная нагрузка', 'дисциплина планирования'].includes(a)) {
         layout = 'analytics';
@@ -145,7 +151,7 @@ export function validateData(
     let uncheckedRows = 0;
     let firstUnchecked: { row: number; message: string } | null = null;
     // Run the rule's check() against each applicable row
-    for (const row of rows) {
+    for (const row of scopedRows) {
       if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
@@ -160,7 +166,7 @@ export function validateData(
         rowIndex: row.rowIndex,
         sheet: row.sheet,
         classification: row.classification,
-        allRows: rows,
+        allRows: scopedRows,
         asOf,
       };
       let result;

@@ -172,14 +172,14 @@ describe('расстояние Левенштейна с потолком', () =
 });
 
 describe('детектор 6 — отступление имени подведа от справочника', () => {
-  it('живой кейс «Жар-Птица»: № без пробела → канон справочника целиком', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птица»');
+  it('реальная опечатка в имени «Жар-Птица» исправляется на канон целиком', () => {
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птиица»');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('тот же кейс с кавычками-лапками: нормализация кавычек не мешает найти канон', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птица“');
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птиица“');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
@@ -198,6 +198,34 @@ describe('детектор 6 — отступление имени подвед�
       expect(detectSubordinateNameHygiene(name), name).toEqual([]);
       expect(nearestCanonicalSubordinate(name), name).toBeNull();
     }
+  });
+
+  it('действующие R/E-имена и подтверждённые исторические имена не расходятся со справочником из-за кавычек', () => {
+    const accepted = [
+      'МБУ ДО СШ "Лидер"',    // текущий канон
+      'МБУ ДО СШ «Лидер»',    // подтверждённый исторический
+      'МБУ ДО "КДМШ"',       // типографический вариант проверенного исторического имени
+      'МБУК "Елизовский районный зоопарк"', // кавычки вместо «»
+    ];
+    for (const name of accepted) {
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+      expect(detectSubordinateNameHygiene(name).filter(f => f.kind === 'registry_mismatch'), name).toEqual([]);
+    }
+  });
+
+  it('один справочник R/E для ё/е, № и кавычек; настоящие опечатки остаются заметными', () => {
+    const accepted = [
+      'МБДОУ "Детский сад №3 "Жар-птица"',
+      'МБДОУ «Детский сад № 3 «Жар-птица»',
+      'МБУ ДО СШ «Лидер»',
+    ];
+    for (const name of accepted) {
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+      expect(detectSubordinateNameHygiene(name).filter(f => f.kind === 'registry_mismatch'), name).toEqual([]);
+    }
+    const realTypo = detectSubordinateNameHygiene('МБУ ДО СШОР по ЛBС');
+    expect(realTypo).toHaveLength(1);
+    expect(realTypo[0].kind).toBe('registry_mismatch');
   });
 
   it('дословные имена актуального справочника молчат — вид кавычек правит владелец', () => {
