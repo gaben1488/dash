@@ -275,6 +275,11 @@ class ControllerTests(TrialTests):
                 self.assertFalse(compatible(['packages/web/src/App.tsx', path]))
         self.assertFalse(compatible([]))
         self.assertFalse(compatible(['docs/PLAN.md']))
+        # An API-client change can introduce calls the installed backend cannot
+        # serve, even though its file is packaged by the frontend image.
+        self.assertFalse(compatible(['packages/web/src/App.tsx', 'packages/web/src/api.ts']))
+        self.assertFalse(compatible(['packages/web/src/App.tsx', 'packages/web/src/api/routes.ts']))
+        self.assertTrue(compatible(['packages/web/src/App.tsx', 'packages/web/src/components/Card.tsx']))
 
     def web_stage(self):
         self.stage_fixture()
