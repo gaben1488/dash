@@ -1,17 +1,15 @@
 // @vitest-environment jsdom
-/**
- * Система → Источники данных: глубокая проверка — настоящее действие,
- * а не декоративная кнопка. Не требует наличия архивной контрольной недели.
- */
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+/** The System page consumes one server-owned source inspection run. */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { SettingsPage } from './Settings';
 
 const getSources = vi.fn();
 const settingsStatus = vi.fn();
-const checkSourceIntegrityDeep = vi.fn();
-const validateAllSources = vi.fn();
+const runSourceDiagnostics = vi.fn();
+const oldDeepCheck = vi.fn();
+const oldValidateAll = vi.fn();
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
@@ -21,8 +19,9 @@ vi.mock('../api', async (importOriginal) => {
       ...actual.api,
       getSources: (...args: unknown[]) => getSources(...(args as [])),
       settingsStatus: (...args: unknown[]) => settingsStatus(...(args as [])),
-      checkSourceIntegrityDeep: (...args: unknown[]) => checkSourceIntegrityDeep(...(args as [])),
-      validateAllSources: (...args: unknown[]) => validateAllSources(...(args as [])), 
+      runSourceDiagnostics: (...args: unknown[]) => runSourceDiagnostics(...(args as [])),
+      checkSourceIntegrityDeep: (...args: unknown[]) => oldDeepCheck(...(args as [])),
+      validateAllSources: (...args: unknown[]) => oldValidateAll(...(args as [])),
     },
   };
 });
@@ -34,9 +33,10 @@ class ResizeObserverStub {
 }
 (globalThis as Record<string, unknown>).ResizeObserver ??= ResizeObserverStub;
 
-function result(complete: boolean) {
+const at = '2026-10-22T07:00:00.000Z';
+function deepResult(complete: boolean) {
   return {
-    complete, at: new Date().toISOString(), expectedBooks: 2, changedValueBooks: [],
+    complete, at, expectedBooks: 2, changedValueBooks: [],
     books: [
       { book: 'УО', metadataRead: true, metadataRemarks: 1, formulasRead: true,
         analyzed: true, formulaCells: 11, rowsJudged: 2, formulaDefects: 0, problems: [] },
@@ -45,6 +45,31 @@ function result(complete: boolean) {
         rowsJudged: complete ? 3 : null, formulaDefects: complete ? 0 : null,
         problems: complete ? [] : ['формулы этого запуска не прочитаны'] },
     ],
+  };
+}
+function row(name: string, total: number, mode: 'rows' | 'access_only' = 'rows') {
+  return {
+    name, success: true, validationMode: mode, resolvedSheetName: name,
+    rowsChecked: 20, summary: { total, critical: 0, warning: total, info: 0 },
+    issues: total ? [{ row: 4, severity: 'warning', type: 'signal', message: 'Проверить строку' }] : [],
+  };
+}
+function runResult(complete: boolean) {
+  return {
+    schemaVersion: 'sources-diagnostics/v1',
+    runId: 'run-12345678', startedAt: at, completedAt: at,
+    status: complete ? 'complete' : 'partial',
+    consistency: 'non_atomic',
+    stages: {
+      deep: { state: complete ? 'complete' : 'partial', startedAt: at, completedAt: at, error: null, result: deepResult(complete) },
+      rows: { state: 'complete', startedAt: at, completedAt: at, error: null,
+        expectedSources: 2, checkedBooks: 2, accessOnlyBooks: 0, failedSources: [],
+        results: [row('УО', 1), row('УИО', 0)] },
+      metrics: { state: 'not_run', reason: 'Не запускалось' },
+      crossbook: { state: 'not_run', reason: 'Не запускалось' },
+      text: { state: 'not_run', reason: 'Не запускалось' },
+      history: { state: 'not_run', reason: 'Не запускалось' },
+    },
   };
 }
 
@@ -64,70 +89,58 @@ beforeEach(() => {
     ],
   });
   settingsStatus.mockResolvedValue({ configured: true });
-  checkSourceIntegrityDeep.mockResolvedValue(result(true));
-  validateAllSources.mockResolvedValue({ results: [
-    { name: 'УО', success: true, rowsChecked: 20, summary: { total: 1, critical: 0, warning: 1, info: 0 }, issues: [] },
-    { name: 'УИО', success: true, rowsChecked: 30, summary: { total: 0, critical: 0, warning: 0, info: 0 }, issues: [] },
-  ] });
+  runSourceDiagnostics.mockResolvedValue(runResult(true));
 });
-
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   window.localStorage.clear();
 });
-
 function renderPage() {
-  return render(
-    <TooltipProvider delayDuration={0}>
-      <SettingsPage />
-    </TooltipProvider>,
-  );
+  return render(<TooltipProvider delayDuration={0}><SettingsPage /></TooltipProvider>);
 }
 
-describe('Один запуск диагностики источников', () => {
-  it('вручную запускает одно чтение, показывает охват и не требует исторической недели', async () => {
+describe('Система: единый запуск проверок источников', () => {
+  it('одна кнопка вызывает один серверный маршрут, показывает охват без исторической недели', async () => {
     renderPage();
-    const button = await screen.findByRole('button', { name: 'Проверить источники' });
-    fireEvent.click(button);
-    await screen.findByText(/Чтение завершено/);
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
-    expect(validateAllSources).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
+    await screen.findByText(/Диагностика источников завершена/);
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
+    expect(oldDeepCheck).not.toHaveBeenCalled();
+    expect(oldValidateAll).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('run-1234');
     expect(document.body.textContent).toContain('Замечаний: 1');
-    expect(document.body.textContent).toContain('Метрики и межкнижные сверки');
+    expect(document.body.textContent).toContain('Метрики, межкнижная сверка, тексты');
     expect(document.body.textContent).toContain('2 из 2 книг');
-    expect(document.body.textContent).toContain('отсутствие первого недельного среза проверке не мешает');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
     expect(document.body.textContent).toContain('УО:');
     expect(document.body.textContent).toContain('УИО:');
   });
 
   it('непрочитанная книга не объявляется здоровой с нулём дефектов', async () => {
-    checkSourceIntegrityDeep.mockResolvedValueOnce(result(false));
+    runSourceDiagnostics.mockResolvedValueOnce(runResult(false));
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
-    await screen.findByText(/Чтение неполное/);
+    await screen.findByText(/Диагностика источников выполнена не полностью/);
+    expect(document.body.textContent).toContain('Чтение неполное');
     expect(document.body.textContent).toContain('1 из 2 книг');
-    fireEvent.click(screen.getByText('Результат по каждой книге'));
-    expect(document.body.textContent).toContain('формулы этого запуска не прочитаны');
   });
 
-  it('не начинает второе чтение, пока первое не закончилось', async () => {
-    let finish: (value: ReturnType<typeof result>) => void = () => undefined;
-    checkSourceIntegrityDeep.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  it('конкурирующий клик не запускает второй запрос пока предыдущий не завершился', async () => {
+    let finish: (value: ReturnType<typeof runResult>) => void = () => undefined;
+    runSourceDiagnostics.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     renderPage();
     const button = await screen.findByRole('button', { name: 'Проверить источники' });
     fireEvent.click(button);
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(validateAllSources).not.toHaveBeenCalled();
     expect((screen.getByRole('button', { name: 'Прочитать книги заново' }) as HTMLButtonElement).disabled).toBe(true);
-    finish(result(true));
+    finish(runResult(true));
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
-    expect(validateAllSources).toHaveBeenCalledTimes(1);
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
   });
-  it('не объявляет проверку доступности свода построчной валидацией', async () => {
+
+  it('доступность агрегата не называется построчной проверкой', async () => {
     getSources.mockResolvedValue({
       sources: [
         { name: 'УО', status: 'ok', rowCount: 20 },
@@ -135,26 +148,28 @@ describe('Один запуск диагностики источников', ()
         { name: 'СВОД ТД-ПМ', status: 'ok', rowCount: 40 },
       ],
     });
-    validateAllSources.mockResolvedValue({
-      results: [
-        { name: 'УО', success: true, validationMode: 'rows', rowsChecked: 20, summary: { total: 0 } },
-        { name: 'УИО', success: true, validationMode: 'rows', rowsChecked: 30, summary: { total: 0 } },
-        { name: 'СВОД ТД-ПМ', success: true, validationMode: 'access_only', rowsChecked: 40, summary: { total: 0 } },
-      ],
-    });
+    const combined = runResult(true);
+    combined.stages.rows.results.push(row('СВОД ТД-ПМ', 0, 'access_only'));
+    combined.stages.rows.expectedSources = 3;
+    combined.stages.rows.accessOnlyBooks = 1;
+    runSourceDiagnostics.mockResolvedValueOnce(combined);
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
     await waitFor(() => expect(document.body.textContent).toContain('Агрегатных источников прочитано: 1'));
-    expect(document.body.textContent).toContain('Построчно проверены книги ГРБС: 2. Замечаний не найдено');
     expect(document.body.textContent).toContain('Построчные правила ГРБС к агрегированному листу не применяются');
   });
 
-  it('если глубокое чтение не удалось, не пропускает независимую проверку данных', async () => {
-    checkSourceIntegrityDeep.mockRejectedValueOnce(new Error('Google API unavailable'));
+  it('показывает отдельный отказ глубокого этапа, даже если строки проверены', async () => {
+    const combined = runResult(true);
+    combined.status = 'partial';
+    combined.stages.deep.state = 'failed';
+    combined.stages.deep.result = null as never;
+    combined.stages.deep.error = 'Google не отдал формулы';
+    runSourceDiagnostics.mockResolvedValueOnce(combined);
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
-    await waitFor(() => expect(validateAllSources).toHaveBeenCalledTimes(1));
-    expect(document.body.textContent).toContain('Проверка не выполнена');
+    await screen.findByText(/Диагностика источников выполнена не полностью/);
+    expect(document.body.textContent).toContain('Google не отдал формулы');
     expect(document.body.textContent).toContain('Замечаний: 1');
   });
 });
