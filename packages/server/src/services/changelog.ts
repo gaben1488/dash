@@ -53,6 +53,13 @@ function contentSignature(r: ChangeRecord): string {
   ])).digest('hex');
 }
 
+/** One identity rule shared by stored change history and the detailed journal. */
+export function changeRecordKey(r: ChangeRecord): string {
+  if (r.eventId) return r.eventId;
+  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
+  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
+}
+
 export function changeRecordsFromJournal(
   journal: SourceJournal,
   dept: string,
