@@ -115,6 +115,14 @@ export const SCHEMA_DDL = `
     user_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS domain_guidance_edits (
+    key TEXT PRIMARY KEY,
+    editorial_text TEXT,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    comment TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS procurement_rows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_id TEXT REFERENCES snapshots(id),

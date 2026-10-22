@@ -1,9 +1,11 @@
-import { EP_REASON_CLUSTERS, EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { canonicalizeReasonEp, EP_REASON_CLUSTERS, EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { normalizeMethod } from './dictionaries/method-families.js';
 import { DEVIATION_CLUSTERS, DEVIATION_DICT } from './dictionaries/deviation-reason-clusters.js';
 
 /** Editable domain guidance; free text never substitutes for the structured N/Q dates. */
 export const FIELD_GUIDANCE = {
   method: 'Укажите фактический способ закупки. Обоснование ЕП хранится отдельно в M; выбор ЕП сам по себе не доказывает нарушение.',
+  epReason: 'M — объяснение выбора единственного поставщика. Сохраните фактический текст и ссылку на подтверждающий документ; не подменяйте объяснение правовым выводом. Плановая дата N, факт Q и решение AD задаются отдельно.',
   planDate: 'N — плановая дата. Уточняйте её по документам планирования; текст комментария не заменяет дату.',
   factDate: 'Q — дата завершения позиции. Для годовой потребности это дата последнего договора, закрывающего весь объём. До этого суммы могут накапливаться при пустой Q. Не ставьте вымышленную дату ради снятия сигнала.',
   flag: 'AD — решение об учёте экономии: «да» или «нет». Учитывается подписанная сумма Z+AA+AB, включая отрицательное значение. Разница плана и факта не заменяет это решение.',
@@ -42,26 +44,139 @@ export type SeasonalRuleId = keyof typeof SEASONAL_RULES;
 export const SEASONAL_RULE_LABELS = Object.fromEntries(Object.entries(SEASONAL_RULES).map(([key, rule]) => [key, rule.label])) as Record<SeasonalRuleId, string>;
 export const SEASONAL_SCREENING_NOTE = SCREENING_NOTE;
 
-/** The same sections feed the screen, Markdown and DOCX without separate wording. */
-export function procurementRuleSections(): Array<{ title: string; paragraphs: string[] }> {
+/**
+ * The Registry editor renders the actual source-M explanation with the SAME
+ * classifier as Control and EP analytics. Classification is a review hint,
+ * never a legal assessment, and cannot overwrite N/Q or a raw source value.
+ */
+export function epReasonEditorGuidance(
+  method: unknown, rawReason: unknown, explanatoryText: string = FIELD_GUIDANCE.epReason,
+): string {
+  if (normalizeMethod(method) !== 'ЕП') {
+    return 'В этой строке способ не ЕП. Не подставляйте обоснование ЕП автоматически; сверяйте способ по исходной колонке L.';
+  }
+  const result = canonicalizeReasonEp(rawReason);
+  if (result.cluster === 'EMPTY') {
+    return `${explanatoryText} Основание отсутствует или в M стоит маркер пустоты. Уточните исходный документ; система не проставляет объяснение сама.`;
+  }
+  if (result.cluster === 'UNMAPPED') {
+    return `${explanatoryText} Основание не распознано словарём: нужна предметная сверка, а не автоматическое исправление.`;
+  }
+  return `${explanatoryText} Тема распознана: «${EP_REASON_DICT[result.cluster].label_ru}». Это не подтверждение законности применения ЕП.`;
+}
+
+/**
+ * Editable editorial explanations only. Stable identifiers are independent of
+ * Russian wording; changing a description does NOT edit a legal threshold,
+ * source row, regex, classification, snapshot or stored report.
+ */
+export interface ProcurementGuidanceEntry {
+  key: string;
+  section: 'field' | 'ep' | 'stage' | 'seasonal';
+  defaultText: string;
+}
+
+/**
+ * Versioned presentation catalog consumed by Settings, Registry and exports.
+ * Explanatory edits never become source observations or executable rules.
+ */
+export const PROCUREMENT_GUIDANCE_VERSION = 'C06.03-editorial-v1' as const;
+
+export interface SavedProcurementGuidanceEntry extends ProcurementGuidanceEntry {
+  text: string;
+  overridden: boolean;
+  revision: number;
+  updatedAt: string | null;
+}
+export interface SavedProcurementGuidance {
+  version: typeof PROCUREMENT_GUIDANCE_VERSION;
+  calculationRulesChanged: false;
+  entries: SavedProcurementGuidanceEntry[];
+}
+
+/** One fail-closed reader contract for every consumer of saved editorial text. */
+export function checkedProcurementGuidanceResponse(value: unknown): SavedProcurementGuidanceEntry[] {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Сервер не подтвердил полную редакцию справочника');
+  }
+  const data = value as Partial<SavedProcurementGuidance>;
+  const baseline = procurementEditableGuidance();
+  if (data.version !== PROCUREMENT_GUIDANCE_VERSION || data.calculationRulesChanged !== false ||
+      !Array.isArray(data.entries) || data.entries.length !== baseline.length) {
+    throw new Error('Сервер не подтвердил полную редакцию справочника');
+  }
+  const expected = new Map(baseline.map(entry => [entry.key, entry]));
+  const seen = new Set<string>();
+  for (const raw of data.entries) {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('Редакция справочника несовместима с текущей версией приложения');
+    }
+    const entry = raw as SavedProcurementGuidanceEntry;
+    const original = expected.get(entry.key);
+    if (!original || seen.has(entry.key) || entry.section !== original.section ||
+        entry.defaultText !== original.defaultText || typeof entry.text !== 'string' ||
+        !entry.text.trim() || typeof entry.overridden !== 'boolean' ||
+        !Number.isSafeInteger(entry.revision) || entry.revision < 0 ||
+        (!entry.overridden && entry.text !== original.defaultText) ||
+        (entry.overridden && (entry.revision < 1 || entry.text === original.defaultText)) ||
+        (entry.revision === 0 && entry.updatedAt !== null) ||
+        (entry.revision > 0 && (typeof entry.updatedAt !== 'string' ||
+          !Number.isFinite(Date.parse(entry.updatedAt))))) {
+      throw new Error('Редакция справочника несовместима с текущей версией приложения');
+    }
+    seen.add(entry.key);
+  }
+  return data.entries;
+}
+
+export function procurementEditableGuidance(): ProcurementGuidanceEntry[] {
   return [
-    { title: 'Заполнение исходных таблиц', paragraphs: Object.values(FIELD_GUIDANCE) },
+    ...Object.entries(FIELD_GUIDANCE).map(([key, defaultText]) => ({
+      key: `field:${key}`, section: 'field' as const, defaultText,
+    })),
+    ...EP_REASON_CLUSTERS.map(key => ({
+      key: `ep:${key}`, section: 'ep' as const, defaultText: EP_REASON_DICT[key].label_ru,
+    })),
+    ...DEVIATION_CLUSTERS.map(key => ({
+      key: `stage:${key}`, section: 'stage' as const, defaultText: DEVIATION_DICT[key].label_ru,
+    })),
+    ...Object.entries(SEASONAL_RULES).map(([key, rule]) => ({
+      key: `seasonal:${key}`, section: 'seasonal' as const,
+      defaultText: `${rule.label}. ${rule.action}`,
+    })),
+  ];
+}
+
+/**
+ * All visible/exported editorial descriptions come from the same projection.
+ * Keys outside the known catalog never alter a rule, and numerical or
+ * structural N/Q/AD evidence is intentionally not editable here.
+ */
+export function procurementRuleSections(
+  editorialOverrides: Readonly<Record<string, string>> = {},
+): Array<{ title: string; paragraphs: string[] }> {
+  const known = new Set(procurementEditableGuidance().map(entry => entry.key));
+  const edited = (key: string, original: string): string =>
+    known.has(key) && typeof editorialOverrides[key] === 'string' &&
+      editorialOverrides[key].trim() !== '' ? editorialOverrides[key] : original;
+  return [
+    { title: 'Заполнение исходных таблиц', paragraphs: Object.entries(FIELD_GUIDANCE).map(([key, text]) => edited(`field:${key}`, text)) },
     { title: 'Основания ЕП', paragraphs: [
       'Распознанное объяснение не доказывает применимость правовой нормы. Нераспознанная формулировка означает ограничение словаря, а не ошибку исполнителя.',
-      ...EP_REASON_CLUSTERS.map(key => EP_REASON_DICT[key].label_ru),
+      ...EP_REASON_CLUSTERS.map(key => edited(`ep:${key}`, EP_REASON_DICT[key].label_ru)),
     ] },
     { title: 'Объяснения сроков и этапов', paragraphs: [
       'Текст сохраняется дословно. Состояние и своевременность определяются структурными датами и подтверждениями, а не словами «заключён» или «не заключён».',
-      ...DEVIATION_CLUSTERS.map(key => DEVIATION_DICT[key].label_ru),
+      ...DEVIATION_CLUSTERS.map(key => edited(`stage:${key}`, DEVIATION_DICT[key].label_ru)),
     ] },
     { title: 'Сезонные ориентиры', paragraphs: [SCREENING_NOTE,
-      ...Object.values(SEASONAL_RULES).map(rule => `${rule.label}. ${rule.action}`),
+      ...Object.entries(SEASONAL_RULES).map(([key, rule]) => edited(`seasonal:${key}`, `${rule.label}. ${rule.action}`)),
       `Внутренние даты просмотра: питание — ${SEASONAL_PARAMETERS.foodDeadline.day}.${SEASONAL_PARAMETERS.foodDeadline.month}, топливо — ${SEASONAL_PARAMETERS.fuelDeadline.day}.${SEASONAL_PARAMETERS.fuelDeadline.month}. Отсутствие N или суммы при пустой Q не доказывает отсутствие обеспечения.`,
     ] },
   ];
 }
-export function procurementRulesMarkdown(): string {
-  return procurementRuleSections().map(section => `## ${section.title}\n\n${section.paragraphs.join('\n\n')}`).join('\n\n') + '\n';
+export function procurementRulesMarkdown(editorialOverrides: Readonly<Record<string, string>> = {}): string {
+  return procurementRuleSections(editorialOverrides).map(section => `## ${section.title}\n\n${section.paragraphs.join('\n\n')}`).join('\n\n') + '\n';
 }
 
 

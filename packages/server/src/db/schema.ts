@@ -136,6 +136,19 @@ export const mappingOverrides = sqliteTable('mapping_overrides', {
 });
 
 /**
+ * Редакторские примечания к предметному справочнику (C06.03).
+ * Canonical identifiers and domain calculation rules remain in @aemr/shared.
+ * Null editorialText means restored canonical wording; revision is never reset.
+ */
+export const domainGuidanceEdits = sqliteTable('domain_guidance_edits', {
+  key: text('key').primaryKey(),
+  editorialText: text('editorial_text'),
+  revision: integer('revision').notNull(),
+  comment: text('comment').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+/**
  * Строки закупок — импортированные и нормализованные
  */
 export const procurementRows = sqliteTable('procurement_rows', {

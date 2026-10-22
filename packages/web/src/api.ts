@@ -1,4 +1,4 @@
-import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun, SavedProcurementGuidance, SavedProcurementGuidanceEntry } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -60,6 +60,10 @@ export interface LedgerSaveResponse {
   revision: string;
   record: LedgerRecommendation | null;
 }
+
+/** Same verified catalog shape as server/shared; no web-only copy of its contract. */
+export type EditorialGuidanceEntry = SavedProcurementGuidanceEntry;
+export type EditorialGuidanceResponse = SavedProcurementGuidance;
 
 const API_BASE = '/api';
 
@@ -306,6 +310,15 @@ export async function fetchParsed<T>(url: string, schema: ParseSchema<T>, init?:
 }
 
 export const api = {
+  // C06.03 editorial dictionaries: same authenticated transport and errors as other settings.
+  getEditorialGuidance: () =>
+    fetchJSON<EditorialGuidanceResponse>('/settings/guidance'),
+  updateEditorialGuidance: (key: string, text: string, comment: string, expectedRevision: number) =>
+    fetchJSON<{ key: string; revision: number; text: string; overridden: boolean; updatedAt: string }>(
+      `/settings/guidance/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ text, comment, expectedRevision }),
+      }),
   // Dashboard
   getDashboard: (refresh = false, year?: number | 'all', signal?: AbortSignal) => {
     const params = new URLSearchParams({ compact: '1' });
