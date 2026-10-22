@@ -225,6 +225,29 @@ describe('формульная целостность — три класса д
 // ────────────────────────────────────────────────────────────
 
 describe('формульная целостность — строки без номера в графе A', () => {
+  it('СТРАЖ: числовая шапка 1–3 не считается дефектом, строка 4+ проверяется', () => {
+    const { values, formulas } = book([
+      ...HEALTHY,
+      { seq: 67, cells: { K: 42 } },
+    ]);
+    for (let sheetRow = 1; sheetRow <= 3; sheetRow++) {
+      values[sheetRow - 1][DEPT_COLUMNS.ID] = sheetRow;
+      for (const column of FORMULA_COLUMNS) {
+        // Все три класса потенциально ложных замечаний присутствуют в шапке.
+        formulas[sheetRow - 1][COLUMN_INDEX[column]] =
+          sheetRow === 1 ? 27 : sheetRow === 2 ? '' : '=1+1';
+      }
+    }
+    const input = { book: 'УО', values, formulas, startRow: 1 };
+    expect(detectFormulaIntegrity(input).map((d) => d.cell)).toEqual(['K9']);
+    expect(formulaIntegrityIssues(input, 'uo').map((i) => i.cell)).toEqual(['K9']);
+
+    // Частичный диапазон начинается с физической строки 2.
+    expect(detectFormulaIntegrity({
+      ...input, values: values.slice(1), formulas: formulas.slice(1), startRow: 2,
+    }).map((d) => d.cell)).toEqual(['K9']);
+  });
+
   it('пустая строка хвоста дырой НЕ считается', () => {
     // Урок дампов 30.08: ручной инструмент насчитал «дыры» на 58 пустых
     // строках хвоста УО, за которыми не стояло ни одного дефекта.
@@ -402,6 +425,25 @@ describe('формульная целостность — подключение
     expect(found).toHaveLength(1);
     expect(found[0].cell).toBe('K9');
     expect(found[0].departmentId).toBe('uo');
+  });
+
+  it('конвейер снимков тоже исключает числовую шапку, как прямой приёмник', () => {
+    const { values, formulas } = book([...HEALTHY, { seq: 67, cells: { K: 42 } }]);
+    for (let i = 0; i < 3; i++) {
+      values[i][DEPT_COLUMNS.ID] = i + 1;
+      formulas[i][COLUMN_INDEX.K] = 123;
+      formulas[i][COLUMN_INDEX.Y] = '=1+1';
+    }
+    const result = runPipeline({
+      batchGetData: [],
+      sheetRows: { 'УО': values },
+      sheetFormulas: { 'УО': formulas },
+      reportMap: [],
+      rules: [],
+      spreadsheetId: 'test',
+    });
+    expect(result.issues.filter((i) => i.checkId?.startsWith('formula_')).map((i) => i.cell))
+      .toEqual(['K9']);
   });
 
   it('без прочитанных формул конвейер не выдумывает дефектов', () => {
