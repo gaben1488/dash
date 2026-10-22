@@ -55,6 +55,15 @@ describe('справка «Как читать этот дэш»: состав',
   });
 });
 
+describe('справка: честная граница доказательств', () => {
+  it('не обещает, что любой показатель всегда доведён до ячейки и подтверждён', () => {
+    const provenance = HELP_SECTIONS.find(s => s.id === 'provenance')?.paragraphs.join(' ') ?? '';
+    expect(provenance).not.toMatch(/любое число.*ячейк/i);
+    expect(provenance).not.toMatch(/число без прослеживаемого пути.*не выводится/i);
+    expect(provenance).toMatch(/не установ|нет.*источ|не подтвержд/i);
+  });
+});
+
 describe('справка: строгие правила языка', () => {
   it('в тексте нет латиницы, кроме имени сервиса Google', () => {
     const rest = stripAllowedLatin(allText);
