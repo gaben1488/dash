@@ -154,6 +154,24 @@ describe('classifyRows — procurement detection', () => {
 // 5. allSmallIntegers heuristic
 // ────────────────────────────────────────────────────────────
 
+
+describe('classifyRows — составные номера в колонке A', () => {
+  it('173/18 с предметом и деньгами — закупка, а не service', () => {
+    const r = classifySingle(5, makeCells({ A: '173/18', G: 'Оказание услуг', K: 250 }));
+    expect(r.classification).toBe('procurement');
+  });
+
+  it('173/1 с описанием, но без суммы — procurement_derived', () => {
+    const r = classifySingle(5, makeCells({ A: '173/1', C: 'Х', G: 'Договор' }));
+    expect(r.classification).toBe('procurement_derived');
+  });
+
+  it('произвольный номер 173/з не принимается за составной ID', () => {
+    const r = classifySingle(5, makeCells({ A: '173/з', C: 'Х', K: 250 }));
+    expect(r.classification).toBe('service');
+  });
+});
+
 describe('classifyRows — allSmallIntegers heuristic', () => {
   it('classifies row with all small integers in H-K as header (column numbers)', () => {
     const r = classifySingle(4, makeCells({ A: '1', H: 8, I: 9, J: 10, K: 11 }));
