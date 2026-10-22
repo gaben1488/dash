@@ -10,6 +10,9 @@ import { METRIC_LABELS } from '../product-dictionary.js';
  */
 
 import type { KBEntryData } from './types.js';
+import { EXECUTABLE_METRICS, metricDependencies,
+  type MetricDefinition, type DerivedMetricDefinition } from './calculation-definitions.js';
+import { metricProvenance, type MetricProvenance } from '../metric-provenance.js';
 import { applyKbUplift } from './kb-uplift.js';
 
 // ── Base Metrics (accumulated from department rows) ────────────────
@@ -1299,3 +1302,31 @@ export function getMetricsByCategory(category: KBEntryData['category']): Array<{
 
 /** List of all available metric keys. */
 export const ALL_METRIC_KEYS = Object.keys(METRIC_KB);
+
+/**
+ * ONE lookup across the three aspects of a metric. The executable definition
+ * owns units and dependencies; KB owns explanation/copy; lineage owns the
+ * documentary origin. These are joined by key, not copied into another table.
+ *
+ * A documented operational metric without a CalcEngine definition is valid,
+ * but it must not masquerade as an executable procurement calculation.
+ */
+export interface MetricSpecification {
+  readonly key: string;
+  readonly executable: MetricDefinition | DerivedMetricDefinition | null;
+  readonly documentation: KBEntryData | null;
+  readonly lineage: MetricProvenance | null;
+  readonly dependencies: readonly string[];
+}
+
+export function metricSpecification(key: string): MetricSpecification | null {
+  const executable = EXECUTABLE_METRICS.get(key) ?? null;
+  const documentation = METRIC_KB[key] ?? null;
+  const lineage = metricProvenance(key) ?? null;
+  if (!executable && !documentation && !lineage) return null;
+  return {
+    key, executable, documentation, lineage,
+    dependencies: executable && 'formula' in executable
+      ? metricDependencies(executable) : [],
+  };
+}
