@@ -345,7 +345,7 @@ export function refuseUnverifiedCurrentSource(
   return {
     ...response,
     books: response.books.map(book => ({
-      ...book, rowsAvailable: false, sequence: null, dateFormat: [],
+      ...book, rowsAvailable: false, sequence: null, dateFormat: [], lastReadAt: null,
       note: 'Текущее чтение не подтверждено: ' + reason,
     })),
     totals: { gapCount: 0, duplicates: 0, countableWithoutSeq: 0, dateFormat: 0 },
