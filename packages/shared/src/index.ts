@@ -176,6 +176,7 @@ export * from './source-coverage.js';
 
 export * from './metrics/types.js';
 export * from './metrics/registry.js';
+export * from './metrics/published-key-contract.js';
 export * from './metrics/kb-uplift.js';
 
 export { summarizeCheckCoverage } from './check-coverage.js';
@@ -185,3 +186,6 @@ export { MASTER_SOURCE_PROFILE, MONITORING_SOURCE_SCHEMA, validateMasterSourceHe
 export * from './procurement-guidance.js';
 // Source diagnostic run: bounded coverage, per-stage timestamps, honest not_run.
 export type { SourceStageStatus, SourceDeepBookEvidence, SourceDeepEvidence, SourceRowValidationEvidence, SourceDiagnosticRun } from './source-diagnostics.js';
+
+// One executable catalog for source gates and formula dependencies.
+export * from './metrics/calculation-definitions.js';

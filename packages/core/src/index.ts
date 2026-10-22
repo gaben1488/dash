@@ -218,3 +218,6 @@ export type {
 export { monitoringDate } from './monitoring/cells.js';
 
 export { issueIdentity, ruleIssueIdentityParts } from './pipeline/issue-identity.js';
+
+// Core-owned snapshot metric explanation; API/Word/UI must not implement formulas.
+export * from './metrics/snapshot-explanation.js';

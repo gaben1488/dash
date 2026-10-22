@@ -10,6 +10,9 @@ import { METRIC_LABELS } from '../product-dictionary.js';
  */
 
 import type { KBEntryData } from './types.js';
+import { EXECUTABLE_METRICS, metricDependencies,
+  type MetricDefinition, type DerivedMetricDefinition } from './calculation-definitions.js';
+import { metricProvenance, type MetricProvenance } from '../metric-provenance.js';
 import { applyKbUplift } from './kb-uplift.js';
 
 // ── Base Metrics (accumulated from department rows) ────────────────
@@ -66,6 +69,36 @@ export const METRIC_KB: Record<string, KBEntryData> = {
     source: 'CalcEngine → total.pending_count (gate: GATE_NO_FACT)',
     thresholds: 'Информационный показатель',
     law: '44-ФЗ ст.16, 94',
+  },
+  pending_fb: {
+    label: METRIC_LABELS['pending_fb'], unit: 'currency', category: 'budget',
+    formula: 'SUM(H WHERE факт заключения не подтверждён к дате среза)',
+    source: 'CalcEngine → pending_fb (источник: колонка H)',
+    whatIs: 'Плановая сумма федерального бюджета по позициям без подтверждённого заключения на дату среза, тыс. руб.',
+    howCalc: 'Сумма графы H только для плановых строк, дата заключения которых не наступила или не подтверждена. Обратный гейт факта применяется по дате снимка.',
+    dataSource: 'Книги ГРБС: графа H (ФБ, план) и графа Q (дата факта); год и плановый период берутся из O/P.',
+    engine: 'Общий CalcEngine; единственная декларация pending_fb в исполняемом каталоге.',
+    pitfalls: 'Это не доказанный свободный остаток ФБ, не платёж и не прогноз экономии. Пустая дата Q и дата позднее среза учитываются одинаково как отсутствие факта на момент расчёта.',
+  },
+  pending_kb: {
+    label: METRIC_LABELS['pending_kb'], unit: 'currency', category: 'budget',
+    formula: 'SUM(I WHERE факт заключения не подтверждён к дате среза)',
+    source: 'CalcEngine → pending_kb (источник: колонка I)',
+    whatIs: 'Плановая сумма краевого бюджета по позициям без подтверждённого заключения на дату среза, тыс. руб.',
+    howCalc: 'Сумма графы I только для плановых строк, дата заключения которых не наступила или не подтверждена. Обратный гейт факта применяется по дате снимка.',
+    dataSource: 'Книги ГРБС: графа I (КБ, план) и графа Q (дата факта); год и плановый период берутся из O/P.',
+    engine: 'Общий CalcEngine; единственная декларация pending_kb в исполняемом каталоге.',
+    pitfalls: 'Это не доказанный свободный остаток КБ, не платёж и не прогноз экономии. Пустая дата Q и дата позднее среза учитываются одинаково как отсутствие факта на момент расчёта.',
+  },
+  pending_mb: {
+    label: METRIC_LABELS['pending_mb'], unit: 'currency', category: 'budget',
+    formula: 'SUM(J WHERE факт заключения не подтверждён к дате среза)',
+    source: 'CalcEngine → pending_mb (источник: колонка J)',
+    whatIs: 'Плановая сумма местного бюджета по позициям без подтверждённого заключения на дату среза, тыс. руб.',
+    howCalc: 'Сумма графы J только для плановых строк, дата заключения которых не наступила или не подтверждена. Обратный гейт факта применяется по дате снимка.',
+    dataSource: 'Книги ГРБС: графа J (МБ, план) и графа Q (дата факта); год и плановый период берутся из O/P.',
+    engine: 'Общий CalcEngine; единственная декларация pending_mb в исполняемом каталоге.',
+    pitfalls: 'Это не доказанный свободный остаток МБ, не платёж и не прогноз экономии. Пустая дата Q и дата позднее среза учитываются одинаково как отсутствие факта на момент расчёта.',
   },
   pending_total: {
     label: METRIC_LABELS['pending_total'],
@@ -613,6 +646,26 @@ export const METRIC_KB: Record<string, KBEntryData> = {
     engine: 'CalcEngine → derived.total_procedures = competitive_count + ep_count, пересчитывается для каждой группы.',
     example: 'Иллюстрация: УО, год — 74 конкурентных и 44 ЕП → 118 процедур.',
     pitfalls: 'Число может оказаться меньше «План (кол-во)»: строка с нераспознанным непустым способом не попадает ни в одну группу и выпадает из этого счёта. Расхождение между планом и «Всего процедур» — прямой указатель на строки с испорченной колонкой способа, его стоит читать как метрику качества данных.',
+  },
+  ep_fact_total: {
+    label: METRIC_LABELS['ep_fact_total'], unit: 'currency', category: 'method',
+    formula: 'SUM(Y WHERE method=ЕП AND Q completed by the snapshot day)',
+    source: 'Исполняемый CalcEngine → ep_fact_total',
+    whatIs: 'Фактические суммы закупок у единственного поставщика, тыс. руб.',
+    howCalc: 'Сумма итоговой фактовой графы Y по позициям ЕП с подтверждённой датой заключения на момент среза. Если итог отсутствует — сумма трёх фактовых бюджетов.',
+    dataSource: 'Листы ГРБС: графы L, Q, V/W/X/Y и дата расчётного среза.',
+    engine: 'Общий исполняемый каталог ep_fact_total, не отдельная формула Word.',
+    pitfalls: 'Это денежный факт ЕП, не количество договоров и не экономия.',
+  },
+  share_ep_money: {
+    label: METRIC_LABELS['share_ep_money'], unit: 'percent', category: 'method',
+    formula: 'ep_fact_total / fact_total; no denominator = null',
+    source: 'Исполняемый CalcEngine → derived.share_ep_money',
+    whatIs: 'Доля ЕП в фактической сумме всех способов; 1 = 100 %.',
+    howCalc: 'Факт по ЕП делится на общую фактическую сумму того же ГРБС, периода и снимка.',
+    dataSource: 'Фактовая сумма Y книг ГРБС по способу L; контроль СВОД ТД-ПМ O26/O29.',
+    engine: 'Одна производная формула в исполняемом каталоге.',
+    pitfalls: 'Не путать с ep_share_pct (доля количества). Пустая база — null, не 0 %.',
   },
   ep_share_pct: {
     label: METRIC_LABELS['ep_share_pct'],
@@ -1299,3 +1352,31 @@ export function getMetricsByCategory(category: KBEntryData['category']): Array<{
 
 /** List of all available metric keys. */
 export const ALL_METRIC_KEYS = Object.keys(METRIC_KB);
+
+/**
+ * ONE lookup across the three aspects of a metric. The executable definition
+ * owns units and dependencies; KB owns explanation/copy; lineage owns the
+ * documentary origin. These are joined by key, not copied into another table.
+ *
+ * A documented operational metric without a CalcEngine definition is valid,
+ * but it must not masquerade as an executable procurement calculation.
+ */
+export interface MetricSpecification {
+  readonly key: string;
+  readonly executable: MetricDefinition | DerivedMetricDefinition | null;
+  readonly documentation: KBEntryData | null;
+  readonly lineage: MetricProvenance | null;
+  readonly dependencies: readonly string[];
+}
+
+export function metricSpecification(key: string): MetricSpecification | null {
+  const executable = EXECUTABLE_METRICS.get(key) ?? null;
+  const documentation = METRIC_KB[key] ?? null;
+  const lineage = metricProvenance(key) ?? null;
+  if (!executable && !documentation && !lineage) return null;
+  return {
+    key, executable, documentation, lineage,
+    dependencies: executable && 'formula' in executable
+      ? metricDependencies(executable) : [],
+  };
+}

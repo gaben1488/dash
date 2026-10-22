@@ -469,3 +469,49 @@ Operational Tasks or OKRUG production data into Dash. See the existing
 byte measurements, alternatives, migration stages, failure handling and tests.
 PostgreSQL selection remains C08; changing the database alone cannot remove
 application-level snapshot duplication or unify acquisition.
+
+
+## C05.01: single metric ownership (architecture candidate, 22.10.2026)
+
+The canonical target is D04 in the target-decomposition table above. This is
+the **architectural interpretation** of selected task 10/20, not an additional
+roadmap, acceptance or proof that the whole product has been migrated.
+
+On [PR #135](https://github.com/gaben1488/dash/pull/135), the new domain
+boundary is:
+
+```text
+source sheets / frozen rows
+    ↓
+shared/metrics/calculation-definitions (one executable formula + gates + units)
+    ↓
+core CalcEngine (one evaluator; source row evidence)
+    ↓
+core/metrics/published-projection (one additive reduction, old key adapter)
+    ↓
+snapshot calculated metrics + version/context
+    ↓
+server API (context admission only) → views and evidence
+```
+
+The old `orchestrator.ts` department/district arithmetic was removed instead
+of being left running in parallel. `metricSpecification` joins the existing
+human KB and documentary lineage with the executable catalog **by key**, not
+by copying definitions. Historical public keys remain adapter inputs; the
+names are not allowed to create new independent formulas. Date cutoff,
+no-denominator/null, signed fact-minus-plan and AD-approved economy remain
+different, explicit business meanings. The metadata/proof route cannot attach
+current rules to a historical snapshot with a different captured calculation
+context. Diagnostic indicators whose semantics differ from the procurement
+source algebra remain explicitly identified as diagnostics, not guessed as
+another procurement metric.
+
+**Outstanding before task acceptance:** The web filter/aggregation selectors
+and Python Word renderer still contain independent calculations. A complete
+D04 implementation must consume a versioned immutable `MetricResult` with
+`grain/scope/units/dependencies/inputs/rules/evidence` consistently at every
+consumer. The fixed-source cross-language/regression proof and real readback
+of all relevant UI, API, BI and 3 Word outputs are release admission gates,
+not inferred from component tests. The project still has independent Google
+acquisition paths until D01/D02 source-revision migration. PR #135 is draft;
+production and user Google workbooks have not been changed by this refactor.
