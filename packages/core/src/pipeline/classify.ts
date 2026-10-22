@@ -1,4 +1,4 @@
-import { toNumber } from '@aemr/shared';
+import { readProcurementSequence, toNumber } from '@aemr/shared';
 import type { ClassifiedRow, RowClassification } from '@aemr/shared';
 
 /**
@@ -34,7 +34,10 @@ function classifyRow(
   }
 
   // Проверяем наличие числового идентификатора (столбец A или B)
-  const hasId = isNumeric(cells['A']) || isNumeric(cells['B']);
+  // A is a stable procurement address, not a number: 12 and 12/1 are distinct.
+  // Reuse the reader used by the historical sequence control, without coercion.
+  const purchaseId = readProcurementSequence(cells['A']);
+  const hasId = purchaseId !== null || isNumeric(cells['B']);
 
   // Проверяем наличие суммовых столбцов
   const hasAmounts = isNumeric(cells['H']) || isNumeric(cells['I']) ||
@@ -54,7 +57,8 @@ function classifyRow(
   // безусловно).
   const subjectEmpty = String(cells['G'] ?? '').trim().length === 0;
   const procurementMethodEmpty = String(cells['L'] ?? '').trim().length === 0;
-  const looksLikeColumnNumbers = allSmallIntegers && subjectEmpty && procurementMethodEmpty;
+  const looksLikeColumnNumbers = allSmallIntegers && subjectEmpty && procurementMethodEmpty
+    && !purchaseId?.includes('/');
 
   // Проверяем текст столбца C (наименование)
   const nameText = String(cells['C'] ?? '').trim().toLowerCase();
@@ -62,7 +66,7 @@ function classifyRow(
   // Проверяем маркеры служебных строк
   const isTotalMarker = nameText.includes('итого') || nameText.includes('всего');
   const isHeaderMarker = nameText.includes('раздел') || nameText.includes('блок') ||
-                         nameText === '' && !hasAmounts;
+                         nameText === '' && !hasAmounts && !hasId;
   const isSeparator = Object.values(cells).every(v => v === null || v === undefined || v === '');
 
   // Классификация
