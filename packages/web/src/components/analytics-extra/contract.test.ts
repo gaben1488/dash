@@ -13,7 +13,7 @@
  * по строке целиком: иначе тест врал бы о том, что именно он проверил.
  */
 import { describe, expect, it } from 'vitest';
-import { LEVEL_LABEL, SCALE_TITLE, addressText, fmtTys } from './contract';
+import { LEVEL_LABEL, SCALE_TITLE, addressText, fmtTys, scopedIntegrityTotals, type SequenceReportDto } from './contract';
 
 /** Части подписи денег без оглядки на род пробела между разрядами. */
 const moneyParts = (value: number): string[] => fmtTys(value).split(/\s+/u);
@@ -56,5 +56,46 @@ describe('внутренние коды на экран не выходят (п�
   it('шкалы названы вопросом читателя, а не ключом', () => {
     expect(SCALE_TITLE.typo).toBe('Похоже на опечатку');
     expect(SCALE_TITLE.fitted).toBe('Похоже на подгон');
+  });
+});
+
+describe('контроль пропавших: сводка соответствует видимому управлению', () => {
+  const sequence = (gapCount: number, duplicateCount: number, countableWithoutSeq: number): SequenceReportDto => ({
+    rows: 20,
+    countable: 15,
+    numbered: 15 - countableWithoutSeq,
+    countableWithoutSeq,
+    coveragePct: 100,
+    range: null,
+    gaps: [],
+    gapCount,
+    duplicates: Array.from({ length: duplicateCount }, (_, index) => ({
+      rowSeq: String(index + 1), sheetRows: [4, 5], subjects: ['a', 'b'],
+    })),
+    unnumbered: [],
+    note: '',
+  });
+
+  it('показывает только счётчики выбранных книг, не районный итог', () => {
+    const uo = { sequence: sequence(3, 1, 2) };
+    const ud = { sequence: sequence(9, 2, 4) };
+    expect(scopedIntegrityTotals([uo, ud])).toEqual({
+      gapCount: 12, duplicates: 3, countableWithoutSeq: 6,
+    });
+    expect(scopedIntegrityTotals([uo])).toEqual({
+      gapCount: 3, duplicates: 1, countableWithoutSeq: 2,
+    });
+    expect(scopedIntegrityTotals([ud])).toEqual({
+      gapCount: 9, duplicates: 2, countableWithoutSeq: 4,
+    });
+  });
+
+  it('не считает непрочитанную книгу ни подтверждённым нулём, ни нарушением', () => {
+    expect(scopedIntegrityTotals([{ sequence: null }, { sequence: sequence(2, 1, 3) }])).toEqual({
+      gapCount: 2, duplicates: 1, countableWithoutSeq: 3,
+    });
+    expect(scopedIntegrityTotals([])).toEqual({
+      gapCount: 0, duplicates: 0, countableWithoutSeq: 0,
+    });
   });
 });
