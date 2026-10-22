@@ -297,7 +297,7 @@ export const DataSnapshotSchema = z.object({
         status: z.enum(['verified', 'internal', 'unverified']), edition: z.string().nullable(), sourceRef: z.string().nullable(),
         // Optional only for reading old frozen releases; new captures MUST contain both.
         unit: z.enum(['percent', 'ratio', 'count', 'thousandRub', 'editsPerRow']).optional(),
-        source: z.string().optional() })),
+        source: z.enum(['svod', 'report', 'extra-report', 'monitoring', 'law44', 'own']).optional() })),
       calendar: z.object({ asOf: z.string(), productDay: z.number().int(),
         utcOffsetHours: z.number(), weeklyCutoffHour: z.number() }),
       scope: z.object({ targetYear: z.number().nullable(), officialYear: z.number().nullable() }),
