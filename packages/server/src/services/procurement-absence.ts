@@ -7,7 +7,7 @@
  * No new Google readers, SQLite schema, clocks or polling loops are introduced.
  */
 import { DEPT_COLUMNS, DEPT_HEADER_ROWS, findDept, isoOfDayNumber, liveBaselineDay, weeklyCutoffMs, type DepartmentEntry } from '@aemr/shared';
-import { diffSnapshots, type RowDiff, type ChangeEntry } from '@aemr/core';
+import { diffSnapshots, type RowDiff, type ChangeEntry, type SnapshotRow } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { productCalendarDay } from './product-calendar.js';
 import { getDeptLoadMeta, getDeptSheetValues, iterateWeeklySnapshotHistory } from './snapshot.js';
@@ -193,6 +193,94 @@ function presentDiff(dept: DepartmentEntry, diff: RowDiff, currentAt: string): V
   };
 }
 
+/**
+ * Pure comparison: one verified Thursday proof, one accepted reading per book,
+ * and an explicit observation time. No SQL, Google reads, mutable caches or
+ * HTTP state. This is the oracle shared by all consumers of the report.
+ */
+export function compareCurrentToThursday(
+  baseline: WeeklySnapshotRef,
+  baselineRows: ReadonlyMap<string, readonly SnapshotRow[]>,
+  liveValues: Readonly<Record<string, readonly unknown[][]>>,
+  loadMeta: Readonly<Record<string, { loadedAt: string; rowCount?: number; error?: string }>>,
+  now: number,
+  maxAge: number,
+): { comparison: CurrentComparison | null; note: string } {
+  const unavailableBooks: Array<{ dept: string; reason: string }> = [];
+  const books: VanishedBookDto[] = [];
+  const currentReadTimes: number[] = [];
+  let vanishedTotal = 0;
+  let vanishedPlanSum = 0;
+  const baseAt = Date.parse(baseline.createdAt);
+
+  for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
+    const dept = findDept(deptId);
+    if (!dept) {
+      unavailableBooks.push({ dept: deptId, reason: 'Управление отсутствует в каноническом справочнике' });
+      continue;
+    }
+    // An alias collision must never silently choose the first cached reading.
+    const sourceMatches = Object.entries(liveValues).filter(([name]) => findDept(name)?.id === dept.id);
+    const metaMatches = Object.entries(loadMeta).filter(([name]) => findDept(name)?.id === dept.id);
+    const previous = baselineRows.get(dept.latinId);
+    const live = sourceMatches.length === 1 ? sourceMatches[0][1] : undefined;
+    const meta = metaMatches.length === 1 ? metaMatches[0][1] : undefined;
+    const loadedAt = Date.parse(meta?.loadedAt ?? '');
+    let unavailable: string | null = null;
+    if (!previous || previous.length === 0) {
+      unavailable = 'В заверенном четверговом снимке нет сопоставимых закупок этой книги';
+    } else if (sourceMatches.length !== 1 || metaMatches.length !== 1) {
+      unavailable = 'Нет однозначного текущего чтения: отсутствует источник либо столкнулись алиасы книги';
+    } else if (!live || live.length <= DEPT_HEADER_ROWS || !meta || meta.error ||
+               meta.rowCount !== live.length || live.some(row => !Array.isArray(row))) {
+      unavailable = 'Текущая книга не прочитана полностью или не совпадает длина подтверждённой матрицы';
+    } else if (!Number.isFinite(loadedAt) || loadedAt < baseAt) {
+      unavailable = 'Текущее чтение книги предшествует заверенному четвергу либо время неизвестно';
+    } else if (!Number.isFinite(now) || !Number.isFinite(maxAge) || maxAge <= 0 ||
+               loadedAt > now || now - loadedAt > maxAge) {
+      unavailable = 'Текущее чтение устарело; запустите повторное чтение источника';
+    }
+    if (unavailable !== null) {
+      unavailableBooks.push({ dept: dept.id, reason: unavailable });
+      continue;
+    }
+
+    const current = currentSheetToSnapshotRows(live!);
+    if (current.length === 0) {
+      unavailableBooks.push({ dept: dept.id, reason: 'Текущее чтение не содержит ни одной закупки; массовое удаление без проверки источника не утверждаем' });
+      continue;
+    }
+    const diff = diffSnapshots(previous, current);
+    currentReadTimes.push(loadedAt);
+    vanishedTotal += diff.vanished.length;
+    vanishedPlanSum += diff.vanishedPlanSum;
+    if (hasNotableDiff(diff)) books.push(presentDiff(dept, diff, new Date(loadedAt).toISOString()));
+  }
+
+  if (currentReadTimes.length === 0) return {
+    comparison: null,
+    note: 'Нет ни одной сопоставимой актуальной книги. Нельзя утверждать, что пропаж нет.',
+  };
+
+  return {
+    comparison: {
+      baselineId: baseline.id,
+      beforeAt: baseline.createdAt,
+      oldestCurrentAt: new Date(Math.min(...currentReadTimes)).toISOString(),
+      afterAt: new Date(Math.max(...currentReadTimes)).toISOString(),
+      unavailableBooks,
+      books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
+      vanishedTotal,
+      vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
+    },
+    note: unavailableBooks.length
+      ? 'Проверка частична: ' + unavailableBooks.length + ' из ' +
+        Object.keys(DEPARTMENT_SPREADSHEETS).length +
+        ' книг не сопоставлены. Их неизвестное состояние не равно нулю.'
+      : '',
+  };
+}
+
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
 /**
  * Одна общая истина для /api/integrity и /api/change-story.
@@ -207,7 +295,14 @@ export function buildComparison(now: number = Date.now()): { comparison: Current
   let lastError: string | null = null;
   for (const candidate of iterateWeeklySnapshotHistory()) {
     if (!pickLatestControlSnapshot([candidate], now, config.weeklySnapshot.utcOffsetHours)) continue;
-    const checked = verifiedBaselineRows(candidate);
+    let checked: ReturnType<typeof verifiedBaselineRows>;
+    try {
+      checked = verifiedBaselineRows(candidate);
+    } catch {
+      skippedControls++;
+      lastError = 'Не удалось прочитать сохранённые доказательства четвергового контроля';
+      continue;
+    }
     if (checked.error !== null) { skippedControls++; lastError = checked.error; continue; }
     baseline = candidate;
     verified = checked;
@@ -224,83 +319,13 @@ export function buildComparison(now: number = Date.now()): { comparison: Current
     ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
       '. Использован последний полностью проверенный недельный срез.'
     : '';
-  const baselineRows = verified.rows;
-  const liveValues = getDeptSheetValues();
-  const loadMeta = getDeptLoadMeta();
-  const unavailableBooks: Array<{ dept: string; reason: string }> = [];
-  const books: VanishedBookDto[] = [];
-  const currentReadTimes: number[] = [];
-  let vanishedTotal = 0;
-  let vanishedPlanSum = 0;
-  const baseAt = Date.parse(baseline.createdAt);
-  // По умолчанию источники обновляются чаще. Час допускает длительный
-  // пропуск фонового цикла, но не выдаёт вчерашний кэш за «сейчас».
-  const maxAge = Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000);
-
-  for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
-    const dept = findDept(deptId);
-    if (!dept) {
-      unavailableBooks.push({ dept: deptId, reason: 'Управление отсутствует в каноническом справочнике' });
-      continue;
-    }
-    const live = Object.entries(liveValues).find(([name]) => findDept(name)?.id === dept.id)?.[1];
-    const meta = Object.entries(loadMeta).find(([name]) => findDept(name)?.id === dept.id)?.[1];
-    const previous = [...baselineRows].find(([name]) => findDept(name)?.id === dept.id)?.[1];
-    const loadedAt = meta ? Date.parse(meta.loadedAt) : NaN;
-    let unavailable: string | null = null;
-    if (!previous || previous.length === 0) {
-      unavailable = 'В контрольном снимке нет пригодных строк этой книги';
-    } else if (!live || live.length <= DEPT_HEADER_ROWS || !meta || meta.error) {
-      unavailable = 'Действующая книга не прочитана полностью';
-    } else if (!Number.isFinite(loadedAt) || loadedAt < baseAt) {
-      unavailable = 'Последнее чтение книги сделано до контрольного снимка';
-    } else if (loadedAt > now || now - loadedAt > maxAge) {
-      unavailable = 'Чтение устарело — нужно перечитать действующую книгу';
-    }
-    if (unavailable !== null) {
-      unavailableBooks.push({ dept: dept.id, reason: unavailable });
-      continue;
-    }
-
-    const current = currentSheetToSnapshotRows(live!);
-    if (current.length === 0) {
-      unavailableBooks.push({ dept: dept.id, reason: 'Текущая книга не содержит пригодных строк; массовую пропажу не утверждаем без проверки источника' });
-      continue;
-    }
-    const diff: RowDiff = diffSnapshots(previous!, current);
-    currentReadTimes.push(loadedAt);
-    vanishedTotal += diff.vanished.length;
-    vanishedPlanSum += diff.vanishedPlanSum;
-    if (!hasNotableDiff(diff)) continue;
-    books.push(presentDiff(dept, diff, new Date(loadedAt).toISOString()));
-  }
-
-  if (currentReadTimes.length === 0) {
-    return {
-      comparison: null,
-      note: 'Контрольный недельный снимок есть, но нет ни одной сопоставимой свежей действующей книги. Перечитайте источники; отсутствие результата не означает отсутствие пропаж.',
-    };
-  }
-
-  const partialNote = unavailableBooks.length
-    ? 'Сравнение частичное: ' + unavailableBooks.length +
-      ' из ' + Object.keys(DEPARTMENT_SPREADSHEETS).length +
-      ' книг не удалось достоверно сверить. Не считать их пропажи нулём.'
-    : '';
-  const note = [baselineNote, partialNote].filter(Boolean).join(' ');
-
+  const compared = compareCurrentToThursday(
+    baseline, verified.rows, getDeptSheetValues(), getDeptLoadMeta(), now,
+    Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
+  );
   return {
-    comparison: {
-      baselineId: baseline.id,
-      beforeAt: baseline.createdAt,
-      oldestCurrentAt: new Date(Math.min(...currentReadTimes)).toISOString(),
-      afterAt: new Date(Math.max(...currentReadTimes)).toISOString(),
-      unavailableBooks,
-      books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
-      vanishedTotal,
-      vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
-    },
-    note,
+    comparison: compared.comparison,
+    note: [baselineNote, compared.note].filter(Boolean).join(' '),
   };
 }
 
