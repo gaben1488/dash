@@ -17,7 +17,7 @@ describe('цель одного уведомления', () => {
   it('книга ГРБС — сама книга и производный СВОД, без семи чужих книг и мониторинга', () => {
     expect(planForFile(firstBookId)).toEqual({
       books: [firstBook],
-      svod: false,
+      svod: true,
       monitoring: false,
       full: false,
     });
