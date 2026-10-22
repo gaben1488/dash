@@ -383,7 +383,8 @@ class ReleaseController:
         # unchanged. Do not mistake that for a component-safe no-restart release.
         if component.get('backend_runtime') != self._backend_runtime(records):
             recovery.fail('RELEASE_WEB_BACKEND_CHANGED')
-        plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha']}
+        plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha'],
+                'backend_runtime': component['backend_runtime']}
         self.executor.web_config(plan)
         self.executor.web_unchanged(plan, records)
         recovery.atomic_json(recovery.PENDING, plan)
