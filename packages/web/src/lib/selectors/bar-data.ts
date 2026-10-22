@@ -1,3 +1,4 @@
+import { observedNumber, percentOf } from '@aemr/shared';
 import type { BudgetPlanFactFn } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
@@ -110,17 +111,45 @@ export function buildBarData(depts: any[], opts: {
       execCountPct = dPC > 0 ? +((dFC / dPC) * 100).toFixed(1) : null;
     } else {
       const q = d.quarters?.[periodKey];
+      if (periodKey !== 'year') {
+        // A missing/malformed quarter is a coverage gap, not permission to
+        // borrow the department's annual total or infer 0 procurements.
+        const kpObserved = observedNumber(q?.kpCount);
+        const epObserved = observedNumber(q?.epCount);
+        const combinedPlan = observedNumber(q?.planTotal);
+        const combinedFact = observedNumber(q?.factTotal);
+        const budgetProjection = isBudgetFiltered && q ? budgetPlanFact(q) : null;
+        const selectedPlan = budgetProjection ? observedNumber(budgetProjection.plan) : combinedPlan;
+        const selectedFact = budgetProjection ? observedNumber(budgetProjection.fact) : combinedFact;
+        return {
+          name: d.department?.nameShort ?? d.department?.id ?? '?',
+          nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
+          id: d.department?.id,
+          pct: percentOf(selectedFact, selectedPlan),
+          planTotal: selectedPlan,
+          factTotal: selectedFact,
+          kpCount: showKP ? kpObserved : 0,
+          epCount: showEP ? epObserved : 0,
+          execCountPct: observedNumber(q?.execCountPct),
+          scopeComplete: selectedPlan !== null && selectedFact !== null
+            && (!showKP || kpObserved !== null) && (!showEP || epObserved !== null),
+        };
+      }
+
+      // Annual totals can be read from the annual fields when legacy
+      // snapshots do not contain an explicit year block. This exception
+      // never applies to a month or a quarter.
       kp = q?.kpCount ?? d.competitiveCount ?? 0;
       ep = q?.epCount ?? d.soleCount ?? 0;
       execCountPct = q?.execCountPct ?? null;
       if (isBudgetFiltered) {
-        const bf = budgetPlanFact(q);
+        const bf = budgetPlanFact(q ?? d);
         plan = bf.plan; fact = bf.fact;
-        pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+        pct = percentOf(fact, plan);
       } else {
-        pct = q?.executionPct ?? d.executionPercent ?? null;
         plan = q?.planTotal ?? d.planTotal ?? 0;
         fact = q?.factTotal ?? d.factTotal ?? 0;
+        pct = percentOf(fact, plan);
       }
     }
 
