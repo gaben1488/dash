@@ -523,3 +523,52 @@ describe('validateData — hasProgramName via activityType', () => {
     expect(issue.activityType).toBe('current_non_program');
   });
 });
+
+
+// Operational СВОД ends at row 278. Rows 279+ belong to the owner's
+// spreadsheet-only experiment and must not produce dashboard rule findings.
+describe('validateData — operational СВОД perimeter', () => {
+  it('checks row 278 but excludes experimental rows 279 and 324 for svod and both rules', () => {
+    const rows = [
+      makeRow({ rowIndex: 278 }),
+      makeRow({ rowIndex: 279 }),
+      makeRow({ rowIndex: 324 }),
+    ];
+    const issues = validateData(EMPTY_METRICS, rows, [
+      makeFailingRule({ id: 'svod_boundary', scope: 'svod' }),
+      makeFailingRule({ id: 'both_boundary', scope: 'both' }),
+    ], EMPTY_REPORT_MAP);
+
+    expect(issues).toHaveLength(2);
+    expect(issues.map(issue => issue.row)).toEqual([278, 278]);
+  });
+
+  it('excludes experimental rows from the allRows context of operational SVOD rules', () => {
+    const seen: number[][] = [];
+    const rule = makeRule({
+      id: 'svod_context_boundary',
+      scope: 'svod',
+      check: ctx => {
+        seen.push(ctx.allRows.map(row => row.rowIndex));
+        return { passed: true };
+      },
+    });
+    const rows = [
+      makeRow({ rowIndex: 278 }),
+      makeRow({ rowIndex: 279 }),
+    ];
+
+    expect(validateData(EMPTY_METRICS, rows, [rule], EMPTY_REPORT_MAP)).toEqual([]);
+    expect(seen).toEqual([[278]]);
+  });
+
+  it('still checks department rows beyond 278', () => {
+    const rows = [makeRow({ sheet: 'УО', rowIndex: 279 })];
+    const issues = validateData(EMPTY_METRICS, rows, [
+      makeFailingRule({ id: 'dept_boundary', scope: 'both' }),
+    ], EMPTY_REPORT_MAP);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].row).toBe(279);
+  });
+});
