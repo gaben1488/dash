@@ -43,6 +43,7 @@ import {
   parseJournalInstant,
   parseJournalRowKey,
   type JournalRecord,
+  type JournalTimePrecision,
 } from '../provenance/plan-provenance.js';
 import type { RowDiff } from '../analytics/vanished-rows.js';
 
@@ -245,6 +246,8 @@ export interface ChangeEntry {
    * выдавать за точное время нельзя.
    */
   readonly atMs: number | null;
+  /** Precision from the same source journal observation; no invented midnight. */
+  readonly timePrecision?: JournalTimePrecision;
   /** Предмет закупки — по нему идёт поиск в подробной глубине. */
   readonly subject: string | null;
   /** Учреждение — если источник его знает. */
@@ -291,7 +294,12 @@ function changeIdentity(entry: ChangeEntry): string {
     // A read-diff without a linked source edit cannot borrow its clock/author.
     entry.observedAt === undefined ? null : [entry.origin, entry.observedAt],
     // Unknown time cannot connect independent source observations.
-    entry.at === null ? [entry.origin, entry.id] : null]);
+    entry.at === null ? [entry.origin, entry.id] : null,
+    // Two physically present, identical edits without a source event ID are
+    // still two occurrences. Their assigned ordinal cannot be inferred
+    // from the wall-clock alone and must not be merged by presentation.
+    entry.origin === 'book-journal' && entry.id.startsWith('journal-clock-v3:')
+      ? entry.id : null]);
 }
 
 /** Preserve every original witness, with one card only for an exactly matching event. */
@@ -443,7 +451,7 @@ export function entriesFromBookJournal(
 
     entries.push({
       ...(rec.source ? { journalSource: { ...rec.source } } : {}),
-      id: `${book}|${sheet}|${cell}|${at ?? '?'}|${author ?? '?'}`,
+      id: rec.sourceEventIdentity ?? `${book}|${sheet}|${cell}|${at ?? '?'}|${author ?? '?'}`,
       book,
       sheet,
       rowSeq,
@@ -456,6 +464,7 @@ export function entriesFromBookJournal(
       author,
       at,
       atMs: orderingMsOf(at),
+      ...(moment ? { timePrecision: moment.precision } : {}),
       subject: key.subject,
       subordinate: null,
       origin: 'book-journal',
@@ -619,7 +628,8 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
   const passthrough: ChangeEntry[] = [];
 
   for (const e of entries) {
-    if (e.origin === 'snapshot-diff' || e.column === null || e.at === null) {
+    if (e.origin === 'snapshot-diff' || e.column === null || e.at === null ||
+        e.timePrecision === 'day') {
       passthrough.push(e);
       continue;
     }
@@ -754,7 +764,7 @@ export interface ChangeStoryInput {
  */
 export function buildChangeStory(
   inputs: readonly ChangeStoryInput[],
-  options: { readonly sinceMs?: number } = {},
+  options: { readonly sinceMs?: number; readonly sinceLocalDayStartMs?: number } = {},
 ): ChangeStory {
   const entries: ChangeEntry[] = [];
   const gaps: ChangeGap[] = [];
@@ -772,7 +782,11 @@ export function buildChangeStory(
       const { entries: fromJournal, rowKeyless } = entriesFromBookJournal(input.book, input.records ?? []);
       const inWindow = options.sinceMs === undefined
         ? fromJournal
-        : fromJournal.filter((e) => e.atMs === null || e.atMs >= (options.sinceMs as number));
+        : fromJournal.filter((e) =>
+          e.atMs === null || e.atMs >= options.sinceMs! ||
+          (e.timePrecision === 'day' &&
+           options.sinceLocalDayStartMs !== undefined &&
+           e.atMs >= options.sinceLocalDayStartMs));
       // Свёртка идёт ПОСЛЕ окна: иначе половина ячеек новой закупки осталась
       // бы за границей окна и добавление рассыпалось бы на отдельные правки.
       entries.push(...foldRowEvents(mergeChangeEntries(inWindow)));
