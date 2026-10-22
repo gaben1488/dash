@@ -408,6 +408,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const sources: SourceStatus[] = [];
+    let formulaBooks: string[] = [];
     const deptRows: Record<string, unknown[][]> = {};
 
     if (!quick) {
@@ -424,7 +425,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // числами — вторую правду о чтении источников держать нельзя (п.112).
       // Страж: routes/dashboard-refresh.test.ts.
       try {
-        await refreshAllSources(
+        const cycle = await refreshAllSources(
           {
             info: (msg) => app.log.info(msg),
             warn: (msg) => app.log.warn(msg),
@@ -435,6 +436,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           // что дефектов нет.
           withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
         );
+        formulaBooks = cycle.formulaBooks;
       } catch (err) {
         // Цикл сам не валится от отказа отдельной книги; сюда попадает только
         // неожиданная поломка. Ответ строится из меты — что успело, то видно.
@@ -500,6 +502,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       snapshotId: snapshot.id,
       sources,
       quick,
+      formulaBooks,
       trust: snapshot.trust?.overall ?? null,
       issueCount: snapshot.issues?.length ?? 0,
       deltaCount,
