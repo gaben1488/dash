@@ -339,7 +339,12 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
       // Ручная кнопка действительно перечитывает 8 источников, без проверки
       // ревизии Drive. Это read-only Google Sheets, без записи в книги.
       // Даже если чтение частично упало, buildComparison выдаёт честные gaps.
-      await refreshAllSources(undefined, 'request', { askDrive: false, svod: false, fresh: true });
+      try {
+        await refreshAllSources(undefined, 'request', { askDrive: false, svod: false, fresh: true });
+      } catch {
+        // The response still names unread books and preserves verified history.
+        // A failed source acquisition cannot be reported as an empty comparison.
+      }
     }
     const readAt = Date.now();
     const response = buildIntegrityResponse(readAt);
