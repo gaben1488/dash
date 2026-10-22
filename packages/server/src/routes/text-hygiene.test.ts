@@ -133,7 +133,7 @@ describe('GET /api/text-hygiene', () => {
           // Чистые имена — ДОСЛОВНО из справочника: близкое-но-не-точное имя
           // само стало бы находкой registry_mismatch и зашумило бы счётчики.
           sheetRow('2', ZHAR_CANON, 'Поставка  канцелярии'),                 // G5: двойной пробел
-          sheetRow('3', ZHAR_CANON, 'Ремонт кровли', 'закупка катриджей у единственного поставщика',
+          sheetRow('3', ZHAR_CANON, 'Покупка хор. Товаров', 'закупка катриджей у единственного поставщика',
             'Кемонт картриджей в связи со сменой наименования'), // M6 + AF6: опечатка и защищённое слово
           sheetRow('4', 'Х', 'x'),                                           // маркеры отсутствия — молчание
         ],
@@ -208,6 +208,13 @@ describe('GET /api/text-hygiene', () => {
     expect(typo!.context).toContain('катриджей');
     expect(typo!.fix).toContain('картриджей');
     expect(body.totals.languageFindings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('находит «хор. товаров» как «хоз. товаров» даже при коротком сокращении', () => {
+    const found = body.language.find(item => item.cell === 'G6' && item.word === 'хор.');
+    expect(found).toBeDefined();
+    expect(found?.suggestion).toBe('хоз.');
+    expect(found?.fix).toBe('Покупка хоз. Товаров');
   });
 
   it('AF тоже проходит проверенную орфографию, но «сменой» не заменяется на «сметной»', () => {
