@@ -3,7 +3,10 @@ import { config } from '../config.js';
 import {
   ALL_SHEETS,
   DEPARTMENT_REGISTRY,
+  DEPT_HEADER_ROWS,
+  MASTER_SOURCE_PROFILE,
   SHDYU_MONTHLY_SHEET_NAME,
+  validateMasterSourceHeader,
 } from '@aemr/shared';
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
@@ -891,37 +894,64 @@ export async function readDeptSheet(
   ssId: string,
   options: DeptReadOptions = {},
 ): Promise<DeptSheetResult> {
-  const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
-    DEPARTMENT_REGISTRY.flatMap(d => [[d.id, d.sheetName], [d.shortName, d.sheetName]]),
-  );
-  const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
-  const candidates = departmentSheetNameCandidates(sheetName, deptName);
+  const department = DEPARTMENT_REGISTRY.find(d => d.id === deptName || d.shortName === deptName);
+  const sheetName = department?.source.sheet ?? deptName;
+  const candidates = departmentSheetNameCandidates(sheetName, department?.id ?? deptName);
   let lastError: unknown;
   for (const candidate of candidates) {
+    // Only a missing tab belongs in this catch. A changed header, wrong sheetId
+    // or formula failure cannot justify silently selecting another master.
+    let values: unknown[][];
     try {
-      // Значения читаются ВСЕГДА и первыми: пустой лист означает «имя-кандидат
-      // не то», и платить за формулы несуществующего листа незачем.
-      const values = await getSheetDataFromSpreadsheet(ssId, candidate);
-      if (values.length === 0) continue;
-      if (!options.withFormulas) {
-        return { providerId: ssId, values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
-          startRow: 1, formulasRead: false ,
-        };
-      }
-      const { formulas } = await getSheetFormulaColumns(ssId, candidate);
-      return { providerId: ssId, values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
-        startRow: 1, formulasRead: true ,
-      };
+      values = await getSheetDataFromSpreadsheet(ssId, candidate);
     } catch (err) {
       lastError = err;
-      if (isNonRecoverableSheetError(err)) {
-        // 429 (rate-limit), 403 (permission) and 5xx look identical to a
-        // missing sheet if swallowed here — surface them immediately
-        // instead of masking them as "no candidate matched".
-        throw err;
-      }
-      // Otherwise this candidate name genuinely doesn't exist — try the next one.
+      if (isNonRecoverableSheetError(err)) throw err;
+      continue;
     }
+    if (values.length === 0) continue;
+
+    if (department) {
+      if (department.source.role !== MASTER_SOURCE_PROFILE.role
+          || department.source.profile !== MASTER_SOURCE_PROFILE.id) {
+        throw new Error('MASTER_SOURCE_PROFILE_BINDING_INVALID');
+      }
+      // Both lightweight cache reading and full report acquisition reject
+      // unknown required meanings; optional aliases remain field-local.
+      validateMasterSourceHeader(values[DEPT_HEADER_ROWS - 1] ?? []);
+
+      // A lookalike subordinate tab can have the same 34-column header. The
+      // reviewed gid, not a matching title, identifies the canonical master.
+      const metadata = await readWithRetry(`проверка источника ГРБС «${deptName}»`, async () => {
+        const api = await getSheetsApi();
+        return api.spreadsheets.get({
+          spreadsheetId: ssId,
+          fields: 'sheets.properties',
+        }, { timeout: SHEETS_TIMEOUT_MS });
+      });
+      const selected = (metadata.data.sheets ?? []).find(
+        sheet => sheet.properties?.sheetId === department.source.sheetId,
+      );
+      if (!selected) throw new Error('MASTER_SOURCE_SHEET_ID_CHANGED');
+      if (selected.properties?.title !== candidate
+          || (candidate !== department.source.sheet
+              && !(department.approvedPrimaryRename && candidate === department.shortName))) {
+        throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+      }
+      if ((selected.properties?.gridProperties?.columnCount ?? 0) < MASTER_SOURCE_PROFILE.columns) {
+        throw new Error('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH');
+      }
+    }
+
+    if (!options.withFormulas) {
+      return { providerId: ssId, values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
+        startRow: 1, formulasRead: false,
+      };
+    }
+    const { formulas } = await getSheetFormulaColumns(ssId, candidate);
+    return { providerId: ssId, values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
+      startRow: 1, formulasRead: true,
+    };
   }
   const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
   throw new Error(
