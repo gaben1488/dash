@@ -21,6 +21,7 @@ import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 import { setImmediate as yieldToReads } from 'node:timers/promises';
 import { runSnapshotCalculation, runSnapshotStorage, type SnapshotCalculationInput } from './snapshot-calculation.js';
+import { calculationDigest, inspectArchivedCalculationContext, sealSnapshotCalculationContext } from './snapshot-calculation-context.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
@@ -260,6 +261,10 @@ async function sealWeeklyTableContextNow(
       .from(schema.snapshots).where(eq(schema.snapshots.id, snapshotId)).get();
     if (!row?.data) return false;
     const snapshot = JSON.parse(row.data) as PipelineSnapshot;
+    // A later weekly supplement may extend an intact calculation, never
+    // legitimize corruption in an already archived source or output.
+    const before = inspectArchivedCalculationContext(snapshot);
+    if (before.status === 'invalid') throw new Error('ARCHIVED_SNAPSHOT_INVALID');
     const rowsByDept = snapshot.rowsByDept ?? {};
     const names = Object.keys(rowsByDept);
     const expectedMasters = Object.keys(DEPARTMENT_SPREADSHEETS).sort();
@@ -297,6 +302,13 @@ async function sealWeeklyTableContextNow(
         sheets: monitoring.sheets,
       },
     };
+    if (before.status === 'matching') {
+      // Weekly context is appended to the SAME archival entry after the main
+      // calculation was sealed. Validate the former seal BEFORE this mutation,
+      // then extend only its weekly child hash, not the historical input hash.
+      snapshot.metadata.calculationContext!.archiveSeal!.weeklySha256 =
+        calculationDigest(snapshot.weeklyTableContext);
+    }
     // Snapshot уже существует: повторный saveSnapshot() закономерно упадёт на
     // PRIMARY KEY и, хуже того, попытался бы второй раз писать метрики/issues.
     // Weekly context — дочернее доказательство того же среза, поэтому меняем
@@ -813,6 +825,11 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     if (monthlyData) {
       snapshot.shdyuData = monthlyData;
     }
+    // Final sources, rule context, issue list, metrics and archived rows are
+    // bound by one consistency seal in the already-existing CalculationContext.
+    if (!sealSnapshotCalculationContext(snapshot)) {
+      throw new Error('SNAPSHOT_CALCULATION_CONTEXT_MISSING');
+    }
     if (!(await saveSnapshot(snapshot))) {
       throw new Error('SNAPSHOT_PERSIST_FAILED');
     }
@@ -876,6 +893,13 @@ function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
         try {
           const snapshot = measureReadStage('decode', () => JSON.parse(row.data!)) as PipelineSnapshot;
           if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+            const verdict = inspectArchivedCalculationContext(snapshot);
+            if (verdict.status === 'invalid') {
+              logSourceProblem('Сохранённый снимок отвергнут: повреждены архивные доказательства', {
+                snapshotId: snapshot.id, mismatches: verdict.mismatches,
+              });
+              continue;
+            }
             // The current fallback must not revive an obsolete perfect grade.
             // Reassess its captured evidence without changing data/time or writing
             // history; getStoredSnapshotById still returns the original record.
@@ -903,6 +927,10 @@ export function saveSnapshotRows(snapshot: DataSnapshot): number {
 }
 
 async function persistSnapshot(snapshot: DataSnapshot, operation: 'insert' | 'weekly'): Promise<void> {
+  const verified = inspectArchivedCalculationContext(snapshot);
+  if (verified.status === 'invalid') {
+    throw new Error('CALCULATION_ARCHIVE_SEAL_INVALID:' + verified.mismatches.join(','));
+  }
   const today = new Date();
   if (operation === 'insert' && db.select({ id: schema.snapshots.id }).from(schema.snapshots)
     .where(eq(schema.snapshots.id, snapshot.id)).get()) throw new Error('SNAPSHOT_ALREADY_EXISTS');
@@ -961,6 +989,9 @@ export function getStoredSnapshotById(id: string): PipelineSnapshot | null {
   try {
     const snapshot = JSON.parse(row.data) as PipelineSnapshot;
     if (snapshot.id !== id || !snapshot.metadata || !snapshot.createdAt) throw new Error('invalid stored snapshot');
+    if (inspectArchivedCalculationContext(snapshot).status === 'invalid') {
+      throw new Error('invalid stored calculation context');
+    }
     return snapshot;
   } catch {
     throw new Error('STORED_SNAPSHOT_INVALID');
@@ -999,6 +1030,7 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
       if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
+        if (inspectArchivedCalculationContext(snapshot).status === 'invalid') continue;
         return snapshot;
       }
     } catch {
