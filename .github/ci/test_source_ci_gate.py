@@ -56,8 +56,8 @@ class SourceGateTests(unittest.TestCase):
         )[0]
         # An early equality pins PR79 before SSH setup; the inequality fails
         # closed during CI polling; a final equality guards later advancement.
-        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"'
-        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" != "$RECOVERY_SHA"; then'
+        exact_head = 'test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" = "$RECOVERY_SHA"'
+        superseded = 'if test "$(gh api "$RECOVERY_REF_API" --jq "$RECOVERY_REF_QUERY")" != "$RECOVERY_SHA"; then'
         ci_lookup = 'ci_run=$(gh api'
         self.assertEqual(admission.count(exact_head), 2)
         self.assertIn(superseded, admission)
@@ -68,6 +68,8 @@ class SourceGateTests(unittest.TestCase):
         self.assertIn('exit 2', fail_closed)
         self.assertGreater(admission.rindex(exact_head), admission.index('test "$ready" = true'))
         self.assertIn('RECOVERY_PR:', admission)
+        self.assertIn('RECOVERY_REF_API:', admission)
+        self.assertIn('git/ref/heads/integration/consolidated-modern-20261023', admission)
         self.assertIn('integrated-modern-production-release-20261023.request', admission)
         self.assertIn('OWNER_EMERGENCY_RELEASE_REQUEST_VERIFIED', admission)
 
