@@ -9,6 +9,7 @@ import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
 import { sheetValuesRange } from './sheet-range.js';
 import { withSheetsRetry } from './sheets-retry.js';
+import { measureAsyncStage } from '../plugins/request-timing.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSourceFailure, logSourceRead, logSourceRetry, logSourceWrite } from './source-log.js';
 
@@ -94,7 +95,7 @@ export async function withSheetsDeadline<T>(
   try {
     // Проигравшее обещание остаётся с обработчиком от гонки, поэтому его
     // поздний отказ не всплывает как необработанный.
-    return await Promise.race([run(), deadline]);
+    return await measureAsyncStage('google', () => Promise.race([run(), deadline]));
   } finally {
     if (timer) clearTimeout(timer);
   }
