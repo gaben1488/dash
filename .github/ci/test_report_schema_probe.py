@@ -43,7 +43,8 @@ class ReportSchemaProbeTests(unittest.TestCase):
         envelope = {name: (ROOT / source).read_text() for name, source in (
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'),
-            ('coverage', 'packages/shared/src/source-coverage.ts'))}
+            ('coverage', 'packages/shared/src/source-coverage.ts'),
+            ('directory', 'packages/report-engine/src/procurement_engine/department_directory.json'))}
         program = """const fs=require('node:fs'),path=require('node:path');
 const originalRead=fs.readFileSync, originalDir=fs.readdirSync, originalStat=fs.lstatSync;
 const input=JSON.parse(originalRead(0,'utf8'));
@@ -87,7 +88,8 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
         envelope = {name: (ROOT / path).read_text() for name, path in (
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'),
-            ('coverage', 'packages/shared/src/source-coverage.ts'))}
+            ('coverage', 'packages/shared/src/source-coverage.ts'),
+            ('directory', 'packages/report-engine/src/procurement_engine/department_directory.json'))}
         for assurance, accepted in cases:
             with self.subTest(assurance_version=assurance and assurance['contract'], accepted=accepted):
                 result = subprocess.run(['node', '-e',
