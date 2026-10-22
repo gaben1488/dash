@@ -18,6 +18,7 @@ SOURCE_GATE = trial.SOURCE_GATE
 OPERATOR = Path('/home/aemr/dash/deploy')
 REVIEWED_COMPOSE = Path('/usr/local/libexec/aemr/reviewed-docker-compose.yml')
 REVIEWED_CADDY = Path('/usr/local/libexec/aemr/reviewed-Caddyfile')
+RUNTIME_POLICY = Path('/etc/aemr/runtime-policy.json')
 
 
 def web_only_inputs(paths):
@@ -75,21 +76,28 @@ class ReleaseController:
 
     @staticmethod
     def _web_toolchain():
-        # Actual installed bytes, not a repository-only compatibility assertion.
-        return {name: recovery.digest(recovery.read_owned(path, private=False))
-                for name, path in {
-                    'controller': Path(__file__),
-                    'recovery': Path(recovery.__file__),
-                    'trial': Path(trial.__file__),
-                    'source_gate': SOURCE_GATE,
-                }.items()}
+        """Fingerprint the actual root-owned recovery dependencies at staging."""
+        files = {
+            'controller': Path(__file__),
+            'recovery': Path(recovery.__file__),
+            'trial': Path(trial.__file__),
+            'source_gate': SOURCE_GATE,
+            'runtime_guard': Path(__file__).with_name('runtime_guard.py'),
+            'runtime_policy': RUNTIME_POLICY,
+        }
+        return {name: recovery.digest(recovery.read_owned(path, private=name == 'runtime_policy'))
+                for name, path in files.items()}
 
     @staticmethod
     def _web_toolchain_matches(expected):
-        if not isinstance(expected, dict) or set(expected) != {
-                'controller', 'recovery', 'trial', 'source_gate'}:
+        keys = {'controller', 'recovery', 'trial', 'source_gate', 'runtime_guard', 'runtime_policy'}
+        if not isinstance(expected, dict) or set(expected) != keys:
             return False
-        return expected == ReleaseController._web_toolchain()
+        try:
+            return expected == ReleaseController._web_toolchain()
+        except (OSError, recovery.RecoveryError):
+            # Missing/replaced root-owned programs or policy never authorize reuse.
+            return False
 
     def _images(self, plan):
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
