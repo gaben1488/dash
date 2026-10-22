@@ -1,4 +1,4 @@
-import { FIELD_GUIDANCE, PROCUREMENT_METHODS, procurementEditableGuidance } from '@aemr/shared';
+import { FIELD_GUIDANCE, PROCUREMENT_METHODS, checkedProcurementGuidanceResponse } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -504,25 +504,14 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   useEffect(() => {
     let active = true;
     api.getEditorialGuidance().then(reply => {
-      const canon = new Map(procurementEditableGuidance().map(item => [item.key, item]));
-      if (reply.version !== 'C06.03-editorial-v1' || reply.calculationRulesChanged !== false ||
-          !Array.isArray(reply.entries) || reply.entries.length !== canon.size) {
-        throw new Error('Неполная редакция подсказок');
-      }
-      const seen = new Set<string>();
       const guidance: Record<string, string> = {};
-      for (const entry of reply.entries) {
-        const expected = canon.get(entry.key);
-        if (!expected || seen.has(entry.key) || expected.defaultText !== entry.defaultText ||
-            expected.section !== entry.section || typeof entry.text !== 'string' ||
-            !entry.text.trim() || !Number.isSafeInteger(entry.revision) || entry.revision < 0) {
-          throw new Error('Редакция подсказок не совпадает с каталогом');
-        }
-        seen.add(entry.key);
+      for (const entry of checkedProcurementGuidanceResponse(reply)) {
         if (entry.key.startsWith('field:')) guidance[entry.key] = entry.text;
       }
       if (active) { setSavedGuidance(guidance); setGuidanceStatus('ready'); }
-    }).catch(() => { if (active) setGuidanceStatus('unavailable'); });
+    }).catch(() => {
+      if (active) { setSavedGuidance({}); setGuidanceStatus('unavailable'); }
+    });
     return () => { active = false; };
   }, []);
 
@@ -1693,6 +1682,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 Скопировать черновики
               </button>
             </div>
+          )}
+          {guidanceStatus === 'loading' && (
+            <p role="status" className="mb-2 text-xs text-zinc-600 dark:text-zinc-300">
+              Читаем текущую редакцию пояснений. Пока показаны встроенные подсказки, а не подтверждённая серверная редакция.
+            </p>
           )}
           {guidanceStatus === 'unavailable' && (
             <p role="status" className="mb-2 text-xs text-amber-700 dark:text-amber-300">
