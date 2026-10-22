@@ -699,8 +699,9 @@ export function Analytics() {
   const criticalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0), 0);
 
   // ── Treemap: spend hierarchy by department ──
+  const treemapIncomplete = hasDeptData && filteredDepts.some((d: any) => observedNumber(d.quarters?.[periodKey]?.factTotal) === null);
   const treemapData = useMemo(() => {
-    if (!hasDeptData) return [];
+    if (!hasDeptData || treemapIncomplete) return [];
     return filteredDepts
       .map((d: any, i: number) => {
         const q = d.quarters?.[periodKey] ?? {};
@@ -713,7 +714,7 @@ export function Analytics() {
         };
       })
       .filter(d => d.size !== null && d.size > 0);
-  }, [filteredDepts, hasDeptData, periodKey, chartColors]);
+  }, [filteredDepts, hasDeptData, periodKey, chartColors, treemapIncomplete]);
 
   return (
     <div className="space-y-4">
@@ -1069,8 +1070,8 @@ export function Analytics() {
           </p>
           {treemapData.length === 0 ? (
             <CardEmpty
-              title="Платежей за период нет"
-              description="Ни одно управление не показало факта за выбранный период: структуру расходов складывать не из чего."
+              title={treemapIncomplete ? 'Структура расходов не рассчитана: часть факта не прочитана' : 'Подтверждённый факт за период равен нулю'}
+              description={treemapIncomplete ? 'Нельзя рассчитывать доли от неполной суммы: отсутствующее управление нельзя исключать из знаменателя.' : 'При подтверждённом нулевом факте структуру долей строить не из чего.'}
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           ) : (
