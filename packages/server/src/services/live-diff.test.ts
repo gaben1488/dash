@@ -131,4 +131,33 @@ describe('сравнение двух чтений книги', () => {
     expect(diff.rows).toHaveLength(1);
     expect(diff.rows[0].author).toBeUndefined();
   });
+
+  it('по вебхуку видит исчезнувший № п/п даже при неизменном числе строк', () => {
+    const diff = diffBook('УО',
+      sheet(['1', '', '', '', '', '', 'Мебель'], ['2', '', '', '', '', '', 'Кровля']),
+      sheet(['1', '', '', '', '', '', 'Мебель'], ['3', '', '', '', '', '', 'Окна']),
+    );
+    expect(diff.addedRows).toBe(0);
+    expect(diff.removedRows).toBe(0);
+    expect(diff.missingCandidates).toMatchObject([{ rowSeq: '2', wasAtSheetRow: DEPT_HEADER_ROWS + 2, subject: 'Кровля' }]);
+    expect(diff.identityAdded).toBe(1);
+    expect(isSilent(diff)).toBe(false);
+  });
+
+  it('чистая перестановка закупок не выдаётся за правку каждой ячейки', () => {
+    const a = ['1', '', '', '', '', '', 'Кровля'];
+    const b = ['2', '', '', '', '', '', 'Мебель'];
+    const diff = diffBook('УО', sheet(a, b), sheet(b, a));
+    expect(diff.changedRows).toBe(0);
+    expect(diff.rows).toEqual([]);
+    expect(diff.missingCandidates).toEqual([]);
+    expect(isSilent(diff)).toBe(true);
+  });
+
+  it('дублированный номер не доказывает пропажу', () => {
+    const diff = diffBook('УО', sheet(['7', 'a'], ['7', 'b']), sheet(['7', 'a']));
+    expect(diff.missingCandidates).toEqual([]);
+    expect(diff.ambiguousKeys).toEqual(['7']);
+  });
+
 });

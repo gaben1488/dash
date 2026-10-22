@@ -76,4 +76,25 @@ describe('пропавшие и появившиеся закупки (кано�
     expect(d).toMatchObject({ vanished: [], appeared: [], moved: [], vanishedPlanSum: 0 });
     expect(d.note).toContain('на месте');
   });
+
+  it('не объявляет пропажу при неоднозначном повторе № п/п между чтениями', () => {
+    const d = diffSnapshots(
+      [row({ rowSeq: '7', sheetRow: 4, subject: 'Кровля' }), row({ rowSeq: '7', sheetRow: 5, subject: 'Мебель' })],
+      [row({ rowSeq: '7', sheetRow: 4, subject: 'Кровля' })],
+    );
+    expect(d.vanished).toEqual([]);
+    expect(d.ambiguousKeys).toEqual(['7']);
+    expect(d.note).toContain('повторяющимися');
+  });
+
+  it('дубль номера в новом чтении не считается доказанным переездом', () => {
+    const d = diffSnapshots(
+      [row({ rowSeq: '7', sheetRow: 8 })],
+      [row({ rowSeq: '7', sheetRow: 9 }), row({ rowSeq: '7', sheetRow: 10 })],
+    );
+    expect(d.vanished).toEqual([]);
+    expect(d.moved).toEqual([]);
+    expect(d.ambiguousKeys).toEqual(['7']);
+  });
+
 });
