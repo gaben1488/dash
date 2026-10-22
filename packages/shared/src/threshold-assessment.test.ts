@@ -104,7 +104,7 @@ describe('C06.02 — one frozen threshold decision contract for every consumer',
   );
 
   it('old snapshots without rule identity/day may screen only — never legal', () => {
-    const historic = { ...quote, id: undefined, asOfDay: undefined };
+    const { id: _removedId, asOfDay: _removedDay, ...historic } = quote;
     expect(evaluate({ captured: historic })).toMatchObject({
       status: 'unavailable', reason: 'threshold_date_mismatch',
     });
