@@ -1,0 +1,89 @@
+name: P0 read-only VPS runtime readback
+on:
+  push:
+    branches: [ops/runtime-readback-20261022]
+    paths: ['.github/ci/aemr-runtime-readback.request']
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    if: >-
+      github.repository == 'gaben1488/dash' &&
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/ops/runtime-readback-20261022'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Admit the one-file explicit read-only request
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/ci/aemr-runtime-readback.request"
+          python3 - <<'PYREQUEST'
+          import json, subprocess
+          from pathlib import Path
+          parent = subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          data = json.loads(Path('.github/ci/aemr-runtime-readback.request').read_text())
+          expected = {
+              'purpose': 'P0-119-read-only-installed-runtime-observation',
+              'approved_parent': parent,
+              'write_production': False,
+              'write_google_sheets': False,
+          }
+          assert data == expected, 'READBACK_REQUEST_INVALID'
+          print('READONLY_REQUEST_ADMITTED', parent)
+          PYREQUEST
+      - name: Inspect installed containers, health, disk and checkout without mutation
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            python3 -B - <<'PYREAD'
+            import datetime, json, shutil, subprocess, urllib.request, urllib.error
+            def command(*args):
+                result = subprocess.run(args, text=True, capture_output=True, timeout=30)
+                if result.returncode: raise RuntimeError('read-only command unavailable: ' + args[0])
+                return result.stdout.strip()
+            result = {'observed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      'mode': 'READ_ONLY', 'production_write_attempted': False}
+            try:
+                result['checkout_sha'] = command('git','-C','/home/aemr/dash','rev-parse','HEAD')
+            except Exception:
+                result['checkout_sha'] = None
+            ids = command('docker','ps','-aq','--filter','label=com.docker.compose.project=aemr').splitlines()
+            if not ids: raise RuntimeError('AEMR_COMPOSE_CONTAINERS_NOT_VISIBLE')
+            containers = json.loads(command('docker','inspect',*ids))
+            result['containers'] = [{
+                'name': c['Name'].lstrip('/'),
+                'image_id': c['Image'],
+                'revision': (c.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision'),
+                'status': c['State']['Status'],
+                'started_at': c['State'].get('StartedAt'),
+                'restart_count': c.get('RestartCount'),
+                'oom_killed': c['State'].get('OOMKilled')
+            } for c in containers]
+            disk = shutil.disk_usage('/')
+            result['disk_root_bytes'] = {'total':disk.total,'free':disk.free}
+            for route in ['/api/health', '/api/status']:
+                try:
+                    with urllib.request.urlopen('http://127.0.0.1'+route, timeout=12) as response:
+                        code = response.status
+                except urllib.error.HTTPError as error:
+                    code = error.code
+                except Exception:
+                    code = None
+                result['http_'+route.replace('/','_').strip('_')] = code
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            PYREAD
