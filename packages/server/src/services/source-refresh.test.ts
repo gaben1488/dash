@@ -126,6 +126,24 @@ afterEach(async () => {
 });
 
 describe('перечитка источников одним циклом', () => {
+
+  it('invalidates a trust snapshot when a values-only reread loses formula evidence despite unchanged values', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {
+      'УО': { values: [[1]], formulas: [['=1']], formulasRead: true, sheetName: 'ВСЕ' },
+    }, errors: {} });
+    await refreshAllSources(log, 'request', { books: ['УО'], svod: false, askDrive: false, withFormulas: true });
+    invalidateCache.mockClear();
+    // The mocked snapshot cache deliberately replaces the previous reading;
+    // production retains it only with a matching verified source version.
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {
+      'УО': { values: [[1]], formulas: [], formulasRead: false, sheetName: 'ВСЕ' },
+    }, errors: {} });
+    await refreshAllSources(log, 'request', { books: ['УО'], svod: false, askDrive: false });
+    expect(invalidateCache).toHaveBeenCalledTimes(1);
+  });
+
   it.each([true, false])('rejects a book changed during acquisition and retries it (askDrive=%s)', async (askDrive) => {
     const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
     resetSourcePrints();

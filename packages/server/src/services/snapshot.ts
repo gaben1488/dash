@@ -1,4 +1,5 @@
 import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
+import { sheetFingerprint } from './sheet-fingerprint.js';
 import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
 import { measureReadStage, withoutRequestTiming } from '../plugins/request-timing.js';
 import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
@@ -59,12 +60,31 @@ let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
  * цикле: их запись УДАЛЯЕТСЯ из кэша, а не остаётся молча от предыдущей
  * успешной загрузки под видом свежих данных (маскировка отказа, B-9).
  */
+/**
+ * Values-only polling must not erase a previously verified formula grid when
+ * both reads prove the SAME provider revision and unchanged cell values.
+ * A change of workbook, tab, revision or values removes that proof. This is
+ * in-process evidence, not an archive or a new formula-reading event.
+ */
+function retainSameRevisionFormulas(previous: DeptSheetResult | undefined, next: DeptSheetResult): DeptSheetResult {
+  if (next.formulasRead || !previous || !(previous.formulasRead || previous.retainedFormulas)
+      || previous.formulas.length === 0) return next;
+  if (!previous.sourceVersion || previous.sourceVersion !== next.sourceVersion
+      || previous.providerId !== next.providerId
+      || previous.sheetName !== next.sheetName
+      || sheetFingerprint(previous.values) !== sheetFingerprint(next.values)) return next;
+  return { ...next, formulas: previous.formulas, retainedFormulas: true };
+}
+
 export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
   acceptedAt?: string,
 ): void {
-  const next = { ...cachedDeptSheetData, ...data };
+  const next = { ...cachedDeptSheetData };
+  for (const [name, reading] of Object.entries(data)) {
+    next[name] = retainSameRevisionFormulas(cachedDeptSheetData[name], reading);
+  }
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
@@ -714,7 +734,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       // каждом быстром обновлении). Ключ не ставится вовсе, если чтения не
       // было: пустая сетка и отсутствие ключа значат для ядра одно —
       // «формулы не читали», и ни то ни другое не выдаётся за «дефектов нет».
-      if (deptResult.formulasRead && deptResult.formulas.length > 0) {
+      if ((deptResult.formulasRead || deptResult.retainedFormulas) && deptResult.formulas.length > 0) {
         sheetFormulas[deptName] = deptResult.formulas;
       }
     }
