@@ -338,6 +338,31 @@ class ControllerTests(TrialTests):
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0][-1], 'web')
 
+    def test_web_same_container_backend_restart_is_not_component_compatible(self):
+        self.web_stage()
+        self.fixture.records['server']['State']['StartedAt'] = '2026-10-22T00:00:01Z'
+        self.fixture.persist_records()
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED'):
+            self.controller.deploy_web()
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+
+    def test_web_worker_restart_during_promotion_restores_only_web(self):
+        self.web_stage()
+        verify = self.fixture.executor.web_verify
+        def worker_restarts(plan, *, candidate):
+            if candidate:
+                self.fixture.records['report-worker']['RestartCount'] += 1
+                self.fixture.persist_records()
+            return verify(plan, candidate=candidate)
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=worker_restarts),
+              self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_REJECTED_AND_RECOVERED')):
+            self.controller.deploy_web()
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['images']['web'])
+        self.assertEqual(self.fixture.records['report-worker']['RestartCount'], 1)
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
     def test_web_failure_restores_only_web_and_retains_concurrent_data(self):
         self.web_stage()
         actual = self.fixture.executor.web_verify
@@ -568,6 +593,9 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
         old['services']['caddy']['volumes'][0]['source'] = str(self.operator / 'Caddyfile')
         self.fixture.records['caddy']['Mounts'][0]['Source'] = str(self.operator / 'Caddyfile')
         self.fixture.records['server']['State']['Status'] = 'running'
+        for service in ('server', 'report-worker', 'caddy'):
+            self.fixture.records[service]['State']['StartedAt'] = '2026-10-22T00:00:00Z'
+            self.fixture.records[service]['RestartCount'] = 0
         self.fixture.persist_records()
         self.compose_sources = {str(self.operator / 'docker-compose.yml'): old,
                                 str(reviewed / 'reviewed-docker-compose.yml'): json.loads(json.dumps(old))}
