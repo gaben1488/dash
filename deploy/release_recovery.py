@@ -769,6 +769,9 @@ console.log('CANDIDATE_SCHEMA_PASS');
         accepted = STATE_DIR / 'web-release-accepted.json'
         keep = os.path.lexists(accepted) and json.loads(read_owned(accepted)) == {'plan_sha256': plan_hash}
         if not keep:
+            # If the backend changed independently, never mutate even the web
+            # container on the assumption that this is still the same release.
+            self.web_unchanged(plan, self._recovery_records(plan))
             self.web_start(plan, candidate=False)
         try:
             self.web_verify(plan, candidate=keep)
