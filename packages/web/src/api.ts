@@ -1,4 +1,4 @@
-import type { DashboardData, LimitComparisonResponse, SourceCoverage } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -435,6 +435,10 @@ export const api = {
 
   validateSource: (name: string) =>
     fetchJSON<any>(`/sources/${encodeURIComponent(name)}/validate`, { method: 'POST' }),
+
+  /** One server-owned non-atomic diagnostic run; other checks remain independent. */
+  runSourceDiagnostics: () =>
+    fetchJSON<SourceDiagnosticRun>('/sources/diagnostics/run', { method: 'POST' }),
 
   /** Валидация всех источников разом (СВОД + 8 ГРБС + «СВОД с месяцами»). */
   validateAllSources: () =>
