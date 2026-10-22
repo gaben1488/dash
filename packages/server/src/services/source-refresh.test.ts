@@ -19,7 +19,7 @@ const setSvodLoadFailure = vi.fn();
 const invalidateCache = vi.fn();
 // Прежнее чтение книг — материал живых событий: цикл берёт его ДО записи
 // нового кэша, поэтому заглушка обязана отдавать пустой кэш, а не падать.
-let cachedBooks: Record<string, { values: unknown[][] }> = {};
+let cachedBooks: Record<string, { values: unknown[][]; providerId?: string }> = {};
 const getDeptSheetCache = vi.fn(() => cachedBooks);
 
 vi.mock('./google-sheets.js', () => ({
