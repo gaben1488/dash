@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, thresholdAt, isoOfDayNumber } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { TrustCheckCoverage, DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
 import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
@@ -553,6 +553,10 @@ export interface PipelineSnapshot extends DataSnapshot {
 export function runPipeline(input: PipelineInput): PipelineSnapshot {
   const asOf = input.asOf === undefined ? new Date() : input.asOf;
   if (!(asOf instanceof Date) || !Number.isFinite(asOf.getTime())) throw new Error('INVALID_SNAPSHOT_AS_OF');
+  // Single legal reference for this product date: exactly the same selector
+  // as snapshot-calculation-context.freezeThresholds, not the build's live constant.
+  const epSingleContractReference = thresholdAt('law.epSmallSingleContract',
+    isoOfDayNumber(productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS)));
   const pipelineStart = Date.now();
   const snapshotId = nanoid();
 
@@ -699,6 +703,8 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       rowSignals,
       execCountPct: recalc.year.execCountPct,
       epSharePct: recalc.epSharePct,
+      referenceDate: asOf,
+      epSingleContractReference,
     });
   }
 
