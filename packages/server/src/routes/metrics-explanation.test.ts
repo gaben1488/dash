@@ -67,7 +67,7 @@ describe('calculated metric detail', () => {
       grain: 'department_sheet_row',
       scope: { sourceSheets: ['УО'], department: 'uo', method: null, period: 'q1', year: 2026 },
       dependencies: ['fact_count', 'plan_count'],
-      formula: 'fact_count / plan_count (нет базы → null; результат — доля 0..1)',
+      formula: 'fact_count / plan_count (нет базы → null; результат — доля, 1 соответствует 100%)',
       version: {
         snapshotId: value.id, calculationContextId: null, semanticsHash: null,
         sourceContentHash: null, sourceProfilesHash: null,

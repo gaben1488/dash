@@ -240,7 +240,7 @@ export function executableFormula(key: string): string | null {
       case 'diff': return expression.a + ' − ' + expression.b;
       case 'sum': return expression.operands.join(' + ');
       case 'ratio': case 'pct':
-        return expression.numerator + ' / ' + expression.denominator + ' (нет базы → null; результат — доля 0..1)';
+        return expression.numerator + ' / ' + expression.denominator + ' (нет базы → null; результат — доля, 1 соответствует 100%)';
     }
   }
   const source = definition.source;

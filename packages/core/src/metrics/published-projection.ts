@@ -146,6 +146,7 @@ export function projectDepartmentMetrics(
   }
   putDiagnostic(`${root}.year.data_row_count`, grouped.rowCount, 'count');
   putDiagnostic(`${root}.economy.math`, grouped.economyTotalMath, 'rubles');
+  putDiagnostic(`${root}.economy.conflicts`, grouped.conflicts, 'count');
 
   const epYear = byPeriod(grouped, 'year', 'ep');
   const kpYear = byPeriod(grouped, 'year', 'competitive');

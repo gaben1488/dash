@@ -205,10 +205,10 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       );
       if (dropIssue) allIssues.push(dropIssue);
       const recalc = adaptToRecalcMetrics(grouped, sheetName);
-const calculation = { departmentId: deptId, grouped, rowOffset: sourceRowOffset };
-       projectDepartmentMetrics(calculatedMetrics, calculation, asOf.toISOString());
-       calculatedDepartments.push(calculation);
-       sourceRowOffset += rows.length;
+      const calculation: DepartmentCalculation = { departmentId: deptId, grouped, rowOffset: sourceRowOffset };
+      projectDepartmentMetrics(calculatedMetrics, calculation, asOf.toISOString());
+      calculatedDepartments.push(calculation);
+      sourceRowOffset += rows.length;
       recalcResults[deptId] = recalc;
     }
   }
