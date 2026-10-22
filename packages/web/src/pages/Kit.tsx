@@ -19,6 +19,7 @@
 //    было принять за настоящий отчёт.
 
 import { useState } from 'react';
+import { DesignLabPage } from './DesignLab';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Download, RefreshCw, Trash2 } from 'lucide-react';
 
@@ -106,6 +107,13 @@ export function KitPage() {
   const [scale, setScale] = useState<MoneyScale>('тыс');
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // The lab belongs to the existing dev-only #/kit entry; it never enters
+  // the production navigation, business state or release bundle.
+  const [labOpen, setLabOpen] = useState(() => window.location.hash.startsWith('#/kit/lab'));
+  const openLab = () => { window.history.replaceState(null, '', '#/kit/lab'); setLabOpen(true); };
+  const closeLab = () => { window.history.replaceState(null, '', '#/kit'); setLabOpen(false); };
+
+  if (labOpen) return <DesignLabPage onExit={closeLab} />;
 
   return (
     <div className="mx-auto max-w-[80rem] p-[var(--space-6)]">
@@ -126,6 +134,9 @@ export function KitPage() {
             />
             <Button tone="secondary" size="sm" onClick={toggleTheme}>
               {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            </Button>
+            <Button tone="secondary" size="sm" onClick={openLab}>
+              Дизайн-лаборатория
             </Button>
           </>
         }
