@@ -88,6 +88,29 @@ def record_release_transport(request, phase, proof):
     return True
 
 
+
+def browser_dashboard_timing(timing, server_header, request_id):
+    """Only fixed durations and a safe correlation ID; no URL or response data."""
+    def ms(value):
+        return round(value, 2) if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+    first_byte = ms(timing.get('responseStart'))
+    complete = ms(timing.get('responseEnd'))
+    match = re.search(r'(?:^|,)\s*app;dur=([0-9]+(?:\.[0-9]+)?)(?:\s*,|\s*$)', server_header)
+    app = ms(float(match.group(1))) if match else None
+    valid_id = request_id if re.fullmatch(r'[A-Za-z0-9_-]{1,128}', request_id) else None
+    return {
+        'browserFirstByteMs': first_byte,
+        'browserResponseEndMs': complete,
+        'browserBodyMs': round(complete - first_byte, 2)
+            if first_byte is not None and complete is not None and complete >= first_byte else None,
+        'serverAppMs': app, 'requestId': valid_id,
+        'browserTimingComplete': first_byte is not None and complete is not None and complete >= first_byte,
+        'stagesInclusiveNotAdditive': True,
+        'scope': 'single_browser_request_not_a_cold_warm_worker_comparison',
+    }
+
+
 async def activate(locator, profile, *, timeout=5000):
     if profile == 'iphone':
         await locator.tap(timeout=timeout)
@@ -292,9 +315,11 @@ async def run():
                     proof['word_requests'] = len(word_requests)
             page.on('request', word_request)
             proof['stage'] = 'document_navigation'
+            navigation_started = time.perf_counter()
             async with page.expect_response(lambda r: urlsplit(r.url).path == '/api/dashboard' and r.status == 200, timeout=40000) as dashboard:
                 response = await page.goto(BASE, wait_until='domcontentloaded', timeout=30000)
                 proof['document_http_status'] = response.status
+                proof['navigationDomLoadedMs'] = round((time.perf_counter() - navigation_started) * 1000, 2)
                 if response.status == 401:
                     challenge = response.headers.get('www-authenticate', '')
                     proof['browser_auth_diagnostic'] = {
@@ -319,10 +344,17 @@ async def run():
                             await diagnostic.close()
                 assert response.status == 200
                 proof['stage'] = 'dashboard_response'
-            await (await dashboard.value).finished()
+            dashboard_response = await dashboard.value
+            await dashboard_response.finished()
+            proof['dashboardNetworkTiming'] = browser_dashboard_timing(
+                dashboard_response.request.timing,
+                await dashboard_response.header_value('server-timing') or '',
+                await dashboard_response.header_value('x-request-id') or '',
+            )
             proof['stage'] = 'initial_render'
             nav = page.get_by_role('navigation', name='Навигация', exact=True)
             await nav.wait_for(timeout=30000)
+            proof['navigationReadyMs'] = round((time.perf_counter() - navigation_started) * 1000, 2)
             visited = []
 
             scenario = os.environ.get('BROWSER_SCENARIO', 'full')
