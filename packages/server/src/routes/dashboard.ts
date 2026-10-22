@@ -148,14 +148,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     // Формируем сводки по ГРБС с quarterly data из calculatedMetrics
     const calc = snapshot.calculatedMetrics ?? {};
+    // R05.03: a missing primary book is not a confirmed zero and must never
+    // acquire a credible-looking total from its SVOD mirror. Legacy snapshots
+    // with no coverage metadata keep their existing interpretation; modern
+    // snapshots explicitly name every successfully read primary book.
+    const readDepartments = snapshot.metadata.sourceCoverage?.readDepartments;
     const departmentSummaries: DepartmentSummary[] = DEPARTMENTS.map(dept => {
+      const primaryRead = readDepartments === undefined || readDepartments.includes(dept.nameShort);
+      const scopedCalc: Record<string, NormalizedMetric> = primaryRead ? calc : {};
       const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
 
       // Prefer calc-engine year-filtered totals (they respect targetYear).
       // SVOD cells are static and not year-filtered — use only as fallback.
       const prefix = `grbs.${dept.id}`;
-      const calcGet = (key: string) => calc[key]?.numericValue;
-      const svodGet = (key: string) => snapshot.officialMetrics[key]?.numericValue;
+      const calcGet = (key: string) => scopedCalc[key]?.numericValue;
+      const svodGet = (key: string) => primaryRead ? snapshot.officialMetrics[key]?.numericValue : undefined;
 
       const calcPlanYear = calcGet(`${prefix}.year.plan_total`);
       const calcFactYear = calcGet(`${prefix}.year.fact_total`);
@@ -202,7 +209,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       ) ?? [];
       const deptTrust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id,
         snapshot.trust?.coverage?.filter(c => classifySheet(c.sheet).latinId === dept.id));
-      const trustScore = deptTrust.overall;
+      const trustScore = primaryRead ? deptTrust.overall : null;
 
       // Кварталы, год и месяцы собираются ОДНИМ строителем (buildPeriodBlock):
       // до 18.08.2026 список из двадцати шести полей был переписан здесь трижды,
@@ -210,7 +217,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // (SIMPLIFY_REGISTER_2026-06-05 §S3).
       const quarters: Record<string, PeriodBlock> = {};
       for (const qk of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
-        quarters[qk] = buildPeriodBlock(calc, prefix, qk);
+        quarters[qk] = buildPeriodBlock(scopedCalc, prefix, qk);
       }
 
       // Месяц без плана и без факта не материализуется: пустой блок читался бы
@@ -218,15 +225,15 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const months: Record<number, PeriodBlock> = {};
       for (let mi = 1; mi <= 12; mi++) {
         const mk = `m${mi}`;
-        const hasPlan = calc[`${prefix}.${mk}.plan_count`]?.numericValue ?? null;
-        const hasFact = calc[`${prefix}.${mk}.fact_count`]?.numericValue ?? null;
+        const hasPlan = scopedCalc[`${prefix}.${mk}.plan_count`]?.numericValue ?? null;
+        const hasFact = scopedCalc[`${prefix}.${mk}.fact_count`]?.numericValue ?? null;
         if (hasPlan != null || hasFact != null) {
-          months[mi] = buildPeriodBlock(calc, prefix, mk);
+          months[mi] = buildPeriodBlock(scopedCalc, prefix, mk);
         }
       }
 
       // Per-department recalculation data (byActivity, subordinates, conflicts)
-      const deptRecalc = snapshot.recalcResults?.[dept.id];
+      const deptRecalc = primaryRead ? snapshot.recalcResults?.[dept.id] : undefined;
 
       return {
         department: dept,
@@ -241,7 +248,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         criticalIssueCount: criticalCount,
         trustScore,
         trustComponents: deptTrust.components,
-        status: criticalCount > 0 ? 'critical' as const : activeDeptIssues.length > 3 ? 'warning' as const : 'normal' as const,
+        status: !primaryRead || criticalCount > 0 ? 'critical' as const : activeDeptIssues.length > 3 ? 'warning' as const : 'normal' as const,
         quarters,
         signalCounts: deptSignalCounts[dept.id] ?? {},
         byActivity: deptRecalc?.byActivity ?? {},
