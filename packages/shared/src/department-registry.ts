@@ -155,6 +155,27 @@ export const CYRILLIC_TO_LATIN: Record<DepartmentId, LatinDeptId> = Object.fromE
   DEPARTMENT_REGISTRY.map((d) => [d.id, d.latinId]),
 ) as Record<DepartmentId, LatinDeptId>;
 
+/**
+ * Fail closed if a future registry edit introduces collisions or silently
+ * breaks the Latin/Cyrillic bijection. No parallel hand-maintained mappings.
+ */
+function assertDepartmentRegistry(entries: readonly DepartmentEntry[]): void {
+  const ids = new Set<string>();
+  const latinIds = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.id || !entry.latinId || entry.shortName !== entry.id) {
+      throw new Error(`Invalid department registry entry: ${entry.id}/${entry.latinId}`);
+    }
+    if (ids.has(entry.id) || latinIds.has(entry.latinId)) {
+      throw new Error(`Duplicate department registry identity: ${entry.id}/${entry.latinId}`);
+    }
+    ids.add(entry.id);
+    latinIds.add(entry.latinId);
+  }
+}
+
+assertDepartmentRegistry(DEPARTMENT_REGISTRY);
+
 /** Map by cyrillic ID (primary) */
 const _byId = new Map<DepartmentId, DepartmentEntry>(
   DEPARTMENT_REGISTRY.map(d => [d.id, d]),

@@ -130,10 +130,14 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
     });
   }
 
+  // Sequence labels are identifiers, not amounts: 173/1 is not 173, and
+  // date-formatted cells must not turn into huge artificial gap ranges.
   const numeric = [...new Set(
     numberedRows
-      .map((r) => Number(String(r.rowSeq).trim()))
-      .filter((n) => Number.isInteger(n) && n > 0),
+      .map((r) => String(r.rowSeq).trim())
+      .filter((value) => /^[1-9]\\d*$/u.test(value))
+      .map(Number)
+      .filter((n) => Number.isSafeInteger(n)),
   )].sort((a, b) => a - b);
 
   const range = numeric.length > 0 ? { min: numeric[0], max: numeric[numeric.length - 1] } : null;

@@ -92,3 +92,36 @@ describe('целостность нумерации рабочего листа'
     expect(r).toMatchObject({ rows: 0, countable: 0, gapCount: 0, range: null, coveragePct: null });
   });
 });
+
+
+describe('composite sequence labels are not numeric amounts', () => {
+  it('does not collapse 173/1 into 173 or create false gaps', () => {
+    const result = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173' }),
+      row({ sheetRow: 5, rowSeq: '173/1' }),
+      row({ sheetRow: 6, rowSeq: '174' }),
+    ]);
+    expect(result.duplicates).toEqual([]);
+    expect(result.range).toEqual({ min: 173, max: 174 });
+    expect(result.gapCount).toBe(0);
+  });
+
+  it('preserves exact composite duplicates', () => {
+    const result = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173/1' }),
+      row({ sheetRow: 5, rowSeq: '173/1' }),
+    ]);
+    expect(result.duplicates).toHaveLength(1);
+    expect(result.range).toBeNull();
+  });
+
+  it('does not interpret dates or unsafe integers as sequential addresses', () => {
+    const result = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '23/1' }),
+      row({ sheetRow: 5, rowSeq: '24/1' }),
+      row({ sheetRow: 6, rowSeq: '9007199254740993' }),
+    ]);
+    expect(result.range).toBeNull();
+    expect(result.gapCount).toBe(0);
+  });
+});

@@ -97,8 +97,23 @@ export function validateData(
       let result;
       try {
         result = rule.check(ctx);
-      } catch (_err) {
-        // Skip broken rule, don't crash entire validation
+      } catch (err) {
+        // A failed rule is not a passed rule: expose the failure with provenance.
+        // Continue checking other rows without silently losing this check.
+        const message = err instanceof Error ? err.message : String(err);
+        issues.push({
+          id: issueIdentity(['rule-error', rule.id, row.sheet, String(row.rowIndex)]),
+          severity: 'error',
+          origin: 'runtime_error',
+          category: 'rule_execution_error',
+          title: `Ошибка проверки «${rule.name}»: лист «${row.sheet}», строка ${row.rowIndex}`,
+          description: `Правило ${rule.id} не выполнилось: ${message}`,
+          sheet: row.sheet,
+          row: row.rowIndex,
+          status: 'open',
+          detectedAt: now,
+          detectedBy: `rule:${rule.id}`,
+        });
         continue;
       }
       if (!result.passed) {
