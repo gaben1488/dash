@@ -318,8 +318,8 @@ export interface RefreshOptions {
    */
   fresh?: boolean;
   /**
-   * Адресная перечитка: только названные книги ГРБС. Не задано или пусто —
-   * все книги, как раньше.
+   * Адресная перечитка: только названные книги ГРБС. Не задано — все книги;
+   * пустой список — ни одной (например, при уведомлении только о СВОД).
    *
    * Смысл — в точности уведомления Drive. Оно называет ФАЙЛ (заголовок
    * X-Goog-Resource-URI), и дальше файла Google не идёт: ни листа, ни строки,
@@ -395,7 +395,7 @@ function widenScope(
   scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } | null,
   options: RefreshOptions,
 ): { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } {
-  const wantsAll = !options.books || options.books.length === 0;
+  const wantsAll = options.books === undefined;
   const svod = (scope?.svod ?? false) || (options.svod ?? true);
   // Просьба прочитать формулы тоже СКЛАДЫВАЕТСЯ: уведомление вебхука, попавшее
   // в серию вместе с обычным вызовом, не имеет права потерять чтение формул —
@@ -550,7 +550,7 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // этот разрыв, но не доказывает единую версию Google. Отказ одной стороны не должен
     // уносить другую, поэтому лист СВОД ловит свой отказ внутри себя.
     const startedAt = Date.now();
-    const targetBooks = options.books && options.books.length > 0 ? options.books : undefined;
+    const targetBooks = options.books;
     const wantSvod = options.svod ?? true;
 
     // Ступень отсева у Google — ДО чтения: книга, которую никто не трогал с
@@ -597,6 +597,15 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
             .catch((error: unknown) => ({ error }))
         : Promise.resolve(null),
     ]);
+    // A scoped read must report data or a failure for each requested book.
+    // Silence cannot complete its webhook and discard an unprocessed change.
+    if (targetBooks !== undefined) {
+      for (const name of booksToRead) {
+        if (!Object.hasOwn(data, name) && !Object.hasOwn(errors, name)) {
+          errors[name] = 'SOURCE_READ_INCOMPLETE';
+        }
+      }
+    }
     await Promise.all(Object.keys(data).map(async name => {
       if (acquire) {
         // The full connector may have retried a changing source. Recheck its
@@ -720,7 +729,11 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       const revision = acquisitionRevisions.get(name);
       if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
     }
-    setDeptSheetCache(data, Object.keys(errors));
+    // SVOD-only has no departmental attestation. A full Drive revision check,
+    // however, may confirm unchanged books and legitimately renew cache freshness.
+    if (targetBooks === undefined || targetBooks.length > 0) {
+      setDeptSheetCache(data, Object.keys(errors));
+    }
     for (const [name, print] of nextPrints) {
       bookPrints.set(name, print);
       restoredReadings.delete(name);

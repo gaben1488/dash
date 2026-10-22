@@ -172,6 +172,8 @@ describe('перечитка спрашивает Drive, прежде чем ч�
     expect(getSheetData).not.toHaveBeenCalled();
     // Кэш снимка не сбрасывается: на экране те же числа, что и в кэше.
     expect(invalidateCache).not.toHaveBeenCalled();
+    // A complete revision attestation is distinct from a SVOD-only cycle.
+    expect(setDeptSheetCache).toHaveBeenCalledWith({}, []);
     expect(r.booksRead).toBe(0);
     expect(r.skipped.length).toBeGreaterThan(0);
   });
@@ -192,6 +194,51 @@ describe('перечитка спрашивает Drive, прежде чем ч�
     expect(getSheetData).toHaveBeenCalledTimes(1);
     expect(r.svodOk).toBe(true);
     expect(checkFileChanged).not.toHaveBeenCalledWith(config.google.spreadsheetId);
+  });
+
+  it('СВОД-only webhook не перечитывает ГРБС и не выдаёт новый возраст их кэша', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const result = await refreshAllSources(log, 'webhook', {
+      books: [], svod: true, withFormulas: true,
+    });
+
+    expect(getSheetData).toHaveBeenCalledTimes(1);
+    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+    expect(checkFileChanged).not.toHaveBeenCalled();
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(result.booksRead).toBe(0);
+    expect(result.failed).toEqual([]);
+    expect(result.svodOk).toBe(true);
+  });
+
+  it('очередь свежих чтений сохраняет пустую цель ГРБС при совмещении с СВОД', async () => {
+    const { widenScopeForTests } = await import('./source-refresh.js');
+    const svodOnly = widenScopeForTests(null, { books: [], svod: true, withFormulas: true });
+    expect(svodOnly.books).toEqual(new Set());
+    const combined = widenScopeForTests(svodOnly, { books: ['УО'], svod: false });
+    expect(combined.books).toEqual(new Set(['УО']));
+    expect(combined.svod).toBe(true);
+    expect(combined.withFormulas).toBe(true);
+  });
+
+  it('тихо пропущенная книга — ошибка чтения, не успешное подтверждение уведомления', async () => {
+    await warmUp();
+    vi.clearAllMocks();
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {}, errors: {} });
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const result = await refreshAllSources(log, 'webhook', {
+      books: ['УО'], svod: false, withFormulas: true,
+    });
+
+    expect(result.loaded).toEqual([]);
+    expect(result.failed).toEqual(['УО']);
+    expect(result.skipped).toEqual([]);
+    expect(result.retryableFailures).toEqual([]);
+    expect(setDeptSheetCache).toHaveBeenCalledWith(expect.anything(), ['УО']);
+    expect(cachedBooks).not.toHaveProperty('УО');
+    expect(setDeptLoadMeta).toHaveBeenCalledWith(expect.objectContaining({
+      'УО': expect.objectContaining({ error: 'SOURCE_READ_INCOMPLETE' }),
+    }));
   });
 
   it('Drive промолчал — читаем, как читали: «не знаю» не повод пропустить правку', async () => {
