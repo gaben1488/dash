@@ -240,6 +240,22 @@ export const bookWatermarks = sqliteTable('book_watermarks', {
   driveModifiedTime: text('drive_modified_time'),
 });
 
+
+/**
+ * Последние свидетельства проверки источников. Две независимые разновидности
+ * (`formulas` и `metadata`) не смешиваются с недельными снимками.
+ * payload содержит только итоги проверки, не всю сетку формул.
+ */
+export const sourceIntegrityState = sqliteTable('source_integrity_state', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  book: text('book').notNull(),
+  sourceId: text('source_id').notNull(),
+  checkerVersion: text('checker_version').notNull(),
+  observedAt: text('observed_at').notNull(),
+  stateJson: text('state_json').notNull(),
+});
+
 /**
  * Честные пропуски журнала (правило полноты, проект §2.2): отметка времени
  * файла сказала «менялся», а все содержательные свидетели молчат — пишется

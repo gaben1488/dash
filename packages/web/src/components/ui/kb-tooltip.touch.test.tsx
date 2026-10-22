@@ -72,6 +72,54 @@ describe('KBTooltip на координатном устройстве (тач)'
     expect(screen.queryByText(KB_TEXT)).toBeNull();
   });
 
+  it('показывает краткое объяснение, а пороги, пример, методы и происхождение раскрывает по запросу', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip
+          description="Исполнение плана"
+          whatIs="Доля заключённых контрактов за выбранный период."
+          howCalc="Число заключённых делится на число запланированных."
+          dataSource="Восемь книг управлений."
+          thresholdsFull="Порог для разбора зависит от периода."
+          example="При 8 из 10 результат равен 80 процентам."
+          scopeMoment="Периметр: выбранные управления."
+          divergence="Свод может считать по другому периоду."
+        >
+          <span>80 %</span>
+        </KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('80 %'));
+    expect(screen.getByText(/Доля заключённых контрактов/)).toBeTruthy();
+    expect(screen.queryByText(/Порог для разбора/)).toBeNull();
+    expect(screen.queryByText(/При 8 из 10/)).toBeNull();
+    expect(screen.queryByText(/Свод может считать/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Подробнее' }));
+    expect(screen.getByText(/Порог для разбора/)).toBeTruthy();
+    expect(screen.getByText(/При 8 из 10/)).toBeTruthy();
+    expect(screen.getByText(/Свод может считать/)).toBeTruthy();
+  });
+
+  it('не создаёт пустую всплывающую заглушку из одного заголовка', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip description="Справка ещё не подготовлена"><span>Показатель</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Показатель'));
+    expect(screen.queryByText('Справка ещё не подготовлена')).toBeNull();
+  });
+
+  it('показывает реальное описание источника даже без полного набора полей БЗ', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <KBTooltip dataSource="Книга управления, вкладка закупок."><span>Источник</span></KBTooltip>
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByText('Источник'));
+    expect(screen.getByText('Книга управления, вкладка закупок.')).toBeTruthy();
+  });
+
   it('триггер доступен с клавиатуры (tabIndex)', () => {
     renderMetric();
     const trigger = screen.getByText('86,6 %').closest('span[tabindex]');

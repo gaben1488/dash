@@ -48,11 +48,20 @@ export interface SourceValidationResult {
   name: string;
   /** Какой лист реально прочитан (прозрачность: «ВСЕ», не имя ГРБС). */
   resolvedSheetName: string;
+  /** rows = реальные построчные правила ГРБС; access_only = только чтение свода. */
+  validationMode?: 'rows' | 'access_only';
   /** Строк-позиций проверено (не сырых строк листа). */
   rowsChecked: number;
   issues: SourceIssue[];
   summary: { total: number; critical: number; warning: number; info: number };
   error?: string;
+}
+
+/** Объём реальной проверки: агрегаты не имеют раскладки строк ГРБС. */
+export function validationModeForSource(name: string): 'rows' | 'access_only' {
+  return name === SVOD_SHEET_NAME || name === SHDYU_MONTHLY_SHEET_NAME || name === 'ШДЮ'
+    ? 'access_only'
+    : 'rows';
 }
 
 /** Денежные колонки (план H,I,J,K + факт V,W,X,Y). Дни (T) и кварталы (O,R) — НЕ деньги. */
@@ -160,29 +169,30 @@ export async function validateSource(name: string): Promise<SourceValidationResu
       resolvedSheetName = SVOD_SHEET_NAME;
       // СВОД — агрегатный лист, построчные сигналы ГРБС-формата к нему неприменимы:
       // проверяем только читаемость.
-      return { success: true, name, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name, resolvedSheetName, validationMode: 'access_only', ...empty, rowsChecked: rawRows.length };
     }
 
     if (name === SHDYU_MONTHLY_SHEET_NAME || name === 'ШДЮ' /* легаси-имя карточки */) {
       rawRows = await getSheetData(SHDYU_MONTHLY_SHEET_NAME, SHDYU_SPREADSHEET_ID);
       resolvedSheetName = SHDYU_MONTHLY_SHEET_NAME;
       // Помесячный свод — тоже агрегат, не ГРБС-строки.
-      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, validationMode: 'access_only', ...empty, rowsChecked: rawRows.length };
     }
 
     const ssId = DEPARTMENT_SPREADSHEETS[name];
     if (!ssId) {
-      return { success: false, name, resolvedSheetName: '', ...empty, error: `Источник «${name}» не найден` };
+      return { success: false, name, resolvedSheetName: '', validationMode: validationModeForSource(name), ...empty, error: `Источник «${name}» не найден` };
     }
     // ТОТ ЖЕ резолвер, что у загрузчика (кандидаты ВСЕ/Все/имя, честные 429/403).
     const sheet = await readDeptSheet(name, ssId);
     const checked = validateRows(sheet.values);
-    return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked };
+    return { success: true, name, resolvedSheetName: sheet.sheetName, validationMode: 'rows', ...checked };
   } catch (err) {
     return {
       success: false,
       name,
       resolvedSheetName: '',
+      validationMode: validationModeForSource(name),
       ...empty,
       error: err instanceof Error ? err.message : String(err),
     };

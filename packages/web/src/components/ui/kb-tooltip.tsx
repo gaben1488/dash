@@ -105,12 +105,12 @@ function Section({ icon, num, title, children, className }: {
   return (
     <div className={cn('', className)}>
       <div className="flex items-center gap-1.5 mb-0.5">
-        <span className="text-[9px] font-bold text-zinc-500">{num}</span>
-        <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-0.5">
+        <span className="sr-only">{num}</span>
+        <span className="text-[11px] font-semibold text-zinc-300 flex items-center gap-1">
           {icon}{title}
         </span>
       </div>
-      <div className="text-[11px] leading-relaxed text-zinc-200 pl-3">
+      <div className="text-xs leading-relaxed text-zinc-200 pl-3">
         {children}
       </div>
     </div>
@@ -191,10 +191,9 @@ function LegacyContent({ entry }: { entry: KBEntry }) {
     { label: 'Пороги', value: entry.thresholds },
     { label: 'Закон', value: entry.law },
   ].filter(r => r.value);
-  if (rows.length === 0 && !entry.description) return null;
+  if (rows.length === 0) return null;
   return (
     <div className="space-y-1">
-      {entry.description && <p className="text-[11px] text-zinc-300 leading-snug mb-1.5">{entry.description}</p>}
       {rows.map(({ label, value }) => (
         <div key={label} className="flex gap-2 text-[10px] leading-tight">
           <span className="text-zinc-500 shrink-0 w-14 font-medium">{label}:</span>
@@ -211,44 +210,36 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
   const hasFullContent = entry.whatIs || entry.thresholdsFull || entry.example;
   const hasExpandable = entry.howCalc || entry.dataSource || entry.engine
     || entry.lawFull || entry.pitfalls || entry.actions || entry.divergence
+    || entry.scopeMoment || entry.thresholdsFull || entry.example
     || (entry.related && entry.related.length > 0);
 
-  if (!hasFullContent) return <LegacyContent entry={entry} />;
+  if (!hasFullContent) {
+    // Some legacy KB cards have a reliable source or calculation but not the
+    // 10-section narrative. Show that known fact; do not render a blank shell.
+    const fallback = entry.howCalc ?? entry.dataSource ?? entry.scopeMoment
+      ?? entry.divergence ?? entry.actions ?? entry.pitfalls ?? entry.engine
+      ?? entry.lawFull;
+    return (
+      <div className="space-y-2">
+        {fallback && <p className="text-xs leading-relaxed text-zinc-200">{fallback}</p>}
+        <LegacyContent entry={entry} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
       {/* Always visible: ①⑤⑦ */}
       {entry.whatIs && (
-        <p className="text-[11px] leading-relaxed text-zinc-100 font-medium">{entry.whatIs}</p>
+        <p className="text-[12px] leading-relaxed text-zinc-100">{entry.whatIs}</p>
       )}
-      {/* ⑪ Скоуп и момент стоит сразу под механизмом и ДО порога: читатель,
-          открывший объяснение, уже не видит плашку периметра на плитке, и без
-          этой строки не знает, за что число (спека карточки 2.0, п.③). */}
-      {entry.scopeMoment && (
-        <Section icon={<Database size={8} />} num="⑪" title="Скоуп и момент">
-          <p className="text-zinc-300 text-[10px]">{entry.scopeMoment}</p>
-        </Section>
-      )}
-      {entry.thresholdsFull && (
-        <Section icon={<BarChart3 size={8} />} num="⑤" title="Пороги">
-          <ThresholdLine text={entry.thresholdsFull} />
-        </Section>
-      )}
-      {entry.example && (
-        <Section icon={<Lightbulb size={8} />} num="⑦" title="Пример">
-          <div className="bg-white/5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 font-mono leading-relaxed">
-            {entry.example}
-          </div>
-        </Section>
-      )}
-
       {/* Expand toggle */}
       {hasExpandable && (
         <>
           <button
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); setExpanded(!expanded); }}
             className={cn(
-              'w-full flex items-center justify-center gap-1 py-1 rounded-lg text-[9px] font-medium transition-all',
+              'w-full flex items-center justify-center gap-1 min-h-8 py-1.5 rounded-lg text-[11px] font-medium transition-all',
               expanded
                 ? 'text-zinc-400 bg-white/5'
                 : 'text-blue-300 bg-blue-500/10 hover:bg-blue-500/15',
@@ -260,6 +251,23 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
 
           {expanded && (
             <div className="space-y-2 pt-1 border-t border-white/5">
+              {entry.scopeMoment && (
+                <Section icon={<Database size={8} />} num="⑪" title="Периметр и момент">
+                  <p className="text-zinc-300 text-[10px]">{entry.scopeMoment}</p>
+                </Section>
+              )}
+              {entry.thresholdsFull && (
+                <Section icon={<BarChart3 size={8} />} num="⑤" title="Пороги">
+                  <ThresholdLine text={entry.thresholdsFull} />
+                </Section>
+              )}
+              {entry.example && (
+                <Section icon={<Lightbulb size={8} />} num="⑦" title="Пример">
+                  <div className="bg-white/5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 leading-relaxed">
+                    {entry.example}
+                  </div>
+                </Section>
+              )}
               {entry.howCalc && (
                 <Section icon={<Cpu size={8} />} num="②" title="Как считается">
                   <p className="text-zinc-300 text-[10px]">{entry.howCalc}</p>
@@ -369,10 +377,10 @@ function ProvenanceBlock({ sources }: { sources: ProvenanceSource[] }) {
 /** Классы панели подсказки — общие для hover- и тап-режима.
  *  Ширина упирается в экран: на 360px панель не вылезает за края. */
 const KB_PANEL_CLASS = cn(
-  'z-[100] w-[min(320px,calc(100vw-32px))] max-h-[60vh] overflow-y-auto rounded-2xl px-4 py-3',
-  'bg-zinc-900/95 backdrop-blur-xl',
-  'border border-white/[0.08]',
-  'shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)]',
+  'z-[100] w-[min(360px,calc(100vw-32px))] max-h-[min(72vh,520px)] overflow-y-auto rounded-xl px-4 py-3.5',
+  'bg-zinc-900 text-zinc-100',
+  'border border-zinc-700/70',
+  'shadow-xl',
   'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150',
   'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-100',
 );
@@ -417,7 +425,11 @@ export function KBTooltip({
 
   const coarsePointer = useCoarsePointer();
 
-  const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v))
+  // A bare title is not evidence of a completed knowledge-base record.
+  // Do not show an empty dark popup when the entry only has its label.
+  const hasContent = Object.entries(entry).some(([key, value]) =>
+    key !== 'description' && key !== 'related'
+      && (Array.isArray(value) ? value.length > 0 : Boolean(value)))
     || provenance.length > 0
     || lineage !== null;
   if (!hasContent) return <>{children}</>;
@@ -427,14 +439,19 @@ export function KBTooltip({
       {entry.description && (
         <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-white/[0.06]">
           <BookOpen size={10} className="text-blue-400/70 shrink-0" />
-          <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider">{entry.description}</span>
+          <span className="text-[13px] font-semibold text-zinc-100 leading-snug">{entry.description}</span>
         </div>
       )}
       <FullKBContent entry={entry} />
-      {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
-      {/* Нижний ярус — родословная показателя. Панель подсказки всегда тёмная,
-          поэтому тон 'dark': светлые классы темы здесь не сработают. */}
-      {metric && <MetricProvenance metricKey={metric} tone="dark" />}
+      {(provenance.length > 0 || lineage !== null) && (
+        <details className="mt-2 border-t border-white/[0.08] pt-2">
+          <summary className="cursor-pointer select-none text-[11px] font-medium text-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">
+            Источник числа и методика
+          </summary>
+          {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
+          {metric && lineage !== null && <MetricProvenance metricKey={metric} tone="dark" />}
+        </details>
+      )}
     </>
   );
 

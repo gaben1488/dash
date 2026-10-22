@@ -1,6 +1,6 @@
 # Metrics Contract
 
-Last verified: 2026-06-05.
+Code definitions checked: 2026-10-22 against `packages/shared/src/column-map.ts` and `packages/shared/src/activity-scope.ts`. This is a code-contract review, not a new verification of live Google workbooks.
 
 This document is the contract from Google Sheet cells to dashboard numbers. If code, UI labels, or docs disagree with this file, the metric is not production-ready.
 
@@ -26,8 +26,8 @@ Production row-level calculations use department workbooks. The same layout is m
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Row number / source ID | `DEPT_COLUMNS.ID` | row identity | `rows[].rowIndex` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
-| Department workbook | same | `D` | Description / PM name | `DEPT_COLUMNS.DESCRIPTION` | row context | `rows[].description` | Subject/detail |
-| Department workbook | same | `E` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | activity classifier input | `byActivity.*` | Activity filter |
+| Department workbook | same | `D` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | program context only (does not split ТД) | `rows[].programName` where present | Program |
+| Department workbook | same | `E` | Subprogram | `DEPT_COLUMNS.SUBPROGRAM` | reference context, not activity classifier | not in current `RowDto` | Source-only detail |
 | Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
@@ -75,15 +75,15 @@ Unknown non-empty methods must surface through validation/data quality, not be s
 
 ## Activity Classification
 
-UI filters use internal keys, not Russian labels:
+The canonical classifier is `classifyActivity()` in `packages/shared/src/activity-scope.ts`. The only **active** UI scopes are `all`, `pm`, and `td`; the `ТД-ПМ` subcategory was removed on 2026-08-14. Program name `D` does not split current activity. Column `F` defines the type.
 
-| UI label | Internal key | Source values |
+| UI label | Current internal classification | Column `F` source |
 | --- | --- | --- |
-| `ПМ` | `program` | `ПМ`, `Программное мероприятие` |
-| `ТД-ПМ` | `current_program` | current activity with a program context |
-| `ТД` | `current_non_program` | `ТД`, `Текущая деятельность` without program context |
+| `ПМ` | `program` | `Программное мероприятие` |
+| `ТД` | `current_non_program` | `Текущая деятельность`, including `Текущая деятельность в рамках программного мероприятия` |
+| unclassified (not assumed to be PM) | `null` | empty or unrecognized type |
 
-Navigation filters must synchronize both legacy single-value fields and the Set-based filters used by `useFilteredData`.
+The legacy `current_program` key remains readable in stored snapshots and filters; it maps to `ТД` on display, but the live classifier never generates a new `current_program` record. Unknown values must not silently enter `ПМ`. Consumers should use `matchesActivityScope()` / `parseActivityScope()` instead of their own text comparisons.
 
 ## Worked Example
 

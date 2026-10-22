@@ -213,23 +213,27 @@ export const DASHBOARD_REPORT_KB_ADDITIONS: Record<string, KBEntryData> = {
  * Пропсы KBTooltip из карточки: страницы показывают объяснение прямо сейчас,
  * не дожидаясь вливания записей в METRIC_KB гейтом.
  */
-export function kbCardProps(entry: KBEntryData): {
-  whatIs?: string;
-  howCalc?: string;
-  dataSource?: string;
-  thresholdsFull?: string;
-  example?: string;
-  pitfalls?: string;
-  actions?: string;
-} {
+export function kbCardProps(entry: KBEntryData): Pick<
+  KBEntryData,
+  | 'whatIs' | 'howCalc' | 'dataSource' | 'engine' | 'thresholdsFull'
+  | 'lawFull' | 'example' | 'pitfalls' | 'actions' | 'related'
+  | 'scopeMoment' | 'divergence'
+> {
+  // One projection for all screens: do not silently discard coverage and
+  // divergence when metric text is moved between a page and the KB registry.
   return {
     ...(entry.whatIs ? { whatIs: entry.whatIs } : {}),
     ...(entry.howCalc ? { howCalc: entry.howCalc } : {}),
     ...(entry.dataSource ? { dataSource: entry.dataSource } : {}),
+    ...(entry.engine ? { engine: entry.engine } : {}),
     ...(entry.thresholdsFull ? { thresholdsFull: entry.thresholdsFull } : {}),
+    ...(entry.lawFull ? { lawFull: entry.lawFull } : {}),
     ...(entry.example ? { example: entry.example } : {}),
     ...(entry.pitfalls ? { pitfalls: entry.pitfalls } : {}),
     ...(entry.actions ? { actions: entry.actions } : {}),
+    ...(entry.related?.length ? { related: entry.related } : {}),
+    ...(entry.scopeMoment ? { scopeMoment: entry.scopeMoment } : {}),
+    ...(entry.divergence ? { divergence: entry.divergence } : {}),
   };
 }
 
