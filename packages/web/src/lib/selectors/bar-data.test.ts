@@ -65,6 +65,41 @@ describe('buildBarData (извлечено из useFilteredData §10)', () => {
     });
   });
 
+  it('C05.02 does not substitute annual figures for a missing selected quarter', () => {
+    const [b] = buildBarData([dept], makeOpts({ periodKey: 'q2' }));
+    expect(b).toMatchObject({
+      planTotal: null, factTotal: null, kpCount: null,
+      epCount: null, pct: null, scopeComplete: false,
+    });
+  });
+
+  it('C05.02 does not mislabel an unread selected-quarter fact as measured 0%', () => {
+    const source = {
+      ...dept,
+      quarters: { q1: { ...dept.quarters.q1, planTotal: 140, factTotal: null, execCountPct: null } },
+    };
+    const [b] = buildBarData([source], makeOpts());
+    expect(b.planTotal).toBe(140);
+    expect(b.factTotal).toBeNull();
+    expect(b.pct).toBeNull();
+    expect(b.kpCount).toBe(2);
+    expect(b.scopeComplete).toBe(false);
+  });
+
+  it('C05.02 preserves an observed zero for complete selected-quarter facts', () => {
+    const source = {
+      ...dept, quarters: { q1: {
+        ...dept.quarters.q1, planTotal: 140, factTotal: 0,
+        kpCount: 0, epCount: 0, execCountPct: 0,
+      } },
+    };
+    const [b] = buildBarData([source], makeOpts());
+    expect(b.planTotal).toBe(140);
+    expect(b.factTotal).toBe(0);
+    expect(b.pct).toBe(0);
+    expect(b.kpCount).toBe(0);
+  });
+
   it('года в quarters нет — фолбэк на депт-уровень', () => {
     const [b] = buildBarData([dept], makeOpts({ periodKey: 'year' }));
     expect(b.pct).toBe(50);
