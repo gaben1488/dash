@@ -96,6 +96,39 @@ interface WeeklySnapshotRef {
   createdAt: string;
 }
 
+/** All selectors share the same completed Thursday boundary at 18:00 Kamchatka. */
+function isControlOn(ref: WeeklySnapshotRef, day: number, now: number, utcOffsetHours: number): boolean {
+  const at = Date.parse(ref.createdAt);
+  return Number.isFinite(at) && at <= now &&
+    productCalendarDay(new Date(at), utcOffsetHours) === day &&
+    at >= weeklyCutoffMs(day, utcOffsetHours);
+}
+
+interface VerifiedControl {
+  ref: WeeklySnapshotRef | null;
+  rows: ReturnType<typeof verifiedBaselineRows>['rows'] | null;
+  skipped: number;
+  error: string | null;
+}
+
+/** Canonical sealed proof selection shared by live and historical comparisons. */
+function verifiedThursday(day: number, now: number, offset: number): VerifiedControl {
+  let skipped = 0;
+  let error: string | null = null;
+  for (const ref of iterateWeeklySnapshotHistory()) {
+    if (!isControlOn(ref, day, now, offset)) continue;
+    try {
+      const checked = verifiedBaselineRows(ref);
+      if (checked.error === null) return { ref, rows: checked.rows, skipped, error };
+      error = checked.error;
+    } catch {
+      error = 'Чтение контрольных свидетельств завершилось отказом';
+    }
+    skipped++;
+  }
+  return { ref: null, rows: null, skipped, error };
+}
+
 /**
  * LIVE-база — завершённый четверговый срез предыдущей календарной недели.
  * Новый четверговый выпуск становится базой только в следующий понедельник.
@@ -110,9 +143,8 @@ export function pickLatestControlSnapshot(
   let latestAt = -Infinity;
   const baselineDay = liveBaselineDay(new Date(nowMs), utcOffsetHours);
   for (const snap of sealed) {
+    if (!isControlOn(snap, baselineDay, nowMs, utcOffsetHours)) continue;
     const at = Date.parse(snap.createdAt);
-    if (!Number.isFinite(at) || at > nowMs) continue;
-    if (productCalendarDay(new Date(at), utcOffsetHours) !== baselineDay || at < weeklyCutoffMs(baselineDay, utcOffsetHours)) continue;
     if (at > latestAt) {
       latest = snap;
       latestAt = at;
@@ -138,10 +170,10 @@ export function pickAdjacentWeeklySnapshots(
   let after: WeeklySnapshotRef | null = null;
   for (const candidate of snapshots) {
     const ms = Date.parse(candidate.createdAt);
-    if (!Number.isFinite(ms) || ms > nowMs) continue;
-    const day = productCalendarDay(new Date(ms), utcOffsetHours);
-    if (day === beforeDay && ms >= weeklyCutoffMs(beforeDay, utcOffsetHours) && (!before || ms > Date.parse(before.createdAt))) before = candidate;
-    if (day === afterDay && ms >= weeklyCutoffMs(afterDay, utcOffsetHours) && (!after || ms > Date.parse(after.createdAt))) after = candidate;
+    if (isControlOn(candidate, beforeDay, nowMs, utcOffsetHours) &&
+        (!before || ms > Date.parse(before.createdAt))) before = candidate;
+    if (isControlOn(candidate, afterDay, nowMs, utcOffsetHours) &&
+        (!after || ms > Date.parse(after.createdAt))) after = candidate;
   }
   return before && after ? [before, after] : null;
 }
@@ -289,38 +321,22 @@ export function compareCurrentToThursday(
  * Источники не пересобираются в SQL-снимок ради сравнения; никаких записей.
  */
 export function buildComparison(now: number = Date.now()): { comparison: CurrentComparison | null; note: string } {
-  let baseline: WeeklySnapshotRef | null = null;
-  let verified: ReturnType<typeof verifiedBaselineRows> | null = null;
-  let skippedControls = 0;
-  let lastError: string | null = null;
-  for (const candidate of iterateWeeklySnapshotHistory()) {
-    if (!pickLatestControlSnapshot([candidate], now, config.weeklySnapshot.utcOffsetHours)) continue;
-    let checked: ReturnType<typeof verifiedBaselineRows>;
-    try {
-      checked = verifiedBaselineRows(candidate);
-    } catch {
-      skippedControls++;
-      lastError = 'Не удалось прочитать сохранённые доказательства четвергового контроля';
-      continue;
-    }
-    if (checked.error !== null) { skippedControls++; lastError = checked.error; continue; }
-    baseline = candidate;
-    verified = checked;
-    break;
-  }
-  if (!baseline || !verified) return {
+  const selected = verifiedThursday(liveBaselineDay(new Date(now), config.weeklySnapshot.utcOffsetHours),
+    now, config.weeklySnapshot.utcOffsetHours);
+  const baseline = selected.ref;
+  if (!baseline || !selected.rows) return {
     comparison: null,
-    note: lastError
-      ? 'Недельный контроль не пригоден для достоверной сверки: ' + lastError +
-        '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.'
-      : 'Нет подтверждённого среза четверга предыдущей календарной недели. Сравнивать текущее состояние с другой неделей или суточным чтением вместо него нельзя.',
+    note: selected.error
+      ? 'Недельный контроль не пригоден: ' + selected.error +
+        '. Отсутствие доказательства не подтверждает отсутствие пропаж.'
+      : 'Нет заверенного четверга предыдущей календарной недели. Срез другой недели не подставляем.',
   };
-  const baselineNote = skippedControls > 0
-    ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
-      '. Использован последний полностью проверенный недельный срез.'
+  const baselineNote = selected.skipped
+    ? 'Пропущено неполных попыток того же четверга: ' + selected.skipped +
+      '. Использован последний подтверждённый контроль.'
     : '';
   const compared = compareCurrentToThursday(
-    baseline, verified.rows, getDeptSheetValues(), getDeptLoadMeta(), now,
+    baseline, selected.rows, getDeptSheetValues(), getDeptLoadMeta(), now,
     Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
   );
   return {
@@ -341,42 +357,22 @@ export function buildWeeklyComparison(now: number = Date.now()): {
   const offset = config.weeklySnapshot.utcOffsetHours;
   const endDay = liveBaselineDay(new Date(now), offset);
   const beginDay = endDay - 7;
-  const pair = pickAdjacentWeeklySnapshots(iterateWeeklySnapshotHistory(), now, offset);
   const window = isoOfDayNumber(beginDay) + ' → ' + isoOfDayNumber(endDay);
-  if (!pair) return {
+  const after = verifiedThursday(endDay, now, offset);
+  const before = verifiedThursday(beginDay, now, offset);
+  if (!before.ref || !before.rows || !after.ref || !after.rows) return {
     weeklyComparison: null,
-    note: 'Нет пары соседних завершённых четверговых срезов (' + window +
-      '). Более старую неделю и произвольный суточный снимок не подставляем.',
-  };
-
-  let before: ReturnType<typeof verifiedBaselineRows>;
-  let after: ReturnType<typeof verifiedBaselineRows>;
-  try {
-    // Оперативная проверка только что удостоверила after: читаем её первой,
-    // используя существующий verifiedCache; затем проверяем предыдущий четверг.
-    after = verifiedBaselineRows(pair[1]);
-    before = verifiedBaselineRows(pair[0]);
-  } catch {
-    return {
-      weeklyComparison: null,
-      note: 'Недельная пара ' + window +
-        ' не проверена: чтение локальных контрольных доказательств завершилось отказом. Это не ноль пропавших закупок.',
-    };
-  }
-  if (before.error !== null || after.error !== null) return {
-    weeklyComparison: null,
-    note: 'Недельная пара ' + window + ' не прошла проверку полноты: ' +
+    note: 'Нет полностью заверенной пары смежных четвергов (' + window + '). ' +
       [before.error, after.error].filter(Boolean).join('; ') +
-      '. Отсутствие подтверждённых пропаж не утверждается.',
+      ' Не подменяем контроль старой или суточной записью.',
   };
-
   const books: VanishedBookDto[] = [];
   let vanishedTotal = 0;
   let vanishedPlanSum = 0;
   for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
     const dept = findDept(deptId);
-    const previous = dept ? before.rows.get(dept.latinId) : undefined;
-    const next = dept ? after.rows.get(dept.latinId) : undefined;
+    const previous = dept ? before.rows!.get(dept.latinId) : undefined;
+    const next = dept ? after.rows!.get(dept.latinId) : undefined;
     if (!dept || !previous || !next) return {
       weeklyComparison: null,
       note: 'Недельная пара ' + window + ' не содержит сопоставимых строк книги ' +
@@ -385,14 +381,14 @@ export function buildWeeklyComparison(now: number = Date.now()): {
     const diff = diffSnapshots(previous, next);
     vanishedTotal += diff.vanished.length;
     vanishedPlanSum += diff.vanishedPlanSum;
-    if (hasNotableDiff(diff)) books.push(presentDiff(dept, diff, pair[1].createdAt));
+    if (hasNotableDiff(diff)) books.push(presentDiff(dept, diff, after.ref.createdAt));
   }
   return {
     weeklyComparison: {
-      beforeId: pair[0].id,
-      afterId: pair[1].id,
-      beforeAt: pair[0].createdAt,
-      afterAt: pair[1].createdAt,
+      beforeId: before.ref.id,
+      afterId: after.ref.id,
+      beforeAt: before.ref.createdAt,
+      afterAt: after.ref.createdAt,
       books: books.sort((a, b) => b.vanishedPlanSum - a.vanishedPlanSum),
       vanishedTotal,
       vanishedPlanSum: Math.round(vanishedPlanSum * 100) / 100,
