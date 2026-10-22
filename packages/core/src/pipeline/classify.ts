@@ -33,7 +33,7 @@ function classifyRow(
     };
   }
 
-  // Проверяем наличие числового идентификатора (столбец A или B)
+  // A: положительный числовой или составной № (12/1); B — legacy числовой fallback.
   const hasId = isPurchaseId(cells['A']) || isNumeric(cells['B']);
 
   // Проверяем наличие суммовых столбцов
@@ -63,7 +63,7 @@ function classifyRow(
   // Проверяем маркеры служебных строк
   const isTotalMarker = nameText.includes('итого') || nameText.includes('всего');
   const isHeaderMarker = nameText.includes('раздел') || nameText.includes('блок') ||
-                         nameText === '' && !hasAmounts && !hasId;
+                         nameText === '' && !hasAmounts && !isCompositePurchaseId(cells['A']);
   const isSeparator = Object.values(cells).every(v => v === null || v === undefined || v === '');
 
   // Классификация
