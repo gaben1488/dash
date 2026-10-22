@@ -23,14 +23,13 @@ export function isPurchaseId(value: unknown): boolean {
   const text = purchaseIdText(value);
   if (text === null) return false;
   if (typeof value === 'number') return true;
-  if (/^\d+(?:[.,]\d+)?$/.test(text)) {
-    return Number(text.replace(',', '.')) > 0;
-  }
-  return /^\d*[1-9]\d*\/\d+$/.test(text);
+  // Mirrors the live text validation of column A in the UД book.
+  // Do not parse an ID as a floating-point number or strip its suffix.
+  return /^[1-9]\d*(?:\/[1-9]\d*)?$/.test(text);
 }
 
 /** Keep composite purchase IDs out of numeric header heuristics. */
 export function isCompositePurchaseId(value: unknown): boolean {
   const text = purchaseIdText(value);
-  return typeof value === 'string' && text !== null && /^\d*[1-9]\d*\/\d+$/.test(text);
+  return typeof value === 'string' && text !== null && /^[1-9]\d*\/[1-9]\d*$/.test(text);
 }
