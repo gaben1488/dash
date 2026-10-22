@@ -244,6 +244,8 @@ export function SettingsPage() {
     if (refreshFeedback.state === 'loading' || deepChecking || validatingAll) return;
     setDeepCheck(null); // result of a previous deep read is no longer current
     setDeepCheckError(null);
+    setValidationResults({});
+    setLastCheckedAt(null);
     setRefreshFeedback({ state: 'loading', message: 'Читаем книги заново…' });
 
     if (refreshTimerRef.current) { clearTimeout(refreshTimerRef.current); refreshTimerRef.current = null; }
@@ -275,23 +277,59 @@ export function SettingsPage() {
     }
   };
 
-  const handleDeepCheck = async () => {
-    if (deepChecking || refreshFeedback.state === 'loading' || validatingAll) return;
+  // One action for source diagnostics, with two independently reported checks.
+  // This is NOT a single atomic data snapshot or a metric-reconciliation verdict.
+  const handleCheckAllSources = async () => {
+    if (deepChecking || validatingAll || refreshFeedback.state === 'loading') return;
     setDeepChecking(true);
+    setValidatingAll(true);
     setDeepCheck(null);
     setDeepCheckError(null);
+    setLastCheckedAt(null);
+    setValidationResults(prev => {
+      const next = { ...prev };
+      for (const source of sources) next[source.name] = { loading: true };
+      return next;
+    });
+
     try {
-      // One explicit, read-only request. Ordinary webhook refreshes stay cheap.
+      // Metadata/formulas read is forced and read-only; it never seals a weekly archive.
       const result = await api.checkSourceIntegrityDeep();
       if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.books)) {
         throw new Error('Сервер не подтвердил результат углублённой проверки');
       }
       setDeepCheck(result);
-      // Only refresh the on-screen source status from server memory.
       await fetchSourcesData();
     } catch (err) {
       setDeepCheckError(humanizeRequestError(err));
+    }
+
+    // Run even if deep inspection failed: one partial failure must not silently
+    // omit the other check. Both results retain their independent coverage.
+    try {
+      const response = await api.validateAllSources();
+      if (!response || !Array.isArray(response.results)) {
+        throw new Error('Сервер не подтвердил построчную проверку данных');
+      }
+      setValidationResults(() => {
+        const next: Record<string, { loading: boolean; result?: any }> = {};
+        for (const result of response.results) {
+          next[result.name] = { loading: false, result: result.success ? result : { error: result.error || 'Не удалось проверить источник' } };
+        }
+        // Missing results are failures, never zero findings.
+        for (const source of sources) {
+          if (!next[source.name]) next[source.name] = { loading: false, result: { error: 'Сервер не вернул проверку этой книги' } };
+        }
+        return next;
+      });
+      setLastCheckedAt(new Date().toISOString());
+    } catch (err) {
+      const message = humanizeRequestError(err);
+      setValidationResults(() => Object.fromEntries(
+        sources.map(source => [source.name, { loading: false, result: { error: message } }]),
+      ));
     } finally {
+      setValidatingAll(false);
       setDeepChecking(false);
     }
   };
@@ -319,33 +357,6 @@ export function SettingsPage() {
     }
   };
 
-  const handleValidateAll = async () => {
-    if (validatingAll || deepChecking || refreshFeedback.state === 'loading') return;
-    setValidatingAll(true);
-    setValidationResults(prev => {
-      const next = { ...prev };
-      for (const s of sources) next[s.name] = { loading: true };
-      return next;
-    });
-    try {
-      const { results } = await api.validateAllSources();
-      setValidationResults(() => {
-        const next: Record<string, { loading: boolean; result?: any }> = {};
-        for (const r of results ?? []) next[r.name] = { loading: false, result: r.success ? r : { error: r.error } };
-        return next;
-      });
-      setLastCheckedAt(new Date().toISOString());
-    } catch (err) {
-      const message = humanizeRequestError(err);
-      setValidationResults(prev => {
-        const next = { ...prev };
-        for (const s of sources) next[s.name] = { loading: false, result: { error: message } };
-        return next;
-      });
-    } finally {
-      setValidatingAll(false);
-    }
-  };
 
   const handleSaveSource = async (srcId: string, srcName: string, newSpreadsheetId: string) => {
     const value = newSpreadsheetId.trim();
@@ -857,26 +868,15 @@ SQLITE_PATH=./data/aemr.db
                     )}
                   </span>
                   <button
-                    onClick={handleValidateAll}
-                    disabled={validatingAll || deepChecking || refreshFeedback.state === 'loading'}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                  >
-                    {validatingAll
-                      ? <Loader2 size={11} className="animate-spin" aria-hidden="true" />
-                      : <CheckCircle2 size={11} aria-hidden="true" />}
-                    Проверить данные во всех книгах
-                  </button>
-                  <button
                     type="button"
-                    onClick={() => void handleDeepCheck()}
+                    onClick={() => void handleCheckAllSources()}
                     disabled={deepChecking || validatingAll || refreshFeedback.state === 'loading'}
-                    title="Принудительное чтение значений и 11 формульных колонок, защит, проверок ввода и количества правил оформления. Google Таблицы не изменяются."
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                    title="Один запуск: построчная проверка данных и принудительное чтение формул/настроек. Метрики и межкнижные сверки сюда не входят."
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
-                    {deepChecking
-                      ? <Loader2 size={11} className="animate-spin" aria-hidden="true" />
-                      : <Search size={11} aria-hidden="true" />}
-                    {deepChecking ? 'Проверяем формулы…' : 'Глубокая проверка книг'}
+                    {deepChecking || validatingAll
+                      ? <><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                      : <><Search size={12} aria-hidden="true" /> Проверить источники</>}
                   </button>
                   {lastRefreshed && <span className="ml-auto">Читались: {timeAgo(lastRefreshed)}</span>}
                   {sourcesLoading && <Loader2 size={12} className="animate-spin text-blue-500 ml-1" aria-label="Обновляем список" />}
@@ -929,6 +929,12 @@ SQLITE_PATH=./data/aemr.db
                   </section>
                 )}
 
+                <p className="mb-4 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Один запуск включает построчные сигналы для восьми книг ГРБС и принудительную проверку их формул и настроек.
+                  Для СВОДа и помесячной книги подтверждается только чтение.
+                  Метрики и межкнижные сверки этим действием не подтверждаются; результаты разных этапов не являются единым атомарным срезом.
+                  Проверку отдельной книги можно открыть в её карточке.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {sources.map(src => {
                     const cfg = STATUS_CONFIG[src.status] ?? STATUS_CONFIG.unknown;
@@ -1096,25 +1102,34 @@ SQLITE_PATH=./data/aemr.db
                           </p>
                         )}
 
-                        <div className={clsx('flex gap-2 mt-3 pt-3 border-t', RULE_HEAD)}>
-                          <button
-                            onClick={() => void handleTestSource(src.name)}
-                            disabled={test?.loading}
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
-                          >
-                            {test?.loading
-                              ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
-                              : <><Wifi size={10} aria-hidden="true" /> Проверить связь</>}
-                          </button>
-                          <button
-                            onClick={() => void handleValidateSource(src.name)}
-                            disabled={check?.loading}
-                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-500"
-                          >
-                            {check?.loading
-                              ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
-                              : <><CheckCircle2 size={10} aria-hidden="true" /> Проверить данные</>}
-                          </button>
+                        <div className={clsx('flex flex-wrap items-center gap-2 mt-3 pt-3 border-t', RULE_HEAD)}>
+                          <details className="w-full">
+                            <summary className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+                              Диагностика этой книги: связь и данные
+                            </summary>
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => void handleTestSource(src.name)}
+                                disabled={test?.loading || deepChecking || validatingAll}
+                                title="Проверить технический доступ и список листов этой книги"
+                                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-700/50 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
+                              >
+                                {test?.loading
+                                  ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                                  : <><Wifi size={10} aria-hidden="true" /> Проверить связь</>}
+                              </button>
+                              <button
+                                onClick={() => void handleValidateSource(src.name)}
+                                disabled={check?.loading || deepChecking || validatingAll}
+                                title="Проверить сигналы строк этой книги. Формулы и метрики сюда не входят."
+                                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-700/50 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500"
+                              >
+                                {check?.loading
+                                  ? <><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Проверяем…</>
+                                  : <><CheckCircle2 size={10} aria-hidden="true" /> Проверить данные</>}
+                              </button>
+                            </div>
+                          </details>
                           {src.spreadsheetId && (
                             <a
                               href={`https://docs.google.com/spreadsheets/d/${src.spreadsheetId}`}
