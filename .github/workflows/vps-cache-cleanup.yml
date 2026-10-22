@@ -2724,8 +2724,13 @@ jobs:
           }
           SH
           ready=false
+          # Match the event actually generated for this exact candidate.
+          # A push-release must not wait for a pull_request run that cannot
+          # exist for its SHA; every required CI job remains mandatory.
+          ci_event=pull_request
+          if test "$GITHUB_EVENT_NAME" = push; then ci_event=push; fi
           for attempt in $(seq 1 90); do
-            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
+            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=$ci_event" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
             if test -n "$ci_run"; then
               gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$RUNNER_TEMP/release/run.json"
@@ -2735,7 +2740,7 @@ jobs:
           from pathlib import Path
           p=Path(os.environ['RUNNER_TEMP'])/'release'
           r=json.loads((p/'run.json').read_text());j=json.loads((p/'jobs.json').read_text())['jobs']
-          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository')},
+          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository','head_branch','actor')},
                  'jobs':[{k:x[k] for k in ('name','status','conclusion')} for x in j]}
           (p/'source-ci.json').write_text(json.dumps(value))
           PY
