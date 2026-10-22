@@ -489,7 +489,7 @@ async function restoreDateFormattedProcurementAddresses(
         throw new Error('SOURCE_SEQUENCE_CHANGED_DURING_READ');
       if (cell.effectiveFormat?.numberFormat?.type === 'DATE') {
         const visible = (cell.formattedValue ?? '').trim();
-        if (!/^\\d+\\/\\d+$/.test(visible)) throw new Error('SOURCE_SEQUENCE_DATE_LABEL_INVALID');
+        if (!new RegExp('^[0-9]+/[0-9]+$').test(visible)) throw new Error('SOURCE_SEQUENCE_DATE_LABEL_INVALID');
         original[0] = visible;
       }
       required.delete(sheetRow);
