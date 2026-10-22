@@ -142,6 +142,25 @@ export interface IntegrityBookDto {
   note: string;
 }
 
+
+/**
+ * The integrity card may show only a selected GRBS. Server totals cover all
+ * books, so derive the visible counters from exactly the displayed books.
+ * Unknown/unread books do not contribute a claimed zero result.
+ */
+export function scopedIntegrityTotals(
+  books: readonly Pick<IntegrityBookDto, 'sequence'>[],
+): Pick<IntegrityResponse['totals'], 'gapCount' | 'duplicates' | 'countableWithoutSeq'> {
+  return books.reduce((total, book) => {
+    const sequence = book.sequence;
+    if (sequence === null) return total;
+    total.gapCount += sequence.gapCount;
+    total.duplicates += sequence.duplicates.length;
+    total.countableWithoutSeq += sequence.countableWithoutSeq;
+    return total;
+  }, { gapCount: 0, duplicates: 0, countableWithoutSeq: 0 });
+}
+
 export interface VanishedBookDto {
   dept: string;
   deptName: string;
