@@ -106,7 +106,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Decisions are read on every request; never mutate the historical snapshot.
-    snapshot = withPersistedDecisions(snapshot);
+    // Distinguish persisted-decision SQL/decoding from model acquisition in
+    // Server-Timing (cold/warm and worker-concurrent diagnostics).
+    snapshot = await requestStage(request, 'reader', async () => withPersistedDecisions(snapshot));
 
     // Формируем KPI-карточки
     const kpiCards: KPICard[] = [];
@@ -371,7 +373,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .filter(([key]) => key.startsWith(deptPrefix))
         .map(([key, val]) => [key, val as NormalizedMetric]),
     );
-    const deptIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot).filter((i: Issue) => i.departmentId === dept.id);
+    const deptIssues = (await requestStage(request, 'reader', async () =>
+      overlayPersistedStatus(snapshot.issues ?? [], snapshot))).filter((i: Issue) => i.departmentId === dept.id);
     const deptDeltas = snapshot.deltas?.filter(
       (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
     ) ?? [];
@@ -491,7 +494,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    snapshot = withPersistedDecisions(snapshot);
+    // Distinguish persisted-decision SQL/decoding from model acquisition in
+    // Server-Timing (cold/warm and worker-concurrent diagnostics).
+    snapshot = await requestStage(request, 'reader', async () => withPersistedDecisions(snapshot));
     const deltaCount = snapshot.deltas?.length ?? 0;
     const calcCount = Object.keys(snapshot.calculatedMetrics ?? {}).length;
 
