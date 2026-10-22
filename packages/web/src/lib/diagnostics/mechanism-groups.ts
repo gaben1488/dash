@@ -24,8 +24,11 @@
  */
 
 /** Минимальный вид замечания, достаточный для карточки диагноста. */
+import { controlConsequenceOf, type ControlConsequence } from './control-consequence';
+
 export interface DiagnosticIssueLike {
   id?: string;
+  origin?: string;
   severity?: string;
   title?: string;
   description?: string;
@@ -74,6 +77,8 @@ export interface MechanismGroup {
   recommendation?: string;
   /** Адреса строк-виновниц, в порядке поступления. */
   addresses: DiagnosticAddress[];
+  /** Возможные последствия, отдельно от цвета/серьёзности. */
+  consequence: ControlConsequence;
   /** Исходные замечания группы (для развёртки в рабочий список). */
   issues: DiagnosticIssueLike[];
 }
@@ -178,6 +183,7 @@ export function groupIssuesByMechanism(
         count: 0,
         kbHint: issue.kbHint,
         recommendation: issue.recommendation,
+        consequence: controlConsequenceOf(issue),
         addresses: [],
         issues: [],
       };

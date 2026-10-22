@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
+import { overlayPersistedIssueStatus } from '../services/issue-status-overlay.js';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
-import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, productLabel, buildControlCases, controlCaseCounters } from '@aemr/shared';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
 
@@ -46,25 +47,6 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   'wont_fix':       ['open'],           // переоткрытие
   'false_positive': ['open'],           // переоткрытие
 };
-
-/**
- * Overlays the DB-persisted status on top of issues that are freshly rebuilt
- * from the snapshot on every call (the pipeline always assigns status:'open' —
- * see packages/core/src/pipeline/orchestrator.ts:479,621 — and so does the
- * demo generator). Without this merge, PUT /api/issues/:id/status never
- * changes what any GET/export caller sees. The DB is the source of truth for
- * status; every other field still comes from the snapshot as before.
- */
-function overlayPersistedStatus(issues: Issue[]): Issue[] {
-  if (issues.length === 0) return issues;
-  const rows = db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all();
-  if (rows.length === 0) return issues;
-  const statusById = new Map(rows.map((r) => [r.id, r.status]));
-  return issues.map((issue) => {
-    const persisted = statusById.get(issue.id);
-    return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
-  });
-}
 
 /** Строка истории статуса — тип выводится из схемы, не описывается второй раз. */
 type IssueHistoryRow = typeof schema.issueHistory.$inferSelect;
@@ -110,7 +92,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
-    const allIssues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
+    const allIssues: Issue[] = overlayPersistedIssueStatus(snapshot.issues ?? []);
     let issues: Issue[] = allIssues;
 
     // Apply filters
@@ -147,6 +129,49 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * GET /api/control/cases — one read-only place for reviewable cases.
+   *
+   * This does not mint durable business IDs or migrate decisions. Original
+   * observations and their SQLite statuses are preserved; grouping is
+   * conservative and confined to the displayed snapshot.
+   */
+  app.get('/api/control/cases', async (request, reply) => {
+    const query = request.query as Record<string, string>;
+    let snapshot;
+    try {
+      snapshot = await getSnapshot();
+    } catch (err) {
+      app.log.warn({ err }, 'control/cases: snapshot unavailable');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+    }
+
+    const observed = overlayPersistedIssueStatus(snapshot.issues ?? []);
+    const allCases = buildControlCases(observed);
+    let filtered = allCases;
+    if (query.deptId) {
+      filtered = filtered.filter(c => c.departmentId === query.deptId || c.sheet === query.deptId);
+    }
+    if (query.workState) filtered = filtered.filter(c => c.workState === query.workState);
+    if (query.impact) filtered = filtered.filter(c => c.impact === query.impact);
+
+    const page = Math.max(1, parseInt(query.page || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit || '30', 10) || 30));
+    const total = filtered.length;
+    return reply.send({
+      cases: filtered.slice((page - 1) * limit, page * limit),
+      counters: controlCaseCounters(allCases),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      source: {
+        snapshotId: snapshot.id,
+        createdAt: snapshot.createdAt,
+        identityScope: 'snapshot',
+        /** An available old snapshot does not prove a fresh source read. */
+        liveSourceVerification: 'not_asserted',
+      },
+    });
+  });
+
+  /**
    * GET /api/issues/:id
    * Детали замечания включая историю.
    */
@@ -161,7 +186,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
-    const issue = overlayPersistedStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
+    const issue = overlayPersistedIssueStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
     if (!issue) {
       return reply.status(404).send({ error: `Замечание «${id}» не найдено` });
     }
@@ -455,7 +480,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    let issues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
+    let issues: Issue[] = overlayPersistedIssueStatus(snapshot.issues ?? []);
 
     if (query.severity) issues = issues.filter(i => i.severity === query.severity);
     if (query.status) issues = issues.filter(i => i.status === query.status);

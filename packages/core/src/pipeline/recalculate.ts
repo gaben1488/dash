@@ -77,6 +77,12 @@ export interface ActivityMetrics {
   economyTotal: number;
   /** `null` = плана нет (см. QuarterMetrics.executionPct). */
   execCountPct: number | null;
+  /** Exact method intersection for this activity + period.
+   * Optional only for reading snapshots saved before this schema existed. */
+  byMethod?: {
+    competitive: QuarterMetrics['competitive'];
+    ep: QuarterMetrics['ep'];
+  };
 }
 
 /** Activity-type breakdown: program / current_program / current_non_program */
@@ -137,6 +143,9 @@ export interface SubordinateMetrics {
   byMethod: { competitive: SubPeriodMetrics; ep: SubPeriodMetrics };
   /** By activity type */
   byActivity: { program: SubPeriodMetrics; current_program: SubPeriodMetrics; current_non_program: SubPeriodMetrics };
+  /** Full subordinate × period × activity × method evidence.
+   * Optional for backward-compatible reading of older saved snapshots. */
+  byActivityPeriod?: Record<string, ActivityBreakdown>;
 }
 
 export interface RecalculatedMetrics {

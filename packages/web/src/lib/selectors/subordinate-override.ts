@@ -9,6 +9,12 @@
  *
  * Пустой выбор подведов = депты возвращаются без изменений.
  */
+import { sumSubordinateActivityEntries } from './activity-method';
+
+const ACTIVITY_KEYS = ['program', 'current_program', 'current_non_program'] as const;
+const ACTIVITY_PERIODS = ['q1', 'q2', 'q3', 'q4', 'year',
+  ...Array.from({ length: 12 }, (_, i) => `m${i + 1}`)] as const;
+
 export function applySubordinateFilter(
   depts: any[],
   selectedSubordinates: Set<string>,
@@ -120,6 +126,29 @@ export function applySubordinateFilter(
       }
     }
 
+    // A department-wide byActivity map is NOT a legitimate fallback for a
+    // selected subordinate. Only exact subordinate activity-period slices may
+    // feed activity-filtered KPI; unavailable historical snapshots remain
+    // explicitly unavailable instead of leaking every institution's values.
+    const activityBreakdownAvailable = matchedSubs.every((sub: any) =>
+      ACTIVITY_PERIODS.every(period => ACTIVITY_KEYS.every(activity =>
+        sub.byActivityPeriod?.[period]?.[activity]?.byMethod?.competitive &&
+        sub.byActivityPeriod?.[period]?.[activity]?.byMethod?.ep,
+      )),
+    );
+    const byActivity: Record<string, any> = {};
+    if (activityBreakdownAvailable) {
+      for (const period of ACTIVITY_PERIODS) {
+        const entries: Record<string, any> = {};
+        for (const activity of ACTIVITY_KEYS) {
+          entries[activity] = sumSubordinateActivityEntries(
+            matchedSubs.map((sub: any) => sub.byActivityPeriod[period][activity]),
+          );
+        }
+        byActivity[period] = entries;
+      }
+    }
+
     return {
       ...d,
       planTotal: subPlan,
@@ -130,6 +159,8 @@ export function applySubordinateFilter(
       economyTotal: subEconomy,
       quarters,
       months,
+      byActivity,
+      _activityBreakdownAvailable: activityBreakdownAvailable,
       subordinates: matchedSubs,
       _subFiltered: true,
       _subRowCount: subRows,

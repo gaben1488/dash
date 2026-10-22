@@ -455,6 +455,34 @@ export function Dashboard() {
     );
   }
 
+  // Saved snapshots created before the exact activity × method data existed
+  // must not render a believable zero-EP/zero-competition dashboard. The
+  // source books remain available; a new source read is required.
+  if (fd.selectedActivities.size > 0 && !fd.activityMethodBreakdownAvailable) {
+    return (
+      <div role="status" className="rounded-xl border border-amber-200 dark:border-transparent bg-amber-50 dark:bg-amber-500/10 p-6 space-y-3">
+        <div className="flex items-start gap-3">
+          <Info size={20} className="text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
+          <div>
+            <h2 className="font-semibold text-amber-900 dark:text-amber-200">Этот разрез нельзя достоверно пересчитать</h2>
+            <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+              В сохранённом снимке отсутствует необходимая разбивка по виду деятельности, способу закупки
+              и выбранной организации. Ноль здесь означал бы ложный результат. Обновите чтение исходных книг
+              либо измените отбор.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => useStore.getState().fetchDashboard(true)}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          Перечитать книги и пересчитать
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* 1. Паспорт данных + активные фильтры (Д9, Д10 реестра дефектов) */}
