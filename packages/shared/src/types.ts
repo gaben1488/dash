@@ -455,10 +455,48 @@ export interface WeeklyTableContext {
   monitoring: WeeklyMonitoringTableEvidence;
 }
 
+/**
+ * C08.02: calculation provenance inside the existing immutable snapshot.
+ * Hashes are evidence of INPUT BYTES, not proof of atomic Google reads
+ * or a successful deterministic replay.
+ */
+export interface CalculationEvidence {
+  contract: 'dash-calculation-evidence-v1';
+  snapshotId: string;
+  capturedAt: string;
+  targetYear: number | null;
+  officialYear: number | null;
+  spreadsheetId: string;
+  inputSha256: string;
+  rulesSha256: string;
+  rulesCount: number;
+  reportMapSha256: string;
+  outputSha256: string;
+  /** Only source books from the existing department registry, no new source of truth. */
+  books: Record<string, {
+    fileId: string;
+    inputSha256: string | null;
+    /** Hash of rows already archived in DataSnapshot.rowsByDept. */
+    archivedRowsSha256: string | null;
+    loadedAt: string | null;
+    origin: 'master' | 'mirror-or-unconfirmed';
+    /** Prior observed Drive revision, not atomic with the Sheets read. */
+    lastObservedDriveVersion: string | null;
+  }>;
+  /** Null means the installed build's commit has not been attested. */
+  codeCommit: string | null;
+  scope: 'all-masters-observed' | 'partial';
+  blockers: string[];
+  /** No hash alone proves full re-execution of the same rules and raw input. */
+  fullReplayVerified: false;
+}
+
 export interface DataSnapshot {
   id: string;
   spreadsheetId: string;
   createdAt: string;
+  /** Versioned provenance captured with the same snapshot, not a parallel log. */
+  calculationEvidence?: CalculationEvidence;
   officialMetrics: Record<string, NormalizedMetric>;
   calculatedMetrics: Record<string, NormalizedMetric>;
   deltas: DeltaResult[];
