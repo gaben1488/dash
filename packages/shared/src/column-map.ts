@@ -136,6 +136,14 @@ const HEADER_ANCHORS = Object.values(MASTER_SOURCE_PROFILE.fields)
     anchored: normHeader(field.label) === normHeader(field.headerProbe),
   }));
 
+/** One semantic matcher for strict admission and non-blocking geometry hints. */
+function matchesMasterHeaderAnchor(value: string, anchor: (typeof HEADER_ANCHORS)[number]): boolean {
+  return [anchor.probe, ...anchor.aliases].some(probe => {
+    const expected = normHeader(probe);
+    return anchor.anchored ? value.startsWith(expected) : value.includes(expected);
+  });
+}
+
 /**
  * Проверка якорей шапки книги ГРБС (реестр багов 09.07.2026, п.11
  * «позиционное чтение колонок без проверки геометрии»).
@@ -162,8 +170,7 @@ export function checkDeptHeaderGeometry(rows: unknown[][]): HeaderGeometryMismat
   const normalized = header.map(normHeader);
   const mismatches: HeaderGeometryMismatch[] = [];
   for (const anchor of HEADER_ANCHORS) {
-    const probe = normHeader(anchor.probe);
-    const at = normalized.findIndex(cell => [probe, ...anchor.aliases.map(normHeader)].some(p => cell.includes(p)));
+    const at = normalized.findIndex(cell => matchesMasterHeaderAnchor(cell, anchor));
     if (at === -1 || at === anchor.index) continue;
     mismatches.push({
       column: INDEX_TO_LETTER[anchor.index] ?? String(anchor.index),
@@ -207,11 +214,8 @@ export function validateMasterSourceHeader(header: readonly unknown[]): void {
   const normalized = header.map(normHeader);
   for (const anchor of HEADER_ANCHORS) {
     const actual = normalized[anchor.index] ?? '';
-    if (![anchor.probe, ...anchor.aliases].some(probe => {
-      const expected = normHeader(probe);
-      // A short, whole-field anchor (e.g. "ФБ 2") must lead the caption.
-      // "Цена договора вместо ФБ 2" contains the token but changes its meaning.
-      return anchor.anchored ? actual.startsWith(expected) : actual.includes(expected);
-    })) throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
+    if (!matchesMasterHeaderAnchor(actual, anchor)) {
+      throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
+    }
   }
 }
