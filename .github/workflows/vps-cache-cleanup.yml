@@ -2735,7 +2735,7 @@ jobs:
           for attempt in $(seq 1 90); do
             # Do not hold the release lock or wait for CI after PR79 advances.
             # Never let an older accepted SHA replace a newer integrated head.
-            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then
+            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" != "$RECOVERY_SHA"; then
               echo RELEASE_CANDIDATE_SUPERSEDED
               exit 2
             fi
@@ -2758,7 +2758,7 @@ jobs:
             sleep 20
           done
           test "$ready" = true
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" = "$RECOVERY_SHA"
           printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
           python3 - <<'PY'
           import json,os
@@ -3017,7 +3017,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" = "$RECOVERY_SHA"
           window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
           remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
             > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
@@ -3078,7 +3078,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" = "$RECOVERY_SHA"
           window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
           done=false
           for attempt in $(seq 1 300); do
@@ -3109,7 +3109,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" = "$RECOVERY_SHA"
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py deploy-web'" > "$RUNNER_TEMP/release/web-release.log" 2>&1
           remote sudo -n cat /var/lib/aemr/web-release-completed.json > "$RUNNER_TEMP/release/accepted.json"
           curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
