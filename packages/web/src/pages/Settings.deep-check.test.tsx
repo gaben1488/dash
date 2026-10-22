@@ -145,7 +145,7 @@ describe('Один запуск диагностики источников', ()
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
     await waitFor(() => expect(document.body.textContent).toContain('Агрегатных источников прочитано: 1'));
-    expect(document.body.textContent).toContain('В построчной проверке 2 книг ГРБС замечаний не найдено');
+    expect(document.body.textContent).toContain('Построчно проверены книги ГРБС: 2. Замечаний не найдено');
     expect(document.body.textContent).toContain('Построчные правила ГРБС к агрегированному листу не применяются');
   });
 
