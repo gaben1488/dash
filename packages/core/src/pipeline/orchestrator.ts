@@ -588,10 +588,28 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
-      const sheetSignals = detectSheetSignals(rows as unknown[][]);
+      const signalFailures: number[] = [];
+      const sheetSignals = detectSheetSignals(rows as unknown[][], row => signalFailures.push(row));
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
+      if (signalFailures.length > 0) {
+        allIssues.push({
+          id: issueIdentity(['signal_validation_error', sheetName]),
+          severity: 'error',
+          origin: 'runtime_error',
+          category: 'signal_validation_error',
+          title: `Сигналы проверены не полностью: ${signalFailures.length} строк`,
+          description: `В книге «${sheetName}» не удалось разобрать ${signalFailures.length} строк для поиска сигналов (первая: ${signalFailures[0]}). Отсутствие замечаний по этим строкам не означает успешную проверку.`,
+          sheet: sheetName,
+          row: signalFailures[0],
+          departmentId: deptId,
+          recommendation: 'Проверить исходные значения названных строк и ошибку разбора, затем повторить проверку. Книгу не менять автоматически.',
+          status: 'open',
+          detectedAt: new Date().toISOString(),
+          detectedBy: 'pipeline:signal:runtime_error',
+        });
+      }
 
       // Целостность формул книги — судится НОСИТЕЛЬ (ячейка формульной графы),
       // а не смысл строки, поэтому отдельным слоем. Слой сам молчит, когда
@@ -864,17 +882,25 @@ const SIGNAL_ISSUE_MAP: Record<string, {
  * dataset-анализа. Семантика сбора — как у 4b (все парсабельные строки);
  * фильтр мета-/пустых строк остаётся на стороне замечаний.
  */
-function detectSheetSignals(
+export function detectSheetSignals(
   rows: unknown[][],
+  onFailure: (row: number) => void = () => undefined,
+  detector: typeof detectSignals = detectSignals,
 ): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
   const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
   for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
-    const row = rows[r] as unknown[];
-    if (!row || row.length < 5) continue;
+    const row = rows[r];
+    if (!Array.isArray(row) || row.every(v => v === '' || v === null || v === undefined)) continue;
+    // A shortened non-empty row is not an empty separator. Google can trim
+    // trailing blanks; we only require the first five cells to inspect it.
+    if (row.length < 5) { onFailure(r + 1); continue; }
     const cells = buildCellDict(row);
     try {
-      out.set(r, { cells, signals: detectSignals(cells) });
-    } catch { /* skip unparseable rows */ }
+      out.set(r, { cells, signals: detector(cells) });
+    } catch {
+      // Do not convert an unparseable row into 'no active signals'.
+      onFailure(r + 1);
+    }
   }
   return out;
 }
