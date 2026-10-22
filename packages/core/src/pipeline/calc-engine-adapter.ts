@@ -6,7 +6,7 @@
  * works without changes.
  */
 
-import { noYearRemainderOf, type GroupedResults, type AccumulatedValue } from './calc-engine.js';
+import { combineMetricSlices, noYearRemainderOf, type GroupedResults, type AccumulatedValue } from './calc-engine.js';
 import type {
   RecalculatedMetrics,
   QuarterMetrics,
@@ -23,13 +23,9 @@ function get(map: Map<string, AccumulatedValue> | undefined, key: string): numbe
   return map?.get(key)?.value ?? 0;
 }
 
-/**
- * Доля от знаменателя. Знаменателя нет → `null`, а НЕ ноль: ноль означает
- * «база есть, числитель пуст», и подмена одного другим давала беспланному
- * управлению «исполнение 0 %» со штрафом (реестр расхождений 08.08 §2).
- */
-function pct(part: number, total: number): number | null {
-  return total > 0 ? part / total : null;
+/** An already-executed derived metric: a missing denominator stays null. */
+function derived(map: Map<string, AccumulatedValue> | undefined, key: string): number | null {
+  return map?.get(key)?.value ?? null;
 }
 
 // ── Method sub-object builder ─────────────────────────────────────────
@@ -78,13 +74,11 @@ function buildQuarterMetrics(
     economyFB: get(q, 'economy_fb'),
     economyKB: get(q, 'economy_kb'),
     economyMB: get(q, 'economy_mb'),
-    // Доли пересчитываются из базовых аккумуляторов той же группы, а не
-    // читаются как число: `get()` вернул бы 0 и на «нет плана», и на «план
-    // есть, факта нет» — те самые два разных ответа (реестр 08.08 §2).
-    executionPct: pct(get(q, 'fact_total'), get(q, 'plan_total')),
-    execCountPct: pct(get(q, 'fact_count'), get(q, 'plan_count')),
-    compExecCountPct: pct(get(comp, 'comp_fact_count'), get(comp, 'competitive_count')),
-    epExecCountPct: pct(get(ep, 'ep_fact_count'), get(ep, 'ep_count')),
+    // Ratios are executed in the canonical catalog; null stays null.
+    executionPct: derived(q, 'execution_pct'),
+    execCountPct: derived(q, 'exec_count_pct'),
+    compExecCountPct: derived(comp, 'comp_exec_count_pct'),
+    epExecCountPct: derived(ep, 'ep_exec_count_pct'),
     competitive: buildMethodMetrics(comp),
     ep: buildMethodMetrics(ep),
   };
@@ -112,7 +106,7 @@ function buildActivityEntry(
     economyKB: get(map, 'economy_kb'),
     economyMB: get(map, 'economy_mb'),
     economyTotal: get(map, 'economy_total'),
-    execCountPct: pct(fc, pc),
+    execCountPct: derived(map, 'exec_count_pct'),
     byMethod: { competitive: buildMethodMetrics(competitive), ep: buildMethodMetrics(ep) },
   };
 }
@@ -169,37 +163,30 @@ export function adaptToRecalcMetrics(
   const q2 = buildQuarterMetrics(grouped, 'q2');
   const q3 = buildQuarterMetrics(grouped, 'q3');
   const q4 = buildQuarterMetrics(grouped, 'q4');
-  const quarters = [q1, q2, q3, q4];
+  // Year is the same aggregation of four planned quarterly cohorts used by
+  // published metrics and every other CalcEngine consumer. No second ratio.
+  const annual = combineMetricSlices(['q1', 'q2', 'q3', 'q4'].map(q => ({
+    values: grouped.byQuarter.get(q) ?? new Map<string, AccumulatedValue>(),
+  })));
+  const yearPlanCount = get(annual, 'plan_count');
+  const yearPlanFB = get(annual, 'plan_fb');
+  const yearPlanKB = get(annual, 'plan_kb');
+  const yearPlanMB = get(annual, 'plan_mb');
+  const yearPlanTotal = get(annual, 'plan_total');
+  const yearFactCount = get(annual, 'fact_count');
+  const yearFactFB = get(annual, 'fact_fb');
+  const yearFactKB = get(annual, 'fact_kb');
+  const yearFactMB = get(annual, 'fact_mb');
+  const yearFactTotal = get(annual, 'fact_total');
+  const yearEconomyTotal = get(annual, 'economy_total');
+  const yearEconomyFB = get(annual, 'economy_fb');
+  const yearEconomyKB = get(annual, 'economy_kb');
+  const yearEconomyMB = get(annual, 'economy_mb');
+  const yearCompPlan = get(annual, 'competitive_count');
+  const yearEpPlan = get(annual, 'ep_count');
 
-  // Корзина «факт без планового квартала» — ОТДЕЛЬНОЕ поле, не слагаемое года.
+  // Orphan fact is separately exposed, never silently merged into year.
   const orphan = grouped.byQuarter.get('_orphan');
-
-  /** Год = сумма четырёх плановых кварталов (правило листа, см. док выше). */
-  const overQuarters = (pick: (q: QuarterMetrics) => number): number =>
-    quarters.reduce((s, q) => s + pick(q), 0);
-
-  const yearPlanCount = overQuarters((q) => q.planCount);
-  const yearPlanFB = overQuarters((q) => q.planFB);
-  const yearPlanKB = overQuarters((q) => q.planKB);
-  const yearPlanMB = overQuarters((q) => q.planMB);
-  const yearPlanTotal = overQuarters((q) => q.planTotal);
-
-  const yearFactCount = overQuarters((q) => q.factCount);
-  const yearFactFB = overQuarters((q) => q.factFB);
-  const yearFactKB = overQuarters((q) => q.factKB);
-  const yearFactMB = overQuarters((q) => q.factMB);
-  const yearFactTotal = overQuarters((q) => q.factTotal);
-
-  const yearEconomyTotal = overQuarters((q) => q.economyTotal);
-  const yearEconomyFB = overQuarters((q) => q.economyFB);
-  const yearEconomyKB = overQuarters((q) => q.economyKB);
-  const yearEconomyMB = overQuarters((q) => q.economyMB);
-
-  // Доли способов за год — по тем же кварталам, что и всё остальное годовое.
-  const yearCompPlan = overQuarters((q) => q.competitive.plan);
-  const yearCompFact = overQuarters((q) => q.competitive.fact);
-  const yearEpPlan = overQuarters((q) => q.ep.plan);
-  const yearEpFact = overQuarters((q) => q.ep.fact);
 
   // Monthly metrics
   const months: Record<number, QuarterMetrics> = {};
@@ -226,10 +213,10 @@ export function adaptToRecalcMetrics(
       economyFB: get(mMap, 'economy_fb'),
       economyKB: get(mMap, 'economy_kb'),
       economyMB: get(mMap, 'economy_mb'),
-      executionPct: pct(get(mMap, 'fact_total'), get(mMap, 'plan_total')),
-      execCountPct: pct(get(mMap, 'fact_count'), get(mMap, 'plan_count')),
-      compExecCountPct: pct(get(mComp, 'comp_fact_count'), get(mComp, 'competitive_count')),
-      epExecCountPct: pct(get(mEp, 'ep_fact_count'), get(mEp, 'ep_count')),
+      executionPct: derived(mMap, 'execution_pct'),
+      execCountPct: derived(mMap, 'exec_count_pct'),
+      compExecCountPct: derived(mComp, 'comp_exec_count_pct'),
+      epExecCountPct: derived(mEp, 'ep_exec_count_pct'),
       competitive: buildMethodMetrics(mComp),
       ep: buildMethodMetrics(mEp),
     };
@@ -277,8 +264,8 @@ export function adaptToRecalcMetrics(
       economyFB: get(m, 'economy_fb'),
       economyKB: get(m, 'economy_kb'),
       economyMB: get(m, 'economy_mb'),
-      executionPct: pct(ft, pt),
-      execCountPct: pct(fc, pc),
+      executionPct: derived(m, 'execution_pct'),
+      execCountPct: derived(m, 'exec_count_pct'),
     };
   };
 
@@ -307,7 +294,6 @@ export function adaptToRecalcMetrics(
     };
 
     const subPlanCount = get(subMap, 'plan_count');
-    const subFactCount = get(subMap, 'fact_count');
     // By activity for this subordinate
     const bySubActivity = {
       program: buildSubPeriod(grouped.bySubordinateActivity.get(`${name}.program`)),
@@ -326,8 +312,8 @@ export function adaptToRecalcMetrics(
       factFB: get(subMap, 'fact_fb'),
       factKB: get(subMap, 'fact_kb'),
       factMB: get(subMap, 'fact_mb'),
-      executionPct: pct(subFact, subPlan),
-      execCountPct: pct(subFactCount, subPlanCount),
+      executionPct: derived(subMap, 'execution_pct'),
+      execCountPct: derived(subMap, 'exec_count_pct'),
       competitiveCount: get(subMap, 'competitive_count'),
       epCount: get(subMap, 'ep_count'),
       economyTotal: get(subMap, 'economy_total'),
@@ -373,10 +359,10 @@ export function adaptToRecalcMetrics(
       economyFB: yearEconomyFB,
       economyKB: yearEconomyKB,
       economyMB: yearEconomyMB,
-      executionPct: pct(yearFactTotal, yearPlanTotal),
-      execCountPct: pct(yearFactCount, yearPlanCount),
-      compExecCountPct: pct(yearCompFact, yearCompPlan),
-      epExecCountPct: pct(yearEpFact, yearEpPlan),
+      executionPct: derived(annual, 'execution_pct'),
+      execCountPct: derived(annual, 'exec_count_pct'),
+      compExecCountPct: derived(annual, 'comp_exec_count_pct'),
+      epExecCountPct: derived(annual, 'ep_exec_count_pct'),
     },
     orphanFact: {
       factCount: get(orphan, 'fact_count'),
@@ -392,7 +378,7 @@ export function adaptToRecalcMetrics(
     noYearRows: noYearRemainderOf(grouped),
     // Доля ЕП — от годовых (квартальных) счётчиков обоих способов; знаменателя
     // нет (процедур нет вовсе) → null, а не «0 % ЕП».
-    epSharePct: pct(yearEpPlan, yearCompPlan + yearEpPlan),
+    epSharePct: derived(annual, 'ep_share_pct'),
     dataRowCount: grouped.rowCount,
     byActivity,
     bySubordinate,
