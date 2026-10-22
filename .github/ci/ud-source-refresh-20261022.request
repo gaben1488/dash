@@ -2,3 +2,4 @@ UD source refresh one-shot request
 Date: 2026-10-22
 Scope: read live sources via installed POST /api/refresh?formulas=true, confirm no active UD row_numbering issues.
 No container restart, no deployment, no Google Sheets writes.
+Attempt 2: corrected SSH script_stop=false to avoid heredoc injection; no deployment.
