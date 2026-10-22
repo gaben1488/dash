@@ -183,7 +183,7 @@ describe('sliceResults — C03.01: exact multi-axis scope', () => {
 
     const alpha = adapter.bySubordinate.find(sub => sub.name === 'МБУ Альфа');
     expect(alpha).toBeDefined();
-    const q1CompetitivePM = alpha!.activityByPeriod.q1.program.byMethod!.competitive!;
+    const q1CompetitivePM = alpha!.activityByPeriod!.q1.program.byMethod!.competitive!;
     const same = sliceResults(g, { quarters: ['q1'], subordinates: ['МБУ Альфа'],
       activities: ['program'], methods: ['competitive'] });
     expect(q1CompetitivePM.plan).toBe(same.get('plan_count')?.value);
