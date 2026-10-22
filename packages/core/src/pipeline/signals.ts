@@ -19,7 +19,8 @@
 
 import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import {
-  LAW_44FZ_THRESHOLDS,
+  thresholdAt,
+  isoOfDayNumber,
   PLAN_SOURCE_COLUMNS,
   SIGNAL_LABELS,
   canonicalizeReasonEp,
@@ -274,18 +275,8 @@ export interface SignalBadge {
 // Константы
 // ────────────────────────────────────────────────────────────
 
-/**
- * Порог ЕП-риска в ТЫС. РУБ. (= 600 тыс. руб.): лимит одной закупки по п.4 ч.1
- * ст.93 44-ФЗ. Колонка K (planTotal ниже) хранит суммы в тыс. руб. — канон
- * @aemr/shared/report-map.ts. До fix bug-hunt 2026-08-08 (БАГ #1) порог был
- * в рублях (600_000) при planTotal в тысячах: epRisk не выставлялся никогда
- * (требовался контракт на 600 млн руб.).
- */
-const EP_RISK_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub;
-
-/** Антидемпинговый порог экономии (44-ФЗ ст.37): канон LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare (доля 0.25) → ×100, т.к. economyPct ниже считается в процентах. */
-const ANTI_DUMPING_PERCENT = LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare * 100;
-
+/** Датированный справочный правовой порог и внутренний порог высокой экономии
+ * вычисляются от product-day внутри detectSignals; не выводят нарушение 44-ФЗ. */
 /** Порог формальной конкуренции */
 const LOW_COMPETITION_PERCENT = 2;
 
@@ -487,6 +478,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // The same project day as calculated metrics; server/browser timezone is
   // not evidence that a deadline or completion has already arrived.
   const todayDay = productCalendarDay(now, PRODUCT_UTC_OFFSET_HOURS);
+  const asOfDay = isoOfDayNumber(todayDay);
+  // Both selectors use the same day as the persisted calculation context.
+  // The EP reference can remain unverified; a row flag is never a legal verdict.
+  const epSingleLimit = thresholdAt('law.epSmallSingleContract', asOfDay);
+  const highEconomyGuide = thresholdAt('economy.highSharePct', asOfDay);
 
   // ── Структурные поля ──
   // КАНОН п.27 (интервью 14.08.2026): свободный текст исполнителей — U
@@ -621,7 +617,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── ЕП-риск (антикоррупция) ──
   // Гейт «!canceled» снят (п.27): «отменена» из текста больше не гасит риск.
-  const epRisk = isEP && !isNaN(planTotal) && planTotal > EP_RISK_THRESHOLD && !isLegitimateEP;
+  const epRisk = isEP && !isNaN(planTotal) && planTotal > epSingleLimit.value && !isLegitimateEP;
 
   // ── Качество данных ──
   // Only check required fields if the row has actual execution (fact date present)
@@ -662,7 +658,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   if (completionArrived && !isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
     const economyPct = ((planTotal - factTotal) / planTotal) * 100;
-    if (economyPct > ANTI_DUMPING_PERCENT) {
+    if (economyPct > highEconomyGuide.value) {
       highEconomy = true;
     }
     // FP-fix 2026-07-16 (signal_audit §3.2): 242 из 274 срабатываний были «план == факт

@@ -18,6 +18,8 @@ import {
   threshold,
   thresholdValue,
   thresholdAt,
+  freezeThresholds,
+  capturedThreshold,
   thresholdsByDomain,
   thresholdsBySource,
 } from './threshold-registry.js';
@@ -193,5 +195,50 @@ describe('dated threshold evidence', () => {
     expect(() => thresholdAt('law.epSmallSingleContract', '2026-10-21', {
       ...threshold('law.epSmallSingleContract')!, editions: [edition, { ...edition, id: 'b' }],
     })).toThrow();
+  });
+});
+
+describe('C06.02 frozen reference proof', () => {
+  it('captures units, origin, edition status and source for every threshold', () => {
+    const capture = freezeThresholds('2026-10-21');
+    expect(Object.keys(capture).sort()).toEqual([...THRESHOLD_IDS].sort());
+    for (const id of THRESHOLD_IDS) {
+      expect(capture[id]?.unit, id).toBe(THRESHOLD_REGISTRY[id]?.unit);
+      expect(capture[id]?.source, id).toBe(THRESHOLD_REGISTRY[id]?.source);
+      expect(capturedThreshold(capture, id, THRESHOLD_REGISTRY[id]!.unit)).toEqual(capture[id]);
+    }
+    expect(capture['law.epSmallSingleContract']).toMatchObject({
+      value: 600, unit: 'thousandRub', source: 'law44', status: 'unverified',
+    });
+  });
+
+  it('rejects a wrong or missing captured unit without consulting present-day defaults', () => {
+    const saved = freezeThresholds('2026-10-21')['law.epSmallSingleContract']!;
+    expect(capturedThreshold({ 'law.epSmallSingleContract': saved },
+      'law.epSmallSingleContract', 'ratio')).toBeUndefined();
+    const { unit: _unit, source: _source, ...legacy } = saved;
+    expect(capturedThreshold({ 'law.epSmallSingleContract': legacy },
+      'law.epSmallSingleContract', 'thousandRub')).toBeUndefined();
+    expect(capturedThreshold(undefined, 'law.epSmallSingleContract', 'thousandRub')).toBeUndefined();
+  });
+
+  it('preserves a historical custom edition even if the registry now has a different number', () => {
+    const entry = threshold('law.epSmallSingleContract')!;
+    const old = thresholdAt('law.epSmallSingleContract', '2026-01-02', {
+      ...entry, editions: [{ id: 'fixture-edition', validFrom: '2026-01-01',
+        verification: 'verified', value: 123, sourceRef: 'test primary legal edition' }],
+    });
+    expect(old.value).toBe(123);
+    expect(old.edition).toBe('fixture-edition');
+    expect(thresholdValue('law.epSmallSingleContract')).not.toBe(old.value);
+    const frozen = { 'law.epSmallSingleContract': old };
+    expect(capturedThreshold(frozen, 'law.epSmallSingleContract', 'thousandRub')).toBe(old);
+  });
+
+  it('a claimed verified legal edition with no evidence fails closed', () => {
+    const saved = freezeThresholds('2026-10-21')['law.epSmallSingleContract']!;
+    const falseProof = { ...saved, status: 'verified' as const, edition: null, sourceRef: null };
+    expect(capturedThreshold({ 'law.epSmallSingleContract': falseProof },
+      'law.epSmallSingleContract', 'thousandRub')).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { LEGAL_RULES_UNVERIFIED, parseSheetNumber, dayNumberOf } from '@aemr/shared';
+import { capturedThreshold, LEGAL_RULES_UNVERIFIED, parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
@@ -128,7 +128,9 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         })).filter((r: any) => normalizeMethod(r.method) !== undefined);
 
         // Run checks
-        allIssues.push(...checkEPContractLimits(rowData, dept.id, snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']));
+        allIssues.push(...checkEPContractLimits(rowData, dept.id, capturedThreshold(
+          snapshot.metadata.calculationContext?.thresholds, 'law.epSmallSingleContract', 'thousandRub',
+        )));
         allIssues.push(...checkAntiDumping(rowData, dept.id));
 
         if (recalc && baseline) {
@@ -149,7 +151,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
         unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+             'law.epSmallSingleContract', 'thousandRub')?.status === 'verified'
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
@@ -260,6 +263,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleContractReference: capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+            'law.epSmallSingleContract', 'thousandRub'),
         });
       }
       return result;
@@ -300,6 +305,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleContractReference: capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+            'law.epSmallSingleContract', 'thousandRub'),
         });
 
         // Волна 0: профиль честно отдаёт null, когда счётной базы нет
@@ -330,7 +337,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,
           unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(capturedThreshold(snapshot.metadata.calculationContext?.thresholds,
+             'law.epSmallSingleContract', 'thousandRub')?.status === 'verified'
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
