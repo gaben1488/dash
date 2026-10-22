@@ -1243,7 +1243,9 @@ export const useStore = create<AppState>((set, get) => ({
     const year = get().year; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null, refreshResult: { sources: [], loading: true } });
     try {
-      const result = await api.refresh();
+      // Explicit full refresh must produce a formula-backed trust snapshot.
+      // Automatic/SVOD-only refresh retains its cheaper values-only contract.
+      const result = await api.refresh(false, true);
       if (!read.isCurrent() || get().year !== year) return;
       const data = await api.getDashboard(false, year, read.signal);
       if (!read.isCurrent() || get().year !== year) return;
