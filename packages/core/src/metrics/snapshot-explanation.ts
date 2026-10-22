@@ -1,5 +1,5 @@
 import { CalcEngine, explainMetric, sliceResults, standardRowFilter } from '../pipeline/calc-engine.js';
-import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, type DataSnapshot } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, executableFormula, type DataSnapshot } from '@aemr/shared';
 
 /** Recompute solely to verify evidence for immutable historical snapshots. */
 export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
@@ -32,7 +32,7 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   if (savedValue === undefined || savedValue !== explanation.value) {
     return { status: 'unavailable', reason: 'SAVED_RESULT_NOT_REPRODUCED' } as const;
   }
-  const address = (index: number) => addresses[index]!;
+  const sourceAddress = (index: number) => addresses[index]!;
   return {
     status: 'available', evidenceKind: 'reproduced_from_retained_rows',
     snapshotId: snapshot.id, asOf: snapshot.createdAt,
@@ -47,6 +47,7 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
         period, year: snapshot.metadata.targetYear ?? null,
       },
       dependencies: explanation.operands.map(operand => operand.key),
+      formula: executableFormula(address.definitionKey)!,
       version: {
         snapshotId: snapshot.id,
         calculationContextId: context?.id ?? null,
@@ -56,11 +57,11 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
         status: context ? 'captured' : 'legacy_without_context',
       },
     },
-    rows: explanation.contributingRows.map(address),
+    rows: explanation.contributingRows.map(sourceAddress),
     operands: explanation.operands.map(operand => {
       const definition = explainMetric(operand.key, values)?.definition;
       return { key: operand.key, label: definition?.label ?? operand.key, unit: definition?.unit ?? null,
-        value: operand.value, rows: operand.contributingRows.map(address) };
+        value: operand.value, rows: operand.contributingRows.map(sourceAddress) };
     }),
   } as const;
 }
