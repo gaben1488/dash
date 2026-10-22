@@ -196,7 +196,7 @@ describe('R05.01 — реестр профилей охраняет каждый
       .rejects.toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
     expect(valuesGet).toHaveBeenCalledTimes(1);
     expect(valuesBatchGet).not.toHaveBeenCalled();
-    expect(gridGet).not.toHaveBeenCalled();
+    expect(gridGet).toHaveBeenCalledTimes(1);
   });
 
   it('короткая шапка не становится готовой книгой', async () => {
@@ -224,7 +224,7 @@ describe('R05.01 — реестр профилей охраняет каждый
     ] } });
     const { readDeptSheet } = await import('./google-sheets.js');
     await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
-    expect(valuesGet).toHaveBeenCalledTimes(1);
+    expect(valuesGet).not.toHaveBeenCalled();
   });
 
   it('отсутствующий закреплённый sheetId и сокращённая геометрия блокируют приём', async () => {
@@ -240,8 +240,6 @@ describe('R05.01 — реестр профилей охраняет каждый
 
   it('разрешённое переименование вкладки УФБП→УФ сохраняет identity', async () => {
     const dept = DEPARTMENT_REGISTRY.find(item => item.id === 'УФБП')!;
-    valuesGet.mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
-      .mockResolvedValueOnce({ data: { values: sheetValues() } });
     gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
       sheetId: dept.source.sheetId, title: 'УФ', gridProperties: { columnCount: 34 },
     } }] } });
@@ -249,19 +247,39 @@ describe('R05.01 — реестр профилей охраняет каждый
     await expect(readDeptSheet('УФБП', 'file-ufbp')).resolves.toMatchObject({
       sheetName: 'УФ', formulasRead: false,
     });
-    expect(valuesGet).toHaveBeenCalledTimes(2);
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+    expect(String(valuesGet.mock.calls[0][0].range)).toContain("'УФ'!");
   });
 
   it('похожее, но не утверждённое имя мастер-вкладки нельзя использовать', async () => {
     const dept = DEPARTMENT_REGISTRY.find(item => item.id === 'УО')!;
-    valuesGet.mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
-      .mockResolvedValueOnce({ data: { values: sheetValues() } });
     gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
       sheetId: dept.source.sheetId, title: 'Все', gridProperties: { columnCount: 34 },
     } }] } });
     const { readDeptSheet } = await import('./google-sheets.js');
     await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
-    expect(valuesGet).toHaveBeenCalledTimes(2);
+    expect(valuesGet).not.toHaveBeenCalled();
+  });
+});
+
+describe('R05.01 — one resolver for reads, writes and metadata', () => {
+  it('the same reviewed gid and title admit read/write, without a stale cache', async () => {
+    const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+    const { resolveDeptSheetName, readDeptSheet } = await import('./google-sheets.js');
+    expect(await resolveDeptSheetName('УО', 'file-uo')).toBe('ВСЕ');
+    expect((await readDeptSheet('УО', 'file-uo')).sheetName).toBe('ВСЕ');
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: master.source.sheetId + 1, title: 'ВСЕ',
+      gridProperties: { columnCount: 34 },
+    } }] } });
+    await expect(resolveDeptSheetName('УО', 'file-uo'))
+      .rejects.toThrow('MASTER_SOURCE_SHEET_ID_CHANGED');
+  });
+
+  it('a missing metadata response never authorizes a write to the default name', async () => {
+    gridGet.mockRejectedValueOnce(Object.assign(new Error('Metadata access denied'), { status: 403 }));
+    const { resolveDeptSheetName } = await import('./google-sheets.js');
+    await expect(resolveDeptSheetName('УО', 'file-uo')).rejects.toThrow('Metadata access denied');
   });
 });
 
