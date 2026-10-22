@@ -237,6 +237,28 @@ export interface IntegrityResponse {
   weeklyComparisonNote: string;
   /** Optional so old installed servers continue to render honestly. */
   operational?: OperationalAbsenceReport;
+  /** Optional read-only evidence from source _ChangeLog, never a deletion proof. */
+  changelogEvidence?: {
+    checkedAt: string;
+    books: Array<{
+      dept: string;
+      readAt: string;
+      entriesSinceControl: number;
+      withoutStableKey: number;
+      matchesCurrent: number;
+      needsReview: number;
+      examples: Array<{
+        rowSeq: string;
+        sourceCell: string;
+        currentCell: string | null;
+        at: string;
+        status: 'matches-current' | 'different-current' | 'row-not-found' | 'ambiguous-number' | 'conflicting-log';
+      }>;
+      note: string;
+    }>;
+    unavailableBooks: Array<{ dept: string; reason: string }>;
+    note: string;
+  };
   notes: string[];
 }
 
