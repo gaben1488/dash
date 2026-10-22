@@ -13,12 +13,17 @@ export function scatterPointDrill(point: LimitComparisonPoint) {
     : point.procurementType === 'unknown'
       ? undefined
       : 'КП' as const;
+  const activity = point.activityType === 'program'
+    || point.activityType === 'current_non_program'
+    || point.activityType === 'current_program'
+    ? point.activityType : undefined;
   return buildDrill({
     dept: point.department,
     subordinate: isOrgItself(point.subordinate) ? ORG_ITSELF_SENTINEL : point.subordinate,
     year: point.planYear,
     month: point.month,
     method,
+    activity,
     search: point.subject,
   }, 'data');
 }
