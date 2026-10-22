@@ -112,7 +112,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceS
                         <summary className="cursor-pointer">Названия и алиасы</summary>
                         <ul>{r.aliases!.map(name => <li key={name}>{name}</li>)}</ul>
                       </details>
-                    )</td>
+                    )}</td>
                   <td className="px-2 py-1.5 max-w-[16rem] text-zinc-600 dark:text-zinc-300">
                     {r.shortMissing
                       ? (
