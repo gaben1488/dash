@@ -1,4 +1,4 @@
-import { FIELD_GUIDANCE, PROCUREMENT_METHODS } from '@aemr/shared';
+import { FIELD_GUIDANCE, PROCUREMENT_METHODS, procurementEditableGuidance } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -496,6 +496,36 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     return () => clearTimeout(timer);
   }, [copyNote]);
 
+  // C06.03: operator sees the same verified editorial guidance as Settings exports.
+  // Until server readback, canonical built-in instructions remain visible but
+  // must not be misrepresented as the currently saved editorial revision.
+  const [savedGuidance, setSavedGuidance] = useState<Record<string, string>>({});
+  const [guidanceStatus, setGuidanceStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  useEffect(() => {
+    let active = true;
+    api.getEditorialGuidance().then(reply => {
+      const canon = new Map(procurementEditableGuidance().map(item => [item.key, item]));
+      if (reply.version !== 'C06.03-editorial-v1' || reply.calculationRulesChanged !== false ||
+          !Array.isArray(reply.entries) || reply.entries.length !== canon.size) {
+        throw new Error('Неполная редакция подсказок');
+      }
+      const seen = new Set<string>();
+      const guidance: Record<string, string> = {};
+      for (const entry of reply.entries) {
+        const expected = canon.get(entry.key);
+        if (!expected || seen.has(entry.key) || expected.defaultText !== entry.defaultText ||
+            expected.section !== entry.section || typeof entry.text !== 'string' ||
+            !entry.text.trim() || !Number.isSafeInteger(entry.revision) || entry.revision < 0) {
+          throw new Error('Редакция подсказок не совпадает с каталогом');
+        }
+        seen.add(entry.key);
+        if (entry.key.startsWith('field:')) guidance[entry.key] = entry.text;
+      }
+      if (active) { setSavedGuidance(guidance); setGuidanceStatus('ready'); }
+    }).catch(() => { if (active) setGuidanceStatus('unavailable'); });
+    return () => { active = false; };
+  }, []);
+
   // ── Состояние редактора таблиц ──
   const [editorRows, setEditorRows] = useState<RowData[]>([]);
   const [editorColumns, setEditorColumns] = useState<ColumnConfig[]>([]);
@@ -522,24 +552,43 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     { key: 'id', label: '№', type: 'text', width: 'w-14', editable: false },
     { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
-    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...PROCUREMENT_METHODS], guidance: FIELD_GUIDANCE.method },
+    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...PROCUREMENT_METHODS], guidance: savedGuidance['field:method'] ?? FIELD_GUIDANCE.method },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
-    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
-    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
-    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
+    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
+    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
     // Итоги считает формула книги; в редакторе они показываются пересчитанными
     // от трёх бюджетов, чтобы число под рукой не расходилось с тем, что уедет в лист.
     { key: 'planSum', label: 'План итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
-    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
-    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
+    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
+    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: savedGuidance['field:money'] ?? FIELD_GUIDANCE.money },
     { key: 'factSum', label: 'Факт итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'planDate', label: 'Дата плана', type: 'date', guidance: FIELD_GUIDANCE.planDate, width: 'w-28' },
-    { key: 'factDate', label: 'Дата факта', type: 'date', guidance: FIELD_GUIDANCE.factDate, width: 'w-28' },
+    { key: 'planDate', label: 'Дата плана', type: 'date', guidance: savedGuidance['field:planDate'] ?? FIELD_GUIDANCE.planDate, width: 'w-28' },
+    { key: 'factDate', label: 'Дата факта', type: 'date', guidance: savedGuidance['field:factDate'] ?? FIELD_GUIDANCE.factDate, width: 'w-28' },
     { key: 'status', label: 'Статус', type: 'text', width: 'w-28', editable: false },
-    { key: 'flag', label: 'Признак экономии', type: 'text', guidance: FIELD_GUIDANCE.flag, width: 'w-36' },
-    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text', guidance: FIELD_GUIDANCE.commentGRBS },
-  ], [moneyCell]);
+    { key: 'flag', label: 'Признак экономии', type: 'text', guidance: savedGuidance['field:flag'] ?? FIELD_GUIDANCE.flag, width: 'w-36' },
+    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text', guidance: savedGuidance['field:commentGRBS'] ?? FIELD_GUIDANCE.commentGRBS },
+  ], [moneyCell, savedGuidance]);
+
+  // Guidance is loaded asynchronously, often after the editor's columns have
+  // been initialized. Update only matching help text, preserving the user's
+  // added columns, widths, ordering, drafts and input values.
+  useEffect(() => {
+    if (guidanceStatus !== 'ready') return;
+    const keyForField: Record<string, keyof typeof FIELD_GUIDANCE> = {
+      method: 'method', planFB: 'money', planKB: 'money', planMB: 'money',
+      factFB: 'money', factKB: 'money', factMB: 'money',
+      planDate: 'planDate', factDate: 'factDate',
+      flag: 'flag', commentGRBS: 'commentGRBS',
+    };
+    setEditorColumns(existing => existing.map(col => {
+      const key = keyForField[col.key];
+      if (!key) return col;
+      const guidance = savedGuidance[`field:${key}`] ?? FIELD_GUIDANCE[key];
+      return col.guidance === guidance ? col : { ...col, guidance };
+    }));
+  }, [savedGuidance, guidanceStatus]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
   const sumBudgets = useCallback((row: RowData, keys: string[]): number | null => {
@@ -1644,6 +1693,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 Скопировать черновики
               </button>
             </div>
+          )}
+          {guidanceStatus === 'unavailable' && (
+            <p role="status" className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+              Серверная редакция подсказок не прочитана. В редакторе показаны встроенные пояснения; это не подтверждение актуальных правил. Изменения ячеек требуют отдельной проверки.
+            </p>
           )}
           <TableEditor
             columns={editorColumns}
