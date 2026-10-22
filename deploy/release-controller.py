@@ -18,6 +18,7 @@ SOURCE_GATE = trial.SOURCE_GATE
 OPERATOR = Path('/home/aemr/dash/deploy')
 REVIEWED_COMPOSE = Path('/usr/local/libexec/aemr/reviewed-docker-compose.yml')
 REVIEWED_CADDY = Path('/usr/local/libexec/aemr/reviewed-Caddyfile')
+RUNTIME_POLICY = Path('/etc/aemr/runtime-policy.json')
 
 
 def web_only_inputs(paths):
@@ -26,6 +27,10 @@ def web_only_inputs(paths):
     for path in paths:
         if (not isinstance(path, str) or not path or '\\' in path
                 or any(part in {'', '.', '..'} for part in path.split('/'))):
+            return False
+        # A changed API adapter is a changed backend dependency, even when
+        # Git reports it under the frontend directory.
+        if path == 'packages/web/src/api.ts' or path.startswith('packages/web/src/api/'):
             return False
         if path.startswith('packages/web/'):
             seen_web = True
@@ -72,6 +77,50 @@ class ReleaseController:
         # Same fixed gate implementation on runner and host, never a second registry.
         trial.SOURCE_GATE = SOURCE_GATE
         return trial.check_source_ci(plan)
+
+    @staticmethod
+    def _web_toolchain():
+        """Fingerprint the actual root-owned recovery dependencies at staging."""
+        files = {
+            'controller': Path(__file__),
+            'recovery': Path(recovery.__file__),
+            'trial': Path(trial.__file__),
+            'source_gate': SOURCE_GATE,
+            'runtime_guard': Path(__file__).with_name('runtime_guard.py'),
+            'runtime_policy': RUNTIME_POLICY,
+        }
+        return {name: recovery.digest(recovery.read_owned(path, private=name == 'runtime_policy'))
+                for name, path in files.items()}
+
+    @staticmethod
+    def _web_toolchain_matches(expected):
+        keys = {'controller', 'recovery', 'trial', 'source_gate', 'runtime_guard', 'runtime_policy'}
+        if not isinstance(expected, dict) or set(expected) != keys:
+            return False
+        try:
+            return expected == ReleaseController._web_toolchain()
+        except (OSError, recovery.RecoveryError):
+            # Missing/replaced root-owned programs or policy never authorize reuse.
+            return False
+
+    @staticmethod
+    def _backend_runtime(records):
+        """Process identity, not merely immutable container/image IDs."""
+        identity = {}
+        for service in ('server', 'report-worker', 'caddy'):
+            record = records[service]
+            state = record['State']
+            started = state.get('StartedAt')
+            restarts = record.get('RestartCount')
+            if (not isinstance(started, str) or not started
+                    or type(restarts) is not int or restarts < 0):
+                recovery.fail('RELEASE_BACKEND_IDENTITY_UNAVAILABLE')
+            identity[service] = {
+                'container': record['Id'], 'image': record['Image'],
+                'status': state['Status'], 'started_at': started,
+                'restart_count': restarts,
+            }
+        return identity
 
     def _images(self, plan):
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
@@ -308,7 +357,9 @@ class ReleaseController:
         recovery.atomic_json(recovery.RUNTIME_DIR / 'stage.json', stage)
         recovery.atomic_json(recovery.RUNTIME_DIR / 'component.json',
                              {'mode': 'web' if backend_sha else 'full', 'backend_sha': backend_sha,
-                              'stage_sha256': recovery.digest(encode(stage))})
+                              'stage_sha256': recovery.digest(encode(stage)),
+                              'tools_sha256': self._web_toolchain(),
+                              'backend_runtime': self._backend_runtime(records) if backend_sha else None})
         return {'state': 'RELEASE_CONFIGURATION_STAGED'}
 
     def deploy_web(self):
@@ -318,19 +369,30 @@ class ReleaseController:
         component = json.loads(recovery.read_owned(recovery.RUNTIME_DIR / 'component.json'))
         if (component.get('mode') != 'web' or component.get('stage_sha256') != recovery.digest(
                 json.dumps(stage, sort_keys=True, allow_nan=False).encode())
+                # Check installed tool bytes before executing the mutable source-CI gate.
+                # Changed or malformed trusted code must refuse component reuse.
+                or not self._web_toolchain_matches(component.get('tools_sha256'))
+                or stage['tool_sha256'] != recovery.digest(recovery.read_owned(recovery.TOOL, private=False))
                 or self._web_source(stage['images'], stage['release_sha']) != component.get('backend_sha')
                 or self._source(stage) != stage['source_ci_sha256']):
             recovery.fail('RELEASE_WEB_COMPATIBILITY_CHANGED')
         self._images(stage)
         records = self.executor._records(stage, original=True)
         self._saved_runtime(stage, records)
-        plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha']}
+        # A Docker process can restart in-place while its container ID stays
+        # unchanged. Do not mistake that for a component-safe no-restart release.
+        if component.get('backend_runtime') != self._backend_runtime(records):
+            recovery.fail('RELEASE_WEB_BACKEND_CHANGED')
+        plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha'],
+                'backend_runtime': component['backend_runtime']}
         self.executor.web_config(plan)
         self.executor.web_unchanged(plan, records)
         recovery.atomic_json(recovery.PENDING, plan)
         try:
             self.executor.web_start(plan, candidate=True)
             self.executor.web_verify(plan, candidate=True)
+            if component['backend_runtime'] != self._backend_runtime(self.executor._records(plan, candidate=True)):
+                recovery.fail('RELEASE_WEB_BACKEND_CHANGED')
             plan_hash = recovery.digest(json.dumps(plan, sort_keys=True).encode())
             recovery.atomic_json(recovery.STATE_DIR / 'web-release-accepted.json', {'plan_sha256': plan_hash})
             return self.executor.recover()

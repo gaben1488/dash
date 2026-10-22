@@ -1,5 +1,7 @@
 """Installed evidence must bind CI binaries, actual roles, data versions and ops tools."""
+import hashlib
 import importlib.util
+import json
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -39,6 +41,7 @@ class RuntimePassportTests(unittest.TestCase):
                               'StartedAt': '2026-10-18T00:00:00Z', 'Health': {'Status': 'healthy'}}}
                            for (role, image), digit in zip(images.items(), '1234', strict=True)]
         self.ops = {Path(name).name: digest for name, digest in self.artifact['source_files'].items() if name.startswith(('deploy/', '.github/'))}
+        self.component = None
         self.observed = {'started_at': '2026-10-18T00:01:00Z', 'ended_at': '2026-10-18T00:01:03Z',
                          'database': {'schema_sha256': '9' * 64, 'user_version': 0},
                          'dashboard': {'snapshot_id': 'snapshot-new', 'created_at': '2026-10-18T00:00:00Z'},
@@ -47,7 +50,8 @@ class RuntimePassportTests(unittest.TestCase):
                          'runtime_versions': self.artifact['versions']}
 
     def build(self):
-        return self.module.seal(self.artifact, self.metadata, self.stage, self.accepted, self.containers, self.ops, self.observed)
+        return self.module.seal(self.artifact, self.metadata, self.stage, self.accepted,
+                                self.containers, self.ops, self.observed, self.component)
 
     def test_actual_runtime_and_observed_data_keep_distinct_versions_without_copying_env(self):
         value = self.build()
@@ -77,7 +81,7 @@ class RuntimePassportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.build()
 
-    def test_web_release_records_actual_backend_revision_and_rejects_recreated_worker(self):
+    def configure_web_release(self):
         self.stage['images'] = deepcopy(self.stage['images'])
         for role in ('server', 'report-worker'):
             self.stage['images'][role] = self.stage['candidate_images'][role] = 'sha256:' + 'd' * 64
@@ -91,9 +95,57 @@ class RuntimePassportTests(unittest.TestCase):
                          'backend_sha': 'b' * 40, 'plan_sha256': 'f' * 64,
                          'images': self.stage['candidate_images'], 'config_sha256': self.stage['config_sha256'],
                          'container_ids': dict(self.stage['container_ids'])}
+        fingerprints = {role: self.ops[name] for role, name in (
+            ('controller', 'release-controller.py'), ('recovery', 'release_recovery.py'),
+            ('trial', 'release_trial.py'), ('source_gate', 'source_ci_gate.py'))}
+        fingerprints.update(runtime_guard='0' * 64, runtime_policy='0' * 64)
+        self.ops.update({'runtime_guard.py': fingerprints['runtime_guard'],
+                         'runtime-policy.json': fingerprints['runtime_policy']})
+        self.component = {
+            'mode': 'web', 'backend_sha': 'b' * 40,
+            'stage_sha256': hashlib.sha256(json.dumps(
+                self.stage, sort_keys=True, allow_nan=False).encode()).hexdigest(),
+            'tools_sha256': fingerprints,
+            'backend_runtime': {
+                role: {'container': row['Id'], 'image': row['Image'],
+                       'status': row['State']['Status'], 'started_at': row['State']['StartedAt'],
+                       'restart_count': row['RestartCount']}
+                for role in ('server', 'report-worker', 'caddy')
+                for row in self.containers if row['Name'] == '/aemr-' + role + '-1'
+            },
+        }
+
+    def test_web_release_records_actual_backend_revision_and_rejects_recreated_worker(self):
+        self.configure_web_release()
         self.assertEqual(self.build()['build']['backend_source_sha'], 'b' * 40)
         self.containers[2]['Id'] = '9' * 64
         self.accepted['container_ids']['report-worker'] = '9' * 64
+        with self.assertRaises(ValueError):
+            self.build()
+
+    def test_web_accepts_historical_rest_count_only_when_process_is_unchanged(self):
+        self.configure_web_release()
+        self.containers[2]['RestartCount'] = 3
+        self.component['backend_runtime']['report-worker']['restart_count'] = 3
+        self.assertEqual(self.build()['runtime']['report-worker']['restarts'], 3)
+        self.containers[2]['RestartCount'] = 4
+        with self.assertRaises(ValueError):
+            self.build()
+        self.containers[2]['RestartCount'] = 3
+        self.containers[0]['State']['StartedAt'] = '2026-10-18T00:00:01Z'
+        with self.assertRaises(ValueError):
+            self.build()
+
+    def test_web_requires_exact_staged_component_and_installed_tool_witness(self):
+        self.configure_web_release()
+        self.component['stage_sha256'] = 'f' * 64
+        with self.assertRaises(ValueError):
+            self.build()
+        self.configure_web_release()
+        self.component['tools_sha256']['source_gate'] = '1' * 64
+        with self.assertRaises(ValueError):
+            self.build()
+        self.component = None
         with self.assertRaises(ValueError):
             self.build()
 

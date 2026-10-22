@@ -275,6 +275,11 @@ class ControllerTests(TrialTests):
                 self.assertFalse(compatible(['packages/web/src/App.tsx', path]))
         self.assertFalse(compatible([]))
         self.assertFalse(compatible(['docs/PLAN.md']))
+        # An API-client change can introduce calls the installed backend cannot
+        # serve, even though its file is packaged by the frontend image.
+        self.assertFalse(compatible(['packages/web/src/App.tsx', 'packages/web/src/api.ts']))
+        self.assertFalse(compatible(['packages/web/src/App.tsx', 'packages/web/src/api/routes.ts']))
+        self.assertTrue(compatible(['packages/web/src/App.tsx', 'packages/web/src/components/Card.tsx']))
 
     def web_stage(self):
         self.stage_fixture()
@@ -333,6 +338,63 @@ class ControllerTests(TrialTests):
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0][-1], 'web')
 
+    def test_web_same_container_backend_restart_is_not_component_compatible(self):
+        self.web_stage()
+        self.fixture.records['server']['State']['StartedAt'] = '2026-10-22T00:00:01Z'
+        self.fixture.persist_records()
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED'):
+            self.controller.deploy_web()
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+
+    def test_web_worker_restart_during_promotion_retains_pending_without_blind_rollback(self):
+        self.web_stage()
+        verify = self.fixture.executor.web_verify
+        def worker_restarts(plan, *, candidate):
+            if candidate:
+                self.fixture.records['report-worker']['RestartCount'] += 1
+                self.fixture.persist_records()
+            return verify(plan, candidate=candidate)
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=worker_restarts),
+              self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED')):
+            self.controller.deploy_web()
+        # The recovery witness is now stale. Do not rewrite even web until
+        # an operator re-establishes which backend state must be preserved.
+        self.assertEqual(self.fixture.records['web']['Image'], self.plan['candidate_images']['web'])
+        self.assertEqual(self.fixture.records['report-worker']['RestartCount'], 1)
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertFalse((self.fixture.private / 'web-release-accepted.json').exists())
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
+    def test_owner_loss_with_backend_restart_fences_web_recovery_before_mutation(self):
+        self.web_stage()
+        with (patch.object(self.fixture.executor, 'web_verify', side_effect=KeyboardInterrupt),
+              self.assertRaises(KeyboardInterrupt)):
+            self.controller.deploy_web()
+        self.assertTrue(self.fixture.pending.exists())
+        self.fixture.records['server']['State']['StartedAt'] = '2026-10-22T00:00:02Z'
+        self.fixture.persist_records()
+        self.fixture.calls.clear()
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED'):
+            self.fixture.executor.recover()
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
+    def test_accepted_web_owner_loss_does_not_recreate_web_if_backend_restarted(self):
+        self.web_stage()
+        with (patch.object(self.fixture.executor, 'recover', side_effect=KeyboardInterrupt),
+              self.assertRaises(KeyboardInterrupt)):
+            self.controller.deploy_web()
+        self.assertTrue(self.fixture.pending.exists())
+        self.fixture.records['report-worker']['RestartCount'] += 1
+        self.fixture.persist_records()
+        self.fixture.calls.clear()
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_BACKEND_CHANGED'):
+            self.fixture.executor.recover()
+        self.assertTrue(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+
     def test_web_failure_restores_only_web_and_retains_concurrent_data(self):
         self.web_stage()
         actual = self.fixture.executor.web_verify
@@ -378,6 +440,54 @@ class ControllerTests(TrialTests):
             self.controller.deploy_web()
         self.assertFalse(self.fixture.pending.exists())
         self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+
+    def test_web_tool_replacement_after_stage_blocks_before_any_runtime_change(self):
+        self.web_stage()
+        # Stage captured the real root-owned tool digest. A subsequent replacement
+        # must invalidate web-only admission without stopping API or the worker.
+        self.fixture.tool.write_text('changed tool after staging')
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+            self.controller.deploy_web()
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
+    def test_web_operator_and_ci_gate_drift_refuse_component_without_docker_mutation(self):
+        self.web_stage()
+        installed = {
+            'controller': Path(self.controller_module.__file__),
+            'recovery': Path(self.fixture.module.__file__),
+            'trial': Path(self.module.__file__),
+            'source_gate': Path(self.module.SOURCE_GATE),
+            'runtime_guard': Path(self.controller_module.__file__).with_name('runtime_guard.py'),
+            'runtime_policy': self.runtime_policy,
+        }
+        for name, path in installed.items():
+            with self.subTest(changed_tool=name):
+                original = path.read_bytes()
+                try:
+                    path.write_bytes(original + b'\\n# synthetic post-stage drift\\n')
+                    with self.assertRaisesRegex(
+                            self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+                        self.controller.deploy_web()
+                    self.assertFalse(self.fixture.pending.exists())
+                    self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+                finally:
+                    path.write_bytes(original)
+
+    def test_component_fingerprint_rejects_missing_or_partial_legacy_receipt(self):
+        self.web_stage()
+        path = self.fixture.runtime / 'component.json'
+        original = json.loads(path.read_text())
+        for invalid in (None, {}, {'controller': original['tools_sha256']['controller']}):
+            with self.subTest(fingerprint=invalid):
+                changed = {**original, 'tools_sha256': invalid}
+                path.write_text(json.dumps(changed))
+                with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+                    self.controller.deploy_web()
+                self.assertFalse(self.fixture.pending.exists())
+                self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        path.write_text(json.dumps(original))
 
     def test_changed_backend_environment_selects_full_release_despite_ui_source_diff(self):
         self.web_stage()
@@ -501,8 +611,13 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
                            (reviewed / 'reviewed-Caddyfile', 'new private Caddy')):
             path.write_text(body)
             path.chmod(0o600)
+        self.fixture.trusted_source('deploy/runtime_guard.py')
+        self.runtime_policy = self.fixture.private / 'runtime-policy.json'
+        self.runtime_policy.write_text('{"worker_enabled":true}')
+        self.runtime_policy.chmod(0o600)
         for name, value in {'OPERATOR': self.operator, 'REVIEWED_COMPOSE': reviewed / 'reviewed-docker-compose.yml',
-                            'REVIEWED_CADDY': reviewed / 'reviewed-Caddyfile'}.items():
+                            'REVIEWED_CADDY': reviewed / 'reviewed-Caddyfile',
+                            'RUNTIME_POLICY': self.runtime_policy}.items():
             patcher = patch.object(self.controller_module, name, value, create=True)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -510,6 +625,9 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
         old['services']['caddy']['volumes'][0]['source'] = str(self.operator / 'Caddyfile')
         self.fixture.records['caddy']['Mounts'][0]['Source'] = str(self.operator / 'Caddyfile')
         self.fixture.records['server']['State']['Status'] = 'running'
+        for service in ('server', 'report-worker', 'caddy'):
+            self.fixture.records[service]['State']['StartedAt'] = '2026-10-22T00:00:00Z'
+            self.fixture.records[service]['RestartCount'] = 0
         self.fixture.persist_records()
         self.compose_sources = {str(self.operator / 'docker-compose.yml'): old,
                                 str(reviewed / 'reviewed-docker-compose.yml'): json.loads(json.dumps(old))}
