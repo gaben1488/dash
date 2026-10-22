@@ -249,12 +249,18 @@ describe('хотфикс: живой справочник и исправлен�
   it('действующие R/E имена и подтверждённые алиасы не создают ложного расхождения', () => {
     for (const name of [
       'МБУ ДО СШ «Лидер»', // только тип кавычек относительно действующей C
-      'МБОУ ЕСШ №7 им. О.Н. Мамченкова', // пробел около номера
+      'МБОУ ЕСШ № 7 им. О.Н. Мамченкова', // действующее написание
       'МБУ ДО «КДМШ»', // подтверждённый исторический алиас
       'УО (Опека)', // категория, не отдельное юридическое лицо
     ]) {
       expect(detectSubordinateNameHygiene(name).filter(f => f.kind === 'registry_mismatch'), name).toEqual([]);
       expect(nearestCanonicalSubordinate(name), name).toBeNull();
     }
+  });
+
+  it('реальную опечатку в номере не прячет типографическое сопоставление', () => {
+    const raw = 'МБДОУ ДС №3 «Жар-Птица»';
+    expect(detectSubordinateNameHygiene(raw).map(f => f.kind)).toContain('registry_mismatch');
+    expect(nearestCanonicalSubordinate(raw)).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 });
