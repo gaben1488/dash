@@ -152,7 +152,7 @@ export function checkEPShareLimits(
   totalCount: number,
   _epTotal: number,
   _yearPlanTotal: number,
-  _role: GRBSRole,
+  role: GRBSRole,
   grbsId: string,
   captured?: DatedThreshold,
 ): ComplianceIssue[] {
