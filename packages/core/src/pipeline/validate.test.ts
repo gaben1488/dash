@@ -221,9 +221,17 @@ describe('validateData — error handling', () => {
     const goodRule = makeFailingRule({ id: 'good_rule' });
 
     const issues = validateData(EMPTY_METRICS, [row], [brokenRule, goodRule], EMPTY_REPORT_MAP);
-    // Broken rule is skipped, good rule still fires
-    expect(issues).toHaveLength(1);
-    expect(issues[0].category).toBe('good_rule');
+    // Broken rule is a visible, blocking diagnostic; it must not silently pass.
+    expect(issues).toHaveLength(2);
+    expect(issues.map(issue => issue.category)).toEqual(['validation_error', 'good_rule']);
+    expect(issues[0]).toMatchObject({
+      origin: 'runtime_error',
+      severity: 'error',
+      detectedBy: 'rule:broken',
+      sheet: 'СВОД ТД-ПМ',
+      row: 5,
+    });
+    expect(issues[0].description).toContain('не означает, что данные проверены');
   });
 
   it('continues validation after broken rule', () => {
@@ -232,8 +240,15 @@ describe('validateData — error handling', () => {
       id: 'broken',
       check: () => { throw new TypeError('Cannot read property'); },
     });
-    // Should not crash
-    expect(() => validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP)).not.toThrow();
+    // Do not multiply failures across thousands of rows or claim zero findings.
+    const issues = validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      category: 'validation_error',
+      origin: 'runtime_error',
+      severity: 'error',
+      row: 5,
+    });
   });
 });
 
