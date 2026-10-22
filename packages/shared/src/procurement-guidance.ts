@@ -42,26 +42,65 @@ export type SeasonalRuleId = keyof typeof SEASONAL_RULES;
 export const SEASONAL_RULE_LABELS = Object.fromEntries(Object.entries(SEASONAL_RULES).map(([key, rule]) => [key, rule.label])) as Record<SeasonalRuleId, string>;
 export const SEASONAL_SCREENING_NOTE = SCREENING_NOTE;
 
-/** The same sections feed the screen, Markdown and DOCX without separate wording. */
-export function procurementRuleSections(): Array<{ title: string; paragraphs: string[] }> {
+/**
+ * Editable editorial explanations only. Stable identifiers are independent of
+ * Russian wording; changing a description does NOT edit a legal threshold,
+ * source row, regex, classification, snapshot or stored report.
+ */
+export interface ProcurementGuidanceEntry {
+  key: string;
+  section: 'field' | 'ep' | 'stage' | 'seasonal';
+  defaultText: string;
+}
+
+export function procurementEditableGuidance(): ProcurementGuidanceEntry[] {
   return [
-    { title: 'Заполнение исходных таблиц', paragraphs: Object.values(FIELD_GUIDANCE) },
+    ...Object.entries(FIELD_GUIDANCE).map(([key, defaultText]) => ({
+      key: `field:${key}`, section: 'field' as const, defaultText,
+    })),
+    ...EP_REASON_CLUSTERS.map(key => ({
+      key: `ep:${key}`, section: 'ep' as const, defaultText: EP_REASON_DICT[key].label_ru,
+    })),
+    ...DEVIATION_CLUSTERS.map(key => ({
+      key: `stage:${key}`, section: 'stage' as const, defaultText: DEVIATION_DICT[key].label_ru,
+    })),
+    ...Object.entries(SEASONAL_RULES).map(([key, rule]) => ({
+      key: `seasonal:${key}`, section: 'seasonal' as const,
+      defaultText: `${rule.label}. ${rule.action}`,
+    })),
+  ];
+}
+
+/**
+ * All visible/exported editorial descriptions come from the same projection.
+ * Keys outside the known catalog never alter a rule, and numerical or
+ * structural N/Q/AD evidence is intentionally not editable here.
+ */
+export function procurementRuleSections(
+  editorialOverrides: Readonly<Record<string, string>> = {},
+): Array<{ title: string; paragraphs: string[] }> {
+  const known = new Set(procurementEditableGuidance().map(entry => entry.key));
+  const edited = (key: string, original: string): string =>
+    known.has(key) && typeof editorialOverrides[key] === 'string' &&
+      editorialOverrides[key].trim() !== '' ? editorialOverrides[key] : original;
+  return [
+    { title: 'Заполнение исходных таблиц', paragraphs: Object.entries(FIELD_GUIDANCE).map(([key, text]) => edited(`field:${key}`, text)) },
     { title: 'Основания ЕП', paragraphs: [
       'Распознанное объяснение не доказывает применимость правовой нормы. Нераспознанная формулировка означает ограничение словаря, а не ошибку исполнителя.',
-      ...EP_REASON_CLUSTERS.map(key => EP_REASON_DICT[key].label_ru),
+      ...EP_REASON_CLUSTERS.map(key => edited(`ep:${key}`, EP_REASON_DICT[key].label_ru)),
     ] },
     { title: 'Объяснения сроков и этапов', paragraphs: [
       'Текст сохраняется дословно. Состояние и своевременность определяются структурными датами и подтверждениями, а не словами «заключён» или «не заключён».',
-      ...DEVIATION_CLUSTERS.map(key => DEVIATION_DICT[key].label_ru),
+      ...DEVIATION_CLUSTERS.map(key => edited(`stage:${key}`, DEVIATION_DICT[key].label_ru)),
     ] },
     { title: 'Сезонные ориентиры', paragraphs: [SCREENING_NOTE,
-      ...Object.values(SEASONAL_RULES).map(rule => `${rule.label}. ${rule.action}`),
+      ...Object.entries(SEASONAL_RULES).map(([key, rule]) => edited(`seasonal:${key}`, `${rule.label}. ${rule.action}`)),
       `Внутренние даты просмотра: питание — ${SEASONAL_PARAMETERS.foodDeadline.day}.${SEASONAL_PARAMETERS.foodDeadline.month}, топливо — ${SEASONAL_PARAMETERS.fuelDeadline.day}.${SEASONAL_PARAMETERS.fuelDeadline.month}. Отсутствие N или суммы при пустой Q не доказывает отсутствие обеспечения.`,
     ] },
   ];
 }
-export function procurementRulesMarkdown(): string {
-  return procurementRuleSections().map(section => `## ${section.title}\n\n${section.paragraphs.join('\n\n')}`).join('\n\n') + '\n';
+export function procurementRulesMarkdown(editorialOverrides: Readonly<Record<string, string>> = {}): string {
+  return procurementRuleSections(editorialOverrides).map(section => `## ${section.title}\n\n${section.paragraphs.join('\n\n')}`).join('\n\n') + '\n';
 }
 
 
