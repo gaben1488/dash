@@ -110,6 +110,19 @@ export interface ThresholdEntry {
   readonly note?: string;
 }
 
+export const INTERNAL_EP_SHARE_BY_ROLE = {
+  ОПЕРАЦИОННЫЙ: 0.50,
+  ИНВЕСТИЦИОННЫЙ: 0.30,
+  СМЕШАННЫЙ: 0.40,
+} as const;
+
+/** Stable snapshot keys for methodological references by GRBS role. */
+export const EP_ROLE_THRESHOLD_IDS: Readonly<Record<keyof typeof INTERNAL_EP_SHARE_BY_ROLE, string>> = {
+  ОПЕРАЦИОННЫЙ: 'competition.epRoleOperationalShare',
+  ИНВЕСТИЦИОННЫЙ: 'competition.epRoleInvestmentShare',
+  СМЕШАННЫЙ: 'competition.epRoleMixedShare',
+};
+
 export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
   // I. Исполнение плана — одна величина, один набор полос
@@ -334,6 +347,29 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   },
 
   // ══════════════════════════════════════════════════════════════════
+  // Дополнительные внутренние ориентиры прежней модели ГРБС, не законные пределы.
+  'competition.epRoleOperationalShare': {
+    label: 'Внутренний ориентир доли ЕП операционного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.ОПЕРАЦИОННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше половины — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+  'competition.epRoleInvestmentShare': {
+    label: 'Внутренний ориентир доли ЕП инвестиционного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.ИНВЕСТИЦИОННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше тридцати процентов — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+  'competition.epRoleMixedShare': {
+    label: 'Внутренний ориентир доли ЕП смешанного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.СМЕШАННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше сорока процентов — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+
   // VII. Дисциплина
   // ══════════════════════════════════════════════════════════════════
 
@@ -568,19 +604,33 @@ export function ownThresholds(): readonly string[] {
  * Число с единицей, как его читает человек: «25 %», «600 тыс. руб.»,
  * «2 правок на строку». Доля печатается процентом — читателю привычнее.
  */
-export function formatThreshold(id: string): string {
+/** A date-limited legal edition must never display the undated reference as today's law. */
+export function formatThreshold(id: string, captured?: DatedThreshold): string {
   const entry = THRESHOLD_REGISTRY[id];
   if (!entry) return '—';
-  if (entry.unit === 'ratio') return `${(entry.value * 100).toFixed(0)} %`;
-  return `${entry.value} ${THRESHOLD_UNIT_LABELS[entry.unit]}`;
+  if (entry.editions?.length && !captured) return '— (нужна дата среза)';
+  if (captured && capturedThresholdValue(captured, entry.unit) === null) return '— (единица или значение среза недоступны)';
+  if (captured?.status === 'unverified') return '— (редакция порога не подтверждена)';
+  const value = captured?.value ?? entry.value;
+  if (entry.unit === 'ratio') return `${(value * 100).toFixed(0)} %`;
+  return `${value} ${THRESHOLD_UNIT_LABELS[entry.unit]}`;
 }
 
 
 export interface DatedThreshold {
   value: number;
+  /** Optional on disk: legacy snapshots without a unit may be displayed but not numerically checked. */
+  unit?: ThresholdUnit;
   status: 'verified' | 'internal' | 'unverified';
   edition: string | null;
   sourceRef: string | null;
+}
+
+/** A consumer must not silently substitute today's unit or value into a historical context. */
+export function capturedThresholdValue(captured: DatedThreshold | null | undefined, unit: ThresholdUnit): number | null {
+  if (!captured || captured.unit !== unit || !Number.isFinite(captured.value) || captured.value <= 0) return null;
+  if ((unit === 'ratio' && captured.value > 1) || (unit === 'percent' && captured.value > 100)) return null;
+  return captured.value;
 }
 
 /** Frozen definitions override today's dictionary only when explicitly supplied. */
@@ -606,6 +656,7 @@ export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry
   const selected = applicable[0]?.edition;
   return {
     value: selected?.value ?? entry.value,
+    unit: entry.unit,
     status: selected?.verification === 'verified' ? 'verified'
       : entry.source === 'own' && editions.length === 0 ? 'internal' : 'unverified',
     edition: selected?.id ?? null, sourceRef: selected?.sourceRef ?? entry.sourceRef ?? null,
@@ -622,7 +673,9 @@ export function legalThresholdsVerifiedForContext(
 ): boolean {
   return !!captured && thresholdsByDomain('law')
     .filter(id => THRESHOLD_REGISTRY[id]!.source === 'law44')
-    .every(id => captured[id]?.status === 'verified');
+    .every(id => captured[id]?.status === 'verified'
+      && captured[id]?.unit === THRESHOLD_REGISTRY[id]!.unit
+      && !!captured[id]?.sourceRef);
 }
 
 
@@ -634,8 +687,4 @@ export const LEGAL_RULES_UNVERIFIED = {
 
 
 /** Legacy internal screening guides, never legal limits or an approved performance grade. */
-export const INTERNAL_EP_SHARE_BY_ROLE = {
-  ОПЕРАЦИОННЫЙ: 0.50,
-  ИНВЕСТИЦИОННЫЙ: 0.30,
-  СМЕШАННЫЙ: 0.40,
-} as const;
+
