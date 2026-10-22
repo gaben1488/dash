@@ -17,14 +17,28 @@ NAME = 'aemr-report-schema-migrations-v1.json'
 
 def _recorded_monitoring_successor(path, source, patch):
     """Recognize only a proven installed successor of an obsolete private patch."""
-    from .monitoring_schema import REASON, RECORDED_REVIEWS_V3, RETIRED, REVIEW, REVIEWS
+    from .monitoring_schema import (
+        REASON, RECORDED_REVIEWS_PRE_34_ONLY_SHA256,
+        RECORDED_REVIEWS_V3, RETIRED, REVIEW, REVIEWS,
+    )
 
     history = path.parent / 'registry-history'
     records = [json.loads(p.read_text()) for p in history.glob('*.migration.json')]
     if not any(patch in r.get('package', {}).get('migrations', []) for r in records):
         return False
     for record in records:
-        if (record.get('review') != REVIEW or record.get('patches') not in (REVIEWS, RECORDED_REVIEWS_V3)
+        recorded_patches = record.get('patches')
+        # Historical receipts remain verifiable after current directory
+        # admission switches to 34-only. The digest is audit-only and cannot
+        # enable 18/19/32-column live reads or migrations.
+        known_review = (
+            recorded_patches in (REVIEWS, RECORDED_REVIEWS_V3)
+            or (
+                canonical_semantic_hash(recorded_patches)
+                == RECORDED_REVIEWS_PRE_34_ONLY_SHA256
+            )
+        )
+        if (record.get('review') != REVIEW or not known_review
             or record.get('retired') != json.loads(json.dumps(RETIRED))):
             continue
         digest = record.get('previous_registry_hash')
