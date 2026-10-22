@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  completeAverage, completeSum, confirmedEmptyCounts,
+  completeAverage, completeSum, confirmedEmptyCounts, latestAdjacentObservedDelta,
   cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf,
 } from './numeric-availability';
 
@@ -43,6 +43,14 @@ describe('C05.02: source completeness is not a fabricated zero', () => {
     expect(materializedCategoryAmount({ current_non_program: { planTotal: 0 } }, 'current_non_program', 'planTotal')).toBe(0);
     expect(materializedCategoryAmount({ current_program: { planTotal: null } }, 'current_program', 'planTotal')).toBeNull();
     expect(materializedCategoryAmount({ current_program: {} }, 'current_program', 'planTotal')).toBeNull();
+  });
+
+  it('does not bridge a missing quarter to claim an execution trend', () => {
+    expect(latestAdjacentObservedDelta([10, null, 40, null])).toBeNull();
+    expect(latestAdjacentObservedDelta([10, null, 40, 45])).toBe(5);
+    expect(latestAdjacentObservedDelta([10, 5, null, null])).toBe(-5);
+    expect(latestAdjacentObservedDelta([0, 0, 0, 0])).toBe(0);
+    expect(latestAdjacentObservedDelta([])).toBeNull();
   });
 
   it('does not average unread Trust or declare a source with missing counts empty', () => {

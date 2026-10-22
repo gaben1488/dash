@@ -44,6 +44,16 @@ export function cumulativePercentOfYear(
   });
 }
 
+/** Last adjacent observed quarter-to-quarter change; never bridge missing points. */
+export function latestAdjacentObservedDelta(values: readonly SourceNumber[]): number | null {
+  for (let i = values.length - 1; i >= 1; i--) {
+    const current = observedNumber(values[i]);
+    const previous = observedNumber(values[i - 1]);
+    if (current !== null && previous !== null) return current - previous;
+  }
+  return null;
+}
+
 export function completeAverage(values: readonly SourceNumber[]): number | null {
   const sum = completeSum(values);
   return sum === null ? null : sum / values.length;

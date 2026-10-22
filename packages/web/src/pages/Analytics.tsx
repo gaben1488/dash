@@ -38,7 +38,7 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
-import { completeAverage, completeSum, cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf } from '@aemr/shared';
+import { completeAverage, completeSum, cumulativePercentOfYear, latestAdjacentObservedDelta, materializedCategoryAmount, observedNumber, percentOf } from '@aemr/shared';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 
@@ -465,11 +465,10 @@ export function Analytics() {
   const execTrendClaim = useMemo(() => {
     let rising = 0, falling = 0, flat = 0;
     for (const name of deptNames) {
-      const series = execTrend
-        .map((p: Record<string, unknown>) => p[name])
-        .filter((v): v is number => typeof v === 'number');
-      if (series.length < 2) continue;
-      const delta = series[series.length - 1] - series[0];
+      const series = execTrend.map((p: Record<string, unknown>) =>
+        typeof p[name] === 'number' ? p[name] as number : null);
+      const delta = latestAdjacentObservedDelta(series);
+      if (delta === null) continue;
       if (delta > 1) rising += 1;
       else if (delta < -1) falling += 1;
       else flat += 1;
@@ -869,7 +868,7 @@ export function Analytics() {
                 <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {deptNames.map((name, i) => (
-                  <Line key={name} type="monotone" dataKey={name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line key={name} type="monotone" dataKey={name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
