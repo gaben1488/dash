@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerRequestTiming } from '../plugins/request-timing.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DashboardDataSchema, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore } from '@aemr/core';
@@ -15,6 +16,7 @@ let schema: typeof import('../db/index.js')['schema'];
 const internalFields = ['rowsByDept', 'recalcResults', 'shdyuData', 'unifiedGrid',
   'unifiedReconciliation', 'svodGrid', 'weeklyTableContext'] as const;
 beforeAll(async () => {
+  registerRequestTiming(app);
   ({ db, schema } = await import('../db/index.js'));
   const metric: NormalizedMetric = { metricKey: 'fixture.plan', value: 100, numericValue: 100,
     displayValue: '100', origin: 'official', period: 'annual', unit: 'thousand_rubles',
@@ -37,6 +39,14 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('attributes persisted decision reads to reader/SQL, separate from model time', async () => {
+    const response = await app.inject('/api/dashboard?year=2026');
+    expect(response.statusCode).toBe(200);
+    const timing = String(response.headers['server-timing']);
+    expect(timing).toContain('model;dur=');
+    expect(timing).toContain('reader;dur=');
+    expect(timing).toContain('sql;dur=');
+  });
   it.each(['/api/dashboard', '/api/trust/uo', '/api/svod/unified', '/api/reconciliation/quarterly'])('preserves first-start readiness on %s without disguising a source failure', async url => {
     try {
       fixture.failure = Object.assign(new Error('private source'), { code: 'SNAPSHOT_NOT_READY' });
