@@ -67,8 +67,11 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
         raise ValueError("ARTIFACT_SNAPSHOT_MISMATCH")
     # A renderer-projected dashboard cannot silently describe a different
     # source acquisition from the manifest that produced its Word documents.
+    expected_projection_revision = (stamp.get("source_revision")
+                                    if (model.get("contract") or {}).get("source_revision_projection") == "v1"
+                                    else None)
     if (stamp.get("source_revision") != manifest.get("source_revision")
-            or dashboard.get("source_revision") != stamp.get("source_revision")):
+            or dashboard.get("source_revision") != expected_projection_revision):
         raise ValueError("ARTIFACT_SOURCE_REVISION_MISMATCH")
     if (dashboard.get("snapshot_id") != stamp["snapshot_id"]
             or parse_date(dashboard.get("report_date")) != as_of

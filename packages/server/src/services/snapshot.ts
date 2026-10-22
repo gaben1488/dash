@@ -734,6 +734,27 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       );
     }
 
+    // The report worker and Dash may finish calculations on opposite sides
+    // of Kamchatka midnight. Use the report capture's actual instant only when
+    // all eight accepted master rows still belong to that exact revision.
+    // Otherwise calculate the live input normally, without a shared-source claim.
+    const masters = Object.entries(DEPARTMENT_SPREADSHEETS);
+    const firstReading = deptSources[masters[0]?.[0] ?? ''];
+    const revision = firstReading?.sourceRevision;
+    const capturedAt = firstReading?.readAt;
+    const sharedCapture = masters.length === DEPARTMENTS.length
+      && perimeter.length === masters.length
+      && typeof revision === 'string' && /^SRC-[a-f0-9]{64}$/.test(revision)
+      && typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt))
+      && masters.every(([name, providerId]) => {
+        const source = deptSources[name];
+        return source?.providerId === providerId
+          && source.sourceRevision === revision && source.readAt === capturedAt
+          && source.formulasRead === true && source.values.length >= DEPT_HEADER_ROWS;
+      })
+      ? { sourceRevision: revision, asOf: new Date(capturedAt) }
+      : null;
+
     const pipelineInput: SnapshotCalculationInput = {
       batchGetData,
       sheetRows,
@@ -744,6 +765,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       reportMap: REPORT_MAP,
       spreadsheetId: config.google.spreadsheetId,
       targetYear,
+      ...(sharedCapture ? { asOf: sharedCapture.asOf } : {}),
       // Год официального листа (Д21): без него сверка вычитала многолетний
       // расчёт из одногодичного официала и звала это расхождением.
       officialYear: monthlyYear ?? undefined,
@@ -756,20 +778,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceReceipt = inputReceipt;
     snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
-    // The report generator's source_revision is a claim about one complete
-    // accepted capture, not a hash inferred from current values. Expose it only
-    // when every configured master still belongs to that exact capture.
-    const masters = Object.entries(DEPARTMENT_SPREADSHEETS);
-    const revisions = masters.map(([name, providerId]) => {
-      const reading = deptSources[name];
-      return reading?.providerId === providerId && reading.values.length >= DEPT_HEADER_ROWS
-        ? reading.sourceRevision : undefined;
-    });
-    if (snapshot.metadata.sourceCoverage.complete && masters.length === DEPARTMENTS.length
-        && revisions.length > 0 && revisions.every(revision =>
-          typeof revision === 'string' && /^SRC-[a-f0-9]{64}$/.test(revision)
-          && revision === revisions[0])) {
-      snapshot.metadata.sourceRevision = revisions[0];
+    if (sharedCapture && snapshot.metadata.sourceCoverage.complete) {
+      snapshot.metadata.sourceRevision = sharedCapture.sourceRevision;
     }
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание

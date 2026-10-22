@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from procurement_engine.department_directory import (
     ALIASES,
@@ -56,7 +59,10 @@ def test_master_fields_and_required_meanings_come_from_shared_profile():
 
 def test_known_master_binding_cannot_skip_the_single_profile_after_provider_change():
     from procurement_engine.department_directory import MASTER_FIELDS
-    from procurement_engine.google_adapter import GoogleReadError, GoogleSheetSourceAdapter
+    from procurement_engine.google_adapter import (
+        GoogleReadError,
+        GoogleSheetSourceAdapter,
+    )
 
     header = [field['label'] for field in MASTER_FIELDS.values()]
     header[21] = 'Другая сумма вместо ФБ 2'
@@ -82,3 +88,23 @@ def test_known_master_binding_cannot_skip_the_single_profile_after_provider_chan
     header[21] = MASTER_FIELDS['FB_FACT']['label']
     payload = GoogleSheetSourceAdapter(registry_source, Source()).read_payload()
     assert payload.source_id == 'UER'
+
+
+def test_eight_actual_master_headers_are_accepted_by_the_one_shared_profile():
+    from procurement_engine.department_directory import (
+        MASTER_SOURCE_PROFILE,
+        validate_master_source_header,
+    )
+
+    fixture_path = Path(__file__).resolve().parents[2] / "shared/fixtures/master-headers-reviewed-20261022.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert fixture["profile"] == MASTER_SOURCE_PROFILE["id"]
+    assert {item["department"] for item in fixture["headers"]} == {item["id"] for item in DEPARTMENTS}
+    assert len(fixture["headers"]) == len(DEPARTMENTS) == 8
+    for item in fixture["headers"]:
+        assert len(item["header"]) == MASTER_SOURCE_PROFILE["columns"] == 34
+        validate_master_source_header(item["header"])
+        invalid = list(item["header"])
+        invalid[21] = "Цена договора вместо ФБ 2"
+        with pytest.raises(ValueError, match="MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V"):
+            validate_master_source_header(invalid)

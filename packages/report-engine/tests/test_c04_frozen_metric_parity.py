@@ -94,6 +94,26 @@ def test_c04_report_dashboard_inherits_frozen_revision_and_rejects_tampering(fro
         PROBE.compare(root / "snapshot_bundle", REPO, **{**paths, "dashboard": altered})
 
 
+def test_c04_historical_projection_preserves_original_artifact_shape():
+    from procurement_engine.projections import (
+        assert_projection_parity,
+        project_dashboard,
+    )
+
+    # Historical reports can already have source_revision in the immutable
+    # ReportModel while their stored dashboard.json predates this field.
+    legacy = {"snapshot": {"snapshot_id": "historical", "source_revision": "SRC-" + "a" * 64},
+              "headline": {"competitive": {"year": {"plan_count": 1}}},
+              "contract": {"report_model_version": "report-model-v1.2.0"}}
+    old_dashboard = project_dashboard(legacy)
+    assert "source_revision" not in old_dashboard
+    assert_projection_parity(legacy, old_dashboard)
+    new = {**legacy, "contract": {**legacy["contract"], "source_revision_projection": "v1"}}
+    new_dashboard = project_dashboard(new)
+    assert new_dashboard["source_revision"] == legacy["snapshot"]["source_revision"]
+    assert_projection_parity(new, new_dashboard)
+
+
 def test_c04_dashboard_snapshot_drift_blocks_acceptance(frozen_case, tmp_path):
     root, paths = frozen_case
     wrong = json.loads(paths["dashboard"].read_text())
@@ -124,10 +144,13 @@ def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_
     dashboard_file = tmp_path / "false-dashboard.json"
     model_file.write_text(json.dumps(changed_model))
     dashboard_file.write_text(json.dumps(changed_dashboard))
-    with pytest.raises(ValueError, match="ARTIFACT_DOCUMENT_PLAN_MISMATCH"):
-        PROBE.compare(root / "snapshot_bundle", REPO, **{
-            **paths, "report_model": model_file, "dashboard": dashboard_file,
-        })
+    evidence = PROBE.compare(root / "snapshot_bundle", REPO, **{
+        **paths, "report_model": model_file, "dashboard": dashboard_file,
+    })
+    assert evidence["state"] == "MISMATCH"
+    assert evidence["mismatch_count"] > 0
+    assert any(item["scope"] == "headline" and item["metric"] == "plan_count"
+               for item in evidence["mismatches"])
 
 
 def test_c04_model_must_match_exact_frozen_source(frozen_case, tmp_path):
