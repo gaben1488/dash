@@ -117,6 +117,8 @@ export function sealSnapshotCalculationResult(
   ctx.output = {
     contract: 'aemr-calculation-output-v1',
     sha256: calculationDigest(snapshotOutputForDigest(snapshot)),
+    rowsByDeptSha256: snapshot.rowsByDept === undefined ? null : calculationDigest(snapshot.rowsByDept),
+    svodGridSha256: snapshot.svodGrid === undefined ? null : calculationDigest(snapshot.svodGrid),
     sourceReceipt: snapshot.metadata.sourceReceipt ?? null,
     sourceRevision: snapshot.metadata.sourceRevision ?? null,
     sourceCoverageComplete: snapshot.metadata.sourceCoverage?.complete === true,
@@ -147,6 +149,14 @@ export function inspectSnapshotCalculationResult(snapshot: DataSnapshot): Calcul
   if (evidence.contract !== 'aemr-calculation-output-v1') mismatches.push('output_contract');
   if (typeof evidence.sha256 !== 'string' ||
       evidence.sha256 !== calculationDigest(snapshotOutputForDigest(snapshot))) mismatches.push('output_hash');
+  if (evidence.rowsByDeptSha256 !==
+      (snapshot.rowsByDept === undefined ? null : calculationDigest(snapshot.rowsByDept))) {
+    mismatches.push('archived_department_rows');
+  }
+  if (evidence.svodGridSha256 !==
+      (snapshot.svodGrid === undefined ? null : calculationDigest(snapshot.svodGrid))) {
+    mismatches.push('archived_official_grid');
+  }
   if (evidence.sourceReceipt !== (snapshot.metadata.sourceReceipt ?? null)) mismatches.push('source_receipt');
   if (evidence.sourceRevision !== (snapshot.metadata.sourceRevision ?? null)) mismatches.push('source_revision');
   if (evidence.sourceCoverageComplete !== (snapshot.metadata.sourceCoverage?.complete === true)) mismatches.push('source_coverage');
