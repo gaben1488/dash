@@ -89,7 +89,7 @@ function read(group: Slice, key: string): number {
   return group.get(key)?.value ?? 0;
 }
 
-function byPeriod(grouped: GroupedResults, period: Period, method?: Method): Slice {
+export function byPeriod(grouped: GroupedResults, period: Period, method?: Method): Slice {
   if (period.startsWith('m')) {
     const month = Number(period.slice(1));
     return method ? grouped.byQuarterMethod.get(`${period}.${method}`) ?? new Map()
