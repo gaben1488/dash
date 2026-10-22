@@ -356,3 +356,48 @@ describe('сквозной сценарий: причина закрывает �
     expect(classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planMoney' })).toBeNull();
   });
 });
+
+// C04/C05/C06: explanation uses the same approved budget source as economy metrics.
+describe('approved economy reconciliation witnesses', () => {
+  function economicRow(approved: boolean) {
+    const r = row({ plan: 500, fact: 400, factDate: '01.01.2026', quarter: '' });
+    r[COL.FLAG] = approved ? ' ДА ' : '';
+    r[COL.ECONOMY_FB] = 2; r[COL.ECONOMY_KB] = 3; r[COL.ECONOMY_MB] = 1;
+    r[COL.ECONOMY_TOTAL] = 900; // AC is not the canonical budget sum.
+    return r;
+  }
+  it('only approved Z/AA/AB contribute, neither Y nor AC nor plan-minus-fact', () => {
+    const c = classifyFactQuarterMissing({ rows: [economicRow(false), economicRow(true)], sheet: 'УО', measure: 'economyMoney' })!;
+    expect(c.rows).toEqual([{ sheet: 'УО', row: 5, cell: 'Z5:AB5', delta: 6 }]);
+  });
+  it('absent approval leaves no false source witness', () => {
+    expect(classifyFactQuarterMissing({ rows: [economicRow(false)], sheet: 'УО', measure: 'economyMoney' })).toBeNull();
+  });
+  it('approval without a counted fact leaves no source witness', () => {
+    const r = economicRow(true); r[COL.FACT_DATE] = 'Х';
+    expect(classifyUnfunded({ rows: [r], sheet: 'УО', measure: 'economyMoney' })).toBeNull();
+  });
+  it('retains signed approved budget contributions', () => {
+    const r = economicRow(true); r[COL.ECONOMY_FB] = -6;
+    const c = classifyFactQuarterMissing({ rows: [r], sheet: 'УО', measure: 'economyMoney' })!;
+    expect(c.rows[0].delta).toBe(-2);
+  });
+  it('preserves year filtering for economy witnesses', () => {
+    const r = economicRow(true); r[COL.PLAN_YEAR] = 2027;
+    expect(classifyFactQuarterMissing({ rows: [r], sheet: 'УО', measure: 'economyMoney', year: 2026 })).toBeNull();
+  });
+  it('does not apply plan/fact parsing or sign heuristics to economy', () => {
+    const input = { rows: [economicRow(true)], sheet: 'УО', measure: 'economyMoney' as const, delta: 6 };
+    expect(classifyParsing(input)).toBeNull();
+    expect(classifySign(input)).toBeNull();
+  });
+  it('future approved economy is excluded from dated contributions, with exact negative after-slice witness', () => {
+    const r = economicRow(true); r[COL.FACT_DATE] = '10.01.2026';
+    const input = { rows: [r], sheet: 'УО', measure: 'economyMoney' as const, asOfDay: Math.floor(Date.UTC(2026, 0, 8) / 86400000) };
+    expect(classifyFactQuarterMissing(input)).toBeNull();
+    expect(classifyAfterSlice(input)?.rows).toEqual([{ sheet: 'УО', row: 4, cell: 'Z4:AB4', delta: -6 }]);
+    expect(classifyAfterSlice({ ...input, asOfDay: undefined })).toBeNull();
+    r[COL.PLAN_YEAR] = 2027;
+    expect(classifyAfterSlice({ ...input, year: 2026 })).toBeNull();
+  });
+});

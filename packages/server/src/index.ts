@@ -1,7 +1,9 @@
 import { config } from './config.js';
 import { createApp, preloadData, startServer } from './app.js';
+import { initializePublicationReaders } from './routes/report-releases.js';
 
 try {
+  await initializePublicationReaders();
   const app = await createApp();
   await startServer(app, config.server.port);
   preloadData(app);

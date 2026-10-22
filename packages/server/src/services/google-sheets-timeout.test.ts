@@ -11,19 +11,21 @@
  *      сроку каждое превратили бы двадцать секунд в минуту на одно управление.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEPARTMENT_REGISTRY } from '@aemr/shared';
 
 // Срок читается при загрузке модуля — переменная ставится до импорта.
 process.env.AEMR_SHEETS_TIMEOUT_MS = '200';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
+const gridGet = vi.fn();
 
 vi.mock('googleapis', () => ({
   google: {
     sheets: vi.fn(() => ({
       spreadsheets: {
         values: { get: valuesGet, batchGet: valuesBatchGet, update: vi.fn() },
-        get: vi.fn(),
+        get: gridGet,
       },
     })),
     // Настоящая функция, а не стрелочная: getSheetsApi вызывает её через new.
@@ -39,6 +41,11 @@ function neverResolves(): Promise<never> {
 beforeEach(() => {
   valuesGet.mockReset();
   valuesBatchGet.mockReset();
+  gridGet.mockReset();
+  const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+  gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+    sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 34 },
+  } }] } });
 });
 
 afterEach(() => {
@@ -78,6 +85,29 @@ describe('зависший источник', () => {
 
     await expect(batchGetCells(['A1'])).resolves.toEqual([{ range: 'A1', values: [[7]] }]);
   });
+});
+
+
+it('records a real mocked Sheets read as nested google time in its own HTTP request', async () => {
+  valuesGet.mockResolvedValue({ data: { values: [['ячейка']] } });
+  const [{ default: Fastify }, { registerRequestTiming, requestStage }, { getSheetData }] = await Promise.all([
+    import('fastify'), import('../plugins/request-timing.js'), import('./google-sheets.js'),
+  ]);
+  const app = Fastify();
+  registerRequestTiming(app);
+  app.get('/source', request => requestStage(request, 'model', async () => ({
+    count: (await getSheetData('СВОД ТД-ПМ')).length,
+  })));
+  try {
+    const response = await app.inject('/source?source=PRIVATE_DO_NOT_LOG');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ count: 1 });
+    expect(String(response.headers['server-timing'])).toContain('google;dur=');
+    expect(String(response.headers['server-timing'])).toContain('model;dur=');
+    expect(String(response.headers['server-timing'])).not.toContain('PRIVATE_DO_NOT_LOG');
+  } finally {
+    await app.close();
+  }
 });
 
 describe('перебор имён листа при молчании источника', () => {

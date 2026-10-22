@@ -83,3 +83,76 @@ describe('честные пропуски журнала (правило пол�
     expect(wm.recentGaps()).toHaveLength(1);
   });
 });
+
+describe('storage failures are not successful empty results', () => {
+  it('reports failed writes and allows retry after SQLite becomes writable', async () => {
+    const { db } = await import('../db/index.js');
+    db.$client.pragma('query_only = ON');
+    try {
+      expect(() => wm.saveWatermark('УО', 'pending', '2026-10-20T00:00:00Z')).toThrow();
+      expect(() => wm.noteHonestGap('УО', 'pending')).toThrow();
+    } finally {
+      db.$client.pragma('query_only = OFF');
+    }
+    wm.saveWatermark('УО', 'accepted', '2026-10-20T00:00:00Z');
+    expect(wm.watermarkOf('УО')?.fingerprint).toBe('accepted');
+    expect(wm.noteHonestGap('УО', 'pending')).toBe(true);
+  });
+});
+
+
+
+describe('R05.01: source receipt follows the single current profile and actual admitted masters', () => {
+  it('rejects an absent or semantically invalid cached master even when stored watermarks exist', async () => {
+    const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+    const { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE } = await import('@aemr/shared');
+    const header = Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label);
+    const current: Record<string, { values: unknown[][] }> = {};
+    const bindings: Record<string, string> = {};
+    for (const dept of DEPARTMENT_REGISTRY) {
+      const values = [[], [], [...header], ['1', '', '', '', '', '', 'Закупка']];
+      bindings[dept.id] = dept.source.providerId;
+      wm.saveWatermark(dept.id, sheetFingerprint(values), '2026-10-22T00:00:00Z', undefined,
+        { fileId: dept.source.providerId, values });
+      current[dept.id] = { values };
+    }
+    const svodValues = [['СВОД']];
+    wm.saveWatermark(wm.SVOD_WATERMARK_KEY, sheetFingerprint(svodValues),
+      '2026-10-22T00:00:00Z', undefined, { fileId: 'svod-source', values: svodValues });
+    current[wm.SVOD_WATERMARK_KEY] = { values: svodValues };
+
+    const original = wm.sourceStateReceipt(bindings, 'svod-source', current);
+    expect(original).toMatch(/^[0-9a-f]{64}$/);
+    expect(wm.sourceStateReceipt(bindings, 'svod-source', current)).toBe(original);
+
+    const absent = { ...current };
+    delete absent['УО'];
+    expect(wm.sourceStateReceipt(bindings, 'svod-source', absent)).toBeNull();
+
+    const invalidValues = current['УО'].values.map(row => [...row]);
+    invalidValues[2][21] = 'Цена договора вместо ФБ 2';
+    // The cached values are not authoritative if the active master meaning
+    // no longer matches the reviewed profile, even if its watermark exists.
+    expect(wm.sourceStateReceipt(bindings, 'svod-source', {
+      ...current, 'УО': { values: invalidValues },
+    })).toBeNull();
+  });
+});
+
+describe('accepted current reading', () => {
+  it('retains one state per book, restores it and rejects corruption', async () => {
+    const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+    const { db } = await import('../db/index.js');
+    const values = [[], [], [], [1094, 'УО', 'Учреждение', '', '', '', 'Предмет']];
+    wm.saveWatermark('УО', sheetFingerprint(values), '2026-10-21T06:28:00Z', undefined,
+      { fileId: 'same-source', values });
+    expect(wm.loadAcceptedReadings().get('УО')).toEqual({ fileId: 'same-source', values });
+    const changed = [[], [], []];
+    wm.saveWatermark('УО', sheetFingerprint(changed), '2026-10-21T06:29:00Z', undefined,
+      { fileId: 'same-source', values: changed });
+    expect(wm.loadAcceptedReadings().size).toBe(1);
+    expect(wm.loadAcceptedReadings().get('УО')?.values).toEqual(changed);
+    db.$client.prepare("UPDATE book_watermarks SET reading_json = '{}' WHERE book = ?").run('УО');
+    expect(() => wm.loadAcceptedReadings()).toThrow('SOURCE_STATE_READ_FAILED');
+  });
+});

@@ -13,7 +13,7 @@
  *     объект в переписке читался бы как «формулы читали, и они чисты».
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PipelineInput } from '@aemr/core';
+import type { SnapshotCalculationInput } from './snapshot-calculation.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -32,15 +32,15 @@ vi.mock('./google-sheets.js', () => ({
   fetchSHDYUSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'monthly' })),
 }));
 
-const seenInputs: PipelineInput[] = [];
+const seenInputs: SnapshotCalculationInput[] = [];
 
-vi.mock('@aemr/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@aemr/core')>();
+vi.mock('./snapshot-calculation.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./snapshot-calculation.js')>();
   return {
     ...actual,
-    runPipeline: (input: PipelineInput) => {
+    runSnapshotCalculation: (input: SnapshotCalculationInput) => {
       seenInputs.push(input);
-      return actual.runPipeline(input);
+      return actual.runSnapshotCalculation(input);
     },
   };
 });
@@ -78,6 +78,56 @@ afterEach(() => {
 });
 
 describe('формулы книг во входе конвейера', () => {
+  it('clears source provenance after a confirmed edit without changing selected inputs or read time', async () => {
+    const { setDeptSheetCache, getDeptSheetCache, setDeptLoadMeta, getDeptLoadMeta, patchDeptSheetCacheCell } = await import('./snapshot.js');
+    const sourceRevision = `SRC-${'a'.repeat(64)}`;
+    const loadedAt = '2026-10-20T01:00:00Z';
+    setDeptSheetCache({ УО: { values: bookValues, formulas: [], sheetName: 'ВСЕ', sourceRevision, sourceVersion: '42' } });
+    setDeptLoadMeta({ УО: { loadedAt, rowCount: 4, sheetName: 'ВСЕ', sourceRevision } });
+    const selected = getDeptSheetCache()['УО'];
+    const selectedMeta = getDeptLoadMeta()['УО'];
+    expect(patchDeptSheetCacheCell('УО', 4, 1, 'updated')).toBe(true);
+    expect(getDeptSheetCache()['УО'].sourceRevision).toBeUndefined();
+    expect(getDeptSheetCache()['УО'].sourceVersion).toBeUndefined();
+    expect(getDeptLoadMeta()['УО']).toEqual({ loadedAt, rowCount: 4, sheetName: 'ВСЕ' });
+    expect(selected.sourceRevision).toBe(sourceRevision);
+    expect(selected.values[3][1]).toBe('УО АЕМР');
+    expect(selectedMeta.sourceRevision).toBe(sourceRevision);
+  });
+
+  it('marks a calculation interrupted by a confirmed row edit as refreshing', async () => {
+    const { getSnapshot, setDeptSheetCache, patchDeptSheetCacheCell } = await import('./snapshot.js');
+    setDeptSheetCache({ УО: { values: bookValues, formulas: formulaGrid(), formulasRead: true, sheetName: 'ВСЕ' } });
+    batchGetCells.mockImplementationOnce(async () => {
+      expect(patchDeptSheetCacheCell('УО', 4, 1, 'updated')).toBe(true);
+      return [];
+    });
+    const snapshot = await getSnapshot(true);
+    expect(seenInputs[0].sheetRows['УО']).toEqual(bookValues);
+    expect(snapshot.metadata.readModel?.state).toBe('refreshing');
+    await getSnapshot();
+    expect(seenInputs).toHaveLength(2);
+    expect(seenInputs[1].sheetRows['УО'][3][1]).toBe('updated');
+  }, 30_000);
+
+  it('keeps the selected books, formulas and cached summary when sources refresh during acquisition', async () => {
+    const { SVOD_SHEET_NAME } = await import('@aemr/shared');
+    const { getSnapshot, setDeptSheetCache, setSvodGridCache, getDeptSheetCache } = await import('./snapshot.js');
+    const originalSummary = [['before']];
+    setSvodGridCache(originalSummary);
+    setDeptSheetCache({ УО: { values: bookValues, formulas: formulaGrid(), formulasRead: true, sheetName: 'ВСЕ' } });
+    batchGetCells.mockImplementationOnce(async () => {
+      setSvodGridCache([['after']]);
+      setDeptSheetCache({ УО: { values: [[], [], [], [2, 'later']], formulas: [['=0']], formulasRead: true, sheetName: 'ВСЕ' } });
+      return [];
+    });
+    await getSnapshot(true);
+    expect(seenInputs[0].sheetRows['УО']).toEqual(bookValues);
+    expect(seenInputs[0].sheetFormulas?.['УО']).toEqual(formulaGrid());
+    expect(seenInputs[0].sheetRows[SVOD_SHEET_NAME]).toEqual(originalSummary);
+    expect(getDeptSheetCache()['УО'].values[3][0]).toBe(2);
+  }, 30_000);
+
   it('прочитанные формулы книги доезжают до ядра', async () => {
     const { getSnapshot, setDeptSheetCache } = await import('./snapshot.js');
     setDeptSheetCache(

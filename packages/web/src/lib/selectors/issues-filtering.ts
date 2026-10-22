@@ -8,7 +8,8 @@
  * депт-ключей (selectedDeptBothForms) умирает при канонизации DepartmentId
  * в FilterContext; до резки — обе формы (Б5).
  */
-import { classifySheet } from '@aemr/shared';
+import { subordinateNameMatchKey, classifySheet, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { bothDeptKeyForms } from '../dept-key';
 import { isRetiredIssue } from '../diagnostics/mechanism-groups';
 
 export function filterIssues(allIssues: any[], opts: {
@@ -55,10 +56,11 @@ export function filterIssues(allIssues: any[], opts: {
     : allIssues;
 
   if (hasSubFilter) {
+    const selectedKeys = new Set([...selectedSubordinates].map(subordinateNameMatchKey));
     issues = issues.filter((i: any) => {
       // Issues without subordinateId pass through (org-level issues)
       if (!i.subordinateId) return true;
-      return selectedSubordinates.has(i.subordinateId);
+      return selectedKeys.has(subordinateNameMatchKey(i.subordinateId));
     });
   }
 
@@ -145,7 +147,29 @@ export function issueAxesWithoutData(issues: readonly unknown[]): IssueAxisGap[]
 /** Severity-разбиение отфильтрованных issues (бывшие :843–844). */
 export function splitIssuesBySeverity(issues: any[]): { criticalIssues: any[]; warningIssues: any[] } {
   return {
-    criticalIssues: issues.filter((i: any) => i.severity === 'critical' || i.severity === 'error'),
-    warningIssues: issues.filter((i: any) => i.severity === 'warning' || i.severity === 'significant'),
+    criticalIssues: issues.filter((i: any) => !formulaDiagnosticInapplicableReason(i) && (i.severity === 'critical' || i.severity === 'error')),
+    warningIssues: issues.filter((i: any) => !formulaDiagnosticInapplicableReason(i) && (i.severity === 'warning' || i.severity === 'significant')),
   };
+}
+
+
+/** Active counts share the Control filters and the canonical C-column identity.
+ * Book-level issues remain in the department total; they are never duplicated
+ * into children or attributed by similar subjects. */
+export function countNodeIssues(issues: Record<string, unknown>[], department: string) {
+  const own = filterIssues(issues, {
+    hasDeptFilter: true, selectedDeptBothForms: bothDeptKeyForms([department]),
+    selectedSubordinates: new Set(), normalizedSearch: '', selectedActivities: new Set(),
+  }).filter(issue => issue.status !== 'false_positive' && issue.status !== 'resolved'
+    && !formulaDiagnosticInapplicableReason(issue));
+  const subordinates = new Map<string, number>();
+  let unattributed = 0;
+  for (const issue of own) {
+    if (!issue.subordinateId) { unattributed++; continue; }
+    const key = subordinateNameMatchKey(issue.subordinateId);
+    subordinates.set(key, (subordinates.get(key) ?? 0) + 1);
+  }
+  return { total: own.length,
+    critical: own.filter(issue => issue.severity === 'critical' || issue.severity === 'error').length,
+    subordinates, unattributed };
 }

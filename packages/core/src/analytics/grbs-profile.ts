@@ -25,8 +25,8 @@ export interface GRBSBaseline {
 export const BASELINE_UNCONFIRMED_NOTE =
   'Норматив не подтверждён: роль и ожидания (expectedExecQ1, normalEpShare) — внутренний '
   + 'ориентир из легаси-генератора предыдущей команды (procurement_report.gs), происхождение '
-  + 'значений не документировано. Отклонения (execDeviation, epShareDeviation) и riskLevel '
-  + 'считаются от этого ориентира и фактом не являются.';
+  + 'значений не документировано. Отклонения (execDeviation, epShareDeviation) показывают '
+  + 'только разницу с этим ориентиром. Оценка риска не рассчитывается.';
 
 /**
  * Роли и ожидания по каждому ГРБС — порт из легаси-генератора предыдущей
@@ -73,8 +73,8 @@ export interface GRBSProfile {
   execDeviation: number | null;
   /** actual − normal (positive = too much EP); `null` при отсутствии базы. */
   epShareDeviation: number | null;
-  /** Риск от отклонений против неподтверждённого ориентира (см. baselineNote). */
-  riskLevel: 'low' | 'medium' | 'high';
+  /** Методика риска не подтверждена; ни отсутствие данных, ни ориентир не дают оценку. */
+  riskLevel: null;
   /**
    * Всегда true, пока нормативы не перенесены в редактируемый справочник
    * настроек: expectedExecQ1/normalEpShare/role взяты из легаси без источника.
@@ -99,12 +99,12 @@ export function buildGRBSProfiles(
         avgContractSize: 0,
         totalProcurements: 0,
         // Книги этого ГРБС в снимке нет — это отсутствие ДАННЫХ, а не нулевое
-        // исполнение. Числа пусты, риск высокий именно из-за слепоты.
+        // исполнение. Отсутствие сведений не означает высокий риск деятельности.
         actualExecQ1: null,
         actualEpShare: null,
         execDeviation: null,
         epShareDeviation: null,
-        riskLevel: 'high' as const,
+        riskLevel: null,
         baselineUnconfirmed: true as const,
         baselineNote: BASELINE_UNCONFIRMED_NOTE,
       };
@@ -127,12 +127,6 @@ export function buildGRBSProfiles(
     if (recalc.year.planTotal > 100_000) volume = 'ВЫСОКИЙ';
     else if (recalc.year.planTotal < 10_000) volume = 'НИЗКИЙ';
 
-    // Риск поднимает только измеренное отклонение: неизвестная величина не
-    // штрафует (снятие штрафа за «исполнение 0 %», реестр 08.08 §2 п.5).
-    let riskLevel: 'low' | 'medium' | 'high' = 'low';
-    if ((execDev !== null && execDev < -0.20) || (epDev !== null && epDev > 0.20)) riskLevel = 'high';
-    else if ((execDev !== null && execDev < -0.10) || (epDev !== null && epDev > 0.10)) riskLevel = 'medium';
-
     return {
       ...baseline,
       procurementVolume: volume,
@@ -142,7 +136,7 @@ export function buildGRBSProfiles(
       actualEpShare,
       execDeviation: execDev,
       epShareDeviation: epDev,
-      riskLevel,
+      riskLevel: null,
       baselineUnconfirmed: true as const,
       baselineNote: BASELINE_UNCONFIRMED_NOTE,
     };

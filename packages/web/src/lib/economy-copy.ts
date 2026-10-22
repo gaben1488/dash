@@ -1,7 +1,6 @@
-export const ECONOMY_EMPTY_STATE_COPY = {
-  title: 'Нет данных по экономии',
-  body: 'Экономия считается только по утвержденным строкам: факт-дата заполнена, AD="да", сумма Z+AA+AB. Данные появятся после загрузки из Google Sheets.',
-} as const;
+import { PRODUCT_COPY } from '@aemr/shared';
+import { productLabel } from '@aemr/shared';
+export const ECONOMY_EMPTY_STATE_COPY = PRODUCT_COPY["lib/economy-copy:ECONOMY_EMPTY_STATE_COPY"];
 
 /** Russian plural: pluralRu(1,'строка','строки','строк') → 'строка'. Экспорт: единственный дом склонения. */
 export function pluralRu(n: number, one: string, few: string, many: string): string {
@@ -103,7 +102,7 @@ export function buildEconomyInsight(input: EconomyInsightInput): string {
     null,
   );
   if (leader) {
-    parts.push(`Лидер — ${leader.dept} (${formatMoney(leader.economy)}).`);
+    parts.push(`Лидер — ${productLabel(leader.dept)} (${formatMoney(leader.economy)}).`);
   }
 
   const mbShare = totalEconomy > 0 ? ((mbEconomy / totalEconomy) * 100).toFixed(0) : '0';

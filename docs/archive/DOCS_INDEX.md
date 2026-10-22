@@ -1,5 +1,10 @@
 # AEMR Documentation Index
 
+> **Архивный индекс 10.07.2026.** Действующая карта находится в
+> [README](../../README.md#documentation-map), очередь — в
+> [PLAN](../PLAN.md#current-execution). Упомянутые ниже планируемые файлы
+> не следует создавать по этому старому перечню; часть путей стала архивной.
+
 **Status:** documentation organization guide, 2026-07-10.
 
 This file prevents the documentation set from growing into overlapping handoff notes. Stable product and technical facts belong in canonical docs. Handoff and audit docs may reference them, but should not become permanent sources of truth.

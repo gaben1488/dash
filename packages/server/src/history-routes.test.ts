@@ -69,4 +69,42 @@ describe('history routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/history/diff?from=nope&to=nada' });
     expect(res.statusCode).toBe(404);
   });
+  // API истории закупок не требует подключения Google: при пустом архиве
+  // не обещает отсутствие изменений и возвращает проверяемую пустоту.
+  it('GET /api/history/procurement-lineage без контрольных срезов даёт честный пустой ответ', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/history/procurement-lineage' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      source: 'confirmed-weekly-snapshots',
+      anchorId: null,
+      coverage: 'no-control-pair',
+      periods: [],
+      total: 0,
+      shown: 0,
+      nextOffset: null,
+    });
+  });
+
+  it('параметры пагинации и масштаба проверяются, неизвестная книга отвергается', async () => {
+    const invalid = [
+      '/api/history/procurement-lineage?weeks=0',
+      '/api/history/procurement-lineage?weeks=13',
+      '/api/history/procurement-lineage?weeks=abc',
+      '/api/history/procurement-lineage?limit=0',
+      '/api/history/procurement-lineage?offset=-1',
+      '/api/history/procurement-lineage?book=НЕСУЩЕСТВУЮЩИЙ_ГРБС',
+    ];
+    for (const url of invalid) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(400);
+    }
+  });
+
+  it('не подменяет чужим снимком несуществующий anchor', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/history/procurement-lineage?anchor=absent',
+    });
+    expect(res.statusCode).toBe(404);
+  });
 });

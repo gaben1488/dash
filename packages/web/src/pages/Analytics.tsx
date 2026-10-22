@@ -1,5 +1,11 @@
+import { MONTHS } from '@aemr/shared';
+import { PRODUCT_COPY } from '@aemr/shared';
+import { PERIOD_LABELS } from '@aemr/shared';
+import { useScopedQuery } from '../hooks/useScopedQuery';
+import { scatterScope } from '../lib/scatter-scope';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
+import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
@@ -34,9 +40,6 @@ import {
 import { api } from '../api';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
-const PERIOD_LABELS: Record<string, string> = {
-  year: 'Год', q1: '1 кв.', q2: '2 кв.', q3: '3 кв.', q4: '4 кв.',
-};
 
 /** Возможность централизации: одна категория закупок у нескольких ГРБС. */
 interface CentralizationOpportunityDTO {
@@ -214,10 +217,8 @@ function BudgetProgress({ label, plan, fact, color, formatMoney }: {
   );
 }
 
-const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-const TREND_LABELS: Record<string, string> = {
-  accelerating: 'Ускорение', decelerating: 'Замедление', stable: 'Стабильно', insufficient_data: 'Мало данных',
-};
+const MONTH_LABELS = MONTHS.map(m => m.short);
+const TREND_LABELS: Record<string, string> = PRODUCT_COPY["pages/Analytics:TREND_LABELS"];
 const TREND_COLORS: Record<string, string> = {
   accelerating: 'text-emerald-500', decelerating: 'text-red-500', stable: 'text-zinc-400', insufficient_data: 'text-zinc-400',
 };
@@ -253,7 +254,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
   const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
 
   const deptOptions = useMemo(() =>
-    depts.map((d: any) => ({ id: d.department?.id ?? '', label: d.department?.nameShort ?? '?' })),
+    depts.map((d: any) => ({ id: d.department?.id ?? '', label: productLabel(d.department?.id ?? d.department?.nameShort ?? '?') })),
   [depts]);
 
   const loadForecast = useCallback(async (deptId: string) => {
@@ -383,7 +384,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 }
 
 export function Analytics() {
-  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths } = useStore();
+  const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced, dashboardData } = useStore();
   const fd = useFilteredData();
   // Режим организаций (приказ владельца 20.08): «с подведомственными» —
   // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
@@ -404,23 +405,16 @@ export function Analytics() {
   // Drill-down state
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
 
-  // Scatter plot data (economy: limit vs fact per procurement)
-  const [scatterData, setScatterData] = useState<any[]>([]);
-  const [scatterLoading, setScatterLoading] = useState(false);
-
-  useEffect(() => {
-    setScatterLoading(true);
-    const params: Record<string, string> = {};
-    if (procurementFilter !== 'all') params.type = procurementFilter === 'competitive' ? 'competitive' : 'single';
-    if (activityFilter !== 'all') params.activity = activityFilter;
-    if (selectedDepartments.size > 0) params.dept = [...selectedDepartments].join(',');
-    if (selectedSubordinates.size > 0) params.subordinate = [...selectedSubordinates].join(',');
-    if (period !== 'year') params.period = period;
-    if (activeMonths.size > 0) params.months = [...activeMonths].join(',');
-    api.getScatterData(params).then((res: any) => {
-      setScatterData(res.points ?? []);
-    }).catch(() => setScatterData([])).finally(() => setScatterLoading(false));
-  }, [procurementFilter, activityFilter, selectedDepartments, selectedSubordinates, period, activeMonths]);
+  const snapshotId = dashboardData?.snapshot.id;
+  const scatterParams = scatterScope({ snapshotId, year, period, periodMode, activeMonths, selectedDepartments, selectedSubordinates,
+    procurementFilter, activityFilter, selectedActivities, deptOnlyMode, searchQuery: searchQueryDebounced });
+  const scatterQuery = useScopedQuery(snapshotId ? JSON.stringify(scatterParams) : '', signal => api.getScatterData(scatterParams, signal));
+  const scatterData = scatterQuery.data?.points ?? [];
+  const scatterLoading = !snapshotId || scatterQuery.loading;
+  const scatterCoverage = scatterQuery.data?.coverage;
+  const scatterSummary = scatterQuery.data?.summary;
+  const scatterTruncated = scatterQuery.data?.truncated ?? false;
+  const scatterError = scatterQuery.error;
 
   const filteredDepts = fd.depts;
   const hasDeptData = filteredDepts.length > 0;
@@ -448,14 +442,14 @@ export function Analytics() {
       const point: Record<string, any> = { name: PERIOD_LABELS[qk] };
       for (const d of filteredDepts) {
         const q = d.quarters?.[qk];
-        const name = d.department?.nameShort ?? d.department?.id ?? '?';
+        const name = productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?'));
         point[name] = q?.executionPct ?? null;
       }
       return point;
     });
   }, [filteredDepts]);
 
-  const deptNames = useMemo(() => filteredDepts.map((d: any) => d.department?.nameShort ?? d.department?.id ?? '?'), [filteredDepts]);
+  const deptNames = useMemo(() => filteredDepts.map((d: any) => productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?'))), [filteredDepts]);
 
   // Заголовок карточки прогноза приходит снизу: сам прогноз грузится
   // внутри карточки по выбранному управлению, а утверждение о нём должно
@@ -500,7 +494,7 @@ export function Analytics() {
     return filteredDepts.map((d: any, i: number) => {
       const q = d.quarters?.[periodKey] ?? {};
       return {
-        name: d.department?.nameShort ?? d.department?.id ?? '?',
+        name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
         planFB: q.planFB ?? 0, planKB: q.planKB ?? 0, planMB: q.planMB ?? 0,
         factFB: q.factFB ?? 0, factKB: q.factKB ?? 0, factMB: q.factMB ?? 0,
@@ -539,7 +533,7 @@ export function Analytics() {
   const trustData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => ({
-      name: d.department?.nameShort ?? d.department?.id ?? '?',
+      name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
       id: d.department?.id,
       trust: d.trustScore ?? 0,
     }));
@@ -551,7 +545,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => {
       const q = d.quarters?.[periodKey] ?? {};
       return {
-        dept: d.department?.nameShort ?? d.department?.id ?? '?',
+        dept: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
         execPct: q.executionPct ?? d.executionPercent ?? 0,
         planTotal: q.planTotal ?? d.planTotal,
@@ -569,7 +563,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => {
       const ba = d.byActivity?.[periodKey] ?? {};
       return {
-        name: d.department?.nameShort ?? '?',
+        name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         id: d.department?.id,
         // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
         // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
@@ -593,7 +587,7 @@ export function Analytics() {
       const cumulative = [q1f, q1f + q2f, q1f + q2f + q3f, q1f + q2f + q3f + q4f];
       const yearPlan = d.quarters?.year?.planTotal ?? 1;
       return {
-        name: d.department?.nameShort ?? '?',
+        name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         q1: yearPlan > 0 ? +((cumulative[0] / yearPlan) * 100).toFixed(1) : 0,
         q2: yearPlan > 0 ? +((cumulative[1] / yearPlan) * 100).toFixed(1) : 0,
         q3: yearPlan > 0 ? +((cumulative[2] / yearPlan) * 100).toFixed(1) : 0,
@@ -610,7 +604,7 @@ export function Analytics() {
       for (const sub of (d.subordinates ?? [])) {
         all.push({
           name: sub.name,
-          dept: d.department?.nameShort ?? '?',
+          dept: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           executionPct: sub.executionPct ?? 0,
           planTotal: sub.planTotal ?? 0,
           factTotal: sub.factTotal ?? 0,
@@ -696,10 +690,7 @@ export function Analytics() {
   const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
   const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
 
-  const avgEconomy = scatterData.length > 0
-    ? scatterData.reduce((s: number, d: any) => s + (d.economyPercent ?? 0), 0) / scatterData.length
-    : 0;
-  const suspiciousCount = scatterData.filter((d: any) => d.economyPercent < 2 || d.economyPercent > 25).length;
+  const limitReduction = scatterSummary?.limitReductionPercent ?? null;
 
   const avgExecHeatmap = heatmapData.length > 0
     ? heatmapData.reduce((s: number, d: any) => s + (d.execPct ?? 0), 0) / heatmapData.length
@@ -721,7 +712,7 @@ export function Analytics() {
         const q = d.quarters?.[periodKey] ?? {};
         const fact = q.factTotal ?? d.factTotal ?? 0;
         return {
-          name: d.department?.nameShort ?? '?',
+          name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           id: d.department?.id,
           size: Math.max(fact, 0),
           fill: chartColors[i % chartColors.length],
@@ -1281,14 +1272,14 @@ export function Analytics() {
                         key={`${sub.name}-${idx}`}
                         className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
                         onClick={() => {
-                          const dept = filteredDepts.find((d: any) => (d.department?.nameShort ?? '?') === sub.dept);
+                          const dept = filteredDepts.find((d: any) => (productLabel(d.department?.id ?? d.department?.nameShort ?? '?')) === sub.dept);
                           if (dept?.department?.id) navigateTo('data', { department: dept.department.id, subordinate: sub.name });
                         }}
                         title="Открыть строки этой организации в Реестре"
                       >
                         <td className="py-1.5 text-[10px] tabular-nums text-[var(--ink-faint)]">{idx + 1}</td>
                         <td className="max-w-[180px] truncate py-1.5 text-xs text-[var(--ink)]" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
-                        <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{sub.dept}</td>
+                        <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{productLabel(sub.dept)}</td>
                         <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.planTotal)}</td>
                         <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.factTotal)}</td>
                         <td className="py-1.5 text-center">
@@ -1322,28 +1313,33 @@ export function Analytics() {
         </AnalyticsCard>
       )}
 
-      {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — у ${suspiciousCount} закупок экономия вне коридора 2–25 %` : ''}` : 'Экономия: лимит против цены по заключённым закупкам'} icon={TrendingUp} source="calculated">
+      {/* Recorded plan/fact comparison; financial semantics come from the source. */}
+      <AnalyticsCard title={limitReduction !== null ? `Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%` : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
+        <SourceCoverageNotice coverage={scatterCoverage} />
+        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают снижение без правовой оценки.</p>
+        {scatterTruncated && <p className="text-xs text-[var(--ink-muted)]">Показаны первые {scatterData.length} из {scatterSummary?.count} позиций; взвешенный итог учитывает все позиции.</p>}
         {scatterLoading ? (
           <div
             role="status"
             aria-live="polite"
             className="flex animate-pulse items-center justify-center py-12 text-sm text-[var(--ink-faint)]"
           >
-            Собираем заключённые закупки: лимит строки против цены контракта…
+            Читаем позиции с отражённым фактом: плановая и фактическая суммы…
           </div>
+        ) : scatterError ? (
+          <p role="alert" className="py-4 text-sm text-[var(--data-warn)]">Облако закупок не прочитано. {scatterError}</p>
         ) : scatterData.length === 0 ? (
           <CardEmpty
-              title="Заключённых закупок под текущий отбор нет"
-              description="На диаграмму попадают только строки с датой заключения и ценой контракта. Снимите фильтры шапки или обновите данные."
+              title="Позиций с отражённым фактом под текущий отбор нет"
+              description="На диаграмму попадают позиции с действительной фактической датой и положительной суммой факта. Снимите фильтры шапки или обновите данные."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
         ) : (
           <>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-3">
-              Каждая точка — одна ЗАКЛЮЧЁННАЯ закупка (есть дата заключения и цена).
-              Обе оси — в тысячах рублей, как в книгах. Диагональ = нулевая экономия. Цвет по % снижения (44-ФЗ ст.37).
-              <span className="ml-2 font-medium text-zinc-500">{scatterData.length} закупок</span>
+              Каждая точка — одна позиция плана с отражённой датой и суммой факта.
+              Обе оси — в тысячах рублей, как в книгах. Диагональ — равенство плана и факта. Цвет показывает диапазон разницы, без правовой оценки.
+              <span className="ml-2 font-medium text-zinc-500">позиций: {scatterData.length}</span>
             </p>
             <div style={{ width: '100%', height: 380 }}>
               <ResponsiveContainer>
@@ -1353,15 +1349,15 @@ export function Analytics() {
                       подписаны одной единицей (скрин-разбор №5: «руб.» против
                       «тыс. руб.» на осях одного графика — запрещено). */}
                   <XAxis
-                    type="number" dataKey="planTotal" name="Лимит строки плана"
+                    type="number" dataKey="planTotal" name="Плановая сумма"
                     tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
-                    label={{ value: 'Лимит строки плана (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    label={{ value: 'Плановая сумма (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <YAxis
-                    type="number" dataKey="factTotal" name="Цена контракта"
+                    type="number" dataKey="factTotal" name="Отражённая сумма факта"
                     tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
-                    label={{ value: 'Цена контракта (тыс. руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    label={{ value: 'Отражённая сумма факта (тыс. руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <ZAxis range={[30, 80]} />
@@ -1376,40 +1372,40 @@ export function Analytics() {
                       return (
                         <div className="max-w-xs rounded-lg border border-[var(--line-card)] bg-[var(--surface-overlay)] p-3 text-xs shadow-lg">
                           <div className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.subject}</div>
-                          <div className="text-zinc-500">{d.department} · {d.procurementType}</div>
+                          <div className="text-zinc-500">{productLabel(d.department)} · {d.procurementType}</div>
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
                             {/* Единица — та же, что в книге: тысячи рублей. «7 000 ₽»
                                 на деле было 7 млн руб. (скрин-разбор №5). */}
-                            <span className="text-zinc-400">Лимит:</span>
+                            <span className="text-zinc-400">План:</span>
                             <span className="text-right font-medium">{d.planTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
-                            <span className="text-zinc-400">Цена:</span>
+                            <span className="text-zinc-400">Факт:</span>
                             <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
-                            <span className="text-zinc-400">Экономия:</span>
-                            <span className={`text-right font-bold ${d.economyPercent > 25 ? 'text-red-500' : d.economyPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                              {d.economyPercent?.toFixed(1)}%
+                            <span className="text-zinc-400">Разница с планом:</span>
+                            <span className={`text-right font-bold ${d.limitReductionPercent > 25 ? 'text-red-500' : d.limitReductionPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                              {d.limitReductionPercent?.toFixed(1)}%
                             </span>
                           </div>
                         </div>
                       );
                     }}
                   />
-                  <Scatter name="Норма (5-15%)" data={scatterData.filter((d: any) => d.economyPercent >= 5 && d.economyPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
-                  <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.economyPercent >= 0 && d.economyPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
                       высокую экономию» — из тона претензии в информационный. */}
-                  <Scatter name="Высокая экономия (свыше 25%)" data={scatterData.filter((d: any) => d.economyPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Цена выше лимита (меньше 0%)" data={scatterData.filter((d: any) => d.economyPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.economyPercent > 15 && d.economyPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-3 text-[10px] flex-wrap">
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — норма</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — снижение</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15–25 % — заметная</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — низкое снижение</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — высокая экономия по закупке (информационно)</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — цена выше лимита</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — разница с планом</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — разница с планом</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — факт выше плана</span>
             </div>
           </>
         )}
@@ -1510,7 +1506,7 @@ export function Analytics() {
                       onClick={() => row.id && navigateTo('data', { department: row.id })}
                       title="Открыть строки управления в Реестре"
                     >
-                      <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{row.dept}</td>
+                      <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{productLabel(row.dept)}</td>
                       <td className="py-1.5 text-center">
                         <span
                           className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"

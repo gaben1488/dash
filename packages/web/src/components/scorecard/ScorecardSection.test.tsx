@@ -143,6 +143,21 @@ function renderSection() {
 const flat = (): string => document.body.textContent?.replace(/\s+/g, ' ') ?? '';
 
 describe('Оценка управлений', () => {
+  it('показывает невыполненную проверку даже при отсутствии замечаний', async () => {
+    stubRoutes(SCORECARD, {
+      totalIssues: 0, critical: 0, warnings: 0, issues: [],
+      unavailableChecks: [{
+        ruleCode: 'anti_dumping',
+        status: 'insufficient_data',
+        reason: 'Антидемпинговая проверка не выполнена: нет НМЦК.',
+      }],
+    });
+    renderSection();
+    await screen.findByText('Антидемпинговая проверка не выполнена: нет НМЦК.');
+    expect(flat()).toContain('Это не подтверждает полноту правовой проверки');
+    expect(flat()).not.toContain('Проверены три механизма');
+  });
+
   it('оговорка о неподтверждённом ориентире стоит до чисел', async () => {
     stubRoutes(SCORECARD, COMPLIANCE);
     renderSection();
@@ -221,7 +236,7 @@ describe('Нормы закона о закупках', () => {
     await screen.findByText('УО');
 
     const section = screen.getByRole('region', { name: 'Нормы закона о закупках' });
-    expect(section.textContent).toContain('Разовая закупка у единственного поставщика выше предельной суммы');
+    expect(section.textContent).toContain('Недостаточно данных для проверки сумм отдельных договоров');
     expect(section.textContent).toContain('Что делать:');
     // Заголовок движка со знаком рубля и номером строки внутри — не выходит.
     expect(section.textContent).not.toContain('₽');
@@ -233,7 +248,7 @@ describe('Нормы закона о закупках', () => {
     await screen.findByText('УО');
 
     const section = screen.getByRole('region', { name: 'Нормы закона о закупках' });
-    expect(section.textContent?.replace(/\s+/g, ' ')).toContain('снижение считается от планового лимита');
+    expect(section.textContent?.replace(/\s+/g, ' ')).toContain('не доказывает нарушение');
   });
 
   it('пустой результат проверок объясняется, а не рисуется нулём', async () => {
@@ -252,6 +267,22 @@ describe('Нормы закона о закупках', () => {
     expect(screen.getByRole('table')).toBeTruthy();
     expect(flat()).toContain('Нарушения норм закона не прочитаны');
     expect(flat()).toContain('Оценка выше от этого не зависит');
+  });
+
+  it('сохраняет факты при неподтверждённой методике, не сообщает об отсутствии данных', async () => {
+    stubRoutes({ uo: {
+      grbsShort: 'УО', role: 'ОПЕРАЦИОННЫЙ',
+      assessmentStatus: 'unconfirmed_methodology',
+      assessmentReason: 'Методика не подтверждена; оценка не выставляется.',
+      execPct: 0.31, epShare: 0.68, dataQuality: 1, topFlags: [], anticorruptionFlags: 0,
+    } }, COMPLIANCE);
+    renderSection();
+    await screen.findByText('УО');
+    expect(flat()).toContain('Методика не подтверждена; оценка не выставляется.');
+    expect(flat()).toContain('31');
+    expect(flat()).toContain('68');
+    expect(flat()).not.toContain('Счётной базы нет ни у одного управления');
+    expect(screen.queryByText('C')).toBeNull();
   });
 
   it('отказ по оценке объявляется причиной и кнопкой повтора', async () => {

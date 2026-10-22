@@ -22,6 +22,7 @@ function sheet(healthy = false): { values: string[][]; formulas: string[][]; sta
     const sheetRow = 4 + i;
     const v = new Array(30).fill('');
     v[0] = String(101 + i); // A — номер закупки
+    v[6] = `Закупка ${101 + i}`;
     v[10] = '100';          // K — итог плана
     values.push(v);
     const f = new Array(30).fill('');
@@ -96,6 +97,7 @@ describe('шапка книги не судится', () => {
         f[26] = '27'; f[27] = '28';
       } else {
         v[0] = String(100 + i);
+        v[6] = `Закупка ${100 + i}`;
         v[10] = '100';
         f[10] = `=SUM(H${sheetRow}:J${sheetRow})`;
       }
@@ -105,5 +107,29 @@ describe('шапка книги не судится', () => {
     const v = formulaVerdicts().find((x) => x.book === 'УАГЗО');
     expect(v?.defects).toHaveLength(0);
     expect(v?.rowsJudged).toBe(2);
+  });
+});
+
+describe('назначение строки при доставке формул', () => {
+  beforeEach(() => { disconnectFormulaSink(); resetFormulaVerdicts(); });
+  afterEach(() => { disconnectFormulaSink(); resetFormulaVerdicts(); });
+
+  it('служебная строка внутри данных не судится, составная закупка судится', () => {
+    const { values, formulas } = sheet(true);
+    const service = new Array(30).fill('');
+    service[0] = '1'; service[10] = '11';
+    values.splice(1, 0, service);
+    formulas.splice(1, 0, service.slice());
+    // После вставки поддерживаем физические адреса формул здоровых доноров.
+    formulas[2][10] = '=SUM(H6:J6)';
+    values[2][0] = '173/1';
+    values[3][0] = '173/18';
+    formulas[3][10] = '229.4';
+    connectFormulaSink();
+    acceptFormulaDelivery({ book: 'УКСиМП', values, formulas, startRow: 4, formulasRead: true });
+    expect(formulaVerdicts().find((x) => x.book === 'УКСиМП')?.defects).toMatchObject([
+      { cell: 'K7', rowSeq: '173/18', kind: 'formula_overwritten' },
+    ]);
+    expect(formulaVerdicts().find((x) => x.book === 'УКСиМП')?.rowsJudged).toBe(3);
   });
 });

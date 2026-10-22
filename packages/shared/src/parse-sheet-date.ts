@@ -8,9 +8,26 @@
  * на 6 из 8 ГРБС-листов (столбцы N/Q там хранятся как serial-число).
  *
  * Поддержка: Date-объект, «дд.мм.гггг», Google/Excel-serial (число дней от
- * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), ISO/прочие строки new Date().
+ * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), полная ISO-дата/ISO timestamp.
+ * Один год без месяца и дня не является датой события.
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
+// Same anchored ISO grammar for a Date object and a calendar-day number:
+// arbitrary suffixes and textual notes are not dates.
+const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)$/;
+
+/** Reject impossible calendar days rather than relying on Date rollover. */
+function validCalendarDate(year: number, month: number, day: number): boolean {
+  if (!Number.isInteger(year) || year < 1 || year > 9999 ||
+      !Number.isInteger(month) || month < 1 || month > 12 ||
+      !Number.isInteger(day) || day < 1 || day > 31) return false;
+  // setUTCFullYear supports years 1..99 correctly (Date.UTC maps them to 19xx).
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+}
+
 export function parseSheetDate(val: unknown): Date | null {
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   if (val === null || val === undefined || val === '') return null;
@@ -21,18 +38,22 @@ export function parseSheetDate(val: unknown): Date | null {
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
     return isNaN(d.getTime()) ? null : d;
   }
 
   // Google/Excel serial (число дней от 1899-12-30).
-  const serial = Number(s);
+  const serial = /^[0-9]+(?:\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
     const d = new Date((serial - 25569) * 86400000);
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // ISO yyyy-mm-dd или полная ISO-строка
+  // ISO yyyy-mm-dd or full ISO timestamp, with real calendar day validation.
+  const isoDay = s.match(ISO_DAY_PATTERN);
+  if (!isoDay) return null;
+  if (isoDay && !validCalendarDate(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]))) return null;
   const iso = new Date(s);
   return isNaN(iso.getTime()) ? null : iso;
 }
@@ -78,19 +99,23 @@ export function dayNumberOf(val: unknown): number | null {
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
   }
 
   // Google/Excel serial — уже число суток, только сместить эпоху
-  const serial = Number(s);
+  const serial = /^[0-9]+(?:\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    return Math.round(serial) - SERIAL_EPOCH_OFFSET;
+    // Fractions represent time within this day; rounding shifts dates after noon.
+    return Math.floor(serial) - SERIAL_EPOCH_OFFSET;
   }
 
   // ISO «YYYY-MM-DD» или «YYYY-MM-DDTHH:mm:ss…» — компоненты даты из строки
-  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  const isoMatch = s.match(ISO_DAY_PATTERN);
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
+    if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
+    if (s.length > 10 && !Number.isFinite(Date.parse(s))) return null;
     return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
   }
 
@@ -118,4 +143,11 @@ export function isoOfDayNumber(day: number): string {
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
   return `${d.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+/** Only known date columns: a numeric purchase ID must never become a date. */
+export function equivalentSheetDate(column: string | null | undefined, before: unknown, after: unknown): boolean {
+  if (column !== 'N' && column !== 'Q') return false;
+  const day = dayNumberOf(before);
+  return day !== null && day === dayNumberOf(after);
 }

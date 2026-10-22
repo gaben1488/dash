@@ -1,5 +1,5 @@
 import type { RawCellValue, ReportMapEntry, NormalizedMetric } from '@aemr/shared';
-import { sheetNumber } from '../timeline/row-timeline.js';
+import { toNumber as sheetNumber, parsePercentage, convertMoney, isMoneyUnit } from '@aemr/shared';
 
 /**
  * Нормализует сырые значения ячеек в типизированные метрики
@@ -24,6 +24,7 @@ export function normalizeMetrics(
 function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): NormalizedMetric {
   const warnings: string[] = [];
   const now = new Date().toISOString();
+  const numericUnit = entry.valueType === 'currency' ? 'thousand_rubles' : entry.valueType === 'percent' ? 'percent' : entry.sourceUnit;
 
   if (!raw) {
     return {
@@ -33,7 +34,7 @@ function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): Nor
       displayValue: '—',
       origin: entry.originType,
       period: entry.period,
-      unit: entry.displayUnit,
+      unit: numericUnit,
       sourceSheet: entry.sourceSheet,
       sourceCell: entry.sourceCell,
       formula: null,
@@ -63,41 +64,35 @@ function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): Nor
     } else {
       warnings.push('Пустая ячейка');
     }
-  } else if (typeof rawVal === 'number') {
-    numericValue = rawVal;
-    value = rawVal;
-
-    // Коррекция процентов: Google Sheets возвращает 0.08 для 8%
-    if (entry.valueType === 'percent' && Math.abs(rawVal) <= 2) {
-      // Значение уже в долях единицы — всё ОК
-    } else if (entry.valueType === 'percent' && Math.abs(rawVal) > 2) {
-      // Похоже, что значение уже в процентах (8 вместо 0.08)
-      numericValue = rawVal / 100;
-      value = numericValue;
-      warnings.push('Процент нормализован: исходное значение > 2, разделено на 100');
-      confidence = 0.8;
-    }
-
-    // Проверка на подозрительные значения (дата как число)
-    if (entry.valueType === 'currency' || entry.valueType === 'number') {
-      if (rawVal > 40000 && rawVal < 50000 && !entry.sourceCell.includes(':')) {
-        // Может быть дата (serial number ~2009-2036)
-        warnings.push('Возможно, значение является датой (serial number)');
-        confidence = Math.min(confidence, 0.5);
+  } else if (entry.valueType === 'percent') {
+    const parsed = parsePercentage(rawVal, entry.percentEncoding ?? 'fraction');
+    if (parsed.ok) {
+      numericValue = parsed.value;
+      value = parsed.value;
+      if (typeof rawVal === 'string') {
+        warnings.push('Значение извлечено из строки');
+        confidence = 0.7;
       }
+    } else {
+      value = String(rawVal);
+      warnings.push('Некорректный процент: требуется полное конечное число и явная единица.');
+      confidence = 0;
+    }
+  } else if (typeof rawVal === 'number') {
+    numericValue = Number.isFinite(rawVal) ? rawVal : null;
+    value = numericValue ?? String(rawVal);
+    if (numericValue === null) {
+      warnings.push('Число не является конечным.');
+      confidence = 0;
     }
   } else if (typeof rawVal === 'string') {
     // Попытка распарсить число из строки — единой коэрцией ядра sheetNumber
     // (чистка 20.08.2026, зона В): семантика совпадает («мусор → null»),
-    // знак процента срезается до коэрции, как и раньше.
-    const parsed = sheetNumber(rawVal.replace('%', '')) ?? NaN;
+    // Процент разбирается отдельно по явной единице; здесь требуется всё число.
+    const parsed = sheetNumber(rawVal) ?? NaN;
     if (!isNaN(parsed)) {
       numericValue = parsed;
       value = parsed;
-      if (rawVal.includes('%') && entry.valueType === 'percent') {
-        numericValue = parsed / 100;
-        value = numericValue;
-      }
       warnings.push('Значение извлечено из строки');
       confidence = Math.min(confidence, 0.7);
     } else {
@@ -107,7 +102,20 @@ function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): Nor
     }
   } else if (typeof rawVal === 'boolean') {
     value = rawVal;
-    numericValue = rawVal ? 1 : 0;
+    numericValue = entry.valueType === 'boolean' ? (rawVal ? 1 : 0) : null;
+    if (numericValue === null) { warnings.push('Логическое значение не является числом.'); confidence = 0; }
+  }
+
+  if (numericValue !== null && entry.valueType === 'integer' && !Number.isInteger(numericValue)) {
+    numericValue = null;
+    warnings.push('Ожидалось целое число.');
+    confidence = 0;
+  }
+  if (numericValue !== null && entry.valueType === 'currency') {
+    numericValue = isMoneyUnit(entry.sourceUnit) && isMoneyUnit(entry.displayUnit)
+      ? convertMoney(numericValue, entry.sourceUnit, 'thousand_rubles') : null;
+    value = numericValue ?? String(rawVal);
+    if (numericValue === null) { warnings.push('Некорректная денежная единица или переполнение суммы.'); confidence = 0; }
   }
 
   // Формируем отображаемое значение
@@ -120,7 +128,7 @@ function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): Nor
     displayValue,
     origin: entry.originType,
     period: entry.period,
-    unit: entry.displayUnit,
+    unit: numericUnit,
     sourceSheet: entry.sourceSheet,
     sourceCell: entry.sourceCell,
     formula: raw.formula,
@@ -138,15 +146,18 @@ function formatDisplayValue(
   if (numericValue === null && value === null) return '—';
 
   if (numericValue !== null) {
+    const displayNumber = entry.valueType === 'currency' && isMoneyUnit(entry.displayUnit)
+      ? convertMoney(numericValue, 'thousand_rubles', entry.displayUnit) : numericValue;
+    if (displayNumber === null) return 'Сумма выходит за допустимый диапазон';
     switch (entry.displayUnit) {
       case 'percent':
         return `${(numericValue * 100).toFixed(1)}%`;
       case 'thousand_rubles':
-        return formatCurrency(numericValue) + ' тыс. руб.';
+        return formatCurrency(displayNumber) + ' тыс. руб.';
       case 'million_rubles':
-        return formatCurrency(numericValue) + ' млн руб.';
+        return formatCurrency(displayNumber) + ' млн руб.';
       case 'rubles':
-        return formatCurrency(numericValue) + ' руб.';
+        return formatCurrency(displayNumber) + ' руб.';
       case 'count':
         return String(Math.round(numericValue));
       default:

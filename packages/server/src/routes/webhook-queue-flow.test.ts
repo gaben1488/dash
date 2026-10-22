@@ -15,6 +15,7 @@ const ORIGINAL_ENV = { ...process.env };
 const refreshAllSources = vi.fn(async () => ({
   loaded: ['УО'],
   failed: [] as string[],
+  retryableFailures: [] as string[],
   svodOk: true,
   at: 'x',
   changedBooks: ['УО'],
@@ -38,7 +39,7 @@ vi.mock('../config.js', () => ({
   webhookTuning: { debounceMs: 15_000, channelTtlMs: 86_400_000 },
 }));
 
-const refreshMonitoringBook = vi.fn(async () => ({ read: true, changed: [], version: 1 }));
+const refreshMonitoringBook = vi.fn(async () => ({ read: true, changed: [] as string[], version: 1 }));
 vi.mock('../services/monitoring.js', () => ({
   refreshMonitoringBook: () => refreshMonitoringBook(),
   MONITORING_SPREADSHEET_ID: 'file-monitoring',
@@ -79,6 +80,7 @@ afterEach(async () => {
   refreshAllSources.mockResolvedValue({
     loaded: ['УО'],
     failed: [],
+    retryableFailures: [],
     svodOk: true,
     at: 'x',
     changedBooks: ['УО'],
@@ -86,6 +88,7 @@ afterEach(async () => {
     booksRead: 1,
     skipped: [],
   });
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -109,6 +112,129 @@ function post(headers: Record<string, string>) {
 }
 
 describe('очередь уведомлений — сквозная дорога', () => {
+  it.each(['source', 'monitoring'])('bounds %s retries when even the failure counter cannot be persisted', async (kind) => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const read = kind === 'source' ? refreshAllSources : refreshMonitoringBook;
+    read.mockClear();
+    read.mockRejectedValue(new Error('network timeout'));
+    db.$client.exec("CREATE TEMP TRIGGER fail_attempts BEFORE UPDATE OF attempts ON webhook_queue BEGIN SELECT RAISE(ABORT, 'injected counter failure'); END");
+    try {
+      await post(notification({ 'x-goog-resource-uri': `https://www.googleapis.com/drive/v3/files/${kind === 'source' ? 'file-uo' : 'file-monitoring'}` }));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: 0 })]);
+      expect(queue.queueStats().processed).toBe(0);
+      const health = await app.inject({ method: 'GET', url: '/api/webhook/drive/state' });
+      expect(health.json().queuePersistence).toMatchObject({ [kind]: 3, requiresAttention: true });
+    } finally {
+      db.$client.exec('DROP TRIGGER fail_attempts');
+      refreshMonitoringBook.mockResolvedValue({ read: true, changed: [], version: 1 });
+    }
+    refreshAllSources.mockResolvedValue({ loaded: ['УО'], failed: [], retryableFailures: [], svodOk: true,
+      at: 'x', changedBooks: [], svodChanged: false, booksRead: 1, skipped: [] });
+    const { recoverWebhookQueue } = await import('./webhook.js');
+    expect(recoverWebhookQueue({ info() {}, warn() {} })).toBe(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    const recovered = await app.inject({ method: 'GET', url: '/api/webhook/drive/state' });
+    expect(recovered.json().queuePersistence).toMatchObject({ [kind]: 0, requiresAttention: false });
+  });
+
+  it.each(['SOURCE_STATE_READ_FAILED', 'SOURCE_STATE_PERSIST_FAILED'])('retries %s without acknowledging the failed attempt', async (code) => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValueOnce(new Error(code));
+    expect((await post(notification())).statusCode).toBe(200);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: 1, lastError: code })]);
+    expect(queue.queueStats().processed).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(2);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
+  it('bounds repeated source-state failures and retains actionable evidence', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('SOURCE_STATE_PERSIST_FAILED'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(queue.MAX_QUEUE_ATTEMPTS);
+    expect(queue.pendingNotifications()).toEqual([expect.objectContaining({ attempts: queue.MAX_QUEUE_ATTEMPTS, lastError: 'SOURCE_STATE_PERSIST_FAILED' })]);
+    expect(queue.queueStats()).toMatchObject({ processed: 0, requiresAttention: 1 });
+  });
+
+  it('доставляет применённую версию мониторинга даже при отказе фиксации очереди', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    const { subscribeLiveEvents } = await import('../services/event-bus.js');
+    const received = vi.fn();
+    const unsubscribe = subscribeLiveEvents(received);
+    refreshMonitoringBook.mockResolvedValueOnce({ read: true, changed: ['УО'], version: 2 });
+    db.run(sql`CREATE TEMP TRIGGER fail_monitoring_done BEFORE UPDATE OF state ON webhook_queue
+      WHEN NEW.state = 'done' BEGIN SELECT RAISE(ABORT, 'test write failure'); END`);
+    try {
+      await post(notification({ 'x-goog-resource-uri': 'https://www.googleapis.com/drive/v3/files/file-monitoring' }));
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(queue.queueStats().processed).toBe(0);
+      expect(queue.pendingNotifications()).toHaveLength(1);
+      expect(received).toHaveBeenCalledWith(expect.objectContaining({
+        event: { kind: 'monitoring-updated', sheets: ['УО'], version: 2, origin: 'webhook' },
+      }));
+      db.run(sql`DROP TRIGGER fail_monitoring_done`);
+      await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+      expect(queue.pendingNotifications()).toHaveLength(0);
+      expect(received).toHaveBeenCalledTimes(1);
+    } finally {
+      db.run(sql`DROP TRIGGER IF EXISTS fail_monitoring_done`);
+      unsubscribe();
+    }
+  });
+
+  it('не подтверждает несохранённое уведомление и принимает повтор того же номера', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    const headers = notification();
+    db.run(sql`CREATE TEMP TRIGGER fail_queue_insert BEFORE INSERT ON webhook_queue
+      BEGIN SELECT RAISE(ABORT, 'test insert failure'); END`);
+    try {
+      const response = await post(headers);
+      expect(response.statusCode).toBe(503);
+      expect(queue.pendingNotifications()).toHaveLength(0);
+    } finally {
+      db.run(sql`DROP TRIGGER fail_queue_insert`);
+    }
+    expect((await post(headers)).statusCode).toBe(200);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
+  it('повторяет чтение после отказа фиксации done и сохраняет pending до успешной записи', async () => {
+    vi.useFakeTimers();
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    db.run(sql`CREATE TEMP TRIGGER fail_queue_done BEFORE UPDATE OF state ON webhook_queue
+      WHEN NEW.state = 'done' BEGIN SELECT RAISE(ABORT, 'test write failure'); END`);
+    try {
+      await post(notification());
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(queue.pendingNotifications()).toEqual([
+        expect.objectContaining({ attempts: 1, lastError: 'WEBHOOK_QUEUE_WRITE_FAILED' }),
+      ]);
+      expect(queue.queueStats().processed).toBe(0);
+    } finally {
+      db.run(sql`DROP TRIGGER fail_queue_done`);
+    }
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(2);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+    expect(queue.queueStats().processed).toBe(1);
+  });
+
   it('уведомление отвечает 200 мгновенно, запись лежит в очереди невыполненной', async () => {
     vi.useFakeTimers();
     const res = await post(notification());
@@ -136,6 +262,7 @@ describe('очередь уведомлений — сквозная дорог�
     refreshAllSources.mockResolvedValueOnce({
       loaded: [],
       failed: ['УО'],
+      retryableFailures: ['УО'],
       svodOk: true,
       at: 'x',
       changedBooks: [],
@@ -240,4 +367,60 @@ describe('очередь уведомлений — сквозная дорог�
     expect(state.queue.pending).toBe(0);
     expect(state.queue.processed).toBe(1);
   });
+});
+
+describe('bounded queue recovery', () => {
+  it('retains a transient failure but stops automatic source reads after three attempts', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('ETIMEDOUT'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000 + 10 * 75_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(3);
+    expect(queue.pendingNotifications()).toHaveLength(1);
+    expect(queue.queueStats()).toMatchObject({ pending: 1, requiresAttention: 1 });
+  });
+  it('does not repeatedly rebuild the same invalid source schema', async () => {
+    vi.useFakeTimers();
+    refreshAllSources.mockRejectedValue(new Error('SOURCE_SCHEMA_MISMATCH'));
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000 + 5 * 75_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.queueStats()).toMatchObject({ pending: 1, requiresAttention: 1 });
+  });
+  it('starts degraded on a busy queue and recovers without losing its pending notification', async () => {
+    vi.useFakeTimers();
+    queue.enqueueNotification({ book: 'УО', fileId: 'file-uo', messageNumber: 1, channelId: 'c', resourceState: 'update' });
+    vi.spyOn(queue, 'pendingNotifications').mockImplementationOnce(() => { throw new Error('queue failed', { cause: new Error('query failed', { cause: Object.assign(new Error('queue busy'), { code: 'SQLITE_BUSY' }) }) }); });
+    const { recoverWebhookQueue } = await import('./webhook.js');
+    const log = { info: vi.fn(), warn: vi.fn() };
+    expect(recoverWebhookQueue(log)).toBeNull();
+    expect(log.warn).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+  });
+});
+
+it('preserves the scheduled source plan when claiming notifications fails inside the timer', async () => {
+  vi.useFakeTimers();
+  await post(notification());
+  vi.spyOn(queue, 'pendingNotifications').mockImplementationOnce(() => { throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' }); });
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(refreshAllSources).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+  expect(refreshAllSources).toHaveBeenCalledTimes(1);
+  expect(queue.pendingNotifications()).toHaveLength(0);
+});
+
+it('bounds queue-lock recovery itself and retains evidence for a later manual retry', async () => {
+  vi.useFakeTimers();
+  queue.enqueueNotification({ book: 'УО', fileId: 'file-uo', messageNumber: 1, channelId: 'c', resourceState: 'update' });
+  const read = vi.spyOn(queue, 'pendingNotifications').mockImplementation(() => { throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' }); });
+  const { recoverWebhookQueue } = await import('./webhook.js');
+  expect(recoverWebhookQueue({ info() {}, warn() {} })).toBeNull();
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(read).toHaveBeenCalledTimes(3);
+  expect(refreshAllSources).not.toHaveBeenCalled();
+  read.mockRestore();
+  expect(queue.pendingNotifications()).toHaveLength(1);
 });

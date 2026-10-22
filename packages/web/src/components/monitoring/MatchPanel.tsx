@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Сверка реестра с книгами управлений по КАЖДОЙ СТРОКЕ (канон п.101а, спека §4).
  *
@@ -95,7 +96,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
           {match.books.sources
             .map(
               (source) =>
-                `${source.dept} — ${source.readAt ? new Date(source.readAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' }) : 'момент чтения не записан'}`,
+                `${productLabel(source.dept)} — ${source.readAt ? new Date(source.readAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' }) : 'момент чтения не записан'}`,
             )
             .join('; ')}
           . Время Камчатки.

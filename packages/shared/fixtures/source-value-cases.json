@@ -1,0 +1,33 @@
+{
+  "numbers": [
+    {"raw": "1 234,56", "value": "1234.56"},
+    {"raw": "1 234,56", "value": "1234.56"},
+    {"raw": "-20 000", "value": "-20000"},
+    {"raw": 0, "value": "0"},
+    {"raw": "0", "value": "0"},
+    {"raw": "", "value": null},
+    {"raw": null, "value": null},
+    {"raw": "123abc", "invalid": true},
+    {"raw": "Infinity", "invalid": true},
+    {"raw": "1 23", "invalid": true},
+    {"raw": "1,2,3", "invalid": true},
+    {"raw": "1e309", "invalid": true},
+    {"raw": true, "invalid": true}
+  ],
+  "dates": [
+    {"raw": "29.02.2024", "value": "2024-02-29"},
+    {"raw": "2026-01-01", "value": "2026-01-01"},
+    {"raw": 46023, "value": "2026-01-01"},
+    {"raw": 46023.75, "value": "2026-01-01"},
+    {"raw": "46023.75", "value": "2026-01-01"},
+    {"raw": "2026-01-01T23:30:00-05:00", "value": "2026-01-01"},
+    {"raw": 2026, "value": null},
+    {"raw": "0xB3C7", "value": null},
+    {"raw": "4.6023e4", "value": null},
+    {"raw": "31.02.2026", "value": null},
+    {"raw": "29.02.2026", "value": null},
+    {"raw": "2026", "value": null},
+    {"raw": "2026-01-01TNOT_A_TIME", "value": null},
+    {"raw": "Х", "value": null}
+  ]
+}

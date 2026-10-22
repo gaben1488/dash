@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * activity.ts — ось вида деятельности «Свода» = глобальная ось фильтра.
  *
@@ -38,10 +39,7 @@ export const CAT_TO_ACTIVITY_KEY: Readonly<Record<SvodActivityCat, ActivityKey>>
 export const SVOD_ACTIVITY_CATS: readonly SvodActivityCat[] = ['pm', 'td'];
 
 /** Подсказка к кнопке — объясняет категорию словами, а не сокращением. */
-export const ACTIVITY_HINT: Readonly<Record<SvodActivityCat, string>> = {
-  pm: 'Программные мероприятия — строки с видом деятельности «Программное мероприятие»',
-  td: 'Текущая деятельность целиком — включая строки с заполненной графой программы (канон п.30)',
-};
+export const ACTIVITY_HINT: Readonly<Record<SvodActivityCat, string>> = PRODUCT_COPY["lib/svod/activity:ACTIVITY_HINT"];
 
 /** Ключи глобального фильтра → категории сетки (чужое молча отбрасывается). */
 export function catsFromActivities(selected: Iterable<string>): Set<SvodActivityCat> {

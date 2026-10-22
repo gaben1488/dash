@@ -1,5 +1,12 @@
 # Unified СВОД — Implementation Plan
 
+> **Историческое решение по СВОДу, 05.06.2026.** Текущая стадия и
+> согласованный состав — [PLAN](PLAN.md#current-execution), смысл показателей —
+> [METRICS_CONTRACT](METRICS_CONTRACT.md#activity-classification). В частности,
+> прежнее правило ТД-ПМ по D отменено: ПМ/ТД задаёт F, D/E — независимую
+> программную принадлежность. Старые примеры/чекбоксы ниже не инструкция
+> вернуть это правило или заменить текущую композицию СВОД без согласования.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development или superpowers:executing-plans, task-by-task. Steps — чекбоксы `- [ ]`.
 
 **Goal:** Одна сверенная сетка `ГРБС × активность(4) × метод × бюджет × период(мес/кв/год)`, считаемая CalcEngine из атомов, сверяемая против листов СВОД ТД-ПМ + СВОД с месяцами, с единой таблицей в UI.

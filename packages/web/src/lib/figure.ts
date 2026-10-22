@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Число с паспортом: значение, единица, периметр, происхождение ──────────
 //
 //    Требование владельца дословно: «гарантии нужны, что в UI/UX правильно
@@ -37,12 +38,7 @@ import type { Perimeter } from './perimeter';
 export type FigureUnit = 'шт' | 'тыс.руб' | '%' | 'дн';
 
 /** Как единица выглядит в тексте. Ключ — машинный, значение — человеческое. */
-const UNIT_TEXT: Readonly<Record<FigureUnit, string>> = {
-  'шт': 'шт.',
-  'тыс.руб': 'тыс. руб.',
-  '%': '%',
-  'дн': 'дн.',
-};
+const UNIT_TEXT: Readonly<Record<FigureUnit, string>> = PRODUCT_COPY["lib/figure:UNIT_TEXT"];
 
 /** Знаков после запятой по единице: штуки и дни целые, деньги и доли — с десятой. */
 const UNIT_DECIMALS: Readonly<Record<FigureUnit, number>> = {

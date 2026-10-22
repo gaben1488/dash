@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Карточки диагноста (канон п.53 интервью 14.08.2026) — предъявление
  * замечаний классами, а не простынёй «строка N: предмет».
@@ -26,13 +27,7 @@ import {
 } from '@/lib/diagnostics/mechanism-groups';
 
 /** Русские подписи серьёзности; сырые ключи в UI недопустимы (D15). */
-const SEVERITY_TEXT: Record<string, string> = {
-  critical: 'Критическое',
-  error: 'Ошибка',
-  significant: 'Существенное',
-  warning: 'Предупреждение',
-  info: 'Информация',
-};
+const SEVERITY_TEXT: Record<string, string> = PRODUCT_COPY["components/DiagnosticCards:SEVERITY_TEXT"];
 
 const SEVERITY_BADGE: Record<string, string> = {
   critical: 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300',

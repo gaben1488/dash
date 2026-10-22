@@ -1,7 +1,9 @@
+import { summarizeCheckCoverage } from '@aemr/shared';
 import type { DepartmentSummary, TrustComponent, TrustScore } from '@aemr/shared';
 
 export interface TrustViewModel {
-  overallScore: number;
+  overallScore: number | null;
+  unavailableComponents: string[];
   components: TrustComponent[];
 }
 
@@ -10,11 +12,13 @@ function roundAverage(values: number[]): number {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-export function weightedTrustOverall(components: TrustComponent[]): number {
-  const totalWeight = components.reduce((sum, component) => sum + component.weight, 0);
-  if (totalWeight <= 0) return 0;
+export function weightedTrustOverall(components: TrustComponent[]): number | null {
+  if (components.some(c => c.weight > 0 && (c.score === null || !Number.isFinite(c.score)))) return null;
+  const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
+  const totalWeight = assessed.reduce((sum, component) => sum + component.weight, 0);
+  if (totalWeight <= 0) return null;
 
-  const weighted = components.reduce(
+  const weighted = assessed.reduce(
     (sum, component) => sum + component.score * component.weight,
     0,
   );
@@ -23,14 +27,19 @@ export function weightedTrustOverall(components: TrustComponent[]): number {
 
 export function buildTrustViewModel(
   trustData: TrustScore | null | undefined,
-  filteredDepartments: DepartmentSummary[] = [],
+  filteredDepartments?: DepartmentSummary[],
 ): TrustViewModel {
   const globalComponents = trustData?.components ?? [];
-  if (filteredDepartments.length === 0) {
+  if (filteredDepartments === undefined) {
     return {
-      overallScore: trustData?.overall ?? 0,
+      overallScore: trustData?.overall ?? null,
+      unavailableComponents: [],
       components: globalComponents,
     };
+  }
+
+  if (filteredDepartments.length === 0) {
+    return { overallScore: null, components: [], unavailableComponents: [] };
   }
 
   const componentNames = [
@@ -40,36 +49,39 @@ export function buildTrustViewModel(
     ),
   ].filter((name, index, names) => names.indexOf(name) === index);
 
-  const components = componentNames.map((name): TrustComponent => {
+  const unavailableComponents: string[] = [];
+  const components = componentNames.flatMap((name): TrustComponent[] => {
     const globalComponent = globalComponents.find((component) => component.name === name);
     const matching = filteredDepartments
       .flatMap((department) => department.trustComponents ?? [])
       .filter((component) => component.name === name);
 
-    if (matching.length === 0) {
-      return globalComponent ?? {
-        name,
-        label: name,
-        weight: 0,
-        score: 0,
-        issues: 0,
-        criticalIssues: 0,
-        details: 'Нет данных по выбранному фильтру',
-      };
+    if (matching.length !== filteredDepartments.length) {
+      unavailableComponents.push(globalComponent?.label ?? matching[0]?.label ?? name);
+      return [];
     }
 
     const base = globalComponent ?? matching[0];
-    return {
+    const counts = matching.flatMap(c => c.checks ? [c.checks] : []);
+    const coverage = counts.length === matching.length ? summarizeCheckCoverage(counts) : null;
+    return [{
       ...base,
-      score: roundAverage(matching.map((component) => component.score)),
+      score: matching.some(component => component.score === null)
+        ? null : coverage ? coverage.score : roundAverage(matching.map((component) => component.score!)),
+      ...(coverage ? { checks: { expected: coverage.expected, checked: coverage.checked, failed: coverage.failed } } : {}),
       issues: matching.reduce((sum, component) => sum + component.issues, 0),
       criticalIssues: matching.reduce((sum, component) => sum + component.criticalIssues, 0),
-      details: `Фильтр: ${matching.length} управлений`,
-    };
+      details: matching.some(component => component.score === null)
+        ? `Фильтр: ${matching.length} управлений. Полнота проверки не подтверждена; оценка недоступна.`
+        : coverage ? `Выполнено ${coverage.checked} из ${coverage.expected} проверок; выявлено ${coverage.failed} расхождений.`
+          : `Фильтр: ${matching.length} управлений`,
+    }];
   });
 
   return {
-    overallScore: weightedTrustOverall(components),
+    overallScore: components.length > 0 && unavailableComponents.length === 0
+      ? weightedTrustOverall(components) : null,
+    unavailableComponents,
     components,
   };
 }

@@ -63,16 +63,13 @@ export function parsePlanYear(raw: unknown): number | null {
 }
 
 /**
- * МЯГКИЙ разбор года-фильтра: 'all', пустое и мусор → undefined («фильтр
- * выключен»). Сознательно на `parseInt`, а не на `Number`: так ведут себя
- * четыре действующие копии (dashboard ×2, reconciliation, rows-filters), и
- * подключение этой функции обязано быть заменой поведения один-в-один, а не
- * попутным ужесточением контракта.
+ * Отсутствующий год или 'all' выключают фильтр. Явный ошибочный год не
+ * расширяет периметр до всех лет и не обрезается до числового префикса.
  */
-export function parseYearFilterParam(raw: string | undefined | null): number | undefined {
-  if (raw === undefined || raw === null || raw === '' || raw === 'all') return undefined;
-  const n = parseInt(raw, 10);
-  return isPlanYear(n) ? n : undefined;
+export function parseYearFilterParam(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === 'all') return undefined;
+  if (typeof raw === 'string' && /^\d{4}$/.test(raw) && isPlanYear(Number(raw))) return Number(raw);
+  throw Object.assign(new Error('Укажите год от 2020 до 2100 или all.'), { statusCode: 400, code: 'INVALID_SCOPE' });
 }
 
 // ── Разбор query ─────────────────────────────────────────────────────

@@ -1,0 +1,1588 @@
+{
+  "version": 1,
+  "departments": [
+    {
+      "id": "УЭР",
+      "latinId": "uer",
+      "monitoring": {
+        "order": 1,
+        "sheet": "1. УЭР",
+        "svodName": "УЭР АЕМР"
+      },
+      "fullName": "Управление экономического развития администрации Елизовского муниципального округа",
+      "shortName": "УЭР",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 42,
+        "kpYear": 47,
+        "epQ1": 53,
+        "epYear": 58,
+        "totalCombined": 60,
+        "totalCurrent": 61,
+        "compShareRow": 63,
+        "epShareRow": 64
+      },
+      "grbs": {
+        "id": "УЭР",
+        "order": 6,
+        "sheetName": "УЭР",
+        "subordinateCount": 1
+      },
+      "source": {
+        "sourceId": "UER",
+        "providerId": "15NEAE1zK0qc5li4BCwT4Jq-MH6uuA_SFFMG22ZrM4t4",
+        "sheetId": 1344447365,
+        "sheet": "ВСЕ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УИО",
+      "latinId": "uio",
+      "monitoring": {
+        "order": 3,
+        "sheet": "3. УИО",
+        "svodName": "УИО АЕМР"
+      },
+      "fullName": "Управление имущественных отношений администрации Елизовского муниципального округа",
+      "shortName": "УИО",
+      "sheetName": "УИО",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 72,
+        "kpYear": 77,
+        "epQ1": 83,
+        "epYear": 88,
+        "totalCombined": 90,
+        "totalCurrent": 91,
+        "compShareRow": 93,
+        "epShareRow": 94
+      },
+      "grbs": {
+        "id": "УИО",
+        "order": 3,
+        "sheetName": "УИО",
+        "subordinateCount": 0
+      },
+      "source": {
+        "sourceId": "UIO",
+        "providerId": "1qCBY5EDSASxK6_ZPQbxzdF8cKIjcwcuykbnOc45Ukn8",
+        "sheetId": 506180111,
+        "sheet": "УИО",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УАГЗО",
+      "latinId": "uagzo",
+      "monitoring": {
+        "order": 4,
+        "sheet": "4. УАГиЗО",
+        "svodName": "УАГЗО АЕМР"
+      },
+      "fullName": "Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа",
+      "shortName": "УАГЗО",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 102,
+        "kpYear": 107,
+        "epQ1": 113,
+        "epYear": 118,
+        "totalCombined": 120,
+        "totalCurrent": 121,
+        "compShareRow": 123,
+        "epShareRow": 124
+      },
+      "grbs": {
+        "id": "УАГиЗО",
+        "order": 2,
+        "sheetName": "УАГЗО",
+        "subordinateCount": 1
+      },
+      "source": {
+        "sourceId": "UAGZO",
+        "providerId": "1DgO0t_Zx-PXmtLBp5ddkQvb2_pTkmyFKP_PaDqjOyXk",
+        "sheetId": 1619220532,
+        "sheet": "ВСЕ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УФБП",
+      "latinId": "ufbp",
+      "monitoring": {
+        "order": 7,
+        "sheet": "7. УФБП",
+        "svodName": "УФБП АЕМР"
+      },
+      "fullName": "Управление финансов администрации Елизовского муниципального округа",
+      "shortName": "УФ",
+      "sheetName": "УФБП",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 132,
+        "kpYear": 137,
+        "epQ1": 143,
+        "epYear": 148,
+        "totalCombined": 150,
+        "totalCurrent": 151,
+        "compShareRow": 153,
+        "epShareRow": 154
+      },
+      "approvedPrimaryRename": true,
+      "grbs": {
+        "id": "УФБП",
+        "order": 4,
+        "sheetName": "УФБП",
+        "subordinateCount": 0,
+        "isAuthorizedBody": true
+      },
+      "source": {
+        "sourceId": "UFBP",
+        "providerId": "14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ",
+        "sheetId": 1575754193,
+        "sheet": "УФБП",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УД",
+      "latinId": "ud",
+      "monitoring": {
+        "order": 6,
+        "sheet": "6. УД",
+        "svodName": "УД АЕМР"
+      },
+      "fullName": "Управление делами администрации Елизовского муниципального округа",
+      "shortName": "УД",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 163,
+        "kpYear": 168,
+        "epQ1": 175,
+        "epYear": 180,
+        "totalCombined": 182,
+        "totalCurrent": 183,
+        "compShareRow": 185,
+        "epShareRow": 186
+      },
+      "grbs": {
+        "id": "УД",
+        "order": 5,
+        "sheetName": "ВСЕ",
+        "subordinateCount": 1
+      },
+      "source": {
+        "sourceId": "UD",
+        "providerId": "1zrpgVaCyS4S4KBNMFuDleMJS-PSTonHmPY_bRLgTVsg",
+        "sheetId": 1489829974,
+        "sheet": "ВСЕ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УДТХ",
+      "latinId": "udtx",
+      "monitoring": {
+        "order": 5,
+        "sheet": "5. УДТХиРКИ",
+        "svodName": "УДТХ АЕМР"
+      },
+      "fullName": "Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа",
+      "shortName": "УДТХиБ",
+      "sheetName": "УДТХ",
+      "hasSubordinates": false,
+      "svod": {
+        "kpQ1": 195,
+        "kpYear": 200,
+        "epQ1": 206,
+        "epYear": 211,
+        "totalCombined": 213,
+        "totalCurrent": 214,
+        "compShareRow": 216,
+        "epShareRow": 217
+      },
+      "approvedPrimaryRename": true,
+      "grbs": {
+        "id": "УДТХ",
+        "order": 7,
+        "sheetName": "УДТХ",
+        "subordinateCount": 0
+      },
+      "source": {
+        "sourceId": "UDTX",
+        "providerId": "1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4",
+        "sheetId": 1697519059,
+        "sheet": "УДТХ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УКСиМП",
+      "latinId": "uksimp",
+      "monitoring": {
+        "order": 2,
+        "sheet": "2. УКСиМП",
+        "svodName": "УКСиМП АЕМР"
+      },
+      "fullName": "Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа",
+      "shortName": "УКСиМП",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 225,
+        "kpYear": 230,
+        "epQ1": 236,
+        "epYear": 241,
+        "totalCombined": 243,
+        "totalCurrent": 244,
+        "compShareRow": 246,
+        "epShareRow": 247
+      },
+      "grbs": {
+        "id": "УКСиМП",
+        "order": 1,
+        "sheetName": "УКСиМП",
+        "subordinateCount": 20
+      },
+      "source": {
+        "sourceId": "UKSIMP",
+        "providerId": "1aFAw9AfNxkTVCqwp6G6fchn3ZeDi8FwFu5-xgRSo7aI",
+        "sheetId": 515493370,
+        "sheet": "ВСЕ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    },
+    {
+      "id": "УО",
+      "latinId": "uo",
+      "monitoring": {
+        "order": 8,
+        "sheet": "8. УО",
+        "svodName": "УО АЕМР"
+      },
+      "fullName": "Управление образования администрации Елизовского муниципального округа",
+      "shortName": "УО",
+      "sheetName": "ВСЕ",
+      "hasSubordinates": true,
+      "svod": {
+        "kpQ1": 255,
+        "kpYear": 260,
+        "epQ1": 266,
+        "epYear": 271,
+        "totalCombined": 273,
+        "totalCurrent": 274,
+        "compShareRow": 276,
+        "epShareRow": 277
+      },
+      "grbs": {
+        "id": "УО",
+        "order": 0,
+        "sheetName": "УО",
+        "subordinateCount": 43
+      },
+      "source": {
+        "sourceId": "UO",
+        "providerId": "1AGvXDSKSjpPc11ce4NDK262qySM4W6nFTq2YcgQ6Sds",
+        "sheetId": 2031605467,
+        "sheet": "ВСЕ",
+        "role": "master",
+        "profile": "master-v1",
+        "access": "read"
+      }
+    }
+  ],
+  "aliases": {
+    "УАГиЗО": "УАГЗО",
+    "Управление архитектуры, градостроительства и земельных отношений": "УАГЗО",
+    "Управление дорожно-транспортного хозяйства": "УДТХ",
+    "Управление имущественных отношений": "УИО",
+    "Управление культуры, спорта и молодёжной политики": "УКСиМП",
+    "Управление образования Администрации Елизовского муниципального района": "УО",
+    "Управление образования": "УО",
+    "Управление финансово-бюджетной политики": "УФБП",
+    "Управление экономического развития": "УЭР",
+    "УО АЕМР": "УО",
+    "УО  АЕМР": "УО",
+    "УКСиМП АЕМР": "УКСиМП",
+    "УАГЗО АЕМР": "УАГЗО",
+    "УАГиЗО АЕМР": "УАГЗО",
+    "УИО АЕМР": "УИО",
+    "УФБП АЕМР": "УФБП",
+    "УД АЕМР": "УД",
+    "УЭР АЕМР": "УЭР",
+    "УДТХ АЕМР": "УДТХ",
+    "УФБР": "УФБП",
+    "УТХиРКИ": "УДТХ",
+    "МКУ УЭР": "УЭР",
+    "Управление делами": "УД",
+    "УФБП СВОД25-26": "УФБП",
+    "УАГиЗО СВОД 25-26": "УАГЗО",
+    "УТХиРКИ СВОД 25-26": "УДТХ",
+    "Управление культуры, спорта и молодежной политики Администрации Елизовского муниципального района, УКС и МП": "УКСиМП",
+    "УИО Администрации Елизовского МР": "УИО",
+    "УАГЗО Администрации Елизовского муниципального района": "УАГЗО",
+    "Управление дорожно-транспортного хозяйства, УДТХ": "УДТХ",
+    "Управление делами Администрации Елизовского муниципального района": "УД",
+    "Управление финансово-бюджетной политики (УФБП АЕМР)": "УФБП",
+    "Управление культуры, спорта и молодежной политики Администрации": "УКСиМП",
+    "УДТХиРКИ": "УДТХ"
+  },
+  "masterProfile": {
+    "id": "master-v1",
+    "role": "master",
+    "headerRows": 3,
+    "columns": 34,
+    "formulaColumnGroups": [
+      {
+        "from": "K",
+        "to": "K"
+      },
+      {
+        "from": "O",
+        "to": "P"
+      },
+      {
+        "from": "R",
+        "to": "T"
+      },
+      {
+        "from": "Y",
+        "to": "AC"
+      }
+    ],
+    "fields": {
+      "ID": {
+        "index": 0,
+        "column": "A",
+        "modelField": "source_row_no",
+        "label": "№ п/п",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": "№ п/п",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "MANAGEMENT_NAME": {
+        "index": 1,
+        "column": "B",
+        "modelField": "grbs",
+        "label": "Наименование управления",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "SUBORDINATE": {
+        "index": 2,
+        "column": "C",
+        "modelField": "institution",
+        "label": "Наименование подведомственного учреждения",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": "подведомственного учреждения",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "PROGRAM_NAME": {
+        "index": 3,
+        "column": "D",
+        "modelField": "program",
+        "label": "Наименование программы",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "SUBPROGRAM": {
+        "index": 4,
+        "column": "E",
+        "modelField": "subprogram",
+        "label": "Пункт и наименование подпрограммы",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "TYPE": {
+        "index": 5,
+        "column": "F",
+        "modelField": "activity_kind",
+        "label": "Программное мероприятие/текущая деятельность",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": "текущая деятельность",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "SUBJECT": {
+        "index": 6,
+        "column": "G",
+        "modelField": "subject",
+        "label": "Наименование мероприятия/наименование предмета контракта",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": "предмета контракта",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "FB_PLAN": {
+        "index": 7,
+        "column": "H",
+        "modelField": "plan_fb",
+        "label": "ФБ 1",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ФБ 1",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "KB_PLAN": {
+        "index": 8,
+        "column": "I",
+        "modelField": "plan_kb",
+        "label": "КБ 1",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "КБ 1",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "MB_PLAN": {
+        "index": 9,
+        "column": "J",
+        "modelField": "plan_mb",
+        "label": "МБ 1",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "МБ 1",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "TOTAL_PLAN": {
+        "index": 10,
+        "column": "K",
+        "modelField": "plan_total",
+        "label": "ИТОГО 1",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ИТОГО 1",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_PLAN",
+          "KB_PLAN",
+          "MB_PLAN"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";H4:H+I4:I+J4:J))"
+      },
+      "METHOD": {
+        "index": 11,
+        "column": "L",
+        "modelField": "method",
+        "label": "Способ определения поставщика (ЭА и аналоги/ЕП)",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": "способ определения поставщика",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "EP_REASON": {
+        "index": 12,
+        "column": "M",
+        "modelField": "single_supplier_reason",
+        "label": "Причина выбора способа определения поставщика (в случае выбора ЕП)",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "PLAN_DATE": {
+        "index": 13,
+        "column": "N",
+        "modelField": "planned_date",
+        "label": "Планируемый",
+        "kind": "date",
+        "unit": "none",
+        "headerProbe": "Планируемый",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "PLAN_QUARTER": {
+        "index": 14,
+        "column": "O",
+        "modelField": "planned_quarter",
+        "label": "Квартал (план)",
+        "kind": "integer",
+        "unit": "none",
+        "headerProbe": "квартал (план)",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));\"^(X|Х)$\");\"X\";ROUNDUP(MONTH(N4:N)/3;0))))"
+      },
+      "PLAN_YEAR": {
+        "index": 15,
+        "column": "P",
+        "modelField": "planned_year",
+        "label": "Год (план)",
+        "kind": "integer",
+        "unit": "none",
+        "headerProbe": "год (план)",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));\"^(X|Х)$\");\"X\";YEAR(N4:N))))"
+      },
+      "FACT_DATE": {
+        "index": 16,
+        "column": "Q",
+        "modelField": "actual_date",
+        "label": "Фактический (в случае отсутствия проставляется Х)",
+        "kind": "date",
+        "unit": "none",
+        "headerProbe": "Фактический",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "FACT_QUARTER": {
+        "index": 17,
+        "column": "R",
+        "modelField": "actual_quarter",
+        "label": "Квартал (факт)",
+        "kind": "integer",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");\"X\";ROUNDUP(MONTH(Q4:Q)/3;0))))"
+      },
+      "FACT_YEAR": {
+        "index": 18,
+        "column": "S",
+        "modelField": "actual_year",
+        "label": "Год (факт)",
+        "kind": "integer",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");\"X\";YEAR(Q4:Q))))"
+      },
+      "DEVIATION_DAYS": {
+        "index": 19,
+        "column": "T",
+        "modelField": "deviation",
+        "label": "Отклонение, дни",
+        "kind": "integer",
+        "unit": "day",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE",
+          "FACT_DATE"
+        ],
+        "externalReferences": [
+          "Settings!B6"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");IF(N4:N>Settings!$B$6;\"Срок не наступил\";\"Срок нарушен\");Q4:Q-N4:N)))"
+      },
+      "DEVIATION_REASON": {
+        "index": 20,
+        "column": "U",
+        "modelField": "deviation_reason",
+        "label": "Причина отклонения",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "FB_FACT": {
+        "index": 21,
+        "column": "V",
+        "modelField": "fact_fb",
+        "label": "ФБ 2",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ФБ 2",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "KB_FACT": {
+        "index": 22,
+        "column": "W",
+        "modelField": "fact_kb",
+        "label": "КБ 2",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "КБ 2",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "MB_FACT": {
+        "index": 23,
+        "column": "X",
+        "modelField": "fact_mb",
+        "label": "МБ 2",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "МБ 2",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "TOTAL_FACT": {
+        "index": 24,
+        "column": "Y",
+        "modelField": "fact_total",
+        "label": "ИТОГО 2",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ИТОГО 2",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_FACT",
+          "KB_FACT",
+          "MB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";V4:V+W4:W+X4:X))"
+      },
+      "ECONOMY_FB": {
+        "index": 25,
+        "column": "Z",
+        "modelField": "saving_fb",
+        "label": "ФБ 3",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ФБ 3",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "FB_PLAN",
+          "FB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;H4:H-V4:V)))"
+      },
+      "ECONOMY_KB": {
+        "index": 26,
+        "column": "AA",
+        "modelField": "saving_kb",
+        "label": "КБ 3",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "КБ 3",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "KB_PLAN",
+          "KB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;I4:I-W4:W)))"
+      },
+      "ECONOMY_MB": {
+        "index": 27,
+        "column": "AB",
+        "modelField": "saving_mb",
+        "label": "МБ 3",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "МБ 3",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "MB_PLAN",
+          "MB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;J4:J-X4:X)))"
+      },
+      "ECONOMY_TOTAL": {
+        "index": 28,
+        "column": "AC",
+        "modelField": "saving_total",
+        "label": "ИТОГО 3",
+        "kind": "money",
+        "unit": "thousandRub",
+        "headerProbe": "ИТОГО 3",
+        "headerAliases": [],
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "ECONOMY_FB",
+          "ECONOMY_KB",
+          "ECONOMY_MB"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";Z4:Z+AA4:AA+AB4:AB))"
+      },
+      "FLAG": {
+        "index": 29,
+        "column": "AD",
+        "modelField": "include_saving",
+        "label": "Учитывать в расчете экономии да/нет",
+        "kind": "flag",
+        "unit": "none",
+        "headerProbe": "учитывать в расчете экономии",
+        "headerAliases": [],
+        "requiredMeaning": true
+      },
+      "JUSTIFICATION": {
+        "index": 30,
+        "column": "AE",
+        "modelField": "necessity_reason",
+        "label": "Обоснование необходимости",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "COMMENT_GRBS": {
+        "index": 31,
+        "column": "AF",
+        "modelField": "grbs_comment",
+        "label": "Комментарий ГРБСа",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "COMMENT_UER": {
+        "index": 32,
+        "column": "AG",
+        "modelField": "uer_comment_or_procedure_code",
+        "label": "Комментарий УЭР АЕМР",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      },
+      "COMMENT_UFBP": {
+        "index": 33,
+        "column": "AH",
+        "modelField": "monitoring_note",
+        "label": "Комментарий УФБП АЕМР",
+        "kind": "text",
+        "unit": "none",
+        "headerProbe": null,
+        "headerAliases": [],
+        "requiredMeaning": false
+      }
+    }
+  },
+  "monitoringSchema": {
+    "review": "canonical-monitoring-v3-2026-10-08",
+    "reason": "Reviewed canonical monitoring migration: physical sources retained, current queue mapped, legacy controls retired; variable summary cells are data, not schema.",
+    "providerId": "1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E",
+    "supplierSource": {
+      "sheet_id": 110002,
+      "sheet": "_Поставщики",
+      "role": "formula_dependency",
+      "columns": 6,
+      "header_rows": 1,
+      "units": "directory",
+      "grbs": null,
+      "schema_fingerprint": "0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c",
+      "semantic_header_fingerprint": "d631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170"
+    },
+    "recordedV3": [
+      {
+        "old_sheet": "Процедуры в работе",
+        "sheet": "Процедуры в работе",
+        "role": "procedure_lifecycle",
+        "old_columns": 13,
+        "columns": 24,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "44b89bedff9ced887103666dfa1eab3b88062b597e688cb988ef6e9f722df51f",
+        "fingerprint": "7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe",
+        "previous_semantic": "2819165c346113d933bf44f4a08cc70b6270c181d59a4f9663805d475ca5694c",
+        "semantic": "40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf",
+        "volatile_cells": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            15
+          ]
+        ],
+        "previous_geometry": [
+          [
+            23,
+            2,
+            "ee62039702fe893fdb9a04a39851708fb4d60842e160d1c3bb3cd5ed1d492e2a"
+          ]
+        ],
+        "previous_semantics": [
+          "8a9bd23bb83d1020fd9f1de53e384e2bfd90a2e3a205cd9ea56581c3eda0f50d"
+        ],
+        "previous_titles": [
+          "Процедуры в работе"
+        ]
+      },
+      {
+        "old_sheet": "Архив успешно завершенных процедур с фильтрацией",
+        "sheet": "Архив завершённых процедур по ГРБС",
+        "role": "procedure_lifecycle",
+        "old_columns": 20,
+        "columns": 20,
+        "old_header_rows": 3,
+        "header_rows": 3,
+        "old_fingerprint": "a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404",
+        "fingerprint": "d913069152442a501a2d4b1677f25f5d4c1dd1ab0dda53ccdeb21fd922afdebc",
+        "previous_semantic": "9a8466b2e995bea8a687ab4e7a24226489cf3a23a50bbe257cab584801df7a0d",
+        "semantic": "0bff84cc375425b514f0c4654050c90e48c9448e2aca3e2842f99e54dc7a8f27",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            2,
+            8
+          ],
+          [
+            2,
+            10
+          ]
+        ],
+        "previous_geometry": [
+          [
+            20,
+            3,
+            "a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404"
+          ]
+        ],
+        "previous_semantics": [
+          "50b949b6b61a70e17826110c242884017395c0541dfd93244e10c621712c6d5e"
+        ],
+        "previous_titles": [
+          "Процедуры по управлениям"
+        ]
+      },
+      {
+        "old_sheet": "Архив не завершившихся процедур, их судьба",
+        "sheet": "Архив не завершившихся процедур, их судьба",
+        "role": "procedure_lifecycle",
+        "old_columns": 17,
+        "columns": 17,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "437921160613f1304093beda28bd9d8078c8e767f0f432bc85c7f0890c95935e",
+        "fingerprint": "98e774e3f09e725cd7f267cab3b5414d151f8c946e673f65a1abf69784683e3c",
+        "previous_semantic": "06581bfd10dfa5c0283cd61fc98d50a78391846d7cbf727327f5acb72f4b2125",
+        "semantic": "6199aff3bbaac8f94b1f14b9977c6dffc427cfdd24c18fbdf3edbc947dea09c8",
+        "volatile_cells": [
+          [
+            1,
+            14
+          ],
+          [
+            1,
+            15
+          ]
+        ],
+        "previous_geometry": [
+          [
+            17,
+            1,
+            "2cd65b82d05685147ebdc23bdf6204fb091c5dc5b00e6095d5db2b7bbc10178b"
+          ]
+        ],
+        "previous_semantics": [
+          "85ccf99fc7e76557f8422632fd06e358be5d5c847b1afa30f8c55714a5f12806"
+        ],
+        "previous_titles": [
+          "Архив не завершившихся процедур, их судьба"
+        ]
+      },
+      {
+        "old_sheet": "Сводный аналитический лист",
+        "sheet": "Сводный аналитический лист",
+        "role": "formula_dependency",
+        "old_columns": 18,
+        "columns": 18,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa",
+        "fingerprint": "fa79208276a2921c0e3f703f6e83f22cd6ed2b9e63099a7a76b07aa8df22168a",
+        "previous_semantic": "f35ee3c75cc256be856eb662c574ceebb507c9f5bfa10d27446d775d13673f02",
+        "semantic": "6647e3d8ba74b0b5698fa39474ff686b454e73902737bc089b6e3a4df13b23df",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ]
+        ],
+        "previous_geometry": [
+          [
+            18,
+            2,
+            "278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa"
+          ]
+        ],
+        "previous_semantics": [
+          "03c976a9bfef88531193d6f8586abcf5c532e9cfcc79ece91b2acd69f3a2e7a9"
+        ],
+        "previous_titles": [
+          "Сводный аналитический лист"
+        ]
+      },
+      {
+        "old_sheet": "Справочник заказчиков",
+        "sheet": "Справочник заказчиков",
+        "role": "formula_dependency",
+        "old_columns": 18,
+        "columns": 19,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "33c63a8f5a1b2bd6fb5bd4d49a325bdd04c174f53859c29a3373fa991f941b50",
+        "fingerprint": "994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042",
+        "previous_semantic": "594117f4a78542aaee93605b400d737e6b08692748aee1faf5df20359cc66ea5",
+        "semantic": "c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1",
+        "volatile_cells": [],
+        "optional": true,
+        "previous_geometry": [
+          [
+            18,
+            1,
+            "04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3"
+          ]
+        ],
+        "previous_semantics": [
+          "be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe"
+        ]
+      },
+      {
+        "old_sheet": "_Проверки",
+        "sheet": "_Проверки",
+        "role": "historical_control_dependency",
+        "old_columns": 26,
+        "columns": 8,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b",
+        "fingerprint": "21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b",
+        "previous_semantic": "c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2",
+        "semantic": "c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            8
+          ]
+        ],
+        "optional": true,
+        "sealed_baseline": true
+      },
+      {
+        "old_sheet": "Лист Совместных закупок",
+        "sheet": "Лист Совместных закупок",
+        "role": "procedure_lifecycle",
+        "sheet_id": 2526402,
+        "old_columns": 20,
+        "columns": 20,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377",
+        "fingerprint": "afef389d5963824b4b2c570923ec5edfecf88a89dd1ea78e0d92077c87d45d13",
+        "previous_semantic": "1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1",
+        "semantic": "4badb510776e3b751b1fc93911457967a7e01de872cdcf5487e2b54032e69f2f",
+        "volatile_cells": [
+          [
+            1,
+            19
+          ]
+        ]
+      },
+      {
+        "old_sheet": "_Поставщики",
+        "sheet": "_Поставщики",
+        "role": "formula_dependency",
+        "sheet_id": 110002,
+        "old_columns": 6,
+        "columns": 6,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5",
+        "fingerprint": "0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c",
+        "previous_semantic": "530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10",
+        "semantic": "d631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170",
+        "volatile_cells": [],
+        "optional": true
+      }
+    ],
+    "reviews": [
+      {
+        "old_sheet": "Процедуры в работе",
+        "sheet": "Процедуры в работе",
+        "role": "procedure_lifecycle",
+        "old_columns": 13,
+        "columns": 24,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "44b89bedff9ced887103666dfa1eab3b88062b597e688cb988ef6e9f722df51f",
+        "fingerprint": "d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb",
+        "previous_semantic": "2819165c346113d933bf44f4a08cc70b6270c181d59a4f9663805d475ca5694c",
+        "semantic": "cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61",
+        "volatile_cells": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            15
+          ]
+        ],
+        "previous_geometry": [
+          [
+            23,
+            2,
+            "ee62039702fe893fdb9a04a39851708fb4d60842e160d1c3bb3cd5ed1d492e2a"
+          ],
+          [
+            24,
+            2,
+            "7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe"
+          ]
+        ],
+        "previous_semantics": [
+          "8a9bd23bb83d1020fd9f1de53e384e2bfd90a2e3a205cd9ea56581c3eda0f50d",
+          "40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf"
+        ],
+        "previous_titles": [
+          "Процедуры в работе"
+        ],
+        "sheet_id": 2526400
+      },
+      {
+        "old_sheet": "Архив успешно завершенных процедур с фильтрацией",
+        "sheet": "Архив завершённых процедур по ГРБС",
+        "role": "procedure_lifecycle",
+        "old_columns": 20,
+        "columns": 20,
+        "old_header_rows": 3,
+        "header_rows": 3,
+        "old_fingerprint": "a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404",
+        "fingerprint": "d913069152442a501a2d4b1677f25f5d4c1dd1ab0dda53ccdeb21fd922afdebc",
+        "previous_semantic": "9a8466b2e995bea8a687ab4e7a24226489cf3a23a50bbe257cab584801df7a0d",
+        "semantic": "0bff84cc375425b514f0c4654050c90e48c9448e2aca3e2842f99e54dc7a8f27",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            2,
+            8
+          ],
+          [
+            2,
+            10
+          ]
+        ],
+        "previous_geometry": [
+          [
+            20,
+            3,
+            "a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404"
+          ]
+        ],
+        "previous_semantics": [
+          "50b949b6b61a70e17826110c242884017395c0541dfd93244e10c621712c6d5e"
+        ],
+        "previous_titles": [
+          "Процедуры по управлениям"
+        ]
+      },
+      {
+        "old_sheet": "Архив не завершившихся процедур, их судьба",
+        "sheet": "Архив не завершившихся процедур, их судьба",
+        "role": "procedure_lifecycle",
+        "old_columns": 17,
+        "columns": 17,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "437921160613f1304093beda28bd9d8078c8e767f0f432bc85c7f0890c95935e",
+        "fingerprint": "98e774e3f09e725cd7f267cab3b5414d151f8c946e673f65a1abf69784683e3c",
+        "previous_semantic": "06581bfd10dfa5c0283cd61fc98d50a78391846d7cbf727327f5acb72f4b2125",
+        "semantic": "6199aff3bbaac8f94b1f14b9977c6dffc427cfdd24c18fbdf3edbc947dea09c8",
+        "volatile_cells": [
+          [
+            1,
+            14
+          ],
+          [
+            1,
+            15
+          ]
+        ],
+        "previous_geometry": [
+          [
+            17,
+            1,
+            "2cd65b82d05685147ebdc23bdf6204fb091c5dc5b00e6095d5db2b7bbc10178b"
+          ]
+        ],
+        "previous_semantics": [
+          "85ccf99fc7e76557f8422632fd06e358be5d5c847b1afa30f8c55714a5f12806"
+        ],
+        "previous_titles": [
+          "Архив не завершившихся процедур, их судьба"
+        ]
+      },
+      {
+        "old_sheet": "Сводный аналитический лист",
+        "sheet": "Сводный аналитический лист",
+        "role": "formula_dependency",
+        "old_columns": 18,
+        "columns": 18,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa",
+        "fingerprint": "fa79208276a2921c0e3f703f6e83f22cd6ed2b9e63099a7a76b07aa8df22168a",
+        "previous_semantic": "f35ee3c75cc256be856eb662c574ceebb507c9f5bfa10d27446d775d13673f02",
+        "semantic": "6647e3d8ba74b0b5698fa39474ff686b454e73902737bc089b6e3a4df13b23df",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ]
+        ],
+        "previous_geometry": [
+          [
+            18,
+            2,
+            "278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa"
+          ]
+        ],
+        "previous_semantics": [
+          "03c976a9bfef88531193d6f8586abcf5c532e9cfcc79ece91b2acd69f3a2e7a9"
+        ],
+        "previous_titles": [
+          "Сводный аналитический лист"
+        ]
+      },
+      {
+        "old_sheet": "Справочник заказчиков",
+        "sheet": "Справочник заказчиков",
+        "role": "formula_dependency",
+        "old_columns": 34,
+        "columns": 34,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "7c36865897a22ee4566007606c59ff0b674e6ba9255ce3052c69899597ffe3bb",
+        "fingerprint": "7c36865897a22ee4566007606c59ff0b674e6ba9255ce3052c69899597ffe3bb",
+        "previous_semantic": "3221dea64b4fb0dfdba08cf9cb8909ffe5af3d535d4aabac380d4bed12ce9bfd",
+        "semantic": "3221dea64b4fb0dfdba08cf9cb8909ffe5af3d535d4aabac380d4bed12ce9bfd",
+        "volatile_cells": [],
+        "optional": true,
+        "previous_geometry": [],
+        "previous_semantics": [],
+        "sheet_id": 837564274,
+        "reason": "Decision 2026-10-23: only the current 34-column A:AH customer directory can be read as a live source. Old 18/19 are preserved as recordedV3 evidence, 32 in prior Git history and PR #90; sealed releases remain unchanged. No obsolete format is an accepted live adapter, migration input or release blocker."
+      },
+      {
+        "old_sheet": "_Проверки",
+        "sheet": "_Проверки",
+        "role": "historical_control_dependency",
+        "old_columns": 26,
+        "columns": 8,
+        "old_header_rows": 2,
+        "header_rows": 2,
+        "old_fingerprint": "21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b",
+        "fingerprint": "21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b",
+        "previous_semantic": "c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2",
+        "semantic": "c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2",
+        "volatile_cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            8
+          ]
+        ],
+        "optional": true,
+        "sealed_baseline": true
+      },
+      {
+        "old_sheet": "Лист Совместных закупок",
+        "sheet": "Лист Совместных закупок",
+        "role": "procedure_lifecycle",
+        "sheet_id": 2526402,
+        "old_columns": 20,
+        "columns": 20,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377",
+        "fingerprint": "afef389d5963824b4b2c570923ec5edfecf88a89dd1ea78e0d92077c87d45d13",
+        "previous_semantic": "1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1",
+        "semantic": "4badb510776e3b751b1fc93911457967a7e01de872cdcf5487e2b54032e69f2f",
+        "volatile_cells": [
+          [
+            1,
+            19
+          ]
+        ]
+      },
+      {
+        "old_sheet": "_Поставщики",
+        "sheet": "_Поставщики",
+        "role": "formula_dependency",
+        "sheet_id": 110002,
+        "old_columns": 6,
+        "columns": 6,
+        "old_header_rows": 1,
+        "header_rows": 1,
+        "old_fingerprint": "78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5",
+        "fingerprint": "0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c",
+        "previous_semantic": "530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10",
+        "semantic": "d631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170",
+        "volatile_cells": [],
+        "optional": true
+      }
+    ],
+    "customerDirectoryFields": [
+      {
+        "index": 0,
+        "label": "№ п/п",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 1,
+        "label": "Группа",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 2,
+        "label": "Управление",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 3,
+        "label": "Новый каноничный справочник полных наименований",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 4,
+        "label": "Новый каноничный справочник кратких наименований",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 5,
+        "label": "Прежнее сокращённое название",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 6,
+        "label": "Тип учреждения",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 7,
+        "label": "ОПФ",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 8,
+        "label": "Алиасы и варианты написания",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 9,
+        "label": "Статус",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 10,
+        "label": "Примечание",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 11,
+        "label": "Наименование в книгах ГРБС",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 12,
+        "label": "ИНН",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 13,
+        "label": "КПП",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 14,
+        "label": "ОГРН",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 15,
+        "label": "Код организации в ЕИС",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 16,
+        "label": "Полное название в округе",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 17,
+        "label": "Сокращённое название в округе",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 18,
+        "label": "ID учреждения",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": true
+      },
+      {
+        "index": 19,
+        "label": "Заказчик в ЗМО — исходное название",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 20,
+        "label": "Охват ЗМО на 08.09.2026",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 21,
+        "label": "Записей в ЗМО",
+        "kind": "integer",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 22,
+        "label": "Записей ЗМО без точных повторов",
+        "kind": "integer",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 23,
+        "label": "Сумма записей ЗМО без точных повторов, ₽",
+        "kind": "money",
+        "unit": "rubles",
+        "requiredMeaning": false
+      },
+      {
+        "index": 24,
+        "label": "Первая дата подписания в ЗМО",
+        "kind": "date",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 25,
+        "label": "Последняя дата подписания в ЗМО",
+        "kind": "date",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 26,
+        "label": "Статусы формирования в ЗМО",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 27,
+        "label": "Статусы исполнения в ЗМО",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 28,
+        "label": "Источники финансирования в ЗМО",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 29,
+        "label": "Уровень привязки ЗМО",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 30,
+        "label": "Дата отчёта ЗМО",
+        "kind": "date",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 31,
+        "label": "Источник ЗМО",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 32,
+        "label": "Рабочее сокращение",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      },
+      {
+        "index": 33,
+        "label": "Действующее краткое название",
+        "kind": "text",
+        "unit": "none",
+        "requiredMeaning": false
+      }
+    ]
+  }
+}

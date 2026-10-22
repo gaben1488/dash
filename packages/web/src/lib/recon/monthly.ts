@@ -1,3 +1,5 @@
+import { PRODUCT_COPY } from '@aemr/shared';
+import { MONTHS } from '@aemr/shared';
 // ── Помесячная сверка (лист «СВОД с месяцами»): рендер-классы ячеек по статусу,
 //    подпись no_calc, сбор бюджетных расхождений (ФБ/КБ/МБ).
 //    Извлечено move-only из pages/Recon.tsx (разрез E11-4).
@@ -12,10 +14,10 @@ import clsx from 'clsx';
 import type { ReconBudget, ReconCell, ReconMonthlyRootCause } from './types';
 
 /** Короткие имена месяцев, индекс = номер месяца (1-12); [0] — заглушка */
-export const MONTH_NAMES_SHORT = ['', 'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+export const MONTH_NAMES_SHORT = ['', ...MONTHS.map(m => m.short)];
 
 /** Подпись для ячеек со статусом no_calc */
-export const NO_CALC_NOTE = 'расчёт не построен';
+export const NO_CALC_NOTE = PRODUCT_COPY["lib/recon/monthly:NO_CALC_NOTE"];
 
 /** CSS-класс td-ячейки таблицы помесячной сверки по статусу */
 export function monthlyCellClass(cell: ReconCell | undefined): string {
@@ -53,11 +55,7 @@ export function confidenceLabel(confidence: ReconMonthlyRootCause['confidence'])
 }
 
 /** Метки бюджетных ячеек: ключ DTO (BudgetReconCells ядра) → подпись в UI */
-const BUDGET_CELL_LABELS: ReadonlyArray<[label: string, key: keyof ReconBudget]> = [
-  ['план ФБ', 'planFB'], ['план КБ', 'planKB'], ['план МБ', 'planMB'],
-  ['факт ФБ', 'factFB'], ['факт КБ', 'factKB'], ['факт МБ', 'factMB'],
-  ['эконом. ФБ', 'economyFB'], ['эконом. КБ', 'economyKB'], ['эконом. МБ', 'economyMB'],
-];
+const BUDGET_CELL_LABELS: ReadonlyArray<readonly [label: string, key: keyof ReconBudget]> = PRODUCT_COPY["lib/recon/monthly:BUDGET_CELL_LABELS"];
 
 /**
  * Сбор проблемных ячеек бюджетной разбивки (ФБ/КБ/МБ) КП+ЕП:

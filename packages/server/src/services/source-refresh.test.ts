@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { MASTER_SOURCE_PROFILE } from '@aemr/shared';
 
 /**
  * Страж канона п.66 («прямой эфир»): обе стороны сверки читаются одним циклом.
@@ -43,12 +44,14 @@ vi.mock('./snapshot.js', () => ({
 // ожидания, а проверять здесь надо цикл, а не сеть. «Не знаю» — это прежнее
 // поведение цикла: читать всё, ничего не пропуская.
 const checkFileChanged = vi.fn(async (): Promise<'unknown' | 'changed' | 'same'> => 'unknown');
+const readRevision = vi.fn(async () => lastKnownRevision());
 const forgetRevision = vi.fn();
 const lastKnownRevision = vi.fn((): { version: string | null; modifiedTime: string | null } | null => null);
 const seedRevision = vi.fn();
 
 vi.mock('./file-revision.js', () => ({
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [])),
+  readRevision: () => readRevision(),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [])),
   lastKnownRevision: (...a: unknown[]) => lastKnownRevision(...(a as [])),
   seedRevision: (...a: unknown[]) => seedRevision(...(a as [])),
@@ -59,11 +62,13 @@ vi.mock('./file-revision.js', () => ({
 // проверяет services/book-watermark.test.ts, а посев после «рестарта» —
 // отдельный страж ниже (через подмену loadWatermarks).
 const loadWatermarks = vi.fn(() => new Map<string, { fingerprint: string; parsedAt: string; driveVersion: string | null; driveModifiedTime: string | null }>());
+const loadAcceptedReadings = vi.fn(() => new Map<string, { fileId: string; values: unknown[][] }>());
 const saveWatermark = vi.fn((...args: unknown[]) => { void args; });
 const noteHonestGap = vi.fn((...args: unknown[]) => { void args; return true; });
 
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => loadAcceptedReadings(),
   loadWatermarks: (...a: unknown[]) => loadWatermarks(...(a as [])),
   saveWatermark: (...a: unknown[]) => saveWatermark(...(a as [])),
   noteHonestGap: (...a: unknown[]) => noteHonestGap(...(a as [])),
@@ -95,6 +100,10 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  loadAcceptedReadings.mockImplementation(() => new Map());
+  loadWatermarks.mockImplementation(() => new Map());
+  readRevision.mockImplementation(async () => lastKnownRevision());
+  lastKnownRevision.mockReturnValue(null);
   cachedBooks = {};
   getDeptSheetCache.mockImplementation(() => cachedBooks);
   setDeptSheetCache.mockImplementation((data: Record<string, { values: unknown[][] }>, failed: string[]) => {
@@ -117,6 +126,118 @@ afterEach(async () => {
 });
 
 describe('перечитка источников одним циклом', () => {
+  it.each([true, false])('rejects a book changed during acquisition and retries it (askDrive=%s)', async (askDrive) => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    checkFileChanged.mockResolvedValue('changed');
+    lastKnownRevision.mockReturnValue({ version: '7', modifiedTime: '2026-10-20T00:00:00Z' });
+    fetchDepartmentSpreadsheets.mockImplementation(async () => ({ data: {
+      'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' },
+    }, errors: {} }));
+    readRevision.mockResolvedValueOnce({ version: '7', modifiedTime: '2026-10-20T00:00:00Z' })
+      .mockResolvedValueOnce({ version: '8', modifiedTime: '2026-10-20T00:01:00Z' });
+    const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive });
+    expect(result.loaded).not.toContain('УО');
+    expect(result.retryableFailures).toContain('УО');
+    expect(cachedBooks['УО']).toBeUndefined();
+    expect(saveWatermark.mock.calls.some(([name]) => name === 'УО')).toBe(false);
+    readRevision.mockImplementation(async () => lastKnownRevision());
+    const retry = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive });
+    expect(retry.loaded).toContain('УО');
+    expect(cachedBooks['УО'].values).toEqual([[1]]);
+    resetSourcePrints();
+  });
+
+  it('rejects acquisition if the configured book is replaced while reading', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const original = DEPARTMENT_SPREADSHEETS['УО'];
+    resetSourcePrints();
+    readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+    fetchDepartmentSpreadsheets.mockImplementation(async () => {
+      DEPARTMENT_SPREADSHEETS['УО'] = 'replacement-test-book';
+      return { data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    });
+    try {
+      const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive: false });
+      expect(result.loaded).toEqual([]);
+      expect(result.retryableFailures).toEqual(['УО']);
+      expect(cachedBooks['УО']).toBeUndefined();
+      expect(saveWatermark).not.toHaveBeenCalled();
+    } finally {
+      DEPARTMENT_SPREADSHEETS['УО'] = original!;
+      resetSourcePrints();
+    }
+  });
+
+  it('does not accept a known revision when its post-read check is unavailable', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    fetchDepartmentSpreadsheets.mockImplementation(async () => ({ data: {
+      'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' },
+    }, errors: {} }));
+    readRevision.mockResolvedValueOnce({ version: '7', modifiedTime: null }).mockResolvedValueOnce(null);
+    const result = await refreshAllSources(log, 'cycle', { books: ['УО'], svod: false, askDrive: false });
+    expect(result.loaded).toEqual([]);
+    expect(result.retryableFailures).toEqual(['УО']);
+    expect(cachedBooks['УО']).toBeUndefined();
+    expect(saveWatermark).not.toHaveBeenCalled();
+    resetSourcePrints();
+  });
+
+  it('retries loading saved watermarks after a database read failure', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    loadWatermarks.mockImplementationOnce(() => { throw new Error('SOURCE_STATE_READ_FAILED'); });
+    await expect(refreshAllSources(log)).rejects.toThrow('SOURCE_STATE_READ_FAILED');
+    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+    await refreshAllSources(log);
+    expect(loadWatermarks).toHaveBeenCalledTimes(2);
+    resetSourcePrints();
+  });
+
+  it('does not publish caches after a persistence failure and retries the changed input', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    await refreshAllSources(log, 'cycle', { askDrive: false });
+    const previous = cachedBooks;
+    const changed = { data: { УО: { values: [['changed']], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    fetchDepartmentSpreadsheets.mockResolvedValue(changed);
+    vi.clearAllMocks();
+    saveWatermark.mockImplementationOnce(() => { throw new Error('SOURCE_STATE_PERSIST_FAILED'); });
+    await expect(refreshAllSources(log, 'cycle', { askDrive: false })).rejects.toThrow('SOURCE_STATE_PERSIST_FAILED');
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(setSvodGridCache).not.toHaveBeenCalled();
+    expect(cachedBooks).toBe(previous);
+    const retry = await refreshAllSources(log, 'cycle', { askDrive: false });
+    expect(retry.changedBooks).toContain('УО');
+    expect(cachedBooks['УО'].values).toEqual([['changed']]);
+    resetSourcePrints();
+  });
+
+  it('does not publish the summary or its watermark while books are still loading', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    let releaseBooks!: () => void;
+    fetchDepartmentSpreadsheets.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseBooks = resolve; });
+      return { data: { УО: { values: [[1]], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    });
+    const refresh = refreshAllSources(log, 'cycle', { askDrive: false });
+    try {
+      await waitFor(() => getSheetData.mock.calls.length === 1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(setSvodGridCache).not.toHaveBeenCalled();
+      expect(saveWatermark).not.toHaveBeenCalled();
+      expect(setDeptSheetCache).not.toHaveBeenCalled();
+    } finally {
+      releaseBooks();
+      await refresh;
+    }
+    expect(setSvodGridCache).toHaveBeenCalledWith([['СВОД']]);
+    expect(setDeptSheetCache).toHaveBeenCalledTimes(1);
+    expect(saveWatermark).toHaveBeenCalled();
+  });
+
   it('книги и лист СВОД читаются в одном вызове и кладутся в кэш', async () => {
     const { refreshAllSources } = await import('./source-refresh.js');
     const r = await refreshAllSources(log);
@@ -226,6 +347,7 @@ describe('перечитка источников одним циклом', () =
     const r = await refreshAllSources(log);
 
     expect(r.failed).toEqual(['УКСиМП']);
+    expect(r.retryableFailures).toEqual(['УКСиМП']);
     expect(setDeptSheetCache).toHaveBeenCalledWith(expect.anything(), ['УКСиМП']);
   });
 
@@ -306,11 +428,11 @@ describe('перечитка объявляет изменения в прямо
     const { subscribeLiveEvents, resetLiveEventBus } = await import('./event-bus.js');
     resetLiveEventBus();
     getDeptSheetCache.mockReturnValueOnce({
-      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка']] },
+      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЕП']] },
     });
     fetchDepartmentSpreadsheets.mockResolvedValueOnce({
       data: {
-        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка систем']], formulas: [], sheetName: 'ВСЕ' },
+        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЭА']], formulas: [], sheetName: 'ВСЕ' },
       },
       errors: {},
     });
@@ -322,7 +444,30 @@ describe('перечитка объявляет изменения в прямо
 
     expect(heard.map((e) => e.kind)).toEqual(['book-updated', 'row-changed']);
     expect(heard[0]).toMatchObject({ book: 'УО', changedRows: 1, origin: 'webhook' });
-    expect(heard[1]).toMatchObject({ book: 'УО', column: 'G', before: 'Опрессовка', after: 'Опрессовка систем' });
+    expect(heard[1]).toMatchObject({ book: 'УО', column: 'L', before: 'ЕП', after: 'ЭА' });
+    resetLiveEventBus();
+  });
+
+  it('смена предмета при прежнем номере требует проверки связи вместо автоматической привязки ячейки', async () => {
+    const { subscribeLiveEvents, resetLiveEventBus } = await import('./event-bus.js');
+    resetLiveEventBus();
+    getDeptSheetCache.mockReturnValueOnce({
+      'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка', '', '', '', '', 'ЕП']] },
+    });
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: {
+        'УО': { values: [...header, ['155', 'УО АЕМР', '', '', '', '', 'Опрессовка систем', '', '', '', '', 'ЕП']], formulas: [], sheetName: 'ВСЕ' },
+      },
+      errors: {},
+    });
+
+    const heard: any[] = [];
+    subscribeLiveEvents((e) => heard.push(e.event));
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'webhook');
+
+    expect(heard.map((e) => e.kind)).toEqual(['book-updated']);
+    expect(heard[0]).toMatchObject({ book: 'УО', changedRows: 1, origin: 'webhook' });
     resetLiveEventBus();
   });
 
@@ -435,5 +580,131 @@ describe('водяной знак (§2.4) и правило полноты (§2.
     expect(r.changedBooks.sort()).toEqual(['УКСиМП', 'УО']);
     expect(noteHonestGap).not.toHaveBeenCalled();
     resetSourcePrints();
+  });
+});
+
+it('keeps source permission/schema failures out of the automatic retry set', async () => {
+  fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {}, errors: { 'УО': '403 permission denied', 'УКСиМП': 'SOURCE_SCHEMA_MISMATCH' } });
+  getSheetData.mockRejectedValueOnce(Object.assign(new Error('permission'), { code: 403 }));
+  const { refreshAllSources } = await import('./source-refresh.js');
+  const result = await refreshAllSources(log);
+  expect(result.failed).toEqual(['УО', 'УКСиМП']);
+  expect(result.retryableFailures).toEqual([]);
+  expect(result.svodRetryable).toBe(false);
+});
+
+/** A report reader returns the real three-row master header, not invented one-row data. */
+const reportMasterRows = (book: string): unknown[][] => [
+  [], [], Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label),
+  [book, '', '', '', '', '', 'Позиция'],
+];
+
+it('accepts the report acquisition through the same live persistence boundary without a second Sheets read', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const data = Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+    [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }]));
+  fetchDepartmentSpreadsheets.mockClear();
+  const result = await refreshReportSources(async () => ({ data, errors: {} }), log);
+  expect(result.failed).toEqual([]);
+  expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+  expect(setDeptSheetCache).toHaveBeenLastCalledWith(data, []);
+  expect(saveWatermark).toHaveBeenCalledWith('УО', expect.any(String), expect.any(String), { version: '7', modifiedTime: null }, expect.objectContaining({ fileId: expect.any(String), values: expect.any(Array) }));
+});
+
+it('does not accept part of a report input when a master changes during acquisition', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  setDeptSheetCache.mockClear();
+  saveWatermark.mockClear();
+  await expect(refreshReportSources(async () => {
+    readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
+    return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+      [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }])), errors: {} };
+  }, log)).rejects.toThrow('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
+  expect(setDeptSheetCache).not.toHaveBeenCalled();
+  expect(saveWatermark).not.toHaveBeenCalled();
+});
+
+it('does not accept a report source with an altered mandatory meaning even with a matching Drive version', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  setDeptSheetCache.mockClear();
+  saveWatermark.mockClear();
+  const data = Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+    [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ',
+      formulasRead: true, sourceVersion: '7' }]));
+  data['УО'].values[2][21] = 'Цена договора вместо ФБ 2';
+  await expect(refreshReportSources(async () => ({ data, errors: {} }), log))
+    .rejects.toThrow('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
+  expect(setDeptSheetCache).not.toHaveBeenCalled();
+  expect(saveWatermark).not.toHaveBeenCalled();
+});
+
+it('accepts the complete capture after its internal revision retry without comparing it to an earlier unrelated probe', async () => {
+  const { refreshReportSources } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
+  const result = await refreshReportSources(async () => {
+    readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
+    return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
+      [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '8' }])), errors: {} };
+  }, log);
+  expect(result.failed).toEqual([]);
+});
+
+describe('R05.01 source-profile restoration through the existing refresh cache', () => {
+  it('does not trust an old checksum alone when the saved master header changed meaning', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const { MASTER_SOURCE_PROFILE } = await import('@aemr/shared');
+    resetSourcePrints();
+    const badHeader = Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label);
+    badHeader[21] = 'Цена договора вместо ФБ 2';
+    const staleValues = [[], [], badHeader, ['1', '', '', '', '', '', 'Предмет']];
+    loadAcceptedReadings.mockReturnValue(new Map([
+      ['УО', { fileId: DEPARTMENT_SPREADSHEETS['УО'], values: staleValues }],
+    ]));
+    loadWatermarks.mockReturnValue(new Map([
+      ['УО', { fingerprint: 'saved', parsedAt: '2026-10-20T00:00:00Z',
+        driveVersion: '7', driveModifiedTime: null }],
+    ]));
+    checkFileChanged.mockResolvedValue('same');
+    fetchDepartmentSpreadsheets.mockResolvedValue({ data: {}, errors: { 'УО': 'SOURCE_SCHEMA_MISMATCH' } });
+    try {
+      const result = await refreshAllSources(log, 'request', { books: ['УО'], svod: false });
+      expect(result.failed).toContain('УО');
+      expect(fetchDepartmentSpreadsheets).toHaveBeenCalledOnce();
+      expect(cachedBooks['УО']).toBeUndefined();
+    } finally {
+      resetSourcePrints();
+    }
+  });
+
+  it('reuses a valid saved master without a redundant Sheets read when its revision is unchanged', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const { MASTER_SOURCE_PROFILE } = await import('@aemr/shared');
+    resetSourcePrints();
+    const validValues = [[], [], Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label)];
+    loadAcceptedReadings.mockReturnValue(new Map([
+      ['УО', { fileId: DEPARTMENT_SPREADSHEETS['УО'], values: validValues }],
+    ]));
+    loadWatermarks.mockReturnValue(new Map([
+      ['УО', { fingerprint: 'saved', parsedAt: '2026-10-20T00:00:00Z',
+        driveVersion: '7', driveModifiedTime: null }],
+    ]));
+    checkFileChanged.mockResolvedValue('same');
+    try {
+      const result = await refreshAllSources(log, 'request', { books: ['УО'], svod: false });
+      expect(result.skipped).toContain('УО');
+      expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+      expect(cachedBooks['УО']?.values).toEqual(validValues);
+    } finally {
+      resetSourcePrints();
+    }
   });
 });

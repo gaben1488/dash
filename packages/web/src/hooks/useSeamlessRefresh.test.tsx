@@ -136,6 +136,18 @@ describe('подмена снимка', () => {
 });
 
 describe('хук бесшовного обновления', () => {
+  it('stops retrying a failed event after three retries without starting periodic refresh', async () => {
+    getDashboard.mockRejectedValue(new Error('temporary outage'));
+    setNews(true);
+    vi.useFakeTimers();
+    const view = renderHook(() => useSeamlessRefresh(true));
+    await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+    for (const delay of [1_001, 3_001, 10_001, 120_000]) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    }
+    expect(getDashboard).toHaveBeenCalledTimes(4);
+    expect(view.result.current.failed).toBe(true);
+  });
   it('событие пришло — числа подтягиваются сами, без нажатия', async () => {
     getDashboard.mockResolvedValue(dashboard('snap-live', 2026));
     setNews(true);
@@ -201,4 +213,86 @@ describe('хук бесшовного обновления', () => {
     expect(useStore.getState().dashboardData).toBeNull();
     expect(useStore.getState().loading).toBe(false);
   });
+});
+
+
+it('тихое принятие снимка обновляет общий счёт навигации и состояния без отдельного контура', () => {
+  const fetchBucketCounts = vi.fn(async () => undefined);
+  const original = useStore.getState().fetchBucketCounts;
+  useStore.setState({ loading: false, year: 2026, fetchBucketCounts });
+  try {
+    expect(applySnapshotSilently(dashboard('webhook-read', 2026), 2026)).toBe(true);
+    expect(fetchBucketCounts).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().loading).toBe(false);
+  } finally { useStore.setState({ fetchBucketCounts: original }); }
+});
+
+it('поздний тихий ответ не заменяет уже принятый обычный снимок того же года', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; })).mockResolvedValueOnce(dashboard('regular-new', 2026));
+  setNews(true); vi.useFakeTimers();
+  renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  await act(async () => { await useStore.getState().fetchDashboard(); });
+  await act(async () => { resolve(dashboard('silent-old', 2026)); });
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('regular-new');
+  expect(acknowledge).not.toHaveBeenCalled();
+});
+
+it('новое событие во время чтения не гасится подтверждением прежнего события', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+  setNews(true); vi.useFakeTimers();
+  const { result, rerender } = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => {
+    liveState.current = { ...(liveState.current as Record<string, unknown>), lastEventAt: '2026-08-21T05:01:00.000Z' };
+    rerender();
+  });
+  await act(async () => { resolve(dashboard('silent-read', 2026)); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(result.current.waitingBecause).not.toBeNull();
+});
+
+it('не гасит разные события с одинаковым временем, пришедшие во время чтения', async () => {
+  let resolve!: (data: ReturnType<typeof dashboard>) => void;
+  getDashboard.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+  setNews(true); vi.useFakeTimers();
+  const { rerender } = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => { liveState.current = { ...(liveState.current as Record<string, unknown>), newIssues: 1 }; rerender(); });
+  await act(async () => { resolve(dashboard('same-event-time', 2026)); });
+  expect(acknowledge).not.toHaveBeenCalled();
+});
+
+
+it.each(['refreshing', 'stale'] as const)('does not acknowledge a source update while the returned read model is %s', async (state) => {
+  const data = { year: 2026, lastRefreshed: '2026-10-16T01:00:00Z', snapshot: {
+    id: 'previous-materialized', officialMetrics: {}, spreadsheetId: 'ss', metadata: { readModel: { state } },
+  } };
+  getDashboard.mockResolvedValue(data);
+  setNews(true); vi.useFakeTimers();
+  renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('previous-materialized');
+  await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+  expect(getDashboard).toHaveBeenCalledTimes(1);
+});
+
+
+it('catches up once when materialization finishes before an older refreshing HTTP response arrives', async () => {
+  let resolve!: (value: unknown) => void;
+  getDashboard.mockReturnValueOnce(new Promise(yes => { resolve = yes; })).mockResolvedValue(dashboard('completed', 2026));
+  setNews(true); vi.useFakeTimers();
+  const view = renderHook(() => useSeamlessRefresh(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  act(() => { liveState.current = { ...(liveState.current as Record<string, unknown>), lastEventAt: '2026-08-21T05:00:01.000Z' }; view.rerender(); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(SETTLE_MS + 1); });
+  await act(async () => { resolve({ year: 2026, snapshot: { id: 'previous', metadata: { readModel: { state: 'refreshing' } } } }); });
+  expect(acknowledge).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_001); });
+  expect(getDashboard).toHaveBeenCalledTimes(2);
+  expect(useStore.getState().dashboardData?.snapshot.id).toBe('completed');
+  expect(acknowledge).toHaveBeenCalledOnce();
 });

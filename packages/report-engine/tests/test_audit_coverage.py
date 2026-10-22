@@ -76,9 +76,74 @@ def test_independent_audit_rejects_display_and_group_mutations(financial_bundle,
     assert result['failures']
 
 
-def test_publisher_rejects_wrong_grbs_total_after_matching_render_and_hashes(financial_bundle, tmp_path):
+def test_valid_plan_date_with_missing_derived_year_cannot_be_released(financial_bundle, tmp_path):
+    capture, _, _ = financial_bundle
+    source = next(s for s in capture['sources'] if s.get('grbs') == 'УЭР')
+    source['values'][-1][15] = None
+    registry_path, _ = inputs(tmp_path)
+    model = build_from_capture(capture, json.loads(registry_path.read_text()), [], tmp_path / 'missing-year',
+                               render_docx=False, identity_store=IdentityStore(tmp_path / 'missing-year.sqlite'))
+    assert not model['release']['official_release_allowed']
+    assert any(issue['code'] == 'PLAN_YEAR_DATE_MISMATCH' and issue['severity'] == 'ERROR'
+               for issue in model['issues'])
+
+
+def test_strengthened_checks_do_not_reuse_prior_success_for_same_capture(financial_bundle, tmp_path):
+    from procurement_engine.raw_pipeline import bundle_from_capture
+    from procurement_engine.rule_catalog import DEFAULT_RULE_CATALOG
+    from procurement_engine.snapshot import _snapshot_id
+
+    capture, _, _ = financial_bundle
+    registry_path, _ = inputs(tmp_path)
+    manifest = bundle_from_capture(capture, json.loads(registry_path.read_text())).manifest
+    prior_rules = DEFAULT_RULE_CATALOG.version + (
+        '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1'
+        '+archive-scope-v1+weekly-evidence-v1+source-values-v2')
+    prior_id = _snapshot_id(report_date=capture['report_date'], report_year=capture['report_year'],
+                           sources=manifest['sources'], rules_version=prior_rules,
+                           renderer_version=manifest['renderer_version'], mode='CANONICAL')
+    assert manifest['snapshot_id'] != prior_id
+
+
+@pytest.mark.parametrize('field', [
+    'plan_amount', 'fact_amount', 'remain_amount', 'monetary_fact_amount',
+    'confirmed_saving_amount', 'partial_fact_without_completion_amount',
+    *(prefix + '_' + budget + '_amount' for prefix in ('plan', 'fact', 'remain') for budget in ('fb', 'kb', 'mb')),
+    'deviation_amount', 'contracted_share_pct',
+])
+def test_monthly_money_is_recounted_from_source_even_with_matching_decimal(financial_bundle, field):
+    capture, original, _ = financial_bundle
+    model = deepcopy(original)
+    month = next(m for m in model['monthly'] if m['grbs'] == 'УЭР' and m['method'] == 'ЕП' and m['month'] == 9)
+    month[field] = 999999.0
+    month['exact_decimal'][field] = '999999'
+    result = audit_model(capture, model)
+    assert result['pass'] is False
+    assert any(failure['path'].startswith('monthly.') for failure in result['failures'])
+
+
+@pytest.mark.parametrize('mutation', ['duplicate', 'missing', 'contributors'])
+def test_monthly_population_is_checked_not_only_annual_sums(financial_bundle, mutation):
+    capture, original, _ = financial_bundle
+    model = deepcopy(original)
+    if mutation == 'duplicate':
+        model['monthly'].append(deepcopy(model['monthly'][0]))
+    elif mutation == 'missing':
+        model['monthly'].pop(0)
+    else:
+        next(m for m in model['monthly'] if m['plan_count'])['contributors'] = []
+    assert audit_model(capture, model)['pass'] is False
+
+
+@pytest.mark.parametrize('corruption', ['grbs_total', 'monthly_amount'])
+def test_publisher_rejects_wrong_money_after_matching_render_and_hashes(financial_bundle, tmp_path, corruption):
     _, model, root = financial_bundle
-    model['grbs_metrics']['УЭР']['ep']['year']['plan_count'] = 999
+    if corruption == 'grbs_total':
+        model['grbs_metrics']['УЭР']['ep']['year']['plan_count'] = 999
+    else:
+        month = next(m for m in model['monthly'] if m['plan_count'])
+        month['plan_amount'] = 999999.0
+        month['exact_decimal']['plan_amount'] = '999999'
     (root / 'report_model.json').write_text(json.dumps(model))
     (root / 'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model, root / 'main_report.docx')

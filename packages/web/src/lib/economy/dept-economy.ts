@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Строки экономии по ГРБС (E11-5): чистые вычисления из pages/Economy.tsx.
 //    Вход — DepartmentSummary (quarters/subordinates нетипизированы в shared),
 //    выход — DeptEconomy с гарантированными number-полями.
@@ -241,7 +242,7 @@ export function buildBarChartData(rows: DeptEconomy[]): EconomyBarDatum[] {
     const orgItself = d.subordinates.find(s => s.name === ORG_ITSELF);
     const realSubs = d.subordinates.filter(s => s.name !== ORG_ITSELF);
     return {
-      name: d.dept,
+      name: productLabel(d.dept),
       deptId: d.deptId,
       fb: d.budget.economyFB,
       kb: d.budget.economyKB,

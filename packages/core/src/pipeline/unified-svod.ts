@@ -34,7 +34,7 @@ import {
   emptyCell,
   normalizeMethod,
   PROCUREMENT_METHODS,
-  hasFactDate,
+  factCountsOn,
   isReadableDeptRow,
   type ActivityScope,
   type SvodMethod,
@@ -204,6 +204,7 @@ function addToCell(
 export function computeUnifiedGrid(
   deptRows: Record<string, unknown[][]>,
   targetYear?: number,
+  asOfDay?: number,
 ): UnifiedGrid {
   const cells: Record<string, UnifiedCell> = {};
   const grbsIds: string[] = [];
@@ -237,7 +238,7 @@ export function computeUnifiedGrid(
       const m = getMonthFromDate(row[COL.PLAN_DATE]) ?? (quarter.q - 1) * 3 + 1;
 
       const method = methodOf(row[COL.METHOD]);
-      const fact = hasFactDate(row[COL.FACT_DATE]);
+      const fact = factCountsOn(row[COL.FACT_DATE], asOfDay);
       const countEconomy = fact && economyApproved(row[COL.ECO_GATE]);
 
       const contrib = {

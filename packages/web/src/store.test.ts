@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AVAILABLE_YEARS, getActiveFilterCount, hasExplicitPeriodFilter, useStore } from './store';
 
 describe('useStore navigation filters', () => {
+  it('сброс использует год Камчатки на UTC-границе года', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(Date.UTC(2026, 11, 31, 12, 20)));
+      useStore.getState().resetAllFilters();
+      expect(useStore.getState().year).toBe(2027);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('opens the quality workspace on reconciliation by default', () => {
     expect(useStore.getState().qualityTab).toBe('recon');
   });

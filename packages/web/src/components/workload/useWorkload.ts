@@ -36,7 +36,7 @@ export function useWorkload(enabled = true): UseWorkloadResult {
     setLoading(true);
     setError(null);
 
-    fetchJSON<WorkloadResponse>('/workload')
+    fetchJSON<WorkloadResponse>(attempt > 0 ? '/workload?refresh=true' : '/workload')
       .then((response) => {
         if (cancelled) return;
         setData(response);

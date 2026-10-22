@@ -1,3 +1,4 @@
+import { FIELD_GUIDANCE, PROCUREMENT_METHODS } from '@aemr/shared';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
@@ -9,12 +10,15 @@ import {
   productLabel,
   resolveYearlongKind,
   subordinateKey,
+  subordinateNameMatchKey,
+  parseEditableAmount,
   sumInitiativeRows,
   type YearlongKindId,
 } from '@aemr/shared';
 import { YearlongBadge } from '../components/yearlong/YearlongBadge';
 import { useYearlongKinds } from '../components/yearlong/useYearlongKinds';
 import { useStore } from '../store';
+import { useRegistryPosition } from '../hooks/useRegistryPosition';
 import { api, humanizeRequestError } from '../api';
 import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
 import clsx from 'clsx';
@@ -47,9 +51,18 @@ import { KbHover } from '../components/contract/KbHover';
 import { SourceBadge } from '../components/contract/SourceBadge';
 import { filterRowsByBudgets } from '../lib/rows-filter';
 import { collectAllPages } from '../lib/rows/collect-pages';
+import {
+  applicableDraft,
+  changeEditorDraft,
+  clearEditorDraft,
+  currentEditorDrafts,
+  rememberEditorDrafts,
+  type EditorDrafts,
+} from '../lib/rows/editor-drafts';
 import { monthOfDateValue, formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { useLiveEvents } from '../hooks/useLiveEvents';
+import { productTodayIso } from '../lib/period-coverage';
 import { changedRowKey, rowChangeHint } from '../components/live/live-text';
 import { pluralRu } from '../lib/economy-copy';
 import { formatPct } from '../lib/economy/format';
@@ -295,6 +308,7 @@ async function fetchAllDeptRows(
 /** Ответ POST /api/data/rows: успех каждой ячейки в отдельности, отказ — с причиной. */
 interface SaveRowsResponse {
   results?: Array<{ field?: string; rowIndex?: number; success?: boolean; error?: string }>;
+  rowRevisions?: Record<string, string>;
 }
 
 /** Что не доехало при последней загрузке — для честной плашки над таблицей. */
@@ -367,14 +381,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     [],
   );
   const [viewMode, setViewMode] = useState<ViewMode>(storedPrefs.viewMode ?? 'browse');
-  const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(storedPrefs.pageSize ?? 25);
   const [sortKey, setSortKey] = useState<SortKey>(storedPrefs.sortKey ?? 'id');
   const [sortDir, setSortDir] = useState<SortDir>(storedPrefs.sortDir ?? 'asc');
   const [rows, setRows] = useState<any[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
-  const [selectedRow, setSelectedRow] = useState<any>(null);
+  const [hasLoadedRows, setHasLoadedRows] = useState(false);
+  const { pageNum, setPageNum, selectedRow, setSelectedRow, selectionUnavailable } = useRegistryPosition(bucket ?? 'data', rows, hasLoadedRows && !loadingRows);
+  const navigationVersion = useStore(state => state.urlNavigationVersion);
+  const [selectedNoteColumn,setSelectedNoteColumn]=useState<string|undefined>(undefined);
   // Затравка признаков от «Дисциплины», «Пульта» и «Экономии»:
   // navigateTo('data', { signals }) кладёт ключи в store, Реестр забирает их
   // одним чтением при открытии и очищает — повторный заход в Реестр без
@@ -484,11 +500,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const [editorRows, setEditorRows] = useState<RowData[]>([]);
   const [editorColumns, setEditorColumns] = useState<ColumnConfig[]>([]);
   const [editorOriginals, setEditorOriginals] = useState<Record<string, RowData>>({});
+  // Kept outside the editor component and in an in-memory module across SPA routes.
+  // No sensitive row contents are saved to browser storage.
+  const [editorDrafts, setEditorDrafts] = useState<EditorDrafts>(currentEditorDrafts);
+  const updateEditorDrafts = useCallback(
+    (modify: (current: EditorDrafts) => EditorDrafts) =>
+      setEditorDrafts(current => rememberEditorDrafts(modify(current))),
+    [],
+  );
 
   /** Проверка числового поля редактора — одна на все денежные колонки. */
   const moneyCell = useCallback((v: unknown): string | null => {
     if (v === null || v === '' || v === undefined) return null;
-    return isNaN(parseFloat(String(v))) ? 'Ожидается число, например 1250,50' : null;
+    return parseEditableAmount(v).ok ? null : 'Введите полное число, например 1 250,50';
   }, []);
 
   const defaultEditorColumns: ColumnConfig[] = useMemo(() => [
@@ -498,34 +522,42 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     { key: 'id', label: '№', type: 'text', width: 'w-14', editable: false },
     { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
-    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: ['ЭА', 'ЭК', 'ЭЗК', 'ЕП'] },
+    { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: [...PROCUREMENT_METHODS], guidance: FIELD_GUIDANCE.method },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
-    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
+    { key: 'planFB', label: `План ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'planKB', label: `План ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'planMB', label: `План ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
     // Итоги считает формула книги; в редакторе они показываются пересчитанными
     // от трёх бюджетов, чтобы число под рукой не расходилось с тем, что уедет в лист.
     { key: 'planSum', label: 'План итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
-    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell },
+    { key: 'factFB', label: `Факт ${BUDGET_SOURCE_META.fb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'factKB', label: `Факт ${BUDGET_SOURCE_META.kb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
+    { key: 'factMB', label: `Факт ${BUDGET_SOURCE_META.mb.abbr}`, type: 'currency', width: 'w-28', validate: moneyCell, guidance: FIELD_GUIDANCE.money },
     { key: 'factSum', label: 'Факт итого', type: 'currency', width: 'w-28', editable: false },
-    { key: 'planDate', label: 'Дата плана', type: 'date', width: 'w-28' },
-    { key: 'factDate', label: 'Дата факта', type: 'date', width: 'w-28' },
+    { key: 'planDate', label: 'Дата плана', type: 'date', guidance: FIELD_GUIDANCE.planDate, width: 'w-28' },
+    { key: 'factDate', label: 'Дата факта', type: 'date', guidance: FIELD_GUIDANCE.factDate, width: 'w-28' },
     { key: 'status', label: 'Статус', type: 'text', width: 'w-28', editable: false },
-    { key: 'flag', label: 'Признак экономии', type: 'text', width: 'w-36' },
-    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text' },
+    { key: 'flag', label: 'Признак экономии', type: 'text', guidance: FIELD_GUIDANCE.flag, width: 'w-36' },
+    { key: 'commentGRBS', label: 'Комментарий управления', type: 'text', guidance: FIELD_GUIDANCE.commentGRBS },
   ], [moneyCell]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
-  const sumBudgets = useCallback((row: RowData, keys: string[]): number => {
-    return keys.reduce((acc, key) => {
-      const n = parseFloat(String(row[key] ?? ''));
-      return acc + (isNaN(n) ? 0 : n);
-    }, 0);
+  const sumBudgets = useCallback((row: RowData, keys: string[]): number | null => {
+    let total = 0;
+    for (const key of keys) {
+      const amount = parseEditableAmount(row[key]);
+      // Never present a made-up total when one amount is not a valid number.
+      if (!amount.ok) return null;
+      total += amount.value ?? 0;
+    }
+    return total;
   }, []);
 
   const handleEditorCellChange = useCallback((rowId: string, colKey: string, value: unknown) => {
+    updateEditorDrafts(prev => {
+      const original = prev[rowId]?.original ?? editorOriginals[rowId];
+      return original ? changeEditorDraft(prev, rowId, colKey, value, original) : prev;
+    });
     setEditorRows(prev => prev.map(r => {
       if (r._id !== rowId) return r;
       const next = { ...r, [colKey]: value };
@@ -540,11 +572,13 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       }
       return next;
     }));
-  }, [sumBudgets]);
+  }, [sumBudgets, editorOriginals, updateEditorDrafts]);
 
   const handleEditorSaveRow = useCallback(async (rowId: string, data: Record<string, unknown>) => {
-    const original = editorOriginals[rowId];
-    if (!original) return;
+    const original = editorDrafts[rowId]?.original ?? editorOriginals[rowId];
+    if (!original) {
+      throw new Error('Исходная запись не найдена. Обновите реестр: правка не сохранена.');
+    }
 
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
     // формула книги, запись затёрла бы её значением.
@@ -570,8 +604,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
     const deptId = String(data._dept ?? '');
     const rowIndex = Number(data._rowIndex ?? 0);
-
-    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes }]);
+    const expectedRevision = original._rowRevision;
+    if (typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) {
+      throw new Error('Исходная версия строки не установлена. Обновите реестр перед сохранением.');
+    }
+    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes, expectedRevision }]);
 
     // Сервер отвечает 200 и при отказе отдельных ячеек: раньше отказ проходил
     // молча — правка исчезала из отметки «изменено», а в книгу не попадала.
@@ -580,22 +617,26 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       .filter((r) => !r?.success)
       .map((r) => `${r.field ?? ''}${r.rowIndex ?? ''}: ${r.error ?? 'причина не названа'}`);
     if (failures.length > 0) {
-      throw new Error(`Книга не приняла правку — ${failures.join('; ')}`);
+      throw new Error(`Часть изменений не подтверждена — ${failures.join('; ')}. Перечитайте строку перед повтором.`);
     }
 
-    setEditorOriginals(prev => ({
-      ...prev,
-      [rowId]: { ...data, _id: rowId } as RowData,
-    }));
-  }, [editorOriginals]);
+    const revision = response.rowRevisions?.[`${deptId}:${rowIndex}`];
+    // Without an authoritative post-write revision, subsequent writes must
+    // be blocked until the row is refreshed (never reuse the stale token).
+    const confirmed = { ...data, _id: rowId, _rowRevision: revision ?? null } as RowData;
+    setEditorOriginals(prev => ({ ...prev, [rowId]: confirmed }));
+    setEditorRows(prev => prev.map(row => row._id === rowId ? confirmed : row));
+    updateEditorDrafts(prev => clearEditorDraft(prev, rowId));
+  }, [editorOriginals, editorDrafts, updateEditorDrafts]);
 
   const handleEditorRevertRow = useCallback((rowId: string) => {
-    const original = editorOriginals[rowId];
+    const original = editorDrafts[rowId]?.original ?? editorOriginals[rowId];
     if (!original) return;
     setEditorRows(prev => prev.map(r =>
-      r._id === rowId ? { ...original } : r
+      r._id === rowId ? { ...original, _id: rowId } : r
     ));
-  }, [editorOriginals]);
+    updateEditorDrafts(prev => clearEditorDraft(prev, rowId));
+  }, [editorOriginals, editorDrafts, updateEditorDrafts]);
 
   const handleEditorAddColumn = useCallback((col: ColumnConfig) => {
     setEditorColumns(prev => [...prev, col]);
@@ -645,14 +686,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
         reason: humanizeRequestError(err),
       });
     }).finally(() => {
-      if (!cancelled) setLoadingRows(false);
+      if (!cancelled) { setLoadingRows(false); setHasLoadedRows(true); }
     });
 
     return () => { cancelled = true; };
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, outside44fzMode, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+  const lastFilterNavigation = useRef<number | null>(null);
+  useEffect(() => {
+    const changedByUser = lastFilterNavigation.current !== null && lastFilterNavigation.current === navigationVersion;
+    lastFilterNavigation.current = navigationVersion;
+    if (changedByUser) { setPageNum(1); setSelectedRow(null); }
+  }, [navigationVersion, searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, outside44fzMode, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus, setPageNum, setSelectedRow]);
 
   // Отбор по виду разметки живёт только на корзине «в течение года»: за её
   // пределами вид у большинства строк не определён, и оставленный отбор
@@ -806,7 +852,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
    * разбивка, поэтому число в её строке и число под таблицей совпадают.
    */
   const filtered = useMemo(
-    () => (subFocus === null ? scopedRows : scopedRows.filter((r) => rowSubordinateKey(r) === subFocus)),
+    () => (subFocus === null ? scopedRows : scopedRows.filter((r) =>
+      subordinateNameMatchKey(rowSubordinateKey(r)) === subordinateNameMatchKey(subFocus))),
     [scopedRows, subFocus],
   );
 
@@ -815,8 +862,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // после смены числа строк) — пустая страница при непустой выборке была бы
   // ложной пустотой, поэтому номер прижимается к последней существующей.
   useEffect(() => {
-    if (pageNum > totalPages) setPageNum(totalPages);
-  }, [pageNum, totalPages]);
+    if (hasLoadedRows && !loadingRows && pageNum > totalPages) setPageNum(totalPages);
+  }, [pageNum, totalPages, hasLoadedRows, loadingRows, setPageNum]);
   const safePage = Math.min(pageNum, totalPages);
   // Память о срезе обязательна: он же кормит редактор, а новый массив на каждый
   // кадр перезапускал бы пересборку строк редактора без конца.
@@ -847,6 +894,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       _id: `${r.dept}-${r.rowIndex ?? idx}`,
       _dept: r.dept,
       _rowIndex: r.rowIndex,
+      _rowRevision: r.rowRevision,
       id: r.id,
       // Ключ управления остаётся в _dept для записи; на экран идёт имя.
       dept: deptDisplayName(r.dept),
@@ -866,7 +914,20 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       flag: r.flag,
       commentGRBS: r.commentGRBS,
     }));
-    setEditorRows(mapped);
+    // Never overlay a draft on a DIFFERENT procurement that moved into this
+    // sheet row: versions must still match the baseline from the first edit.
+    setEditorRows(mapped.map(row => {
+      const draft = applicableDraft(editorDrafts[row._id], row._rowRevision);
+      if (!draft) return row;
+      const patched: RowData = { ...row, ...draft.changes };
+      if (['planFB', 'planKB', 'planMB'].some(key => key in draft.changes)) {
+        patched.planSum = sumBudgets(patched, ['planFB', 'planKB', 'planMB']);
+      }
+      if (['factFB', 'factKB', 'factMB'].some(key => key in draft.changes)) {
+        patched.factSum = sumBudgets(patched, ['factFB', 'factKB', 'factMB']);
+      }
+      return patched;
+    }));
     const origMap: Record<string, RowData> = {};
     for (const row of mapped) {
       origMap[row._id] = { ...row };
@@ -875,7 +936,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     if (editorColumns.length === 0) {
       setEditorColumns(defaultEditorColumns);
     }
-  }, [viewMode, paged, defaultEditorColumns, editorColumns.length]);
+  }, [viewMode, paged, defaultEditorColumns, editorColumns.length, editorDrafts, sumBudgets]);
+
+  const visibleDraftFields = useMemo(() => Object.fromEntries(
+    editorRows.flatMap(row => {
+      const draft = applicableDraft(editorDrafts[row._id], row._rowRevision);
+      return draft ? [[row._id, Object.keys(draft.changes)] as const] : [];
+    }),
+  ), [editorRows, editorDrafts]);
+
+  const draftCount = Object.keys(editorDrafts).length;
 
   // ── Курсор по строкам ──
   const { rowsBelow, showBackToTop, scrollToTop } = useTableScroll(scrollRef, rowRefs, paged.length);
@@ -949,7 +1019,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       // В буфер уходит тот же столбец, что стоит на экране: только замечания.
       // Благополучные признаки строки читаются из соседних значений — состояния,
       // факта и экономии, — и второй раз словами не пересказываются.
-      featureSignals(cursorRow.signals).map((s: string) => signalChipText(s).text).join(', '),
+      featureSignals(cursorRow.signals).map((s: string) => signalChipText(s, cursorRow).text).join(', '),
     ]), 'Строка скопирована — суммы в тысячах рублей.');
   }, [cursorRow, report]);
 
@@ -982,7 +1052,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const goToPage = useCallback((page: number, land: 'first' | 'last') => {
     pendingCursorRef.current = land;
     setPageNum(page);
-  }, []);
+  }, [setPageNum]);
 
   // Клавиатура реестра. Слушатель на документе, а не на таблице: иначе стрелки
   // молчали бы, пока пользователь не щёлкнет по строке, — а «умею в Excel и
@@ -1048,7 +1118,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [viewMode, selectedRow, hotkeysOpen, cursor, cursorRow, paged.length, safePage, totalPages, copyCursorRow, focusSearchField, goToPage]);
+  }, [viewMode, selectedRow, hotkeysOpen, cursor, cursorRow, paged.length, safePage, totalPages, copyCursorRow, focusSearchField, goToPage, setSelectedRow]);
 
   const severity = useMemo(() => countBySeverity(filtered), [filtered]);
   const occurrences = useMemo(() => signalOccurrences(rows), [rows]);
@@ -1239,14 +1309,14 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       formatDateCell(r.planDate),
       formatDateCell(r.factDate),
       r.status ?? '',
-      `"${featureSignals(r.signals).map((s: string) => signalChipText(s).text).join(', ')}"`,
+      `"${featureSignals(r.signals).map((s: string) => signalChipText(s, r).text).join(', ')}"`,
     ].join(';'));
     const bom = '\uFEFF';
     const csv = bom + headers.join(';') + '\n' + csvRows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = productTodayIso();
     // Периметр в имени файла: выгрузка живёт дальше экрана — по почте, в папке
     // среди соседних файлов, — и «Реестр закупок 2026-08-21.csv» ничего не
     // говорит о том, чьи строки и за какой год внутри. Косая черта и двоеточие
@@ -1562,9 +1632,24 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             </div>
             {pager}
           </div>
+          {draftCount > 0 && (
+            <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex flex-wrap gap-2 items-center">
+              <span>{draftCount} {pluralRu(draftCount, 'строка изменена', 'строки изменены', 'строк изменено')} и ещё не записано.
+                Черновики сохраняются при переключении страниц и разделов в этой вкладке.
+                Если исходная строка переместилась, запись будет отклонена без замены чужой закупки.</span>
+              <button type="button" className="underline underline-offset-2"
+                onClick={() => { void copyText(JSON.stringify(Object.entries(editorDrafts).map(([key, draft]) => ({
+                  key, changes: draft.changes, sourceRevision: draft.original._rowRevision,
+                })), null, 2)); }}>
+                Скопировать черновики
+              </button>
+            </div>
+          )}
           <TableEditor
             columns={editorColumns}
             rows={editorRows}
+            externalDirtyFields={visibleDraftFields}
+            metadataOpen={selectedRow!==null}
             loading={loadingRows}
             onCellChange={handleEditorCellChange}
             onSaveRow={handleEditorSaveRow}
@@ -1583,6 +1668,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
             }
             rowAddress={(row) => rowAddressOf(row._dept, row._rowIndex)}
+            onCellMetadata={(editorRow,columnKey)=>{
+              const source=paged.find(r=>r.dept===editorRow._dept&&r.rowIndex===editorRow._rowIndex);
+              if(!source)return;
+              const columns:Record<string,string>={id:'A',subordinate:'C',subject:'G',method:'L',planFB:'H',planKB:'I',planMB:'J',planSum:'K',factSum:'Y',factFB:'V',factKB:'W',factMB:'X',planDate:'N',factDate:'Q',flag:'AD',commentGRBS:'AF'};
+              setSelectedNoteColumn(columns[columnKey]);setSelectedRow({...source,noteAddressUnavailable:!columns[columnKey]});
+            }}
             prefsName="registry-editor"
           />
         </>
@@ -2728,7 +2819,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       </div>
       )}
 
-      {selectedRow && <RowDetailCard row={selectedRow} onClose={() => setSelectedRow(null)} />}
+      {selectionUnavailable && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
+        Ранее открытая запись не найдена в прочитанной выборке с прежней версией. Другая строка по её адресу не открыта.
+        <button type="button" className="ml-2 underline" onClick={() => setSelectedRow(null)}>Закрыть сообщение</button>
+      </p>}
+      {selectedRow && <RowDetailCard row={selectedRow} noteColumn={selectedNoteColumn} onClose={() => {setSelectedRow(null);setSelectedNoteColumn(undefined);}} />}
       </>
       )}
     </div>

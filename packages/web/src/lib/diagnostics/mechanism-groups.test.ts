@@ -112,3 +112,16 @@ describe('groupIssuesByMechanism', () => {
     expect(overdue.addresses[0].subject).toBe('Окорока (куриные)');
   });
 });
+
+it('отделяет неприменимую диагностику шапки от настоящего дефекта, не требуя править числа шапки', () => {
+  const header = { id: 'header', checkId: 'formula_overwritten', sheet: 'УЭР', row: 1, cell: 'AA1', severity: 'critical', title: 'Формула затёрта: AA1', recommendation: 'Протянуть формулу' };
+  const real = { ...header, id: 'real', row: 4, cell: 'AA4' };
+  const groups = groupIssuesByMechanism([header, real]);
+  expect(groups).toHaveLength(2);
+  const history = groups.find(group => group.issues[0].id === 'header')!;
+  expect(history.severity).toBe('info');
+  expect(history.recommendation).toContain('исправлять');
+  expect(history.recommendation).not.toContain('Протянуть');
+  expect(header.severity).toBe('critical');
+  expect(groups.find(group => group.issues[0].id === 'real')!.severity).toBe('critical');
+});

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { thresholdAt } from '@aemr/shared';
+
+const EP_LIMIT = thresholdAt('law.epSmallSingleContract', '2026-10-22');
+const ROLE_LIMIT = thresholdAt('competition.epRoleOperationalShare', '2026-10-22');
 import {
   detectSplitting,
-  detectZeroCompetition,
-  detectPriceInflation,
   detectEpOverLimit,
   detectAnnualEpShare,
   detectSupplierConcentration,
@@ -20,7 +22,7 @@ describe('anticorruption — splitting (#1 дробление)', () => {
     const rows = Array.from({ length: 10 }, (_, i) =>
       row({ rowIndex: i + 1, method: 'ЕП', planTotal: 550_000, subject: 'Поставка канцтоваров' }),
     );
-    const flags = detectSplitting(rows);
+    const flags = detectSplitting(rows, EP_LIMIT);
     expect(flags).toHaveLength(1);
     expect(flags[0].indicator).toBe('splitting');
     expect(flags[0].score!).toBeGreaterThan(60);
@@ -30,51 +32,39 @@ describe('anticorruption — splitting (#1 дробление)', () => {
     const rows = Array.from({ length: 3 }, (_, i) =>
       row({ rowIndex: i + 1, planTotal: 550_000, subject: 'Канцтовары' }),
     );
-    expect(detectSplitting(rows)).toHaveLength(0);
+    expect(detectSplitting(rows, EP_LIMIT)).toHaveLength(0);
   });
   it('конкурентные не учитываются (только ЕП)', () => {
     const rows = Array.from({ length: 10 }, (_, i) =>
       row({ rowIndex: i + 1, method: 'ЭА', planTotal: 550_000, subject: 'Канцтовары' }),
     );
-    expect(detectSplitting(rows)).toHaveLength(0);
+    expect(detectSplitting(rows, EP_LIMIT)).toHaveLength(0);
   });
 });
 
-describe('anticorruption — zero_competition (#2)', () => {
-  it('>50% конкурентных с нулевой экономией → флаг', () => {
-    const rows = [
-      ...Array.from({ length: 4 }, (_, i) =>
-        row({ rowIndex: i + 1, method: 'ЭА', planTotal: 1_000_000, factTotal: 1_000_000, economy: 0 }),
-      ),
-      row({ rowIndex: 5, method: 'ЭА', planTotal: 1_000_000, factTotal: 900_000, economy: 100_000 }),
-    ];
-    const flags = detectZeroCompetition(rows);
+describe('anticorruption — ep_over_limit (#8)', () => {
+  it('ЕП: большая плановая позиция — лишь справочный сигнал, не доказанный лимит договора', () => {
+    const flags = detectEpOverLimit([row({ rowIndex: 1, method: 'Ед. поставщик', planTotal: 750_000 })], EP_LIMIT);
     expect(flags).toHaveLength(1);
-    expect(flags[0].indicator).toBe('zero_competition');
+    expect(flags[0].severity).toBe('low');
+    expect(flags[0].message).toContain('превышение нормы не доказано');
+    expect(flags[0].message).toContain('не подтверждена');
   });
-  it('<5 конкурентных → нет флага', () => {
-    const rows = Array.from({ length: 3 }, (_, i) =>
-      row({ rowIndex: i + 1, method: 'ЭА', planTotal: 1_000_000, factTotal: 1_000_000, economy: 0 }),
-    );
-    expect(detectZeroCompetition(rows)).toHaveLength(0);
-  });
-});
-
-describe('anticorruption — price_inflation (#4) + ep_over_limit (#8)', () => {
-  it('экономия >25% → price_inflation', () => {
-    const flags = detectPriceInflation([row({ rowIndex: 1, method: 'ЭА', planTotal: 1_000_000, economy: 300_000 })]);
-    expect(flags.some(f => f.indicator === 'price_inflation')).toBe(true);
-  });
-  it('ЕП >600К → ep_over_limit high', () => {
-    const flags = detectEpOverLimit([row({ rowIndex: 1, method: 'ЕП', planTotal: 750_000 })]);
-    expect(flags).toHaveLength(1);
-    expect(flags[0].severity).toBe('high');
+  it('версия из снимка определяет число, но не доказывает применимость к договору', () => {
+    const captured = { value: 800, unit: 'thousandRub' as const, status: 'verified' as const, edition: 'test', sourceRef: 'fixture' };
+    expect(detectEpOverLimit([row({ method: 'ЕП', planTotal: 750 })], captured)).toHaveLength(0);
+    const detected = detectEpOverLimit([row({ method: 'ЕП', planTotal: 801 })], captured);
+    expect(detected).toHaveLength(1);
+    expect(detected[0].message).toContain('применимость основания — нет');
   });
 });
 
 describe('anticorruption — annual share (#9) + concentration (#10 pluggable)', () => {
   it('доля ЕП > порога → флаг; ниже → нет', () => {
-    expect(detectAnnualEpShare(6_000_000, 10_000_000, 0.5)).toHaveLength(1);
+    const flags = detectAnnualEpShare(6_000_000, 10_000_000, 0.5);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ severity: 'low' });
+    expect(flags[0].message).toContain('неподтверждённого внутреннего ориентира');
     expect(detectAnnualEpShare(4_000_000, 10_000_000, 0.5)).toHaveLength(0);
   });
   it('#10 без ИНН → спит (пусто)', () => {
@@ -98,16 +88,26 @@ describe('anticorruption — оркестратор + штраф дисципл�
     expect(penaltyForSeverity('medium')).toBe(-10);
     expect(penaltyForSeverity('low')).toBe(-5);
   });
-  it('detectAntiCorruption агрегирует флаги + отрицательный штраф', () => {
+  it('missing historical references disable threshold-dependent flags, not rebase to today', () => {
+    const rows = [row({ rowIndex: 1, method: 'ЕП', planTotal: 999 })];
+    const result = detectAntiCorruption('uo', { rows, epTotal: 80, totalPlan: 100 });
+    expect(result.flags.filter(f => f.indicator === 'ep_over_limit' || f.indicator === 'ep_annual_share')).toEqual([]);
+    expect(result.unavailableIndicators.map(i => i.indicator)).toContain('ep_over_limit');
+    expect(result.unavailableIndicators.map(i => i.indicator)).toContain('ep_annual_share');
+    expect(detectEpOverLimit(rows, { ...EP_LIMIT, unit: undefined })).toEqual([]);
+    expect(detectSplitting(rows, { ...EP_LIMIT, unit: 'ratio' })).toEqual([]);
+  });
+
+  it('detectAntiCorruption сохраняет сигналы без штрафа за неподтверждённые нарушения', () => {
     const rows = [
       ...Array.from({ length: 10 }, (_, i) =>
         row({ rowIndex: i + 1, method: 'ЕП', planTotal: 550_000, subject: 'Канцтовары' }),
       ),
       row({ rowIndex: 11, method: 'ЕП', planTotal: 750_000, subject: 'Ремонт кровли' }),
     ];
-    const res = detectAntiCorruption('uo', { rows, epTotal: 6_000_000, totalPlan: 10_000_000, epShareLimit: 0.5 });
+    const res = detectAntiCorruption('uo', { rows, epTotal: 6_000_000, totalPlan: 10_000_000, epShareThreshold: ROLE_LIMIT, epSingleThreshold: EP_LIMIT });
     expect(res.grbsId).toBe('uo');
     expect(res.flags.length).toBeGreaterThanOrEqual(2);
-    expect(res.disciplinaryPenalty).toBeLessThan(0);
+    expect(res.disciplinaryPenalty).toBe(0);
   });
 });

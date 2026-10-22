@@ -234,6 +234,7 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
 let attempt = 0;
 let lastEventId: number | null = null;
+let connectedBefore = false;
 
 function scheduleFlashPrune(): void {
   if (flashTimer) return;
@@ -263,6 +264,11 @@ export function ingestLiveEvent(event: Record<string, unknown>): void {
   if (next !== state) {
     state = next;
     for (const listener of [...listeners]) listener();
+  }
+  if (event.kind === 'book-updated' && typeof window !== 'undefined') {
+    // Updated source cache is already available: tell the open integrity view
+    // to read LOCAL API only, without forcing another Google read.
+    window.dispatchEvent(new Event('department-books-updated'));
   }
   if (event.kind === 'monitoring-updated') {
     useStore.getState().invalidateLiveStavka();
@@ -294,7 +300,17 @@ async function runStream(): Promise<void> {
     const response = await fetch('/api/events', { headers, signal: controller.signal });
     if (!response.ok || !response.body) throw new Error(`поток не открылся (${response.status})`);
 
-    setState({ connected: true });
+    // A restarted server may have lost its event ring. Catch up once on reconnect,
+    // without a timer forcing Google reads during an unchanged connection.
+    const reconnect = connectedBefore;
+    connectedBefore = true;
+    setState({ connected: true, snapshotRebuilt: state.snapshotRebuilt || reconnect });
+    if (reconnect) {
+      useStore.getState().invalidateLiveStavka();
+      // SSE ring may have expired during disconnect: restore the open view
+      // from the existing API rather than trusting absence of replayed events.
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('department-books-updated'));
+    }
     attempt = 0;
 
     const reader = response.body.getReader();
@@ -376,6 +392,7 @@ export function resetLiveEvents(): void {
   refCount = 0;
   attempt = 0;
   lastEventId = null;
+  connectedBefore = false;
   state = EMPTY;
   for (const listener of [...listeners]) listener();
 }

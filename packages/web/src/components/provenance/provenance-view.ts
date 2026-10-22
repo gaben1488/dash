@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * provenance-view.ts — чистая витрина провенанса плановой суммы (без React).
  *
@@ -18,6 +19,8 @@
  * при округлении до тысяч превратилось бы в ноль, то есть в «ничего не было».
  */
 import { pluralRu } from '../../lib/economy-copy';
+import { buildSheetUrl } from '@aemr/shared';
+import { fmtReadAt, sourceCellUrl } from '../../lib/monitoring/format';
 import type {
   PlanEvent,
   PlanEventKind,
@@ -158,6 +161,8 @@ export interface ProvenanceEventView {
   transition: string;
   /** Адрес ячейки книги («J96») — там правку видно глазами. */
   cell: string;
+  sources: { label: string; meta: string; href: string | null }[];
+  witnessCount: number;
   /** Русское имя колонки («план, местный бюджет»). */
   columnLabel: string;
   tone: ProvenanceTone;
@@ -189,7 +194,13 @@ export function buildProvenanceEvents(events: readonly PlanEvent[]): ProvenanceE
         kindLabel: meta.label,
         kindHint: meta.hint,
         transition: `${sideLabel(e.was, e.wasKnown)} → ${sideLabel(e.became, e.becameKnown)}`,
-        cell: e.cell,
+        cell: e.sheet ? `${e.sheet}!${e.cell}` : e.cell,
+        sources: (e.sources ?? []).map(source => ({
+          label: `Запись журнала, строка ${source.journalRow} · прочитано ${fmtReadAt(new Date(source.readAt).toISOString())}`,
+          meta: `Книга ${source.spreadsheetId} · ${source.journalSheet}!${source.journalRow} · время чтения ${new Date(source.readAt).toISOString()}`,
+          href: sourceCellUrl(buildSheetUrl(source.spreadsheetId), source.journalSheet, `A${source.journalRow}`),
+        })),
+        witnessCount: e.witnessCount ?? 1,
         columnLabel: PLAN_COLUMN_RU[e.column] ?? e.column,
         tone: meta.tone,
         emphasis: meta.emphasis,
@@ -235,7 +246,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (!p.journalAvailable) {
     return {
       level: 'unreadable',
-      title: `Книга ${p.dept} сейчас не прочитана — история плановой суммы не просмотрена`,
+      title: `Книга ${productLabel(p.dept)} сейчас не прочитана — история плановой суммы не просмотрена`,
       detail:
         (p.journalError ? `Причина: ${p.journalError}. ` : '')
         + 'Это не «правок не было» и не «журнал не ведётся»: источник не ответил. '
@@ -246,7 +257,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (entries === 0) {
     return {
       level: 'empty',
-      title: `Журнал правок по книге ${p.dept} не ведётся — история плановой суммы пуста`,
+      title: `Журнал правок по книге ${productLabel(p.dept)} не ведётся — история плановой суммы пуста`,
       detail:
         'Правки плана в этой книге не фиксируются вовсе, поэтому снижение суммы задним числом '
         + 'здесь невидимо в принципе. Молчание ленты означает отсутствие следов, а не отсутствие '
@@ -258,7 +269,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (keyless >= entries) {
     return {
       level: 'keyless',
-      title: `Записи журнала книги ${p.dept} не привязаны к закупкам — историю строки не выделить`,
+      title: `Записи журнала книги ${productLabel(p.dept)} не привязаны к закупкам — историю строки не выделить`,
       detail:
         `Журнал ведётся (${entries} записей), но ни в одной нет номера строки: книга заполняет `
         + 'его по укороченной шапке. Правки видны только целиком по книге, поэтому судить о плане '
@@ -269,7 +280,7 @@ export function assessJournal(p: RowProvenanceResponse): JournalNotice | null {
   if (entries < SCANT_JOURNAL_ENTRIES) {
     return {
       level: 'scant',
-      title: `Журнал правок по книге ${p.dept} почти не ведётся — история неполна`,
+      title: `Журнал правок по книге ${productLabel(p.dept)} почти не ведётся — история неполна`,
       detail:
         `В журнале всего ${entries} записей, тогда как у самых аккуратных книг их десятки тысяч. `
         + 'Часть правок плана в него не попала, поэтому пустая или короткая лента ничего не '
@@ -292,7 +303,7 @@ export function emptyLedgerNote(p: RowProvenanceResponse): string {
       ? ` У ${observability.unparsedRowKeys} записей журнала номер строки не читается — они могли `
         + 'относиться и к этой закупке.'
       : '';
-    return `В журнале книги ${p.dept} нет ни одной записи об этой строке: её либо не правили с тех `
+    return `В журнале книги ${productLabel(p.dept)} нет ни одной записи об этой строке: её либо не правили с тех `
       + `пор, как журнал ведётся, либо правка в него не попала.${caveat}`;
   }
   if (observability.planEntries === 0) {
@@ -343,6 +354,18 @@ export function buildRetroCutHeadline(p: RowProvenanceResponse): RetroCutHeadlin
   const excluded = excludedParts.length > 0
     ? `В итог не вошли: ${excludedParts.join(', ')}. Это дефекты записи, а не движение денег.`
     : null;
+
+  if (s.financialAmbiguityCount > 0) {
+    return {
+      present: true,
+      title: 'Полный финансовый итог не подтверждён',
+      mechanism: `Свидетельств сохранено — ${s.witnessCount}; неоднозначных групп — ${s.financialAmbiguityCount}. `
+        + 'Один момент записи не доказывает число отдельных правок. Исходные записи показаны в ленте.',
+      afterFact: s.retroCutCount > 0
+        ? `Подтверждённая часть: ${formatThousands(s.retroCutTotal)} тыс. ₽ (${s.retroCutCount} переходов).` : null,
+      excluded,
+    };
+  }
 
   if (s.retroCutCount === 0) {
     return {

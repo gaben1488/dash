@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Адрес строки в живой книге управления — дверь от числа отчёта к первичке.
  *
@@ -50,6 +51,6 @@ export function bookCellUrl(dept: string, cell: string): string | null {
 
 /** Подсказка ссылки — обещает ровно то, что ссылка делает. */
 export function bookLinkHint(dept: string, where: string): string {
-  return `Откроется книга управления ${dept} в Google Sheets, ${where}. ` +
+  return `Откроется книга управления ${productLabel(dept)} в Google Sheets, ${where}. ` +
     'Продукт не знает, какой лист книги открыт у вас, поэтому выделение наводится на активном листе.';
 }

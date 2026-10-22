@@ -484,7 +484,8 @@ describe('detectSeasonalAnomalies', () => {
   }): unknown[] {
     const row = new Array(32).fill(null);
     row[2] = opts.subordinate ?? '';
-    row[3] = opts.description ?? '';
+    row[3] = opts.program ?? '';
+    row[6] = opts.description ?? '';
     row[4] = opts.program ?? '';
     row[11] = opts.method ?? '';
     row[13] = opts.planDate ?? '';
@@ -642,6 +643,7 @@ describe('detectSeasonalAnomalies', () => {
     it('СТРАЖ п.27: слово «Исполнен» в статусе без даты факта сигнал больше не гасит', () => {
       const rows = [makeSeasonalRow({
         description: 'Поставка угля для котельной',
+        planDate: '01.05.2025',
         status: 'Исполнен',
       })];
       const refDate = new Date(2025, 9, 1);
@@ -651,8 +653,8 @@ describe('detectSeasonalAnomalies', () => {
 
     it('matches ГСМ and дизельное топливо', () => {
       const rows = [
-        makeSeasonalRow({ description: 'Закупка ГСМ', status: '' }),
-        makeSeasonalRow({ description: 'Дизельное топливо для техники', status: '' }),
+        makeSeasonalRow({ description: 'Закупка ГСМ', planDate: '01.05.2025', status: '' }),
+        makeSeasonalRow({ description: 'Дизельное топливо для техники', planDate: '01.05.2025', status: '' }),
       ];
       const refDate = new Date(2025, 9, 1); // October 1
       const result = detectSeasonalAnomalies(rows, 'DEPT1', refDate);

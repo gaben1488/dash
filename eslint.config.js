@@ -45,5 +45,15 @@ export default tseslint.config(
       'react-hooks/rules-of-hooks': 'error',
     },
   },
+  {
+    files: ['packages/web/src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.*', '**/*.spec.*'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: 'VariableDeclarator[id.name=/(LABELS?|HINTS?|COPY|TITLE|NOTE|MESSAGE|TEXT)$/] ObjectExpression > Property > Literal.value[value=/[А-Яа-яЁё]/]',
+        message: 'Экранный словарь принадлежит @aemr/shared/product-dictionary. Используйте общий реестр вместо локальной копии.',
+      }],
+    },
+  },
   eslintConfigPrettier,
 );

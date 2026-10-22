@@ -9,6 +9,7 @@
  * сигналы → 223 → визуальный слой.
  */
 const { colIndex, rgbFromHex } = require('./lib.cjs');
+const { masterProfile } = require('../../packages/report-engine/src/procurement_engine/department_directory.json');
 
 // ---------- палитра (канон УО + контрольные цвета 47-набора) ----------
 const C = {
@@ -71,7 +72,7 @@ function goldenCF(sheetId, opts) {
   const all = [
     // 1. Контроль формул (одно правило на все формульные группы)
     { name: 'Формула сломана (K, O:P, R:T, Y:AC)',
-      ranges: [rng(sheetId, 'K'), rng(sheetId, 'O', 'P'), rng(sheetId, 'R', 'T'), rng(sheetId, 'Y', 'AC')],
+      ranges: masterProfile.formulaColumnGroups.map(g => rng(sheetId, g.from, g.to)),
       rule: boolRule(FORMULA_GUARD, fmt(C.formulaBroken, C.white, true)) },
     // 2. Точечные красные — обязательность и типы
     { name: 'Пустой предмет закупки G', ranges: [rng(sheetId, 'G')],
@@ -154,10 +155,9 @@ function goldenProtections(sheetId, editors, opts) {
   const mk = (desc, range) => ({ description: desc, range, warningOnly: false, editors: { users: editors } });
   const out = [
     mk('Шапка (строки 1-3)', { sheetId, startRowIndex: 0, endRowIndex: 3 }),
-    mk('Формульный столбец K', rng(sheetId, 'K')),
-    mk('Формульные столбцы O:P', rng(sheetId, 'O', 'P')),
-    mk('Формульные столбцы R:T', rng(sheetId, 'R', 'T')),
-    mk('Формульные столбцы Y:AC', rng(sheetId, 'Y', 'AC')),
+    ...masterProfile.formulaColumnGroups.map(({ from, to }) =>
+      mk(from === to ? `Формульный столбец ${from}` : `Формульные столбцы ${from}:${to}`,
+        rng(sheetId, from, to))),
   ];
   if (opts && opts.keepAD) out.push(mk('Флаг учёта экономии AD', rng(sheetId, 'AD')));
   return out;
@@ -174,8 +174,22 @@ function goldenValidation(grbsValue) {
   // Решение владельца 30.08: справочник строгий — новое учреждение/программа
   // появляется ТОЛЬКО через страницу настроек; ручной ввод мимо списка отклоняется.
   const fromRange = (r) => ({ condition: { type: 'ONE_OF_RANGE', values: [{ userEnteredValue: r }] }, strict: true, showCustomUi: true });
+  // The live УД book has switched A to TEXT and accepted numbered sub-items
+  // such as 173/18. Only its input rule changes; do not silently relax the
+  // other seven GRBS books or reinterpret stored identifiers as quantities.
+  const isUD = /^Управление делами(?:\s|$)/i.test(String(grbsValue ?? '').trim());
+  const idRule = isUD ? {
+    condition: { type: 'CUSTOM_FORMULA', values: [{
+      userEnteredValue: '=OR($A4="";REGEXMATCH(TO_TEXT($A4);"^[1-9][0-9]*(/[1-9][0-9]*)?$"))',
+    }] },
+    strict: true, showCustomUi: false,
+    inputMessage: 'Укажите положительный целый № или составной № вида 173/18. Не дату.',
+  } : {
+    condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] },
+    strict: true, showCustomUi: false,
+  };
   return {
-    A: { condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] }, strict: true, showCustomUi: false },
+    A: idRule,
     B: grbsValue ? listOf([grbsValue], true) : null,
     C: fromRange("='_Настройки'!$H$2:$H"),
     D: fromRange("='_Настройки'!$I$2:$I"),
@@ -228,21 +242,15 @@ function serviceCF(sheetId) {
   ];
 }
 
-/** Эталонные формулы листа GOOGLE_ФОРМУЛЫ (реконструкция взамен #REF!-битых;
- * контрольная дата — Settings!$B$6, актуальная раскладка). */
-const GOOGLE_FORMULAS_CANON = [
-  ['K', '=ARRAYFORMULA(IF(A4:A="";"";H4:H+I4:I+J4:J))'],
-  ['O', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));"^(X|Х)$");"X";ROUNDUP(MONTH(N4:N)/3;0))))'],
-  ['P', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));"^(X|Х)$");"X";YEAR(N4:N))))'],
-  ['R', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");"X";ROUNDUP(MONTH(Q4:Q)/3;0))))'],
-  ['S', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");"X";YEAR(Q4:Q))))'],
-  ['T', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");IF(N4:N>Settings!$B$6;"Срок не наступил";"Срок нарушен");Q4:Q-N4:N)))'],
-  ['Y', '=ARRAYFORMULA(IF(A4:A="";"";V4:V+W4:W+X4:X))'],
-  ['Z', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;H4:H-V4:V)))'],
-  ['AA', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;I4:I-W4:W)))'],
-  ['AB', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;J4:J-X4:X)))'],
-  ['AC', '=ARRAYFORMULA(IF(A4:A="";"";Z4:Z+AA4:AA+AB4:AB))'],
-];
+/** Formula definitions belong to the single reviewed master source profile.
+ * Existing etalon-sync callers keep their exported [column, expression] array.
+ * No independent duplicate of the 11 expressions is maintained here.
+ */
+
+const GOOGLE_FORMULAS_CANON = Object.values(masterProfile.fields)
+  .filter(field => typeof field.formula === 'string')
+  .sort((a, b) => a.index - b.index)
+  .map(field => [field.column, field.formula]);
 
 module.exports = { C, goldenCF, goldenProtections, goldenValidation, FORMAT_POLICY, rng,
   BANDING, BODY_COLUMN_CANON, serviceCF, GOOGLE_FORMULAS_CANON };

@@ -549,6 +549,7 @@ export interface MonitoringAnalytics {
 }
 
 export interface AnalyticsPayload {
+  window?: { from: string; to: string; undated: number };
   source: AnalyticsSource;
   analytics: MonitoringAnalytics;
   notes: string[];
@@ -558,6 +559,7 @@ export function normalizeAnalytics(raw: unknown): AnalyticsPayload {
   const r = rec(raw);
   const a = rec(r.analytics);
   return {
+    ...(r.window ? { window: { from: text(rec(r.window).from), to: text(rec(r.window).to), undated: count(rec(r.window).undated) } } : {}),
     source: readSource(r.source),
     analytics: {
       funnel: readFunnel(a.funnel),
@@ -581,8 +583,9 @@ export type SeasonBasis = 'publication' | 'auction';
 
 export async function fetchMonitoringAnalytics(
   basis: SeasonBasis = 'publication',
+  rollingYear = false,
 ): Promise<AnalyticsPayload> {
-  const raw = await fetchJSON<unknown>(`/monitoring/analytics?basis=${basis}`);
+  const raw = await fetchJSON<unknown>(`/monitoring/analytics?basis=${basis}${rollingYear ? '&window=rolling-year' : ''}`);
   return normalizeAnalytics(raw);
 }
 

@@ -586,7 +586,7 @@ describe('buildReport — период, порядок, сигналы', () => {
   it('deptLabel — полное имя из реестра', () => {
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
-    expect(uer.deptLabel).toBe('Управление экономического развития');
+    expect(uer.deptLabel).toBe('Управление экономического развития администрации Елизовского муниципального округа');
   });
 
   it('pendingPositions: незаключённые квартала с пояснениями и адресом строки', () => {
@@ -634,6 +634,32 @@ describe('buildReport — период, порядок, сигналы', () => {
     // Полный текст и адрес первички доезжают до проекции.
     expect(uer.signals[0].description).toBe('');
   });
+  it('signal decision lifecycle: false positive is not an active report signal; resolution remains explicitly labelled', () => {
+    const make = (id: string, status: Issue['status']): Issue => ({
+      id, status, departmentId: 'uer', severity: 'warning', origin: 'bi_heuristic',
+      category: 'signal', title: id, description: 'Сигнал по строке',
+      detectedAt: '2026-03-20', detectedBy: 'test',
+      sheet: 'УЭР', cell: 'N4', row: 4,
+    });
+    const issues = [
+      make('false-positive', 'false_positive'),
+      make('resolved', 'resolved'),
+      make('work-in-progress', 'in_progress'),
+      make('open', 'open'),
+      make('other-dept', 'open'),
+    ];
+    issues[4]!.departmentId = 'uksimp';
+    const report = buildReport({ rowsByDept: fixtureRows(), issues }, OPTS);
+    const uer = report.grbsBlocks.find(block => block.dept === 'УЭР')!;
+    expect(uer.signals.map(s => [s.id, s.status])).toEqual([
+      ['resolved', 'resolved'], ['work-in-progress', 'in_progress'], ['open', 'open'],
+    ]);
+    expect(uer.signals[0]).toMatchObject({ sheet: 'УЭР', cell: 'N4', row: 4 });
+    // Core projection must never rewrite the input or drop decisions from case history.
+    expect(issues[0]!.status).toBe('false_positive');
+    expect(issues[1]!.status).toBe('resolved');
+  });
+
 });
 
 describe('канон интервью 14.08.2026 — свободный текст и адресация (пп.27, 28/29, 31)', () => {

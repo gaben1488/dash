@@ -16,7 +16,7 @@ from urllib.parse import quote
 from .normalize import clean_text, parse_date, to_decimal
 from .source_context import explanations
 
-CONTRACT = 'actionable-assurance-v2'
+CONTRACT = 'actionable-assurance-v4'
 
 SOURCE_ISSUES = {
     'PLAN_TOTAL_MISMATCH': (('H', 'I', 'J', 'K'), 'Итог плана не равен сумме источников', 'Сверьте H:I:J с утверждённым планом и восстановите сумму в K. Не подгоняйте компоненты под ошибочный итог.'),
@@ -105,15 +105,33 @@ ENGINE_LINK_CAUSES = {
 }
 
 
-def assess_automation(model, sources=(), *, legacy_scope=False):
-    actions, observations = [], []
+def assess_automation(model, sources=(), *, legacy_scope=False, contract=CONTRACT):
+    actions, observations, resolved = [], [], []
+    contract = 'actionable-assurance-v1' if legacy_scope else contract
+    business_labels = []
     for value in model.get('details', []):
         row = asdict(value) if is_dataclass(value) else value
         events = source_events(row)
         if events:
             observations.append({'source_row_key': row.get('physical_row_key'), 'events': events})
         facts = sum((to_decimal(row.get(field)) for field in ('fact_fb', 'fact_kb', 'fact_mb')), Decimal(0))
-        if facts != 0 and not row.get('actual_date'):
+        pending_stage = False
+        if contract == CONTRACT and facts > 0 and not row.get('actual_date'):
+            from .answered_questions import yearlong_stage
+
+            pending_stage = yearlong_stage(row, sources)
+            if pending_stage:
+                resolved.append({'code': 'YEARLONG_STAGE', 'source_row_key': row.get('physical_row_key'),
+                    'recommendation_id': None, 'title': 'Суммы накапливаются до закрытия позиции',
+                    'answer': 'Допустимая стадия ЕП: денежные суммы внесены, позиция ещё не закрыта. '
+                              'Для серии договоров Q означает последний договор, закрывающий весь объём. '
+                              'Для выплат и платежей без договора дата договора не требуется. '
+                              'Вид позиции этим признаком не устанавливается.',
+                    'basis': 'Правило владельца от 11.10.2026 и утверждённая стадия накопления сумм ЕП: '
+                             'пустая Q до закрытия всей позиции допустима; неизвестный вид позиции показывается нейтрально.',
+                    'locations': [_location(row, 'Q', sources)],
+                    'proves_current_implementation': False})
+        if facts != 0 and not row.get('actual_date') and not pending_stage:
             actions.append(_signal('FACT_MONEY_WITHOUT_DATE', row=row, sources=sources, columns=('Q',),
                 title='Фактическая сумма внесена без даты факта',
                 cause=f'В V:W:X внесено {facts} тыс. руб., а Q не содержит дату.',
@@ -121,6 +139,12 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
                 action='Проверьте первичный документ: для состоявшейся закупки внесите дату факта в Q. '
                        'Если сумма относится к плану или прогнозу, исправьте фактические суммы V:W:X. Не подставляйте сегодняшнюю дату.',
                 resolved_when='В источнике появилась подтверждённая дата факта либо исправлены фактические суммы.'))
+            if contract == CONTRACT:
+                actions[-1].update(title='Уточнить назначение денежной суммы до закрытия позиции',
+                    action='Уточните, отражает ли V:W:X цену по итогам процедуры или уже принятое обязательство. '
+                           'Если договор ещё не заключён, Q остаётся пустой; дату подставлять не нужно. '
+                           'Для суммы заключённого договора сверьте дату и назначение суммы с документом.',
+                    resolved_when='Назначение суммы подтверждено источником; дата Q требуется только для закрытой позиции.')
         funding = [event for event in events if event['kind'] in {'FUNDING_REPORTED', 'NO_FUNDING_REPORTED'}]
         if len({event['kind'] for event in funding}) > 1:
             actions.append(_signal('CONFLICTING_FUNDING_STATEMENTS', row=row, sources=sources,
@@ -155,6 +179,25 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
                     'IDENTITY_REVIEW_REQUIRED', 'RECOMMENDATION_LINK_UNCONFIRMED', 'IDENTITY_CONTINUITY_UNCONFIRMED'}:
             continue  # Reconstructed more specifically from primary rows/records below.
         context = issue.get('context') or {}
+        if code == 'DUPLICATE_BUSINESS_ID' and contract in {'actionable-assurance-v3', CONTRACT}:
+            # A is a non-unique business label. A real UID ambiguity is assessed
+            # per row below; repeating a label alone does not mean failed QA.
+            locations = []
+            for number in context.get('rows', []):
+                detail = next((item for item in model.get('details', [])
+                               if item.get('source_id') == context.get('source_id')
+                               and item.get('sheet_name') == context.get('sheet')
+                               and item.get('row_number') == number), None)
+                detail = detail or {'source_id': context.get('source_id'),
+                    'sheet_name': context.get('sheet'), 'row_number': number,
+                    'source_row_no': context.get('procurement_id')}
+                locations.append(_location(detail, 'A', sources))
+            business_labels.append({'code': code, 'grbs': context.get('grbs'),
+                'business_id': context.get('procurement_id'), 'locations': locations,
+                'user_action_required': False,
+                'meaning': 'Сам по себе повтор номера A не доказывает дублирование закупок или ошибку отчёта. '
+                           'Связность строк проверяется отдельно по полному контексту закупки.'})
+            continue
         row = next((item for item in model.get('details', [])
                     if item.get('physical_row_key') == context.get('row_key')), None)
         if row is None and context.get('row'):
@@ -198,6 +241,35 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
         links[link] += 1
         compliance = (record.get('dimensions') or {}).get('compliance_status', 'UNKNOWN')
         semantics[compliance] += 1
+        answer = record.get('source_answer') if contract == CONTRACT else None
+        if answer and compliance == 'UNKNOWN':
+            resolved.append({'code': answer['kind'], 'source_row_key': None,
+                'recommendation_id': record['recommendation_id'],
+                'title': record['recommendation_text'],
+                'answer': (answer['decision'] or answer['response']) + ''.join(
+                    ' Текущее пояснение по позиции ' + item['subject'] + ': «' + item['quote'] + '».'
+                    for item in (answer.get('member_evidence') or {}).get('current_source_statements', [])),
+                'basis': (('Обсуждение Google, ' + answer['discussion_evidence']['sheet']
+                           + ', сообщение ' + answer['discussion_evidence']['id'] + ', чтение для выпуска '
+                           + answer['as_of'] + '. ') if answer.get('discussion_evidence') else
+                         ('Оригинал отчёта от ' + answer['as_of'] + ', таблица '
+                         + str(answer['table']) + ', строка ' + str(answer['row']) + ', ячейки 3–4. '
+                         )) + 'Ответ не доказывает исполнение на текущую дату.',
+                'locations': [], 'proves_current_implementation': False})
+            continue
+        if (contract == CONTRACT and link in {'TEXT_REFERENCE_MISSING', 'CURRENT_EVIDENCE_MISSING'}
+                and (record.get('current_link') or {}).get('origin')
+                and record.get('missing_original_business_ids')
+                and record.get('recommendation_type') != 'MERGE_PROCUREMENTS'):
+            actions.append(_signal('RECOMMENDATION_CURRENT_DISPOSITION', rec=record,
+                title='Не найден ответ о текущей потребности',
+                cause='Исходная рекомендация: «' + record['recommendation_text'] + '». '
+                      'В доступных записях нет подтверждённого решения об отмене или замене этой потребности.',
+                effect='Текущий результат не установлен; отсутствие старого номера не считается отменой.',
+                action='Уточните, отменена ли потребность или чем она заменена. Если есть замена, достаточно '
+                       'названия и документа решения; выбирать технический идентификатор не требуется.',
+                resolved_when='Найдено решение о судьбе исходной потребности с проверяемым основанием.'))
+            continue
         if link != 'CONFIRMED' and not record.get('current_procurement_uids'):
             cause = (('Автоматическая связь и датированное подтверждение указывают на '
                       'разные закупки; до независимой проверки нельзя выбрать одну из них.')
@@ -219,7 +291,7 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
     actions = list({item['signal_id']: item for item in actions}.values())
     user_count = sum(item['user_action_required'] for item in actions)
     engine_count = sum(item['owner_kind'] == 'ENGINE' for item in actions)
-    outcome = {'contract': 'actionable-assurance-v1' if legacy_scope else CONTRACT,
+    outcome = {'contract': contract,
         'fully_automated': not actions,
         'user_action_count': user_count, 'engine_action_count': engine_count,
         'active_recommendations': len(active), 'link_status_counts': dict(sorted(links.items())),
@@ -228,4 +300,10 @@ def assess_automation(model, sources=(), *, legacy_scope=False):
         'meaning': 'Arithmetic verification does not imply complete semantic automation.'}
     if not legacy_scope:
         outcome['nonprocurement_identity_observations'] = nonprocurement_uid_gaps
+    if contract in {'actionable-assurance-v3', CONTRACT}:
+        outcome['business_id_observations'] = business_labels
+    if contract == CONTRACT:
+        outcome['resolved_questions'] = resolved
+        outcome['current_result_unknown_count'] = semantics.get('UNKNOWN', 0)
+        outcome['fully_automated'] = not actions and not outcome['current_result_unknown_count']
     return outcome

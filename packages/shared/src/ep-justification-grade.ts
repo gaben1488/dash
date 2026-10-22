@@ -1,34 +1,14 @@
 /**
- * Обоснованность закупки у единственного поставщика — канон п.98ж
- * (идея руководства 18.08.2026: «показывать, насколько меньше становится ЕП и
- * особенно НЕОБОСНОВАННОГО ЕП; категория обоснованный ЕП: монополисты,
- * направляли КП в адрес УЭР, наименьшая цена и т. д.»).
- *
- * Словарь причин (dictionaries/ep-reason-clusters.ts) отвечает на вопрос «что
- * написал исполнитель». Этот модуль отвечает на другой вопрос — «имел ли он
- * право так закупать и чем это подтверждается», и делит причины на четыре
- * степени по ДВУМ основаниям сразу:
- *
- *   1. Закон (44-ФЗ). Часть причин прямо названа в статье 93: монополия,
- *      авария, охрана Росгвардии, исключительные права издателя и разработчика,
- *      несостоявшаяся процедура, малый объём. Такая закупка законна сама по
- *      себе, спорить не о чем.
- *   2. Наша практика. Часть причин закон не называет, но район подтверждает их
- *      процедурой: направили коммерческие предложения, согласовали с УЭР,
- *      выбрали наименьшую цену. Это не безальтернативность, а доказанная
- *      выгода — и она проверяема документом.
- *
- * Остальное — усмотрение заказчика («нецелесообразно проводить аукцион»,
- * «для оперативности») либо пустота. Именно последние две степени и есть тот
- * ЕП, который район хочет сокращать; первые две сокращать бессмысленно —
- * монополиста конкурсом не заменить.
- *
- * ВАЖНО (канон п.27): степень выводится ИЗ КЛАСТЕРА причины, а кластер — из
- * словаря по колонке M. Свободный текст здесь машинно не толкуется: если
- * причина не распозналась, степень честно «не установлена», а не угадана.
+ * Классификация пояснений ЕП из столбца M. Распознавание текста не проверяет
+ * документы, применимость нормы или законность закупки. Исторические ключи
+ * категорий сохраняются для совместимости сохранённых отчётов.
  */
-import { canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
+import { dayNumberOf } from './parse-sheet-date.js';
+import { canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
+export { hasNegatedEpMonopoly, EP_REASON_SCAN_LIMIT } from './dictionaries/ep-reason-clusters.js';
 import type { EpReasonCluster } from './dictionaries/ep-reason-clusters.js';
+import { findDept } from './department-registry.js';
+import { isYearlongStageRow, YEARLONG_START_BY_KEY, yearlongKey, yearlongSubclassForKind } from './yearlong-stage.js';
 
 export type EpJustificationGrade =
   /** Закон прямо разрешает: конкуренции нет по природе предмета. */
@@ -48,29 +28,26 @@ export interface EpGradeEntry {
 
 /** Подписи степеней для экрана. */
 export const EP_GRADE_LABELS: Readonly<Record<EpJustificationGrade, string>> = {
-  'lawful-exclusive': 'Безальтернативная по закону',
-  'verified-benefit': 'Выгода подтверждена документом',
+  'lawful-exclusive': 'Указано основание или особый режим',
+  'verified-benefit': 'Указаны выгода или согласование',
   discretionary: 'Решение заказчика',
-  unfounded: 'Без обоснования',
+  unfounded: 'Основание не установлено',
 };
 
 /** Что каждая степень означает — подсказка на экране, тон объяснения. */
 export const EP_GRADE_EXPLAIN: Readonly<Record<EpJustificationGrade, string>> = {
   'lawful-exclusive':
-    'Закон прямо допускает закупку у единственного поставщика: конкуренции ' +
-    'нет по природе предмета — монополия, охрана, исключительные права, ' +
-    'авария, несостоявшаяся процедура. Сокращать такие закупки конкурсом нельзя.',
+    'В пояснении названы основание, обстоятельства или правовой режим. ' +
+    'Совпадение со справочником не подтверждает применимость нормы и законность закупки; нужны документы и проверка условий.',
   'verified-benefit':
-    'Безальтернативности нет, но выгода подтверждена процедурой: собраны ' +
-    'коммерческие предложения, выбрана наименьшая цена, решение согласовано ' +
-    'с управлением экономического развития. Проверяется документом.',
+    'В пояснении названы цена, коммерческие предложения или согласование. ' +
+    'Наличие документов и фактическая выгода этим распознаванием не проверены.',
   discretionary:
-    'Причина названа, но проверить её нечем: нецелесообразность, срочность, ' +
-    'удобство поставщика. Именно этот слой закупок сокращается объединением ' +
-    'и выходом на торги.',
+    'Причина названа; применимость основания и подтверждающие документы требуют проверки. ' +
+    'Это предупреждение для разбора, а не установленное нарушение.',
   unfounded:
-    'Обоснование отсутствует, не распознано либо названа процедура вместо ' +
-    'основания. Такую закупку нечем защитить при проверке.',
+    'Причина пустая, не распознана системой либо названа процедура вместо основания. ' +
+    'Непустая нераспознанная причина не доказывает отсутствия основания: требуется экспертная проверка и проверка словаря.',
 };
 
 /**
@@ -132,10 +109,8 @@ export const EP_GRADE_BY_CLUSTER: Readonly<Record<string, EpGradeEntry>> = {
 
   // ── Обоснования нет ──
   EP_NONCOMPETITIVE: { grade: 'unfounded', evidence: 'Сказано «неконкурентная закупка» без причины' },
-  // Малая электронная закупка — это ПРОЦЕДУРА (форма аукциона до 600 тыс.),
-  // а не основание закупки у единственного поставщика: строка сама себе
-  // противоречит (сигнал methodReasonMismatch).
-  EP_SMALL_EL_PURCH: { grade: 'unfounded', evidence: 'Названа процедура аукциона, а не основание' },
+  // Электронная форма ЕП не противоречит способу ЕП (ч. 12 ст. 93).
+  EP_SMALL_EL_PURCH: { grade: 'lawful-exclusive', evidence: 'Электронная форма закупки у ЕП; основание и условия требуют проверки' },
   // «В соответствии с действующим законодательством» — 17 строк корпуса. Слова
   // есть, основания нет: закон не называет, проверить нечего.
   EP_CURRENT_LAW: { grade: 'unfounded', evidence: 'Сослались на законодательство без указания нормы' },
@@ -144,7 +119,7 @@ export const EP_GRADE_BY_CLUSTER: Readonly<Record<string, EpGradeEntry>> = {
 /** Степень для распознанного кластера; неизвестный кластер — «без обоснования». */
 export function epGradeOfCluster(cluster: EpReasonCluster | 'EMPTY' | 'UNMAPPED' | string): EpGradeEntry {
   const hit = EP_GRADE_BY_CLUSTER[cluster];
-  if (hit) return hit;
+  if (hit) return { ...hit, evidence: `В пояснении указано: ${hit.evidence}` };
   if (cluster === 'EMPTY') return { grade: 'unfounded', evidence: 'Графа обоснования пуста' };
   return { grade: 'unfounded', evidence: 'Формулировка не распознана справочником' };
 }
@@ -171,13 +146,15 @@ export function epGradeOfCluster(cluster: EpReasonCluster | 'EMPTY' | 'UNMAPPED'
  * в одной из трёх, разъехалась бы на следующем снимке — ровно так продукт и
  * нажил шесть подписей на один класс.
  */
-export type EpRiskStrictness = 'critical' | 'info';
+export type EpRiskStrictness = 'critical' | 'warning' | 'info';
 
 /** Степени, при которых закупка свыше лимита остаётся риском. */
-export const EP_RISK_STRICT_GRADES: readonly EpJustificationGrade[] = ['unfounded', 'discretionary'];
+export const EP_RISK_STRICT_GRADES: readonly EpJustificationGrade[] = ['unfounded'];
 
 /** Строгость ЕП-риска по уже известной степени обоснованности. */
 export function epRiskStrictnessOfGrade(grade: EpJustificationGrade): EpRiskStrictness {
+  // Owner decision 12.10.2026 supersedes p.137(2) for recognized discretionary reasons.
+  if (grade === 'discretionary') return 'warning';
   return EP_RISK_STRICT_GRADES.includes(grade) ? 'critical' : 'info';
 }
 
@@ -185,20 +162,77 @@ export function epRiskStrictnessOfGrade(grade: EpJustificationGrade): EpRiskStri
  * Строгость ЕП-риска по тексту графы M (обоснование).
  *
  * Степень читается тем же словарём кластеров, что и вкладка «Конкуренция»:
- * второго механизма законности здесь не заводится. Нераспознанная и пустая
- * формулировка даёт степень «без обоснования» — то есть строгий конец
- * развилки: судить не о чем, значит и снисхождения нет.
+ * второго механизма законности здесь не заводится. Пустая формулировка
+ * требует строгой проверки; непустая нераспознанная требует экспертного
+ * разбора и проверки словаря, а не утверждения об отсутствии основания.
  */
-export function epRiskStrictnessOfReason(reason: unknown): EpRiskStrictness {
+export interface EpRiskRowContext {
+  /** Actual N; calendar context is derived from this date, never from stale P. */
+  planDateRaw?: unknown;
+  dept?: string;
+  id?: unknown;
+  subject?: unknown;
+  epReason?: unknown;
+  method?: unknown;
+  factDateRaw?: unknown;
+  factSum?: number;
+  /** K/Y are source position totals, never asserted individual contract prices. */
+  amountBasis?: 'position-total';
+  planYear?: number | undefined;
+  /** AE and AF remain source explanations, not verified statutory findings. */
+  necessityJustification?: unknown;
+  commentGRBS?: unknown;
+}
+
+export const EP_REASON_REVIEW_TITLE = 'Причина ЕП указана: проверить основание';
+export const EP_REASON_REVIEW_EXPLANATION = 'Причина указана; требуется проверка применимого основания и его условий. '
+  + 'Это предупреждение для разбора, а не подтверждённое нарушение. Пояснение не закрывает проверку автоматически.';
+
+export function epRiskReviewDetails(reason: unknown, row?: EpRiskRowContext): { title: string; explanation: string } {
+  if (row?.amountBasis === 'position-total') return {
+    title: 'Недостаточно данных для проверки сумм отдельных договоров',
+    explanation: 'K/Y отражают общий объём позиции, а не доказанную цену одного договора. '
+      + 'M — основание, AE — необходимость, AF — пояснение и история этой строки. '
+      + 'Они не подтверждают автоматически ни превышение разового лимита, ни законность закупки. '
+      + 'Проверить применимое основание и индивидуальные суммы; отсутствие приложения само по себе не является ошибкой. '
+      + 'Не переносить пояснение другой позиции или периода; исходную историю сохранять.',
+  };
+  const text = typeof reason === 'string' ? reason : '';
+  if (canonicalizeReasonEp(text.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED') {
+    return { title: 'Основание ЕП не распознано: требуется экспертная проверка',
+      explanation: 'Причина указана, но не сопоставлена со справочником. Проверить основание и покрытие словаря; '
+        + 'отсутствие совпадения не доказывает отсутствия основания или нарушения. Пояснение не закрывает проверку автоматически.' };
+  }
+  return { title: EP_REASON_REVIEW_TITLE, explanation: EP_REASON_REVIEW_EXPLANATION };
+}
+
+export const EP_ANNUAL_AMOUNT_TITLE = 'Годовой объём ЕП: проверить суммы отдельных договоров';
+export const EP_ANNUAL_AMOUNT_EXPLANATION = 'Общий объём серии не является ценой одного договора. '
+  + 'Суммы отдельных договоров не проверены: сверить их с реестром контрактов и применимым основанием ЕП. '
+  + 'По общей сумме нельзя подтвердить превышение разового лимита или отсутствие нарушений.';
+
+/** Only a structurally open, curated contract series proves an annual aggregate. */
+export function isAnnualEpAggregate(row?: EpRiskRowContext): boolean {
+  // The curated seed is an August 2026 observation, not a cross-year identity proof.
+  if (row?.amountBasis === 'position-total' && row.planYear !== 2026) return false;
+  if (!row || !isYearlongStageRow({ method: row.method,
+    factDateCell: row.factDateRaw, factSum: row.factSum ?? 0 })) return false;
+  return matchesAnnualSeriesAnchor(row);
+}
+
+export function epRiskStrictnessOfReason(reason: unknown, row?: EpRiskRowContext): EpRiskStrictness {
+  // Keep the review open, but do not assert a single-contract violation from
+  // an annual total. Individual dated contracts and unknown scopes stay checked.
+  if (isAnnualEpAggregate(row)) return 'info';
+  // Source totals cannot prove the single-contract threshold, even when Q is filled.
+  if (row?.amountBasis === 'position-total') return 'warning';
   const text = typeof reason === 'string' ? reason : '';
   // Тот же предел длины, что в конвейере (защита от разбора гигантской ячейки):
   // регулярные выражения части кластеров содержат «.*».
   const { cluster } = canonicalizeReasonEp(text.slice(0, EP_REASON_SCAN_LIMIT));
+  if (cluster === 'UNMAPPED' && text.trim().length > 0) return 'warning';
   return epRiskStrictnessOfGrade(epGradeOfCluster(cluster).grade);
 }
-
-/** Предел разбора текста обоснования — общий для всех вызывающих. */
-export const EP_REASON_SCAN_LIMIT = 2000;
 
 export interface EpGradeTotals {
   /** Строк и денег по каждой степени. */
@@ -218,11 +252,8 @@ const EMPTY_TOTALS = (): Record<EpJustificationGrade, { rows: number; sum: numbe
   unfounded: { rows: 0, sum: 0 },
 });
 
-/**
- * Свод по степеням. «Сокращаемым» считается ЕП последних двух степеней:
- * монополиста и аварию конкурсом не заменить, а решение заказчика и пустое
- * обоснование — можно. Именно эта доля и есть цель района.
- */
+/** Свод по содержанию пояснений. Поля reducible* сохранены для совместимости;
+ * они описывают группу для разбора, а не доказанную возможность торгов. */
 export function epGradeTotals(
   rows: readonly { cluster: string; sum: number }[],
 ): EpGradeTotals {
@@ -245,4 +276,22 @@ export function epGradeTotals(
     reducibleSum: Math.round(reducibleSum * 100) / 100,
     reducibleShare: sumTotal > 0 ? Math.round((reducibleSum / sumTotal) * 1000) / 10 : null,
   };
+}
+
+function matchesAnnualSeriesAnchor(row: EpRiskRowContext): boolean {
+  const department = findDept(row.dept ?? '')?.id ?? row.dept ?? '';
+  const entry = YEARLONG_START_BY_KEY.get(yearlongKey(department, row.id));
+  const subject = String(row.subject ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ');
+  return entry !== undefined && subject.length > 0
+    && subject === entry.subject.normalize('NFC').trim().replace(/\s+/gu, ' ')
+    && yearlongSubclassForKind(entry.kind) === 'contract-series';
+}
+
+/** A known annual series makes future Q an expected deadline, not proof that Q is correct. */
+export function futureFactDateSeverity(row?: EpRiskRowContext): 'info' | 'significant' {
+  const planDay = dayNumberOf(row?.planDateRaw);
+  const planYear = planDay === null ? null : new Date(planDay * 86400000).getUTCFullYear();
+  return row && row.amountBasis === 'position-total' && planYear === 2026
+    && /^(еп|единствен)/iu.test(String(row.method ?? '').trim())
+    && (row.factSum ?? 0) > 0 && matchesAnnualSeriesAnchor(row) ? 'info' : 'significant';
 }

@@ -5,8 +5,8 @@
  *
  * Assessment thresholds:
  *   < 1 %  — Совпадает          (ok)
- *   < 5 %  — Несопоставимо      (warning)  — check composition / period
- *   >= 5 % — Есть расхождение   (high)     — likely mapping error
+ *   < 5 %  — Есть расхождение   (warning)  — check composition / period
+ *   >= 5 % — Есть расхождение   (high)     — cause requires evidence
  */
 
 import type { RootCauseGroup } from '@aemr/shared';
@@ -24,18 +24,13 @@ export interface OfficialMetrics {
 }
 
 export interface ReconAssessment {
-  /**
-   * Подпись для интерфейса. «Официал не считается» — отдельный вердикт, а
-   * не разновидность «нечего сравнивать»: у управления есть свои строки, а
-   * блок листа СВОД отдаёт нули из-за недоступного источника (слепая
-   * зона №2). Слить их значило бы объявить сломанный лист нормой.
-   */
+  /** Подпись наблюдаемого результата; причина требует отдельного доказательства. */
   status: 'Совпадает' | 'Несопоставимо' | 'Есть расхождение' | 'Нечего сравнивать' | 'Официал не считается';
   kind: 'ok' | 'neutral' | 'warning' | 'high';
   reason: string;
-  maxAbsDelta: number;
-  /** Likely source of the discrepancy */
-  source: 'none' | 'methodology' | 'svod_error' | 'calc_error';
+  maxAbsDelta: number | null;
+  /** Established cause only; numerical differences alone yield unknown. */
+  source: 'none' | 'unknown' | 'methodology' | 'svod_error' | 'calc_error';
   sourceLabel: string;
 }
 
@@ -43,21 +38,21 @@ export interface ReconRow {
   department: string;
 
   // Plan comparison
-  fullPlanOfficial: number;
-  fullPlanCalculated: number;
-  planDelta: number;
-  planDeltaPct: number;
+  fullPlanOfficial: number | null;
+  fullPlanCalculated: number | null;
+  planDelta: number | null;
+  planDeltaPct: number | null;
 
   // Fact comparison
-  fullFactOfficial: number;
-  fullFactCalculated: number;
-  factDelta: number;
-  factDeltaPct: number;
+  fullFactOfficial: number | null;
+  fullFactCalculated: number | null;
+  factDelta: number | null;
+  factDeltaPct: number | null;
 
   // Economy comparison
-  ecoTotalOfficial: number;
-  ecoTotalCalculated: number;
-  ecoDelta: number;
+  ecoTotalOfficial: number | null;
+  ecoTotalCalculated: number | null;
+  ecoDelta: number | null;
 
   // Assessment
   assessment: ReconAssessment;
@@ -85,34 +80,8 @@ export interface ReconSummary {
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-function deltaPct(delta: number, base: number): number {
-  return base !== 0 ? (delta / base) * 100 : 0;
-}
-
-function diagnoseSource(
-  planDelta: number,
-  factDelta: number,
-  planOff: number,
-  planCalc: number,
-): { source: ReconAssessment['source']; sourceLabel: string } {
-  // Both plan and fact deltas point the same direction → systematic
-  const planSign = Math.sign(planDelta);
-  const factSign = Math.sign(factDelta);
-
-  if (planSign === 0 && factSign === 0) {
-    return { source: 'none', sourceLabel: '—' };
-  }
-
-  // Calculated > Official consistently → our recalculation likely overcounts
-  if (planCalc > planOff && planDelta > 0) {
-    return { source: 'calc_error', sourceLabel: 'Ошибка расчёта' };
-  }
-  // Official > Calculated consistently → СВОД likely has extra/wrong data
-  if (planOff > planCalc && planDelta < 0) {
-    return { source: 'svod_error', sourceLabel: 'Ошибка СВОД' };
-  }
-  // Mixed signals or small differences → methodology difference
-  return { source: 'methodology', sourceLabel: 'Методология' };
+function deltaPct(delta: number | null, base: number | undefined): number | null {
+  return delta !== null && base !== undefined && base !== 0 ? (delta / base) * 100 : null;
 }
 
 function assess(
@@ -129,40 +98,20 @@ function assess(
     Math.abs(ecoDelta),
   );
 
-  if (planOff === 0 && factOff === 0) {
-    // Официал пуст, а расчёт нет — это не «нечего сравнивать», а слепая
-    // зона №2: формулы блока на листе СВОД ссылаются на битое зеркало
-    // (упавший IMPORTRANGE), поэтому COUNTIFS и SUMIFS дают нули, а доли
-    // #DIV/0!. Прежде такой случай рапортовал «сверка чиста» либо мнимое
-    // расхождение на весь объём управления — оба вывода ложные.
-    if (planCalc > 0) {
-      return {
-        status: 'Официал не считается',
-        kind: 'warning',
-        reason: 'Блок этого управления на листе СВОД отдаёт нули: формулы ссылаются на недоступный источник. '
-          + 'Сравнивать не с чем — сверка неприменима, пока лист не починен.',
-        maxAbsDelta: 0,
-        source: 'svod_error',
-        sourceLabel: 'Лист СВОД не считает',
-      };
-    }
+  if (planOff === 0 && factOff === 0 && planCalc === 0 && maxAbs === 0) {
     return {
-      status: 'Нечего сравнивать',
-      kind: 'neutral',
-      reason: 'Нет данных в обоих слоях',
-      maxAbsDelta: 0,
-      source: 'none',
-      sourceLabel: '—',
+      status: 'Нечего сравнивать', kind: 'neutral',
+      reason: 'В обоих слоях наблюдаются нулевые значения', maxAbsDelta: 0,
+      source: 'none', sourceLabel: '—',
     };
   }
-
   // Use the larger of plan/fact official values as the base (minimum 1 to avoid /0)
   const baseForPct = Math.max(Math.abs(planOff), Math.abs(factOff), 1);
   const pctDelta = (maxAbs / baseForPct) * 100;
 
   const { source, sourceLabel } = pctDelta < 1
     ? { source: 'none' as const, sourceLabel: '—' }
-    : diagnoseSource(planDelta, factDelta, planOff, planCalc);
+    : { source: 'unknown' as const, sourceLabel: 'Причина не установлена' };
 
   if (pctDelta < 1) {
     return {
@@ -177,7 +126,7 @@ function assess(
 
   if (pctDelta < 5) {
     return {
-      status: 'Несопоставимо',
+      status: 'Есть расхождение',
       kind: 'warning',
       reason: `Дельта ${pctDelta.toFixed(1)}% \u2014 проверить состав и период`,
       maxAbsDelta: maxAbs,
@@ -189,7 +138,7 @@ function assess(
   return {
     status: 'Есть расхождение',
     kind: 'high',
-    reason: `Дельта ${pctDelta.toFixed(1)}% \u2014 вероятна ошибка маппинга`,
+    reason: `Дельта ${pctDelta.toFixed(1)}% \u2014 причина не установлена; проверить состав, период и методику`,
     maxAbsDelta: maxAbs,
     source,
     sourceLabel,
@@ -216,42 +165,29 @@ export function reconcile(
   ]);
 
   for (const dept of departments) {
-    const off: OfficialMetrics = officialMetrics.get(dept) ?? {
-      planTotal: 0,
-      factTotal: 0,
-      economyTotal: 0,
-    };
-    const calc: OfficialMetrics = calculatedMetrics.get(dept) ?? {
-      planTotal: 0,
-      factTotal: 0,
-      economyTotal: 0,
-    };
-
-    const planDelta = calc.planTotal - off.planTotal;
-    const factDelta = calc.factTotal - off.factTotal;
-    const ecoDelta = calc.economyTotal - off.economyTotal;
-
-    const assessment = assess(
-      planDelta,
-      factDelta,
-      ecoDelta,
-      off.planTotal,
-      off.factTotal,
-      calc.planTotal,
-    );
-
+    const off = officialMetrics.get(dept);
+    const calc = calculatedMetrics.get(dept);
+    const planDelta = off && calc ? calc.planTotal - off.planTotal : null;
+    const factDelta = off && calc ? calc.factTotal - off.factTotal : null;
+    const ecoDelta = off && calc ? calc.economyTotal - off.economyTotal : null;
+    const assessment: ReconAssessment = off && calc
+      ? assess(calc.planTotal - off.planTotal, calc.factTotal - off.factTotal,
+        calc.economyTotal - off.economyTotal, off.planTotal, off.factTotal, calc.planTotal)
+      : { status: 'Несопоставимо', kind: 'warning',
+        reason: off ? 'Расчётный слой отсутствует' : 'Официальный слой отсутствует',
+        maxAbsDelta: null, source: 'unknown', sourceLabel: 'Нет данных для сравнения' };
     rows.push({
       department: dept,
-      fullPlanOfficial: off.planTotal,
-      fullPlanCalculated: calc.planTotal,
+      fullPlanOfficial: off?.planTotal ?? null,
+      fullPlanCalculated: calc?.planTotal ?? null,
       planDelta,
-      planDeltaPct: deltaPct(planDelta, off.planTotal),
-      fullFactOfficial: off.factTotal,
-      fullFactCalculated: calc.factTotal,
+      planDeltaPct: deltaPct(planDelta, off?.planTotal),
+      fullFactOfficial: off?.factTotal ?? null,
+      fullFactCalculated: calc?.factTotal ?? null,
       factDelta,
-      factDeltaPct: deltaPct(factDelta, off.factTotal),
-      ecoTotalOfficial: off.economyTotal,
-      ecoTotalCalculated: calc.economyTotal,
+      factDeltaPct: deltaPct(factDelta, off?.factTotal),
+      ecoTotalOfficial: off?.economyTotal ?? null,
+      ecoTotalCalculated: calc?.economyTotal ?? null,
       ecoDelta,
       assessment,
     });
@@ -269,6 +205,8 @@ export function reconcile(
     overallStatus = 'Есть расхождения';
   } else if (counts.warning > 0) {
     overallStatus = 'Требует проверки';
+  } else if (counts.ok === 0) {
+    overallStatus = 'Нет данных для сравнения';
   } else {
     overallStatus = 'Данные согласованы';
   }

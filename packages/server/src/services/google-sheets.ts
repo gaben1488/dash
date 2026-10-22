@@ -1,14 +1,19 @@
 import { google, type sheets_v4 } from 'googleapis';
-import { config } from '../config.js';
+import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 import {
   ALL_SHEETS,
-  DEPARTMENT_REGISTRY,
+  DEPT_HEADER_ROWS,
+  findDept,
+  MASTER_FORMULA_COLUMN_GROUPS,
+  MASTER_SOURCE_PROFILE,
   SHDYU_MONTHLY_SHEET_NAME,
+  validateMasterSourceHeader,
 } from '@aemr/shared';
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
 import { sheetValuesRange } from './sheet-range.js';
 import { withSheetsRetry } from './sheets-retry.js';
+import { measureAsyncStage } from '../plugins/request-timing.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSourceFailure, logSourceRead, logSourceRetry, logSourceWrite } from './source-log.js';
 
@@ -94,7 +99,7 @@ export async function withSheetsDeadline<T>(
   try {
     // Проигравшее обещание остаётся с обработчиком от гонки, поэтому его
     // поздний отказ не всплывает как необработанный.
-    return await Promise.race([run(), deadline]);
+    return await measureAsyncStage('google', () => Promise.race([run(), deadline]));
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -435,10 +440,101 @@ export async function getMonitoringMasterCells(spreadsheetId: string): Promise<s
   return (data.rowData ?? []).map(row => row.values ?? []);
 }
 
+/**
+ * Column A is a procurement ADDRESS, not money or a date. Google Sheets can
+ * store an entered "23/1" as DATE serial 46045 while displaying "23/1".
+ * Only suspicious numeric A values trigger a small, same-source grid read;
+ * money and date columns retain their unformatted numeric representations.
+ *
+ * A second read is verified against the first (fail-closed on concurrent edits).
+ * This same function is used by snapshots and read-before-write row guards.
+ */
+async function restoreDateFormattedProcurementAddresses(
+  spreadsheetId: string,
+  sheetName: string,
+  rows: unknown[][],
+  firstSheetRow = 1,
+): Promise<unknown[][]> {
+  const suspected = rows.flatMap((cells, i) => {
+    const raw = cells[0];
+    const hasSubjectOrMethod = String(cells[6] ?? '').trim() !== '' ||
+      String(cells[11] ?? '').trim() !== '';
+    // This range is only a cheap lookup trigger, not a rule interpreting IDs:
+    // the actual override requires Google's DATE format AND the same raw value.
+    return firstSheetRow + i >= 4 && typeof raw === 'number' && Number.isSafeInteger(raw) &&
+      raw >= 10_000 && hasSubjectOrMethod ? [firstSheetRow + i] : [];
+  });
+  if (suspected.length === 0) return rows;
+
+  // For a few suspicious A cells request exact ranges, not a whole 34-column grid.
+  // Large imports use a bounded contiguous range rather than thousands of ranges.
+  const ranges = suspected.length <= 100
+    ? suspected.map((n) => sheetValuesRange(sheetName, `A${n}:A${n}`))
+    : [sheetValuesRange(sheetName, `A${suspected[0]}:A${suspected[suspected.length - 1]}`)];
+  const response = await readWithRetry('чтение видимого номера закупки', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.get({
+      spreadsheetId,
+      ranges,
+      fields: 'sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue),formattedValue,effectiveFormat(numberFormat(type))))))',
+    }, { timeout: SHEETS_TIMEOUT_MS });
+  });
+
+  const required = new Set(suspected);
+  for (const segment of response.data.sheets?.[0]?.data ?? []) {
+    if (segment.startRow === null || segment.startRow === undefined ||
+        (segment.startColumn ?? 0) !== 0) throw new Error('SOURCE_SEQUENCE_GRID_INCOMPLETE');
+    for (const [offset, gridRow] of (segment.rowData ?? []).entries()) {
+      const sheetRow = segment.startRow + offset + 1;
+      if (!required.has(sheetRow)) continue;
+      const original = rows[sheetRow - firstSheetRow];
+      const cell = gridRow.values?.[0];
+      if (!original || typeof cell?.effectiveValue?.numberValue !== 'number' ||
+          original[0] !== cell.effectiveValue.numberValue)
+        throw new Error('SOURCE_SEQUENCE_CHANGED_DURING_READ');
+      if (cell.effectiveFormat?.numberFormat?.type === 'DATE') {
+        const visible = (cell.formattedValue ?? '').trim();
+        if (!new RegExp('^[0-9]+/[0-9]+$').test(visible)) throw new Error('SOURCE_SEQUENCE_DATE_LABEL_INVALID');
+        original[0] = visible;
+      }
+      required.delete(sheetRow);
+    }
+  }
+  if (required.size > 0) throw new Error('SOURCE_SEQUENCE_GRID_INCOMPLETE');
+  return rows;
+}
+
 export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
+  preserveJournalTime = false,
 ): Promise<unknown[][]> {
+  if (preserveJournalTime) {
+    // One Google read retains both representations. Formatted-only timestamps
+    // can lose hours; serial-only ordinals can turn "23/1" into "46045".
+    const response = await readWithRetry('чтение точного времени журнала', async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.get({
+        spreadsheetId, ranges: [`'${sheetName.replace(/'/g, "''")}'!A:H`],
+        includeGridData: true,
+        fields: 'sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue,boolValue),formattedValue,effectiveFormat(numberFormat(type))))))',
+      }, { timeout: SHEETS_TIMEOUT_MS });
+    });
+    const grid = response.data.sheets?.[0]?.data?.[0];
+    if (!grid || (grid.startRow ?? 0) !== 0 || (grid.startColumn ?? 0) !== 0)
+      throw new Error('CHANGELOG_GRID_NOT_READ');
+    return (grid.rowData ?? []).map(row => {
+      const cells = row.values ?? [];
+      const text = (index: number) => cells[index]?.formattedValue ?? cells[index]?.effectiveValue?.stringValue ?? '';
+      const timeColumn = /^[A-Z]{1,2}\d+$/i.test(text(1).trim()) ? 6 : /^[A-Z]{1,2}\d+$/i.test(text(0).trim()) ? 3 : -1;
+      return cells.map((cell, index) => {
+        const value = cell.effectiveValue;
+        if (index !== timeColumn && /^DATE/.test(cell.effectiveFormat?.numberFormat?.type ?? ''))
+          return cell.formattedValue ?? value?.numberValue ?? '';
+        return value?.stringValue ?? value?.numberValue ?? value?.boolValue ?? cell.formattedValue ?? '';
+      });
+    });
+  }
   const response = await readWithRetry(
     `чтение листа «${sheetName}»`,
     async () => {
@@ -457,7 +553,63 @@ export async function getSheetDataFromSpreadsheet(
     (r) => (r.data.values as unknown[][] | undefined)?.length ?? 0,
   );
 
-  return (response.data.values as unknown[][]) ?? [];
+  return restoreDateFormattedProcurementAddresses(
+    spreadsheetId, sheetName, (response.data.values as unknown[][]) ?? [],
+  );
+}
+
+/**
+ * Read exactly one source row immediately before an addressed write.
+ * Unlike readDeptRows(), this always reads the primary book instead of a cache.
+ */
+export async function readCurrentDeptRow(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+): Promise<unknown[]> {
+  return readDeptRow(spreadsheetId, sheetName, rowIndex, 'UNFORMATTED_VALUE');
+}
+
+/** Same bounded live row, with formulas preserved rather than their results. */
+export async function readCurrentDeptRowFormulas(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+): Promise<unknown[]> {
+  return readDeptRow(spreadsheetId, sheetName, rowIndex, 'FORMULA');
+}
+
+async function readDeptRow(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+  valueRenderOption: 'UNFORMATTED_VALUE' | 'FORMULA',
+): Promise<unknown[]> {
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 4) {
+    throw new Error('ROW_ADDRESS_INVALID');
+  }
+  const response = await readWithRetry(
+    'проверка исходной строки перед правкой',
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get(
+        {
+          spreadsheetId,
+          range: sheetValuesRange(sheetName, `A${rowIndex}:AH${rowIndex}`),
+          valueRenderOption,
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => r.data.values?.[0]?.length ?? 0,
+  );
+  const rows = (response.data.values as unknown[][] | undefined) ?? [];
+  if (valueRenderOption === 'UNFORMATTED_VALUE') {
+    await restoreDateFormattedProcurementAddresses(spreadsheetId, sheetName, rows, rowIndex);
+  }
+  return rows[0] ?? [];
 }
 
 export async function getSheetDataWithFormulas(
@@ -495,7 +647,9 @@ export async function getSheetDataWithFormulas(
   );
 
   return {
-    values: (valResp.data.values as unknown[][]) ?? [],
+    values: await restoreDateFormattedProcurementAddresses(
+      spreadsheetId, sheetName, (valResp.data.values as unknown[][]) ?? [],
+    ),
     formulas: (fmlResp.data.values as unknown[][]) ?? [],
   };
 }
@@ -511,15 +665,10 @@ export async function getSheetDataWithFormulas(
  * канонными защитами, поэтому колонка, добавленная в книгу и забытая здесь,
  * падает тестом, а не читается молча мимо.
  */
-export const FORMULA_COLUMN_GROUPS = [
-  { from: 'K', to: 'K' },
-  { from: 'O', to: 'P' },
-  { from: 'R', to: 'T' },
-  { from: 'Y', to: 'AC' },
-] as const;
+export const FORMULA_COLUMN_GROUPS = MASTER_FORMULA_COLUMN_GROUPS;
 
 /** Те же группы поимённо — для сообщений и стражей. */
-export const FORMULA_COLUMNS = ['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC'] as const;
+export { FORMULA_COLUMNS } from '@aemr/shared';
 
 /** Буква колонки → индекс от нуля (A=0, AA=26). */
 export function letterToColumn(letter: string): number {
@@ -615,6 +764,11 @@ export async function getSheetFormulaColumns(
 }
 
 export interface DeptSheetResult {
+  providerId?: string;
+  /** Shared accepted source context, when this reading came from report acquisition. */
+  sourceRevision?: string;
+  /** Provider token observed by the full connector before AND after capture. */
+  sourceVersion?: string;
   readAt?: string;
   values: unknown[][];
   formulas: unknown[][];
@@ -655,40 +809,62 @@ export interface DeptSheetResult {
  */
 const resolvedSheetNameCache = new Map<string, string>();
 
+/** The existing name resolver is the single admission boundary for reading,
+ * editing and source-metadata inspections of department master tabs.
+ * Unknown standalone tabs retain the former best-effort resolver, but a
+ * configured master must be found by its reviewed stable sheetId (gid).
+ */
 export async function resolveDeptSheetName(deptName: string, ssId: string): Promise<string> {
+  const department = findDept(deptName);
+  if (department && (department.source.role !== MASTER_SOURCE_PROFILE.role
+      || department.source.profile !== MASTER_SOURCE_PROFILE.id)) {
+    throw new Error('MASTER_SOURCE_PROFILE_BINDING_INVALID');
+  }
+
   const cacheKey = `${ssId}:${deptName}`;
-  const cached = resolvedSheetNameCache.get(cacheKey);
-  if (cached) return cached;
+  if (!department) {
+    const cached = resolvedSheetNameCache.get(cacheKey);
+    if (cached) return cached;
+  }
 
-  const registryName = DEPARTMENT_REGISTRY.find(d => d.shortName === deptName)?.sheetName ?? deptName;
-  const candidates = departmentSheetNameCandidates(registryName, deptName);
-
+  const registryName = department?.source.sheet ?? deptName;
   try {
     const meta = await readWithRetry(`чтение состава книги «${deptName}»`, async () => {
       const api = await getSheetsApi();
       return api.spreadsheets.get(
-        {
-          spreadsheetId: ssId,
-          fields: 'sheets.properties.title',
-        },
+        { spreadsheetId: ssId, fields: 'sheets.properties' },
         { timeout: SHEETS_TIMEOUT_MS },
       );
     });
+
+    if (department) {
+      const reviewed = (meta.data.sheets ?? []).find(
+        s => s.properties?.sheetId === department.source.sheetId,
+      )?.properties;
+      if (!reviewed) throw new Error('MASTER_SOURCE_SHEET_ID_CHANGED');
+      const title = reviewed.title;
+      if (!title || (title !== department.source.sheet
+          && !(department.approvedPrimaryRename && title === department.shortName))) {
+        throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+      }
+      if ((reviewed.gridProperties?.columnCount ?? 0) < MASTER_SOURCE_PROFILE.columns) {
+        throw new Error('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH');
+      }
+      return title;
+    }
+
     const existing = new Set(
       (meta.data.sheets ?? []).map(s => s.properties?.title).filter((t): t is string => !!t),
     );
-    const resolved = candidates.find(c => existing.has(c)) ?? registryName;
+    const resolved = departmentSheetNameCandidates(registryName, deptName).find(c => existing.has(c))
+      ?? registryName;
     resolvedSheetNameCache.set(cacheKey, resolved);
     return resolved;
   } catch (err) {
-    // Метаданные недоступны (rate-limit/сеть/мок в тестах) — деградация к
-    // реестровому имени (поведение до фикса), НЕ валим запись. Не кэшируем,
-    // чтобы следующий вызов снова попробовал резолв.
-    //
-    // Но и молчать нельзя: если реальная вкладка называется иначе, правка
-    // уйдёт в лист, которого нет, а причина останется неизвестной. Раньше
-    // здесь стоял пустой перехват — ровно тот приём, из-за которого «слишком
-    // часто» когда-то выдавалось за «листа нет».
+    // A failed identity check or missing Google metadata must never authorize
+    // a write to a lookalike master. Only unknown legacy tab names retain the
+    // previous fallback, and an actual read/write still has to succeed.
+    if (department) throw err;
     logSourceFailure(`определение имени вкладки книги «${deptName}»`, {
       ms: 0,
       reason: classifySourceFailure((err as Error)?.message ?? String(err)),
@@ -736,36 +912,39 @@ export async function readDeptSheet(
   ssId: string,
   options: DeptReadOptions = {},
 ): Promise<DeptSheetResult> {
-  const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
-    DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
-  );
-  const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
-  const candidates = departmentSheetNameCandidates(sheetName, deptName);
+  const department = findDept(deptName);
+
+  if (department) {
+    // Resolve the reviewed gid BEFORE reading any values. The write path and
+    // metadata watch use this same binding decision, not separate fallbacks.
+    const sheetName = await resolveDeptSheetName(deptName, ssId);
+    const values = await getSheetDataFromSpreadsheet(ssId, sheetName);
+    // A missing or truncated header is NOT a known-empty workbook.
+    validateMasterSourceHeader(values[DEPT_HEADER_ROWS - 1] ?? []);
+    const formulas = options.withFormulas
+      ? (await getSheetFormulaColumns(ssId, sheetName)).formulas
+      : [];
+    return { providerId: ssId, values, formulas, sheetName, readAt: new Date().toISOString(),
+      startRow: 1, formulasRead: options.withFormulas === true };
+  }
+
+  // Unknown old sources have no canonical master identity to verify. Preserve
+  // their original name probing for backward compatibility without weakening
+  // the reviewed eight-master path.
+  const candidates = departmentSheetNameCandidates(deptName, deptName);
   let lastError: unknown;
-  for (const candidate of candidates) {
+  for (const sheetName of candidates) {
     try {
-      // Значения читаются ВСЕГДА и первыми: пустой лист означает «имя-кандидат
-      // не то», и платить за формулы несуществующего листа незачем.
-      const values = await getSheetDataFromSpreadsheet(ssId, candidate);
+      const values = await getSheetDataFromSpreadsheet(ssId, sheetName);
       if (values.length === 0) continue;
-      if (!options.withFormulas) {
-        return { values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
-          startRow: 1, formulasRead: false ,
-        };
-      }
-      const { formulas } = await getSheetFormulaColumns(ssId, candidate);
-      return { values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
-        startRow: 1, formulasRead: true ,
-      };
+      const formulas = options.withFormulas
+        ? (await getSheetFormulaColumns(ssId, sheetName)).formulas
+        : [];
+      return { providerId: ssId, values, formulas, sheetName, readAt: new Date().toISOString(),
+        startRow: 1, formulasRead: options.withFormulas === true };
     } catch (err) {
       lastError = err;
-      if (isNonRecoverableSheetError(err)) {
-        // 429 (rate-limit), 403 (permission) and 5xx look identical to a
-        // missing sheet if swallowed here — surface them immediately
-        // instead of masking them as "no candidate matched".
-        throw err;
-      }
-      // Otherwise this candidate name genuinely doesn't exist — try the next one.
+      if (isNonRecoverableSheetError(err)) throw err;
     }
   }
   const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
@@ -902,8 +1081,32 @@ export async function writeCellValue(
   cell: string,
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
+  // A write is a new ingress into the Google source. The resolver's gid/title
+  // check alone is insufficient if the meaning of column V, N or AD changed.
+  // Check the same shared header contract as live and report reads on the
+  // smallest possible range, not a second locally maintained schema.
+  const matches = Object.entries(DEPARTMENT_SPREADSHEETS ?? {})
+    .filter(([, fileId]) => fileId === spreadsheetId);
+  if (matches.length > 1) throw new Error('MASTER_SOURCE_BINDING_AMBIGUOUS');
+  if (matches.length === 1) {
+    const department = findDept(matches[0][0]);
+    if (!department) throw new Error('MASTER_SOURCE_NOT_REGISTERED');
+    const resolvedTitle = await resolveDeptSheetName(department.id, spreadsheetId);
+    if (sheetName !== resolvedTitle) throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+    const response = await readWithRetry('проверка шапки перед записью', async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get({
+        spreadsheetId,
+        range: sheetValuesRange(resolvedTitle, 'A3:AH3'),
+        valueRenderOption: 'FORMATTED_VALUE',
+        majorDimension: 'ROWS',
+      }, { timeout: SHEETS_TIMEOUT_MS });
+    });
+    validateMasterSourceHeader((response.data.values as unknown[][] | undefined)?.[0] ?? []);
+  }
   const range = sheetValuesRange(sheetName, cell);
-  const safeValue =
+  // Google values.update skips JSON nulls: an explicit clear must be "".
+  const safeValue = value === null ? '' :
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
   const response = await writeWithRetry(
     `запись в ячейку ${cell}`,
@@ -922,9 +1125,13 @@ export async function writeCellValue(
     (r) => r.data.updatedCells ?? 0,
   );
 
+  const updatedCells = response.data.updatedCells ?? 0;
+  if (updatedCells !== 1) {
+    throw new Error('Google Sheets не подтвердили запись ровно одной ячейки');
+  }
   return {
     updatedRange: response.data.updatedRange ?? range,
-    updatedCells: response.data.updatedCells ?? 0,
+    updatedCells,
   };
 }
 

@@ -84,26 +84,16 @@ const MAP: Record<string, Array<{ k: KeyBuilder; label: string }>> = {
   ep_exec_count_pct: [{ k: (p) => `sole.${p}.percent`, label: 'ЕП, исполнение' }],
 };
 
-/** Периоды-запасные: официальный ярус ведётся по кварталам и году. */
-function candidatePeriods(period: string): string[] {
-  const base = ['q1', 'q2', 'q3', 'q4', 'year'].includes(period) ? [period] : [];
-  return [...base, 'year'];
-}
-
 /**
  * Официальные источники для ключа БЗ за период. Пустой массив — соответствие
  * неизвестно или снимок не содержит этих строк; блок в попапе не рисуется.
  */
 export function officialProvenanceFor(kbKey: string, period: string): ProvenanceSource[] {
   const entries = MAP[kbKey];
-  if (!entries) return [];
+  if (!entries || !['q1', 'q2', 'q3', 'q4', 'year'].includes(period)) return [];
   const out: ProvenanceSource[] = [];
   for (const { k, label } of entries) {
-    let m: OfficialMetricLike | undefined;
-    for (const p of candidatePeriods(period)) {
-      m = metrics[k(p)];
-      if (m) break;
-    }
+    const m = metrics[k(period)];
     if (!m?.sourceSheet || !m.sourceCell) continue;
     out.push({
       label,

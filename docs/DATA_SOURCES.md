@@ -45,6 +45,11 @@ Runtime source changes must pass `validateSpreadsheetIdForSourceChange()` in `pa
    `packages/server/src/services/google-sheets.ts::fetchWorkbook()` reads `ALL_SHEETS` from the main SVOD spreadsheet: `СВОД ТД-ПМ` plus mirrored department tabs.
 2. Department row read:
    `fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS)` reads each department workbook using `DEPARTMENT_REGISTRY.sheetName`.
+   Raw-row APIs use `rows-read.ts::readDeptRows`: the department cache first,
+   then `readDeptSheet` for its configured primary workbook. An unverified SVOD
+   mirror cannot replace a missing or failed primary read. The existing source
+   error result remains visible to each caller; this does not prove completeness
+   of an aggregate response or change the official SVOD reconciliation path.
 3. Aggregated subordinate books:
    `УАГЗО`, `УД`, `УКСиМП`, and `УО` use the aggregate sheet `ВСЕ`. The loader also tolerates the legacy title-case spelling `Все`.
 4. SHDYU monthly reconciliation:

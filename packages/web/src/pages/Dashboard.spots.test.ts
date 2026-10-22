@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { LEGACY_SIGNAL_TO_CHECK } from '@aemr/shared';
-import { NAMED_SPOT_SIGNALS, yearlongStageLine } from './Dashboard';
+import { NAMED_SPOT_SIGNALS, yearlongStageLine, fundingStageLine } from './Dashboard';
 
 describe('поимённые пятна Пульса против вычеркнутых ключей (канон §18 п.3)', () => {
   it('каждое поимённое пятно умеет рождать замечание: ключ стоит в LEGACY_SIGNAL_TO_CHECK', () => {
@@ -81,5 +81,21 @@ describe('пятно стадии «в течение года» — счёт с
 
   it('счёта нет (сервер не ответил) — пятно не рисуется: отсутствие счёта не ноль', () => {
     expect(yearlongStageLine(null)).toBeNull();
+  });
+});
+
+
+describe('финансирование: полный счёт состояния отдельно от замечаний', () => {
+  it('не выдаёт 509 замечаний за 597 строк, инициативы входят в общий счёт', () => {
+    const line = fundingStageLine({ rows: 597, planSum: 100, initiativeRows: 88 });
+    expect(line?.text).toContain('597 строк');
+    expect(line?.text).toContain('88');
+    expect(line?.text).not.toContain('509');
+    expect(line?.hasRows).toBe(true);
+  });
+  it('не выдаёт недоступность за ноль и не выводит инициативы из отсутствующего поля старого ответа', () => {
+    expect(fundingStageLine(null)).toBeNull();
+    expect(fundingStageLine({ rows: 0, planSum: 0 })?.text).not.toContain('инициативных — 0');
+    expect(fundingStageLine({ rows: 0, planSum: 0 })?.hasRows).toBe(false);
   });
 });

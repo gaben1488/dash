@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { checkSequenceIntegrity, type SequenceRow } from './sequence-integrity.js';
+import { checkSequenceIntegrity, readProcurementSequence, type SequenceRow } from './sequence-integrity.js';
+
+describe('procurement source address', () => {
+  it('keeps composite and zero-prefixed labels distinct', () => {
+    expect(['173', '173/1', '173/18', '00173'].map(readProcurementSequence))
+      .toEqual(['173', '173/1', '173/18', '00173']);
+    expect([94, '94.0', '94,00', ' 94 '].map(readProcurementSequence))
+      .toEqual(['94', '94', '94', '94']);
+  });
+
+  it('normalizes spaces at composite separators without dropping significant zero prefixes', () => {
+    expect(['173 / 18', ' 173/ 18 ', '173 /18', '00173 / 18'].map(readProcurementSequence))
+      .toEqual(['173/18', '173/18', '173/18', '00173/18']);
+    expect(readProcurementSequence('173 18')).toBeNull();
+  });
+
+  it('does not invent an address from an invalid value', () => {
+    for (const value of [null, undefined, '', 0, -1, 1.5, Infinity, {}, 'без номера',
+      '0', '000/1', '173//1', '173/1/']) {
+      expect(readProcurementSequence(value)).toBeNull();
+    }
+  });
+});
 
 const row = (o: Partial<SequenceRow> & { sheetRow: number; rowSeq: string }): SequenceRow => ({
   countable: true,
@@ -57,6 +79,20 @@ describe('целостность нумерации рабочего листа'
     expect(r.duplicates).toHaveLength(1);
   });
 
+  it('оба пути совпадают по нормализации 94,00 и 94, но сохраняют 00173 отдельно', () => {
+    const report = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '94' }),
+      row({ sheetRow: 5, rowSeq: '94,00' }),
+      row({ sheetRow: 6, rowSeq: '173' }),
+      row({ sheetRow: 7, rowSeq: '00173' }),
+      row({ sheetRow: 8, rowSeq: '173/1' }),
+      row({ sheetRow: 9, rowSeq: '173/18' }),
+    ]);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]).toMatchObject({ rowSeq: '94', sheetRows: [4, 5] });
+    expect(report.range).toEqual({ min: 94, max: 173 });
+  });
+
   it('счётные строки без номера считаются и показываются от крупных денег', () => {
     const r = checkSequenceIntegrity([
       row({ sheetRow: 4, rowSeq: '1' }),
@@ -85,6 +121,35 @@ describe('целостность нумерации рабочего листа'
     const r = checkSequenceIntegrity(rows);
     expect(r.coveragePct).toBeLessThan(10);
     expect(r.note).toContain('как адрес нумерация');
+  });
+
+  it('ошибочно большой номер не расходует память пропорционально диапазону', () => {
+    const r = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '1' }),
+      row({ sheetRow: 5, rowSeq: '100000000' }),
+    ]);
+    expect(r.gapCount).toBe(99999998);
+    expect(r.gaps).toEqual([{ from: 2, to: 99999999, count: 99999998 }]);
+  });
+
+  it('составные номера остаются разными адресами', () => {
+    const r = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173' }),
+      row({ sheetRow: 5, rowSeq: '173/1' }),
+      row({ sheetRow: 6, rowSeq: '173/2' }),
+    ]);
+    expect(r.duplicates).toEqual([]);
+    expect(r.gapCount).toBe(0);
+  });
+
+  it('normalizes spaced composite IDs in the independent sequence-integrity path', () => {
+    const report = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173 / 18' }),
+      row({ sheetRow: 5, rowSeq: '173/18' }),
+      row({ sheetRow: 6, rowSeq: '00173/18' }),
+    ]);
+    expect(report.duplicates.map(({ rowSeq, sheetRows }) => ({ rowSeq, sheetRows })))
+      .toEqual([{ rowSeq: '173/18', sheetRows: [4, 5] }]);
   });
 
   it('пустой лист не ломает проверку', () => {

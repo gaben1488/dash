@@ -11,6 +11,7 @@ import {
   entryAddress,
   entryChangeLine,
   entryWhoWhen,
+  originNote,
   shortDate,
   shownLine,
   valueLabel,
@@ -23,6 +24,23 @@ const entry = (over: Partial<ChangeEntry>): ChangeEntry => ({
   at: '2026-08-20T09:00:00', atMs: Date.parse('2026-08-20T09:00:00Z'),
   subject: 'Услуги почтовой связи', subordinate: null, origin: 'book-journal',
   ...over,
+});
+
+it('даты показаны датами, но числа и номера не переосмысляются', () => {
+  expect(valueLabel('46077', 'N')).toBe('24.02.2026');
+  expect(valueLabel('46077', 'Q')).toBe('24.02.2026');
+  expect(valueLabel('46077', 'K')).toBe('46077');
+  expect(valueLabel('23/1', 'A')).toBe('23/1');
+  expect(valueLabel('Х', 'Q')).toBe('Х');
+  expect(entryChangeLine(entry({ column: 'N', kind: 'dates', before: '46077', after: '46078' })))
+    .toBe('24.02.2026 → 25.02.2026');
+});
+
+it('locates a journal witness in its own source reading without calling it the edit timestamp', () => {
+  const note = originNote(entry({ journalSource: { spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow: 17, readAt: 1000 } }));
+  expect(note).toContain('_ChangeLog!17');
+  expect(note).toContain('чтение 1970-01-01T00:00:01.000Z');
+  expect(note).toContain('book-A');
 });
 
 describe('краткая глубина — четыре фразы одним взглядом', () => {
@@ -38,7 +56,7 @@ describe('краткая глубина — четыре фразы одним �
 
   it('вторая фраза называет роды правок и не проговаривает нули', () => {
     const line = digestKindLine(digest);
-    expect(line).toContain('исчезнувших закупок — 1');
+    expect(line).toContain('прежних номеров не найдено — 1');
     expect(line).toContain('деньги — 1');
     expect(line).toContain('сроки — 1');
     expect(line).not.toContain('комментарии');
@@ -119,7 +137,7 @@ describe('подробная глубина — адрес и суть прав�
     expect(entryChangeLine(entry({ kind: 'row-added', subject: 'Поставка мебели' })))
       .toBe('Появилась новая закупка: Поставка мебели');
     expect(entryChangeLine(entry({ kind: 'row-vanished', subject: 'Ремонт кровли' })))
-      .toBe('Закупка исчезла: Ремонт кровли');
+      .toBe('Прежний № не найден: Ремонт кровли; причина не установлена');
     // Очистка — НЕ удаление: строка осталась в книге.
     expect(entryChangeLine(entry({ kind: 'row-cleared' }))).toContain('осталась');
   });
@@ -128,7 +146,7 @@ describe('подробная глубина — адрес и суть прав�
     expect(entryWhoWhen(entry({}))).toBe('ivanova@aemr.ru · 20.08 09:00');
     expect(entryWhoWhen(entry({ author: null }))).toContain('автор источником не назван');
     expect(entryWhoWhen(entry({ at: null, origin: 'snapshot-diff' })))
-      .toContain('пропажа найдена сравнением снимков');
+      .toContain('момент и автор неизвестны');
   });
 
   it('обрезанный список говорит, сколько всего', () => {
@@ -142,3 +160,16 @@ describe('подробная глубина — адрес и суть прав�
     expect(shortDate(null)).toBeNull();
   });
 });
+describe('контекстный провенанс', () => {
+  it('кандидат перенумерации описан как проверяемая гипотеза с обеими сторонами', () => {
+    const candidate = entry({
+      kind: 'row-identity-candidate', rowSeq: '212', relatedRowSeq: '305',
+      before: '212', after: '305', at: null, atMs: null,
+      origin: 'snapshot-diff',
+    });
+    expect(entryChangeLine(candidate)).toContain('Возможная смена № 212 → № 305');
+    expect(entryChangeLine(candidate)).toContain('гипотеза');
+    expect(entryWhoWhen(candidate)).toContain('момент и автор неизвестны');
+  });
+});
+

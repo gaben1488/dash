@@ -1,3 +1,6 @@
+import { SOURCE_ROW_OBSERVATION_ORIGIN, sourceRowObservationMoment } from '@aemr/shared';
+import { formatEventTime } from '../../lib/selectors/event-time';
+import { productLabel } from '@aemr/shared';
 /**
  * change-story-text.ts — фразы журнала изменений обеих глубин.
  *
@@ -15,6 +18,7 @@
  */
 import { CHANGE_KIND_LABELS, CHANGE_KIND_ORDER, type ChangeDigest, type ChangeEntry, type ChangeGap, type ChangeKind } from '@aemr/core';
 import { countWord, plural, relativeMoment } from './live-text';
+import { dayNumberOf, isoOfDayNumber } from '@aemr/shared';
 
 /** Роды, которые называются в краткой глубине. Порядок — канон ядра. */
 const DIGEST_KINDS: readonly ChangeKind[] = CHANGE_KIND_ORDER;
@@ -31,7 +35,8 @@ const SHORT_KIND: Readonly<Record<ChangeKind, string>> = {
   subject: 'предмет',
   flag: 'признак учёта',
   'row-added': 'новых закупок',
-  'row-vanished': 'исчезнувших закупок',
+  'row-vanished': 'прежних номеров не найдено',
+  'row-identity-candidate': 'возможных смен номера',
   'row-cleared': 'очищенных строк',
   other: 'прочее',
 };
@@ -118,11 +123,11 @@ export function digestLines(digest: ChangeDigest): string[] {
 export function emptinessLine(digest: ChangeDigest, gaps: readonly ChangeGap[]): string | null {
   if (digest.entries > 0) return null;
   if (digest.emptiness === 'unknown') {
-    const books = gaps.filter((g) => g.reason === 'journal-unread').map((g) => g.book);
+    const books = gaps.filter((g) => g.reason === 'journal-unread' || g.reason === 'source-unavailable' || g.reason === 'no-previous-snapshot').map((g) => productLabel(g.book));
     const named = books.length === 0
       ? 'ни одна книга'
       : books.length <= 3 ? books.join(', ') : `${books.slice(0, 3).join(', ')} и ещё ${books.length - 3}`;
-    return `Журналы правок не прочитаны (${named}) — это не «правок не было», а отсутствие ответа источника.`;
+    return `Сведения неполны (${named}): часть журналов или контрольных данных недоступна. Это не «правок не было»: отсутствие записей не означает отсутствие изменений.`;
   }
   return 'Журналы книг прочитаны, правок в выбранном окне нет.';
 }
@@ -134,8 +139,8 @@ export function emptinessLine(digest: ChangeDigest, gaps: readonly ChangeGap[]):
  */
 export const DELETION_NOTE =
   'Удаление строки книга не записывает: через меню таблицы закупка уходит без единой ' +
-  'правки ячейки. Пропажи находятся сравнением снимков по № п/п, и если пары снимков ' +
-  'ещё нет — исчезнувших закупок в этом списке не будет.';
+  'правки ячейки. Отсутствие прежнего № п/п проверяется по текущей книге относительно ' +
+  'последнего недельного контроля. Перенумерация и удаление — разные возможные причины.';
 
 /** Пробелы рассказа фразами — по одной на пробел, без склейки в кашу. */
 export function gapLines(gaps: readonly ChangeGap[]): string[] {
@@ -159,7 +164,11 @@ export function entryAddress(entry: ChangeEntry): string {
 }
 
 /** Значение для показа: пустота названа словом, а не пустым местом. */
-export function valueLabel(value: string): string {
+export function valueLabel(value: string, column?: string | null): string {
+  if (column === 'N' || column === 'Q') {
+    const day = dayNumberOf(value);
+    if (day !== null) return isoOfDayNumber(day).split('-').reverse().join('.');
+  }
   return value.trim() === '' ? 'пусто' : value;
 }
 
@@ -176,34 +185,56 @@ export function entryChangeLine(entry: ChangeEntry): string {
         : `Появилась новая закупка: ${entry.subject}`;
     case 'row-vanished':
       return entry.subject === null
-        ? 'Закупка исчезла — её нет в новом снимке книги'
-        : `Закупка исчезла: ${entry.subject}`;
+        ? 'Прежний № не найден в действующей книге; причина не установлена'
+        : `Прежний № не найден: ${entry.subject}; причина не установлена`;
+    case 'row-identity-candidate':
+      return 'Возможная смена № ' + entry.before + ' → № ' + entry.after +
+        ': совпадают предмет, учреждение, сумма и способ. Это гипотеза, не подтверждённая перенумерация.';
+    case 'subject':
+      if (entry.origin === 'snapshot-diff') {
+        return 'У № ' + (entry.rowSeq ?? '?') + ' изменились предмет или учреждение: ' +
+          valueLabel(entry.before) + ' → ' + valueLabel(entry.after) +
+          '. Причина не установлена — возможна редакторская правка.';
+      }
+      return `${valueLabel(entry.before, entry.column)} → ${valueLabel(entry.after, entry.column)}`;
     case 'row-cleared':
       return 'Строку очистили — ячейки обнулены, сама строка в книге осталась';
     default:
-      return `${valueLabel(entry.before)} → ${valueLabel(entry.after)}`;
+      return `${valueLabel(entry.before, entry.column)} → ${valueLabel(entry.after, entry.column)}`;
   }
 }
 
 /** Кто и когда — хвост строки. Незнание называется, а не заполняется. */
 export function entryWhoWhen(entry: ChangeEntry): string {
+  if (entry.at === null && entry.observedAt) return sourceRowObservationMoment(formatEventTime(entry.observedAt));
   const who = entry.author ?? 'автор источником не назван';
+  if (entry.at === null && entry.origin === 'snapshot-diff' && entry.comparisonEvidence) {
+    return 'между контролем ' + entry.comparisonEvidence.controlAt.slice(0, 10) +
+      ' и чтением ' + entry.comparisonEvidence.observedAt.slice(0, 10) +
+      ' · точный момент и автор неизвестны';
+  }
   if (entry.at === null) {
     return entry.origin === 'snapshot-diff'
-      ? 'момент неизвестен — пропажа найдена сравнением снимков'
+      ? 'момент и автор неизвестны — вывод из сравнения текущих книг с контрольным срезом'
       : `${who} · момент неизвестен`;
   }
   const date = shortDate(entry.at);
   const time = shortTime(entry.at);
+  if (entry.observedAt !== undefined) {
+    return `обнаружено сервером ${date} ${time} · момент ввода сотрудником не установлен`;
+  }
   return `${who} · ${date} ${time}`;
 }
 
 /** Подпись источника записи — разная полнота источников не прячется. */
 export function originNote(entry: ChangeEntry): string {
   switch (entry.origin) {
-    case 'book-journal': return 'из журнала правок книги';
+    case 'book-journal': return entry.journalSource
+      ? `из журнала правок книги ${entry.journalSource.spreadsheetId} · ${entry.journalSource.journalSheet}!${entry.journalSource.journalRow}`
+        + ` · чтение ${new Date(entry.journalSource.readAt).toISOString()}`
+      : 'из журнала правок книги';
     case 'live-stream': return 'из прямого эфира';
-    case 'snapshot-diff': return 'из сравнения снимков';
+    case 'snapshot-diff': return entry.observedAt ? SOURCE_ROW_OBSERVATION_ORIGIN : 'из сверки текущих книг с недельным контролем';
     default: return '';
   }
 }

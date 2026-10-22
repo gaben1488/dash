@@ -135,6 +135,7 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     // СВОД в тесте недоступен (сеть в отказе) — честная плашка вместо пустоты.
     expect(body.integralSummary.svodQuarter).toBeUndefined();
     expect(body.notes.some((n) => n.includes('СВОД'))).toBe(true);
+    expect(body.notes.some((n) => n.includes('Прочитано книг: 1 из 8'))).toBe(true);
   }, 30_000);
 
   it('svodOnlineUrl: ссылка на официальную сводную книгу Google Sheets', async () => {

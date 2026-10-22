@@ -27,6 +27,38 @@ beforeEach(() => {
   queue.resetWebhookQueue();
 });
 
+it('reports native SQLite schema failure as unavailable and preserves accepted notifications', async () => {
+  const { db } = await import('../db/index.js');
+  const id = queue.enqueueNotification({ book: 'УО', fileId: 'fixture',
+    messageNumber: 1, channelId: 'native-schema', resourceState: 'update' });
+  expect(id).not.toBeNull();
+  db.$client.exec('ALTER TABLE webhook_queue RENAME TO temporarily_unavailable_queue');
+  try {
+    expect(() => queue.pendingNotifications()).toThrow('WEBHOOK_QUEUE_UNAVAILABLE');
+    expect(queue.queueStats()).toMatchObject({ unavailable: true, pending: null, processed: null });
+  } finally {
+    db.$client.exec('ALTER TABLE temporarily_unavailable_queue RENAME TO webhook_queue');
+  }
+  expect(queue.pendingNotifications().map(entry => entry.id)).toEqual([id]);
+});
+
+it('does not lose a notification when native SQLite rejects completion as readonly', async () => {
+  const { db } = await import('../db/index.js');
+  const id = queue.enqueueNotification({ book: 'УО', fileId: 'fixture',
+    messageNumber: 1, channelId: 'native-readonly', resourceState: 'update' })!;
+  expect(id).not.toBeNull();
+  db.$client.pragma('query_only = ON');
+  try {
+    expect(() => queue.markProcessed([id])).toThrow('WEBHOOK_QUEUE_WRITE_FAILED');
+    expect(queue.pendingNotifications().map(entry => entry.id)).toEqual([id]);
+  } finally {
+    db.$client.pragma('query_only = OFF');
+  }
+  queue.markProcessed([id]);
+  expect(queue.pendingNotifications()).toEqual([]);
+  expect(queue.queueStats()).toMatchObject({ unavailable: false, pending: 0, processed: 1 });
+});
+
 /** Идентификаторы файлов из живой настройки — цель строится по ним. */
 async function fileIds(): Promise<{ uo: string; uksimp: string; monitoring: string }> {
   const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
@@ -56,6 +88,21 @@ function enqueueUO(fileId: string): number {
 }
 
 describe('очередь уведомлений', () => {
+  it('rolls back the whole attempt-counter update if any selected row cannot be written', async () => {
+    const { db } = await import('../db/index.js');
+    const first = enqueueUO('one');
+    const second = enqueueUO('two');
+    db.$client.exec(`CREATE TEMP TRIGGER fail_attempt BEFORE UPDATE OF attempts ON webhook_queue WHEN OLD.id = ${second} BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
+    try {
+      expect(() => queue.noteAttemptFailed([first, second], 'timeout')).toThrow('WEBHOOK_QUEUE_WRITE_FAILED');
+      expect(queue.pendingNotifications().map(row => row.attempts)).toEqual([0, 0]);
+    } finally {
+      db.$client.exec('DROP TRIGGER fail_attempt');
+    }
+    queue.noteAttemptFailed([first, second], 'timeout');
+    expect(queue.pendingNotifications().map(row => row.attempts)).toEqual([1, 1]);
+  });
+
   it('вебхук кладёт запись — она видна невыполненной со всеми полями', async () => {
     const { uo } = await fileIds();
     enqueueUO(uo);

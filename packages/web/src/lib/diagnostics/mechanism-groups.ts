@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Группировка замечаний по МЕХАНИЗМУ — ядро карточки диагноста (канон п.53
  * интервью 14.08.2026).
@@ -22,6 +23,8 @@
  *     «не обеспечена финансированием» не получает вдобавок «план без
  *     исполнения». Модуль ничего не додумывает — группирует то, что пришло.
  */
+
+import { formulaDiagnosticInapplicableReason } from '@aemr/shared';
 
 /** Минимальный вид замечания, достаточный для карточки диагноста. */
 export interface DiagnosticIssueLike {
@@ -107,7 +110,7 @@ function isUntranslated(value: string): boolean {
 }
 
 /** Честная заглушка вместо латинского ключа на экране. */
-export const MECHANISM_FALLBACK_LABEL = 'Проверка без подписи в словаре';
+export const MECHANISM_FALLBACK_LABEL = PRODUCT_COPY["lib/diagnostics/mechanism-groups:MECHANISM_FALLBACK_LABEL"];
 
 /**
  * Заголовок-механизм замечания.
@@ -164,10 +167,12 @@ export function groupIssuesByMechanism(
 ): MechanismGroup[] {
   const groups = new Map<string, MechanismGroup>();
 
-  for (const issue of issues) {
-    if (isRetiredIssue(issue)) continue;
+  for (const original of issues) {
+    if (isRetiredIssue(original)) continue;
+    const reason = formulaDiagnosticInapplicableReason(original);
+    const issue = reason ? { ...original, severity: 'info', title: 'Историческая диагностика шапки', kbHint: reason, recommendation: reason } : original;
     const label = mechanismLabel(issue, labelOf);
-    const key = mechanismKey(issue, label);
+    const key = reason ? 'historical_header_diagnostic' : mechanismKey(issue, label);
 
     let group = groups.get(key);
     if (!group) {

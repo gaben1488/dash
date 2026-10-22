@@ -1,3 +1,4 @@
+import { saveSourceRowObservations } from './source-row-observations.js';
 /**
  * source-refresh.ts — ОДИН цикл чтения всех источников.
  *
@@ -10,6 +11,7 @@
  */
 
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
+import { db } from '../db/index.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from './google-sheets.js';
 import type { DeptSheetResult } from './google-sheets.js';
 import {
@@ -24,22 +26,25 @@ import {
 import { sheetFingerprint } from './sheet-fingerprint.js';
 import type { BookFormulaVerdict } from './formula-sink.js';
 import { loadFormulaAudits, saveFormulaAudit } from './source-integrity-state.js';
-import { checkFileChanged, forgetRevision, lastKnownRevision, seedRevision } from './file-revision.js';
+import { checkFileChanged, forgetRevision, lastKnownRevision, readRevision, seedRevision } from './file-revision.js';
 import {
   SVOD_WATERMARK_KEY,
   loadWatermarks,
+  loadAcceptedReadings,
   noteHonestGap,
   saveWatermark,
 } from './book-watermark.js';
-import { SVOD_SHEET_NAME } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, findDept, SVOD_SHEET_NAME, validateMasterSourceHeader } from '@aemr/shared';
 import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
 import { diffBook, isSilent } from './live-diff.js';
-import { classifySourceFailure } from './source-failure.js';
-import { logSnapshotChange } from './source-log.js';
+import { classifySourceFailure, isTransientSourceFailure } from './source-failure.js';
+import { logSnapshotChange, logSourceFailure } from './source-log.js';
 
 export interface SourceRefreshResult {
   loaded: string[];
   failed: string[];
+  retryableFailures?: string[];
+  svodRetryable?: boolean;
   svodOk: boolean;
   at: string;
   /**
@@ -77,7 +82,7 @@ let queuedFresh: Promise<SourceRefreshResult> | null = null;
  * обеими книгами; взять цель только у первого вставшего значит потерять вторую
  * правку до планового опроса.
  */
-let queuedScope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null = null;
+let queuedScope: { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } | null = null;
 
 /** Отпечатки прошлого чтения — по ним видно, изменилось ли что-нибудь. */
 const bookPrints = new Map<string, string>();
@@ -90,11 +95,41 @@ let svodPrint: string | null = null;
  * чтение, изменений нет». Теперь база сравнения переживает перезапуск.
  */
 let watermarksSeeded = false;
+const restoredReadings = new Map<string, { values: unknown[][] }>();
 
 function seedFromWatermarks(): void {
   if (watermarksSeeded) return;
-  watermarksSeeded = true;
-  for (const [book, mark] of loadWatermarks()) {
+  const marks = loadWatermarks();
+  const currentCache = getDeptSheetCache();
+  for (const [book, reading] of loadAcceptedReadings()) {
+    const mark = marks.get(book)!;
+    if (!Number.isFinite(Date.parse(mark.parsedAt))) throw new Error('SOURCE_STATE_READ_FAILED');
+    if (book === SVOD_WATERMARK_KEY && reading.fileId === config.google.spreadsheetId) {
+      setSvodGridCache(reading.values, mark.parsedAt);
+    } else if (DEPARTMENT_SPREADSHEETS[book] === reading.fileId) {
+      // The stored checksum proves bytes were preserved, not that a previous
+      // reader admitted today's mandatory meanings. Do not seed an incompatible
+      // master into active KPI/rows/Word caches; keep its historical bytes and
+      // force the existing refresh path to reacquire the current source.
+      try {
+        validateMasterSourceHeader(reading.values[DEPT_HEADER_ROWS - 1] ?? []);
+      } catch {
+        logSourceFailure(`восстановление схемы источника «${book}»`, {
+          ms: 0, reason: 'MASTER_SOURCE_STORED_PROFILE_INCOMPATIBLE',
+        });
+        continue;
+      }
+      restoredReadings.set(book, { values: reading.values });
+      if (!currentCache[book]) {
+        const sheetName = findDept(book)?.source.sheet ?? book;
+        setDeptSheetCache({ [book]: { values: reading.values, formulas: [], formulasRead: false,
+          sheetName, providerId: reading.fileId, sourceVersion: mark.driveVersion ?? mark.driveModifiedTime ?? undefined,
+          readAt: mark.parsedAt } }, [], mark.parsedAt);
+        setDeptLoadMeta({ [book]: { loadedAt: mark.parsedAt, rowCount: reading.values.length, sheetName } });
+      }
+    }
+  }
+  for (const [book, mark] of marks) {
     if (book === SVOD_WATERMARK_KEY) {
       svodPrint ??= mark.fingerprint;
       continue;
@@ -107,12 +142,14 @@ function seedFromWatermarks(): void {
       seedRevision(fileId, { version: mark.driveVersion, modifiedTime: mark.driveModifiedTime });
     }
   }
+  watermarksSeeded = true;
 }
 
 /** Только для стражей: забыть посев и отпечатки. */
 export function resetSourcePrints(): void {
   watermarksSeeded = false;
   bookPrints.clear();
+  restoredReadings.clear();
   svodPrint = null;
 }
 
@@ -142,7 +179,7 @@ export function resetSourcePrints(): void {
  */
 export interface FormulaDelivery {
   book: string;
-  /** Общий момент текущего чтения — сверяется с сохранённым вердиктом. */
+  /** Timestamp shared by source delivery and verdict, for exact-run attribution. */
   at?: string;
   values: unknown[][];
   formulas: unknown[][];
@@ -163,9 +200,9 @@ export interface FormulaDeliveryNote {
   cells: number;
   /** Принял ли разбор эту посылку (розетка занята и не отказала). */
   handled: boolean;
-  /** Успешно ли получена сетка формул; отказ Google и ошибка парсера — разные случаи. */
+  /** "false" means Google did not provide formulas at all. */
   formulasRead?: boolean;
-  /** Зафиксирован ли этот исход на диске; false запрещает подтверждать проверку. */
+  /** Never advertise a verification whose diagnostic state was not committed. */
   persisted?: boolean;
   /** Почему не принял, если не принял. */
   failedBecause?: string;
@@ -194,12 +231,10 @@ export function formulaDeliveryState(): {
   };
 }
 
-/** Поднять последнюю попытку для каждой книги без обращения к Google. */
+/** Restore attempted deliveries, including failures, before webhook handlers start. */
 export function restoreFormulaDeliveries(): void {
   formulaNotes.clear();
-  for (const entry of loadFormulaAudits()) {
-    formulaNotes.set(entry.delivery.book, entry.delivery);
-  }
+  for (const entry of loadFormulaAudits()) formulaNotes.set(entry.delivery.book, entry.delivery);
 }
 
 /** Только для стражей: забыть следы доставок. */
@@ -229,23 +264,21 @@ function deliverFormulas(
 ): string[] {
   const delivered: string[] = [];
   const remember = (note: FormulaDeliveryNote, verdict: BookFormulaVerdict | null): void => {
-    // Attempt and verdict are one SQLite write. A read failure is also an
-    // attempt: the previous result remains historical, not current.
     try {
+      // Last attempt and last confirmed verdict share one atomic SQLite row.
       saveFormulaAudit(note, verdict);
       note.persisted = true;
     } catch (err) {
       note.persisted = false;
       note.failedBecause = [note.failedBecause, `результат не сохранён: ${(err as Error).message}`]
         .filter(Boolean).join('; ');
-      log?.warn(`Состояние проверки формул книги «${note.book}» не сохранено: ${(err as Error).message}`);
+      log?.warn(`Проверка формул книги «${note.book}» не сохранена: ${(err as Error).message}`);
     }
     formulaNotes.set(note.book, note);
   };
-
   for (const [book, result] of Object.entries(data)) {
     if (!result.formulasRead) {
-      // A normal values-only refresh MUST NOT replace the last formula check.
+      // Values-only poll must not replace a valid earlier formula observation.
       if (requested) remember({
         book, at, cells: 0, handled: false, formulasRead: false,
         failedBecause: 'формулы не получены в этом чтении',
@@ -254,22 +287,15 @@ function deliverFormulas(
     }
     delivered.push(book);
     const note: FormulaDeliveryNote = {
-      book,
-      at,
-      cells: countFormulaCells(result.formulas),
-      handled: false,
-      formulasRead: true,
+      book, at, cells: countFormulaCells(result.formulas),
+      handled: false, formulasRead: true,
     };
     let verdict: BookFormulaVerdict | null = null;
     if (formulaSink) {
       try {
         verdict = formulaSink({
-          book,
-          at,
-          values: result.values,
-          formulas: result.formulas,
-          startRow: result.startRow ?? 1,
-          formulasRead: true,
+          book, at, values: result.values, formulas: result.formulas,
+          startRow: result.startRow ?? 1, formulasRead: true,
         }) ?? null;
         note.handled = true;
       } catch (err) {
@@ -281,15 +307,10 @@ function deliverFormulas(
     }
     remember(note, verdict);
   }
-
   if (requested) {
     for (const [book, error] of Object.entries(errors)) {
       remember({
-        book,
-        at,
-        cells: 0,
-        handled: false,
-        formulasRead: false,
+        book, at, cells: 0, handled: false, formulasRead: false,
         failedBecause: `книга не прочитана: ${classifySourceFailure(error)}`,
       }, null);
     }
@@ -383,19 +404,21 @@ function publishBookChanges(
  * хвост тихо отменил бы уже обещанное чтение остальных книг.
  */
 function widenScope(
-  scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null,
+  scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } | null,
   options: RefreshOptions,
-): { books: Set<string> | null; svod: boolean; withFormulas: boolean } {
+): { books: Set<string> | null; svod: boolean; withFormulas: boolean; askDrive: boolean } {
   const wantsAll = !options.books || options.books.length === 0;
   const svod = (scope?.svod ?? false) || (options.svod ?? true);
   // Просьба прочитать формулы тоже СКЛАДЫВАЕТСЯ: уведомление вебхука, попавшее
   // в серию вместе с обычным вызовом, не имеет права потерять чтение формул —
   // иначе перебитая формула дождалась бы только ночного обхода.
   const withFormulas = (scope?.withFormulas ?? false) || (options.withFormulas ?? false);
-  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod, withFormulas };
-  if (scope.books === null || wantsAll) return { books: null, svod, withFormulas };
+  // Принудительное чтение не должно теряться в обещанном хвосте: false побеждает.
+  const askDrive = (scope?.askDrive ?? true) && (options.askDrive ?? true);
+  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod, withFormulas, askDrive };
+  if (scope.books === null || wantsAll) return { books: null, svod, withFormulas, askDrive };
   for (const book of options.books ?? []) scope.books.add(book);
-  return { books: scope.books, svod, withFormulas };
+  return { books: scope.books, svod, withFormulas, askDrive };
 }
 
 /**
@@ -437,6 +460,8 @@ async function gateByRevision(
   candidates: readonly string[],
   wantSvod: boolean,
   ask: boolean,
+  withFormulas: boolean,
+  sourceBooks: Readonly<Record<string, string>>,
 ): Promise<{ books: string[]; svod: boolean; skipped: string[]; attested: string[] }> {
   if (!ask) return { books: [...candidates], svod: wantSvod, skipped: [], attested: [] };
 
@@ -450,14 +475,14 @@ async function gateByRevision(
 
   const cached = getDeptSheetCache();
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
-    const fileId = DEPARTMENT_SPREADSHEETS[book];
+    const fileId = sourceBooks[book];
     if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length) {
       books.push(book);
       return;
     }
     const hadRevision = lastKnownRevision(fileId) !== null;
     const verdict = await checkFileChanged(fileId);
-    if (verdict === 'same') {
+    if (verdict === 'same' && (!withFormulas || cached[book]?.formulasRead)) {
       skipped.push(book);
       return;
     }
@@ -474,10 +499,27 @@ async function gateByRevision(
  * Ошибка отдельной книги не валит цикл: упавшая книга УДАЛЯЕТСЯ из кэша, а не
  * остаётся под видом свежих данных.
  */
+type MasterAcquisition = (books: Readonly<Record<string, string>>) =>
+  Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }>;
+
+/** Report and live consumers accept the same complete acquisition, under the
+ * existing refresh lock and persistence boundary. Never join an older live read. */
+export async function refreshReportSources(
+  acquire: MasterAcquisition,
+  log?: { info: (msg: string) => void; warn: (msg: string) => void },
+): Promise<SourceRefreshResult> {
+  while (queuedFresh || inFlight) {
+    await (queuedFresh ?? inFlight)!.catch(() => undefined);
+  }
+  return refreshAllSources(log, 'cycle',
+    { askDrive: false, svod: false, withFormulas: true }, acquire);
+}
+
 export function refreshAllSources(log?: {
   info: (msg: string) => void;
   warn: (msg: string) => void;
-}, origin: RefreshOrigin = 'cycle', options: RefreshOptions = {}): Promise<SourceRefreshResult> {
+}, origin: RefreshOrigin = 'cycle', options: RefreshOptions = {},
+acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
   if (inFlight) {
     if (!options.fresh) return inFlight;
     // Один хвост на всю серию: пять уведомлений, пришедших во время цикла,
@@ -494,12 +536,15 @@ export function refreshAllSources(log?: {
           books: scope?.books ? [...scope.books] : undefined,
           svod: scope?.svod ?? true,
           withFormulas: scope?.withFormulas ?? false,
+          askDrive: scope?.askDrive ?? true,
         });
       });
     return queuedFresh;
   }
 
   inFlight = (async () => {
+    const sourceBooks = { ...DEPARTMENT_SPREADSHEETS };
+    const svodSourceId = config.google.spreadsheetId;
     // Водяной знак из базы — ДО любого сравнения: после рестарта отпечатки
     // обязаны быть довалочными, а не пустыми (§2.4 проекта службы).
     seedFromWatermarks();
@@ -507,13 +552,14 @@ export function refreshAllSources(log?: {
     // Прежнее чтение книг — материал для ответа «что именно поменялось»
     // (шина живых событий). Ссылка снимается ДО записи нового кэша: запись
     // подставляет новый объект, прежний остаётся целым.
-    const before = getDeptSheetCache();
+    const cachedBefore = getDeptSheetCache();
+    const before = { ...Object.fromEntries(restoredReadings), ...cachedBefore };
 
     // Книги управлений и лист СВОД читаются ОДНОВРЕМЕННО, а не одно за другим.
     // Дело не только в скорости цикла (лист СВОД перестал ждать окончания
     // восьми книг): читать их подряд значит разносить стороны сверки во
-    // времени ровно на длительность чтения книг, а канон п.66 требует
-    // обратного — обе стороны из одного момента. Отказ одной стороны не должен
+    // времени ровно на длительность чтения книг. Параллельность сокращает
+    // этот разрыв, но не доказывает единую версию Google. Отказ одной стороны не должен
     // уносить другую, поэтому лист СВОД ловит свой отказ внутри себя.
     const startedAt = Date.now();
     const targetBooks = options.books && options.books.length > 0 ? options.books : undefined;
@@ -521,28 +567,33 @@ export function refreshAllSources(log?: {
 
     // Ступень отсева у Google — ДО чтения: книга, которую никто не трогал с
     // прошлого раза, не стоит ни байта грида (см. gateByRevision).
-    // Ручная просьба прочитать ФОРМУЛЫ отменяет отсев по отметке Drive.
-    // Иначе жест владельца «перечитать сейчас» бесполезен ровно в том случае,
-    // ради которого он существует: формулу починили руками, содержимое ячейки
-    // изменилось, а Drive о правке уже отчитался прошлым циклом — книга
-    // считается неизменной, формулы не читаются, дефект остаётся на экране.
-    // Плата названа вслух: полный проход по восьми книгам со вторым
-    // обращением за формулами. Автоматические циклы отсев сохраняют.
-    const askDrive = options.withFormulas ? false : (options.askDrive ?? true);
+    // Формат чтения не означает принуждение: повторный вебхук может пропустить
+    // уже прочитанную версию с формулами. Ручной/контрольный обход задаёт askDrive:false.
+    const askDrive = options.askDrive ?? true;
+    const previousRevisions = new Map(Object.values(sourceBooks)
+      .map(fileId => [fileId, lastKnownRevision(fileId)] as const));
     const gate = await gateByRevision(
-      targetBooks ?? Object.keys(DEPARTMENT_SPREADSHEETS),
+      targetBooks ?? Object.keys(sourceBooks),
       wantSvod,
       askDrive,
+      options.withFormulas ?? false,
+      sourceBooks,
     );
     const booksToRead = gate.books;
     const readSvod = gate.svod;
+    // Pin the pre-read revision. Forced reads bypass the skip gate, but must
+    // still detect edits made while Sheets values/formulas are being acquired.
+    const acquisitionRevisions = new Map(await Promise.all((acquire ? [] : booksToRead).map(async name => {
+      const fileId = sourceBooks[name];
+      return [name, await readRevision(fileId)] as const;
+    })));
 
-    const [{ data, errors }, svodResult] = await Promise.all([
+    const [{ data, errors }, svodRead] = await Promise.all([
       // Пустая цель — это НЕ «читай всё»: у fetchDepartmentSpreadsheets пустой
       // `only` означает «все книги», и передать его сюда значило бы отменить
       // весь отсев ровно в тот момент, когда он сработал полностью.
-      booksToRead.length > 0
-        ? fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS, {
+      acquire ? acquire(sourceBooks) : booksToRead.length > 0
+        ? fetchDepartmentSpreadsheets(sourceBooks, {
             only: booksToRead,
             // Формулы — только когда их попросили (вебхук, ночной обход).
             // Плановый цикл сюда приходит без флага и платит за одно чтение.
@@ -554,31 +605,93 @@ export function refreshAllSources(log?: {
           }),
       readSvod
         ? getSheetData(SVOD_SHEET_NAME)
-            .then((values) => {
-              setSvodGridCache(values);
-              const print = sheetFingerprint(values);
-              const first = svodPrint === null;
-              const changed = !first && svodPrint !== print;
-              svodPrint = print;
-              // Водяной знак листа СВОД — тем же правилом, что и у книг:
-              // успешный разбор оставляет след в базе, а не в памяти.
-              saveWatermark(SVOD_WATERMARK_KEY, print, new Date().toISOString());
-              return { ok: true, changed, first };
-            })
-            .catch((err: unknown) => {
-              const reason = classifySourceFailure((err as Error)?.message ?? String(err));
-              // След отказа переживает цикл: без него маршрут здоровья не отличал
-              // «читали и не смогли» от «ещё не читали».
-              setSvodLoadFailure(reason);
-              log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
-              return { ok: false, changed: false, first: false };
-            })
-        : // Лист СВОД не входил в цель — про него в этом цикле сказать нечего.
-          // «Не читали» честнее выдаётся прошлым состоянием, а не ложным «ок».
-          Promise.resolve({ ok: getSvodLoadFailure() === null, changed: false, first: false }),
+            .then((values) => ({ values }))
+            .catch((error: unknown) => ({ error }))
+        : Promise.resolve(null),
     ]);
+    // The report worker may have its own adapter, but its accepted matrices
+    // enter the SAME live cache and later feed API/metrics/Word. Recheck their
+    // mandatory meanings with the one shared profile before committing any
+    // report source, instead of treating a matching Drive revision as schema proof.
+    if (acquire) {
+      for (const [name, reading] of Object.entries(data)) {
+        if (!(name in sourceBooks)) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = 'REPORT_SOURCE_NOT_REGISTERED';
+          continue;
+        }
+        try {
+          validateMasterSourceHeader(reading.values?.[DEPT_HEADER_ROWS - 1] ?? []);
+        } catch (error) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = error instanceof Error && error.message.startsWith('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:')
+            ? error.message : 'MASTER_SOURCE_PROFILE_INVALID';
+        }
+      }
+    }
+
+    await Promise.all(Object.keys(data).map(async name => {
+      if (acquire) {
+        // The full connector may have retried a changing source. Recheck its
+        // accepted token, not a probe from before that complete acquisition.
+        const revision = await readRevision(sourceBooks[name]);
+        if (!data[name].sourceVersion || !revision
+            || data[name].sourceVersion !== (revision.version ?? revision.modifiedTime)) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = 'SOURCE_CHANGED_DURING_READ';
+        } else {
+          acquisitionRevisions.set(name, revision);
+        }
+        return;
+      }
+      const beforeRevision = acquisitionRevisions.get(name);
+      // Unavailable metadata retains the existing unverified live-read mode;
+      // it must never be advertised as a sealed report source revision.
+      if (!beforeRevision || (beforeRevision.version === null && beforeRevision.modifiedTime === null)) return;
+      const afterRevision = await readRevision(sourceBooks[name]);
+      if (!afterRevision || beforeRevision.version !== afterRevision.version
+          || beforeRevision.modifiedTime !== afterRevision.modifiedTime) {
+        Reflect.deleteProperty(data, name);
+        errors[name] = afterRevision ? 'SOURCE_CHANGED_DURING_READ' : 'SOURCE_REVISION_RECHECK_UNAVAILABLE';
+      }
+    }));
+    // Check after ALL asynchronous reads/rechecks; another source can finish
+    // later while settings change. Never label old-book values as the new book.
+    for (const name of Object.keys(data)) {
+      if (sourceBooks[name] !== DEPARTMENT_SPREADSHEETS[name]) {
+        Reflect.deleteProperty(data, name);
+        errors[name] = 'SOURCE_BINDING_CHANGED_DURING_READ';
+      }
+    }
+    if (acquire && (Object.keys(errors).length > 0
+        || Object.keys(data).length !== Object.keys(sourceBooks).length
+        || Object.keys(sourceBooks).some(name => !data[name]?.formulasRead))) {
+      throw new Error('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
+    }
+    // Publish both sides only after acquisition has finished, without yielding
+    // between cache updates. Parallel reads do not prove atomic Google revisions.
+    const svodResult = (() => {
+      if (svodRead !== null && svodSourceId !== config.google.spreadsheetId) {
+        setSvodLoadFailure('SOURCE_BINDING_CHANGED_DURING_READ');
+        return { ok: false, changed: false, first: false, retryable: true };
+      }
+      if (svodRead === null) {
+        return { ok: getSvodLoadFailure() === null, changed: false, first: false };
+      }
+      try {
+        if ('error' in svodRead) throw svodRead.error;
+        const print = sheetFingerprint(svodRead.values);
+        const first = svodPrint === null;
+        const changed = !first && svodPrint !== print;
+        return { ok: true, changed, first, print };
+      } catch (err: unknown) {
+        const reason = classifySourceFailure((err as Error)?.message ?? String(err));
+        setSvodLoadFailure(reason);
+        log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
+        return { ok: false, changed: false, first: false, retryable: isTransientSourceFailure(err) };
+      }
+    })();
     const svodOk = svodResult.ok;
-    setDeptSheetCache(data, Object.keys(errors));
 
     // Отпечатки — дешёвая ступень разбора: они отвечают «изменилось ли», и
     // только для изменившихся книг работает дорогое построчное сравнение.
@@ -588,56 +701,91 @@ export function refreshAllSources(log?: {
     // неё, собран без её строк, и оставлять его в кэше нельзя. Событий в эфир
     // первое чтение не даёт, а сброс кэша — даёт.
     let firstReads = 0;
+    const nextPrints = new Map<string, string>();
     for (const [name, result] of Object.entries(data)) {
       const print = sheetFingerprint(result.values);
       const previous = bookPrints.get(name);
-      bookPrints.set(name, print);
+      nextPrints.set(name, print);
       if (previous === undefined || !before[name]?.values.length) firstReads++;
       if (previous !== undefined && previous !== print) changedBooks.push(name);
-      // Водяной знак: момент успешного разбора, отпечаток и отметка версии
-      // файла — в базу, чтобы рестарт не обнулял базу сравнения (§2.4).
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
-      const revision = fileId ? lastKnownRevision(fileId) : null;
-      saveWatermark(name, print, new Date().toISOString(), revision ?? undefined);
     }
 
-    // Правило полноты (§2.2): Drive засвидетельствовал «файл менялся», книга
-    // прочитана, а содержательные свидетели молчат — отпечаток листа тот же.
-    // В журнал уходит честный пропуск «изменение было, содержание не
-    // установлено», а не тишина. Один и тот же пропуск не пишется дважды.
-    for (const name of gate.attested) {
-      if (changedBooks.includes(name)) continue;
-      if (!(name in data)) continue; // чтение упало — это отказ, а не пропуск
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
-      const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
-      if (noteHonestGap(name, modifiedTime)) {
-        log?.warn(
-          `Журнал: по книге «${name}» изменение было, содержание не установлено`
-          + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''),
-        );
+    const at = new Date().toISOString();
+    // Persist the acceptance boundary before changing any successful cache.
+    // SQLite rolls back the whole cycle if a watermark or gap cannot be saved.
+    const gaps: Array<{ name: string; modifiedTime: string | null }> = [];
+    try {
+      db.transaction(() => {
+        if ('print' in svodResult && svodResult.print !== undefined) {
+          saveWatermark(SVOD_WATERMARK_KEY, svodResult.print, at, lastKnownRevision(svodSourceId) ?? undefined,
+            { fileId: svodSourceId, values: svodRead && 'values' in svodRead ? svodRead.values : [] });
+        }
+        for (const [name, print] of nextPrints) {
+          const revision = acquisitionRevisions.get(name) ?? null;
+          saveSourceRowObservations(name, before[name], data[name], bookPrints.get(name), print, at);
+          saveWatermark(name, print, at, revision ?? undefined, { fileId: sourceBooks[name], values: data[name].values });
+        }
+        for (const name of gate.attested) {
+          if (changedBooks.includes(name) || !(name in data)) continue;
+          const fileId = sourceBooks[name];
+          const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
+          if (noteHonestGap(name, modifiedTime)) gaps.push({ name, modifiedTime });
+        }
+      });
+    } catch (error) {
+      // The Drive probe advanced its in-memory revision before acquisition.
+      // Restore it so retry cannot skip this unaccepted input or lose attestation.
+      for (const name of booksToRead) {
+        const fileId = sourceBooks[name];
+        if (!fileId) continue;
+        forgetRevision(fileId);
+        const previous = previousRevisions.get(fileId);
+        if (previous) seedRevision(fileId, previous);
       }
+      throw error;
+    }
+    if (svodRead !== null && 'values' in svodRead && 'print' in svodResult && svodResult.print !== undefined) {
+      setSvodGridCache(svodRead.values);
+      svodPrint = svodResult.print;
+    }
+    for (const [name, reading] of Object.entries(data)) {
+      reading.providerId = sourceBooks[name];
+      const revision = acquisitionRevisions.get(name);
+      if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
+    }
+    setDeptSheetCache(data, Object.keys(errors));
+    for (const [name, print] of nextPrints) {
+      bookPrints.set(name, print);
+      restoredReadings.delete(name);
+      const fileId = sourceBooks[name];
+      forgetRevision(fileId);
+      const revision = acquisitionRevisions.get(name);
+      if (revision) seedRevision(fileId, revision);
+    }
+    for (const { name, modifiedTime } of gaps) {
+      log?.warn(`Журнал: по книге «${name}» изменение было, содержание не установлено`
+        + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''));
     }
     // Упавшая книга ушла из кэша — её отпечаток больше ничего не описывает.
     // Заодно забывается отметка версии файла: она снята перед чтением, которого
     // не было, и без этого книга выпала бы из перечиток до следующей правки.
     for (const name of Object.keys(errors)) {
       bookPrints.delete(name);
-      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const fileId = sourceBooks[name];
       if (fileId) forgetRevision(fileId);
     }
 
     publishBookChanges(before, data, origin, changedBooks);
-
-    const at = new Date().toISOString();
 
     // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
     // журнала: разбор не имеет права задержать обновление экрана, а его исход
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
     const formulaBooks = deliverFormulas(data, errors, options.withFormulas ?? false, at, log);
 
-    const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
+    const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string; sourceRevision?: string }> = {};
     for (const [name, result] of Object.entries(data)) {
-      loadMeta[name] = { loadedAt: at, rowCount: result.values.length, sheetName: result.sheetName };
+      loadMeta[name] = { loadedAt: result.readAt ?? at, rowCount: result.values.length, sheetName: result.sheetName,
+        ...(result.sourceRevision ? { sourceRevision: result.sourceRevision } : {}) };
     }
     for (const [name, errMsg] of Object.entries(errors)) {
       loadMeta[name] = { loadedAt: at, rowCount: 0, sheetName: name, error: errMsg };
@@ -651,9 +799,12 @@ export function refreshAllSources(log?: {
     // «Ничего не сдвинулось» — это ОДНОВРЕМЕННО: ни одна книга не изменилась,
     // ни одна не прочитана впервые, лист СВОД тот же и никто не отказал.
     // Достаточно любому условию не выполниться — снимок обязан пересобраться.
+    const formulaInputsChanged = Object.entries(data).some(([book, reading]) => reading.formulasRead
+      && (!cachedBefore[book]?.formulasRead || sheetFingerprint(reading.formulas) !== sheetFingerprint(cachedBefore[book].formulas)));
     const nothingChanged =
       changedBooks.length === 0
       && firstReads === 0
+      && !formulaInputsChanged
       && !svodResult.changed
       && !svodResult.first
       && Object.keys(errors).length === 0;
@@ -669,7 +820,10 @@ export function refreshAllSources(log?: {
       + (formulaBooks.length > 0
           ? `, формулы прочитаны: ${formulaBooks.join(', ')}`
           : ', формулы не читались')
-      + (nothingChanged ? ', изменений нет — снимок не пересобирался' : `, изменилось: ${[...changedBooks, ...(svodResult.changed ? ['лист СВОД'] : [])].join(', ')}`),
+      + (nothingChanged ? ', изменений нет — снимок не пересобирался'
+        : changedBooks.length || svodResult.changed ? `, изменилось: ${[...changedBooks, ...(svodResult.changed ? ['лист СВОД'] : [])].join(', ')}`
+          : formulaInputsChanged ? ', получены новые сведения о формулах'
+            : Object.keys(errors).length ? ', чтение источников неполно' : ', принято первое чтение источников'),
       {
         ms: Date.now() - startedAt,
         books: Object.keys(data).length,
@@ -699,6 +853,8 @@ export function refreshAllSources(log?: {
     return {
       loaded: Object.keys(data),
       failed: Object.keys(errors),
+      retryableFailures: Object.entries(errors).filter(([, error]) => isTransientSourceFailure(error)).map(([name]) => name),
+      svodRetryable: 'retryable' in svodResult && svodResult.retryable === true,
       svodOk,
       at,
       changedBooks,
@@ -746,8 +902,10 @@ export function startSourceAutoRefresh(log: {
     if (!isWithinWorkHours(new Date(), config.weeklySnapshot.utcOffsetHours)) return;
     void refreshAllSources(log)
       .then((r) => {
+        const state = r.failed.length || !r.svodOk ? 'Проверка источников неполна'
+          : r.changedBooks.length || r.svodChanged ? 'Источники изменились' : 'Источники проверены, изменений не обнаружено';
         log.info(
-          `Источники обновлены: книг ${r.loaded.length}` +
+          `${state}: книг прочитано ${r.loaded.length}` +
           `${r.failed.length > 0 ? `, не прочитано: ${r.failed.join(', ')}` : ''}` +
           `${r.svodOk ? '' : ', лист СВОД недоступен'}`,
         );

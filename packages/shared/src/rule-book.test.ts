@@ -28,6 +28,54 @@ function check(id: string, cells: Record<string, unknown>): RuleCheckResult {
   });
 }
 
+describe('неполные исходные значения не доказывают правильность арифметики', () => {
+  it.each([
+    ['budget_sum_plan', { K: 100, H: 100, I: 0, J: '#REF!' }],
+    ['budget_sum_fact', { O: 100, L: 100, M: '#REF!', N: 0 }],
+    ['execution_percentage', { D: 10, G: 0 }],
+    ['deviation_calc', { D: 10, F: -10 }],
+    ['fact_leq_plan', { D: 10, E: '#REF!' }],
+  ])('%s сообщает недостаточность данных', (id, cells) => {
+    expect(check(String(id), cells as Record<string, unknown>).passed).toBeNull();
+  });
+});
+
+describe('квартал сравнивается с годом только по прочитанным значениям', () => {
+  const context = { cells: { D: 2, K: 50 }, rowIndex: 9, sheet: 'СВОД ТД-ПМ', classification: 'summary' as const };
+  const year = { ...context, rowIndex: 14, classificationConfidence: 1, classificationReasons: [] };
+  it('не объявляет проверенным отсутствующий годовой контекст', () => {
+    expect(rule('q1_leq_year').check(context).passed).toBeNull();
+    expect(rule('q1_leq_year').check({ ...context, allRows: [] }).passed).toBeNull();
+  });
+  it('не объявляет проверенной нечитаемую годовую сумму', () => {
+    expect(rule('q1_leq_year').check({ ...context,
+      allRows: [{ ...year, cells: { D: 3, K: '#REF!' } }] }).passed).toBeNull();
+  });
+  it('сохраняет доказанное превышение количества при неизвестной сумме', () => {
+    expect(rule('q1_leq_year').check({ ...context,
+      allRows: [{ ...year, cells: { D: 1, K: '#REF!' } }] })).toMatchObject({ passed: false, cell: 'D9' });
+  });
+  it('не требует годовую пару у неприменимой строки', () => {
+    expect(rule('q1_leq_year').check({ ...context, rowIndex: 1 }).passed).toBe(true);
+  });
+});
+
+describe('причина задержки следует датам, а не устаревшему значению T', () => {
+  it.each([
+    { N: '01.03.2026', Q: '01.03.2026', T: 12 },
+    { N: '01.03.2026', Y: 50, T: 12 },
+    { N: '', T: 12 },
+  ])('не требует причины неподтверждённой задержки', cells => {
+    expect(check('overdue_reason_missing', { A: 1, U: '', ...cells }).passed).toBe(true);
+  });
+  it('определяет текущую задержку по дню среза даже при пустой T', () => {
+    const result = rule('overdue_reason_missing').check({ cells: { A: 1, N: '01.03.2026', U: '' },
+      rowIndex: 42, sheet: 'УО', classification: 'procurement', asOf: new Date('2026-03-02T00:00:00Z') });
+    expect(result.passed).toBe(false);
+    expect(result.message).toContain('заключение не подтверждено');
+  });
+});
+
 describe('§22 п.1 — словарь способов разделён по источникам', () => {
   it('СТРАЖ: книга ГРБС знает ровно два способа — ЕП и ЭА', () => {
     expect([...GRBS_BOOK_METHODS]).toEqual(['ЕП', 'ЭА']);
@@ -123,6 +171,43 @@ describe('§22 п.3 — допуск сверки итогов равен 5 ру
       cells[parts[2]] = 0;
 
       expect(check(id, cells).passed).toBe(false);
+    });
+  }
+});
+
+describe('УФ ↔ интегрированный Dash: строгое ROUND и неполные суммы', () => {
+  const cases: Array<{ id: string; total: string; components: string[] }> = [
+    { id: 'budget_sum_plan', total: 'K', components: ['H', 'I', 'J'] },
+    { id: 'budget_sum_fact', total: 'O', components: ['L', 'M', 'N'] },
+    { id: 'dept_fact_sum', total: 'Y', components: ['V', 'W', 'X'] },
+    { id: 'dept_economy_sum', total: 'AC', components: ['Z', 'AA', 'AB'] },
+  ];
+
+  for (const { id, total, components } of cases) {
+    const input = (whole: unknown, first: unknown, second: unknown = 0, third: unknown = 0) => ({
+      A: '173/18',
+      [total]: whole,
+      [components[0]]: first,
+      [components[1]]: second,
+      [components[2]]: third,
+    });
+
+    it(`${id}: 5 руб. в любую сторону уже красит УФ, 4,9 руб. нет`, () => {
+      expect(check(id, input(100.005, 100)).passed).toBe(false);
+      expect(check(id, input(99.995, 100)).passed).toBe(false);
+      expect(check(id, input(100.0049, 100)).passed).toBe(true);
+    });
+
+    it(`${id}: пустое слагаемое SUM равно нулю, но расхождение выявляется`, () => {
+      expect(check(id, input(100, 100, '')).passed).toBe(true);
+      expect(check(id, input(130, 100, '')).passed).toBe(false);
+    });
+
+    it(`${id}: нет числа итога или компонент испорчен — НЕ проверено, не PASS`, () => {
+      for (const invalid of [null, '', 'abc']) {
+        expect(check(id, input(invalid, 100)).passed).toBeNull();
+      }
+      expect(check(id, input(100, '12abc', 80)).passed).toBeNull();
     });
   }
 });

@@ -173,7 +173,8 @@ def validate_product_contract(report_model: dict, *, require_metric_contributors
     return issues
 
 
-def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None, budget_years=None) -> list[ValidationIssue]:
+def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None, budget_years=None,
+                                  sources=()) -> list[ValidationIssue]:
     """ADR-003: admit proven current facts with explicit historical evidence gaps."""
     issues = validate_product_contract(model)
     if str((model.get('snapshot') or {}).get('renderer_version', '')).startswith('renderer-v1.5.0rc25'):
@@ -204,7 +205,7 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
     if model.get('snapshot', {}).get('renderer_version') not in {
             'renderer-v1.5.0rc7', 'renderer-v1.5.0rc8', 'renderer-v1.5.0rc9', 'renderer-v1.5.0rc10'}:
         assurance = (model.get('contract') or {}).get('automation_assurance_contract')
-        require(assurance in {'actionable-assurance-v1', 'actionable-assurance-v2'}
+        require(assurance in {'actionable-assurance-v1', 'actionable-assurance-v2', 'actionable-assurance-v3', 'actionable-assurance-v4'}
                 and (model.get('automation_assurance') or {}).get('contract') == assurance,
                 'AUTOMATION_ASSURANCE_MISSING', 'Отсутствует обязательная оценка полноты автоматизации.')
     if model.get('snapshot', {}).get('renderer_version') not in {
@@ -272,7 +273,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
         identity_evidence=model.get('identity_review_evidence'), documents=documents,
         legacy=not model.get('contract', {}).get('recommendation_link_contract'),
         link_contract=model.get('contract', {}).get('recommendation_link_contract'),
-        context_contract=model.get('contract', {}).get('business_context_contract'), budget_years=budget_years)}
+        context_contract=model.get('contract', {}).get('business_context_contract'), budget_years=budget_years,
+        sources=sources)}
     if 'identity_review_evidence' not in model:
         for claim in expected_claims.values():
             claim.pop('business_finding', None)

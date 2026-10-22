@@ -60,6 +60,8 @@ vi.mock('../services/google-sheets.js', () => ({
 }));
 
 interface EntryDto {
+  journalSource?: { spreadsheetId: string; journalSheet: string; journalRow: number; readAt: number };
+  evidence?: EntryDto[];
   id: string;
   book: string;
   rowSeq: string | null;
@@ -129,11 +131,34 @@ describe('GET /api/change-story', () => {
     process.env = ORIGINAL_ENV;
   });
 
+  it('оба журнала в пятницу сохраняют предыдущую календарную неделю', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-21T00:00:00Z'));
+    try {
+      for (const url of ['/api/changes', '/api/change-story']) {
+        const result = await app.inject({ url });
+        expect(result.statusCode).toBe(200);
+        expect(result.json().since).toBe('2026-08-13');
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('адрес правки — по № п/п, номер строки листа идёт вторым', () => {
     const money = body.entries.find((e) => e.column === 'K');
     expect(money?.rowSeq).toBe('38');
     expect(money?.sheetRow).toBe(177);
     expect(money?.subject).toBe('Услуги почтовой связи');
+  });
+
+  it('keeps source journal locators on cell and folded row witnesses in the actual response', () => {
+    const money = body.entries.find(e => e.column === 'K');
+    expect(money?.journalSource).toMatchObject({ spreadsheetId: h.UER_ID, journalSheet: '_ChangeLog', journalRow: 2 });
+    expect(Number.isFinite(money?.journalSource?.readAt)).toBe(true);
+    const folded = body.entries.find(e => e.kind === 'row-added');
+    expect(folded?.evidence?.map(e => e.journalSource?.journalRow).sort((a, b) => a! - b!))
+      .toEqual(h.uerJournal.slice(4).map((_, index) => index + 5));
   });
 
   it('род правки назван человеческим словом, а не буквой колонки', () => {
@@ -167,6 +192,15 @@ describe('GET /api/change-story', () => {
   it('неудаляемость строк журналом объявлена рядом с числами', () => {
     expect(body.deletionsUnobservable).toBe(true);
     expect(body.note).toContain('Удаление строки журнал не записывает');
+  });
+
+  it('объяснение API различает текущие чтения и последний контроль, не две прошлые недели', () => {
+    // No preceding Thursday snapshot exists in this fixture: saying that an
+    // actual verified weekly comparison happened would be a false assurance.
+    expect(body.note).toContain('Нет подтверждённого среза четверга');
+    expect(body.note).toContain('Сравнивать текущее состояние');
+    expect(body.note).not.toContain('двух соседних');
+    expect(body.note).toContain('требуются дополнительные свидетельства');
   });
 
   it('свод отвечает на «сколько книг, сколько закупок, кем и когда»', () => {
@@ -223,4 +257,39 @@ describe('GET /api/change-story', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json<{ message: string }>().message).toContain('неизвестен');
   });
+
+  it('фильтр чипа «Возможная смена номера» принимается сервером', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/change-story?since=2026-01-01&kind=row-identity-candidate',
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json<StoryDto>();
+    expect(data.entries.every((entry) => entry.kind === 'row-identity-candidate')).toBe(true);
+  });
+
+});
+
+
+it('недельное окно начинается в последнем завершённом контроле, а не в новом незавершённом четверге', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const baselineAt = '2026-10-01T00:00:00.000Z';
+  const window = changeStoryDefaultWindow({ beforeAt: baselineAt }, new Date('2026-10-09T01:00:00.000Z'), 12);
+  expect(window.sinceMs).toBe(Date.parse(baselineAt));
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-01'));
+});
+
+it('контрольная дата показана по Камчатке, а граница журнала сохраняет точный момент', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const beforeAt = '2026-09-30T21:00:00.000Z';
+  const window = changeStoryDefaultWindow({ beforeAt }, new Date('2026-10-09T01:00:00.000Z'), 12);
+  expect(window.sinceMs).toBe(Date.parse(beforeAt));
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-01'));
+});
+
+it('без контроля журнал открывает каноническую неделю с четверга 18:00', async () => {
+  const { changeStoryDefaultWindow } = await import('./change-story.js');
+  const window = changeStoryDefaultWindow(null, new Date('2026-10-23T00:00:00Z'), 12);
+  expect(window.sinceDay).toBe((await import('@aemr/shared')).dayNumberOf('2026-10-15'));
+  expect(window.sinceMs).toBe(Date.parse('2026-10-15T06:00:00Z'));
 });

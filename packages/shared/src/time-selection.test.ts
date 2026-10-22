@@ -7,6 +7,8 @@ import {
   EMPTY_TIME_SELECTION,
   parseTimeSelection,
   productCalendarDay,
+  liveBaselineDay,
+  weeklyCutoffMs,
   resolveTimeSelection,
   serializeTimeSelection,
   type Month,
@@ -15,6 +17,24 @@ import {
   type TimeSelection,
 } from './time-selection.js';
 import { dayNumberOf } from './parse-sheet-date.js';
+
+it.each([
+  ['2026-10-23T00:00:00Z', 12, '15.10.2026'],
+  ['2026-10-25T11:59:59Z', 12, '15.10.2026'],
+  ['2026-10-25T12:00:00Z', 12, '22.10.2026'],
+  ['2026-10-25T12:00:00Z', 0, '15.10.2026'],
+  ['2027-01-03T12:00:00Z', 12, '31.12.2026'],
+  ['2024-03-03T12:00:00Z', 12, '29.02.2024'],
+])('LIVE-база недели для %s при смещении %s — %s', (instant, offset, expected) => {
+  expect(liveBaselineDay(new Date(instant), offset)).toBe(dayNumberOf(expected));
+});
+
+it.each([
+  [12, '2026-10-15T06:00:00.000Z'],
+  [0, '2026-10-15T18:00:00.000Z'],
+])('граница четверга — 18:00 при смещении %s', (offset, expected) => {
+  expect(new Date(weeklyCutoffMs(dayNumberOf('15.10.2026')!, offset)).toISOString()).toBe(expected);
+});
 
 function sel(o: {
   years?: number[];

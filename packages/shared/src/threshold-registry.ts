@@ -1,3 +1,4 @@
+import { dayNumberOf, isoOfDayNumber } from './parse-sheet-date.js';
 /**
  * threshold-registry.ts — ОДИН ДОМ ПОРОГА (механизм М6, 21.08.2026).
  *
@@ -78,7 +79,18 @@ export type ThresholdDomain =
   | 'observability'
   | 'law';
 
+export interface ThresholdEdition {
+  readonly id: string;
+  readonly validFrom: string;
+  /** Exclusive end; missing means the recorded edition has no known end. */
+  readonly validUntil?: string;
+  readonly value: number;
+  readonly verification: 'verified' | 'unverified';
+  readonly sourceRef: string;
+}
+
 export interface ThresholdEntry {
+  readonly editions?: readonly ThresholdEdition[];
   /** Человеческое имя порога — то, как он называется в разговоре. */
   readonly label: string;
   /** Значение. Берётся из существующей константы там, где она есть. */
@@ -97,6 +109,20 @@ export interface ThresholdEntry {
    */
   readonly note?: string;
 }
+
+/** Legacy internal screening only: this is not a legal limit or a verified performance norm. */
+export const INTERNAL_EP_SHARE_BY_ROLE = {
+  ОПЕРАЦИОННЫЙ: 0.50,
+  ИНВЕСТИЦИОННЫЙ: 0.30,
+  СМЕШАННЫЙ: 0.40,
+} as const;
+
+/** Stable snapshot keys for methodological references by GRBS role. */
+export const EP_ROLE_THRESHOLD_IDS: Readonly<Record<keyof typeof INTERNAL_EP_SHARE_BY_ROLE, string>> = {
+  ОПЕРАЦИОННЫЙ: 'competition.epRoleOperationalShare',
+  ИНВЕСТИЦИОННЫЙ: 'competition.epRoleInvestmentShare',
+  СМЕШАННЫЙ: 'competition.epRoleMixedShare',
+};
 
 export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
@@ -248,19 +274,14 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
 
   'economy.highSharePct': {
-    label: 'Снижение свыше антидемпингового порога',
+    label: 'Снижение от лимита выше внутреннего ориентира',
     value: LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare * 100,
     unit: 'percent',
     domain: 'economy',
-    means: 'Снижение цены на четверть и больше требует антидемпинговых мер и обоснования.',
-    source: 'law44',
-    sourceRef: '44-ФЗ ст.37; LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare',
-    note:
-      'РАСХОЖДЕНИЕ БАЗЫ, названное вслух. Норма считает снижение от НМЦК, а в книгах ГРБС ' +
-      'НМЦК нет — в знаменателе у нас лимит (K). Порог законный, база приближённая, поэтому ' +
-      'подпись на экране говорит «снижение от лимита свыше 25 %», а не «антидемпинг». ' +
-      'Это же число красит плитку «Свыше 25 %», бейдж строки, инлайн-рекомендацию и статус ' +
-      'баннера «Экономии» — осознанный каскад ОДНОГО порога, а не четыре независимых числа.',
+    means: 'Снижение от лимита выше ориентира помогает выбрать позиции для просмотра; нарушения не устанавливает.',
+    source: 'own',
+    sourceRef: 'Внутренний ориентир просмотра экономии',
+    note: 'НАШЕ РЕШЕНИЕ. Сохранён прежний числовой ориентир интерфейса. Лимит K и учтённая AD-экономия не заменяют НМЦК и предложенную цену; антидемпинговые меры этим сравнением не проверяются.',
   },
   'economy.normalMinPct': {
     label: 'Нижняя граница нормальной экономии',
@@ -327,6 +348,29 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   },
 
   // ══════════════════════════════════════════════════════════════════
+  // Дополнительные внутренние ориентиры прежней модели ГРБС, не законные пределы.
+  'competition.epRoleOperationalShare': {
+    label: 'Внутренний ориентир доли ЕП операционного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.ОПЕРАЦИОННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше половины — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+  'competition.epRoleInvestmentShare': {
+    label: 'Внутренний ориентир доли ЕП инвестиционного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.ИНВЕСТИЦИОННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше тридцати процентов — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+  'competition.epRoleMixedShare': {
+    label: 'Внутренний ориентир доли ЕП смешанного управления',
+    value: INTERNAL_EP_SHARE_BY_ROLE.СМЕШАННЫЙ, unit: 'ratio', domain: 'competition',
+    means: 'Доля ЕП свыше сорока процентов — повод для просмотра, а не нарушение.',
+    source: 'own', sourceRef: 'Внутренний ориентир прежнего procurement_report.gs',
+    note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
+  },
+
   // VII. Дисциплина
   // ══════════════════════════════════════════════════════════════════
 
@@ -446,9 +490,10 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Доля СГОЗ в любом случае не поднимает предел выше пятидесяти миллионов рублей.',
+    means: 'Общий годовой предел долевого варианта — пятьдесят миллионов рублей, с установленными законом исключениями.',
     source: 'law44',
-    sourceRef: '44-ФЗ ст.93 ч.1 п.4',
+    sourceRef: '44-ФЗ ст.93 ч.1 п.4 (ред. 279-ФЗ от 04.08.2026)',
+    note: 'С 01.10.2026 для непосредственного обеспечения жизнедеятельности населения сельских населённых пунктов предусмотрено исключение из предела 50 млн руб. Само наличие сельского адреса применимость исключения не доказывает.',
   },
   'law.epEducationSingleContract': {
     label: 'Разовая закупка образования и культуры у единственного поставщика',
@@ -494,18 +539,28 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: LAW_44FZ_THRESHOLDS.eShopPurchaseLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Пять миллионов рублей — потолок закупки в электронном магазине.',
+    means: 'Пять миллионов рублей — предел специальной электронной закупки по части 12 статьи 93, а не любого электронного магазина.',
     source: 'law44',
-    sourceRef: 'Предел, которым пользуются книги-источники района',
+    sourceRef: '44-ФЗ ст.93 ч.12 (основания пп.4–5.2 ч.1, предусмотренный предмет закупки)',
+    note: 'Предел относится к специальному электронному механизму закупки товаров и предусмотренных законом прав на ПО. Способ из текста строки сам по себе не подтверждает применение части 12.',
   },
   'law.quotationPurchaseLimit': {
     label: 'Предел запроса котировок',
     value: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Десять миллионов рублей — потолок закупки запросом котировок.',
+    means: 'НМЦК электронного запроса котировок зависит от действующей на дату закупки редакции 44-ФЗ.',
     source: 'law44',
-    sourceRef: '44-ФЗ ст.82.1',
+    sourceRef: '44-ФЗ ст.24 ч.10; ст.112 ч.87, введённая 279-ФЗ от 04.08.2026',
+    note: 'Базовое значение 10 млн руб. оставлено только для воспроизводимости старого кода. С 01.10.2026 по 31.12.2027 действует временный предел 20 млн руб. Будущие редакции не предполагаются автоматически.',
+    editions: [
+      { id: '44fz-quotation-2026-before-279fz', validFrom: '2026-01-01', validUntil: '2026-10-01',
+        value: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub, verification: 'verified',
+        sourceRef: '44-ФЗ ст.24 ч.10 (редакция до 01.10.2026; НМЦК 10 млн руб.)' },
+      { id: '44fz-quotation-279fz-temporary', validFrom: '2026-10-01', validUntil: '2028-01-01',
+        value: 20_000, verification: 'verified',
+        sourceRef: '44-ФЗ ст.112 ч.87, 279-ФЗ от 04.08.2026 (НМЦК 20 млн руб. по 31.12.2027)' },
+    ],
   },
 };
 
@@ -550,9 +605,85 @@ export function ownThresholds(): readonly string[] {
  * Число с единицей, как его читает человек: «25 %», «600 тыс. руб.»,
  * «2 правок на строку». Доля печатается процентом — читателю привычнее.
  */
-export function formatThreshold(id: string): string {
+/** A date-limited legal edition must never display the undated reference as today's law. */
+export function formatThreshold(id: string, captured?: DatedThreshold): string {
   const entry = THRESHOLD_REGISTRY[id];
   if (!entry) return '—';
-  if (entry.unit === 'ratio') return `${(entry.value * 100).toFixed(0)} %`;
-  return `${entry.value} ${THRESHOLD_UNIT_LABELS[entry.unit]}`;
+  if (entry.editions?.length && !captured) return '— (нужна дата среза)';
+  if (captured && capturedThresholdValue(captured, entry.unit) === null) return '— (единица или значение среза недоступны)';
+  if (captured?.status === 'unverified') return '— (редакция порога не подтверждена)';
+  const value = captured?.value ?? entry.value;
+  if (entry.unit === 'ratio') return `${(value * 100).toFixed(0)} %`;
+  return `${value} ${THRESHOLD_UNIT_LABELS[entry.unit]}`;
 }
+
+
+export interface DatedThreshold {
+  value: number;
+  /** Optional on disk: legacy snapshots without a unit may be displayed but not numerically checked. */
+  unit?: ThresholdUnit;
+  status: 'verified' | 'internal' | 'unverified';
+  edition: string | null;
+  sourceRef: string | null;
+}
+
+/** A consumer must not silently substitute today's unit or value into a historical context. */
+export function capturedThresholdValue(captured: DatedThreshold | null | undefined, unit: ThresholdUnit): number | null {
+  if (!captured || captured.unit !== unit || !Number.isFinite(captured.value) || captured.value <= 0) return null;
+  if ((unit === 'ratio' && captured.value > 1) || (unit === 'percent' && captured.value > 100)) return null;
+  return captured.value;
+}
+
+/** Frozen definitions override today's dictionary only when explicitly supplied. */
+export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry): DatedThreshold {
+  const entry = frozen ?? threshold(id);
+  const isoDay = (value: string): number | null => {
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value) ? dayNumberOf(value) : null;
+    return parsed !== null && isoOfDayNumber(parsed) === value ? parsed : null;
+  };
+  const day = isoDay(asOfDay);
+  if (!entry || day === null)
+    throw new Error('INVALID_THRESHOLD_CONTEXT');
+  const editions = entry.editions ?? [];
+  const intervals = editions.map(edition => {
+    const start = isoDay(edition.validFrom);
+    const end = edition.validUntil === undefined ? Infinity : isoDay(edition.validUntil);
+    if (!edition.id || !edition.sourceRef || !Number.isFinite(edition.value)
+      || start === null || end === null || end <= start) throw new Error('INVALID_THRESHOLD_EDITION');
+    return { edition, start, end };
+  });
+  const applicable = intervals.filter(i => i.start <= day && day < i.end);
+  if (applicable.length > 1) throw new Error('AMBIGUOUS_THRESHOLD_EDITION');
+  const selected = applicable[0]?.edition;
+  return {
+    value: selected?.value ?? entry.value,
+    unit: entry.unit,
+    status: selected?.verification === 'verified' ? 'verified'
+      : entry.source === 'own' && editions.length === 0 ? 'internal' : 'unverified',
+    edition: selected?.id ?? null, sourceRef: selected?.sourceRef ?? entry.sourceRef ?? null,
+  };
+}
+
+export function freezeThresholds(asOfDay: string): Record<string, DatedThreshold> {
+  return Object.fromEntries(THRESHOLD_IDS.map(id => [id, thresholdAt(id, asOfDay)]));
+}
+
+/** Legal checks are not complete merely because one dated article was verified. */
+export function legalThresholdsVerifiedForContext(
+  captured: Readonly<Record<string, DatedThreshold>> | null | undefined,
+): boolean {
+  return !!captured && thresholdsByDomain('law')
+    .filter(id => THRESHOLD_REGISTRY[id]!.source === 'law44')
+    .every(id => captured[id]?.status === 'verified'
+      && captured[id]?.unit === THRESHOLD_REGISTRY[id]!.unit
+      && !!captured[id]?.sourceRef);
+}
+
+
+export const LEGAL_RULES_UNVERIFIED = {
+  ruleCode: 'legal_rule_version',
+  status: 'insufficient_data',
+  reason: 'Не подтверждена действующая на дату среза редакция правовых порогов. Справочные числа не доказывают применимость нормы или нарушение; требуется проверка сопровождением.',
+} as const;
+
+

@@ -17,6 +17,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import {
   LAW_44FZ_THRESHOLDS,
   PLAN_SOURCE_COLUMNS,
@@ -24,12 +25,22 @@ import {
   canonicalizeReasonEp,
   dayNumberOf,
   economyFlagVerdict,
+  isCompletionDayArrived,
+  normalizeMethod,
   hasFactDate as factDatePresent,
   isAbsentCell,
   isFormulaError,
   isInitiativeMarker,
   isProceduralMismatch,
+  readProcurementSequence,
   parseSheetDate,
+  isAnnualEpAggregate,
+  futureFactDateSeverity,
+  hasNegatedEpMonopoly,
+  epRiskStrictnessOfReason,
+  EP_ANNUAL_AMOUNT_TITLE,
+  epRiskReviewDetails,
+  type EpRiskRowContext,
 } from '@aemr/shared';
 import { sheetNumber } from '../timeline/row-timeline.js';
 // parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
@@ -113,7 +124,7 @@ export interface RowSignals {
    * способами под тремя именами и давало три разных числа.
    */
   economyFlagUndetermined: boolean;
-  /** ЕП (колонка L) с суммой > 600 тыс. руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
+  /** ЕП (колонка L) с объёмом позиции > 600 тыс. руб. — кандидат проверки отдельных сумм и основания, не доказанное превышение разового лимита */
   epRisk: boolean;
   /** Пустые обязательные поля — проблема качества данных */
   dataQuality: boolean;
@@ -123,6 +134,7 @@ export interface RowSignals {
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных */
   highEconomy: boolean;
+  economyDecisionUpcoming?: boolean;
   /** Экономия 0-2% (без точного равенства план==факт и без дубля singleParticipant) — формальная конкуренция */
   lowCompetition: boolean;
   /** Раннее закрытие — кандидат на опечатку даты: факт в предыдущем календарном году (при опережении >30 дн) либо опережение >180 дней у конкурентного способа (у ЕП опережение мягкой плановой даты нормально, гейт 18.08.2026, В-9) */
@@ -472,12 +484,9 @@ function isDataRow(cells: Record<string, unknown>): boolean {
  */
 export function detectSignals(cells: Record<string, unknown>, today?: Date): RowSignals {
   const now = today ?? new Date();
-  // Календарный «сегодня» как номер суток — по ЛОКАЛЬНЫМ компонентам now
-  // (календарный день пользователя). FP-fix 2026-07-16 (signal_audit §3.7): время
-  // суток внутри now давало off-by-one — дедлайн «сегодня» (N=15.07 при прогоне
-  // 15.07 вечером) помечался просроченным; просрочка — строго со следующего дня.
-  // TZ-fix 2026-07-20: арифметика ниже — на целых номерах суток (toDayNumber).
-  const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
+  // The same project day as calculated metrics; server/browser timezone is
+  // not evidence that a deadline or completion has already arrived.
+  const todayDay = productCalendarDay(now, PRODUCT_UTC_OFFSET_HOURS);
 
   // ── Структурные поля ──
   // КАНОН п.27 (интервью 14.08.2026): свободный текст исполнителей — U
@@ -564,8 +573,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // и законные основания ЕП риском не считаются. Ветка чтения «монополист»
   // из комментария AE снята (канон п.27).
   const epJustification = cellText(cells, 'M');
-  const isLegitimateEP = textIncludes(epJustification, [
-    'монополист', 'монопол', 'естественн',           // natural monopoly (energy, water, telecom)
+  const monopolyClaim = textIncludes(epJustification, ['монополист', 'монопол', 'естественн'])
+    && !hasNegatedEpMonopoly(epJustification);
+  const isLegitimateEP = monopolyClaim || textIncludes(epJustification, [
     'губернатор', 'поручен',                          // Governor's orders
     'региональный оператор',                          // regional operators (waste, etc.)
   ]) || citesUnlimitedArt93Point(epJustification);
@@ -586,9 +596,16 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const economyCanon = economyFlagVerdict({
     planTotal: isNaN(planTotal) ? null : planTotal,
     factTotal,
+    declaredFactTotal: Number.isFinite(factY) ? factY : null,
     adCell: cells['AD'],
     isEp: isEP,
+    completed: factDay !== null,
+    completionDay: factDay,
+    asOfDay: todayDay,
+    methodKnown: normalizeMethod(cells.L) !== undefined,
+    monopoly: isEP && canonicalizeReasonEp(epJustification.slice(0, 2000)).cluster === 'EP_MONOPOLIST',
   });
+  const completionArrived = isCompletionDayArrived(factDay, todayDay);
   const economyFlag = economyCanon.state === 'approved';
   const economyFlagUndetermined = economyCanon.matches;
 
@@ -611,7 +628,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // or if the plan date is in the past. Pure future-plan rows are expected to have
   // incomplete data (no method, no amounts yet).
   // Текстовые исключения («планирование», «отменена») сняты каноном п.27.
-  let dataQuality = false;
+  // A real purchase ID requires a subject from the planning stage, including
+  // composite IDs such as 173/18; the old gate waited for a late date/fact.
+  // Keep other quality checks gated by their normal business stage.
+  let dataQuality = readProcurementSequence(cells['A']) !== null && cellText(cells, 'G') === '';
   const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
     // Обязательность зависит от вида деятельности (уточнение владельца §22 п.2
@@ -622,7 +642,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     if (cellText(cells, 'F') === PROGRAM_ACTIVITY_TYPE) {
       required.push(PROGRAM_REQUIRED_COLUMN);
     }
-    dataQuality = required.some(col => {
+    dataQuality = dataQuality || required.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
     });
@@ -640,7 +660,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let highEconomy = false;
   let lowCompetition = false;
 
-  if (!isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
+  if (completionArrived && !isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
     const economyPct = ((planTotal - factTotal) / planTotal) * 100;
     if (economyPct > ANTI_DUMPING_PERCENT) {
       highEconomy = true;
@@ -707,15 +727,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factExceedsPlan = true;
   }
 
-  // ── Расхождение факт/план по ЕП (канон п.98м + семантика п.102, 18.08.2026) ──
-  // По ЕП в план (K) пишут планируемую сумму договора, обязанную равняться
-  // потраченной (Y): торгов нет, тезис владельца — «по ЕП не может быть
-  // экономии». Расхождение в любую сторону сверх допуска — ошибка заполнения
-  // либо «экономия», которой по ЕП быть не должно. Допуск округления тот же
-  // 0.5%, что у factExceedsPlan выше (план в 2 знака, факт в 5 — шум).
-  // Конкурентные способы (ЭА/ЭК/ЭЗК) не трогаются: там план = НМЦК, и
-  // факт < план — нормальная торговая экономия (п.102).
-  const epFactDeviation = isEP
+  // ── ЕП: сверка годовой потребности после последнего контракта Q ──
+  // Накопленные обязательства до Q не означают закрытие позиции; остаток
+  // не является ошибкой или подтверждённой экономией. После закрытия
+  // отклонение свыше 0,5% требует сверки документов, а не подгонки сумм.
+  const epFactDeviation = completionArrived && isEP
     && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
     && Math.abs(factTotal - planTotal) > planTotal * 0.005;
 
@@ -855,7 +871,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
       }
     } else {
       // No plan date but plan sum exists — only flag after April (Q2+) as before
-      const currentMonth = now.getMonth(); // 0-indexed
+      const currentMonth = new Date(todayDay * 86400000).getUTCMonth();
       if (currentMonth >= 3) { // April+
         planWithoutExecution = true;
       }
@@ -950,6 +966,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     formulaBroken,
     singleParticipant,
     highEconomy,
+    economyDecisionUpcoming: economyCanon.upcoming === true,
     lowCompetition,
     earlyClosure,
     factExceedsPlan,
@@ -1065,7 +1082,7 @@ function badgeLabel(key: keyof RowSignals): string {
  * - Синие: планирование, срок не наступил.
  * - Серые: отменено.
  */
-export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
+export function getSignalBadges(signals: RowSignals, row?: EpRiskRowContext & { epReason?: unknown }): Array<SignalBadge> {
   const badges: SignalBadge[] = [];
 
   // ── Красные (критические) ──
@@ -1076,7 +1093,10 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
     badges.push({ label: badgeLabel('formulaBroken'), color: 'red', icon: 'alert-triangle' });
   }
   if (signals.epRisk) {
-    badges.push({ label: badgeLabel('epRisk'), color: 'red', icon: 'shield-alert' });
+    const severity = epRiskStrictnessOfReason(row?.epReason, row);
+    badges.push({ label: isAnnualEpAggregate(row) ? EP_ANNUAL_AMOUNT_TITLE
+      : severity === 'warning' ? epRiskReviewDetails(row?.epReason, row).title : badgeLabel('epRisk'),
+      color: severity === 'info' ? 'blue' : severity === 'warning' ? 'yellow' : 'red', icon: 'shield-alert' });
   }
   if (signals.highEconomy) {
     badges.push({ label: badgeLabel('highEconomy'), color: 'red', icon: 'trending-down' });
@@ -1099,8 +1119,11 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   if (signals.earlyClosure) {
     badges.push({ label: badgeLabel('earlyClosure'), color: 'yellow', icon: 'fast-forward' });
   }
+  if (signals.economyDecisionUpcoming) {
+    badges.push({ label: badgeLabel('economyDecisionUpcoming'), color: 'blue', icon: 'calendar' });
+  }
   if (signals.futureFactDate) {
-    badges.push({ label: badgeLabel('futureFactDate'), color: 'red', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('futureFactDate'), color: futureFactDateSeverity(row) === 'info' ? 'blue' : 'yellow', icon: 'calendar-x' });
   }
 
   // ── Жёлтые (предупреждения) ──

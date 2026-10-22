@@ -9,6 +9,7 @@ import {
   entriesFromRowDiff,
   filterChangeEntries,
   foldRowEvents,
+  mergeChangeEntries,
   summarizeChanges,
   type ChangeEntry,
   type ChangeStoryInput,
@@ -64,6 +65,40 @@ describe('род правки по колонке — деньги, сроки, 
 });
 
 describe('адрес записи — по № п/п, а не по строке листа', () => {
+  it('журнал не выдаёт смену представления даты за изменение срока', () => {
+    const records = [
+      rec('N10', '23/1', '24.02.2026', '46077', '20.10.2026 10:00:00'),
+      rec('Q10', '23/1', '24.02.2026', '46078', '20.10.2026 10:00:00'),
+    ];
+    expect(entriesFromBookJournal('УД', records).entries.map(e => e.column)).toEqual(['Q']);
+    expect(records).toHaveLength(2); // исходные свидетельства не изменяются
+  });
+  it('retains original log addresses through exact merging and cell-to-row presentation grouping', () => {
+    const sources = [3, 4].map(journalRow => ({ spreadsheetId: 'book-A', journalSheet: '_ChangeLog', journalRow, readAt: 1000 }));
+    const records = sources.map(source => ({ ...rec('K10', '8', '100', '90', '16.10.2026 10:00:00'), source }));
+    const entries = entriesFromBookJournal('УО', records).entries;
+    expect(entries.map(entry => entry.journalSource)).toEqual(sources);
+    const merged = mergeChangeEntries(entries);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].evidence?.map(entry => entry.journalSource)).toEqual(sources);
+    const fills = ['G', 'H', 'I', 'J', 'K', 'L', 'N', 'Q'].map((column, index) => ({
+      ...rec(`${column}10`, '8', '', 'value', '16.10.2026 10:00:00'),
+      source: { ...sources[0], journalRow: index + 10 },
+    }));
+    const folded = foldRowEvents(entriesFromBookJournal('УО', fills).entries);
+    expect(folded).toHaveLength(1);
+    expect(folded[0].evidence?.map(entry => entry.journalSource?.journalRow).sort((a, b) => a! - b!))
+      .toEqual([10, 11, 12, 13, 14, 15, 16, 17]);
+  });
+  it('preserves composite labels in journal entries and row groups', () => {
+    const labels = ['173', '173/1', '173/18', '00173'];
+    const { entries, rowKeyless } = entriesFromBookJournal('УО', labels.map((label, index) =>
+      rec(`K${900 - index}`, `№ ${label} · Закупка`, '100', '90', '16.10.2026 10:00:00')));
+    expect(entries.map((entry) => entry.rowSeq)).toEqual(labels);
+    expect(rowKeyless).toBe(0);
+    expect(foldRowEvents(entries).map((entry) => entry.rowSeq).sort()).toEqual([...labels].sort());
+  });
+
   it('ключ журнала «№ 38 · Услуги почтовой связи» даёт № п/п и предмет', () => {
     const { entries } = entriesFromBookJournal('УО', [
       rec('J177', '№ 38 · Услуги почтовой связи', '100', '120', '14.08.2026 15:53:44'),
@@ -114,6 +149,43 @@ describe('свёртка: добавление закупки — одно со�
     expect(folded[0].cells).toHaveLength(8);
   });
 
+  it('свёртка сохраняет исходное значение и автора каждой ячейки', () => {
+    const { entries } = entriesFromBookJournal('УКСиМП', added);
+    expect(foldRowEvents(entries)[0].evidence).toEqual(entries);
+  });
+
+  it('разные авторы одной минуты не становятся одним действием первого автора', () => {
+    const mixed = added.map((r, i) => ({ ...r, author: i < 4 ? 'А' : 'Б' }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', mixed).entries)).toHaveLength(8);
+  });
+
+  it('неизвестный момент не объединяет несвязанные заполнения строки', () => {
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', added.map(r => ({ ...r, at: '' }))).entries)).toHaveLength(8);
+  });
+
+  it('пять правок одной ячейки не становятся добавлением целой строки', () => {
+    const repeated = added.map(r => ({ ...r, cell: 'C200' }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', repeated).entries).every(e => e.kind !== 'row-added')).toBe(true);
+  });
+
+  it('повторный номер в разных физических строках не объединяет их заполнение', () => {
+    const mixed = added.map((r, i) => ({ ...r, cell: `${'CDEFGHIJ'[i]}${i < 4 ? 200 : 201}` }));
+    expect(foldRowEvents(entriesFromBookJournal('УКСиМП', mixed).entries)).toHaveLength(8);
+  });
+
+  it('отдельные действия двух авторов получают различные ключи карточек', () => {
+    const second = added.map(r => ({ ...r, author: 'Второй автор' }));
+    const folded = foldRowEvents(entriesFromBookJournal('УКСиМП', [...added, ...second]).entries);
+    expect(folded).toHaveLength(2);
+    expect(new Set(folded.map(e => e.id)).size).toBe(2);
+  });
+  it('равное число ячеек свёрнутых событий не скрывает разные исходные значения', () => {
+    const first = foldRowEvents(entriesFromBookJournal('УКСиМП', added).entries)[0];
+    const other = added.map((r, i) => i === 7 ? { ...r, became: 'Другое значение' } : r);
+    const second = foldRowEvents(entriesFromBookJournal('УКСиМП', other).entries)[0];
+    expect(mergeChangeEntries([first, second])).toHaveLength(2);
+  });
+
   it('обнуление строки называется очисткой, а не удалением', () => {
     const wiped = added.map((r) => ({ ...r, was: 'было', became: '' }));
     const { entries } = entriesFromBookJournal('УКСиМП', wiped);
@@ -130,6 +202,29 @@ describe('свёртка: добавление закупки — одно со�
     const spread = added.map((r, i) => ({ ...r, at: `18.08.2026 10:${10 + i}:00` }));
     const { entries } = entriesFromBookJournal('УКСиМП', spread);
     expect(foldRowEvents(entries)).toHaveLength(8);
+  });
+});
+
+describe('одно событие со всеми подтверждениями', () => {
+  const source = () => entriesFromBookJournal('УО', [rec('K177', '№ 38', '100', '120', '14.08.2026 15:53:44')]).entries[0];
+  it('сохраняет подтверждение эфира при точном совпадении, повторное слияние идемпотентно', () => {
+    const journal = source(), live: ChangeEntry = { ...journal, origin: 'live-stream' };
+    const result = mergeChangeEntries([journal, live]);
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence?.map(e => e.origin)).toEqual(['book-journal', 'live-stream']);
+    expect(mergeChangeEntries([...result, live])).toEqual(result);
+  });
+  it('коллизия прежнего ID не скрывает другое значение и не повторяет ключ карточки', () => {
+    const journal = source();
+    const result = mergeChangeEntries([journal, { ...journal, before: '120', after: '140', origin: 'live-stream' }]);
+    expect(result.map(e => e.after).sort()).toEqual(['120', '140']);
+    expect(new Set(result.map(e => e.id)).size).toBe(2);
+  });
+  it('не объединяет другой номер, книгу, момент или источник без времени', () => {
+    const journal = source();
+    for (const over of [{ rowSeq: '173/1' }, { book: 'УД' }, { at: null, atMs: null }, { at: '2026-08-14T15:53:45' }]) {
+      expect(mergeChangeEntries([journal, { ...journal, ...over, origin: 'live-stream' }])).toHaveLength(2);
+    }
   });
 });
 
@@ -156,6 +251,27 @@ describe('исчезнувшие закупки приходят из сравн
 
   it('появившаяся закупка тоже попадает в рассказ', () => {
     expect(entriesFromRowDiff('УО', diff).some((e) => e.kind === 'row-added')).toBe(true);
+  });
+});
+
+describe('устойчивый провенанс наблюдений', () => {
+  it('различает одинаковый номер на разных контрольных срезах', () => {
+    const diff: RowDiff = {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 50, subject: 'Ремонт' }],
+      appeared: [{ rowSeq: '13', sheetRow: 51, subject: 'Мебель' }],
+      moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 }, note: '',
+    };
+    const evidence = (baselineId: string, observedAt: string) => ({
+      baselineId, controlAt: '2026-10-01T08:00:00Z', observedAt,
+    });
+    const original = entriesFromRowDiff('УО', diff, evidence('week-1', '2026-10-02T08:00:00Z'));
+    const reread = entriesFromRowDiff('УО', diff, evidence('week-1', '2026-10-02T09:00:00Z'));
+    const newControl = entriesFromRowDiff('УО', diff, evidence('week-2', '2026-10-09T08:00:00Z'));
+    expect(original).toHaveLength(2);
+    expect(original.map((entry) => entry.id)).toEqual(reread.map((entry) => entry.id));
+    expect(original.map((entry) => entry.id)).not.toEqual(newControl.map((entry) => entry.id));
+    expect(original[0].comparisonEvidence?.baselineId).toBe('week-1');
   });
 });
 
@@ -292,3 +408,77 @@ describe('свод сам по себе', () => {
     expect(digest.emptiness).toBe('unknown');
   });
 });
+
+describe('контекстная связь номера в журнале', () => {
+  it('возможная перенумерация — одна проверяемая гипотеза, не пропажа и новая закупка одновременно', () => {
+    const diff = {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 20, subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100, factSum: 0 }],
+      appeared: [{ rowSeq: '18', sheetRow: 21, subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100 }],
+      moved: [], vanishedPlanSum: 100, vanishedFactSum: 0, unkeyed: { before: 0, after: 0 },
+      identityCandidates: [{
+        beforeRowSeq: '12', afterRowSeq: '18', beforeSheetRow: 20, afterSheetRow: 21,
+        subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100,
+        evidence: 'subject+subordinate+plan+method' as const,
+        status: 'needs-review' as const,
+      }],
+      note: 'Вероятное изменение',
+    };
+    const result = entriesFromRowDiff('УО', diff);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      kind: 'row-identity-candidate', rowSeq: '12', relatedRowSeq: '18',
+      before: '12', after: '18', author: null, at: null, origin: 'snapshot-diff',
+    });
+  });
+
+  it('неполный контроль не становится тихим отсутствием правок', () => {
+    expect(summarizeChanges([], [
+      { book: 'УО', reason: 'source-unavailable', detail: 'Книга не прочитана' },
+    ]).emptiness).toBe('unknown');
+  });
+});
+
+describe('контрольное основание выводов журнала', () => {
+  it('указывает два наблюдения и оставляет неизвестными автора и момент удаления', () => {
+    const evidence = {
+      baselineId: 'week-control-20261008',
+      controlAt: '2026-10-08T06:00:00Z',
+      observedAt: '2026-10-11T08:00:00Z',
+    };
+    const events = entriesFromRowDiff('УО', {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 4, subject: 'Кровля' }],
+      appeared: [], moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 }, note: 'проверить',
+    }, evidence);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      origin: 'snapshot-diff', author: null, at: null, comparisonEvidence: evidence,
+    });
+  });
+});
+
+describe('провенанс изменившегося контекста при прежнем №', () => {
+  it('показывает доказанное изменение предмета, не выдумывает удаление и автора', () => {
+    const events = entriesFromRowDiff('УО', {
+      vanished: [], appeared: [], moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 },
+      contextChanged: [{
+        rowSeq: '31', beforeSheetRow: 41, afterSheetRow: 41,
+        beforeSubject: 'Ремонт', afterSubject: 'Канцтовары',
+        beforeSubordinate: 'Школа № 1', afterSubordinate: 'Школа № 1', status: 'needs-review',
+      }],
+      note: 'У номера изменился контекст',
+    }, {
+      baselineId: 'control-week', controlAt: '2026-10-08T06:00:00.000Z',
+      observedAt: '2026-10-11T08:00:00.000Z',
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'subject', origin: 'snapshot-diff', rowSeq: '31',
+      author: null, at: null, before: 'Ремонт · Школа № 1',
+      after: 'Канцтовары · Школа № 1',
+      comparisonEvidence: { baselineId: 'control-week' },
+    });
+  });
+});
+

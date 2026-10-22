@@ -17,7 +17,9 @@ type Kind = 'formulas' | 'metadata';
 interface FormulaAudit { delivery: FormulaDeliveryNote; verdict: BookFormulaVerdict | null }
 export interface MetadataAudit { attempt: BookWatchResult; lastConfirmed: BookWatchResult | null }
 
-const FORMULA_VERSION = 'formula-integrity/1';
+// Integrated checker handles composite IDs and excludes formula-only templates.
+// Do not accept verdicts written by the separate legacy-main algorithm.
+const FORMULA_VERSION = 'formula-integrity/2-integrated-composite';
 const METADATA_VERSION = `metadata-watch/2:${METADATA_CANON.syncedAt}`;
 const warnings = new Set<string>();
 

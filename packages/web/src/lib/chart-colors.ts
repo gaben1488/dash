@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Цвет как смысл — единственный дом цветовых решений графиков.
  *
@@ -123,12 +124,7 @@ export const EXECUTION_BAND_MIN: Record<Exclude<ExecutionBand, 'bad'>, number> =
 };
 
 /** Словесная расшифровка полосы — визуальное всегда дублируется текстом. */
-export const EXECUTION_BAND_LABELS: Record<ExecutionBand, string> = {
-  over: 'больше 100 %: факт выше плана',
-  good: 'больше 80 %',
-  watch: 'от 50 до 80 %',
-  bad: 'меньше 50 %',
-};
+export const EXECUTION_BAND_LABELS: Record<ExecutionBand, string> = PRODUCT_COPY["lib/chart-colors:EXECUTION_BAND_LABELS"];
 
 export function getExecutionBand(pct: number): ExecutionBand {
   if (pct > EXECUTION_BAND_MIN.over) return 'over';
@@ -267,12 +263,7 @@ export function getSeriesPattern(index: number): SeriesPattern {
 }
 
 /** Словесное имя штриховки — для подсказок и печатных легенд. */
-export const SERIES_PATTERN_LABELS: Record<SeriesPattern, string> = {
-  solid: 'сплошная заливка',
-  diagonal: 'косая штриховка',
-  dots: 'точки',
-  grid: 'клетка',
-};
+export const SERIES_PATTERN_LABELS: Record<SeriesPattern, string> = PRODUCT_COPY["lib/chart-colors:SERIES_PATTERN_LABELS"];
 
 // ────────────────────────────────────────────────────────────────
 // 4. Хром графика

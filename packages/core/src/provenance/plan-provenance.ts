@@ -50,7 +50,7 @@
  * «_ChangeLog» и текущие строки листа.
  */
 
-import { dayNumberOf } from '@aemr/shared';
+import { dayNumberOf, readProcurementSequence } from '@aemr/shared';
 
 // ── Плановые колонки ──────────────────────────────────────────────────
 
@@ -167,8 +167,21 @@ export type PlanEventKind =
 /** Виды, которые НЕ являются движением плана, а являются порчей данных. */
 export const DEFECT_KINDS: readonly PlanEventKind[] = ['scale-shift', 'date-in-money', 'invalid-value'];
 
+/** A locator in one source reading, never a stable event/entity ID. */
+export interface PlanEventSource {
+  spreadsheetId: string;
+  journalSheet: string;
+  journalRow: number;
+  readAt: number;
+}
+
 /** Одна правка плановой ячейки строки. */
 export interface PlanEvent {
+  /** Changed sheet, distinct from the journal sheet containing this witness. */
+  sheet?: string;
+  /** Every original address retained when equivalent witnesses share an event. */
+  sources?: readonly PlanEventSource[];
+  witnessCount?: number;
   /** Адрес ячейки на листе книги («H28») — там правку видно глазами. */
   cell: string;
   /** Плановая колонка правки. */
@@ -215,8 +228,8 @@ export interface PlanEvent {
  * строки листа: живой пример УД — ячейка J177 при № п/п 195.
  */
 export interface ParsedJournalRowKey {
-  /** № п/п строки (колонка A), целое ≥ 1; null — поле не разобрано. */
-  ordinal: number | null;
+  /** Полная адресная метка колонки A; null — поле не разобрано. */
+  ordinal: string | null;
   /** Предмет из поля, если он там был; null — формат без предмета. */
   subject: string | null;
   /** true — предмет обрезан журналом (оканчивается многоточием «…»). */
@@ -230,7 +243,7 @@ const ROW_KEY_SEPARATOR = '·';
 
 /**
  * Разбирает поле «Строка» журнала правок. Терпим к обоим живым форматам и к
- * мусору: номер обязан быть целым положительным, иначе ordinal = null и строка
+ * мусору: полная метка должна быть распознана, иначе ordinal = null и строка
  * честно остаётся несопоставленной (молча приписывать правку соседней строке
  * хуже, чем признать, что ключ не читается).
  */
@@ -244,21 +257,19 @@ export function parseJournalRowKey(raw: unknown): ParsedJournalRowKey {
   if (text === '') return empty;
 
   // Формат 2: голый номер («177»). Google отдаёт числа и как «177», и как «177.0».
-  const bare = text.match(/^(\d+)(?:[.,]0+)?$/);
-  if (bare) {
-    const ordinal = parseInt(bare[1], 10);
-    return ordinal >= 1 ? { ordinal, subject: null, truncated: false, raw: text } : empty;
-  }
+  const bare = readProcurementSequence(raw);
+  if (bare !== null) return { ordinal: bare, subject: null, truncated: false, raw: text };
+  if (typeof raw !== 'string') return empty;
 
   // Формат 1: «№ 38 · Услуги почтовой связи». Предмет может содержать переводы
   // строк (операторы вставляют многострочные наименования) — флаг /s обязателен.
   const withSubject = text.match(
-    new RegExp(`^(?:№|N|#)\\s*(\\d+)\\s*(?:${ROW_KEY_SEPARATOR}\\s*(.*))?$`, 's'),
+    new RegExp(`^(?:№|N|#)\\s*([\\d/]+(?:[.,]0+)?)\\s*(?:${ROW_KEY_SEPARATOR}\\s*(.*))?$`, 's'),
   );
   if (!withSubject) return empty;
 
-  const ordinal = parseInt(withSubject[1], 10);
-  if (!(ordinal >= 1)) return empty;
+  const ordinal = readProcurementSequence(withSubject[1]);
+  if (ordinal === null) return empty;
 
   const rest = (withSubject[2] ?? '').replace(/\s+/g, ' ').trim();
   const truncated = rest.endsWith('…');
@@ -426,6 +437,7 @@ function parseCellAddress(raw: unknown): { letter: string; row: number } | null 
  * это служебные поля рассылки, к плану отношения не имеют.
  */
 export interface JournalRecord {
+  source?: PlanEventSource;
   /**
    * A «Лист» — имя листа книги. ВНИМАНИЕ: имя не совпадает с именем управления
    * во всех книгах — УФБП пишет «УФБП», а УО пишет «ВСЕ» (замер 18.08). Поэтому
@@ -451,8 +463,8 @@ export interface JournalRecord {
 
 /** Текущее состояние строки листа — то, к чему приклеивается история. */
 export interface PlanRowInput {
-  /** № п/п строки (колонка A) — ключ сопоставления с полем «Строка» журнала. */
-  ordinal: number;
+  /** Source label; legacy numeric callers are adapted at the build boundary. */
+  ordinal: string | number;
   /** Текущее «ИТОГО план» (K), тыс. руб.; null — пусто либо нечитаемо. */
   planNow: number | null;
   /**
@@ -507,9 +519,14 @@ export interface PlanObservability {
 
 /** Сводка по плановой истории строки. */
 export interface PlanProvenanceSummary {
+  /** Source observations; the same addressed reading fact counts only once. */
+  witnessCount: number;
+  /** Same-cell/moment groups without one proved value chain; totals are partial. */
+  financialAmbiguityCount: number;
   /**
-   * Сколько плана УШЛО ретро-снижениями, тыс. руб. Положительное число: сумма
-   * |delta| по событиям 'retro-cut'. Исправления единиц ('unit-fix') сюда НЕ
+   * Подтверждённая часть ретро-снижений, тыс. руб. Положительная сумма |delta|
+   * подтверждённых 'retro-cut'; при financialAmbiguityCount > 0 итог неполон.
+   * Исправления единиц ('unit-fix') сюда НЕ
    * входят — они плана не уменьшают. Это и есть «экономия, растворённая в плане».
    */
   retroCutTotal: number;
@@ -559,7 +576,7 @@ export interface PlanProvenanceSummary {
 /** Провенанс плановых сумм одной строки. */
 export interface PlanProvenance {
   /** № п/п строки (колонка A) — тот же ключ, что в поле «Строка» журнала. */
-  ordinal: number;
+  ordinal: string;
   /** Текущее «ИТОГО план» (K) из строки листа, тыс. руб. */
   planNow: number | null;
   /** События по времени; дедуп по (ячейка, момент, было, стало). */
@@ -645,7 +662,7 @@ function humanDate(at: string): string {
 // ── Сборка ────────────────────────────────────────────────────────────
 
 interface PreparedRecord {
-  ordinal: number;
+  ordinal: string;
   event: PlanEvent | null;
   isPlanCell: boolean;
 }
@@ -659,13 +676,13 @@ function prepareJournal(
   journal: readonly JournalRecord[],
   options: PlanProvenanceOptions,
 ): {
-  byOrdinal: Map<number, PreparedRecord[]>;
+  byOrdinal: Map<string, PreparedRecord[]>;
   entries: number;
   unparsedRowKeys: number;
   unparsedCells: number;
 } {
   const wantSheet = options.sheetName?.trim().toLowerCase();
-  const byOrdinal = new Map<number, PreparedRecord[]>();
+  const byOrdinal = new Map<string, PreparedRecord[]>();
   let entries = 0;
   let unparsedRowKeys = 0;
   let unparsedCells = 0;
@@ -721,6 +738,9 @@ function prepareJournal(
       ordinal: key.ordinal,
       isPlanCell: true,
       event: {
+        sheet: String(rec.sheet ?? '').trim(),
+        sources: rec.source ? [{ ...rec.source }] : [],
+        witnessCount: 1,
         cell: `${addr.letter}${addr.row}`,
         column: addr.letter as PlanColumn,
         was: was.value,
@@ -740,7 +760,7 @@ function prepareJournal(
   return { byOrdinal, entries, unparsedRowKeys, unparsedCells };
 }
 
-function pushPrepared(map: Map<number, PreparedRecord[]>, rec: PreparedRecord): void {
+function pushPrepared(map: Map<string, PreparedRecord[]>, rec: PreparedRecord): void {
   const list = map.get(rec.ordinal);
   if (list) list.push(rec);
   else map.set(rec.ordinal, [rec]);
@@ -800,7 +820,7 @@ function buildSummaryNote(
   summary: Omit<PlanProvenanceSummary, 'note'>,
   events: readonly PlanEvent[],
   observability: Omit<PlanObservability, 'note'>,
-  ordinal: number,
+  ordinal: string,
   sheetName: string | undefined,
 ): string {
   const where = sheetName ? `${sheetName}, строка № ${ordinal}` : `строка № ${ordinal}`;
@@ -809,11 +829,16 @@ function buildSummaryNote(
     return `${where}: провенанс плана неизвестен — журнал правок книги не ведётся. `
       + 'Судить о «растворённой экономии» по этой строке нельзя ни в одну сторону.';
   }
-  if (events.length === 0) {
+  if (events.length === 0 && summary.financialAmbiguityCount === 0) {
     return `${where}: плановые суммы по журналу не правились.`;
   }
 
   const parts: string[] = [];
+  if (summary.financialAmbiguityCount > 0) {
+    parts.push(`${where}: полный финансовый итог не подтверждён. Неоднозначных групп — ${summary.financialAmbiguityCount}; `
+      + `сохранено свидетельств — ${summary.witnessCount}. Суммы в сводке относятся только к подтверждённым переходам. `
+      + 'Сопоставить исходные записи журнала; одинаковый момент не задаёт порядок правок.');
+  }
 
   if (summary.retroCutCount > 0) {
     const cuts = events.filter((e) => e.kind === 'retro-cut');
@@ -905,9 +930,17 @@ export function buildPlanProvenance(
   options: PlanProvenanceOptions = {},
 ): PlanProvenance[] {
   const prepared = prepareJournal(journal, options);
+  const occurrences = new Map<string, number>();
+  for (const row of rows) {
+    const ordinal = readProcurementSequence(row.ordinal);
+    if (ordinal === null) throw new Error('INVALID_PROCUREMENT_SEQUENCE');
+    occurrences.set(ordinal, (occurrences.get(ordinal) ?? 0) + 1);
+  }
 
   return rows.map((row) => {
-    const records = prepared.byOrdinal.get(row.ordinal) ?? [];
+    const ordinal = readProcurementSequence(row.ordinal);
+    if (ordinal === null) throw new Error('INVALID_PROCUREMENT_SEQUENCE');
+    const records = prepared.byOrdinal.get(ordinal) ?? [];
     const factDay = dayNumberOf(row.factDate);
 
     const events = records
@@ -916,19 +949,29 @@ export function buildPlanProvenance(
       .map((e) => ({
         ...e,
         // Факт «был на момент правки», если дата заключения известна и не позже правки.
-        factAtEdit: factDay === null ? null : factDay <= e.atDay,
+        factAtEdit: factDay === null || occurrences.get(ordinal)! > 1 ? null : factDay <= e.atDay,
       }))
-      .sort((a, b) => (a.at === b.at ? a.cell.localeCompare(b.cell) : a.at.localeCompare(b.at)));
+      .sort(comparePlanWitnesses);
 
     // Дедуп: журнал живьём пишет один и тот же триплет по нескольку раз
     // (живой пример УД J177 — три идентичные записи одной правки).
-    const seen = new Set<string>();
-    const deduped = events.filter((e) => {
-      const key = `${e.cell}|${e.at}|${e.was}|${e.became}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    const seen = new Map<string, PlanEvent>();
+    for (const event of events) {
+      const key = planWitnessKey(event);
+      const previous = seen.get(key);
+      if (previous) {
+        const addresses = new Set((previous.sources ?? []).map(sourceAddressKey));
+        const incoming = event.sources ?? [];
+        const added = incoming.filter(source => !addresses.has(sourceAddressKey(source)));
+        previous.witnessCount = (previous.witnessCount ?? 1) + (incoming.length ? added.length : (event.witnessCount ?? 1));
+        previous.sources = [...(previous.sources ?? []), ...added];
+      } else seen.set(key, event);
+    }
+    const deduped = [...seen.values()];
+    for (const event of deduped) {
+      event.sources = [...(event.sources ?? [])].sort((a, b) =>
+        compareWitnessText(a.spreadsheetId, b.spreadsheetId) || a.readAt - b.readAt || a.journalRow - b.journalRow);
+    }
 
     const observabilityBase = {
       journalEntries: prepared.entries,
@@ -939,14 +982,16 @@ export function buildPlanProvenance(
     };
 
     const label = options.bookLabel ?? options.sheetName;
-    const summaryBase = buildSummaryBase(deduped, row);
+    const identityAmbiguous = occurrences.get(ordinal)! > 1;
+    const projection = financialProjection(deduped, identityAmbiguous);
+    const summaryBase = buildSummaryBase(deduped, row, projection, identityAmbiguous);
     const summary: PlanProvenanceSummary = {
       ...summaryBase,
-      note: buildSummaryNote(summaryBase, deduped, observabilityBase, row.ordinal, label),
+      note: buildSummaryNote(summaryBase, projection.confirmed, observabilityBase, ordinal, label),
     };
 
     return {
-      ordinal: row.ordinal,
+      ordinal,
       planNow: row.planNow,
       events: deduped,
       summary,
@@ -955,14 +1000,89 @@ export function buildPlanProvenance(
   });
 }
 
+function planWitnessKey(event: PlanEvent): string {
+  return JSON.stringify([event.sources?.[0]?.spreadsheetId ?? null, event.sheet ?? '',
+    event.cell, event.at, event.was, event.wasKnown, event.became, event.becameKnown, event.author]);
+}
+
+function sourceAddressKey(source: PlanEventSource): string {
+  return JSON.stringify([source.spreadsheetId, source.journalSheet, source.journalRow, source.readAt]);
+}
+
+function compareWitnessText(a: string, b: string): number {
+  // Evidence ordering must not change with the host locale or ICU collation data.
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function comparePlanWitnesses(a: PlanEvent, b: PlanEvent): number {
+  return compareWitnessText(a.at, b.at) || compareWitnessText(a.sheet ?? '', b.sheet ?? '')
+    || compareWitnessText(a.cell, b.cell) || compareWitnessText(a.author, b.author)
+    || compareWitnessText(a.kind, b.kind) || compareWitnessText(planWitnessKey(a), planWitnessKey(b));
+}
+
+function hasUnprovenMultiplicity(event: PlanEvent): boolean {
+  if ((event.witnessCount ?? 1) <= 1) return false;
+  const sources = event.sources ?? [];
+  // A reading locates evidence; rereading one row is not a second business edit.
+  // Distinct rows (or legacy repeats with no locator) do not prove one edit either.
+  return sources.length === 0 || new Set(sources.map(source =>
+    JSON.stringify([source.spreadsheetId, source.journalSheet, source.journalRow]))).size > 1;
+}
+
+/** Values can prove a unique chain; log-row order alone cannot prove edit order. */
+function financialProjection(witnesses: readonly PlanEvent[], identityAmbiguous: boolean) {
+  const groups = new Map<string, PlanEvent[]>();
+  for (const event of witnesses) {
+    const key = JSON.stringify([event.sources?.[0]?.spreadsheetId ?? null, event.sheet ?? '', event.cell, event.at]);
+    const group = groups.get(key) ?? [];
+    group.push(event);
+    groups.set(key, group);
+  }
+  const confirmed: PlanEvent[] = [];
+  const ambiguous = new Set<PlanEvent>();
+  let financialAmbiguityCount = 0;
+  for (const group of groups.values()) {
+    if (identityAmbiguous || group.some(event => !event.wasKnown || !event.becameKnown || hasUnprovenMultiplicity(event))) {
+      financialAmbiguityCount++;
+      for (const witness of group) ambiguous.add(witness);
+      continue;
+    }
+    if (group.length === 1) { confirmed.push(group[0]); continue; }
+    const next = new Map<number | null, PlanEvent>();
+    const ends = new Set<number | null>();
+    let unique = true;
+    for (const event of group) {
+      if (!event.wasKnown || !event.becameKnown || next.has(event.was) || ends.has(event.became)) unique = false;
+      next.set(event.was, event);
+      ends.add(event.became);
+    }
+    const starts = group.filter(event => !ends.has(event.was));
+    const chain: PlanEvent[] = [];
+    let event = unique && starts.length === 1 ? starts[0] : undefined;
+    while (event && chain.length < group.length) {
+      chain.push(event);
+      event = next.get(event.became);
+    }
+    if (!event && chain.length === group.length) confirmed.push(...chain);
+    else {
+      financialAmbiguityCount++;
+      for (const witness of group) ambiguous.add(witness);
+    }
+  }
+  return { confirmed, ambiguous, financialAmbiguityCount };
+}
+
 function buildSummaryBase(
-  events: readonly PlanEvent[],
+  witnesses: readonly PlanEvent[],
   row: PlanRowInput,
+  projection: ReturnType<typeof financialProjection>,
+  identityAmbiguous: boolean,
 ): Omit<PlanProvenanceSummary, 'note'> {
+  const { confirmed: events, ambiguous, financialAmbiguityCount } = projection;
   const cuts = events.filter((e) => e.kind === 'retro-cut');
   const retroCutTotal = cuts.reduce((acc, e) => acc + Math.abs(e.delta ?? 0), 0);
 
-  const factKnown = events.some((e) => e.factAtEdit !== null);
+  const factKnown = witnesses.some((e) => e.factAtEdit !== null);
   const afterFact = cuts.filter((e) => e.factAtEdit === true);
 
   const cleared = events.filter((e) => e.kind === 'clear');
@@ -975,7 +1095,7 @@ function buildSummaryBase(
     .filter((e) => DEFECT_KINDS.includes(e.kind) && (e.delta ?? 0) < 0)
     .reduce((acc, e) => acc + Math.abs(e.delta ?? 0), 0);
 
-  const observedColumn = pickObservedColumn(events);
+  const observedColumn = pickObservedColumn(witnesses);
   const columnEvents = observedColumn === null
     ? []
     : events.filter((e) => e.column === observedColumn);
@@ -1002,14 +1122,43 @@ function buildSummaryBase(
     }
   }
 
+  // Agreement on source values survives uncertain event multiplicity. Conflicting
+  // endpoints cannot borrow an arbitrary input order or a later clear value.
+  const known = witnesses.filter(event => event.column === observedColumn
+    && ((event.wasKnown && event.was !== null) || (event.becameKnown && event.became !== null)));
+  const boundary = (at: string, first: boolean): number | null => {
+    const group = witnesses.filter(event => event.column === observedColumn && event.at === at);
+    const primary = first ? 'was' : 'became';
+    const secondary = first ? 'became' : 'was';
+    const primaryKnown = first ? 'wasKnown' : 'becameKnown';
+    const secondaryKnown = first ? 'becameKnown' : 'wasKnown';
+    if (group.every(event => event[primaryKnown]) && group.every(event => event[primary] === group[0][primary])
+        && group[0][primary] !== null) return group[0][primary];
+    if (group.every(event => event[primary] === null && event[secondaryKnown])
+        && group.every(event => event[secondary] === group[0][secondary])) return group[0][secondary];
+    return null;
+  };
+  const firstAt = known[0]?.at;
+  const lastAt = known[known.length - 1]?.at;
+  if (firstAt && known.some(event => event.at === firstAt && ambiguous.has(event))) {
+    firstKnownPlan = boundary(firstAt, true);
+    firstKnownAt = firstKnownPlan === null ? null : firstAt;
+  }
+  if (lastAt && known.some(event => event.at === lastAt && ambiguous.has(event))) {
+    lastKnownPlan = boundary(lastAt, false);
+    lastKnownAt = lastKnownPlan === null ? null : lastAt;
+  }
+
   // Текущее состояние листа свежее любой записи журнала: если наблюдаемая
   // колонка — ИТОГО (K), последнее известное берём из самой строки.
-  if (observedColumn === 'K' && row.planNow !== null) {
+  if (observedColumn === 'K' && row.planNow !== null && !identityAmbiguous) {
     lastKnownPlan = row.planNow;
     lastKnownAt = null; // null здесь значит «на сейчас», а не «неизвестно когда»
   }
 
   return {
+    witnessCount: witnesses.reduce((count, event) => count + (event.witnessCount ?? 1), 0),
+    financialAmbiguityCount,
     retroCutTotal,
     retroCutCount: cuts.length,
     retroCutAfterFactTotal: factKnown
@@ -1039,6 +1188,8 @@ function buildSummaryBase(
  * как характеристика управления, тогда как оно характеристика журнала.
  */
 export interface BookProvenanceSummary {
+  witnessCount: number;
+  financialAmbiguityCount: number;
   rows: number;
   /** Строк, по которым журнал хоть что-то знает. */
   rowsCovered: number;
@@ -1068,18 +1219,23 @@ export function summarizeBookProvenance(
   sheetName?: string,
 ): BookProvenanceSummary {
   const journalEntries = list.length > 0 ? list[0].observability.journalEntries : 0;
+  // Duplicate current A-labels share one historical population; keep physical
+  // row coverage, but never multiply that population in book money/counts.
+  const histories = [...new Map(list.map(item => [item.ordinal, item])).values()];
+  const witnessCount = histories.reduce((count, item) => count + item.summary.witnessCount, 0);
+  const financialAmbiguityCount = histories.reduce((count, item) => count + item.summary.financialAmbiguityCount, 0);
   const rowsCovered = list.filter((p) => p.observability.coversRow).length;
-  const withCut = list.filter((p) => p.summary.retroCutCount > 0);
+  const withCut = histories.filter((p) => p.summary.retroCutCount > 0);
 
-  const retroCutCount = list.reduce((a, p) => a + p.summary.retroCutCount, 0);
-  const retroCutTotal = list.reduce((a, p) => a + p.summary.retroCutTotal, 0);
-  const retroCutAfterFactCount = list.reduce((a, p) => a + (p.summary.retroCutAfterFactCount ?? 0), 0);
-  const retroCutAfterFactTotal = list.reduce((a, p) => a + (p.summary.retroCutAfterFactTotal ?? 0), 0);
-  const unitFixCount = list.reduce((a, p) => a + p.summary.unitFixCount, 0);
-  const scaleShiftCount = list.reduce((a, p) => a + p.summary.scaleShiftCount, 0);
-  const dateInMoneyCount = list.reduce((a, p) => a + p.summary.dateInMoneyCount, 0);
-  const invalidValueCount = list.reduce((a, p) => a + p.summary.invalidValueCount, 0);
-  const defectMassExcluded = list.reduce((a, p) => a + p.summary.defectMassExcluded, 0);
+  const retroCutCount = histories.reduce((a, p) => a + p.summary.retroCutCount, 0);
+  const retroCutTotal = histories.reduce((a, p) => a + p.summary.retroCutTotal, 0);
+  const retroCutAfterFactCount = histories.reduce((a, p) => a + (p.summary.retroCutAfterFactCount ?? 0), 0);
+  const retroCutAfterFactTotal = histories.reduce((a, p) => a + (p.summary.retroCutAfterFactTotal ?? 0), 0);
+  const unitFixCount = histories.reduce((a, p) => a + p.summary.unitFixCount, 0);
+  const scaleShiftCount = histories.reduce((a, p) => a + p.summary.scaleShiftCount, 0);
+  const dateInMoneyCount = histories.reduce((a, p) => a + p.summary.dateInMoneyCount, 0);
+  const invalidValueCount = histories.reduce((a, p) => a + p.summary.invalidValueCount, 0);
+  const defectMassExcluded = histories.reduce((a, p) => a + p.summary.defectMassExcluded, 0);
 
   const where = sheetName ? `${sheetName}: ` : '';
   const coverage = list.length === 0
@@ -1099,9 +1255,12 @@ export function summarizeBookProvenance(
           + `считай их снижениями в лоб — «ушедший план» `
           + `вырос бы на ${formatThousands(defectMassExcluded)} тыс. руб. Это не экономия, а грязь в данных. `
         : '')
-      + 'По непокрытым строкам судить о правках плана нельзя.';
+      + 'По непокрытым строкам судить о правках плана нельзя.'
+      + (financialAmbiguityCount > 0 ? ` Полный финансовый итог не подтверждён: неоднозначных групп ${financialAmbiguityCount}; свидетельства сохранены, суммы выше — только подтверждённая часть.` : '');
 
   return {
+    witnessCount,
+    financialAmbiguityCount,
     rows: list.length,
     rowsCovered,
     rowsWithRetroCut: withCut.length,

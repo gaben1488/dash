@@ -13,12 +13,12 @@
  * запись считать выполненной»; сами таймеры и перечитка живут в
  * routes/webhook.ts, потому что цикл чтения — его зона.
  *
- * База может быть недоступна (стражи без базы, поломка файла) — каждый вызов
- * ловит свой отказ: очередь — страховка полноты, а не условие приёма
- * уведомления. Отказ очереди не имеет права стоить ответа Google.
+ * При отказе чтения или фиксации завершения обработчик получает явную ошибку.
+ * Отказ приёма возвращает null; HTTP-обработчик обязан отклонить подтверждение.
  */
 import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { isTransientSourceFailure } from './source-failure.js';
 import { planForFile } from './refresh-targets.js';
 
 /** Запись очереди, как её видит обработчик. */
@@ -28,6 +28,17 @@ export interface QueueEntry {
   fileId: string | null;
   receivedAt: string;
   attempts: number;
+  lastError?: string | null;
+}
+
+export const MAX_QUEUE_ATTEMPTS = 3;
+const TRANSIENT_REFRESH = 'SOURCE_REFRESH_TRANSIENT';
+export function canRetryNotification(entry: Pick<QueueEntry, 'attempts' | 'lastError'>): boolean {
+  return entry.attempts < MAX_QUEUE_ATTEMPTS && (entry.attempts === 0 ||
+    entry.lastError === 'WEBHOOK_QUEUE_WRITE_FAILED' ||
+    entry.lastError === 'SOURCE_STATE_READ_FAILED' ||
+    entry.lastError === 'SOURCE_STATE_PERSIST_FAILED' ||
+    entry.lastError === TRANSIENT_REFRESH || isTransientSourceFailure(entry.lastError));
 }
 
 /** Что кладёт вебхук при уведомлении. */
@@ -41,8 +52,7 @@ export interface EnqueueInput {
 
 /**
  * Положить уведомление в очередь. Возвращает идентификатор записи;
- * `null` — база не далась (уведомление всё равно принято, страховкой
- * остаётся опрос по расписанию).
+ * `null` — запись не сохранена; подтверждать приём уведомления нельзя.
  */
 export function enqueueNotification(input: EnqueueInput, now: Date = new Date()): number | null {
   try {
@@ -64,7 +74,7 @@ export function enqueueNotification(input: EnqueueInput, now: Date = new Date())
   }
 }
 
-/** Все невыполненные записи, старые первыми. Отказ базы — пустой список. */
+/** All pending evidence, including exhausted entries. A failed read is never an empty queue. */
 export function pendingNotifications(): QueueEntry[] {
   try {
     return db
@@ -74,13 +84,14 @@ export function pendingNotifications(): QueueEntry[] {
         fileId: schema.webhookQueue.fileId,
         receivedAt: schema.webhookQueue.receivedAt,
         attempts: schema.webhookQueue.attempts,
+        lastError: schema.webhookQueue.lastError,
       })
       .from(schema.webhookQueue)
       .where(eq(schema.webhookQueue.state, 'pending'))
       .orderBy(asc(schema.webhookQueue.id))
       .all();
-  } catch {
-    return [];
+  } catch (cause) {
+    throw new Error('WEBHOOK_QUEUE_UNAVAILABLE', { cause });
   }
 }
 
@@ -92,9 +103,9 @@ export function markProcessed(ids: readonly number[], now: Date = new Date()): v
       .set({ state: 'done', doneAt: now.toISOString() })
       .where(inArray(schema.webhookQueue.id, [...ids]))
       .run();
-  } catch {
-    // Чтение состоялось, а пометка не далась: запись останется невыполненной
-    // и будет перечитана ещё раз — лишнее чтение дешевле потерянной правки.
+  } catch (cause) {
+    // Запись остаётся pending; вызывающий должен сообщить отказ и назначить повтор.
+    throw new Error('WEBHOOK_QUEUE_WRITE_FAILED', { cause });
   }
 }
 
@@ -106,6 +117,8 @@ export function markProcessed(ids: readonly number[], now: Date = new Date()): v
 export interface RefreshOutcomeView {
   failed: readonly string[];
   svodOk: boolean;
+  retryableFailures?: readonly string[];
+  svodRetryable?: boolean;
 }
 
 /**
@@ -152,6 +165,7 @@ export function settleAfterRefresh(
 ): { done: number[]; kept: number[]; skipped: number[] } {
   const done: number[] = [];
   const kept: number[] = [];
+  const transient: number[] = [];
   const skipped: number[] = [];
   const failed = new Set(outcome.failed);
   for (const entry of entries) {
@@ -167,9 +181,15 @@ export function settleAfterRefresh(
     else if (plan.svod) ok = outcome.svodOk;
     else ok = true; // цели нет — читать нечего, запись закрыта честно
     (ok ? done : kept).push(entry.id);
+    if (!ok) {
+      const failedTargets = plan.full ? outcome.failed : plan.books.filter(book => failed.has(book));
+      const svodFailed = (plan.full || plan.svod) && !outcome.svodOk;
+      if (failedTargets.every(book => outcome.retryableFailures?.includes(book)) && (!svodFailed || outcome.svodRetryable)) transient.push(entry.id);
+    }
   }
   markProcessed(done, now);
-  noteAttemptFailed(kept, `цикл чтения не покрыл цель: не прочитано ${[...failed].join(', ') || 'лист СВОД'}`);
+  noteAttemptFailed(transient, TRANSIENT_REFRESH);
+  noteAttemptFailed(kept.filter(id => !transient.includes(id)), 'SOURCE_REFRESH_REQUIRES_ATTENTION');
   return { done, kept, skipped };
 }
 
@@ -179,6 +199,7 @@ export function settleMonitoring(
   ok: boolean,
   error?: string,
   now: Date = new Date(),
+  retryable = false,
 ): { done: number[]; kept: number[] } {
   const targets = entries
     .filter((e) => {
@@ -190,7 +211,7 @@ export function settleMonitoring(
     markProcessed(targets, now);
     return { done: targets, kept: [] };
   }
-  noteAttemptFailed(targets, error ?? 'книга мониторинга не прочитана');
+  noteAttemptFailed(targets, retryable ? TRANSIENT_REFRESH : error ?? 'MONITORING_REQUIRES_ATTENTION');
   return { done: [], kept: targets };
 }
 
@@ -198,19 +219,12 @@ export function settleMonitoring(
 export function noteAttemptFailed(ids: readonly number[], error: string): void {
   if (ids.length === 0) return;
   try {
-    const rows = db
-      .select({ id: schema.webhookQueue.id, attempts: schema.webhookQueue.attempts })
-      .from(schema.webhookQueue)
-      .where(inArray(schema.webhookQueue.id, [...ids]))
-      .all();
-    for (const row of rows) {
-      db.update(schema.webhookQueue)
-        .set({ attempts: row.attempts + 1, lastError: error })
-        .where(eq(schema.webhookQueue.id, row.id))
-        .run();
-    }
-  } catch {
-    /* см. markProcessed */
+    db.update(schema.webhookQueue)
+      .set({ attempts: sql`${schema.webhookQueue.attempts} + 1`, lastError: error })
+      .where(and(inArray(schema.webhookQueue.id, [...ids]), eq(schema.webhookQueue.state, 'pending')))
+      .run();
+  } catch (cause) {
+    throw new Error('WEBHOOK_QUEUE_WRITE_FAILED', { cause });
   }
 }
 
@@ -218,12 +232,13 @@ export function noteAttemptFailed(ids: readonly number[], error: string): void {
 export interface QueueStats {
   /** База не далась — счётчики ниже ничего не значат, а не «нулевые». */
   unavailable: boolean;
-  pending: number;
-  processed: number;
+  pending: number | null;
+  processed: number | null;
+  requiresAttention: number | null;
   /** Момент самой старой невыполненной записи; null — очередь чиста. */
   oldestPendingAt: string | null;
   /** Суммарный счёт упавших попыток по невыполненным записям. */
-  failedAttempts: number;
+  failedAttempts: number | null;
 }
 
 export function queueStats(): QueueStats {
@@ -232,6 +247,7 @@ export function queueStats(): QueueStats {
       .select({
         receivedAt: schema.webhookQueue.receivedAt,
         attempts: schema.webhookQueue.attempts,
+        lastError: schema.webhookQueue.lastError,
       })
       .from(schema.webhookQueue)
       .where(eq(schema.webhookQueue.state, 'pending'))
@@ -247,13 +263,14 @@ export function queueStats(): QueueStats {
     return {
       unavailable: false,
       pending: pending.length,
+      requiresAttention: pending.filter(entry => !canRetryNotification(entry)).length,
       processed,
       oldestPendingAt: pending[0]?.receivedAt ?? null,
       failedAttempts: pending.reduce((sum, p) => sum + p.attempts, 0),
     };
   } catch {
     // Недоступная база — не «пустая очередь»: нули были бы ложью о здоровье.
-    return { unavailable: true, pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 };
+    return { unavailable: true, pending: null, processed: null, requiresAttention: null, oldestPendingAt: null, failedAttempts: null };
   }
 }
 

@@ -1,3 +1,5 @@
+import { classifySheet } from '@aemr/shared';
+
 /**
  * Стабильный (детерминированный) id замечания.
  *
@@ -10,8 +12,8 @@
  *      'signal' | checkId | лист | подвед (C) | рег.№ (A) | № (B) |
  *      предмет (G) | план K | порядковый № среди полных дублей
  *  - rule-замечания (validateData):
- *      'rule' | checkId | лист | cell-адрес (для СВОД-замечаний это якорь) |
- *      A | B | предмет (G) | порядковый № среди полных дублей
+ *      'rule' | checkId | лист | столбец (для СВОД — полный cell-адрес) |
+ *      A | B | предмет (G) | подвед C (для ведомственных) | occurrence
  *  - ingest-ошибки: 'ingest' | cell-адрес
  *  - unclassified_sheet: 'sheet' | имя листа
  *
@@ -61,4 +63,15 @@ export function nextOccurrence(counts: Map<string, number>, baseKey: string): nu
   const n = counts.get(baseKey) ?? 0;
   counts.set(baseKey, n + 1);
   return n;
+}
+
+/** Department addresses move; summary cells remain positional. Legacy parts are
+ * retained only for proving an existing saved case, never for fuzzy matching. */
+export function ruleIssueIdentityParts(checkId: string, sheet: string, cell: string, cells: Record<string, unknown>, legacy = false): IssueIdentityPart[] {
+  const kind = classifySheet(sheet).kind;
+  const column = /^([A-Z]+)\d+$/.exec(cell)?.[1];
+  const stable = !legacy && (kind === 'department' || kind === 'subordinates_agg') && column;
+  const parts: IssueIdentityPart[] = ['rule', checkId, sheet, stable ? column : cell, String(cells.A ?? ''), String(cells.B ?? ''), String(cells.G ?? '')];
+  if (stable) parts.push(String(cells.C ?? ''));
+  return parts;
 }

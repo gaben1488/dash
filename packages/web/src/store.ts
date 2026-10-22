@@ -1,5 +1,7 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { create } from 'zustand';
-import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
+import { createLatestRead } from './lib/latest-read';
+import { ECONOMY_FORECAST_NORM_PCT, subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
@@ -48,7 +50,7 @@ export type MoneyUnit = 'тыс' | 'млн' | 'млрд';
 export type StavkaMode = 'norm' | 'live';
 
 /** Норматив района, которым посчитаны формулы книг, % снижения. */
-export const STAVKA_NORM_PCT = 8;
+export const STAVKA_NORM_PCT = ECONOMY_FORECAST_NORM_PCT;
 
 /**
  * Зона действия ставки — честное слово в подсказках (разведка 29.08.2026:
@@ -58,7 +60,7 @@ export const STAVKA_NORM_PCT = 8;
  * «действует везде» подсказка не смеет.
  */
 export const STAVKA_SCOPE_NOTE =
-  'Сейчас от ставки зависят суммы ожидаемой экономии Отчёта; на остальных вкладках зависимых чисел пока нет.';
+  PRODUCT_COPY["store:STAVKA_SCOPE_NOTE"];
 
 /** Копейка в тысячах рублей — порог, ниже которого разница сумм не существует. */
 const KOPECK_TYS = 0.00001;
@@ -81,7 +83,7 @@ export function buildStavkaSumsLine(
   if (planTys <= 0) return 'План года ещё не загружен — суммы ожидаемой экономии появятся с данными.';
   const normSum = planTys * (STAVKA_NORM_PCT / 100);
   if (livePct === null) {
-    return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}; живого коэффициента нет.`;
+    return `Сравнение ставок на плане года ${formatMoney(planTys)} (не прогноз по остатку): по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}; живого коэффициента нет.`;
   }
   const liveSum = planTys * (livePct / 100);
   const diff = liveSum - normSum;
@@ -91,7 +93,7 @@ export function buildStavkaSumsLine(
   const diffLine = Math.abs(diff) < KOPECK_TYS
     ? 'совпадает с нормативом'
     : `на ${formatMoney(Math.abs(diff))} ${diff >= 0 ? 'больше' : 'меньше'} норматива`;
-  return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}, ` +
+  return `Сравнение ставок на плане года ${formatMoney(planTys)} (не прогноз по остатку): по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}, ` +
     `по живой ставке ${pct} % — ${formatMoney(liveSum)}: ${diffLine}.`;
 }
 
@@ -110,6 +112,7 @@ export interface LiveStavka {
   count: number;
   /** Момент чтения книги мониторинга (ISO) — дата замера. */
   readAt: string | null;
+  window?: { from: string; to: string; undated: number };
 }
 
 /** Тип закупки (legacy single-select aliases kept for navigateTo compatibility) */
@@ -282,7 +285,7 @@ export function getActiveFilterCount(input: ActiveFilterCountInput): number {
 
 // ── Динамические годы: не хардкодим, определяем от текущей даты ──
 const FIRST_DATA_YEAR = 2025; // первый год с данными
-const currentYear = new Date().getFullYear();
+const currentYear = productDayParts().y;
 /** Доступные годы: от первого года данных до текущего+1, плюс "all" */
 export const AVAILABLE_YEARS: number[] = Array.from(
   { length: currentYear - FIRST_DATA_YEAR + 2 },
@@ -293,20 +296,7 @@ export const AVAILABLE_YEARS: number[] = Array.from(
 export type YearFilter = number | 'all';
 
 /** Месяцы (1-12) */
-export const MONTHS = [
-  { id: 1, short: 'Янв', full: 'Январь' },
-  { id: 2, short: 'Фев', full: 'Февраль' },
-  { id: 3, short: 'Мар', full: 'Март' },
-  { id: 4, short: 'Апр', full: 'Апрель' },
-  { id: 5, short: 'Май', full: 'Май' },
-  { id: 6, short: 'Июн', full: 'Июнь' },
-  { id: 7, short: 'Июл', full: 'Июль' },
-  { id: 8, short: 'Авг', full: 'Август' },
-  { id: 9, short: 'Сен', full: 'Сентябрь' },
-  { id: 10, short: 'Окт', full: 'Октябрь' },
-  { id: 11, short: 'Ноя', full: 'Ноябрь' },
-  { id: 12, short: 'Дек', full: 'Декабрь' },
-] as const;
+export { MONTHS } from '@aemr/shared';
 
 /**
  * Fallback subordinates (используется до загрузки реальных данных из API).
@@ -362,6 +352,10 @@ export function getMondayOfWeek(d: Date): Date {
 
 export interface AppState {
   // Навигация
+  urlNavigationVersion: number;
+  reportMode: 'live' | 'archive';
+  reportQuarter: 1 | 2 | 3 | 4 | null;
+  reportPinned: { contextKey: string; id: string } | null;
   page: Page;
   setPage: (page: Page) => void;
   /*
@@ -399,6 +393,8 @@ export interface AppState {
    * и перезапрашивать его без события эфира не за чем.
    */
   liveStavkaAbsent: boolean;
+  liveStavkaError: string | null;
+  liveStavkaRevision: number;
   /** Ленивая загрузка живого коэффициента (один запрос, при ошибке — повтор при следующем вызове). */
   fetchLiveStavka: () => Promise<void>;
   /**
@@ -528,6 +524,8 @@ export interface AppState {
   // Подведомственные учреждения (из API)
   subordinatesMap: Record<string, string[]>;
   subordinatesLoading: boolean;
+  subordinatesCoverage: SourceCoverage | undefined;
+  subordinatesError: string | null;
   fetchSubordinates: () => Promise<void>;
 
   // Данные дашборда
@@ -541,7 +539,8 @@ export interface AppState {
   isDemo: boolean;
 
   // Действия
-  fetchDashboard: (force?: boolean) => Promise<void>;
+  /** True only when this request committed the shared dashboard view. */
+  fetchDashboard: (force?: boolean) => Promise<boolean>;
   /** Полное обновление: СВОД + 8 dept sheets + ШДЮ + pipeline */
   refresh: () => Promise<void>;
   /** Быстрая проверка: только СВОД (без перезагрузки dept sheets) */
@@ -554,7 +553,7 @@ export interface AppState {
    * не загружено или сервер не ответил — кнопка показывается БЕЗ числа
    * (отсутствие счёта не выдаётся за ноль строк).
    */
-  bucketCounts: { unfunded: number; yearlong: number } | null;
+  bucketCounts: { unfunded: number; yearlong: number; reading?: Awaited<ReturnType<typeof api.getRegistryBuckets>> } | null;
   fetchBucketCounts: () => Promise<void>;
 
   // Утилиты
@@ -593,13 +592,17 @@ function isDemoData(data: DashboardData): boolean {
  * каждый запрос получает номер, применяется только ответ последнего; устаревший
  * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
  */
-let dashboardRequestSeq = 0;
+const dashboardReads = createLatestRead();
+/** Версия обычного запроса: тихая подмена не должна обходить его защиту гонок. */
+export function dashboardRequestVersion(): number { return dashboardReads.version; }
+let bucketRequestSeq = 0;
 
 /** Страж повторного запроса живого коэффициента (fetchLiveStavka). */
 let liveStavkaInFlight = false;
 
 export const useStore = create<AppState>((set, get) => ({
   // Навигация
+  urlNavigationVersion: 0, reportMode: 'live', reportQuarter: null, reportPinned: null,
   page: 'dashboard',
   setPage: (page) => {
     if (page === 'journal') {
@@ -610,8 +613,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Фильтры — default year: current year if in AVAILABLE_YEARS, else last available
-  year: (AVAILABLE_YEARS.includes(new Date().getFullYear())
-    ? new Date().getFullYear()
+  year: (AVAILABLE_YEARS.includes(productDayParts().y)
+    ? productDayParts().y
     : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]) as YearFilter,
   setYear: (year) => {
     // Mirror toggleMonthInYear/toggleQuarterInYear/toggleYearFull: when the user is in
@@ -658,6 +661,8 @@ export const useStore = create<AppState>((set, get) => ({
   setStavkaMode: (stavkaMode) => set({ stavkaMode }),
   liveStavka: null,
   liveStavkaAbsent: false,
+  liveStavkaError: null,
+  liveStavkaRevision: 0,
   fetchLiveStavka: async () => {
     // Один живой запрос на событие: повтор — после ошибки сети либо после
     // invalidateLiveStavka (monitoring-updated). Полученный замер И знание
@@ -665,8 +670,11 @@ export const useStore = create<AppState>((set, get) => ({
     // долбить сервер, чтобы услышать то же самое, не за чем.
     if (get().liveStavka !== null || get().liveStavkaAbsent || liveStavkaInFlight) return;
     liveStavkaInFlight = true;
+    const version = get().liveStavkaRevision;
+    set({ liveStavkaError: null });
     try {
-      const payload = await fetchMonitoringAnalytics();
+      const payload = await fetchMonitoringAnalytics('publication', true);
+      if (version !== get().liveStavkaRevision) return;
       const r = payload.analytics.reduction;
       if (r.portfolioPct === null) {
         // Состоявшихся торгов за 12 месяцев нет — живой коэффициент не
@@ -681,21 +689,22 @@ export const useStore = create<AppState>((set, get) => ({
           q3: r.reducedQ3Pct,
           count: r.portfolio.count,
           readAt: payload.source.readAt || null,
+          ...(payload.window ? { window: payload.window } : {}),
         },
         liveStavkaAbsent: false,
       });
-    } catch {
-      // Сервер не ответил — кнопка «живой» остаётся выключенной с честной
-      // подсказкой; следующий вызов попробует снова.
+    } catch (error) {
+      if (version === get().liveStavkaRevision) set({ liveStavkaError: humanizeRequestError(error) });
     } finally {
-      liveStavkaInFlight = false;
+      if (version === get().liveStavkaRevision) liveStavkaInFlight = false;
     }
   },
   invalidateLiveStavka: () => {
     // Книга мониторинга перечитана и изменилась — прежний замер (или прежнее
     // «замера нет») больше не факт. Сброс обоих исходов заставляет следующего
     // читателя (эффект барабана ставки) перезапросить свежий коэффициент.
-    set({ liveStavka: null, liveStavkaAbsent: false });
+    liveStavkaInFlight = false;
+    set({ liveStavka: null, liveStavkaAbsent: false, liveStavkaError: null, liveStavkaRevision: get().liveStavkaRevision + 1 });
   },
   // Multi-select filters (empty Set = identity = "Все")
   // When all options are selected individually → collapse to empty Set (= identity)
@@ -778,7 +787,7 @@ export const useStore = create<AppState>((set, get) => ({
     // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
     // сброшенное умолчание само считалось бы срезом у границы недель.
     const monday = getProductMonday();
-    const currentYear = new Date().getFullYear();
+    const currentYear = productDayParts().y;
     const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
       ? currentYear
       : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
@@ -837,7 +846,7 @@ export const useStore = create<AppState>((set, get) => ({
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
     const rawTargetYear = filters?.year ?? get().year;
-    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : new Date().getFullYear();
+    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : productDayParts().y;
     if (filters?.months) {
       updates.activeMonths = new Set(filters.months);
       updates.monthsByYear = { ...get().monthsByYear, [targetYear]: new Set(filters.months) };
@@ -921,7 +930,11 @@ export const useStore = create<AppState>((set, get) => ({
         const currentSubs = new Set(get().selectedSubordinates);
         let changed = false;
         for (const sub of deptSubs) {
-          if (currentSubs.has(sub)) { currentSubs.delete(sub); changed = true; }
+          for (const selected of currentSubs) {
+            if (subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub)) {
+              currentSubs.delete(selected); changed = true;
+            }
+          }
         }
         if (changed) set({ selectedDepartments: current, selectedSubordinates: currentSubs, deptOnlyMode: deptOnly });
         else set({ selectedDepartments: current, deptOnlyMode: deptOnly });
@@ -953,8 +966,9 @@ export const useStore = create<AppState>((set, get) => ({
   selectedSubordinates: new Set<string>(),
   toggleSubordinate: (sub) => {
     const current = new Set(get().selectedSubordinates);
-    if (current.has(sub)) {
-      current.delete(sub);
+    const matches = [...current].filter(selected => subordinateNameMatchKey(selected) === subordinateNameMatchKey(sub));
+    if (matches.length > 0) {
+      for (const selected of matches) current.delete(selected);
     } else {
       current.add(sub);
     }
@@ -971,7 +985,10 @@ export const useStore = create<AppState>((set, get) => ({
     // Clear any sub selections for this dept
     const subs = new Set(get().selectedSubordinates);
     const deptSubs = get().subordinatesMap[deptId] ?? [];
-    for (const s of deptSubs) subs.delete(s);
+    const deptKeys = new Set(deptSubs.map(subordinateNameMatchKey));
+    for (const selected of subs) {
+      if (deptKeys.has(subordinateNameMatchKey(selected))) subs.delete(selected);
+    }
     set({ deptOnlyMode: current, selectedDepartments: depts, selectedSubordinates: subs });
   },
   clearDeptOnly: (deptId) => {
@@ -1153,28 +1170,30 @@ export const useStore = create<AppState>((set, get) => ({
   // Подведы
   subordinatesMap: { ...SUBORDINATES_FALLBACK },
   subordinatesLoading: false,
+  subordinatesCoverage: undefined,
+  subordinatesError: null,
   fetchSubordinates: async () => {
     if (get().subordinatesLoading) return;
-    set({ subordinatesLoading: true });
+    set({ subordinatesLoading: true, subordinatesError: null });
     try {
-      const data = await api.getSubordinates();
+      const { subordinates: data, coverage } = await api.getSubordinates();
       if (data && Object.keys(data).length > 0) {
         // Объединение канона с живыми именами, НЕ замена: частично
         // прочитанная книга не должна вытеснять организации из фильтра
         // (баг «пропала часть организаций», см. lib/subordinates.ts).
         const merged = mergeSubordinates(SUBORDINATES_FALLBACK, data);
-        set({ subordinatesMap: merged, subordinatesLoading: false });
+        set({ subordinatesMap: merged, subordinatesCoverage: coverage, subordinatesLoading: false });
       } else {
-        set({ subordinatesLoading: false });
+        set({ subordinatesCoverage: coverage, subordinatesLoading: false });
       }
-    } catch {
-      set({ subordinatesLoading: false });
+    } catch (err) {
+      set({ subordinatesLoading: false, subordinatesCoverage: undefined, subordinatesError: humanizeRequestError(err) });
     }
   },
 
   // Данные
   dashboardData: null,
-  dataYear: new Date().getFullYear(),
+  dataYear: productDayParts().y,
   loading: false,
   error: null,
   lastRefreshed: null,
@@ -1182,13 +1201,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchDashboard: async (force = false) => {
     // Баг #6: НЕ выходим при get().loading — смена года во время загрузки
-    // обязана дойти до сервера. Гонку решает номер запроса (см. dashboardRequestSeq).
-    const seq = ++dashboardRequestSeq;
+    // обязана дойти до сервера. Гонку решает общий read slot с отменой устаревшего запроса.
+    const read = dashboardReads.begin();
+    const year = get().year;
     set({ loading: true, error: null });
     try {
-      const year = get().year;
-      const data = await api.getDashboard(force, year);
-      if (seq !== dashboardRequestSeq) return; // ответ устарел — победил более поздний запрос
+      const data = await api.getDashboard(force, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return false; // ответ устарел — победил более поздний запрос
       // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
       // формула, время чтения каждой официальной строки СВОДа.
       setOfficialProvenance(
@@ -1197,13 +1216,15 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
+      return true;
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return; // устаревшая ошибка не затирает свежие данные
+      if (!read.isCurrent() || get().year !== year) return false; // устаревшая ошибка не затирает свежие данные
       // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
       // Приставка через точку, а не через двоеточие: иначе в плашке шапки
       // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
@@ -1212,18 +1233,20 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         error: `Данные не загружены. ${msg}`,
       });
+      return false;
     }
   },
 
   refreshResult: null,
   refresh: async () => {
-    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
+    const read = dashboardReads.begin();
+    const year = get().year; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null, refreshResult: { sources: [], loading: true } });
     try {
-      const year = get().year;
       const result = await api.refresh();
-      const data = await api.getDashboard(false, year);
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
+      const data = await api.getDashboard(false, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return;
       setOfficialProvenance(
         (data as any).snapshot?.officialMetrics,
         (data as any).snapshot?.spreadsheetId,
@@ -1233,14 +1256,15 @@ export const useStore = create<AppState>((set, get) => ({
         // Баг #11: dataYear пишется во ВСЕХ путях загрузки — иначе после
         // обновления баннер «данные за другой год» сравнивал год фильтра
         // с годом давно прошедшей загрузки.
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
         refreshResult: { sources: result.sources ?? [], loading: false },
       });
+      void get().fetchBucketCounts();
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,
@@ -1251,13 +1275,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   quickRefresh: async () => {
-    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
+    const read = dashboardReads.begin();
+    const year = get().year; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null });
     try {
-      const year = get().year;
       await api.refresh(true);
-      const data = await api.getDashboard(true, year);
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
+      const data = await api.getDashboard(true, year, read.signal);
+      if (!read.isCurrent() || get().year !== year) return;
       // Баг #12: без обновления провенанса «Первичка сейчас» в попапах БЗ
       // устаревала после автообновления — числа новые, доказательства старые.
       setOfficialProvenance(
@@ -1266,13 +1291,14 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(), // баг #11 — см. refresh
+        dataYear: data.year ?? productDayParts().y, // баг #11 — см. refresh
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
       });
+      void get().fetchBucketCounts();
     } catch (err) {
-      if (seq !== dashboardRequestSeq) return;
+      if (!read.isCurrent() || get().year !== year) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,
@@ -1283,10 +1309,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   bucketCounts: null,
   fetchBucketCounts: async () => {
+    const seq = ++bucketRequestSeq;
+    const acceptedSnapshot = get().dashboardData?.snapshot.id ?? null;
+    set({ bucketCounts: null });
     try {
       const b = await api.getRegistryBuckets();
-      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows } });
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows, reading: b } });
     } catch {
+      if (seq !== bucketRequestSeq || acceptedSnapshot !== (get().dashboardData?.snapshot.id ?? null)) return;
+      set({ bucketCounts: null });
       // Сервер не ответил — счётчик остаётся null: кнопка навигации живёт
       // без числа, отсутствие счёта не выдаётся за ноль строк.
     }

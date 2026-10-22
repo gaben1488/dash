@@ -17,6 +17,7 @@ import clsx from 'clsx';
 import { productLabel } from '@aemr/shared';
 import type { UpcomingRiskRow } from '@aemr/core';
 import { api, humanizeRequestError, type UpcomingResponse } from '../../api';
+import { SourceCoverageNotice } from '../SourceCoverageNotice';
 import { useStore } from '../../store';
 import { toCanonicalDeptId } from '../../lib/dept-key';
 import { useOrgScope } from '../../lib/selectors/org-scope';
@@ -324,6 +325,7 @@ export function UpcomingSection() {
 
       {/* ── Содержимое ── */}
       <div className="mt-4">
+        {!loading && !error && <SourceCoverageNotice coverage={data?.coverage} />}
         {loading ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Собираем строки, близкие к плановой дате</span>

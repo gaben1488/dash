@@ -50,8 +50,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPT_COLUMNS,
-  collectRowsByDept,
   findDept,
+  readProcurementSequence,
+  sourceCoverageNote,
   type DepartmentEntry,
 } from '@aemr/shared';
 import {
@@ -62,7 +63,7 @@ import {
   type PlanRowInput,
 } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { readDeptRowsById } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow, sheetDateToIso } from '../services/rows-dto.js';
 import {
   readAllBookJournals,
@@ -90,63 +91,9 @@ interface SheetRow {
   /** Номер строки ЛИСТА (1-based): шапка 3 строки, данные с 4-й. */
   sheetRow: number;
   cells: unknown[];
-  /** № п/п из колонки A; null — номер не проставлен либо не число. */
-  ordinal: number | null;
+  /** № п/п из колонки A; null — метка отсутствует либо не распознана. */
+  ordinal: string | null;
   subject: string;
-}
-
-/** № п/п из колонки A. Google отдаёт номера и как «25», и как «25.0». */
-function readOrdinal(value: unknown): number | null {
-  const s = String(value ?? '').trim().replace(/ /g, '');
-  if (s === '') return null;
-  const m = s.match(/^(\d+)(?:[.,]0+)?$/);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return n >= 1 ? n : null;
-}
-
-/**
- * Строки ВСЕХ книг разом, разложенные ПО ИДЕНТИФИКАТОРУ УПРАВЛЕНИЯ.
- *
- * Источник — живой кэш книг (канонический периметр /api/report), при пустом
- * кэше — rowsByDept последнего сохранённого снимка. Тот же порядок, что у
- * /api/timeline: сначала свежее, потом сохранённое, и только потом отказ.
- *
- * КЛЮЧ ПЕРЕКЛАДЫВАЕТСЯ НАМЕРЕННО. И кэш, и снимок ключуются ИМЕНЕМ КНИГИ
- * («УЭР», «УКСиМП»), а поле sheetName реестра — это имя ВКЛАДКИ внутри книги, и
- * у пяти управлений из восьми оно одинаковое: «ВСЕ» (там, где есть подведы).
- * Брать строки по sheetName значит либо не найти ничего, либо выдать книгу
- * одного управления за книгу другого. Разрешаем имя через findDept — ровно так
- * же, как это делает /api/timeline.
- *
- * Читается один раз на запрос: сводка наблюдаемости обходит восемь книг, и
- * восемь отдельных обращений к снимку означали бы восемь полных сборок подряд
- * ради одних и тех же данных.
- */
-async function readRowsByDeptId(): Promise<Record<string, unknown[][]>> {
-  const byDeptId = (source: Record<string, unknown[][]>): Record<string, unknown[][]> => {
-    const out: Record<string, unknown[][]> = {};
-    for (const [name, rows] of Object.entries(source)) {
-      const dept = findDept(name);
-      if (dept) out[dept.id] = rows;
-    }
-    return out;
-  };
-
-  const live = byDeptId(collectRowsByDept(getDeptSheetValues()));
-  if (Object.keys(live).length > 0) return live;
-  try {
-    const snapshot = await getSnapshot();
-    // Строки снимка шапку УЖЕ не содержат (их так кладёт сборка снимка), поэтому
-    // здесь только перекладывается ключ — второй срез шапки съел бы три закупки.
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      const saved = byDeptId(snapshot.rowsByDept);
-      if (Object.keys(saved).length > 0) return saved;
-    }
-  } catch {
-    // источники молчат — честный пустой результат, роут ответит 503
-  }
-  return {};
 }
 
 /**
@@ -158,7 +105,7 @@ function deptSheetRows(
   rowsByDeptId: Record<string, unknown[][]>,
 ): SheetRow[] | null {
   const rows = rowsByDeptId[dept.id];
-  if (!rows || rows.length === 0) return null;
+  if (!rows) return null;
 
   const out: SheetRow[] = [];
   rows.forEach((row, idx) => {
@@ -168,7 +115,7 @@ function deptSheetRows(
     out.push({
       sheetRow: dto.rowIndex,
       cells: row,
-      ordinal: readOrdinal(row[DEPT_COLUMNS.ID]),
+      ordinal: readProcurementSequence(row[DEPT_COLUMNS.ID]),
       subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
     });
   });
@@ -176,7 +123,7 @@ function deptSheetRows(
 }
 
 /** Вход ядра из строки листа. */
-function toPlanRowInput(row: SheetRow, ordinal: number): PlanRowInput {
+function toPlanRowInput(row: SheetRow, ordinal: string): PlanRowInput {
   return {
     ordinal,
     planNow: readMoney(row.cells[DEPT_COLUMNS.TOTAL_PLAN]),
@@ -279,7 +226,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/provenance/health', async (_request, reply) => {
     const journals = await readAllBookJournals();
     const byDept = new Map(journals.map((j) => [j.dept, j]));
-    const rowsByDeptId = await readRowsByDeptId();
+    const { rows: rowsByDeptId, coverage } = await readDeptRowsById();
 
     const books: BookHealth[] = [];
     for (const [deptId, spreadsheetId] of Object.entries(DEPARTMENT_SPREADSHEETS)) {
@@ -296,7 +243,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
 
       const sheetRows = dept ? deptSheetRows(dept, rowsByDeptId) : null;
       const planRows: PlanRowInput[] = (sheetRows ?? [])
-        .filter((r): r is SheetRow & { ordinal: number } => r.ordinal !== null)
+        .filter((r): r is SheetRow & { ordinal: string } => r.ordinal !== null)
         .map((r) => toPlanRowInput(r, r.ordinal));
 
       const list: PlanProvenance[] = planRows.length > 0
@@ -333,6 +280,8 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
     const journalEntriesTotal = books.reduce((a, b) => a + b.journalEntries, 0);
     const retroCutCount = books.reduce((a, b) => a + (b.provenance?.retroCutCount ?? 0), 0);
     const retroCutTotal = books.reduce((a, b) => a + (b.provenance?.retroCutTotal ?? 0), 0);
+    const witnessCount = books.reduce((a, b) => a + (b.provenance?.witnessCount ?? 0), 0);
+    const financialAmbiguityCount = books.reduce((a, b) => a + (b.provenance?.financialAmbiguityCount ?? 0), 0);
     const unitFixCount = books.reduce((a, b) => a + (b.provenance?.unitFixCount ?? 0), 0);
     const emptyJournals = readable.filter((b) => b.journalEntries === 0).map((b) => b.dept);
 
@@ -346,6 +295,8 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
         : null;
 
     const notes: string[] = [];
+    const coverageNote = sourceCoverageNote(coverage);
+    if (coverageNote) notes.push(coverageNote);
     notes.push(
       `Прочитано книг: ${readable.length} из ${books.length}; записей журнала суммарно — ` +
       `${journalEntriesTotal}.`,
@@ -371,14 +322,21 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       `Видно ретро-снижений плана: ${retroCutCount}; исправлений единиц (рубли вместо тысяч) — ` +
       `${unitFixCount}, в «ушедший план» они не входят.`,
     );
+    if (financialAmbiguityCount > 0) {
+      notes.push(`Полный финансовый итог не подтверждён: неоднозначных групп — ${financialAmbiguityCount}; `
+        + `свидетельств сохранено — ${witnessCount}. Числа переходов и суммы — только подтверждённая часть.`);
+    }
 
     return reply.send({
+      coverage,
       booksTotal: books.length,
       booksRead: readable.length,
       booksSilent: silent,
       journalEntriesTotal,
       retroCutCount,
       retroCutTotal,
+      witnessCount,
+      financialAmbiguityCount,
       unitFixCount,
       books,
       note: notes.join(' '),
@@ -402,18 +360,18 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const rowSeq = readOrdinal(request.params.rowSeq);
+      const rowSeq = readProcurementSequence(request.params.rowSeq);
       if (rowSeq === null) {
         return reply.status(400).send({
           error: 'BadRequest',
           message:
-            `Номер «${request.params.rowSeq}» не подходит: нужен «№ п/п» закупки — целое число ` +
-            'от 1 (колонка A книги, тот же номер, которым журнал правок помечает строку).',
+            `Номер «${request.params.rowSeq}» не подходит: нужен полный «№ п/п» из колонки A ` +
+            '(например, 173 или 173/18), которым журнал правок помечает закупку.',
           statusCode: 400,
         });
       }
 
-      const sheetRows = deptSheetRows(dept, await readRowsByDeptId());
+      const sheetRows = deptSheetRows(dept, (await readDeptRowsById()).rows);
       if (sheetRows === null) {
         return reply.status(503).send({
           error: 'ServiceUnavailable',
@@ -429,7 +387,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       if (matches.length === 0) {
         // Подсказка против путаницы «№ п/п против номера строки листа» (п.98б):
         // если под этим числом на листе СТОИТ строка, называем её настоящий № п/п.
-        const atSheetRow = sheetRows.find((r) => r.sheetRow === rowSeq);
+        const atSheetRow = sheetRows.find((r) => String(r.sheetRow) === rowSeq);
         const hint = atSheetRow
           ? ` На строке листа ${rowSeq} стоит закупка с № п/п ${atSheetRow.ordinal ?? '—'}` +
             `${atSheetRow.subject ? ` («${atSheetRow.subject}»)` : ''}: возможно, нужен именно он.`
@@ -459,7 +417,7 @@ export async function provenanceRoutes(app: FastifyInstance): Promise<void> {
       const row = matches[0];
       const [provenance] = buildPlanProvenance(
         journal.records,
-        [toPlanRowInput(row, rowSeq)],
+        matches.map(match => toPlanRowInput(match, rowSeq)),
         { bookLabel: dept.id },
       );
 

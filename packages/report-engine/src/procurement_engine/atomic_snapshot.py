@@ -152,7 +152,7 @@ def capture_atomic_snapshot(adapters: Sequence[SnapshotSourceAdapter], *, report
                 "content_hash": payload.raw_content_hash or semantic_hash,
                 "canonical_semantic_hash": semantic_hash,
                 "content_hash_kind": "raw" if payload.raw_content_hash else "canonical_semantic_values",
-                "payload_metadata": dict(payload.metadata or {}),
+                "payload_metadata": {k: v for k, v in (payload.metadata or {}).items() if k != 'formula_evidence'},
             })
         sid = _snapshot_id(
             report_date=report_date, report_year=report_year, sources=sources,

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeFilteredData } from '../../hooks/useFilteredData';
 import { buildMultiDimMetricsFromFilteredData } from '../../hooks/useMultiDimMetrics';
-import { recalcTotalsByActivity } from '../selectors/activity-aggregation';
-import { activePeriodKeys } from '../selectors/period-resolution';
+import { activityPeriodKeys, recalcTotalsByActivity } from '../selectors/activity-aggregation';
 import { makeBudgetPlanFact } from '../selectors/budget-filter';
 import type { DashboardData } from '@aemr/shared';
 import type { PeriodMode, PeriodScope, YearFilter } from '../../store';
@@ -39,73 +38,11 @@ import type { PeriodMode, PeriodScope, YearFilter } from '../../store';
  * заводятся: их место — разбор на живых данных, а не приёмка экрана.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * КАК ЧИТАТЬ ЭТОТ ФАЙЛ (структура после разбора 14.08.2026)
- *
- * Первый прогон харнесса был красным: он и писался как реестр дефектов. Но
- * красный файл ничего не стережёт — он одинаково молчит и когда дефект на
- * месте, и когда рядом сломали что-то ещё. Поэтому каждая проверка разрезана
- * по той оси, на которой лежит дефект:
- *
- *   • проверка без пометки «ДОЛГ» — периметры БЕЗ известного долга. Это гейт:
- *     он зелёный и обязан таким остаться. Любая правка, уронившая его, —
- *     регресс.
- *   • проверка с пометкой «ДОЛГ» — периметры с известным долгом (классы
- *     Д-А…Д-Е ниже). Она написана наоборот: требует, чтобы нарушения ЕЩЁ
- *     были. Красная «ДОЛГ»-проверка означает «долг закрыт — перенеси
- *     состояния в гейт», а не поломку.
- *
- * Разрез не выдуман: замер 14.08 показал, что нарушения ложатся ровно на три
- * оси — фильтр способа, фильтр подведов, выбор месяцев. Ни одно нарушение не
- * приходится на состояния без них: дефолт «2026 · весь год · все управления»
- * и чистые кварталы сходятся полностью.
- *
- * ЧТО ЛЕЖИТ В ДОЛГЕ И ПОЧЕМУ ЭТО НЕ ЧИНИТСЯ ЗДЕСЬ
- *
- * Общая причина у Д-А…Д-Д одна: движок не отдаёт нужный разрез. Разбивки по
- * способу нет ни у подведов по периодам (`SubPeriodMetrics`), ни у бюджетов
- * (`planFB/KB/MB` существуют только суммарно, без деления КП/ЕП), а разбивки
- * по видам деятельности нет по месяцам (`byActivity` живёт на кварталах и
- * годе). Слой отображения не может показать срез, которого нет в данных, —
- * поэтому долг закрывается в движке (calc-engine-adapter.ts: кросс-разрезы
- * способ×период×подвед и способ×бюджет, byActivity по месяцам), а не
- * подкруткой селекторов. Канон п.55 такую переработку прямо разрешает.
- *
- *  Д-А. Фильтр способа (КП/ЕП) не доходит до денег бюджетной разбивки и
- *       бар-чарта управлений. Плитка «План» делится по способу
- *       (`totals-aggregation.ts` addMoney, kpPlanTotal/epPlanTotal), а
- *       `addBudget` внутри addCommon (:217) и обе денежные ветви
- *       `bar-data.ts` (:85, :104) складывают оба способа. На экране: КП
- *       1 540 в плитке против 2 135 в сумме ФБ+КБ+МБ и в столбцах.
- *  Д-Б. Тот же фильтр способа не доходит до подведов (`SubPeriodMetrics`
- *       разбивки по способу не несёт вовсе) и до экономии
- *       (`economy-metrics.ts` о способе не знает). Раскрытие управления по
- *       подведам под фильтром КП/ЕП показывает полные суммы.
- *  Д-В. Под фильтром подведов счётчики КП/ЕП берутся ГОДОВЫЕ независимо от
- *       выбранного периода (`totals-aggregation.ts` :178-179, помечено в коде
- *       как «честный годовой фолбэк»). Пирог способов при выбранном q1
- *       рисует год — ровно бейдж-который-врёт из интервью пп. 18-19.
- *  Д-Г. Под фильтром подведов деньги игнорируют фильтр способа: спред
- *       `...(d.quarters[qk] ?? {})` в `subordinate-override.ts` (:77) оставляет
- *       в квартале узла kp/ep-поля УПРАВЛЕНИЯ, а `stripMethodFields` чистит их
- *       только внутри aggregateNodeTotals.
- *  Д-Д. График план/факт под фильтром подведов рисует УПРАВЛЕНИЕ:
- *       `recalcSummaryByPeriod` (:54-61) читает те же непочищенные
- *       kpPlanTotal/epPlanTotal из оверрайднутого квартала. Незакрытый хвост
- *       бага #4: плитки уже показывают подвед, график ещё управление.
- *  Д-Е. Разбивка по видам деятельности живёт на своём периметре: `byActivity`
- *       подвед-оверрайдом не пересчитывается (показывает управление) и при
- *       выборе месяцев читает ЦЕЛЫЕ покрытые кварталы
- *       (`activePeriodKeys` → coveredQuarters), пока плитки считают месяцы.
- *  Д-Ж. ЗАКРЫТО 14.08. Нулевой знаменатель на слое карточек давал 0 %, а не
- *       «нет базы»: `useMultiDimMetrics.safePct` возвращал 0. Это тот самый
- *       вход в «8 управлений отстают от графика» при прочерках (пп. 14-16) и
- *       дефект §2 реестра расхождений «Ноль вместо „нет базы“». Теперь
- *       `safePct` отдаёт `null`, поля процентов `ExecutionMetrics` нullable,
- *       а квартальная дельта считается только когда план был в ОБОИХ
- *       кварталах. Проверка ниже — обычный гейт, не долг.
- *
- * Каждый провал печатает состояние, блок и пару ожидалось/получено.
- * ─────────────────────────────────────────────────────────────────────────
+ * 20.10.2026: обратные проверки долга заменены обычными gates после
+ * воспроизведения и исправления расхождений. Полная строковая разбивка
+ * activity × method × period используется общим агрегатором и графиком.
+ * Это приёмка синтетической матрицы, не доказательство полноты старых
+ * снимков или сверки всех живых метрик. История исправлений — docs/PLAN.md.
  */
 
 // ────────────────────────────────────────────────────────────
@@ -264,7 +201,19 @@ function subPeriodBlock(rows: Row[]): Record<string, number | null> {
 
 function activityBlock(rows: Row[]) {
   const of = (kind: Activity) => {
-    const a = agg(rows.filter(r => r.activity === kind));
+    const activityRows = rows.filter(r => r.activity === kind);
+    const a = agg(activityRows);
+    const methodOf = (method: Method) => {
+      const m = agg(activityRows.filter(r => r.method === method));
+      return {
+        plan: m.planCount, fact: m.factCount,
+        planSum: m.planTotal, factSum: m.factTotal,
+        planFB: m.planFB, planKB: m.planKB, planMB: m.planMB,
+        factFB: m.factFB, factKB: m.factKB, factMB: m.factMB,
+        economyTotal: m.economyTotal,
+        economyFB: m.economyFB, economyKB: m.economyKB, economyMB: m.economyMB,
+      };
+    };
     return {
       planCount: a.planCount, factCount: a.factCount,
       planTotal: a.planTotal, factTotal: a.factTotal,
@@ -273,6 +222,7 @@ function activityBlock(rows: Row[]) {
       economyTotal: a.economyTotal,
       economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
       execCountPct: pct1(a.factCount, a.planCount),
+      byMethod: { competitive: methodOf('kp'), ep: methodOf('ep') },
     };
   };
   const zero = of('pm');
@@ -295,6 +245,15 @@ function subEntry(name: string, rows: Row[]) {
     const mr = rows.filter(r => r.month === mi);
     if (mr.length > 0) months[mi] = subPeriodBlock(mr);
   }
+  const activityByPeriod: Record<string, ReturnType<typeof activityBlock>> = {
+    year: activityBlock(rows),
+  };
+  for (const qk of QUARTER_KEYS) {
+    activityByPeriod[qk] = activityBlock(rows.filter(r => `q${r.quarter}` === qk));
+  }
+  for (let mi = 1; mi <= 12; mi++) {
+    activityByPeriod[`m${mi}`] = activityBlock(rows.filter(r => r.month === mi));
+  }
   return {
     name,
     rowCount: rows.length,
@@ -307,7 +266,7 @@ function subEntry(name: string, rows: Row[]) {
     epCount: a.epCount,
     economyTotal: a.economyTotal,
     economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
-    quarters, months,
+    quarters, months, activityByPeriod,
   };
 }
 
@@ -334,6 +293,9 @@ function buildDashboardData() {
       byActivity[qk] = activityBlock(deptRows.filter(r => `q${r.quarter}` === qk));
     }
     byActivity.year = activityBlock(deptRows);
+    for (let mi = 1; mi <= 12; mi++) {
+      byActivity[`m${mi}`] = activityBlock(deptRows.filter(r => r.month === mi));
+    }
 
     return {
       department: { id: DEPT_META[short].id, nameShort: short, name: DEPT_META[short].name },
@@ -549,13 +511,6 @@ const STATES = allStates();
 // 5a. Оси долга и разрез проверок
 // ────────────────────────────────────────────────────────────
 
-/** Выбран способ (КП или ЕП) — классы Д-А, Д-Б. */
-const methodFiltered = (s: State): boolean => s.m.methods.length > 0;
-/** Выбраны подведы — классы Д-В, Д-Г, Д-Д. */
-const subFiltered = (s: State): boolean => s.o.subs.length > 0;
-/** Выбраны месяцы как настоящий фильтр (не «неделя») — класс Д-Е. */
-const monthsSelected = (s: State): boolean => s.p.mode === 'explicit' && s.p.months.length > 0;
-
 /** Тело проверки: заполняет протокол по одному состоянию. */
 type Check = (rep: Report, s: State) => void;
 
@@ -567,37 +522,6 @@ function run(states: State[], body: Check): string {
 }
 
 const not = <T,>(p: (x: T) => boolean) => (x: T): boolean => !p(x);
-
-/**
- * Пара «гейт + реестр долга» на одну проверку.
- *
- * `debt` отбирает состояния с известным дефектом. Остальные обязаны быть
- * зелёными сейчас и впредь — это гейт.
- *
- * Долговая половина написана НАОБОРОТ: она требует, чтобы нарушения ещё были.
- * Так реестр остаётся живым в обе стороны. Починили дефект — тест краснеет и
- * говорит «долг закрыт, перенеси состояния в гейт»; сломали что-то рядом так,
- * что расчёт падает с исключением, — тест тоже краснеет, потому что исключение
- * проходит наружу. `it.fails` здесь не годится: он засчитал бы за «ожидаемый
- * провал» любое падение, включая чужую опечатку.
- */
-function gateAndDebt(
-  title: string,
-  debtTitle: string,
-  debt: (s: State) => boolean,
-  body: Check,
-  states: State[] = STATES,
-): void {
-  it(title, () => {
-    expect(run(states.filter(not(debt)), body)).toBe('');
-  });
-  it(debtTitle, () => {
-    const debtStates = states.filter(debt);
-    expect(debtStates.length).toBeGreaterThan(0);
-    // Пустая строка = нарушений нет = долг закрыт: см. комментарий выше.
-    expect(run(debtStates, body)).not.toBe('');
-  });
-}
 
 // ────────────────────────────────────────────────────────────
 // 6. Инварианты
@@ -651,14 +575,12 @@ describe('матрица «экран = движок»: итоги блоков 
     rep.eq(s.label, 'плитка «План, шт.»', ref.all.planCount, fd.totalPlanCount);
     rep.eq(s.label, 'плитка «Заключено, шт.»', ref.all.factCount, fd.totalFactCount);
   };
-  gateAndDebt(
-    'плитки (план, факт, счётчики) считают ровно строки состояния',
-    // Д-Б/Д-Г: под подведами денег по способу взять неоткуда — SubPeriodMetrics
-    // разбивки КП/ЕП не несёт, и плитка показывает суммы обоих способов.
-    'ДОЛГ Д-Г: подвед + способ — деньги плиток не делятся по способу',
-    s => methodFiltered(s) && subFiltered(s),
-    tiles,
-  );
+  it('плитки (план, факт, счётчики) согласованы на всех 144 состояниях, включая подвед + способ', () => {
+    // Д-Г ЗАКРЫТ: CalcEngine теперь несёт subordinate × activity × method × period,
+    // а методный-only выбор использует ровно ту же исходную строковую разбивку.
+    // Прежний обратный тест ожидал провала на подведе даже после исправления.
+    expect(run(STATES, tiles)).toBe('');
+  });
 
   const methodPie: Check = (rep, s) => {
     const { fd } = screen(s);
@@ -666,25 +588,16 @@ describe('матрица «экран = движок»: итоги блоков 
     rep.eq(s.label, 'пирог «Способ закупки» · сектор КП', ref.byMethod.kpCount, fd.totalKP);
     rep.eq(s.label, 'пирог «Способ закупки» · сектор ЕП', ref.byMethod.epCount, fd.totalEP);
   };
-  gateAndDebt(
-    'пирог способов: КП и ЕП — те же строки, что у плиток',
-    // Д-В: под подведами счётчики КП/ЕП берутся ГОДОВЫЕ (единственная
-    // существующая база — competitiveCount/soleCount узла), поэтому пирог при
-    // выбранном квартале рисует год — тот самый бейдж-который-врёт (пп. 18-19).
-    'ДОЛГ Д-В: подвед — счётчики способов годовые независимо от периода',
-    subFiltered,
-    methodPie,
-  );
+  it('пирог способов совпадает со строками выбранного периода', () => {
+    expect(run(STATES, methodPie)).toBe('');
+  });
 
   it('экономия считается на строках состояния', () => {
     const rep = new Report();
     for (const s of STATES) {
       const { fd } = screen(s);
       const ref = reference(s);
-      // Экономия считается по всем способам всегда: `economy-metrics.ts` о КП/ЕП
-      // не знает. Здесь это зафиксировано как ФАКТ поведения, а не как канон —
-      // под фильтром способа плитка «Экономия» живёт на чужом периметре (Д-Б).
-      rep.eq(s.label, 'плитка «Экономия»', ref.all.economyTotal, fd.totalEconomy);
+      rep.eq(s.label, 'плитка «Экономия»', ref.byMethod.economyTotal, fd.totalEconomy);
     }
     expect(rep.toString()).toBe('');
   });
@@ -695,12 +608,12 @@ describe('матрица «экран = движок»: итоги блоков 
       const { mdm } = screen(s);
       const ref = reference(s);
       const b = mdm.totals.budget;
-      rep.eq(s.label, 'бюджеты · план ФБ', ref.all.planFB, b.planFB);
-      rep.eq(s.label, 'бюджеты · план КБ', ref.all.planKB, b.planKB);
-      rep.eq(s.label, 'бюджеты · план МБ', ref.all.planMB, b.planMB);
-      rep.eq(s.label, 'бюджеты · факт ФБ', ref.all.factFB, b.factFB);
-      rep.eq(s.label, 'бюджеты · факт КБ', ref.all.factKB, b.factKB);
-      rep.eq(s.label, 'бюджеты · факт МБ', ref.all.factMB, b.factMB);
+      rep.eq(s.label, 'бюджеты · план ФБ', ref.byMethod.planFB, b.planFB);
+      rep.eq(s.label, 'бюджеты · план КБ', ref.byMethod.planKB, b.planKB);
+      rep.eq(s.label, 'бюджеты · план МБ', ref.byMethod.planMB, b.planMB);
+      rep.eq(s.label, 'бюджеты · факт ФБ', ref.byMethod.factFB, b.factFB);
+      rep.eq(s.label, 'бюджеты · факт КБ', ref.byMethod.factKB, b.factKB);
+      rep.eq(s.label, 'бюджеты · факт МБ', ref.byMethod.factMB, b.factMB);
     }
     expect(rep.toString()).toBe('');
   });
@@ -721,16 +634,9 @@ describe('матрица «экран = движок»: итоги блоков 
   };
   // График живёт на квартальной сетке — берём состояния, где период её не сужает.
   const CHART_STATES = STATES.filter(x => x.p.label === 'весь год' || x.p.mode === 'week');
-  gateAndDebt(
-    'ряды графика план/факт по кварталам совпадают с построчным пересчётом',
-    // Д-Д: `recalcSummaryByPeriod` читает kpPlanTotal/epPlanTotal из
-    // оверрайднутого квартала, куда спред занёс метод-поля УПРАВЛЕНИЯ, —
-    // плитки уже показывают подвед, график ещё управление.
-    'ДОЛГ Д-Д: подвед — график план/факт рисует управление, а не подвед',
-    subFiltered,
-    planFactChart,
-    CHART_STATES,
-  );
+  it('ряды графика план/факт по кварталам совпадают с построчным пересчётом', () => {
+    expect(run(CHART_STATES, planFactChart)).toBe('');
+  });
 });
 
 describe('инвариант 1 — целое равно сумме частей', () => {
@@ -739,13 +645,9 @@ describe('инвариант 1 — целое равно сумме частей
     const ref = reference(s);
     rep.eq(s.label, 'КП + ЕП = всего закупок', ref.byMethod.planCount, fd.totalKP + fd.totalEP);
   };
-  gateAndDebt(
-    'КП + ЕП = всего закупок состояния',
-    // Д-В: годовые счётчики способов под подведами не складываются в счёт периода.
-    'ДОЛГ Д-В: подвед — КП + ЕП не равны числу закупок периода',
-    subFiltered,
-    kpEpWhole,
-  );
+  it('КП + ЕП = всего закупок состояния', () => {
+    expect(run(STATES, kpEpWhole)).toBe('');
+  });
 
   const budgetIsWhole: Check = (rep, s) => {
     const { fd, mdm } = screen(s);
@@ -753,16 +655,9 @@ describe('инвариант 1 — целое равно сумме частей
     rep.same(s.label, 'ФБ+КБ+МБ = План', fd.totalPlan, b.planFB + b.planKB + b.planMB);
     rep.same(s.label, 'ФБ+КБ+МБ = Факт', fd.totalFact, b.factFB + b.factKB + b.factMB);
   };
-  gateAndDebt(
-    'ФБ + КБ + МБ = итог плана и итог факта',
-    // Д-А: плитка «План» делится по способу, а `addBudget` внутри addCommon
-    // складывает оба — деления бюджетов по способу в данных попросту нет
-    // (planFB/KB/MB существуют только суммарно). На экране: КП 1 540 в плитке
-    // против 2 135 в сумме ФБ+КБ+МБ.
-    'ДОЛГ Д-А: способ — бюджетная разбивка не делится по КП/ЕП',
-    methodFiltered,
-    budgetIsWhole,
-  );
+  it('ФБ + КБ + МБ = итог плана и итог факта', () => {
+    expect(run(STATES, budgetIsWhole)).toBe('');
+  });
 
   /**
    * Год против суммы четырёх кварталов. Живёт на своём наборе (орган × способ),
@@ -797,34 +692,34 @@ describe('инвариант 1 — целое равно сумме частей
   it('сумма кварталов = год', () => {
     expect(yearVsQuarters(ORG_STATES.filter(not(o => o.subs.length > 0)))).toBe('');
   });
-  it('ДОЛГ Д-В: подвед — Σ кварталов по КП/ЕП не сходится с годом', () => {
-    expect(yearVsQuarters(ORG_STATES.filter(o => o.subs.length > 0))).not.toBe('');
+  it('подвед — сумма кварталов по КП/ЕП совпадает с годом', () => {
+    expect(yearVsQuarters(ORG_STATES.filter(o => o.subs.length > 0))).toBe('');
   });
 
   const pmPlusTd: Check = (rep, s) => {
     const { fd } = screen(s);
     const ref = reference(s);
-    const periodKeys = activePeriodKeys(fd.periodResolution);
+    const periodKeys = activityPeriodKeys(fd.periodResolution, fd.hasMonthData);
     const bpf = makeBudgetPlanFact(new Set<string>());
+    const showKP = s.m.methods.length === 0 || s.m.methods.includes('competitive');
+    const showEP = s.m.methods.length === 0 || s.m.methods.includes('single');
     const of = (key: string) =>
-      recalcTotalsByActivity(fd.depts, { actKeys: [key], periodKeys, budgetPlanFact: bpf });
+      recalcTotalsByActivity(fd.depts, {
+        actKeys: [key], periodKeys, budgetPlanFact: bpf, showKP, showEP,
+      });
     const pm = of('program');
     const td = of('current_non_program');
     const legacy = of('current_program');
 
+    rep.eq(s.label, 'вид деятельности · up-to-date byMethod coverage', 0,
+      pm.complete && td.complete ? 0 : 1);
     rep.eq(s.label, 'вид деятельности · упразднённый срез ТД-ПМ обязан быть пуст', 0, legacy.totalPlan);
-    rep.eq(s.label, 'вид деятельности · ПМ + ТД = План', ref.all.planTotal, pm.totalPlan + td.totalPlan);
-    rep.eq(s.label, 'вид деятельности · ПМ + ТД = Факт', ref.all.factTotal, pm.totalFact + td.totalFact);
+    rep.eq(s.label, 'вид деятельности · ПМ + ТД = План', ref.byMethod.planTotal, pm.totalPlan + td.totalPlan);
+    rep.eq(s.label, 'вид деятельности · ПМ + ТД = Факт', ref.byMethod.factTotal, pm.totalFact + td.totalFact);
   };
-  gateAndDebt(
-    'ПМ + ТД = всего (видов деятельности ровно два — канон п.30)',
-    // Д-Е: `byActivity` не пересчитывается подвед-оверрайдом (показывает
-    // управление) и при выборе месяцев читает ЦЕЛЫЕ покрытые кварталы, пока
-    // плитки считают месяцы: помесячной базы у byActivity в данных нет.
-    'ДОЛГ Д-Е: подвед и месяцы — виды деятельности живут на своём периметре',
-    s => subFiltered(s) || monthsSelected(s),
-    pmPlusTd,
-  );
+  it('ПМ + ТД = всего на всех 144 состояниях (месяцы, подведы и КП/ЕП)', () => {
+    expect(run(STATES, pmPlusTd)).toBe('');
+  });
 });
 
 describe('инвариант 2 — один периметр на все блоки состояния', () => {
@@ -852,14 +747,9 @@ describe('инвариант 2 — один периметр на все бло�
       rep.same(s.label, 'итог mdm = плитка «Факт»', fd.totalFact, mdm.totals.factTotal);
     }
   };
-  gateAndDebt(
-    'плитки, карточки управлений, бар-чарт и пирог считают одно множество строк',
-    // Д-А: обе денежные ветви `bar-data.ts` складывают оба способа, пока плитка
-    // делится по способу; карточки управлений тянут за собой ту же разбивку.
-    'ДОЛГ Д-А: способ — бар-чарт и карточки складывают оба способа',
-    methodFiltered,
-    onePerimeter,
-  );
+  it('плитки, карточки управлений, бар-чарт и пирог считают одно множество строк', () => {
+    expect(run(STATES, onePerimeter)).toBe('');
+  });
 
   const subsSumToDept: Check = (rep, s) => {
     const { mdm } = screen(s);
@@ -871,36 +761,28 @@ describe('инвариант 2 — один периметр на все бло�
       rep.same(`${s.label} · ${d.dept}`, 'Σ подведов = Факт управления', d.total.factTotal, fact);
     }
   };
-  gateAndDebt(
-    'подведы управления складываются в само управление',
-    // Д-Б: фильтр способа доходит до управления (kpPlanTotal/epPlanTotal), но
-    // не до подведов — у SubPeriodMetrics разбивки по способу нет вовсе,
-    // поэтому части остаются полными, когда целое уже срезано.
-    'ДОЛГ Д-Б: способ — подведы не делятся по КП/ЕП и не складываются в целое',
-    methodFiltered,
-    subsSumToDept,
-  );
+  it('подведы управления складываются в само управление', () => {
+    expect(run(STATES, subsSumToDept)).toBe('');
+  });
 
   const activitySamePeriod: Check = (rep, s) => {
     const { fd } = screen(s);
     const ref = reference(s);
     const bpf = makeBudgetPlanFact(new Set<string>());
+    const showKP = s.m.methods.length === 0 || s.m.methods.includes('competitive');
+    const showEP = s.m.methods.length === 0 || s.m.methods.includes('single');
     const both = recalcTotalsByActivity(fd.depts, {
       actKeys: ['program', 'current_program', 'current_non_program'],
-      periodKeys: activePeriodKeys(fd.periodResolution),
-      budgetPlanFact: bpf,
+      periodKeys: activityPeriodKeys(fd.periodResolution, fd.hasMonthData),
+      budgetPlanFact: bpf, showKP, showEP,
     });
-    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (План)', ref.all.planTotal, both.totalPlan);
-    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (Факт)', ref.all.factTotal, both.totalFact);
+    rep.eq(s.label, 'виды деятельности · проверено по method', 0, both.complete ? 0 : 1);
+    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (План)', ref.byMethod.planTotal, both.totalPlan);
+    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (Факт)', ref.byMethod.factTotal, both.totalFact);
   };
-  gateAndDebt(
-    'разбивка по видам деятельности считает тот же период, что плитки',
-    // Д-Е, та же причина: подвед-оверрайд byActivity не трогает, а при выборе
-    // месяцев `activePeriodKeys` отдаёт покрытые КВАРТАЛЫ.
-    'ДОЛГ Д-Е: подвед и месяцы — виды деятельности читают чужой период',
-    s => subFiltered(s) || monthsSelected(s),
-    activitySamePeriod,
-  );
+  it('разбивка по видам деятельности совпадает с источником всех 144 состояний', () => {
+    expect(run(STATES, activitySamePeriod)).toBe('');
+  });
 });
 
 describe('инвариант 3 — процент есть отношение сумм, а не среднее процентов', () => {

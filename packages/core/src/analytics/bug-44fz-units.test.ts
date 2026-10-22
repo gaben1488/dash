@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { thresholdAt } from '@aemr/shared';
+
+const EP_LIMIT = thresholdAt('law.epSmallSingleContract', '2026-06-26');
+const ROLE_LIMIT = thresholdAt('competition.epRoleOperationalShare', '2026-06-26');
 import { checkEPContractLimits, checkEPShareLimits } from './compliance-44fz.js';
 import { detectEpOverLimit, detectSplitting, type AntiCorruptionRow } from './anticorruption.js';
 import w2606 from '../report/__fixtures__/week-26.06.2026.json';
@@ -14,26 +18,26 @@ import w2606 from '../report/__fixtures__/week-26.06.2026.json';
  * ниже падают; после фикса (LAW_44FZ_THRESHOLDS в тыс. руб., суффикс ThousandRub) — зелёные.
  */
 describe('БАГ #1 — единицы 44-ФЗ (тыс. руб., не руб.)', () => {
-  it('checkEPContractLimits: ЕП на planTotal=601 (тыс. руб. = 601 тыс. руб. реальных) даёт ровно одно нарушение', () => {
+  it('checkEPContractLimits: ЕП на planTotal=601 (тыс. руб. = 601 тыс. руб. реальных) даёт один информационный признак', () => {
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 601, factTotal: 0, economy: 0, subject: 'Поставка ГСМ' }];
-    const issues = checkEPContractLimits(rows, 'УО');
+    const issues = checkEPContractLimits(rows, 'УО', EP_LIMIT);
     expect(issues).toHaveLength(1);
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
-    expect(issues[0].severity).toBe('critical');
+    expect(issues[0].severity).toBe('info');
   });
 
   it('checkEPContractLimits: planTotal=600 (ровно на границе, тыс. руб.) — нарушения нет', () => {
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 600, factTotal: 0, economy: 0, subject: 'Поставка ГСМ' }];
-    expect(checkEPContractLimits(rows, 'УО')).toHaveLength(0);
+    expect(checkEPContractLimits(rows, 'УО', EP_LIMIT)).toHaveLength(0);
   });
 
   it('checkEPShareLimits: годовой объём ЕП управления 50_001 (тыс. руб. = 50,001 млн) превышает годовой абсолютный лимит (50 млн)', () => {
-    const issues = checkEPShareLimits(1, 10, 50_001, 200_000, 'ОПЕРАЦИОННЫЙ', 'УО');
-    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(true);
+    const issues = checkEPShareLimits(1, 10, 50_001, 200_000, 'ОПЕРАЦИОННЫЙ', 'УО', ROLE_LIMIT);
+    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });
 
   it('checkEPShareLimits: годовой объём ЕП управления 50_000 (ровно на границе) — не превышает', () => {
-    const issues = checkEPShareLimits(1, 10, 50_000, 200_000, 'ОПЕРАЦИОННЫЙ', 'УО');
+    const issues = checkEPShareLimits(1, 10, 50_000, 200_000, 'ОПЕРАЦИОННЫЙ', 'УО', ROLE_LIMIT);
     expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });
 
@@ -57,7 +61,7 @@ describe('БАГ #1 — единицы 44-ФЗ (тыс. руб., не руб.)',
       economy: 0,
       subject: 'Поставка канцелярских товаров',
     }));
-    const flags = detectSplitting(rows);
+    const flags = detectSplitting(rows, EP_LIMIT);
     expect(flags).toHaveLength(1);
     expect(flags[0].indicator).toBe('splitting');
     expect(flags[0].severity).toBe('high');
@@ -97,10 +101,10 @@ describe('БАГ #1 — страж на фикстуре week-26.06.2026 (жив
     }));
   }
 
-  it('checkEPContractLimits находит ровно 94 нарушения лимита ЕП по всем восьми книгам (было 0)', () => {
+  it('checkEPContractLimits находит ровно 94 информационных признака ЕП по всем восьми книгам (было 0)', () => {
     let total = 0;
     for (const [dept, rows] of Object.entries(fx.rowsByDept)) {
-      total += checkEPContractLimits(deptRows(rows), dept).length;
+      total += checkEPContractLimits(deptRows(rows), dept, EP_LIMIT).length;
     }
     expect(total).toBe(94);
   });
@@ -108,7 +112,7 @@ describe('БАГ #1 — страж на фикстуре week-26.06.2026 (жив
   it('detectEpOverLimit (антикор-рамка того же порога) находит те же 94 строки', () => {
     let total = 0;
     for (const rows of Object.values(fx.rowsByDept)) {
-      total += detectEpOverLimit(deptRows(rows)).length;
+      total += detectEpOverLimit(deptRows(rows), EP_LIMIT).length;
     }
     expect(total).toBe(94);
   });

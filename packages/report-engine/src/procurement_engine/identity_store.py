@@ -14,6 +14,8 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
+from .customer_aliases import customer_anchor, customer_name_key
+
 
 def encoded(v):
     return json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':'))
@@ -106,6 +108,23 @@ def entity_signature(row):
 
 def _same_entity(prior, entity, enabled):
     return not enabled or not entity or prior.get('entity_signature') == entity
+
+
+def _same_entity_across_plan_calendar(prior, row):
+    """Verify the old complete entity key without rewriting its year-bearing hash."""
+    if not prior.get('entity_signature'):
+        return False
+    try:
+        old_anchor = json.loads(prior['anchor'])
+    except (TypeError, ValueError):
+        return False
+    if (not isinstance(old_anchor, list) or len(old_anchor) != 5
+            or old_anchor[:4] != [row.source_id, row.grbs, row.institution, row.subject]):
+        return False
+    if old_anchor[4] == row.planned_year:
+        return False
+    legacy_entity = entity_signature(replace(row, planned_year=old_anchor[4]))
+    return bool(legacy_entity and legacy_entity == prior['entity_signature'])
 
 
 def _check_integrity(db):
@@ -206,6 +225,7 @@ def freeze_identity_snapshot(source_path, destination, *, snapshot_id, as_of):
 class IdentityStore:
     def __init__(self,path):
         self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True)
+        self.continuity_snapshot_ids = None
         with closing(self.connect()) as db, db:
             _check_integrity(db)
             db.executescript('''
@@ -266,32 +286,64 @@ class IdentityStore:
                 updated += int(changed)
         return updated
 
-    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None):
-        """Recover the complete previous import from its sealed source payloads."""
+    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None, required_snapshot_ids=None, weekly_only=False):
+        """Recover derived migration metadata from sealed source payloads.
+
+        Explicit targets support retention preparation. None preserves runtime's
+        latest/chain selection; an empty set never falls back to that selection.
+        Frozen results, UIDs and source signatures remain unchanged.
+        """
         from .adapters import normalize_master_values
         from .snapshot_bundle_io import verify_persisted_bundle
 
+        bundle_roots = list(bundle_roots)
+        if weekly_only:
+            # Retention contract: current state plus sealed weekly cuts. Daily
+            # reads are neither required evidence nor missing-history defects.
+            weekly_ids = set()
+            for root in bundle_roots:
+                root = Path(root)
+                if not root.parent.name.startswith('WEEKLY-'):
+                    continue
+                if verify_persisted_bundle(root):
+                    raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
+                manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+                weekly_ids.add(manifest['snapshot_id'])
+            with closing(self.connect()) as db:
+                latest = db.execute('SELECT snapshot_id FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
+            self.continuity_snapshot_ids = weekly_ids | ({latest[0]} if latest else set())
+            required_snapshot_ids = self.continuity_snapshot_ids
         if diagnostics is not None:
             diagnostics.update(skipped_transient_donors=0, unrecovered_snapshots=0)
         with closing(self.connect()) as db:
-            latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
-            if latest is None:
-                return 0
-            earliest = latest['seq']
-            if recover_chain:
-                # Only restore the observed chain needed by currently unresolved
-                # anchors, not an unbounded scan of all unrelated historic rows.
-                prior = db.execute("""SELECT MIN(start_seq) FROM (
-                    SELECT MAX(s.seq) AS start_seq FROM observations current
-                    JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
-                    JOIN snapshots s ON s.snapshot_id=known.snapshot_id
-                    WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
-                    GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
-                if prior is not None:
-                    earliest = min(earliest, prior)
-            targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
-                FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
-                WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
+            if required_snapshot_ids is not None:
+                requested = set(required_snapshot_ids)
+                if any(not isinstance(sid, str) or not sid for sid in requested):
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_INVALID')
+                known = {r[0] for r in db.execute('SELECT snapshot_id FROM snapshots')}
+                observed = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations')}
+                if not requested <= known or (not weekly_only and not requested <= observed):
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_MISSING')
+                targets = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations WHERE plan_signature IS NULL OR entity_signature IS NULL') if r[0] in requested}
+            else:
+                latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
+                if latest is None:
+                    return 0
+                earliest = latest['seq']
+                if recover_chain:
+                    # Only restore the observed chain needed by currently unresolved
+                    # anchors, not an unbounded scan of all unrelated historic rows.
+                    prior = db.execute("""SELECT MIN(start_seq) FROM (
+                        SELECT MAX(s.seq) AS start_seq FROM observations current
+                        JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
+                        JOIN snapshots s ON s.snapshot_id=known.snapshot_id
+                        WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
+                        GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
+                    if prior is not None:
+                        earliest = min(earliest, prior)
+                targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
+                    FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
+                    WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
         if not targets:
             return 0
         updated = 0
@@ -304,6 +356,8 @@ class IdentityStore:
             # half-written bundle left by a killed/failed run. published/releases/
             # is immutable evidence: corruption there must remain fail-closed.
             immutable = ('published' in root.parts and 'releases' in root.parts) or 'archives' in root.parts
+            if required_snapshot_ids is not None and not immutable and not weekly_only:
+                raise ValueError('IDENTITY_BACKFILL_DONOR_NOT_SEALED')
             try:
                 manifest = json.loads(path.read_text(encoding='utf-8'))
                 if not isinstance(manifest, dict):
@@ -361,35 +415,51 @@ class IdentityStore:
         return updated
 
     @staticmethod
-    def _historical_entity(db, row, latest_sequence):
+    def _historical_entity(db, row, latest_sequence, customer_anchors=None, retained_ids=None):
         """Recover only a complete one-to-one chain back to a known UID.
 
-        Every observed snapshot is required. Disappearance, duplicate anchors,
-        changed entity fields or unavailable legacy fingerprints stop recovery.
+        Only retained weekly cuts and current state are required in weekly mode.
+        Disappearance in a retained cut, duplicate anchors and changed entity
+        fields stop recovery. Legacy replay keeps its original observation scope.
         """
         entity = entity_signature(row)
         if not entity or not row.source_row_no:
             return None
         history = defaultdict(list)
-        for prior in db.execute("""SELECT o.*, s.seq FROM observations o
-            JOIN snapshots s ON s.snapshot_id=o.snapshot_id WHERE o.anchor=? ORDER BY s.seq DESC""", (anchor(row),)):
-            history[prior['seq']].append(prior)
+        anchors = ([anchor(row)] if customer_anchors is None
+                   else customer_anchors.get(customer_anchor(anchor(row)), []))
+        entities = {entity}
+        if customer_anchors is not None:
+            entities = {entity_signature(replace(row, institution=json.loads(value)[2])) for value in anchors}
+        for value in anchors:
+            query = """SELECT o.*, s.seq FROM observations o
+                JOIN snapshots s ON s.snapshot_id=o.snapshot_id
+                WHERE o.anchor=? AND s.seq<=?"""
+            params = [value, latest_sequence]
+            if retained_ids is not None:
+                query += ' AND o.snapshot_id IN (' + ','.join('?' for _ in retained_ids) + ')'
+                params.extend(retained_ids)
+            for prior in db.execute(query + ' ORDER BY s.seq DESC', params):
+                if customer_anchors is None or (prior['business_id'] == row.source_row_no
+                        and (not prior['entity_signature'] or prior['entity_signature'] in entities)):
+                    history[prior['seq']].append(prior)
         chain = []
-        sequence = latest_sequence
-        while sequence in history:
-            records = history[sequence]
+        sequences = range(latest_sequence, 0, -1) if retained_ids is None else [
+            item['seq'] for item in db.execute('SELECT seq, snapshot_id FROM snapshots WHERE seq<=? ORDER BY seq DESC',
+                                              (latest_sequence,)) if item['snapshot_id'] in retained_ids]
+        for sequence in sequences:
+            records = history.get(sequence, [])
             if len(records) != 1:
                 return None
             prior = records[0]
-            if prior['business_id'] != row.source_row_no or prior['entity_signature'] != entity:
+            if prior['business_id'] != row.source_row_no or prior['entity_signature'] not in entities:
                 return None
             chain.append(prior['snapshot_id'])
             if prior['uid']:
                 return prior, chain
-            sequence -= 1
         return None
 
-    def ingest(self,rows,*,snapshot_id,captured_at,allow_plan_updates=False):
+    def ingest(self,rows,*,snapshot_id,captured_at,allow_plan_updates=False,allow_customer_aliases=False):
         instant=datetime.fromisoformat(captured_at)
         if instant.tzinfo is None:raise ValueError('IDENTITY_CAPTURE_TIMEZONE_MISSING')
         rows=list(rows)
@@ -428,13 +498,35 @@ class IdentityStore:
                     by_continuity[proof.get('continuity_signature'), prior['business_id']].append(prior)
                     by_number[prior['source_id'], prior['business_id']].add(prior['uid'])
                     by_anchor[prior['anchor']].add(prior['uid'])
+            old_number_rows = defaultdict(list)
+            for prior in old:
+                if prior['business_id']:
+                    old_number_rows[prior['source_id'], prior['business_id']].append(prior)
+            number_counts = Counter((r.source_id, r.source_row_no) for r in rows if r.source_row_no)
             entity_counts = Counter(entity_signature(r) for r in rows)
+            customer_anchors = defaultdict(list)
+            if allow_customer_aliases:
+                query, params = 'SELECT DISTINCT anchor FROM observations', ()
+                if self.continuity_snapshot_ids is not None:
+                    params = tuple(self.continuity_snapshot_ids)
+                    query += ' WHERE snapshot_id IN (' + ','.join('?' for _ in params) + ')'
+                for item in db.execute(query, params):
+                    customer_anchors[customer_anchor(item['anchor'])].append(item['anchor'])
+            customer_keys = {r.physical_row_key: (entity_signature(replace(r,
+                institution=customer_name_key(r.grbs, r.institution))), r.source_row_no) for r in rows}
+            customer_counts = Counter(customer_keys.values())
             frequencies=Counter(signature(r) for r in rows)
             continuity_counts=Counter((continuity_signature(r), r.source_row_no) for r in rows)
             plan_frequencies=Counter(plan_signature(r) for r in rows)
             result=[];assigned=set()
             for row in sorted(rows,key=lambda r:r.physical_row_key):
                 fp=signature(row);hits=by_signature[fp];uid=None
+                state_hits = hits
+                if allow_customer_aliases:
+                    # A retained compound identity cannot also be a renumbering
+                    # donor for a newly appearing, otherwise identical row.
+                    hits = [item for item in hits if item['business_id'] == row.source_row_no
+                            or not customer_counts[customer_keys[row.physical_row_key][0], item['business_id']]]
                 candidates=sorted(by_anchor[anchor(row)] | (by_number[row.source_id, row.source_row_no]
                     if row.source_row_no else set()))
                 evidence={'previous_snapshot_id':previous['snapshot_id'] if previous else None,
@@ -443,7 +535,10 @@ class IdentityStore:
                 continuity_hits = by_continuity[continuity_signature(row), row.source_row_no] if row.source_row_no else []
                 entity = entity_signature(row)
                 entity_hits = by_entity[entity] if entity else []
-                if frequencies[fp]!=1:
+                customer_unique = (allow_customer_aliases and entity
+                                   and (row.source_row_no or entity_counts[entity] == 1)
+                                   and customer_counts[customer_keys[row.physical_row_key]] == 1)
+                if frequencies[fp]!=1 and not customer_unique:
                     status='AMBIGUOUS_DUPLICATE'
                 elif len(hits)==1 and hits[0]['uid'] and _same_entity(hits[0], entity, allow_plan_updates):
                     uid=hits[0]['uid'];status='EXACT_CONTINUITY'
@@ -465,6 +560,17 @@ class IdentityStore:
                     uid = prior['uid']; status = 'PLAN_CONTINUITY'
                     evidence.update(previous_locator=prior['locator'],
                                     plan_signature=plan_signature(row), rule='unique-plan-continuity-v1')
+                elif (allow_plan_updates and row.source_id and row.source_row_no
+                      and number_counts[row.source_id, row.source_row_no] == 1
+                      and len(old_number_rows[row.source_id, row.source_row_no]) == 1
+                      and old_number_rows[row.source_id, row.source_row_no][0]['uid']
+                      and _same_entity_across_plan_calendar(old_number_rows[row.source_id, row.source_row_no][0], row)):
+                    prior = old_number_rows[row.source_id, row.source_row_no][0]
+                    uid = prior['uid']; status = 'ENTITY_CONTINUITY'
+                    evidence.update(previous_locator=prior['locator'],
+                        rule='unique-source-number-calendar-continuity-v1',
+                        previous_plan_year=json.loads(prior['anchor'])[4], current_plan_year=row.planned_year,
+                        review_ids=json.loads(prior['evidence']).get('review_ids', []))
                 elif (allow_plan_updates and entity and row.source_row_no and entity_counts[entity] == 1
                       and len(entity_hits) == 1 and entity_hits[0]['uid']
                       and entity_hits[0]['business_id'] == row.source_row_no):
@@ -474,12 +580,39 @@ class IdentityStore:
                         rule='unique-entity-continuity-v1',
                         review_ids=json.loads(prior['evidence']).get('review_ids', []))
                 elif (allow_plan_updates and previous and entity and entity_counts[entity] == 1
-                      and (recovered := self._historical_entity(db, row, previous['seq'])) is not None):
+                      and (recovered := self._historical_entity(db, row, previous['seq'], retained_ids=self.continuity_snapshot_ids)) is not None):
                     prior, chain = recovered
                     uid = prior['uid']; status = 'RECOVERED_ENTITY_CONTINUITY'
                     evidence.update(previous_locator=prior['locator'], entity_signature=entity,
                         rule='verified-entity-chain-v1', chain_snapshot_ids=chain,
                         review_ids=json.loads(prior['evidence']).get('review_ids', []))
+                elif (customer_unique and previous
+                      and (recovered := self._historical_entity(db, row, previous['seq'], customer_anchors, self.continuity_snapshot_ids)) is not None):
+                    prior, chain = recovered
+                    uid = prior['uid'] or 'PUR-' + uuid.uuid4().hex
+                    status = 'RECOVERED_CUSTOMER_CONTINUITY' if prior['uid'] else 'CURRENT_IDENTITY_ESTABLISHED'
+                    evidence.update(previous_locator=prior['locator'],
+                        rule=('unique-current-identity-v1' if not prior['uid'] else
+                              'approved-customer-weekly-continuity-v1' if self.continuity_snapshot_ids is not None
+                              else 'approved-customer-alias-chain-v1'), chain_snapshot_ids=chain,
+                        historical_uid_recovered=bool(prior['uid']),
+                        customer_key=customer_name_key(row.grbs, row.institution),
+                        review_ids=json.loads(prior['evidence']).get('review_ids', []))
+                elif (customer_unique and not hits and state_hits
+                      and not by_number[row.source_id, row.source_row_no]
+                      and all(item['uid'] and _same_entity(item, entity, True)
+                              and customer_counts[customer_keys[row.physical_row_key][0], item['business_id']] == 1
+                              for item in state_hits)):
+                    uid = 'PUR-' + uuid.uuid4().hex
+                    status = 'FIRST_OBSERVATION'
+                    evidence['rule'] = 'distinct-number-with-retained-state-v1'
+                elif self.continuity_snapshot_ids is not None and customer_unique:
+                    # A unique current row is valid even when its old identity
+                    # cannot be proved. Start here; never borrow a historical UID.
+                    uid = 'PUR-' + uuid.uuid4().hex
+                    status = 'CURRENT_IDENTITY_ESTABLISHED'
+                    evidence.update(rule='unique-current-identity-v1', historical_uid_recovered=False,
+                                    continuity_scope='current-and-retained-weekly')
                 elif hits or candidates:
                     status='REVIEW_REQUIRED'
                 else:
@@ -589,10 +722,7 @@ class IdentityStore:
 
     def review_evidence(self, *, as_of=None):
         """Stable private proof input; observations themselves are output state."""
-        with closing(self.connect()) as db:
-            return [{**dict(item), 'evidence': json.loads(item['evidence'])}
-                    for item in db.execute('SELECT * FROM reviews ORDER BY review_id')
-                    if as_of is None or datetime.fromisoformat(item['reviewed_at']) <= datetime.fromisoformat(as_of)]
+        return read_identity_reviews(self.path, as_of=as_of)
 
     def backup(self,destination):
         target=Path(destination)
@@ -629,6 +759,15 @@ class IdentityStore:
         except (sqlite3.DatabaseError, ValueError):
             target.unlink(missing_ok=True)
             raise
+
+
+def read_identity_reviews(path, *, as_of=None):
+    """Read decisions without creating a database or writing observation state."""
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        return [{**dict(item), 'evidence': json.loads(item['evidence'])}
+                for item in db.execute('SELECT * FROM reviews ORDER BY review_id')
+                if as_of is None or datetime.fromisoformat(item['reviewed_at']) <= datetime.fromisoformat(as_of)]
 
 
 def read_identity_result(path, snapshot_id, as_of):

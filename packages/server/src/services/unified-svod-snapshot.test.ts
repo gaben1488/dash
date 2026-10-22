@@ -38,6 +38,21 @@ function baseSnapshot(officialMetrics: Record<string, NormalizedMetric>): DataSn
 }
 
 describe('attachUnifiedGrid (server Task 5 wiring)', () => {
+  it.each([
+    ['2026-02-28T11:59:59Z', 0, 0],
+    ['2026-02-28T12:00:00Z', 1, -10],
+  ])('binds the grid to the snapshot day, not machine time: %s', (instant, count, economy) => {
+    const snap = baseSnapshot({});
+    snap.createdAt = instant;
+    attachUnifiedGrid(snap, { УО: [
+      row({ 0: '1', 5: 'Текущая деятельность', 6: 'Закупка', 11: 'ЭА',
+        13: '2026-02-01', 14: 1, 15: 2026, 16: '2026-03-01', 7: 100,
+        21: 110, 25: -10, 29: 'да' }),
+    ] }, 2026);
+    const cell = snap.unifiedGrid!.cells[unifiedKey('uo', 'all', 'kp', 'year')]!;
+    expect(cell.factCount).toBe(count);
+    expect(cell.economyFB).toBe(economy);
+  });
   // Два КП-атома 1 кв/2026 в листе 'УО': ПМ (план ФБ 100) + ТД (план ФБ 30).
   const sheetRows: Record<string, unknown[][]> = {
     'УО': [

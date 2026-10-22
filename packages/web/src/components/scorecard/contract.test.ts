@@ -81,8 +81,8 @@ describe('нарушения норм закона → карточка диаг
 
   it('карточка несёт механизм, адрес и действие', () => {
     const [card] = toDiagnosticIssues([issue]);
-    expect(card.title).toContain('единственного поставщика');
-    expect(card.kbHint).toContain('600 тыс.');
+    expect(card.title).toContain('Недостаточно данных');
+    expect(card.kbHint).toContain('несколько договоров');
     expect(card.recommendation).toContain('Исполнителю управления');
     expect(card.row).toBe(214);
   });
@@ -102,8 +102,8 @@ describe('нарушения норм закона → карточка диаг
 
   it('снижение больше четверти признаётся поводом посмотреть, а не нарушением', () => {
     const [card] = toDiagnosticIssues([{ ...issue, ruleCode: 'anti_dumping', severity: 'warning' }]);
-    expect(card.kbHint).toContain('начальной цены');
-    expect(card.kbHint).toContain('планового лимита');
+    expect(card.kbHint).toContain('НМЦК');
+    expect(card.kbHint).toContain('не доказывает нарушение');
     // Ячейку не выдумываем: колонки у этой проверки нет.
     expect(card.cell).toBeUndefined();
   });

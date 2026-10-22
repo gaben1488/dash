@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import { ISSUE_STATUS_LABELS } from '@aemr/shared';
 
 /**
@@ -21,15 +22,10 @@ export { formatEventTime } from './event-time';
  * экране. Словарь продукта таких ключей не держит: это не ключ данных, а
  * подпись писателя журнала, поэтому перевод живёт здесь, рядом с местом показа.
  */
-const ACTOR_LABELS: Readonly<Record<string, string>> = {
-  Pipeline: 'Обновление данных',
-  pipeline: 'Обновление данных',
-  System: 'Система',
-  system: 'Система',
-};
+const ACTOR_LABELS: Readonly<Record<string, string>> = PRODUCT_COPY["lib/selectors/journal-display:ACTOR_LABELS"];
 
 export function journalActorLabel(actor: string | null | undefined): string {
-  if (!actor) return 'Система';
+  if (!actor) return 'Автор не указан';
   return ACTOR_LABELS[actor] ?? actor;
 }
 

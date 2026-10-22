@@ -5,6 +5,9 @@
 //    никогда не «план − факт»: последнее считает неосвоенный лимит, а не
 //    экономию (METRICS_CONTRACT.md, строки 10-11 и 47).
 
+import { aggregateNodeTotals, type AggregateOpts } from './selectors/totals-aggregation';
+import type { PeriodResolution } from './selectors/period-resolution';
+
 const QUARTER_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 
 export interface EconomyMetricSource {
@@ -23,6 +26,9 @@ export interface EconomyDepartmentSource extends EconomyMetricSource {
 }
 
 export interface EconomyTotalInput {
+  periodResolution?: PeriodResolution;
+  nodeAggregateOpts?: AggregateOpts;
+  selectedActivities?: Set<string>;
   depts: EconomyDepartmentSource[];
   periodKey?: string;
   coveredQuarters?: string[];
@@ -184,5 +190,15 @@ export function getEconomyTotalBreakdown(input: EconomyTotalInput): EconomyTotal
 
 /** Итог одним числом — для потребителей, которым разбор не нужен. */
 export function getFilteredEconomyTotal(input: EconomyTotalInput): number {
+  const opts = input.nodeAggregateOpts;
+  if (input.periodResolution && opts
+      && (input.selectedActivities?.size || opts.showKP !== opts.showEP)) {
+    return input.depts.reduce((sum, node) => {
+      const n = aggregateNodeTotals(node, input.periodResolution!, {
+        ...opts, activityKeys: [...(input.selectedActivities ?? [])],
+      });
+      return sum + selectedEconomy({ ...n, ...n.budget }, input.selectedBudgets);
+    }, 0);
+  }
   return getEconomyTotalBreakdown(input).total;
 }

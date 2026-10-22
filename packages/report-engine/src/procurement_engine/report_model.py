@@ -37,6 +37,7 @@ def build_report_model(snapshot: dict, ledger: list[dict]) -> dict:
 
     return {
         "snapshot": {
+            **({"source_revision": snapshot["source_revision"]} if "source_revision" in snapshot else {}),
             "snapshot_id": snapshot.get("snapshot_id"),
             "cutoff_at": snapshot.get("cutoff_at") or snapshot.get("captured_at"),
             "captured_at": snapshot.get("captured_at"),
@@ -117,6 +118,9 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
     if modern_context:
         model['contract']['business_context_contract'] = 'source-context-v1'
     model.setdefault("contract", {})["report_model_version"] = "report-model-v1.2.0"
+    # Format marker is stored on newly issued models only. Historical dashboard.json
+    # files remain byte-for-byte valid under their original projection format.
+    model["contract"]["source_revision_projection"] = "v1"
 
     # Renderer-neutral per-GRBS and all-quarter metric projections.  Renderers must not
     # reach back into snapshot["model"] or recompute business aggregates.

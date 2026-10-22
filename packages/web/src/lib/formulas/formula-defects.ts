@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * formula-defects.ts — чтение замечаний формульной целостности книг на экранах.
  *
@@ -24,7 +25,7 @@
  * принял, продукт обязан говорить «не смотрели», а не «чисто»: за это отвечает
  * `formulaIntegritySpot`, и молчание он отличает от нуля.
  */
-import { DEPT_HEADER_ROWS, getCheckById } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, getCheckById, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { toCanonicalDeptId } from '../dept-key';
 
@@ -49,7 +50,7 @@ export type FormulaDefectCheckId = (typeof FORMULA_DEFECT_CHECK_IDS)[number];
 export const FORMULA_DEFECT_GROUP = 'formula_consistency';
 
 /** Заголовок поверхностей — один на все три экрана, чтобы не разъехался. */
-export const FORMULA_INTEGRITY_TITLE = 'Целостность формул книг';
+export const FORMULA_INTEGRITY_TITLE = PRODUCT_COPY["lib/formulas/formula-defects:FORMULA_INTEGRITY_TITLE"];
 
 const CHECK_ID_SET: ReadonlySet<string> = new Set(FORMULA_DEFECT_CHECK_IDS);
 
@@ -82,6 +83,8 @@ export interface FormulaIssueLike {
 
 /** Дефект формулы, как его показывают экраны. */
 export interface FormulaDefectView {
+  /** Доказанная неприменимость к закупкам; исходное замечание остаётся в истории. */
+  inapplicableReason?: string;
   /** Идентификатор замечания — ключ отрисовки. */
   id: string;
   /** Класс дефекта (идентификатор паспорта). */
@@ -110,7 +113,7 @@ export interface FormulaDefectView {
 
 const ACTUAL_OVERWRITTEN = /вместо формулы стоит «([^»]*)»/;
 const ACTUAL_MUTANT = /формула «([^»]*)» расходится/;
-const ETALON_LABEL = 'Эталон графы: ';
+const ETALON_LABEL = PRODUCT_COPY["lib/formulas/formula-defects:ETALON_LABEL"];
 const ETALON_INLINE = 'расходится с эталоном графы ';
 const DONOR_MARK = '; целая формула — в строке ';
 
@@ -173,20 +176,14 @@ export function collectFormulaDefects(
     const kind = checkId as FormulaDefectCheckId;
     const description = textOrEmpty(issue.description);
     const rowRaw = Number(issue.row);
-    const cell = textOrEmpty(issue.cell);
-    // Старые снимки могли сохранить ложные замечания числовой шапки.
-    // Исключаем их из экранов и счёта без перезаписи архивных данных.
-    const cellMatch = /^[A-Z]{1,3}([1-9][0-9]*)$/i.exec(cell);
-    const cellRow = cellMatch ? Number(cellMatch[1]) : null;
-    if ((Number.isInteger(rowRaw) && rowRaw > 0 && rowRaw <= DEPT_HEADER_ROWS)
-      || (cellRow !== null && cellRow <= DEPT_HEADER_ROWS)) continue;
     out.push({
+      inapplicableReason: formulaDiagnosticInapplicableReason(issue),
       id: textOrEmpty(issue.id),
       checkId: kind,
       className: formulaDefectName(kind),
       book: textOrEmpty(issue.sheet),
       departmentId: textOrEmpty(issue.departmentId),
-      cell,
+      cell: textOrEmpty(issue.cell),
       row: Number.isFinite(rowRaw) && rowRaw > 0 ? rowRaw : null,
       rowSeq: textOrEmpty(issue.rowSeq),
       actual: parseActual(description, kind),
@@ -223,10 +220,11 @@ export function countFormulaDefects(
   } as Record<FormulaDefectCheckId, number>;
   const byBook: Record<string, number> = {};
   for (const d of defects) {
+    if (d.inapplicableReason) continue;
     byClass[d.checkId] += 1;
     byBook[d.book] = (byBook[d.book] ?? 0) + 1;
   }
-  return { total: defects.length, byClass, byBook };
+  return { total: Object.values(byClass).reduce((sum, count) => sum + count, 0), byClass, byBook };
 }
 
 /**
@@ -248,6 +246,11 @@ export function indexFormulaDefectsByRow(
   const index = new Map<string, FormulaDefectView[]>();
   for (const d of defects) {
     if (d.rowSeq === '') continue;
+    // Старый снимок мог принять нумерацию колонок шапки за закупку №1.
+    // Не переписываем историю, но такой адрес не является строкой реестра.
+    const cellRow = /\$?[A-Z]+\$?(\d+)$/i.exec(d.cell)?.[1];
+    if ((d.row !== null && d.row <= DEPT_HEADER_ROWS)
+      || (cellRow !== undefined && Number(cellRow) <= DEPT_HEADER_ROWS)) continue;
     // Книга замечания приходит именем листа («УО»), ключ строки Реестра —
     // ключом управления: обе формы канонизируются одной функцией.
     const key = formulaRowKey(d.book !== '' ? d.book : d.departmentId, d.rowSeq);

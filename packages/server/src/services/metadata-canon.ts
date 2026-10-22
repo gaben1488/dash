@@ -27,6 +27,8 @@
  * (разбор 30.08.2026, вариант «Б» отклонён).
  */
 
+import { MASTER_FORMULA_COLUMN_GROUPS } from '@aemr/shared';
+
 /** Группа формульных колонок канона: защищена целиком, валидация снята. */
 export interface CanonColumnGroup {
   from: string;
@@ -48,12 +50,7 @@ export const METADATA_CANON = {
   conditionalFormatRules: { full: 37, visualOnly: 16 },
 
   /** Формульные группы: защищены от правки и покрыты правилом «формула сломана». */
-  protectedColumnGroups: [
-    { from: 'K', to: 'K' },
-    { from: 'O', to: 'P' },
-    { from: 'R', to: 'T' },
-    { from: 'Y', to: 'AC' },
-  ] as readonly CanonColumnGroup[],
+  protectedColumnGroups: MASTER_FORMULA_COLUMN_GROUPS as readonly CanonColumnGroup[],
 
   /** Шапка листа: три строки под защитой. */
   headerRows: 3,

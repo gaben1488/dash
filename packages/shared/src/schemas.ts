@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceCoverageSchema } from './source-coverage.js';
 import { ALL_DEPT_IDS } from './department-registry.js';
 
 // ============================================================
@@ -159,6 +160,7 @@ export const IssueSchema = z.object({
   sheet: z.string().optional(),
   cell: z.string().optional(),
   row: z.number().optional(),
+  rowSeq: z.string().optional(),
   metricKey: z.string().optional(),
   departmentId: z.string().optional(),
   recommendation: z.string().optional(),
@@ -172,19 +174,28 @@ export const IssueSchema = z.object({
 // ────────────────────────────────────────────────────────────
 
 export const TrustComponentSchema = z.object({
+  checks: z.object({ expected: z.number().int().nonnegative(),
+    checked: z.number().int().nonnegative(), failed: z.number().int().nonnegative() }).optional(),
   name: z.string(),
   label: z.string(),
   weight: z.number(),
-  score: z.number().min(0).max(100),
+  score: z.number().min(0).max(100).nullable(),
   issues: z.number().int(),
   criticalIssues: z.number().int(),
   details: z.string(),
 });
 
 export const TrustScoreSchema = z.object({
-  overall: z.number().min(0).max(100),
+  coverage: z.array(z.object({
+    sheet: z.string(),
+    component: z.enum(['formula_integrity', 'rule_compliance']),
+    expected: z.number().int().nonnegative(),
+    checked: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  })).optional(),
+  overall: z.number().min(0).max(100).nullable(),
   components: z.array(TrustComponentSchema),
-  grade: TrustGradeSchema,
+  grade: TrustGradeSchema.nullable(),
   computedAt: z.string(),
   basedOnSnapshot: z.string(),
 });
@@ -275,6 +286,23 @@ export const DataSnapshotSchema = z.object({
     cellsRead: z.number().int(),
     readDurationMs: z.number(),
     pipelineDurationMs: z.number(),
+    timings: z.record(z.string(), z.number().nonnegative()).optional(),
+    targetYear: z.number().int().nullable().optional(),
+    readModel: z.object({ state: z.enum(['refreshing', 'stale']) }).optional(),
+    sourceReceipt: z.string().nullable().optional(),
+    sourceRevision: z.string().regex(/^SRC-[a-f0-9]{64}$/).optional(),
+    calculationContext: z.object({
+      contract: z.literal('aemr-calculation-context-v1'), id: z.string(),
+      sources: z.object({ content: z.string(), profiles: z.string() }), semantics: z.string(),
+      thresholds: z.record(z.string(), z.object({ value: z.number(),
+        status: z.enum(['verified', 'internal', 'unverified']), edition: z.string().nullable(), sourceRef: z.string().nullable() })),
+      calendar: z.object({ asOf: z.string(), productDay: z.number().int(),
+        utcOffsetHours: z.number(), weeklyCutoffHour: z.number() }),
+      scope: z.object({ targetYear: z.number().nullable(), officialYear: z.number().nullable() }),
+      decisions: z.literal('not-applied'), access: z.literal('full-dataset'),
+    }).optional(),
+    decisionView: z.object({ basedOnContext: z.string().nullable(), revision: z.string() }).optional(),
+    sourceCoverage: SourceCoverageSchema.optional(),
     perSheetRowCount: z.record(z.string(), z.number()).optional(),
   }),
 });
@@ -302,6 +330,37 @@ export const KPICardSchema = z.object({
   }).optional(),
 });
 
+/** An unknown value is null; an absent field is a broken response contract. */
+export const DepartmentPeriodBlockSchema = z.object({
+  planCount: z.number().nullable(),
+  factCount: z.number().nullable(),
+  planTotal: z.number().nullable(),
+  factTotal: z.number().nullable(),
+  planFB: z.number().nullable(),
+  planKB: z.number().nullable(),
+  planMB: z.number().nullable(),
+  factFB: z.number().nullable(),
+  factKB: z.number().nullable(),
+  factMB: z.number().nullable(),
+  economyTotal: z.number().nullable(),
+  economyFB: z.number().nullable(),
+  economyKB: z.number().nullable(),
+  economyMB: z.number().nullable(),
+  executionPct: z.number().nullable(),
+  execCountPct: z.number().nullable(),
+  compExecCountPct: z.number().nullable(),
+  epExecCountPct: z.number().nullable(),
+  kpCount: z.number().nullable(),
+  kpFactCount: z.number().nullable(),
+  kpPlanTotal: z.number().nullable(),
+  kpFactTotal: z.number().nullable(),
+  epCount: z.number().nullable(),
+  epFactCount: z.number().nullable(),
+  epPlanTotal: z.number().nullable(),
+  epFactTotal: z.number().nullable(),
+});
+export type DepartmentPeriodBlock = z.infer<typeof DepartmentPeriodBlockSchema>;
+
 export const DepartmentSummarySchema = z.object({
   department: z.object({
     id: z.string(),
@@ -311,7 +370,7 @@ export const DepartmentSummarySchema = z.object({
     svodRange: z.object({ startRow: z.number(), endRow: z.number() }),
     controlCells: z.record(z.string(), z.string()),
   }),
-  months: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  months: z.record(z.string(), DepartmentPeriodBlockSchema).optional(),
   planTotal: z.number().nullable(),
   factTotal: z.number().nullable(),
   executionPercent: z.number().nullable(),
@@ -323,14 +382,31 @@ export const DepartmentSummarySchema = z.object({
   soleCount: z.number().nullable().optional(),
   issueCount: z.number().int(),
   criticalIssueCount: z.number().int(),
-  trustScore: z.number(),
+  trustScore: z.number().nullable(),
   trustComponents: z.array(TrustComponentSchema).optional(),
   status: z.enum(['normal', 'warning', 'critical']),
-  quarters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  quarters: z.record(z.string(), DepartmentPeriodBlockSchema).optional(),
   signalCounts: z.record(z.string(), z.number()).optional(),
   byActivity: z.record(z.string(), z.unknown()).optional(),
   subordinates: z.array(z.unknown()).optional(),
   economyConflicts: z.number().optional(),
+});
+
+/**
+ * The legacy department type permits optional fields; current Dashboard HTTP
+ * always transmits these fields, even when their numerical contents are null.
+ * Dropping an axis or its quarter structure is a broken DTO, not source absence.
+ */
+const DashboardDepartmentSummarySchema = DepartmentSummarySchema.required({
+  months: true,
+  competitiveCount: true,
+  soleCount: true,
+  trustComponents: true,
+  quarters: true,
+  signalCounts: true,
+  byActivity: true,
+  subordinates: true,
+  economyConflicts: true,
 });
 
 export const DashboardPeriodSummarySchema = z.object({
@@ -357,6 +433,15 @@ export const DashboardPeriodSummarySchema = z.object({
   epKbFact: z.number().nullable().optional(),
   epMbFact: z.number().nullable().optional(),
   source: z.enum(['official', 'calculated']),
+}).superRefine((summary, ctx) => {
+  // The official Q1/year layout never contained the ЕП budget breakdown;
+  // calculated Q2–Q4 always transmit it, including explicit null values.
+  if (summary.source !== 'calculated') return;
+  for (const field of ['epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact'] as const) {
+    if (summary[field] === undefined) {
+      ctx.addIssue({ code: 'custom', path: [field], message: 'Обязательное поле расчётного периода отсутствует' });
+    }
+  }
 });
 
 export const DashboardIssueSummarySchema = z.object({
@@ -371,9 +456,10 @@ export const DashboardIssueSummarySchema = z.object({
 export const DashboardDataSchema = z.object({
   snapshot: DataSnapshotSchema,
   kpiCards: z.array(KPICardSchema),
-  departmentSummaries: z.array(DepartmentSummarySchema),
+  departmentSummaries: z.array(DashboardDepartmentSummarySchema),
   summaryByPeriod: z.record(z.string(), DashboardPeriodSummarySchema),
   recentIssues: z.array(IssueSchema),
+  recentIssuesRef: z.literal('snapshot.issues').optional(),
   signalCounts: z.record(z.string(), z.number()),
   issueSummary: DashboardIssueSummarySchema,
   trust: TrustScoreSchema,
@@ -446,10 +532,28 @@ export const IssuesListResponseSchema = z.object({
   }).passthrough(),
 }).passthrough();
 
+/** Существующие Dash-решения и комментарии; не Google-посты и не правки ячеек. */
+export const IssueHistoryEventSchema = z.object({
+  eventId: z.string().min(1),
+  issueId: z.string(),
+  type: z.enum(['status_change', 'comment']),
+  source: z.enum(['dash_decision', 'dash_comment']),
+  at: z.string().min(1),
+  author: z.string().nullable(),
+  text: z.string().nullable(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  reason: z.string().nullable().optional(),
+  justification: z.string().nullable().optional(),
+  responsible: z.string().nullable().optional(),
+  deadline: z.string().nullable().optional(),
+}).passthrough();
+export type IssueHistoryEvent = z.infer<typeof IssueHistoryEventSchema>;
+
 /** GET /api/issues/:id/history */
 export const IssueHistoryResponseSchema = z.object({
   issueId: z.string(),
-  history: z.array(z.object({}).passthrough()),
+  history: z.array(IssueHistoryEventSchema),
 }).passthrough();
 
 /** GET /api/journal */
@@ -532,17 +636,76 @@ export const ReportActionSchema = z.object({
     subject: z.string().nullable(), business_id: z.string().nullable(),
   })),
 });
-export const ReportAssuranceSchema = z.object({
-  contract: z.literal('actionable-assurance-v1'), fully_automated: z.boolean(),
+// Frozen v1/v2 releases retain their contracts. v3 keeps repeated business
+// labels as observations, with every address and no implied corrective action.
+const ReportAssuranceCoreSchema = z.object({
+  fully_automated: z.boolean(),
   user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
   active_recommendations: z.number().int().nonnegative(),
   link_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   action_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   actions: z.array(ReportActionSchema), meaning: z.string(),
 });
+const ReportSourceStatementSchema = z.object({
+  kind: z.enum(['NO_FUNDING_REPORTED', 'FUNDING_REPORTED', 'POSTPONED_REPORTED',
+    'PLAN_YEAR_CHANGE_REPORTED', 'CONTRACT_DATE_REPORTED']),
+  target: z.union([z.number().int(), z.string(), z.null()]),
+  field: z.string(), column: z.string(), quote: z.string(),
+  source_text: z.string(), evidence_kind: z.literal('SOURCE_STATEMENT'),
+});
+const ReportAssuranceV2Schema = ReportAssuranceCoreSchema.extend({
+  contract: z.literal('actionable-assurance-v2'),
+  source_observations: z.array(z.object({
+    source_row_key: z.string().nullable(),
+    events: z.array(ReportSourceStatementSchema),
+  })),
+  nonprocurement_identity_observations: z.number().int().nonnegative(),
+});
+export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
+  ReportAssuranceCoreSchema.extend({ contract: z.literal('actionable-assurance-v1') }),
+  ReportAssuranceV2Schema,
+  ReportAssuranceV2Schema.extend({
+    contract: z.literal('actionable-assurance-v3'),
+    business_id_observations: z.array(z.object({
+      code: z.literal('DUPLICATE_BUSINESS_ID'), grbs: z.string().nullable(),
+      business_id: z.string().nullable(), locations: ReportActionSchema.shape.locations,
+      user_action_required: z.literal(false), meaning: z.string(),
+    })),
+  }),
+  ReportAssuranceV2Schema.extend({
+    contract: z.literal('actionable-assurance-v4'),
+    business_id_observations: z.array(z.object({
+      code: z.literal('DUPLICATE_BUSINESS_ID'), grbs: z.string().nullable(),
+      business_id: z.string().nullable(), locations: ReportActionSchema.shape.locations,
+      user_action_required: z.literal(false), meaning: z.string(),
+    })),
+    current_result_unknown_count: z.number().int().nonnegative(),
+    resolved_questions: z.array(z.object({
+      code: z.string(), source_row_key: z.string().nullable(), recommendation_id: z.string().nullable(),
+      title: z.string(), answer: z.string(), basis: z.string(),
+      locations: ReportActionSchema.shape.locations, proves_current_implementation: z.literal(false),
+    })),
+  }),
+]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
-export const ReportRefreshResponseSchema = z.object({
+const ReportCommandRecordSchema = z.object({
+  status: z.enum(['QUEUED', 'RUNNING', 'VERIFIED', 'VERIFIED_WITH_WARNINGS', 'NOT_ISSUED']),
+  attempt_id: z.string().regex(/^[a-f0-9]{32}$/),
+  requested_at: z.string().datetime({ offset: true }).optional(),
+  started_at: z.string().datetime({ offset: true }).optional(),
+  finished_at: z.string().datetime({ offset: true }).nullable().optional(),
+  stage: z.enum(['inputs', 'acquisition', 'publication_selection', 'build', 'publication']).optional(),
+  error_code: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+  release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
+}).strict();
+export const ReportCommandSchema = ReportCommandRecordSchema.refine(command =>
+  !['VERIFIED', 'VERIFIED_WITH_WARNINGS'].includes(command.status) || command.release_id !== undefined,
+{ message: 'A published command requires its release receipt' });
+export type ReportCommand = z.infer<typeof ReportCommandSchema>;
+export const ReportRefreshResponseSchema = ReportCommandRecordSchema.extend({
+  // Keep the acknowledgement understood by already-open older browser tabs.
+  // Actual execution state is read from the durable command endpoint.
   status: z.enum(['STARTED', 'RUNNING']),
   message: z.string(),
 });
@@ -579,11 +742,33 @@ export const PublishedReleaseSchema = z.object({
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
   operational_available: z.boolean().optional(),
+  /** False retains exact artifacts/context but makes no source-replay promise. */
+  replay_available: z.boolean().optional(),
   automation_assurance: ReportAssuranceSchema.optional(),
+  /** Equal evidence of this release remains complete in the selected DTO. */
+  automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
 
+/** Current worker observations; independent of the selected Word's historical cutoff. */
+export const ReportOperationsSchema = z.object({
+  checked_at: z.string().datetime({ offset: true }),
+  worker_state: z.enum(['idle', 'running', 'interrupted', 'unknown']),
+  running_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_cycle_duration_seconds: z.number().int().nonnegative().safe().nullable(),
+  last_success_at: z.string().datetime({ offset: true }).nullable(),
+  last_success_age_seconds: z.number().int().nonnegative().safe().nullable(),
+  check_stale: z.boolean(),
+  last_failure_at: z.string().datetime({ offset: true }).nullable(),
+  last_failure_code: z.string().regex(/^[A-Z][A-Z0-9_]{1,100}$/).nullable(),
+  last_failure_stage: z.enum(['inputs', 'acquisition', 'publication_selection', 'build', 'publication']).nullable(),
+  failure_resolved: z.boolean(),
+  publication_cutoff_at: z.string().datetime({ offset: true }).nullable(),
+});
+export type ReportOperations = z.infer<typeof ReportOperationsSchema>;
+
 export const ReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   latest: PublishedReleaseSchema.nullable(),
   attempt: z.object({
     status: z.enum(['RUNNING', 'NOT_ISSUED', 'VERIFIED', 'VERIFIED_WITH_WARNINGS']),
@@ -592,6 +777,7 @@ export const ReportReleaseStatusSchema = z.object({
     blockers: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
     error_code: z.string().optional(),
     automation_assurance: ReportAssuranceSchema.nullable().optional(),
+    automation_assurance_release_id: z.string().regex(/^REL-[a-f0-9]{64}$/).optional(),
   }).nullable(),
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;
@@ -605,12 +791,18 @@ export const ArchivePreparationSchema = z.object({
     missing_sections: z.array(z.string()) }).optional(),
 });
 
+/** Strict receipt context for exact and last-in-period frozen Word. */
+const ContextualPublishedReleaseSchema = PublishedReleaseSchema.extend({
+  report_year: z.number().int().min(1900).max(9999),
+  quarter: z.number().int().min(1).max(4),
+});
+
 export const SelectedReportReleaseStatusSchema = z.object({
+  operations: ReportOperationsSchema.optional(),
   archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
-  selected: PublishedReleaseSchema.extend({
-    report_year: z.number().int().min(1900).max(9999),
-    quarter: z.number().int().min(1).max(4),
-  }).nullable(),
+  selected: ContextualPublishedReleaseSchema.nullable(),
+  /** Read-only period fallback; old Python engines may omit this key. */
+  latest_matching: ContextualPublishedReleaseSchema.nullable().optional(),
 });
 export type SelectedReportReleaseStatus = z.infer<typeof SelectedReportReleaseStatusSchema>;

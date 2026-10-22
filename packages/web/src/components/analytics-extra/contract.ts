@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Договор с сервером по двум разделам, которые до 21.08.2026 не выводились
  * никуда: адресные признаки странностей (GET /api/anomalies) и целостность
@@ -144,6 +145,7 @@ export interface IntegrityBookDto {
 export interface VanishedBookDto {
   dept: string;
   deptName: string;
+  currentAt: string;
   vanished: Array<{
     rowSeq: string;
     wasAtSheetRow: number;
@@ -157,7 +159,53 @@ export interface VanishedBookDto {
   vanishedPlanSum: number;
   vanishedFactSum: number;
   unkeyed: { before: number; after: number };
+  identityCandidates: Array<{
+    beforeRowSeq: string; afterRowSeq: string;
+    beforeSheetRow: number; afterSheetRow: number;
+    subject: string; subordinate: string; planSum: number;
+    evidence: 'subject+subordinate+plan+method'; status: 'needs-review';
+  }>;
+  ambiguousKeys: { before: string[]; after: string[] };
+  contextChanged: Array<{
+    rowSeq: string; beforeSheetRow: number; afterSheetRow: number;
+    beforeSubject: string; afterSubject: string;
+    beforeSubordinate: string; afterSubordinate: string;
+    status: 'needs-review';
+  }>;
   note: string;
+}
+
+/** Only the absence of an earlier number, not a verified procurement deletion. */
+export interface OperationalAbsenceDto {
+  dept: string;
+  rowSeq: string;
+  wasAtSheetRow: number | null;
+  subject: string;
+  observedAt: string;
+}
+export interface OperationalAbsenceReport {
+  since: string;
+  entries: OperationalAbsenceDto[];
+  unavailableBooks: Array<{ dept: string; reason: string }>;
+  error: string | null;
+}
+
+/** Avoid counting a single literal number twice in live and weekly evidence. */
+export function uniqueOperationalAbsences(
+  observations: readonly OperationalAbsenceDto[],
+  comparisons: readonly { dept: string; vanished: readonly { rowSeq: string }[] }[],
+): { only: OperationalAbsenceDto[]; corroboratedCount: number } {
+  const weekly = new Set(comparisons.flatMap(book =>
+    book.vanished.map(row => JSON.stringify([book.dept, row.rowSeq]))));
+  const unique = new Map<string, OperationalAbsenceDto>();
+  let corroboratedCount = 0;
+  for (const event of observations) {
+    const key = JSON.stringify([event.dept, event.rowSeq]);
+    if (weekly.has(key)) { corroboratedCount++; continue; }
+    const previous = unique.get(key);
+    if (!previous || event.observedAt > previous.observedAt) unique.set(key, event);
+  }
+  return { only: [...unique.values()], corroboratedCount };
 }
 
 export interface IntegrityResponse {
@@ -166,13 +214,29 @@ export interface IntegrityResponse {
   totals: { gapCount: number; duplicates: number; countableWithoutSeq: number; dateFormat: number };
   /** null — сравнивать не с чем; причина названа в comparisonNote. */
   comparison: {
+    baselineId: string;
+    beforeAt: string;
+    afterAt: string;
+    oldestCurrentAt: string;
+    unavailableBooks: Array<{ dept: string; reason: string }>;
+    books: VanishedBookDto[];
+    vanishedTotal: number;
+    vanishedPlanSum: number;
+  } | null;
+  comparisonNote: string;
+  /** Независимая сверка двух последних СМЕЖНЫХ завершённых четвергов. */
+  weeklyComparison: {
+    beforeId: string;
+    afterId: string;
     beforeAt: string;
     afterAt: string;
     books: VanishedBookDto[];
     vanishedTotal: number;
     vanishedPlanSum: number;
   } | null;
-  comparisonNote: string;
+  weeklyComparisonNote: string;
+  /** Optional so old installed servers continue to render honestly. */
+  operational?: OperationalAbsenceReport;
   notes: string[];
 }
 
@@ -181,10 +245,7 @@ export interface IntegrityResponse {
 // ────────────────────────────────────────────────────────────
 
 /** Заголовки шкал: вопрос, на который отвечает каждая. */
-export const SCALE_TITLE: Record<AnomalyScale, string> = {
-  typo: 'Похоже на опечатку',
-  fitted: 'Похоже на подгон',
-};
+export const SCALE_TITLE: Record<AnomalyScale, string> = PRODUCT_COPY["components/analytics-extra/contract:SCALE_TITLE"];
 
 export const SCALE_LEAD: Record<AnomalyScale, string> = {
   typo: 'Рука дрогнула: лишний ноль, рубли вместо тысяч, соседний год, сумма скопирована '
@@ -194,11 +255,7 @@ export const SCALE_LEAD: Record<AnomalyScale, string> = {
 };
 
 /** Уровень аномалии датасета словом — внутренние коды на экран не выходят. */
-export const LEVEL_LABEL: Record<DatasetFindingDto['level'], string> = {
-  row: 'строка книги',
-  behaviour: 'видно сравнением с прошлым чтением',
-  book: 'признак всей книги',
-};
+export const LEVEL_LABEL: Record<DatasetFindingDto['level'], string> = PRODUCT_COPY["components/analytics-extra/contract:LEVEL_LABEL"];
 
 /** Тысячи рублей с русской группировкой разрядов. */
 export function fmtTys(value: number): string {
@@ -246,19 +303,23 @@ export const INTEGRITY_KB = {
   howCalc:
     'Нумерация: пропуски внутри диапазона использованных номеров сворачиваются в отрезки; '
     + 'охват — доля счётных строк (есть способ закупки и плановые деньги) с заполненным '
-    + 'номером. Пропажи: строки двух последних снимков сравниваются по «№ п/п», а не по '
-    + 'номеру строки листа — строки двигаются от вставок и сортировок.',
+    + 'номером. Поиск отсутствующих прежних номеров: текущее чтение действующих книг '
+    + 'сравнивается с последним завершённым недельным контролем. Возможная перенумерация '
+    + 'ищется по уникальному совпадению предмета, учреждения, суммы и способа; '
+    + 'это гипотеза, а не подтверждённая идентичность.',
   dataSource:
-    'Нумерация и вид ячеек — прочитанные книги управлений; пропажи — строки-атомы двух '
-    + 'последних сохранённых снимков в местной базе. К Google при открытии раздела '
-    + 'обращений нет.',
+    'Нумерация и вид ячеек — текущие прочитанные книги управлений. Контрольная база — '
+    + 'строки-атомы последнего подтверждённого четвергового снимка. Повторное чтение Google '
+    + 'запускается только по явной кнопке; пробелы источника показываются.',
   pitfalls:
-    'Пропуск номера — след удалённой строки, а не ошибка нумерации: журнал книги удаление '
-    + 'не записывает. Вид ячейки проверяется только там, где код даты лежит текстом: книги '
+    'Пропуск номера не доказывает удаление: возможны перенумерация и переоформление. '
+    + 'Дубли № и устаревшие книги исключаются из доказанной сверки. '
+    + 'Вид ячейки проверяется только там, где код даты лежит текстом: книги '
     + 'читаются в необработанном виде, и дату с верным форматом от даты с числовым '
     + 'отличить нечем.',
   actions:
     'Восстановить номера у счётных строк без «№ п/п» — иначе на закупку нечем сослаться. '
-    + 'Пропавшую строку сверить с книгой: если удалена по решению — это норма, если нет — '
-    + 'восстановить из снимка.',
+    + 'По отсутствующему прежнему номеру проверить журнал правок, контекст закупки и '
+    + 'основание изменения. Восстановление допустимо только после подтверждения '
+    + 'неправомерного удаления, не по одному номеру.',
 } as const;

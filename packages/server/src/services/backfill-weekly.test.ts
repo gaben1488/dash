@@ -115,21 +115,21 @@ describe('buildBackfillSnapshot — выгрузка → исторически�
   const d1 = ['1', 'УЭР АЕМР', 'МКУ "ЦЭР"'];
   const d2 = ['2', 'УЭР АЕМР', 'Х'];
 
-  it('срезает шапку канон-хелпером, отсеивает не-ГРБС и пустые книги, датируется четвергом', () => {
+  it('срезает шапку, сохраняет прочитанную пустую книгу, отсеивает не-ГРБС, датируется четвергом', () => {
     const thursday = day('2026-05-07');
     const snapshot = buildBackfillSnapshot(thursday, {
       sheetValuesByDept: {
         УЭР: [...header, d1, d2],
         Мусор: [...header, d1], // не-ГРБС ключ — не попадает в снимок
-        УИО: [...header], // только шапка — данных нет, книга отсеивается
+        УИО: [...header], // книга присутствует в выгрузке, закупок в ней нет
       },
     });
 
     expect(snapshot.id).toBe('backfill-2026-05-07');
     expect(snapshot.createdAt).toBe('2026-05-07T00:00:00.000Z');
-    expect(snapshot.rowsByDept).toEqual({ УЭР: [d1, d2] });
+    expect(snapshot.rowsByDept).toEqual({ УЭР: [d1, d2], УИО: [] });
     expect(snapshot.rowCount).toBe(2);
-    expect(snapshot.metadata.perSheetRowCount).toEqual({ УЭР: 2 });
+    expect(snapshot.metadata.perSheetRowCount).toEqual({ УЭР: 2, УИО: 0 });
     // Ничего не выдумано: официальных метрик, сигналов и СВОДа в выгрузке нет.
     expect(snapshot.officialMetrics).toEqual({});
     expect(snapshot.calculatedMetrics).toEqual({});
