@@ -907,9 +907,17 @@ SQLITE_PATH=./data/aemr.db
                       {' '}доступность агрегатов: {diagnosticRun.stages.rows.accessOnlyBooks}.
                       {' '}Ожидалось источников: {diagnosticRun.stages.rows.expectedSources}.
                     </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                      Текстовая гигиена: {diagnosticRun.stages.text.state === 'complete'
+                        ? `проверено ${diagnosticRun.stages.text.cellsChecked} ячеек, находок ${diagnosticRun.stages.text.findings}`
+                        : diagnosticRun.stages.text.state === 'not_run'
+                          ? 'не проверялась на свежих данных'
+                          : 'проверена не полностью'}.
+                      {' '}Адреса находок доступны в разделе качества данных.
+                    </p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Два этапа читают источники в разное время — это не атомарный исторический срез.
-                      {' '}Метрики, межкнижная сверка, тексты и сравнение истории данным запуском не проверялись.
+                      Этапы читают источники в разное время — это не атомарный исторический срез.
+                      {' '}Метрики, межкнижная сверка и сравнение истории этим запуском не подтверждаются.
                     </p>
                     {diagnosticRun.stages.rows.failedSources.length > 0 && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">
