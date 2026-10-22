@@ -21,12 +21,29 @@ const checks = () => [
   source(SHDYU_MONTHLY_SHEET_NAME, 'access_only'),
 ];
 const validateAllSources = vi.fn(async () => checks());
+const sourceValues = vi.fn(() => ({
+  'УО': [[], [], [], ['1', '', '', '', '', '', 'Закупка 1']],
+  'УИО': [[], [], [], ['1', '', '', '', '', '', 'Закупка 2']],
+}));
+const sourceFilledAt = vi.fn(() => Date.parse(at));
+const textHygiene = vi.fn(async () => ({
+  asOf: at, rowsSource: 'live', booksChecked: ['УО', 'УИО'], booksSilent: [],
+  totals: { rowsChecked: 2, cellsChecked: 12, hygieneFindings: 2, languageFindings: 1, countsByKind: {} },
+  byDept: [], language: [], notes: [],
+}));
 
 vi.mock('./source-integrity.js', () => ({
   checkSourcesDeep: (...args: unknown[]) => deep(...(args as [])),
 }));
 vi.mock('../services/source-validation.js', () => ({
   validateAllSources: (...args: unknown[]) => validateAllSources(...(args as [])),
+}));
+vi.mock('../services/snapshot.js', () => ({
+  getDeptSheetValues: () => sourceValues(),
+  getDeptCacheFilledAt: () => sourceFilledAt(),
+}));
+vi.mock('./text-hygiene.js', () => ({
+  buildTextHygieneResponse: (...args: unknown[]) => textHygiene(...(args as [])),
 }));
 vi.mock('../config.js', () => ({
   DEPARTMENT_SPREADSHEETS: { 'УО': 'one', 'УИО': 'two' },
@@ -48,6 +65,9 @@ beforeEach(() => {
   deep.mockImplementation(async () => deepResult());
   validateAllSources.mockReset();
   validateAllSources.mockImplementation(async () => checks());
+  sourceValues.mockClear();
+  sourceFilledAt.mockClear();
+  textHygiene.mockClear();
 });
 
 describe('POST /api/sources/diagnostics/run — сервер является координатором', () => {
@@ -62,6 +82,7 @@ describe('POST /api/sources/diagnostics/run — сервер является к
       stages: {
         deep: { state: 'complete', result: { expectedBooks: 2 } },
         rows: { state: 'complete', expectedSources: 4, checkedBooks: 2, accessOnlyBooks: 2, failedSources: [] },
+        text: { state: 'complete', rowsSource: 'live', booksChecked: 2, silentBooks: [], findings: 3 },
         metrics: { state: 'not_run' },
         crossbook: { state: 'not_run' },
         text: { state: 'not_run' },
@@ -74,6 +95,7 @@ describe('POST /api/sources/diagnostics/run — сервер является к
     expect(result.stages.rows.results).toHaveLength(4);
     expect(deep).toHaveBeenCalledTimes(1);
     expect(validateAllSources).toHaveBeenCalledTimes(1);
+    expect(textHygiene).toHaveBeenCalledTimes(1);
   });
 
   it('даже при отказе глубокого чтения не пропускает построчные проверки', async () => {
@@ -98,13 +120,32 @@ describe('POST /api/sources/diagnostics/run — сервер является к
     expect(result.stages.rows.checkedBooks).toBe(0);
   });
 
+  it('не подменяет непрочитанный текущий текст сохранённым снимком', async () => {
+    sourceFilledAt.mockReturnValueOnce(0);
+    const result = (await app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' })).json();
+    expect(result.status).toBe('partial');
+    expect(result.stages.text).toMatchObject({ state: 'not_run' });
+    expect(textHygiene).not.toHaveBeenCalled();
+  });
+
+  it('текстовый этап не подтверждается снимком вместо живого кэша', async () => {
+    textHygiene.mockResolvedValueOnce({
+      asOf: at, rowsSource: 'snapshot', booksChecked: ['УО'], booksSilent: ['УИО'],
+      totals: { rowsChecked: 2, cellsChecked: 2, hygieneFindings: 0, languageFindings: 0, countsByKind: {} },
+      byDept: [], language: [], notes: [],
+    });
+    const result = (await app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' })).json();
+    expect(result.stages.text.state).toBe('partial');
+    expect(result.stages.text.silentBooks).toContain('УИО');
+    expect(result.status).toBe('partial');
+  });
+
   it('два параллельных запроса используют один запуск, а не два чтения Google', async () => {
     let finish: (value: ReturnType<typeof deepResult>) => void = () => undefined;
     deep.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const first = app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' });
     const second = app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' });
-    // Allow requests to enter Fastify.
-    await Promise.resolve();
+    await vi.waitFor(() => expect(deep).toHaveBeenCalledTimes(1));
     finish(deepResult());
     const [a, b] = await Promise.all([first, second]);
     expect(a.json().runId).toBe(b.json().runId);
