@@ -7,7 +7,7 @@
  *
  * Порог берётся из канона @aemr/shared, не литералом. Обратных зависимостей нет.
  */
-import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS, isReadableDeptRow, subordinateKey } from '@aemr/shared';
+import { DEPT_COLUMNS, isReadableDeptRow, subordinateKey, type DatedThreshold } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 
 /** Result of suspicious splitting detection (44-ФЗ anti-splitting) */
@@ -34,9 +34,12 @@ const SPLITTING_MIN_GROUP_SIZE = 3;
  * planTotal в тысячах — фильтр-кандидат ниже порога пропускал все строки
  * (тысячи < 600 000 всегда), а финальный гейт суммы группы никогда не проходил.
  */
-const EP_SPLITTING_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub;
-
-export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
+export function detectSuspiciousSplitting(rows: unknown[][], reference?: DatedThreshold): SplittingGroup[] {
+  // For a historical view, an undated value is NOT evidence. This detector is
+  // only an internal candidate search: K is a position amount, not a contract.
+  if (!reference || reference.source !== 'law44' || reference.unit !== 'thousandRub'
+      || !Number.isFinite(reference.value) || reference.value <= 0) return [];
+  const limit = reference.value;
   interface EpCandidate {
     rowIndex: number;
     subject: string;
@@ -57,7 +60,7 @@ export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
     if (!method.includes('еп') && !method.includes('единствен')) continue;
 
     const planTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
-    if (planTotal <= 0 || planTotal >= EP_SPLITTING_THRESHOLD) continue;
+    if (planTotal <= 0 || planTotal >= limit) continue;
 
     const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? row[DEPT_COLUMNS.PROGRAM_NAME] ?? '').trim().toLowerCase();
     if (subject.length < 3) continue;
@@ -101,7 +104,7 @@ export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
 
       if (cluster.length >= SPLITTING_MIN_GROUP_SIZE) {
         const totalAmount = cluster.reduce((sum, c) => sum + c.planTotal, 0);
-        if (totalAmount >= EP_SPLITTING_THRESHOLD) {
+        if (totalAmount >= limit) {
           results.push({
             groupKey,
             rowIndices: cluster.map(c => c.rowIndex),
