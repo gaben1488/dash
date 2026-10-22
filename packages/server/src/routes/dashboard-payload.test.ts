@@ -197,6 +197,31 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
   });
 
+  it('keeps first metric delta, false-positive exclusion and GRBS counts with indexed issues', async () => {
+    const previous = fixture.snapshot;
+    const baseline = previous.issues[0]!;
+    const positive = { ...baseline, id: 'indexed-uo-open', metricKey: 'fixture.plan',
+      departmentId: 'uo', status: 'open' as const, severity: 'warning' as const };
+    const ignored = { ...positive, id: 'indexed-uo-ignored', severity: 'critical' as const,
+      status: 'false_positive' as const };
+    const first = { metricKey: 'fixture.plan', label: 'synthetic', officialValue: 100,
+      calculatedValue: 40, delta: -60, deltaPercent: -60, withinTolerance: false, explanation: '' };
+    fixture.snapshot = { ...previous, issues: [baseline, positive, ignored], deltas: [
+      first, { ...first, calculatedValue: 99, delta: -1 },
+    ] };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      const card = data.kpiCards.find((item: { metricKey: string }) => item.metricKey === 'fixture.plan');
+      expect(card).toMatchObject({ status: 'warning', delta: { calculatedValue: '40' } });
+      const uo = data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo');
+      expect(uo.issueCount).toBe(2);
+      expect(uo.signalCounts).toEqual({ dataQuality: 1 });
+      expect(data.issueSummary.total).toBe(3);
+    } finally { fixture.snapshot = previous; }
+  });
+
   it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {
     const response = await app.inject('/api/dashboard?year=2026');
     expect(response.statusCode).toBe(200);
