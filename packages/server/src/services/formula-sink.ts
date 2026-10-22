@@ -17,6 +17,7 @@
 import { detectFormulaIntegrity, formulaIntegrityRowNumber, type FormulaDefect } from '@aemr/core';
 import { setFormulaSink, type FormulaDelivery } from './source-refresh.js';
 import { loadFormulaAudits } from './source-integrity-state.js';
+import type { TrustCheckCounts, TrustCheckCoverage } from '@aemr/shared';
 
 export interface BookFormulaVerdict {
   book: string;
