@@ -32,6 +32,15 @@ describe('C08.02: recorded anomaly addresses are bound to recorded inputs', () =
       .toMatchObject({ rowSeq: '17/1', subject: 'Сохранённый предмет' });
   });
 
+  it('accepts the verified UF rename and declines two competing aliases for one captured book', () => {
+    const historical: unknown[][] = [sourceRow('4', 'Проверенный архивный предмет')];
+    expect(anomalyFactsOfCapturedRows({ rowsByDept: { УФ: historical } }, 'УФБП').get(4))
+      .toBe(historical[0]);
+    expect(anomalyFactsOfCapturedRows({
+      rowsByDept: { УФ: historical, УФБП: historical },
+    }, 'УФБП').size).toBe(0);
+  });
+
   it('does not manufacture source facts when a legacy snapshot lacks captured rows', () => {
     expect(anomalyFactsOfCapturedRows({}, 'УО').size).toBe(0);
     const dept = findDept('УО')!;
