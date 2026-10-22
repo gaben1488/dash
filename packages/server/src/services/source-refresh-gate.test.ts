@@ -194,6 +194,36 @@ describe('перечитка спрашивает Drive, прежде чем ч�
     expect(checkFileChanged).not.toHaveBeenCalledWith(config.google.spreadsheetId);
   });
 
+  it('SVOD-only reads no departmental books and does not renew their cache', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const r = await refreshAllSources(log, 'webhook', { books: [], svod: true });
+    expect(getSheetData).toHaveBeenCalledTimes(1);
+    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(r.booksRead).toBe(0);
+  });
+
+  it('coalesced SVOD-only scope never becomes all departments', async () => {
+    const { widenScopeForTests } = await import('./source-refresh.js');
+    const scope = widenScopeForTests(null, { books: [], svod: true });
+    expect(scope.books).toEqual(new Set());
+    expect(widenScopeForTests(scope, { books: ['УО'], svod: false }).books).toEqual(new Set(['УО']));
+  });
+
+  it('omitted targeted book is failed and not accepted', async () => {
+    await warmUp();
+    vi.clearAllMocks();
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: {}, errors: {} });
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const r = await refreshAllSources(log, 'webhook', { books: ['УО'], svod: false });
+    expect(r.loaded).toEqual([]);
+    expect(r.failed).toEqual(['УО']);
+    expect(r.retryableFailures).toEqual([]);
+    expect(setDeptLoadMeta).toHaveBeenCalledWith(expect.objectContaining({
+      'УО': expect.objectContaining({ error: 'SOURCE_READ_INCOMPLETE' }),
+    }));
+  });
+
   it('Drive промолчал — читаем, как читали: «не знаю» не повод пропустить правку', async () => {
     await warmUp();
     vi.clearAllMocks();
