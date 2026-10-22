@@ -66,20 +66,26 @@ export interface RowDiff {
    * номера выглядит как «ничего не случилось».
    */
   unkeyed: { before: number; after: number };
+  /** Номера, повторённые хотя бы в одном чтении: их судьба не определена. */
+  ambiguousKeys?: string[];
   note: string;
 }
 
-function keyed(rows: readonly SnapshotRow[]): Map<string, SnapshotRow> {
-  const map = new Map<string, SnapshotRow>();
-  for (const r of rows) {
-    const key = String(r.rowSeq ?? '').trim();
-    if (!key) continue;
-    // Дубль № п/п — болезнь нумерации (правило row_numbering). Для сравнения
-    // берём первое вхождение: две строки под одним номером и так подсвечены
-    // отдельным сигналом, здесь нельзя терять факт пропажи обеих.
-    if (!map.has(key)) map.set(key, r);
+/** Повтор № п/п делает сопоставление этого номера неоднозначным на обеих сторонах. */
+function keyed(rows: readonly SnapshotRow[]): { unique: Map<string, SnapshotRow>; duplicates: Set<string> } {
+  const unique = new Map<string, SnapshotRow>();
+  const duplicates = new Set<string>();
+  for (const row of rows) {
+    const key = String(row.rowSeq ?? '').trim();
+    if (!key || duplicates.has(key)) continue;
+    if (unique.has(key)) {
+      unique.delete(key);
+      duplicates.add(key);
+    } else {
+      unique.set(key, row);
+    }
   }
-  return map;
+  return { unique, duplicates };
 }
 
 function countUnkeyed(rows: readonly SnapshotRow[]): number {
@@ -91,12 +97,17 @@ export function diffSnapshots(
   before: readonly SnapshotRow[],
   after: readonly SnapshotRow[],
 ): RowDiff {
-  const was = keyed(before);
-  const now = keyed(after);
+  const previous = keyed(before);
+  const current = keyed(after);
+  const ambiguousKeys = [...new Set([...previous.duplicates, ...current.duplicates])].sort();
+  const ambiguous = new Set(ambiguousKeys);
+  const was = previous.unique;
+  const now = current.unique;
 
   const vanished: VanishedRow[] = [];
   const moved: MovedRow[] = [];
   for (const [key, row] of was) {
+    if (ambiguous.has(key)) continue;
     const still = now.get(key);
     if (!still) {
       vanished.push({
@@ -121,7 +132,7 @@ export function diffSnapshots(
 
   const appeared: SnapshotRow[] = [];
   for (const [key, row] of now) {
-    if (!was.has(key)) appeared.push(row);
+    if (!ambiguous.has(key) && !was.has(key)) appeared.push(row);
   }
 
   const sum = (rows: VanishedRow[], field: 'planSum' | 'factSum'): number =>
@@ -141,6 +152,9 @@ export function diffSnapshots(
       `их судьбу сравнение проследить не может, нумерацию нужно восстановить.`,
     );
   }
+  if (ambiguousKeys.length > 0) {
+    notes.push(`Закупки с повторяющимися № п/п (${ambiguousKeys.join(', ')}) исключены из вывода о пропаже: связь неоднозначна.`);
+  }
   if (notes.length === 0) notes.push('Все закупки прежнего снимка на месте.');
 
   return {
@@ -150,6 +164,7 @@ export function diffSnapshots(
     vanishedPlanSum: Math.round(sum(vanished, 'planSum') * 100) / 100,
     vanishedFactSum: Math.round(sum(vanished, 'factSum') * 100) / 100,
     unkeyed,
+    ambiguousKeys,
     note: notes.join(' '),
   };
 }

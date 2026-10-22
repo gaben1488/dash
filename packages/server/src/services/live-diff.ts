@@ -15,6 +15,7 @@
  * завалить экран сотней ложных «строка изменилась».
  */
 import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { diffSnapshots, type SnapshotRow, type VanishedRow } from '@aemr/core';
 import type { RowChangedEvent } from './event-bus.js';
 
 /** Чтение листа книги: только то, что нужно сравнению. */
@@ -28,6 +29,12 @@ export interface BookDiff {
   addedRows: number;
   removedRows: number;
   rowsTotal: number;
+  /** Подозрения на исчезновение по № п/п из двух успешных чтений одной книги. */
+  missingCandidates: VanishedRow[];
+  /** Сколько № п/п появилось (не обязательно новых строк листа). */
+  identityAdded: number;
+  /** Повторяющиеся № п/п, по которым нельзя утверждать исчезновение. */
+  ambiguousKeys: string[];
   /** Построчные изменения — не больше MAX_ROW_EVENTS на книгу. */
   rows: RowChangedEvent[];
 }
@@ -95,62 +102,100 @@ function resolveAuthor(book: string, cell: string): string | undefined {
  * процесса) даёт нулевой разбор: объявлять весь лист «изменившимся» на старте
  * значит поднимать тревогу там, где ничего не произошло.
  */
+/** Индекс по № п/п, при повторах не приписываем одной строке правки другой. */
+function uniqueRows(values: unknown[][]): Map<string, { row: unknown[]; sheetRow: number }> {
+  const rows = new Map<string, { row: unknown[]; sheetRow: number }>();
+  const repeats = new Set<string>();
+  values.forEach((row, index) => {
+    if (index < DEPT_HEADER_ROWS) return;
+    const id = cellText(row[DEPT_COLUMNS.ID]);
+    if (!id || repeats.has(id)) return;
+    if (rows.has(id)) {
+      rows.delete(id);
+      repeats.add(id);
+    } else {
+      rows.set(id, { row, sheetRow: index + 1 });
+    }
+  });
+  return rows;
+}
+
+/** Минимальные поля для единого детектора идентичности; без второго чтения Google. */
+function identityRows(values: unknown[][]): SnapshotRow[] {
+  return values.slice(DEPT_HEADER_ROWS).flatMap((row, index) => {
+    if (!Array.isArray(row) || row.every((cell) => cellText(cell) === '')) return [];
+    return [{
+      rowSeq: cellText(row[DEPT_COLUMNS.ID]),
+      sheetRow: index + DEPT_HEADER_ROWS + 1,
+      subject: cellText(row[DEPT_COLUMNS.SUBJECT]),
+      subordinate: cellText(row[DEPT_COLUMNS.SUBORDINATE]),
+    }];
+  });
+}
+
 export function diffBook(book: string, before: SheetReading | null | undefined, after: SheetReading): BookDiff {
   const beforeRows = before?.values ?? null;
   const afterRows = after.values;
   const rowsTotal = afterRows.length;
 
   if (beforeRows === null || beforeRows.length === 0) {
-    return { book, changedRows: 0, addedRows: 0, removedRows: 0, rowsTotal, rows: [] };
+    return { book, changedRows: 0, addedRows: 0, removedRows: 0, rowsTotal,
+      missingCandidates: [], identityAdded: 0, ambiguousKeys: [], rows: [] };
   }
 
   const addedRows = Math.max(0, afterRows.length - beforeRows.length);
   const removedRows = Math.max(0, beforeRows.length - afterRows.length);
-  const shared = Math.min(beforeRows.length, afterRows.length);
-
+  // По одному и тому же № п/п проверяем содержимое, а не позицию. Это
+  // исключает лавину ложных правок от сортировки/вставки.
+  const identities = diffSnapshots(identityRows(beforeRows), identityRows(afterRows));
+  const was = uniqueRows(beforeRows);
+  const now = uniqueRows(afterRows);
+  const ambiguous = new Set(identities.ambiguousKeys ?? []);
   let changedRows = 0;
   const rows: RowChangedEvent[] = [];
 
-  for (let i = DEPT_HEADER_ROWS; i < shared; i++) {
-    const prev = beforeRows[i] ?? [];
-    const next = afterRows[i] ?? [];
-    const width = Math.max(prev.length, next.length);
-    let rowChanged = false;
-
+  for (const [id, previous] of was) {
+    if (ambiguous.has(id)) continue;
+    const current = now.get(id);
+    if (!current) continue;
+    const width = Math.max(previous.row.length, current.row.length);
+    let changed = false;
     for (let c = 0; c < width; c++) {
-      const wasText = cellText(prev[c]);
-      const nowText = cellText(next[c]);
+      const wasText = cellText(previous.row[c]);
+      const nowText = cellText(current.row[c]);
       if (wasText === nowText) continue;
-      rowChanged = true;
-      // Построчные подробности собираем, только пока их немного: см. MAX_ROW_EVENTS.
+      changed = true;
+      // Сдвиг размеров листа оставляет достоверным № п/п, но не подробности
+      // позиционной истории. Не засоряем эфир при массовых вставках/удалениях.
       if (rows.length >= MAX_ROW_EVENTS || addedRows > 0 || removedRows > 0) continue;
       const letter = LETTER_BY_INDEX[c];
-      if (!letter) continue; // колонка за пределами канона — адрес назвать нечем
-      const sheetRow = i + 1; // человеческая нумерация строк листа
+      if (!letter) continue;
       rows.push({
         kind: 'row-changed',
         book,
-        sheetRow,
-        rowSeq: cellText(next[DEPT_COLUMNS.ID]) || undefined,
+        sheetRow: current.sheetRow,
+        rowSeq: id,
         column: letter,
         columnLabel: LABEL_BY_INDEX[c] || undefined,
         before: brief(wasText),
         after: brief(nowText),
-        author: resolveAuthor(book, `${letter}${sheetRow}`),
+        author: resolveAuthor(book, `${letter}${current.sheetRow}`),
       });
     }
-
-    if (rowChanged) changedRows++;
+    if (changed) changedRows++;
   }
 
-  // Сдвиг строк делает позиционный разбор недостоверным — подробности снимаем,
-  // счётчики оставляем.
-  if (addedRows > 0 || removedRows > 0) rows.length = 0;
-
-  return { book, changedRows, addedRows, removedRows, rowsTotal, rows };
+  return {
+    book, changedRows, addedRows, removedRows, rowsTotal,
+    missingCandidates: identities.vanished,
+    identityAdded: identities.appeared.length,
+    ambiguousKeys: identities.ambiguousKeys ?? [],
+    rows,
+  };
 }
 
 /** Изменилось ли в книге хоть что-нибудь. Тишина — законный ответ. */
 export function isSilent(diff: BookDiff): boolean {
-  return diff.changedRows === 0 && diff.addedRows === 0 && diff.removedRows === 0;
+  return diff.changedRows === 0 && diff.addedRows === 0 && diff.removedRows === 0
+    && diff.missingCandidates.length === 0 && diff.identityAdded === 0;
 }
