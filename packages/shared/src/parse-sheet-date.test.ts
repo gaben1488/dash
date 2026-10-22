@@ -155,3 +155,19 @@ describe('строгий ISO-ввод: даты не допускают прои
     expect(dayNumberOf('2026-10-22')).toBe(dayNumberOf('22.10.2026'));
   });
 });
+
+it('civil years 0001 and 0099 keep their year across date forms and ISO readback', () => {
+  for (const year of ['0001', '0099']) {
+    const iso = year + '-12-31';
+    const ru = '31.12.' + year;
+    const day = dayNumberOf(iso);
+    expect(day).not.toBeNull();
+    expect(dayNumberOf(ru)).toBe(day);
+    expect(parseSheetDate(ru)?.getFullYear()).toBe(Number(year));
+    expect(dayNumberOf(parseSheetDate(ru))).toBe(day);
+    expect(isoOfDayNumber(day!)).toBe(iso);
+  }
+  const local = new Date(0);
+  local.setFullYear(99, 11, 31);
+  expect(dayNumberOf(local)).toBe(dayNumberOf('0099-12-31'));
+});

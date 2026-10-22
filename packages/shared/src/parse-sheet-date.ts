@@ -39,7 +39,10 @@ export function parseSheetDate(val: unknown): Date | null {
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
-    const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
+    // new Date(year, ...) shifts 0001..0099 to 1901..1999.
+    const d = new Date(0);
+    d.setFullYear(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
+    d.setHours(0, 0, 0, 0);
     return isNaN(d.getTime()) ? null : d;
   }
 
@@ -63,6 +66,13 @@ const MS_PER_DAY = 86400000;
 
 /** Смещение Google/Excel-serial относительно Unix-эпохи: serial 25569 = 1970-01-01. */
 const SERIAL_EPOCH_OFFSET = 25569;
+
+/** Gregorian day number including years 0001..0099 (Date.UTC shifts those years to 19xx). */
+function civilDayNumber(year: number, month: number, day: number): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  return date.getTime() / MS_PER_DAY;
+}
 
 /**
  * dayNumberOf — целый номер календарных суток (дней от 1970-01-01), TZ-ИНВАРИАНТНЫЙ.
@@ -90,7 +100,7 @@ export function dayNumberOf(val: unknown): number | null {
 
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return null;
-    return Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()) / MS_PER_DAY;
+    return civilDayNumber(val.getFullYear(), val.getMonth(), val.getDate());
   }
 
   const s = String(val).trim();
@@ -100,7 +110,7 @@ export function dayNumberOf(val: unknown): number | null {
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
-    return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
+    return civilDayNumber(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
   }
 
   // Google/Excel serial — уже число суток, только сместить эпоху
@@ -116,7 +126,7 @@ export function dayNumberOf(val: unknown): number | null {
     const [, yyyy, mm, dd] = isoMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
     if (s.length > 10 && !Number.isFinite(Date.parse(s))) return null;
-    return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
+    return civilDayNumber(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
   }
 
   return null;
@@ -142,7 +152,7 @@ export function isoOfDayNumber(day: number): string {
   const d = new Date(day * MS_PER_DAY);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+  return `${String(d.getUTCFullYear()).padStart(4, '0')}-${mm}-${dd}`;
 }
 
 /** Only known date columns: a numeric purchase ID must never become a date. */
