@@ -487,6 +487,20 @@ export const api = {
         sinkConnected: boolean;
         books: Array<{ book: string; at: string; cells: number; handled: boolean; failedBecause?: string }>;
         notRead: string[];
+        assessment?: {
+          expectedBooks: number;
+          checkedBooks: number;
+          checkedAt: string | null;
+          score: number | null;
+          checks: { expected: number; checked: number; failed: number } | null;
+          books: Array<{
+            book: string;
+            checkedAt: string | null;
+            score: number | null;
+            checks: { expected: number; checked: number; failed: number } | null;
+            defects: number | null;
+          }>;
+        };
       };
       metadata: {
         canonSyncedAt: string | null;
