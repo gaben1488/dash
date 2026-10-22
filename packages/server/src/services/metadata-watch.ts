@@ -40,7 +40,7 @@ import { NIGHT_SWEEP_HOUR, sweepDueNow } from './drive-comments.js';
 import { refreshAllSources } from './source-refresh.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSourceFailure } from './source-log.js';
-import { loadMetadataResults, saveMetadataResult } from './source-integrity-state.js';
+import { loadMetadataAudits, saveMetadataResult } from './source-integrity-state.js';
 
 // ---------------------------------------------------------------------------
 // Что читается у книги
@@ -309,6 +309,7 @@ export interface BookWatchResult {
 }
 
 const lastWatch = new Map<string, BookWatchResult>();
+const lastConfirmedWatch = new Map<string, BookWatchResult>();
 
 export interface WatchLog {
   info: (msg: string) => void;
@@ -365,7 +366,10 @@ export async function sweepMetadata(
       return { ...result, persisted: false };
     }
   });
-  for (const result of stored) lastWatch.set(result.book, result);
+  for (const result of stored) {
+    lastWatch.set(result.book, result);
+    if (result.read && result.persisted) lastConfirmedWatch.set(result.book, result);
+  }
 
   const read = stored.filter((r) => r.read);
   const remarks = read.reduce((sum, r) => sum + r.remarks.length, 0);
@@ -387,6 +391,8 @@ export async function sweepMetadata(
 export function metadataWatchState(): {
   canonSyncedAt: string;
   books: BookWatchResult[];
+  /** Предыдущий подтверждённый результат — даже если последняя попытка не удалась. */
+  lastConfirmed: BookWatchResult[];
   /** Книги, которых дозор ещё не касался. */
   notWatched: string[];
 } {
@@ -395,6 +401,7 @@ export function metadataWatchState(): {
   return {
     canonSyncedAt: METADATA_CANON.syncedAt,
     books,
+    lastConfirmed: [...lastConfirmedWatch.values()].sort((a, b) => a.book.localeCompare(b.book, 'ru')),
     notWatched: Object.keys(DEPARTMENT_SPREADSHEETS).filter((b) => !seen.has(b)).sort(),
   };
 }
@@ -402,12 +409,17 @@ export function metadataWatchState(): {
 /** Восстановить последний исход дозора (включая отказ Google) после рестарта. */
 export function restoreMetadataWatch(): void {
   lastWatch.clear();
-  for (const result of loadMetadataResults()) lastWatch.set(result.book, result);
+  lastConfirmedWatch.clear();
+  for (const entry of loadMetadataAudits()) {
+    lastWatch.set(entry.attempt.book, entry.attempt);
+    if (entry.lastConfirmed) lastConfirmedWatch.set(entry.lastConfirmed.book, entry.lastConfirmed);
+  }
 }
 
 /** Только для стражей: забыть память дозора. */
 export function resetMetadataWatch(): void {
   lastWatch.clear();
+  lastConfirmedWatch.clear();
 }
 
 // ---------------------------------------------------------------------------
