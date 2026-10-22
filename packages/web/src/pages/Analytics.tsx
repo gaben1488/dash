@@ -38,7 +38,7 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
-import { completeAverage, completeSum, cumulativePercentOfYear, observedNumber, percentOf } from '../lib/source-availability';
+import { completeAverage, completeSum, cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf } from '../lib/source-availability';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 
@@ -560,17 +560,23 @@ export function Analytics() {
   const activityData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => {
-      const ba = d.byActivity?.[periodKey] ?? {};
+      const ba = d.byActivity?.[periodKey];
+      // A category absent from a materialized period has no rows, but a
+      // missing period or amount is not an observed zero. Historical
+      // current_program (when present) remains part of the same TD total.
       return {
         name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
         id: d.department?.id,
-        // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
-        // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
-        // рядом: иначе на графике разложение не сходится с фильтром на экране.
-        program: observedNumber(ba.program?.planTotal),
-        current: completeSum([ba.current_program?.planTotal, ba.current_non_program?.planTotal]),
-        programFact: observedNumber(ba.program?.factTotal),
-        currentFact: completeSum([ba.current_program?.factTotal, ba.current_non_program?.factTotal]),
+        program: materializedCategoryAmount(ba, 'program', 'planTotal'),
+        current: completeSum([
+          materializedCategoryAmount(ba, 'current_program', 'planTotal'),
+          materializedCategoryAmount(ba, 'current_non_program', 'planTotal'),
+        ]),
+        programFact: materializedCategoryAmount(ba, 'program', 'factTotal'),
+        currentFact: completeSum([
+          materializedCategoryAmount(ba, 'current_program', 'factTotal'),
+          materializedCategoryAmount(ba, 'current_non_program', 'factTotal'),
+        ]),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
