@@ -262,6 +262,22 @@ describe('R05.01 — реестр профилей охраняет каждый
   });
 });
 
+describe('R05.01 — registered historical aliases cannot bypass master identity', () => {
+  it('a recognized former department label resolves to the same approved gid', async () => {
+    const dept = DEPARTMENT_REGISTRY.find(entry => entry.id === 'УФБП')!;
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: dept.source.sheetId, title: 'УФБП',
+      gridProperties: { columnCount: 34 },
+    } }] } });
+    const { readDeptSheet, resolveDeptSheetName } = await import('./google-sheets.js');
+    expect(await resolveDeptSheetName('УФБР', 'file-ufbp')).toBe('УФБП');
+    await expect(readDeptSheet('УФБР', 'file-ufbp')).resolves.toMatchObject({
+      sheetName: 'УФБП', formulasRead: false,
+    });
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('R05.01 — one resolver for reads, writes and metadata', () => {
   it('the same reviewed gid and title admit read/write, without a stale cache', async () => {
     const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
