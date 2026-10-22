@@ -1,3 +1,4 @@
+import { REGISTRY_BUCKETS } from '@aemr/shared';
 import {
   useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getMondayOfWeek,
   PAGE_FILTERS, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
@@ -47,8 +48,8 @@ const NAV_METADATA: { id: Page; label: string; icon: typeof Gauge; title?: strin
   { id: 'report', label: 'Отчёт', icon: FileText },
   { id: 'svod', label: 'Свод', icon: FileSpreadsheet },
   { id: 'data', label: 'Реестр', icon: Table2 },
-  { id: 'unfunded', label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием: плановая дата не указана', icon: CalendarX2 },
-  { id: 'yearlong', label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat },
+  { id: 'unfunded', label: REGISTRY_BUCKETS.unfunded.navigationLabel, title: REGISTRY_BUCKETS.unfunded.navigationTitle, icon: CalendarX2 },
+  { id: 'yearlong', label: REGISTRY_BUCKETS.yearlong.navigationLabel, title: REGISTRY_BUCKETS.yearlong.navigationTitle, icon: Repeat },
   { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar },
   { id: 'economy', label: 'Экономия', icon: Coins },
   { id: 'competition', label: 'Конкуренция', icon: Gavel },

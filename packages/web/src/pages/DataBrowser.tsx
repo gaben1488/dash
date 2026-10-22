@@ -6,7 +6,8 @@ import {
   YEARLONG_KIND_BY_ID,
   isInitiativeMarker,
   isOrgItself,
-  isYearlongStageRow,
+  REGISTRY_BUCKETS,
+  type RegistryBucketId,
   productLabel,
   resolveYearlongKind,
   subordinateKey,
@@ -326,51 +327,10 @@ const NO_TROUBLE: LoadTrouble = { failedDepts: [], partialDepts: [], reason: nul
  * Предикаты — ровно те, которыми считает сервер (/api/registry/buckets):
  * счётчик на кнопке навигации и строки на странице обязаны сходиться.
  */
-export type RegistryBucket = 'unfunded' | 'yearlong';
+export type RegistryBucket = RegistryBucketId;
 
-const BUCKET_META: Record<RegistryBucket, {
-  /** Имя класса — канон (п.23 / п.71), заголовок плашки. */
-  title: string;
-  /** Механизм класса простыми словами (стандарт п.53). */
-  mechanism: string;
-  /** Почему в корзине пусто и что делать (честное пустое состояние). */
-  emptyReason: string;
-  /** Ключ карточки БЗ корзины (объект — в kb-additions.ts рядом со страницей). */
-  kbKey: string;
-  predicate: (r: Record<string, unknown>) => boolean;
-}> = {
-  unfunded: {
-    title: 'Закупки, не обеспеченные финансированием',
-    kbKey: 'bucket_unfunded_rows',
-    // Текст ведёт с рукописной плановой даты N, а не с производного года P
-    // (канон п.123 «N и Q первичны»): год пуст вслед за датой, и просить
-    // читателя заполнить производную графу означало бы послать его не туда.
-    mechanism:
-      'Способ и плановые деньги у строки есть, а рукописная плановая дата (графа N) не проставлена — '
-      + 'и год плана пуст вслед за ней: финансирование не подтверждено. '
-      + 'Формулы официального листа СВОД такие строки не видят, и наш годовой срез тоже: они лежат '
-      + 'вне обоих чисел и ждут решения — подтвердить срок или снять план.',
-    emptyReason:
-      'Ни у одной загруженной строки плановая дата не пуста при заполненном способе и плановых деньгах. '
-      + 'Если ожидали увидеть строки — проверьте отбор шапки (управление, период, способ) и снимите лишнее.',
-    predicate: (r) => Array.isArray(r.signals) && (r.signals as string[]).includes('planYearMissing'),
-  },
-  yearlong: {
-    title: 'Закупки, проводимые в течение года',
-    kbKey: 'bucket_yearlong_rows',
-    mechanism:
-      'Единственный поставщик, дата заключения — заглушка («Х» или пусто), а факт больше нуля: статья исполняется '
-      + 'серией договоров или платежей в течение года. Ровно эти строки формулы свода не считают в факте и экономии; план — входит (канон п.71).',
-    emptyReason:
-      'Среди загруженных строк нет ни одной с способом ЕП, заглушкой в дате заключения и ненулевым фактом. '
-      + 'Если ожидали увидеть строки — проверьте отбор шапки (управление, период, бюджет) и снимите лишнее.',
-    predicate: (r) => isYearlongStageRow({
-      method: String(r.method ?? ''),
-      factDateCell: r.factDateRaw,
-      factSum: typeof r.factSum === 'number' ? r.factSum : 0,
-    }),
-  },
-};
+const BUCKET_META = REGISTRY_BUCKETS;
+
 
 export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets, navigateTo, dashboardData } = useStore();

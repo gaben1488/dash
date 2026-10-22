@@ -97,6 +97,8 @@ export * from './comment-standards.js';
 // структурный предикат, подклассы, девять видов, стартовая разметка 46 строк,
 // маркер «инициативная заявка» и правило дожития
 export * from './yearlong-stage.js';
+// Канонические корзины R01.01: одно определение для server + web.
+export * from './registry-buckets.js';
 
 // Re-export структурный парсер номера процедуры из AG (канон п.74, 14.08.2026):
 // parseProcedureRef / extractProcedureRefs / detectForeignText

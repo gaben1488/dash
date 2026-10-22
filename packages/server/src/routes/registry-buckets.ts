@@ -14,17 +14,9 @@
  * по всем управлениям, на момент чтения книг. Нет данных — 503, а не ноль.
  */
 import type { FastifyInstance } from 'fastify';
-import { buildCellDict, findDept, isYearlongStageRow } from '@aemr/shared';
+import { findDept, REGISTRY_BUCKETS, type RegistryBucketTotals } from '@aemr/shared';
 import { readDeptRows } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
-
-interface BucketTotals {
-  rows: number;
-  /** Сумма плана строк корзины, тыс. руб. */
-  planSum: number;
-  /** Подгруппа инициатив внутри общего числа, не дополнительные строки. */
-  initiativeRows?: number;
-}
 
 /**
  * Объявленной формы ответа у этого маршрута намеренно нет.
@@ -41,7 +33,7 @@ interface BucketTotals {
 export async function registryBucketsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/registry/buckets', async (_request, reply) => {
     const reading = await readDeptRows();
-    if (Object.keys(reading.rowsByDept).length === 0) {
+    if (Object.keys(reading.rowsByDept).length === 0 || !reading.asOf) {
       return reply.status(503).send({
         error: 'ServiceUnavailable',
         message:
@@ -51,8 +43,8 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
-    const unfunded: BucketTotals = { rows: 0, planSum: 0, initiativeRows: 0 };
-    const yearlong: BucketTotals = { rows: 0, planSum: 0 };
+    const unfunded: RegistryBucketTotals = { rows: 0, planSum: 0, initiativeRows: 0 };
+    const yearlong: RegistryBucketTotals = { rows: 0, planSum: 0 };
 
     for (const [sheetName, rows] of Object.entries(reading.rowsByDept)) {
       const dept = findDept(sheetName);
@@ -61,13 +53,12 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
         if (!Array.isArray(row)) return;
         const dto = buildRowDto(row, idx, { deptId: dept.id });
         if (!isDataRow(dto)) return;
-        if (dto.signals.includes('planYearMissing')) {
+        if (REGISTRY_BUCKETS.unfunded.predicate(dto)) {
           unfunded.rows += 1;
           if (dto.signals.includes('initiativeRequest')) unfunded.initiativeRows! += 1;
           unfunded.planSum += dto.planSum;
         }
-        const cells = buildCellDict(row);
-        if (isYearlongStageRow({ method: dto.method, factDateCell: cells['Q'], factSum: dto.factSum })) {
+        if (REGISTRY_BUCKETS.yearlong.predicate(dto)) {
           yearlong.rows += 1;
           yearlong.planSum += dto.planSum;
         }
