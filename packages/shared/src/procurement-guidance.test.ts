@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FIELD_GUIDANCE, SEASONAL_RULES, PROCUREMENT_GUIDANCE_VERSION,
-  checkedProcurementGuidanceResponse, procurementEditableGuidance,
+  checkedProcurementGuidanceResponse, epReasonEditorGuidance, procurementEditableGuidance,
   procurementRuleSections, procurementRulesMarkdown,
 } from './procurement-guidance.js';
 
@@ -85,6 +85,23 @@ describe('C06.03 editable editorial catalog', () => {
       { ...response, entries: [null, ...entries.slice(1)] },
     ];
     for (const candidate of wrong) expect(() => checkedProcurementGuidanceResponse(candidate)).toThrow();
+  });
+
+
+  it('uses the live L/M source fields for contextual help, not a parallel legal classifier', () => {
+    const documented = epReasonEditorGuidance('ЕП', 'Закупка с ЕП предусматривает заключение по наименьшей цене');
+    expect(documented).toContain('Тема распознана');
+    expect(documented).toContain('не подтверждение законности');
+    expect(epReasonEditorGuidance('ЕП', 'п.4 ч.1 ст.94')).toContain('не распознано');
+    expect(epReasonEditorGuidance('ЕП', 'Х')).toContain('Основание отсутствует');
+    expect(epReasonEditorGuidance('ЭА', 'Закупка с ЕП предусматривает заключение по наименьшей цене'))
+      .toContain('способ не ЕП');
+    const edited = epReasonEditorGuidance('ЕП', 'Х', 'Локальная инструкция');
+    expect(edited).toContain('Локальная инструкция');
+    expect(FIELD_GUIDANCE.epReason).toContain('M —');
+    expect(FIELD_GUIDANCE.epReason).toContain('N');
+    expect(FIELD_GUIDANCE.epReason).toContain('Q');
+    expect(FIELD_GUIDANCE.epReason).toContain('AD');
   });
 
 });
