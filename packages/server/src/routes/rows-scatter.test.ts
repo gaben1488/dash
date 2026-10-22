@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -62,7 +63,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
     setDeptSheetCache({
       'УЭР': {
-        values: [
+        providerId: DEPARTMENT_SPREADSHEET_IDS['УЭР'], values: [
           ...headers,
           // Заключённый контракт: обе даты, цена > 0 → единственная законная точка.
           sheetRow('1', 1000, 46034, 46100, 900),
@@ -136,7 +137,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
       ['other-year', 13, '12.01.2025'], ['other-month', 13, '12.02.2026'],
       ['other-org', 2, 'Школа 2'],
     ].map(([id, column, value]) => { const row = [...valid]; row[0] = id; row[Number(column)] = value; return row; })];
-    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...cases], formulas: [], sheetName: 'УЭР' } });
+    setDeptSheetCache({ 'УЭР': { providerId: DEPARTMENT_SPREADSHEET_IDS['УЭР'], values: [[], [], [], ...cases], formulas: [], sheetName: 'УЭР' } });
     const res = await app.inject('/api/rows/scatter?dept=uer&type=competitive&activity=current_program&year=2026&period=q1&months=1&subordinate=' + encodeURIComponent('Школа 1'));
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -157,7 +158,7 @@ describe('GET /api/rows/scatter — гейт заключения (пп. 38-39)'
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const rows = Array.from({ length: 2501 }, (_, index) =>
       sheetRow(String(index + 1), index === 2500 ? 100000 : 1000, 46034, 46100, index === 2500 ? 100000 : 900));
-    setDeptSheetCache({ 'УЭР': { values: [[], [], [], ...rows], formulas: [], sheetName: 'УЭР' } });
+    setDeptSheetCache({ 'УЭР': { providerId: DEPARTMENT_SPREADSHEET_IDS['УЭР'], values: [[], [], [], ...rows], formulas: [], sheetName: 'УЭР' } });
     const response = (await app.inject('/api/rows/scatter?dept=uer&type=competitive')).json();
     expect(response.points).toHaveLength(2500);
     expect(response.total).toBe(2501);

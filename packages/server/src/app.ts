@@ -371,10 +371,14 @@ export function preloadData(app: FastifyInstance): void {
   // Original journal/comment authors remain on their own source evidence.
 
   setSourceRefresher(async () => {
-    await refreshAllSources({
+    const result = await refreshAllSources({
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     }, 'request');
+    // Resolving the Promise is not proof that every primary returned.
+    // A partial cycle may still update admitted books, but the UI/manual
+    // refresh must not receive "success" for the missing portion.
+    if (result.failed.length > 0 || !result.svodOk) throw new Error('SOURCE_REFRESH_INCOMPLETE');
   });
 
   // Recover push independently of Google preload. The shared refresh queue

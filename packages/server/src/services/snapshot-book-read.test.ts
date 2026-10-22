@@ -110,3 +110,47 @@ describe('сборка снимка: чтение листов сводной к
     expect(getSheetData).toHaveBeenCalledTimes(ALL_SHEETS.length);
   }, 20000);
 });
+
+it('excludes a mismatched primary binding from the snapshot even if the old cache has rows', async () => {
+  const { getSnapshot, setDeptSheetCache } = await import('./snapshot.js');
+  const vals = [[], [], [], ['1', '', '', '', '', '', 'Закупка', 100]];
+  setDeptSheetCache({ УЭР: { providerId: 'old-master-id', values: vals,
+    sheetName: 'ВСЕ', formulas: [], formulasRead: false } });
+  const snapshot = await getSnapshot(true);
+  expect(snapshot.rowsByDept?.['УЭР']).toBeUndefined();
+  expect(snapshot.metadata.sourceCoverage?.unreadDepartments).toEqual(
+    expect.arrayContaining([expect.objectContaining({ department: 'УЭР' })]),
+  );
+}, 20000);
+
+it('does not renew eight-master freshness after an individual or empty refresh', async () => {
+  const { setDeptSheetCache, getDeptCacheFilledAt } = await import('./snapshot.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const initial = '2026-10-22T11:00:00.000Z';
+  const later = '2026-10-22T12:00:00.000Z';
+  const books = Object.fromEntries(Object.entries(DEPARTMENT_SPREADSHEETS).map(([name, providerId]) =>
+    [name, { providerId, values: [[], [], []], formulas: [], sheetName: 'ВСЕ' }]));
+  const departments = Object.keys(books);
+  expect(departments.length).toBe(8);
+  setDeptSheetCache(books, [], initial);
+  expect(getDeptCacheFilledAt()).toBe(Date.parse(initial));
+  setDeptSheetCache({ [departments[0]]: books[departments[0]] }, [], later);
+  expect(getDeptCacheFilledAt()).toBe(Date.parse(initial));
+  setDeptSheetCache({}, [], later);
+  expect(getDeptCacheFilledAt()).toBe(Date.parse(initial));
+  setDeptSheetCache({}, [], later, departments);
+  expect(getDeptCacheFilledAt()).toBe(Date.parse(later));
+  setDeptSheetCache({}, [departments[1]], later);
+  expect(getDeptCacheFilledAt()).toBe(0);
+});
+
+it('a stored snapshot with unknown source coverage is not an indefinitely fresh live calculation', async () => {
+  // Old serialized snapshots have no sourceCoverage; absence is not "complete".
+  const { getSnapshot, setDeptSheetCache } = await import('./snapshot.js');
+  const first = await getSnapshot(true);
+  expect(first.metadata.sourceCoverage?.complete).toBe(false);
+  // This assertion is structural: a missing source never becomes a valid new
+  // complete capture only because a cache timestamp was recently updated.
+  setDeptSheetCache({}, [], '2026-10-22T12:00:00.000Z');
+  expect((await getSnapshot()).metadata.sourceCoverage?.complete).not.toBe(true);
+}, 20000);

@@ -63,13 +63,30 @@ export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
   acceptedAt?: string,
+  confirmedUnchanged: readonly string[] = [],
 ): void {
   const next = { ...cachedDeptSheetData, ...data };
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
   cachedDeptSheetData = next;
-  deptCacheFilledAt = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
+
+  // This is a WHOLE-PERIMETER freshness watermark, not the time of the last
+  // individual webhook. A one-book patch (or an empty/no-op refresh) cannot
+  // renew the other seven books. Drive-attested unchanged books count only
+  // when their previously accepted grid still belongs to that provider.
+  const expectedBooks = Object.entries(DEPARTMENT_SPREADSHEETS);
+  const checked = new Set([...Object.keys(data), ...confirmedUnchanged]);
+  const allBoundAndPresent = expectedBooks.length > 0
+    && expectedBooks.every(([name, providerId]) => next[name]?.providerId === providerId
+      && Array.isArray(next[name]?.values) && next[name].values.length >= DEPT_HEADER_ROWS);
+  if (!allBoundAndPresent || failedDeptNames.length > 0) {
+    deptCacheFilledAt = 0;
+  } else if (expectedBooks.every(([name]) => checked.has(name))) {
+    const observed = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
+    deptCacheFilledAt = Number.isFinite(observed) ? observed : 0;
+  }
+  // A successful targeted refresh keeps the previous full-perimeter timestamp.
 }
 
 /**
@@ -317,6 +334,9 @@ async function sealWeeklyTableContextNow(
 export function getDeptSheetValues(): Record<string, unknown[][]> {
   const result: Record<string, unknown[][]> = {};
   for (const [key, val] of Object.entries(cachedDeptSheetData)) {
+    const providerId = DEPARTMENT_SPREADSHEETS[key];
+    if (!providerId || (val.providerId !== undefined && val.providerId !== providerId)
+        || !Array.isArray(val.values) || val.values.length < DEPT_HEADER_ROWS) continue;
     result[key] = val.values;
   }
   return result;
@@ -467,7 +487,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const unchanged = !isDemoMode && cached && cached.timestamp > 0
     && cached.generation === cacheGeneration
     && !cached.snapshot.metadata.readModel
-    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
+    && cached.snapshot.metadata.sourceCoverage?.complete === true;
   if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
     return recordSnapshotRead(cached.snapshot);
   }
@@ -690,13 +710,22 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const sheetFormulas: Record<string, unknown[][]> = {};
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
+    const coverageFailures: Record<string, string> = {};
     for (const dept of DEPARTMENTS) {
       if (!deptSources[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
     }
     for (const [deptName, deptResult] of Object.entries(deptSources)) {
       const mirror = sheetRows[deptName];
-      if (deptResult.values.length < DEPT_HEADER_ROWS) {
+      const expectedProvider = DEPARTMENT_SPREADSHEETS[deptName];
+      if (!expectedProvider || (deptResult.providerId !== undefined
+          && deptResult.providerId !== expectedProvider)) {
         Reflect.deleteProperty(sheetRows, deptName);
+        coverageFailures[deptName] = 'Привязка к основной книге не подтверждена.';
+        continue;
+      }
+      if (!Array.isArray(deptResult.values) || deptResult.values.length < DEPT_HEADER_ROWS) {
+        Reflect.deleteProperty(sheetRows, deptName);
+        coverageFailures[deptName] = 'Основная книга не содержит полной шапки.';
         continue;
       }
       if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
@@ -777,7 +806,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }]));
     const snapshot = await runSnapshotCalculation(pipelineInput);
     snapshot.metadata.sourceReceipt = inputReceipt;
-    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
+    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort),
+      perimeter.map(dept => dept.dept), coverageFailures);
     if (sharedCapture && snapshot.metadata.sourceCoverage.complete) {
       snapshot.metadata.sourceRevision = sharedCapture.sourceRevision;
     }

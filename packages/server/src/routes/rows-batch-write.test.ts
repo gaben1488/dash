@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 /**
  * Стражи пакетной правки строк (POST /api/data/rows) — реестр багов
  * 09.07.2026, пп. 3, 14, 16.
@@ -92,7 +93,7 @@ beforeEach(() => {
   readCurrentDeptRowFormulas.mockReset();
   readCurrentDeptRowFormulas.mockImplementation(async () => dataRow(1));
   writeCellValue.mockImplementation(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
-  setDeptSheetCache({ 'УО': { values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
+  setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
 });
 
 describe('source row and actual formula protection', () => {
@@ -275,7 +276,7 @@ describe('guarded row writes against live source movement', () => {
     const source = sheetValues()[3]!; const confirmed = [...source]; confirmed[6] = 'Новый предмет';
     readCurrentDeptRow.mockResolvedValueOnce(source).mockResolvedValueOnce(confirmed);
     writeCellValue.mockImplementationOnce(async () => {
-      setDeptSheetCache({ 'УО': { values: [[], [], [], dataRow(2)], formulas: [], sheetName: 'ВСЕ' } });
+      setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], dataRow(2)], formulas: [], sheetName: 'ВСЕ' } });
       return { updatedCells: 1, updatedRange: 'ВСЕ!G4' };
     });
     const response = await app.inject({ method: 'POST', url: '/api/data/rows',
@@ -492,7 +493,7 @@ describe('правка ячейки и прочитанные книги (п.14)
     const freshValues = sheetValues();
     freshValues[3]![6] = 'Свежее чтение';
     writeCellValue.mockImplementation(async () => {
-      setDeptSheetCache({ 'УО': { values: freshValues, formulas: [], sheetName: 'ВСЕ' } });
+      setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: freshValues, formulas: [], sheetName: 'ВСЕ' } });
       return { updatedCells: 1, updatedRange: 'ВСЕ!H4' };
     });
 

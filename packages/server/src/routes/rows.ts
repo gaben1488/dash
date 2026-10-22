@@ -239,6 +239,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         totalPages,
       },
       signals: signalSummary,
+      // Same primary-read receipt as the displayed rows (not HTTP request time).
+      source: read.source,
     });
   });
 
@@ -302,6 +304,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       state,
       badges,
       sourceUrl,
+      source: read.source,
     });
   });
 

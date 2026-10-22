@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 /**
  * GET /api/analytics/economic — контракт подачи экономических метрик.
  *
@@ -176,8 +177,8 @@ describe('GET /api/analytics/economic — годовой разрез, зоны 
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     setDeptSheetCache({
-      УО: { values: UO_ROWS, formulas: [], sheetName: 'ВСЕ' },
-      УИО: { values: UIO_ROWS, formulas: [], sheetName: 'УИО' },
+      УО: { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: UO_ROWS, formulas: [], sheetName: 'ВСЕ' },
+      УИО: { providerId: DEPARTMENT_SPREADSHEET_IDS['УИО'], values: UIO_ROWS, formulas: [], sheetName: 'УИО' },
     });
     app = await buildApp();
   }, 60_000);
@@ -414,7 +415,7 @@ describe('GET /api/analytics/economic — срез прошлой недели �
     const { setDeptSheetCache, saveSnapshot } = await import('../services/snapshot.js');
     // Живой кэш НАРОЧНО с другими числами: возьми роут живые данные вместо
     // снимка — план 700 против 300 выдаст подмену.
-    setDeptSheetCache({ УО: { values: UO_ROWS, formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ УО: { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: UO_ROWS, formulas: [], sheetName: 'ВСЕ' } });
     await saveSnapshot(
       makeSnapshot('snap-week', '2026-03-19T08:00:00.000Z', {
         УО: [

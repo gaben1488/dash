@@ -7,7 +7,7 @@
  * подпись момента — данными, а не догадкой клиента): для живого кэша это
  * самый ранний момент чтения возвращённых книг, для снимка — его createdAt.
  */
-import { DEPARTMENTS, DEPT_HEADER_ROWS, departmentCoverage, findDept, type SourceCoverage } from '@aemr/shared';
+import { DEPARTMENTS, DEPT_HEADER_ROWS, departmentCoverage, findDept, SourceCoverageSchema, type SourceCoverage } from '@aemr/shared';
 import { getDeptLoadMeta, getDeptSheetValues, getSnapshot } from './snapshot.js';
 
 export interface DeptRowsReading {
@@ -38,8 +38,8 @@ export async function readDeptRows(): Promise<DeptRowsReading> {
     && Number.isFinite(Date.parse(meta[book]?.loadedAt ?? '')));
   const live = Object.fromEntries(books.map(book => [book, cached[book].slice(DEPT_HEADER_ROWS)]));
   const readTimes = books.map(book => Date.parse(meta[book].loadedAt));
-  // Общий filledAt меняется даже при пустом/частичном цикле. Только метаданные
-  // каждой возвращаемой книги подтверждают её чтение; это не атомарный freeze.
+  // A global refresh watermark cannot replace per-book observation metadata.
+  // Mixed read instants remain visible via the oldest accepted source time.
   if (books.length > 0 && readTimes.every(time => Number.isFinite(time) && time > 0)) {
     return {
       rowsByDept: live, asOf: new Date(Math.min(...readTimes)).toISOString(), source: 'live',
@@ -48,7 +48,12 @@ export async function readDeptRows(): Promise<DeptRowsReading> {
   }
   try {
     const snapshot = await getSnapshot();
-    const savedBooks = expected.filter(book => Array.isArray(snapshot.rowsByDept?.[book]));
+    // Old snapshots may still contain raw arrays without trustworthy coverage.
+    // Those arrays are historical bytes, NOT evidence of a confirmed master
+    // read. Only explicitly attested departments may enter a live fallback.
+    const savedEvidence = SourceCoverageSchema.safeParse(snapshot.metadata?.sourceCoverage);
+    const admitted = new Set(savedEvidence.success ? savedEvidence.data.readDepartments : []);
+    const savedBooks = expected.filter(book => admitted.has(book) && Array.isArray(snapshot.rowsByDept?.[book]));
     if (savedBooks.length > 0 && Number.isFinite(Date.parse(snapshot.createdAt ?? ''))) {
       return {
         rowsByDept: Object.fromEntries(savedBooks.map(book => [book, snapshot.rowsByDept![book]])),

@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 /**
  * Страж утверждённой экономии в проверках закона (реестр багов 09.07.2026,
  * п.1 «обход флага экономии в антидемпинге»).
@@ -93,31 +94,31 @@ afterAll(async () => {
 
 describe('GET /api/analytics/compliance — экономия не доказывает антидемпинг', () => {
   it('экономия не утверждена (флаг «нет») → вердикта нет', async () => {
-    setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('нет', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], rowWithEconomy('нет', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     expect(await antiDumpingIssues()).toEqual([]);
   }, 30_000);
 
   it('флаг стоит, но контракт не заключён (дата факта пуста) → вердикта нет', async () => {
-    setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('да', '')], formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], rowWithEconomy('да', '')], formulas: [], sheetName: 'ВСЕ' } });
     expect(await antiDumpingIssues()).toEqual([]);
   }, 30_000);
 
   it('конкурентный алиас «ЭА (МЭП)» не восполняет отсутствующую НМЦК', async () => {
-    setDeptSheetCache({ 'УО': { values: [[], [], [],
+    setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [],
       rowWithEconomy('да', '15.03.2026', 'ЭА (МЭП)')], formulas: [], sheetName: 'ВСЕ' } });
     const issues = await antiDumpingIssues();
     expect(issues).toHaveLength(0);
   }, 30_000);
 
   it('утверждённая экономия и заключённый контракт не доказывают антидемпинг', async () => {
-    setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('да', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], rowWithEconomy('да', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     const issues = await antiDumpingIssues();
     expect(issues).toHaveLength(0);
   }, 30_000);
 });
 
 it.each(['нет', 'да'])('does not infer competition or initial price from economy flag %s', async flag => {
-  setDeptSheetCache({ 'УО': { values: [[], [], [], ...Array.from({ length: 6 }, () => rowWithEconomy(flag, '15.03.2026'))], formulas: [], sheetName: 'ВСЕ' } });
+  setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], ...Array.from({ length: 6 }, () => rowWithEconomy(flag, '15.03.2026'))], formulas: [], sheetName: 'ВСЕ' } });
   const response = await app.inject({ method: 'GET', url: '/api/analytics/anticorruption' });
   expect(response.statusCode).toBe(200);
   const result = response.json().uo;
@@ -134,13 +135,15 @@ it('EP analysis uses the source date, not stale quarter formulas or request time
   source[DEPT_COLUMNS.PLAN_QUARTER] = 1;
   const undated = [...source];
   undated[DEPT_COLUMNS.PLAN_DATE] = '';
-  setDeptSheetCache({ 'УО': { values: [[], [], [], source, undated], formulas: [], sheetName: 'ВСЕ' } });
+  setDeptSheetCache({ 'УО': { providerId: DEPARTMENT_SPREADSHEET_IDS['УО'], values: [[], [], [], source, undated], formulas: [], sheetName: 'ВСЕ' } });
   const first = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
   expect(first.byDept.uo.quarters.q1.ep.rows).toBe(0);
   expect(first.byDept.uo.quarters.q2.ep.rows).toBe(1);
   expect(first.byDept.uo.noQuarter.rows).toBe(1);
   const { getDeptCacheFilledAt } = await import('../services/snapshot.js');
-  expect(first.readAt).toBe(new Date(getDeptCacheFilledAt()).toISOString());
+  // A one-book fixture does not attest freshness of all eight masters.
+  expect(getDeptCacheFilledAt()).toBe(0);
+  expect(first.readAt).toBeNull();
   const second = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
   expect(second).toEqual(first);
 }, 30_000);

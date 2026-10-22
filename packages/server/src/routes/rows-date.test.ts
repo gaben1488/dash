@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -36,7 +37,7 @@ describe('GET /api/rows/:dept — дата-канон в DTO (fidelity §2.2)', 
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
     setDeptSheetCache({
       'УЭР': {
-        values: [
+        providerId: DEPARTMENT_SPREADSHEET_IDS['УЭР'], values: [
           ...headers,
           sheetRow('1', 46034, ''),            // serial-число (класс 6 книг)
           sheetRow('2', '15.03.2026', 46100),  // строка дд.мм.гггг (класс 2 книг) + serial-факт

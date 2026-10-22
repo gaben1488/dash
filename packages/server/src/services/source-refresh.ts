@@ -476,7 +476,10 @@ async function gateByRevision(
   const cached = getDeptSheetCache();
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
     const fileId = sourceBooks[book];
-    if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length) {
+    if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length
+        // A saved Google revision only attests the configured file. Reusing a
+        // grid captured from a previous binding would silently resurrect it.
+        || (cached[book]?.providerId !== undefined && cached[book]?.providerId !== fileId)) {
       books.push(book);
       return;
     }
@@ -753,7 +756,11 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       const revision = acquisitionRevisions.get(name);
       if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
     }
-    setDeptSheetCache(data, Object.keys(errors));
+    if (gate.skipped.length > 0) {
+      setDeptSheetCache(data, Object.keys(errors), undefined, gate.skipped);
+    } else {
+      setDeptSheetCache(data, Object.keys(errors));
+    }
     for (const [name, print] of nextPrints) {
       bookPrints.set(name, print);
       restoredReadings.delete(name);

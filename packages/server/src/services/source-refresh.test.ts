@@ -19,7 +19,7 @@ const setSvodLoadFailure = vi.fn();
 const invalidateCache = vi.fn();
 // Прежнее чтение книг — материал живых событий: цикл берёт его ДО записи
 // нового кэша, поэтому заглушка обязана отдавать пустой кэш, а не падать.
-let cachedBooks: Record<string, { values: unknown[][] }> = {};
+let cachedBooks: Record<string, { values: unknown[][]; providerId?: string }> = {};
 const getDeptSheetCache = vi.fn(() => cachedBooks);
 
 vi.mock('./google-sheets.js', () => ({
@@ -707,4 +707,28 @@ describe('R05.01 source-profile restoration through the existing refresh cache',
       resetSourcePrints();
     }
   });
+});
+
+it('reacquires a master even if Drive says unchanged when the cached grid belongs to another provider', async () => {
+  const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  resetSourcePrints();
+  const fileId = DEPARTMENT_SPREADSHEETS['УО'];
+  expect(fileId).toBeTruthy();
+  cachedBooks = { УО: { providerId: 'old-master-id', values: [[], [], []] } };
+  loadWatermarks.mockReturnValueOnce(new Map([['УО', {
+    fingerprint: 'known-grid',
+    parsedAt: '2026-10-22T00:00:00.000Z',
+    driveVersion: '7',
+    driveModifiedTime: null,
+  }]]));
+  checkFileChanged.mockResolvedValue('same');
+  try {
+    await refreshAllSources(log, 'request', { books: ['УО'], svod: false });
+    expect(fetchDepartmentSpreadsheets).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ only: ['УО'] }));
+    expect(checkFileChanged).not.toHaveBeenCalled();
+  } finally {
+    resetSourcePrints();
+  }
 });

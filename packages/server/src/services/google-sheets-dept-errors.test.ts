@@ -78,3 +78,14 @@ describe('fetchDepartmentSpreadsheets — per-candidate error handling', () => {
     expect(errors['УО']).not.toMatch(/^No readable sheet found/);
   });
 });
+
+it('preserves the primary provider and actual observation time through the department fetcher', async () => {
+  valuesGet.mockResolvedValue({ data: { values: [['one valid legacy row']] } });
+  const { fetchDepartmentSpreadsheets } = await import('./google-sheets.js');
+  const { data, errors } = await fetchDepartmentSpreadsheets({ НЕИЗВЕСТНЫЙ: 'primary-sheet-id' });
+  expect(errors).toEqual({});
+  const received = data['НЕИЗВЕСТНЫЙ'];
+  expect(received?.providerId).toBe('primary-sheet-id');
+  expect(received?.sheetName).toBeTruthy();
+  expect(received?.readAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+});

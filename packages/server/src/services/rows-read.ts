@@ -1,44 +1,62 @@
 /**
- * Чтение сырых строк отдела для /api/rows/* (E11-2, rethink 2026-07-22).
- * Используется GET /api/rows/:deptId, /rows/:deptId/:rowIndex, /rows/subordinates,
- * /rows/subjects, /rows/scatter.
- *
- * Cache-first — две ступени, каждая с ранним выходом:
- *   1. Кэш отдела (deptSheetCache, наполняется fetchDepartmentSpreadsheets на старте)
- *   2. Собственная книга управления (живой API-вызов readDeptSheet)
- * Зеркало СВОДа не доказывает свежесть и не подменяет недоступный master.
- *
- * Ошибки не логируются и не превращаются в HTTP-ответ здесь — роут сам решает
- * (503 для основных роутов, skip-отдела для сводных), поэтому наружу отдаётся
- * дискриминированный результат с честной причиной отказа.
+ * R05.03 — единственный выбор первичных строк для сырых API-потребителей.
+ * Сначала принятый кэш той же master-книги, затем прямая проверенная книга.
+ * Никакой СВОД/IMPORTRANGE не является запасным источником исходных строк.
+ * Receipt относится к чтению, а не к времени текущего HTTP-запроса.
  */
 import { readDeptSheet } from './google-sheets.js';
-import { getDeptSheetValues } from './snapshot.js';
+import type { DeptSheetResult } from './google-sheets.js';
+import { getDeptSheetCache } from './snapshot.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { DEPT_HEADER_ROWS } from '@aemr/shared';
 
+export interface DeptRowsSource {
+  kind: 'accepted-cache' | 'live-primary';
+  providerId: string;
+  sheetName: string;
+  readAt: string | null;
+  sourceVersion: string | null;
+  sourceRevision: string | null;
+}
+
 export type DeptRowsResult =
-  | { ok: true; values: unknown[][] }
-  /** Живое чтение книги управления упало (сеть/квоты) — err для лога роута. */
+  | { ok: true; values: unknown[][]; source: DeptRowsSource }
   | { ok: false; reason: 'read-error'; error: unknown }
-  /** Кэша нет и spreadsheetId основной книги не сконфигурирован. */
   | { ok: false; reason: 'no-source' };
 
-/** sheetName сохраняется в контракте отдела; адрес master берётся по nameShort. */
-export async function readDeptRows(dept: { nameShort: string; sheetName: string }): Promise<DeptRowsResult> {
-  // Ступень 1 — кэш отдела.
-  const cached = getDeptSheetValues()[dept.nameShort];
-  if (cached && cached.length >= DEPT_HEADER_ROWS) return { ok: true, values: cached };
+function receipt(reading: DeptSheetResult, kind: DeptRowsSource['kind'], providerId: string): DeptRowsSource {
+  const instant = reading.readAt;
+  return {
+    kind,
+    providerId,
+    sheetName: reading.sheetName,
+    readAt: typeof instant === 'string' && Number.isFinite(Date.parse(instant)) ? instant : null,
+    sourceVersion: reading.sourceVersion ?? null,
+    sourceRevision: reading.sourceRevision ?? null,
+  };
+}
 
-  // Ступень 2 — собственная книга управления (живое чтение).
-  const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-  if (!spreadsheetId) return { ok: false, reason: 'no-source' };
+/** A known-empty primary has three reviewed header rows; a missing grid does not. */
+export async function readDeptRows(dept: { nameShort: string; sheetName: string }): Promise<DeptRowsResult> {
+  const providerId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
+  if (!providerId) return { ok: false, reason: 'no-source' };
+
+  // An old cached response from another file must not survive a binding change.
+  // A legacy cache with no provider identity is not evidence of a primary read.
+  const cached = getDeptSheetCache()[dept.nameShort];
+  if (cached?.providerId === providerId && Array.isArray(cached.values)
+      && cached.values.length >= DEPT_HEADER_ROWS) {
+    return { ok: true, values: cached.values, source: receipt(cached, 'accepted-cache', providerId) };
+  }
+
   try {
-    // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-    const { values } = await readDeptSheet(dept.nameShort, spreadsheetId);
-    if (values.length < DEPT_HEADER_ROWS) throw new Error('MASTER_READ_INCOMPLETE');
-    return { ok: true, values };
-  } catch (err) {
-    return { ok: false, reason: 'read-error', error: err };
+    const reading = await readDeptSheet(dept.nameShort, providerId);
+    if (reading.providerId !== providerId) throw new Error('MASTER_SOURCE_BINDING_MISMATCH');
+    if (!Array.isArray(reading.values) || reading.values.length < DEPT_HEADER_ROWS) {
+      throw new Error('MASTER_READ_INCOMPLETE');
+    }
+    return { ok: true, values: reading.values, source: receipt(reading, 'live-primary', providerId) };
+  } catch (error) {
+    return { ok: false, reason: 'read-error', error };
   }
 }
