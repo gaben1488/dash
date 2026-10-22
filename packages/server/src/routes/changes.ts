@@ -21,10 +21,11 @@ import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { readChangelogRows } from '../services/changelog-source.js';
-import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
+import { changesSince, changeEntryIdentity, parseChangeLogDetailed, type ChangeRecord, type ChangeLogCoverage } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null = null;
+type CoverageByBook = Record<string, ChangeLogCoverage>;
+let cache: { at: number; records: ChangeRecord[]; failedDepts: string[]; coverage: CoverageByBook } | null = null;
 
 /**
  * Журналы всех книг. Книга, которая НЕ ответила, попадает в failedDepts:
@@ -37,27 +38,33 @@ let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null
  * каждый ходил к Google своей дорогой со своим окном. Разбор остаётся здесь
  * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
-async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
+async function readAllChangeLogs(): Promise<{
+  records: ChangeRecord[];
+  failedDepts: string[];
+  coverage: CoverageByBook;
+  fresh: boolean;
+}> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
-    // fresh=false: эти записи уже сохранялись при чтении, наполнившем кэш.
-    // Гонять транзакцию на 37 тыс. записей ради нулевого прироста на каждый
-    // рендер страницы незачем.
-    return { records: cache.records, failedDepts: cache.failedDepts, fresh: false };
+    return { records: cache.records, failedDepts: cache.failedDepts,
+      coverage: cache.coverage, fresh: false };
   }
   const entries = Object.entries(DEPARTMENT_SPREADSHEETS);
   const failedDepts: string[] = [];
+  const coverage: CoverageByBook = {};
   const parts = await Promise.all(entries.map(async ([dept, spreadsheetId]) => {
     try {
       const rows = await readChangelogRows(dept, spreadsheetId);
-      return parseChangeLog(rows, dept);
+      const parsed = parseChangeLogDetailed(rows, dept);
+      coverage[dept] = parsed.coverage;
+      return parsed.records;
     } catch {
       failedDepts.push(dept);
       return [];
     }
   }));
   const records = parts.flat();
-  if (failedDepts.length === 0) cache = { at: Date.now(), records, failedDepts };
-  return { records, failedDepts, fresh: true };
+  if (failedDepts.length === 0) cache = { at: Date.now(), records, failedDepts, coverage };
+  return { records, failedDepts, coverage, fresh: true };
 }
 
 /**
@@ -68,14 +75,7 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  const base = `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`;
-  if (r.timePrecision !== 'day') return base; // preserve existing exact-time DB IDs
-  if (!Number.isInteger(r.sourceRow) || (r.sourceRow ?? 0) < 1) {
-    throw new Error('Date-only journal event is missing its source row');
-  }
-  // Date-only events can edit the same cell several times in one day.
-  // Distinguish them by their append-only journal row, not fabricated time.
-  return `${base}|day-row-${r.sourceRow}`;
+  return changeEntryIdentity(r);
 }
 
 /**
@@ -100,8 +100,9 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   const recordedAt = now.toISOString();
   const byKey = new Map<string, typeof schema.changelogEntries.$inferInsert>();
   for (const r of records) {
-    byKey.set(changeEntryKey(r), {
-      id: changeEntryKey(r),
+    const id = changeEntryKey(r);
+    byKey.set(id, {
+      id,
       dept: r.dept,
       sheet: r.sheet,
       cell: r.cell,
@@ -145,7 +146,8 @@ export function readChangeLogEntriesSince(sinceMs: number): ChangeRecord[] {
       newValue: r.newValue ?? '',
       atMs: r.atMs,
       author: r.author ?? '',
-      ...(r.id.includes('|day-row-') ? { timePrecision: 'day' as const } : {}),
+      ...(r.id.startsWith('journal-day-v2:') || r.id.includes('|day-row-')
+        ? { timePrecision: 'day' as const } : {}),
     }));
 }
 
@@ -216,7 +218,7 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const sinceMs = sinceDay * 86400000;
-    const { records: all, failedDepts, fresh } = await readAllChangeLogs();
+    const { records: all, failedDepts, coverage, fresh } = await readAllChangeLogs();
 
     // Прочитанное кладём в БД и оттуда же отвечаем. Смысл не в скорости:
     // журнал источника — единственный провенанс правок, а жил он кэшем в
@@ -242,6 +244,9 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
       // чтения книг (только то, что ответило прямо сейчас). Читатель вправе
       // знать, насколько полон список, который он видит.
       source,
+      // Read coverage is not event-delivery proof. Non-cell operations and
+      // unreadable cell timestamps are explicitly counted instead of lost.
+      coverage,
       // Книги, которые не ответили: страница обязана сказать об этом вслух,
       // иначе «правок нет» неотличимо от «источник молчит». При source='db'
       // их правки в списке есть, но свежесть — на момент последнего удачного
