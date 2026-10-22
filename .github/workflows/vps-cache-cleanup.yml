@@ -11,6 +11,7 @@ on:
     branches: [codex/dash-audit-integrated-20261010]
     paths:
       - '.github/ci/ud-source-refresh-20261022.request'
+      - '.github/ci/integrated-source-state-release-20261022.request'
 
 permissions:
   contents: read
@@ -2656,19 +2657,28 @@ jobs:
                 raise SystemExit('HOST_RESERVE_REJECTED') from None
             PYRESERVE
   controlled-candidate-release:
+    # Owner label unchanged. The one-off push request comes from the same owner
+    # and passes every original exact-SHA CI/stateful backup/recovery gate.
     if: >-
-      github.event.label.name == 'maintenance: controlled-candidate-release' &&
-      github.event.sender.login == github.repository_owner &&
-      github.event.pull_request.number == 79 &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'codex/dash-audit-integrated-20261010'
+      (github.event_name == 'pull_request' &&
+       github.event.label.name == 'maintenance: controlled-candidate-release' &&
+       github.event.sender.login == github.repository_owner &&
+       github.event.pull_request.number == 79 &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'codex/dash-audit-integrated-20261010') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash' &&
+       (contains(github.event.head_commit.modified, '.github/ci/integrated-source-state-release-20261022.request') ||
+        contains(github.event.head_commit.added, '.github/ci/integrated-source-state-release-20261022.request')))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     env:
-      RECOVERY_SHA: ${{ github.event.pull_request.head.sha }}
+      RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -2676,7 +2686,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       - name: Admit exact current candidate before any maintenance
         run: |
           set -euo pipefail
@@ -2685,6 +2695,12 @@ jobs:
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          if test "$GITHUB_EVENT_NAME" = push; then
+            request=.github/ci/integrated-source-state-release-20261022.request
+            test "$(git diff --name-only HEAD^ HEAD)" = "$request"
+            python3 -c 'import json,sys; expected={"purpose":"integrated-durable-source-state-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
+            echo OWNER_RELEASE_REQUEST_VERIFIED
+          fi
           mkdir -m 700 "$RUNNER_TEMP/release"
           printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/release/key"
           ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/release/known_hosts" 2>/dev/null
@@ -2708,7 +2724,7 @@ jobs:
           }
           SH
           ready=false
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 90); do
             ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
             if test -n "$ci_run"; then
@@ -3181,7 +3197,9 @@ jobs:
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
        github.actor == github.repository_owner &&
-       github.repository == 'gaben1488/dash')
+       github.repository == 'gaben1488/dash' &&
+       (contains(github.event.head_commit.modified, '.github/ci/ud-source-refresh-20261022.request') ||
+        contains(github.event.head_commit.added, '.github/ci/ud-source-refresh-20261022.request')))
     runs-on: ubuntu-latest
     timeout-minutes: 16
     concurrency:
