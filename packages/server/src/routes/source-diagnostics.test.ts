@@ -135,7 +135,9 @@ describe('POST /api/sources/diagnostics/run — сервер является к
       byDept: [], language: [], notes: [],
     });
     const result = (await app.inject({ method: 'POST', url: '/api/sources/diagnostics/run' })).json();
-    expect(result.stages.text.state).toBe('partial');
+    expect(result.stages.text.state).toBe('not_run');
+    expect(result.stages.text.rowsSource).toBe('snapshot');
+    expect(result.stages.text.findings).toBeNull();
     expect(result.stages.text.silentBooks).toContain('УИО');
     expect(result.status).toBe('partial');
   });
