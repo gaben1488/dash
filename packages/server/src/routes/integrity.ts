@@ -401,7 +401,9 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
     // looking young; invalidate *all* current-side evidence, not old weeks.
     const response = forced?.error
       ? refuseUnverifiedCurrentSource(base, forced.error)
-      : base;
+      : forced
+        ? { ...base, notes: [...base.notes] }
+        : base;
     if (forced) {
       response.sourceRefresh = forced;
       if (forced.failedBooks.length > 0) {
