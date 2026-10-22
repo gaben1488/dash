@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { DatasetAnalysis } from '@aemr/core';
 import { DEPT_COLUMNS, findDept, type DataSnapshot } from '@aemr/shared';
 import { anomalyFactsOfCapturedRows } from './anomaly-snapshot-facts.js';
 import { datasetFindingsOf } from '../routes/anomalies.js';
@@ -19,7 +20,7 @@ describe('C08.02: recorded anomaly addresses are bound to recorded inputs', () =
     const dept = findDept('УО')!;
     const analysis = { anomalies: { dataAnomalies: [
       { type: 'EXACT_MATCH', severity: 'СРЕДНЯЯ', details: 'проверить факт', rowIndex: 3 },
-    ] } };
+    ] } } as unknown as Partial<DatasetAnalysis>;
     const found = datasetFindingsOf(analysis, dept, byRow).findings;
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ sheetRow: 4, rowSeq: '17/1', subject: 'Сохранённый предмет' });
@@ -36,7 +37,7 @@ describe('C08.02: recorded anomaly addresses are bound to recorded inputs', () =
     const dept = findDept('УО')!;
     const analysis = { anomalies: { dataAnomalies: [
       { type: 'FACT_NO_PLAN', severity: 'ВЫСОКАЯ', details: 'check', rowIndex: 3 },
-    ] } };
+    ] } } as unknown as Partial<DatasetAnalysis>;
     const findings = datasetFindingsOf(analysis, dept, anomalyFactsOfCapturedRows({}, 'УО')).findings;
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ sheetRow: 4, rowSeq: '', subject: '' });
