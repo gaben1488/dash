@@ -213,7 +213,7 @@ describe('POST /api/refresh — полный цикл', () => {
     expect(failed).toMatchObject({ loaded: false });
     expect(String(failed?.error ?? '')).not.toBe('');
     const observedOnly = (body.sources as Array<Record<string, unknown>>).find((s) => s.name === 'УО');
-    expect(observedOnly).toMatchObject({ loaded: false, error: 'SOURCE_FULL_BASE_NOT_UPDATED' });
+    expect(observedOnly).toMatchObject({ loaded: false, error: 'SOURCE_BUNDLE_NOT_COMMITTED' });
     expect(getSnapshot).not.toHaveBeenCalled();
   });
 });
