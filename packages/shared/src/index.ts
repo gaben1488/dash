@@ -154,6 +154,8 @@ export * from './money-units.js';
 // Целостность нумерации рабочего листа (канон п.118: дубль — нарушение,
 // пропуск — информация о выведенной из плана закупке).
 export * from './sequence-integrity.js';
+// Stable numeric and composite procurement identifiers (12 and 12/1 are distinct).
+export * from './purchase-id.js';
 // Сбитый формат ячейки даты: показано число вместо срока (разбор 19.08).
 export * from './cell-format-integrity.js';
 // Сверка зеркал книги — справочная (решение 19.08: работают с одним листом).
