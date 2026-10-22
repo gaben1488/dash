@@ -29,6 +29,7 @@ import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { formulaDeliveryState, refreshAllSources } from '../services/source-refresh.js';
 import { metadataWatchState, sweepMetadata } from '../services/metadata-watch.js';
 import { formulaVerdicts } from '../services/formula-sink.js';
+import { assessFormulaResults } from '../services/formula-assessment.js';
 import { FORMULA_COLUMNS } from '../services/google-sheets.js';
 import { sourceIntegrityStorageWarnings } from '../services/source-integrity-state.js';
 
@@ -77,6 +78,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
          * Книги нет в перечне — её формулы не разбирались ни разу; это не
          * то же самое, что «дефектов нет» (различие сторожит страж).
          */
+        assessment: assessFormulaResults(Object.keys(DEPARTMENT_SPREADSHEETS), formulas.books, formulaVerdicts()),
         verdicts: formulaVerdicts().map((v) => ({
           book: v.book,
           at: v.at,
