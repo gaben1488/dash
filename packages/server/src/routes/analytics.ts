@@ -25,7 +25,7 @@ import {
   type AntiCorruptionRow,
   type AntiCorruptionResult,
 } from '@aemr/core';
-import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod, CHECK_REGISTRY, TRUST_COMPONENT_CONFIG, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod, CHECK_REGISTRY, TRUST_COMPONENT_CONFIG, isDepartmentRiskIssue } from '@aemr/shared';
 import { getDeptSheetValues, getDeptCacheFilledAt } from '../services/snapshot.js';
 
 /**
@@ -49,12 +49,9 @@ function dataQualityScore(
   if (rowCount <= 0) return null;
   const dirtyRows = new Set<number>();
   for (const issue of issues) {
-    if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
-      || formulaDiagnosticInapplicableReason(issue)) continue;
-    // Регламентные состояния (необеспеченная закупка и закупка в течение года)
-    // не являются дефектами заполнения или дисциплины сотрудника.
-    if (issue.checkId === 'plan_year_missing' || issue.checkId === 'fact_without_date'
-      || issue.category === 'signal:planYearMissing' || issue.category === 'signal:factWithoutDate') continue;
+    // Same classification as KPI and Dashboard: a monitoring/funding stage,
+    // a human false-positive, or a system failure is not employee misconduct.
+    if (!isDepartmentRiskIssue(issue)) continue;
     const check = issue.checkId ? CHECK_REGISTRY.find(check => check.id === issue.checkId || check.legacyId === issue.checkId) : undefined;
     const quality = check ? check.trustComponent === 'data_quality'
       : (TRUST_COMPONENT_CONFIG.data_quality.issueGroups.some(group => group === issue.group)
@@ -510,7 +507,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
       const spreadsheetId = snapshot.spreadsheetId;
       const activeIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot)
-        .filter(issue => issue.status !== 'false_positive');
+        .filter(isDepartmentRiskIssue);
       const refs = REPORT_MAP
         .filter((entry: any) => !deptFilter || entry.metricKey.includes(deptFilter))
         .map((entry: any) => {

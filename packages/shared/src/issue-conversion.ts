@@ -36,6 +36,17 @@ export function isTrustIssueApplicable(issue: Parameters<typeof formulaDiagnosti
   return isCurrentSignal(issue) && !isNonPunitiveSignal(issue) && !formulaDiagnosticInapplicableReason(issue);
 }
 
+/** One cross-consumer rule for ACTIVE departmental risk, not the audit journal.
+ * A diagnostic failure is a system-coverage problem (handled by Trust as
+ * unknown), never an employee's actionable/disciplinary finding.
+ */
+export function isDepartmentRiskIssue(issue: Parameters<typeof isTrustIssueApplicable>[0] & {
+  origin?: unknown; category?: unknown;
+}): boolean {
+  return isTrustIssueApplicable(issue) && issue.origin !== 'runtime_error'
+    && issue.category !== 'signal_detection_failed';
+}
+
 export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   // Сигналы из SIGNAL_ISSUE_MAP
   overdue: 'overdue',
