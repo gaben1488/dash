@@ -9,9 +9,18 @@ describe('management signals require relevant evidence', () => {
     const result = detectAntiCorruption('D', { rows: rows(economy) });
     expect(result.flags.filter(flag => ['zero_competition', 'price_inflation'].includes(flag.indicator))).toEqual([]);
   });
-  it('unconfirmed screening flags do not penalize discipline', () => {
-    const result = detectAntiCorruption('D', { rows: rows(0).map(row => ({ ...row, method: 'ЕП', planTotal: 700 })) });
-    expect(result.flags.length).toBeGreaterThan(0);
-    expect(result.disciplinaryPenalty).toBe(0);
+  it('unavailable legal input never becomes either a penalty or a false all-clear', () => {
+    const ep = rows(0).map(row => ({ ...row, method: 'ЕП', planTotal: 700 }));
+    const unknown = detectAntiCorruption('D', { rows: ep });
+    expect(unknown.flags.some(flag => flag.indicator === 'ep_over_limit')).toBe(false);
+    expect(unknown.unavailableIndicators).toContainEqual(expect.objectContaining({ indicator: 'ep_over_limit' }));
+    expect(unknown.disciplinaryPenalty).toBe(0);
+
+    const captured = { value: 600, unit: 'thousandRub', status: 'verified',
+      edition: 'synthetic-test-only', sourceRef: 'synthetic verified-unit fixture' } as const;
+    const screened = detectAntiCorruption('D', { rows: ep, epSingleThreshold: captured });
+    expect(screened.flags.some(flag => flag.indicator === 'ep_over_limit')).toBe(true);
+    expect(screened.flags.every(flag => flag.severity !== 'critical')).toBe(true);
+    expect(screened.disciplinaryPenalty).toBe(0);
   });
 });

@@ -5,6 +5,12 @@
  */
 import { describe, it, expect } from 'vitest';
 
+// Frozen synthetic proof. Unknown or undated law MUST remain unavailable.
+const EP_SINGLE_FIXTURE = { value: 600, unit: 'thousandRub', status: 'verified',
+  edition: 'synthetic-test-only', sourceRef: 'synthetic verified-unit fixture' } as const;
+const EP_ROLE_FIXTURE = { value: 0.5, unit: 'ratio', status: 'internal',
+  edition: 'synthetic-test-only', sourceRef: 'synthetic internal-role fixture' } as const;
+
 import {
   benfordAnalysis,
   ewmaDetection,
@@ -404,18 +410,20 @@ describe('forecast — buildScenarios', () => {
 // compliance-44fz.ts
 // ===========================================================================
 describe('compliance — checkEPContractLimits', () => {
-  it('flags EP contract above 600K', () => {
-    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700_000, factTotal: 0, economy: 0, subject: 'test' }];
-    const issues = checkEPContractLimits(rows, 'dept1');
+  it('screens an EP plan amount above a captured 600-thousand-ruble reference without alleging one contract violation', () => {
+    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700, factTotal: 0, economy: 0, subject: 'test' }];
+    expect(checkEPContractLimits(rows, 'dept1')).toEqual([]); // No frozen legal reference: not checked.
+    const issues = checkEPContractLimits(rows, 'dept1', EP_SINGLE_FIXTURE);
     expect(issues).toHaveLength(1);
     expect(issues[0].severity).toBe('info');
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
+    expect(issues[0].description).toContain('превышение цены договора не доказано');
   });
 
   it('does not flag EP contract at exactly 600K', () => {
     // planTotal — тыс. руб. (канон колонок книг ГРБС): 600 = 600 тыс. руб., граница лимита.
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 600, factTotal: 0, economy: 0, subject: '' }];
-    const issues = checkEPContractLimits(rows, 'dept1');
+    const issues = checkEPContractLimits(rows, 'dept1', EP_SINGLE_FIXTURE);
     expect(issues).toHaveLength(0);
   });
 
@@ -459,7 +467,8 @@ describe('compliance — checkAntiDumping', () => {
 describe('compliance — checkEPShareLimits', () => {
   it('flags EP share exceeding role limit', () => {
     // ОПЕРАЦИОННЫЙ role limit = 50%
-    const issues = checkEPShareLimits(60, 100, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
+    expect(checkEPShareLimits(60, 100, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1')).toEqual([]);
+    const issues = checkEPShareLimits(60, 100, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1', EP_ROLE_FIXTURE);
     expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(true);
   });
 
