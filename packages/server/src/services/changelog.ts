@@ -21,7 +21,7 @@ export interface ChangeRecord {
   atMs: number;
   author: string;
   /** Precision comes from the actual source. Date-only is not 00:00. */
-  timePrecision?: JournalTimePrecision;
+  timePrecision?: JournalTimePrecision | 'unknown';
   sourceTimeRaw?: string;
   /** Diagnostic position; never used for stable identity. */
   journalRow?: number;
