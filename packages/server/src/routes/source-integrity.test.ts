@@ -9,7 +9,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const REFRESH_AT = '2026-10-22T04:00:00.000Z';
-type DeliveryState = { sinkConnected: boolean; books: Array<{ book: string; at: string; cells: number; handled: boolean; failedBecause?: string }> };
+type DeliveryState = { sinkConnected: boolean; books: Array<{ book: string; at: string; cells: number; handled: boolean; formulasRead?: boolean; persisted?: boolean; failedBecause?: string }> };
 const defaultDeliveries = (): DeliveryState => ({
   sinkConnected: false,
   books: [{ book: 'УО', at: '2026-08-30T12:00:00.000Z', cells: 29_700, handled: false, failedBecause: 'разбор формул не подключён' }],
@@ -20,8 +20,8 @@ const refreshAllSources = vi.fn(async () => ({
   formulaBooks: ['УО', 'УИО'], svodOk: true, svodChanged: false, booksRead: 2, skipped: [],
 }));
 const sweepMetadata = vi.fn(async () => [
-  { book: 'УО', read: true, at: REFRESH_AT, remarks: [] },
-  { book: 'УИО', read: true, at: REFRESH_AT, remarks: [] },
+  { book: 'УО', read: true, at: REFRESH_AT, remarks: [], persisted: true },
+  { book: 'УИО', read: true, at: REFRESH_AT, remarks: [], persisted: true },
 ]);
 const formulaVerdicts = vi.fn(() => [
   { book: 'УО', at: REFRESH_AT, rowsJudged: 2, defects: [] },
@@ -49,6 +49,7 @@ const metadataWatchState = vi.fn(() => ({
       ],
     },
   ],
+  lastConfirmed: [],
   notWatched: ['УИО'],
 }));
 
@@ -60,6 +61,10 @@ vi.mock('../services/source-refresh.js', () => ({
 vi.mock('../services/metadata-watch.js', () => ({
   metadataWatchState: () => metadataWatchState(),
   sweepMetadata: (...args: unknown[]) => sweepMetadata(...(args as [])),
+}));
+
+vi.mock('../services/source-integrity-state.js', () => ({
+  sourceIntegrityStorageWarnings: () => [],
 }));
 
 vi.mock('../services/formula-sink.js', () => ({
@@ -127,7 +132,32 @@ describe('GET /api/sources/integrity', () => {
   }, 30_000);
 });
 
+describe('GET failed formula reads', () => {
+  it('does not mark Google read failure as successfully read', async () => {
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
+      { book: 'УО', at: REFRESH_AT, cells: 0, handled: false, formulasRead: false,
+        failedBecause: 'книга не прочитана' },
+    ] });
+    const response = (await app.inject({ method: 'GET', url: '/api/sources/integrity' })).json();
+    expect(response.formulas.notRead).toEqual(['УИО', 'УО']);
+    expect(response.formulas.books[0].failedBecause).toContain('не прочитана');
+  });
+});
+
 describe('POST /api/sources/integrity/check', () => {
+  it('does not claim success for zero configured books', async () => {
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const prior = { ...DEPARTMENT_SPREADSHEETS };
+    for (const book of Object.keys(DEPARTMENT_SPREADSHEETS)) Reflect.deleteProperty(DEPARTMENT_SPREADSHEETS, book);
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [] });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/sources/integrity/check' });
+      expect(response.json()).toMatchObject({ complete: false, expectedBooks: 0, books: [] });
+    } finally {
+      Object.assign(DEPARTMENT_SPREADSHEETS, prior);
+    }
+  });
+
   it('forces all books, bypasses revision gating, but does not take a weekly snapshot', async () => {
     formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
       { book: 'УО', at: REFRESH_AT, cells: 22, handled: true },
@@ -161,6 +191,40 @@ describe('POST /api/sources/integrity/check', () => {
     expect(data.books.find((book: { book: string }) => book.book === 'УО').problems)
       .toContain('формулы этого запуска не прочитаны');
   });
+  it('does not confirm an analysis that failed SQLite persist', async () => {
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
+      { book: 'УО', at: REFRESH_AT, cells: 22, handled: true, persisted: false },
+      { book: 'УИО', at: REFRESH_AT, cells: 11, handled: true, persisted: true },
+    ] });
+    sweepMetadata.mockResolvedValueOnce([
+      { book: 'УО', at: REFRESH_AT, read: true, remarks: [], persisted: false },
+      { book: 'УИО', at: REFRESH_AT, read: true, remarks: [], persisted: true },
+    ]);
+    const result = (await app.inject({ method: 'POST', url: '/api/sources/integrity/check' })).json();
+    expect(result.complete).toBe(false);
+    expect(result.books.find((b: { book: string }) => b.book === 'УО')).toMatchObject({
+      metadataRead: false, formulasRead: true, analyzed: false, formulaDefects: null,
+      problems: ['результат проверки настроек не сохранён', 'результат проверки формул не сохранён'],
+    });
+  });
+
+  it('rejects a verdict from another observation cycle', async () => {
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
+      { book: 'УО', at: REFRESH_AT, cells: 22, handled: true, persisted: true },
+      { book: 'УИО', at: REFRESH_AT, cells: 11, handled: true, persisted: true },
+    ] });
+    formulaVerdicts.mockReturnValueOnce([
+      { book: 'УО', at: '2026-10-22T04:01:00.000Z', rowsJudged: 2, defects: [] },
+      { book: 'УИО', at: REFRESH_AT, rowsJudged: 1, defects: [] },
+    ]);
+    const result = (await app.inject({ method: 'POST', url: '/api/sources/integrity/check' })).json();
+    expect(result.complete).toBe(false);
+    expect(result.books.find((b: { book: string }) => b.book === 'УО')).toMatchObject({
+      analyzed: false, formulaDefects: null,
+      problems: ['вердикт разбора формул не подтверждён'],
+    });
+  });
+
   it('coalesces simultaneous manual checks into one expensive Google read', async () => {
     const [first, second] = await Promise.all([
       app.inject({ method: 'POST', url: '/api/sources/integrity/check' }),
