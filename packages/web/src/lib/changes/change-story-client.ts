@@ -40,6 +40,7 @@ export interface ChangeStoryResponse {
   readonly since: string;
   readonly digest: ChangeDigest;
   readonly gaps: readonly ChangeGap[];
+  readonly cutoffDayUnknown?: number;
   readonly captureCoverage?: Readonly<Record<string, {
     readonly rawRows: number;
     readonly cellRows: number;
