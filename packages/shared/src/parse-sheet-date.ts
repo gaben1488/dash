@@ -39,7 +39,10 @@ export function parseSheetDate(val: unknown): Date | null {
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
-    const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
+    // new Date(year, ...) shifts 0001..0099 to 1901..1999.
+    const d = new Date(0);
+    d.setFullYear(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
+    d.setHours(0, 0, 0, 0);
     return isNaN(d.getTime()) ? null : d;
   }
 
