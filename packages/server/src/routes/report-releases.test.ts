@@ -61,7 +61,8 @@ it('provides a small verified release identity through the same publication read
   expect(small.statusCode).toBe(200);
   expect(small.headers['cache-control']).toBe('private, no-store');
   expect(small.json()).toEqual({ latest: receipt });
-  expect(read).toHaveBeenCalledExactlyOnceWith('identity', undefined, undefined, expect.any(AbortSignal));
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(read).toHaveBeenCalledWith('identity', undefined, undefined, expect.any(AbortSignal));
   for (const query of ['identity=0', 'identity=1&date=2026-10-20&year=2026&quarter=4', 'identity=1&identity=1']) {
     expect((await app.inject('/api/report-releases?' + query)).statusCode).toBe(400);
   }

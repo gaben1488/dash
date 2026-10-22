@@ -42,6 +42,7 @@ import {
   subordinateKey,
   ORG_ITSELF_SENTINEL,
   type DepartmentEntry,
+  type DatedThreshold,
 } from '@aemr/shared';
 import {
   detectRowAnomalies,
@@ -453,8 +454,10 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
 
   let snapshotAnalyses: Record<string, unknown> = {};
   let datasetAvailable = false;
+  let thresholdContext: Readonly<Record<string, DatedThreshold>> | null = null;
   try {
     const snapshot = await getSnapshot();
+    thresholdContext = snapshot.metadata.calculationContext?.thresholds ?? null;
     const analyses = (snapshot as { datasetAnalyses?: Record<string, unknown> }).datasetAnalyses;
     if (analyses && typeof analyses === 'object') {
       snapshotAnalyses = analyses;
@@ -507,7 +510,7 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
       }))
       : [];
 
-    const report = detectRowAnomalies({ rows, journal: journalEntries });
+    const report = detectRowAnomalies({ rows, journal: journalEntries, thresholdContext });
     for (const f of report.typo) typo.push(findingToDto(f, dept.fullName));
     for (const f of report.fitted) fitted.push(findingToDto(f, dept.fullName));
     for (const [sign, n] of Object.entries(report.counts)) {

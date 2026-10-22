@@ -285,6 +285,26 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
     expect((await app.inject('/api/dashboard?year=all')).statusCode).toBe(200);
   });
+  it('C04.01 preserves only a validated shared report source revision in the browser DTO', async () => {
+    const previous = fixture.snapshot;
+    const sourceRevision = 'SRC-' + 'f'.repeat(64);
+    fixture.snapshot = { ...previous, metadata: { ...previous.metadata, sourceRevision } };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.snapshot.metadata.sourceRevision).toBe(sourceRevision);
+      const parsed = DashboardDataSchema.parse(body);
+      expect(parsed.snapshot.metadata.sourceRevision).toBe(sourceRevision);
+
+      const altered = structuredClone(body);
+      altered.snapshot.metadata.sourceRevision = 'SRC-invalid';
+      expect(DashboardDataSchema.safeParse(altered).success).toBe(false);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
+
   it('gives release readback the exact active snapshot identity without a second source or full DTO', async () => {
     const response = await app.inject('/api/dashboard?year=2026&identity=1');
     expect(response.statusCode).toBe(200);

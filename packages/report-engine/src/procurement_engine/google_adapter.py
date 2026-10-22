@@ -278,8 +278,15 @@ class GoogleSheetSourceAdapter:
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
                 values[start-1+offset]=row[:c['columns']]
                 extra_values[start-1+offset]=row[c['columns']:]
-        known_master = any((entry['source']['providerId'], entry['source']['sheetId']) ==
-                           (self.provider_id, c['sheet_id']) for entry in DEPARTMENTS)
+        # A reviewed master retains its sourceId even when a private provider
+        # binding is explicitly migrated. Never skip the shared header profile
+        # merely because its Google file ID changed.
+        known_master = any(
+            entry['source']['sourceId'] == self.source_id
+            or (entry['source']['providerId'], entry['source']['sheetId']) ==
+            (self.provider_id, c['sheet_id'])
+            for entry in DEPARTMENTS
+        )
         if self.role == 'master' and known_master:
             if (c['columns'], c['header_rows']) != (MASTER_SOURCE_PROFILE['columns'], MASTER_SOURCE_PROFILE['headerRows']):
                 raise GoogleReadError('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH')

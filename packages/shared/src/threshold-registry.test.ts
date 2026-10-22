@@ -18,6 +18,11 @@ import {
   threshold,
   thresholdValue,
   thresholdAt,
+  freezeThresholds,
+  legalThresholdsVerifiedForContext,
+  capturedThresholdValue,
+  INTERNAL_EP_SHARE_BY_ROLE,
+  EP_ROLE_THRESHOLD_IDS,
   thresholdsByDomain,
   thresholdsBySource,
 } from './threshold-registry.js';
@@ -171,6 +176,28 @@ describe('обращение к реестру', () => {
 
 
 describe('dated threshold evidence', () => {
+  it('uses 10m before October 2026 and 20m during the temporary 279-FZ interval (thousandRub)', () => {
+    const september = thresholdAt('law.quotationPurchaseLimit', '2026-09-30');
+    expect(september).toMatchObject({ value: 10_000, status: 'verified', edition: '44fz-quotation-2026-before-279fz' });
+    const october = thresholdAt('law.quotationPurchaseLimit', '2026-10-01');
+    expect(october).toMatchObject({ value: 20_000, status: 'verified', edition: '44fz-quotation-279fz-temporary' });
+    expect(thresholdAt('law.quotationPurchaseLimit', '2027-12-31').value).toBe(20_000);
+    expect(thresholdAt('law.quotationPurchaseLimit', '2028-01-01'))
+      .toMatchObject({ value: 10_000, status: 'unverified', edition: null });
+    expect(freezeThresholds('2026-10-22')['law.quotationPurchaseLimit'].value).toBe(20_000);
+  });
+  it('never promotes one verified quotation threshold to full legal coverage', () => {
+    const captured = freezeThresholds('2026-10-22');
+    expect(captured['law.quotationPurchaseLimit'].status).toBe('verified');
+    expect(legalThresholdsVerifiedForContext(captured)).toBe(false);
+    expect(legalThresholdsVerifiedForContext(null)).toBe(false);
+    const pretendAll = Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
+      value: thresholdValue(id), unit: threshold(id)!.unit, status: 'verified' as const, edition: 'test', sourceRef: 'test',
+    }]));
+    expect(legalThresholdsVerifiedForContext(pretendAll)).toBe(true);
+    delete pretendAll['law.quotationPurchaseLimit'];
+    expect(legalThresholdsVerifiedForContext(pretendAll)).toBe(false);
+  });
   it('does not treat an undated legal reference as a verified rule for a date', () => {
     expect(thresholdAt('law.epSmallSingleContract', '2026-10-21').status).toBe('unverified');
     expect(thresholdAt('economy.highSharePct', '2026-10-21').status).toBe('internal');
@@ -187,6 +214,31 @@ describe('dated threshold evidence', () => {
     expect(thresholdAt('law.epSmallSingleContract', '2025-12-31', frozen).status).toBe('unverified');
     expect(() => thresholdAt('law.epSmallSingleContract', 'invalid', frozen)).toThrow();
   });
+  it('freezes source units and internal role-based references; legacy units are not guessed', () => {
+    const snapshot = freezeThresholds('2026-10-22');
+    for (const role of Object.keys(EP_ROLE_THRESHOLD_IDS) as Array<keyof typeof INTERNAL_EP_SHARE_BY_ROLE>) {
+      const captured = snapshot[EP_ROLE_THRESHOLD_IDS[role]];
+      expect(captured).toMatchObject({ unit: 'ratio', status: 'internal', value: INTERNAL_EP_SHARE_BY_ROLE[role] });
+      expect(capturedThresholdValue(captured, 'ratio')).toBe(INTERNAL_EP_SHARE_BY_ROLE[role]);
+      expect(capturedThresholdValue(captured, 'percent')).toBeNull();
+      expect(capturedThresholdValue({ ...captured!, unit: undefined }, 'ratio')).toBeNull();
+    }
+    expect(legalThresholdsVerifiedForContext(Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
+      value: thresholdValue(id), status: 'verified' as const, edition: 'test', sourceRef: 'test',
+    }])))).toBe(false);
+  });
+
+  it('prints a frozen quotation limit, never a current reference for an unspecified date', () => {
+    const old = thresholdAt('law.quotationPurchaseLimit', '2026-09-30');
+    const changed = thresholdAt('law.quotationPurchaseLimit', '2026-10-01');
+    expect(formatThreshold('law.quotationPurchaseLimit')).toContain('нужна дата среза');
+    expect(formatThreshold('law.quotationPurchaseLimit', old)).toBe('10000 тыс. руб.');
+    expect(formatThreshold('law.quotationPurchaseLimit', changed)).toBe('20000 тыс. руб.');
+    expect(formatThreshold('law.quotationPurchaseLimit', thresholdAt('law.quotationPurchaseLimit', '2028-01-01')))
+      .toContain('не подтверждена');
+    expect(formatThreshold('law.quotationPurchaseLimit', { ...old, unit: 'percent' })).toContain('недоступны');
+  });
+
   it('rejects overlapping applicable editions rather than picking one', () => {
     const edition = { id: 'a', validFrom: '2026-01-01', value: 1,
       verification: 'verified' as const, sourceRef: 'synthetic fixture' };

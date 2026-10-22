@@ -1,4 +1,4 @@
-import { LEGAL_RULES_UNVERIFIED, parseSheetNumber, dayNumberOf } from '@aemr/shared';
+import { LEGAL_RULES_UNVERIFIED, legalThresholdsVerifiedForContext, EP_ROLE_THRESHOLD_IDS, parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
@@ -19,7 +19,6 @@ import {
   buildSubjectAnalysis,
   findCentralizationOpportunities,
   GRBS_BASELINES,
-  EP_SHARE_BY_ROLE,
   detectAntiCorruption,
   standardRowFilter,
   type ComplianceIssue,
@@ -139,6 +138,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
             recalc.year.planTotal,
             baseline.role,
             dept.id,
+            snapshot.metadata.calculationContext?.thresholds[EP_ROLE_THRESHOLD_IDS[baseline.role]],
           ));
         }
       }
@@ -149,7 +149,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
         unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
@@ -249,7 +249,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         }));
         const recalc = recalcResults[dept.id] as any;
         const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
-        const epShareLimit = baseline ? EP_SHARE_BY_ROLE[baseline.role] : 0.5;
+        const epShareThreshold = baseline
+          ? snapshot.metadata.calculationContext?.thresholds[EP_ROLE_THRESHOLD_IDS[baseline.role]] : undefined;
         // Свип БАГ #1 (bug-hunt 2026-08-08, гейты денег): в epTotal передавался
         // recalc.totalEP — это СЧЁТЧИК процедур ЕП, а totalPlan — деньги (тыс. руб.).
         // Доля «счётчик/деньги» — бессмыслица: индикатор #9 (годовая доля ЕП)
@@ -259,7 +260,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           rows: rowData,
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
-          epShareLimit,
+          epShareThreshold,
+          epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
       }
       return result;
@@ -291,7 +293,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         }));
 
         const recalc = recalcResults[profile.grbsId] as any;
-        const epShareLimit = EP_SHARE_BY_ROLE[profile.role];
+        const epShareThreshold = snapshot.metadata.calculationContext?.thresholds[EP_ROLE_THRESHOLD_IDS[profile.role]];
 
         // Layer C — антикор. epTotal — ДЕНЬГИ ЕП (тыс. руб.), не счётчик:
         // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
@@ -299,7 +301,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           rows: rowData,
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
-          epShareLimit,
+          epShareThreshold,
+          epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
 
         // Волна 0: профиль честно отдаёт null, когда счётной базы нет
@@ -330,7 +333,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,
           unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
