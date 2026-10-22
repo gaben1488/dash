@@ -4,14 +4,13 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from .department_directory import MONITORING_SOURCE_SCHEMA
 from .google_adapter import GoogleReadClient, GoogleReadError
 from .raw_pipeline import header_hash
 from .runtime import _write
 from .runtime_inputs import validate_inputs
 from .semantic_headers import _headers, semantic_header_hash
 from .snapshot import canonical_semantic_hash
-
-from .department_directory import MONITORING_SOURCE_SCHEMA
 
 REVIEW = MONITORING_SOURCE_SCHEMA['review']
 REASON = MONITORING_SOURCE_SCHEMA['reason']
