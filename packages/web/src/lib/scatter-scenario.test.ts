@@ -19,6 +19,7 @@ const sample: LimitComparisonResponse = {
 const base = {
   scatter: sample, epPlan: 10000, epHasData: true,
   dashboardLoading: false, yearMatches: true, activityAligned: true,
+  budgetAligned: true, searchAligned: true,
 };
 
 describe('C04.03 arithmetic scenario (never approved AD economy)', () => {
@@ -31,6 +32,8 @@ describe('C04.03 arithmetic scenario (never approved AD economy)', () => {
 
   it('never invents a comparison when activity, year, completeness or EP volume differ', () => {
     expect(conditionalEpProjection({ ...base, activityAligned: false })).toBeNull();
+    expect(conditionalEpProjection({ ...base, budgetAligned: false })).toBeNull();
+    expect(conditionalEpProjection({ ...base, searchAligned: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, yearMatches: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, dashboardLoading: true })).toBeNull();
     expect(conditionalEpProjection({ ...base, epHasData: false })).toBeNull();
