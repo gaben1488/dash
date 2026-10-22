@@ -90,7 +90,16 @@ export interface BookJournal {
 export function provenanceFromJournal(
   journal: SourceJournal,
   reading?: { spreadsheetId: string; at: number },
+  dept?: string,
 ): { records: JournalRecord[]; rowKeyless: number } {
+  // Reuse the history read-model's identities, not a second hash/ordinal rule.
+  // Invalid-clock rows have no timed identity; they remain raw provenance.
+  const identities = new Map<number, string>();
+  if (dept !== undefined) {
+    for (const entry of changeRecordsFromJournal(journal, dept).records) {
+      if (entry.journalRow !== undefined) identities.set(entry.journalRow, changeRecordKey(entry));
+    }
+  }
   let rowKeyless = 0;
   const records: JournalRecord[] = journal.cells.map(item => {
     if (item.schema === 'six') rowKeyless++;
@@ -100,6 +109,10 @@ export function provenanceFromJournal(
       : undefined;
     return {
       ...(source ? { source } : {}),
+      ...(identities.has(item.journalRow) ? {
+        sourceEventIdentity: identities.get(item.journalRow)!,
+      } : {}),
+      ...(item.instant ? { sourceTimePrecision: item.instant.precision } : {}),
       sheet: item.sheet,
       cell: item.cell,
       column: item.column,
@@ -155,7 +168,7 @@ export async function readBookJournal(
   if (pending?.spreadsheetId === spreadsheetId && pending.key === key) return pending.request;
 
   const request = readChangelogReading(dept, spreadsheetId, now).then((reading): BookJournal => {
-    const { records, rowKeyless } = provenanceFromJournal(reading.normalized, reading);
+    const { records, rowKeyless } = provenanceFromJournal(reading.normalized, reading, dept);
     const journal: BookJournal = { dept, available: true, records, rowKeyless, rawRows: reading.rows.length, coverage: reading.normalized.coverage, readAt: reading.at };
     if (inFlight.get(dept)?.request === request && changelogInputKey({ [dept]: spreadsheetId }) === key) {
       cache.set(dept, { spreadsheetId, key, journal });
