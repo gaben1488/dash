@@ -34,7 +34,7 @@
  * Оба режима используют один предметный сервис evidence, а не логику маршрута.
  */
 import type { FastifyInstance } from 'fastify';
-import { buildComparison, buildWeeklyComparison, selectActiveSourceAbsences, type CurrentComparison, type WeeklyComparison, type OperationalAbsenceReport } from '../services/procurement-absence.js';
+import { acceptedCurrentBook, buildComparison, buildWeeklyComparison, selectActiveSourceAbsences, type CurrentComparison, type WeeklyComparison, type OperationalAbsenceReport } from '../services/procurement-absence.js';
 export {
   pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, buildComparison,
   buildWeeklyComparison, selectActiveSourceAbsences, currentSheetToSnapshotRows,
@@ -100,6 +100,8 @@ export interface IntegrityBookDto {
   /** null — читать было нечего. */
   sequence: SequenceReport | null;
   dateFormat: DateFormatRowDto[];
+  /** Timestamp of the actual accepted source reading, not API calculation time. */
+  lastReadAt?: string | null;
   /** Человеческое пояснение строки книги. */
   note: string;
 }
@@ -240,6 +242,7 @@ function unreadNote(dept: DepartmentEntry): string {
 
 export function buildIntegrityResponse(now: number = Date.now()): IntegrityResponse {
   const sheetValues = getDeptSheetValues();
+  const loadMeta = getDeptLoadMeta();
   const books: IntegrityBookDto[] = [];
   const totals = { gapCount: 0, duplicates: 0, countableWithoutSeq: 0, dateFormat: 0 };
   const silent: string[] = [];
@@ -247,9 +250,9 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
     const dept = findDept(deptId);
     if (!dept) continue;
-    const values = Object.entries(sheetValues)
-      .find(([name]) => findDept(name)?.id === dept.id)?.[1];
-    if (!values || values.length <= DEPT_HEADER_ROWS) {
+    const admitted = acceptedCurrentBook(dept.id, sheetValues, loadMeta);
+    const values = admitted.values;
+    if (!values) {
       silent.push(dept.id);
       books.push({
         dept: dept.id,
@@ -258,7 +261,8 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
         rowsAvailable: false,
         sequence: null,
         dateFormat: [],
-        note: unreadNote(dept),
+        lastReadAt: null,
+        note: unreadNote(dept) + ' ' + (admitted.reason ?? ''),
       });
       continue;
     }
@@ -275,6 +279,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
       rowsAvailable: true,
       sequence,
       dateFormat,
+      lastReadAt: admitted.meta?.loadedAt ?? null,
       note: sequence.note,
     });
   }

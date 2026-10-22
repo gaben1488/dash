@@ -13,7 +13,7 @@
  *      деньги — иначе «исчезло 12 закупок» не даёт сделать ни одного шага.
  */
 import { describe, expect, it } from 'vitest';
-import { compareCurrentToThursday } from '../services/procurement-absence.js';
+import { acceptedCurrentBook, compareCurrentToThursday } from '../services/procurement-absence.js';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
 import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
@@ -409,5 +409,19 @@ describe('один предметный путь: четверговый кон�
       expect(comparison).toBeNull();
       expect(note).toContain('Нельзя утверждать');
     }
+  });
+});
+
+describe('single source admission for every consumer', () => {
+  it('admits only one complete matrix and rejects alias collisions and mismatched metadata', () => {
+    const current = [ ...HEADER, row({ 0: '12/1', 2: 'Школа', 6: 'Ремонт', 10: 100, 11: 'ЕП' }) ];
+    const meta = { 'УО': { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 } };
+
+    expect(acceptedCurrentBook('УО', { 'УО': current }, meta).values).toHaveLength(4);
+    expect(acceptedCurrentBook('УО', { 'УО': current, uo: current }, meta).reason)
+      .toContain('однозначного');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, {
+      'УО': { ...meta['УО'], rowCount: 5 },
+    }).reason).toContain('полной матрицы');
   });
 });

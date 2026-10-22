@@ -202,7 +202,7 @@ interface CurrentReadMeta {
  * A duplicate alias, incomplete matrix or absent source fails closed before
  * attempting to infer any vanished procurement number.
  */
-function acceptedCurrentBook(
+export function acceptedCurrentBook(
   deptId: string,
   values: Readonly<Record<string, readonly unknown[][]>>,
   metadata: Readonly<Record<string, CurrentReadMeta>>,

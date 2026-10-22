@@ -72,7 +72,10 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
           <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
             {book.deptName}
           </h3>
-          <span className="ds-text-3xs text-[var(--ink-faint)]">лист {book.sheet}</span>
+          <span className="ds-text-3xs text-[var(--ink-faint)]">
+            лист {book.sheet}
+            {book.lastReadAt && (' · прочитано ' + fmtMoment(book.lastReadAt))}
+          </span>
         </div>
 
         {!book.rowsAvailable || seq === null ? (

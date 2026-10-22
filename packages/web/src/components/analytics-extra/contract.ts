@@ -139,6 +139,8 @@ export interface IntegrityBookDto {
   rowsAvailable: boolean;
   sequence: SequenceReportDto | null;
   dateFormat: DateFormatRowDto[];
+  /** Source timestamp; optional for compatibility with previously installed servers. */
+  lastReadAt?: string | null;
   note: string;
 }
 
