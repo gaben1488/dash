@@ -493,6 +493,9 @@ export interface CalculationContext {
   output?: {
     contract: 'aemr-calculation-output-v1';
     sha256: string;
+    /** Hashes of archived input atoms, separate from published output bytes. */
+    rowsByDeptSha256: string | null;
+    svodGridSha256: string | null;
     sourceReceipt: string | null;
     sourceRevision: string | null;
     sourceCoverageComplete: boolean;
