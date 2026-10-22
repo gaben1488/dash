@@ -88,6 +88,34 @@ describe('зависший источник', () => {
 });
 
 
+
+describe('complete Google Sheets batch response contract', () => {
+  it('does not silently substitute an absent main-book range with an empty sheet', async () => {
+    valuesBatchGet.mockResolvedValue({ data: { valueRanges: [{ range: "'УО'!A1:AH", values: [[1]] }] } });
+    const { batchGetSheetValues } = await import('./google-sheets.js');
+    await expect(batchGetSheetValues(['УО', 'УЭР'])).rejects.toThrow('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+  });
+
+  it('rejects a dropped required value or formula range before calculating KPIs', async () => {
+    valuesBatchGet.mockResolvedValue({ data: { valueRanges: [{ range: 'A1', values: [[7]] }] } });
+    const { batchGetCells, batchGetFormulas } = await import('./google-sheets.js');
+    await expect(batchGetCells(['A1', 'B2'])).rejects.toThrow('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+    await expect(batchGetFormulas(['A1', 'B2'])).rejects.toThrow('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+  });
+
+  it('rejects missing workbook value and formula sheets instead of building a partial book', async () => {
+    valuesBatchGet.mockResolvedValue({ data: { valueRanges: [] } });
+    const { fetchWorkbook } = await import('./google-sheets.js');
+    await expect(fetchWorkbook()).rejects.toThrow('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+  });
+
+  it('still accepts an explicitly returned empty range as a legitimate empty sheet', async () => {
+    valuesBatchGet.mockResolvedValue({ data: { valueRanges: [{ range: "'УО'!A1:AH" }] } });
+    const { batchGetSheetValues } = await import('./google-sheets.js');
+    await expect(batchGetSheetValues(['УО'])).resolves.toEqual({ УО: [] });
+  });
+});
+
 it('records a real mocked Sheets read as nested google time in its own HTTP request', async () => {
   valuesGet.mockResolvedValue({ data: { values: [['ячейка']] } });
   const [{ default: Fastify }, { registerRequestTiming, requestStage }, { getSheetData }] = await Promise.all([

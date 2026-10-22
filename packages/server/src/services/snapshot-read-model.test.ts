@@ -8,9 +8,20 @@ vi.setConfig({ testTimeout: 30_000 });
 const original = { ...process.env };
 const google = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('./google-sheets.js', () => ({
-  batchGetCells: google.read,
-  batchGetFormulas: vi.fn(async () => []),
-  batchGetSheetValues: vi.fn(async () => ({})),
+  batchGetCells: async (...args: unknown[]) => {
+    // A slow reader may return a genuinely empty *set of values*, but a
+    // successfully read required A1 range must still be present in the reply.
+    const values = await google.read(...args);
+    if (Array.isArray(values) && values.length) return values;
+    const { getAllCellAddresses } = await import('@aemr/shared');
+    return getAllCellAddresses().map(range => ({ range, values: [[]] }));
+  },
+  batchGetFormulas: vi.fn(async () => {
+    const { getAllCellAddresses } = await import('@aemr/shared');
+    return getAllCellAddresses().map(range => ({ range, formulas: [[]] }));
+  }),
+  batchGetSheetValues: vi.fn(async (names: readonly string[]) =>
+    Object.fromEntries(names.map(name => [name, []]))),
   getSheetData: vi.fn(async () => []),
   fetchSHDYUSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'monthly' })),
 }));
@@ -27,10 +38,30 @@ afterEach(() => { fixture?.db.$client.close(); process.env = { ...original }; })
 async function seed() {
   const source = await import('./snapshot.js');
   const { db, schema } = await import('../db/index.js');
+  const { config, DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const { saveWatermark, SVOD_WATERMARK_KEY } = await import('./book-watermark.js');
+  const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+  const { departmentCoverage } = await import('@aemr/shared');
+  // The read-model test is not permitted to create a successful calculation
+  // from missing masters. Seed a fully accepted local input (with an intentionally
+  // older saved calculation) so latency/retention tests are still meaningful.
+  const values = Array.from({ length: DEPT_HEADER_ROWS }, () => [] as unknown[]);
+  const books = Object.fromEntries(Object.entries(DEPARTMENT_SPREADSHEETS).map(([name, id]) => {
+    saveWatermark(name, sheetFingerprint(values), '2026-10-16T01:00:00.000Z',
+      { version: 'fixture-v1', modifiedTime: null }, { fileId: id, values });
+    return [name, { values, formulas: [], sheetName: 'ВСЕ', formulasRead: true }];
+  }));
+  source.setDeptSheetCache(books);
+  source.setSvodGridCache([]);
+  saveWatermark(SVOD_WATERMARK_KEY, sheetFingerprint([]), '2026-10-16T01:00:00.000Z',
+    { version: 'fixture-main-v1', modifiedTime: null },
+    { fileId: config.google.spreadsheetId, values: [] });
   const saved = { id: 'saved-2026', spreadsheetId: 'read-model-test', createdAt: '2026-10-16T01:00:00.000Z',
     officialMetrics: {}, calculatedMetrics: {}, deltas: [], issues: [], rowCount: 0,
     trust: { overall: 100, components: [], grade: 'A' as const, computedAt: '2026-10-16T01:00:00.000Z', basedOnSnapshot: 'saved-2026' },
-    metadata: { targetYear: 2026, sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 } };
+    metadata: { targetYear: 2026, sheetsRead: [], cellsRead: 0, readDurationMs: 0,
+      pipelineDurationMs: 0, sourceCoverage: departmentCoverage(Object.keys(books), Object.keys(books)),
+      sourceReceipt: 'older-than-current-accepted-source' } };
   expect(await source.saveSnapshot(saved)).toBe(true);
   const raw = db.select().from(schema.snapshots).all().map(row => row.data);
   let reject!: (error: Error) => void;

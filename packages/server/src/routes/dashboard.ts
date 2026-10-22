@@ -105,7 +105,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(snapshotUnavailable(err));
     }
 
-    // Decisions are read on every request; never mutate the historical snapshot.
+    // GET may display a stale but complete last-known-good model together with
+    // its true capture time and freshness indicator. The stricter refresh
+    // admission below applies only to the explicit POST operation.
     snapshot = withPersistedDecisions(snapshot);
 
     // Формируем KPI-карточки
@@ -410,68 +412,83 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const sources: SourceStatus[] = [];
     const deptRows: Record<string, unknown[][]> = {};
 
-    if (!quick) {
-      // Полная перечитка идёт через ЕДИНЫЙ цикл чтения источников
-      // (services/source-refresh), а не собственной копией. Раньше маршрут
-      // читал книги, ПОТОМ лист СВОД, всё подряд и в обход общего цикла:
-      //   • лист СВОД ждал окончания восьми книг (замер на заглушках по
-      //     150 мс: ~330 мс на цикл против ~160 мс параллельного);
-      //   • ручное «Обновить» во время автоцикла или вебхука читало все
-      //     девять книг ВТОРОЙ раз одновременно — ровно тот залп, на который
-      //     Google отвечает «слишком часто» (реестр багов 09.07.2026).
-      // Единый цикл читает книги и СВОД параллельно, склеивает одновременные
-      // вызовы (inFlight), публикует живые события и пишет итог в журнал с
-      // числами — вторую правду о чтении источников держать нельзя (п.112).
-      // Страж: routes/dashboard-refresh.test.ts.
-      try {
-        await refreshAllSources(
-          {
-            info: (msg) => app.log.info(msg),
-            warn: (msg) => app.log.warn(msg),
-          },
-          'request',
-          // fresh нужен вместе с формулами: присоединиться к идущему циклу
-          // значило бы получить его результат БЕЗ формул и молча решить,
-          // что дефектов нет.
-          withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
-        );
-      } catch (err) {
-        // Цикл сам не валится от отказа отдельной книги; сюда попадает только
-        // неожиданная поломка. Ответ строится из меты — что успело, то видно.
-        app.log.warn('Department sheets load failed: %s', err instanceof Error ? err.message : String(err));
+    // Both manual modes retain the same COMPLETE source contract.
+    // quick=true means economical Drive revision probes: unchanged master
+    // books cost no grid fetch, while every changed book and derived SVOD
+    // are reconciled against the durable full baseline. It never means
+    // "read only SVOD and publish it with unrelated old master values".
+    // Explicit formulas=true still forces a fresh formula examination.
+    try {
+      const acquisition = await refreshAllSources(
+        { info: msg => app.log.info(msg), warn: msg => app.log.warn(msg) },
+        'request',
+        quick
+          ? { fresh: true, withFormulas: true }
+          : withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
+      );
+      if (acquisition.failed.length > 0 || !acquisition.svodOk) {
+        const failed = new Set(acquisition.failed);
+        const meta = getDeptLoadMeta();
+        const declined: SourceStatus[] = Object.keys(DEPARTMENT_SPREADSHEETS).map(name => ({
+          name, type: 'department', loaded: false,
+          error: failed.has(name)
+            ? meta[name]?.error ?? 'SOURCE_READ_FAILED'
+            : 'SOURCE_FULL_BASE_NOT_UPDATED',
+        }));
+        declined.push({
+          name: SVOD_SHEET_NAME, type: 'svod', loaded: false,
+          error: acquisition.svodOk ? 'SOURCE_FULL_BASE_NOT_UPDATED' : 'SVOD_READ_FAILED',
+        });
+        return reply.status(503).send({
+          success: false, sources: declined, quick,
+          error: 'SOURCE_FULL_BASE_NOT_UPDATED', lastAcceptedUnchanged: true,
+        });
       }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      app.log.warn('Department sheets load failed: %s', reason);
+      return reply.status(503).send({
+        success: false, quick, error: 'SOURCE_FULL_BASE_NOT_UPDATED',
+        reason: 'SOURCE_REFRESH_FAILED',
+      });
+    }
 
-      // Ответ маршрута строится из меты цикла: та же правда, что у /api/health.
-      const meta = getDeptLoadMeta();
-      const cache = getDeptSheetCache();
-      for (const deptName of Object.keys(DEPARTMENT_SPREADSHEETS)) {
-        const m = meta[deptName];
-        if (m && !m.error) {
-          deptRows[deptName] = cache[deptName]?.values ?? [];
-          sources.push({ name: deptName, type: 'department', loaded: true, rowCount: m.rowCount });
-        } else {
-          sources.push({
-            name: deptName,
-            type: 'department',
-            loaded: false,
-            error: m?.error ?? 'книга не читалась в этом цикле',
-          });
-        }
+    const meta = getDeptLoadMeta();
+    const cache = getDeptSheetCache();
+    for (const deptName of Object.keys(DEPARTMENT_SPREADSHEETS)) {
+      const m = meta[deptName];
+      if (m && !m.error) {
+        deptRows[deptName] = cache[deptName]?.values ?? [];
+        sources.push({ name: deptName, type: 'department', loaded: true, rowCount: m.rowCount });
+      } else {
+        sources.push({
+          name: deptName, type: 'department', loaded: false,
+          error: m?.error ?? 'SOURCE_FULL_BASE_UNVERIFIED',
+        });
       }
-      // Кэш снимка и СВОД-грид обновлены циклом; отдельное чтение СВОДа здесь
-      // было бы вторым обращением к тому же листу за один щелчок.
-    } else {
-      // Быстрый путь — явная просьба «обнови только СВОД», книги не трогаем.
-      invalidateCache();
-      try {
-        setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
-      } catch (err) {
-        app.log.warn('SVOD grid refresh failed: %s', (err as Error).message);
-      }
+    }
+    if (sources.some(source => !source.loaded)) {
+      return reply.status(503).send({
+        success: false, sources, quick,
+        error: 'SOURCE_FULL_BASE_NOT_VERIFIED',
+      });
     }
     let snapshot;
     try {
-      snapshot = await getSnapshot(true);
+      // The economical command must not materialize another identical full
+      // model when the accepted source generation has not changed. A truly
+      // new generation or cold start still waits for the complete build.
+      if (quick) {
+        try {
+          const existing = await getSnapshot(false);
+          snapshot = existing.metadata?.readModel?.state ? await getSnapshot(true) : existing;
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'SNAPSHOT_NOT_READY') throw error;
+          snapshot = await getSnapshot(true);
+        }
+      } else {
+        snapshot = await getSnapshot(true);
+      }
       sources.push({
         name: SVOD_SHEET_NAME,
         type: 'svod',

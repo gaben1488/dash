@@ -194,7 +194,7 @@ describe('чтение формул в цикле источников', () => {
       data: {}, errors: { 'УО': '403 permission denied' },
     });
     const refresh = await refreshAllSources(log, 'webhook', {
-      withFormulas: true, fresh: true, svod: false, askDrive: false,
+      books: ['УО'], withFormulas: true, fresh: true, svod: false, askDrive: false,
     });
     expect(refresh.formulaBooks).toEqual([]);
     expect(refresh.failed).toEqual(['УО']);
