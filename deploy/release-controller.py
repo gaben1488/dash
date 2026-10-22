@@ -319,7 +319,10 @@ class ReleaseController:
         if (component.get('mode') != 'web' or component.get('stage_sha256') != recovery.digest(
                 json.dumps(stage, sort_keys=True, allow_nan=False).encode())
                 or self._web_source(stage['images'], stage['release_sha']) != component.get('backend_sha')
-                or self._source(stage) != stage['source_ci_sha256']):
+                or self._source(stage) != stage['source_ci_sha256']
+                # The privileged tool is a stage-bound input, even for web-only.
+                # A changed installed tool cannot inherit the prior component proof.
+                or stage['tool_sha256'] != recovery.digest(recovery.read_owned(recovery.TOOL, private=False))):
             recovery.fail('RELEASE_WEB_COMPATIBILITY_CHANGED')
         self._images(stage)
         records = self.executor._records(stage, original=True)
