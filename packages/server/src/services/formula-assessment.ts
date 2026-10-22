@@ -37,10 +37,10 @@ export function assessFormulaResults(
     const verdict = byBook.get(book);
     const checks = verdict?.checks;
     const checked = checks ? summarizeCheckCoverage([checks]) : null;
-    const confirmed = attempt?.handled === true && attempt.persisted === true
-      && attempt.formulasRead !== false && verdict?.at === attempt.at
-      && checked?.score !== null && checked?.score !== undefined
-      && checks?.failed === verdict.defects.length;
+    const confirmed = Boolean(attempt && verdict && checks
+      && attempt.handled && attempt.persisted === true && attempt.formulasRead !== false
+      && verdict.at === attempt.at
+      && checked && checked.score !== null && checks.failed === verdict.defects.length);
     return {
       book,
       checkedAt: confirmed ? verdict!.at : null,
