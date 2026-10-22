@@ -27,18 +27,19 @@ interface ChangeRecord {
   oldValue: string;
   newValue: string;
   atMs: number;
+  timePrecision?: 'day';
   author: string;
 }
 
 /** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза.
  *  Экспорт: тем же словом время называет журнал эфира в углу шапки. */
-export function fmtAt(ms: number): string {
+export function fmtAt(ms: number, precision?: 'day'): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mi = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${dd}.${mm}, ${hh}:${mi}`;
+  return precision === 'day' ? `${dd}.${mm} (время не указано)` : `${dd}.${mm}, ${hh}:${mi}`;
 }
 
 /** Значение в журнале бывает пустым — читателю честнее слово, чем дыра. */
@@ -122,7 +123,7 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
       <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
       <span aria-hidden="true">→</span>{' '}
       <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
-      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs)}</span>
+      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs, r.timePrecision)}</span>
     </p>
   );
 }
