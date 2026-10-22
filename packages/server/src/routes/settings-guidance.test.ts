@@ -1,5 +1,6 @@
 /** C06.03: real Fastify/SQLite lifecycle, with no source-network or production writes. */
 import type { FastifyInstance } from 'fastify';
+import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -15,7 +16,7 @@ vi.mock('../services/google-sheets.js', () => ({
 
 describe('C06.03 edited explanations /api/settings/guidance', () => {
   let app: FastifyInstance;
-  let sqlite: import('better-sqlite3').Database;
+  let sqlite: InstanceType<typeof Database>;
   const key = 'field:planDate';
   const endpoint = `/api/settings/guidance/${encodeURIComponent(key)}`;
   const newText = 'Проверьте плановую дату в первичном документе, без подстановок.';
