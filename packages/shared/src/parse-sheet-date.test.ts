@@ -142,3 +142,16 @@ describe('недельная арифметика (день 0 эпохи — ч�
     expect(isoOfDayNumber(0)).toBe('1970-01-01');
   });
 });
+
+describe('строгий ISO-ввод: даты не допускают произвольный текст', () => {
+  it('не принимает текст после корректной даты и невозможное время', () => {
+    for (const bad of ['2026-02-28 comment', '2026-02-28T25:61:00Z', '2026-02-28T12:00:00Zjunk']) {
+      expect(parseSheetDate(bad), bad).toBeNull();
+      expect(dayNumberOf(bad), bad).toBeNull();
+    }
+  });
+  it('сохраняет часовой пояс и обычные ISO-даты', () => {
+    expect(dayNumberOf('2026-10-22T23:59:59+12:00')).toBe(dayNumberOf('22.10.2026'));
+    expect(dayNumberOf('2026-10-22')).toBe(dayNumberOf('22.10.2026'));
+  });
+});
