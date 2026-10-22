@@ -29,6 +29,7 @@ import {
   isFormulaError,
   isInitiativeMarker,
   isProceduralMismatch,
+  isPurchaseId,
   parseSheetDate,
 } from '@aemr/shared';
 import { sheetNumber } from '../timeline/row-timeline.js';
@@ -611,7 +612,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // or if the plan date is in the past. Pure future-plan rows are expected to have
   // incomplete data (no method, no amounts yet).
   // Текстовые исключения («планирование», «отменена») сняты каноном п.27.
-  let dataQuality = false;
+  // A real procurement ID means its subject G is required from the moment
+  // the row is created, even before the planned date and before any sums.
+  // This matches the unconditional row gate in the book's G warning.
+  let dataQuality = isPurchaseId(cells['A']) && cellText(cells, 'G') === '';
   const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
     // Обязательность зависит от вида деятельности (уточнение владельца §22 п.2
@@ -622,7 +626,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     if (cellText(cells, 'F') === PROGRAM_ACTIVITY_TYPE) {
       required.push(PROGRAM_REQUIRED_COLUMN);
     }
-    dataQuality = required.some(col => {
+    dataQuality = dataQuality || required.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
     });
