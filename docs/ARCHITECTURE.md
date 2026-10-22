@@ -384,6 +384,44 @@ implemented permissions model.
 
 ## Data Sources
 
+### Единый профиль источников и потребители (R05.01, 22.10.2026)
+
+Для восьми основных книг ГРБС **единственным редактируемым определением**
+identity, `providerId`/`sheetId`, роли, 34 полей A:AH, типов/единиц,
+обязательности, разрешённых подписей и 11 формульных зависимостей остаётся
+`packages/report-engine/src/procurement_engine/department_directory.json`.
+Группы формул K, O:P, R:T, Y:AC определены там же. Не заводить вторую схему
+или другую таблицу номеров колонок под новый экран/отчёт.
+
+Из этого профиля **производны**, а не независимы:
+`packages/shared/src/column-map.ts` и `report-map.ts` (карты/список);
+`packages/server/src/services/google-sheets.ts` (чтение и единое
+определение вкладки по gid для записи/дозора);
+`metadata-canon.ts` (группы проверки метаданных);
+`scripts/etalon-sync/canon.cjs` (выражения и группы эталонных формул);
+`procurement_engine/department_directory.py` и `constants.py`
+(Python-карта/валидация), `google_adapter.py` (вход отчёта).
+`source-refresh.ts` не восстанавливает в активный кэш сохранённые
+значения, не соответствующие сегодняшним обязательным полям.
+Бизнес-история и исходные сохранённые байты не перезаписываются.
+
+**Границы.** Исторические 19/32/34-колоночные схемы мониторинга
+адаптируются по записанным reviewed-переходам; их нельзя автоматически
+выдавать за действующий 34-колоночный master. Профиль источника задаёт
+семантику данных, но **не** заменяет реестр метрик/сигналов,
+хранилище решений, правила 44-ФЗ или пользовательские полномочия.
+Для каждого из них остаётся свой существующий канон; связи идут через
+согласованные source/observation/row identity, правила и `asOf`, а не
+копированием логики в компоненты UI и Word.
+
+**Приёмка шире статической структуры.** R05.01 требует подтверждённого
+исторического replay, проверки актуальной схемы всех восьми источников и
+совместного runtime-пути. R05.02/C08.02 отдельно закрывают полную
+временную согласованность, версионирование исходного профиля в контексте
+и отсутствие смешивания принятого кэша с новой конфигурацией. Не
+считать совпадение импортов, синтетический тест или этот документ
+производственной приёмкой всех потребителей.
+
 The main spreadsheet ID comes from `GOOGLE_SHEETS_SPREADSHEET_ID` or the shared default constant. Department spreadsheet defaults live in `packages/server/src/config.ts`; runtime overrides are saved in `data/sources.json`.
 
 `ШДЮ` (месячный свод) на текущем серверном пути читается отдельно: `fetchSHDYUSheet(SHDYU_SPREADSHEET_ID)` → `parseSHDYUSheet()` → `snapshot.shdyuData`. В `pipelineInput.sheetRows` для `runPipeline()` он не добавляется. `ALL_SHEETS` основной книги включает `СВОД ТД-ПМ` и листы ГРБС, а не месячный ШДЮ. Это подтверждено проверкой `snapshot.ts` на 2026-10-10 (см. [верифицированный аудит](superpowers/audits/2026-10-10-dash-code-review-verified/README.md), DASH-011).
@@ -426,10 +464,13 @@ Canonical 44-ФЗ numeric thresholds are in `packages/shared/src/constants.ts` u
 
 ## Source versions and report storage — current and target
 
-The operational Dash reader and Python report worker currently acquire Google
-sources independently. Dash persists complete PipelineSnapshot JSON plus SQL
-row/metric projections; Python persists snapshot payloads, one ReportModel and
-several JSON projections, then PublicationStore copies the candidate directory.
+Dash and the Python report worker have an integrated coordinator
+path for common source acquisition, but the Python runtime retains a
+standalone capture fallback when REPORT_SOURCE_COORDINATOR_URL is unset.
+Its presence means a common source profile alone is not proof that every live
+consumer uses the same accepted revision. Dash persists PipelineSnapshot JSON
+and SQL row/metric projections; Python persists its report model and publication
+artifacts.
 The published Python dashboard projection is verified against its ReportModel;
 this does not establish version parity with all live Dash routes.
 
