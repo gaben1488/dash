@@ -318,11 +318,15 @@ function svodCellRefs(
 function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: string): ReportSignal[] {
   const own = new Set([key, entry?.id, entry?.latinId].filter((v): v is string => Boolean(v)));
   return issues
-    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId))
+    // False positives remain in case history, not in the list of active report signals.
+    // Resolved/wont-fix cases remain visible with their decision status: closure is not proof
+    // that the underlying source row was corrected.
+    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId) && i.status !== 'false_positive')
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
     .map((i) => ({
       id: i.id,
       severity: i.severity,
+      status: i.status,
       title: i.title,
       description: i.description,
       ...(i.sheet !== undefined ? { sheet: i.sheet } : {}),

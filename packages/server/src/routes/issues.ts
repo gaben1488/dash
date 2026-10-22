@@ -5,7 +5,7 @@ import { readIssueHistory } from '../services/issue-history.js';
 import { db, schema } from '../db/index.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
-import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, productLabel, allowedIssueTransitions, issueTransitionNeedsReason } from '@aemr/shared';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
 
@@ -39,15 +39,6 @@ const SNAPSHOT_UNAVAILABLE = {
 
 /** Замечания демо-генератора — не данные ГРБС: менять их статусы нельзя. */
 const DEMO_ISSUE_PREFIX = 'demo-issue-';
-
-const STATUS_TRANSITIONS: Record<string, string[]> = {
-  'open':           ['acknowledged', 'in_progress', 'wont_fix', 'false_positive'],
-  'acknowledged':   ['in_progress', 'wont_fix', 'false_positive'],
-  'in_progress':    ['resolved', 'wont_fix', 'false_positive'],
-  'resolved':       ['open'],           // переоткрытие
-  'wont_fix':       ['open'],           // переоткрытие
-  'false_positive': ['open'],           // переоткрытие
-};
 
 /** Строка истории статуса — тип выводится из схемы, не описывается второй раз. */
 const HISTORY_UNAVAILABLE = { error: 'История замечания недоступна. Повторите чтение позже.', code: 'ISSUE_HISTORY_UNAVAILABLE' };
@@ -206,7 +197,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Для wont_fix и false_positive — требуется причина
-    if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason?.trim()) {
+    if (issueTransitionNeedsReason(body.status) && !body.reason?.trim()) {
       return reply.status(400).send({
         error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
       });
@@ -230,8 +221,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     // Проверка допустимости перехода. Текст — фразами продукта: сырые ключи
     // («open → resolved») веб был вынужден прятать за общей заглушкой,
     // потому что показывать их пользователю нельзя.
-    const allowedTransitions = STATUS_TRANSITIONS[currentStatus];
-    if (!allowedTransitions?.includes(body.status)) {
+    const allowedTransitions = allowedIssueTransitions(currentStatus);
+    if (!allowedTransitions.some(status => status === body.status)) {
       const allowedNames = (allowedTransitions ?? []).map(statusLabel);
       return reply.status(400).send({
         error: allowedNames.length > 0

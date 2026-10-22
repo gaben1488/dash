@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DeltaResult, Issue } from '@aemr/shared';
 import { getSnapshot } from '../services/snapshot.js';
 import { getMetricTrend } from '../services/snapshot.js';
+import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import { REPORT_MAP } from '@aemr/shared';
 import { parseYearFilterParam } from '../services/period-params.js';
 import { metricExplanation } from '../services/metric-explanation.js';
@@ -52,7 +53,8 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
         mapEntry,
         trend,
         delta: snapshot.deltas.find((d: DeltaResult) => d.metricKey === key),
-        issues: snapshot.issues.filter((i: Issue) => i.metricKey === key),
+        // Detail retains closed cases with their true status so the decision is auditable.
+        issues: overlayPersistedStatus(snapshot.issues ?? [], snapshot).filter((i: Issue) => i.metricKey === key),
       });
     } catch (err) {
       app.log.error({ err }, 'Metric detail unavailable');

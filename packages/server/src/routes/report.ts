@@ -55,6 +55,7 @@ import {
 } from '@aemr/shared';
 import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore, getDeptLoadMeta, getSvodGridCache, setSvodGridCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
+import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import {
   parsePeriodQuery,
@@ -136,14 +137,16 @@ async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; extras: SvodShee
   }
 }
 
-/** Сигналы снапшота года; демо-фолбэк и отказ снапшота — честные «без сигналов». */
+/** Current signals use persisted case decisions; archived snapshots retain their own past statuses. */
 async function readIssues(year: number): Promise<Issue[]> {
+  let snapshot;
   try {
-    const snapshot = await getSnapshot(false, year);
-    return snapshot.id.startsWith('demo-') ? [] : snapshot.issues;
+    snapshot = await getSnapshot(false, year);
   } catch {
+    // Preserve the existing missing-source policy, but never swallow a decision-DB failure.
     return [];
   }
+  return snapshot.id.startsWith('demo-') ? [] : overlayPersistedStatus(snapshot.issues ?? [], snapshot);
 }
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
