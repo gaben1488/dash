@@ -1,6 +1,8 @@
 # Metrics Contract
 
-Last verified: 2026-06-05.
+Last full source review: 2026-06-05.
+
+**Mapping erratum verified against code (2026-10-22, `packages/shared/src/column-map.ts@c4b792a`):** master D is the program, E the subprogram, F the activity type, G the procurement subject. The original D/E entries in this document were outdated. This erratum verifies only the code mapping, **not** the current Google Sheets schema or product readiness. For the new AI-readable contract see `docs/contracts/SOURCES_AND_INTEGRITY.md`.
 
 This document is the contract from Google Sheet cells to dashboard numbers. If code, UI labels, or docs disagree with this file, the metric is not production-ready.
 
@@ -26,8 +28,8 @@ Production row-level calculations use department workbooks. The same layout is m
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Row number / source ID | `DEPT_COLUMNS.ID` | row identity | `rows[].rowIndex` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
-| Department workbook | same | `D` | Description / PM name | `DEPT_COLUMNS.DESCRIPTION` | row context | `rows[].description` | Subject/detail |
-| Department workbook | same | `E` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | activity classifier input | `byActivity.*` | Activity filter |
+| Department workbook | same | `D` | Program name / ПМ | `DEPT_COLUMNS.PROGRAM_NAME` | activity classifier input | Verify runtime DTO on current code | Program/activity context |
+| Department workbook | same | `E` | Subprogram / пункт подпрограммы | `DEPT_COLUMNS.SUBPROGRAM` | row context | Verify runtime DTO on current code | Subprogram context |
 | Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
