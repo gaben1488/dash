@@ -10,6 +10,7 @@ process.env.LOG_LEVEL = 'silent';
 type RowsResponse = {
   rows: Array<{ id: unknown; subject: unknown }>;
   signals: { total: number };
+  scope: { planYear: number | null; excludedWithoutPlanYear: number };
 };
 
 function makeDeptRow(overrides: {
@@ -17,6 +18,7 @@ function makeDeptRow(overrides: {
   programName: string;
   type: string;
   subject: string;
+  planYear?: unknown;
 }): unknown[] {
   const row = Array<unknown>(32).fill('');
   row[0] = overrides.id; // A
@@ -26,6 +28,7 @@ function makeDeptRow(overrides: {
   row[10] = 100; // K
   row[11] = 'ЕП'; // L
   row[13] = '01.01.2026'; // N
+  row[15] = overrides.planYear ?? ''; // P — separately sourced from N
   return row;
 }
 
@@ -64,6 +67,14 @@ beforeAll(async () => {
           type: 'Текущая деятельность',
           programName: 'Х',
           subject: 'Non-program purchase',
+          planYear: '2026abc', // invalid P with valid N
+        }),
+        makeDeptRow({
+          id: 3,
+          type: 'Программное мероприятие',
+          programName: 'Муниципальная программа «Развитие»',
+          subject: 'Approved-year purchase',
+          planYear: 2026,
         }),
       ],
       formulas: [],
@@ -104,5 +115,19 @@ describe('GET /api/rows/:deptId activity filter', () => {
     expect(currentProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
     expect(currentNonProgramBody.signals.total).toBe(2);
     expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
+  }, 30_000);
+
+  it('годовой API и CalcEngine согласованы: незаполненная/битая P не попадает в каждый год', async () => {
+    const result = await app.inject({ method: 'GET', url: '/api/rows/uo?year=2026&limit=100' });
+    expect(result.statusCode).toBe(200);
+    const body = result.json<RowsResponse>();
+    expect(body.rows.map(r => r.id)).toEqual([3]);
+    expect(body.signals.total).toBe(1);
+    expect(body.scope).toEqual({ planYear: 2026, excludedWithoutPlanYear: 2 });
+
+    const withoutYear = await app.inject({ method: 'GET', url: '/api/rows/uo?limit=100' });
+    expect(withoutYear.statusCode).toBe(200);
+    expect(withoutYear.json<RowsResponse>().rows.map(r => r.id)).toEqual([1, 2, 3]);
+    expect(withoutYear.json<RowsResponse>().scope).toEqual({ planYear: null, excludedWithoutPlanYear: 0 });
   }, 30_000);
 });
