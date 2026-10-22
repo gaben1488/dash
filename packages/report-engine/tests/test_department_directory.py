@@ -1,6 +1,10 @@
 import pytest
 from procurement_engine.department_directory import (
-    ALIASES, APPROVED_PRIMARY_TITLE_ALIASES, DEPARTMENTS, department_id, department_label,
+    ALIASES,
+    APPROVED_PRIMARY_TITLE_ALIASES,
+    DEPARTMENTS,
+    department_id,
+    department_label,
 )
 from procurement_engine.rule_catalog import DEFAULT_RULE_CATALOG
 
@@ -30,8 +34,11 @@ def test_current_source_names_remain_covered(source_name, expected):
 
 
 def test_master_fields_and_required_meanings_come_from_shared_profile():
-    from procurement_engine.department_directory import MASTER_FIELDS, validate_master_source_header
     from procurement_engine.adapters import mapping_contract
+    from procurement_engine.department_directory import (
+        MASTER_FIELDS,
+        validate_master_source_header,
+    )
     header = [field['label'] for field in MASTER_FIELDS.values()]
     assert len(header) == 34
     assert mapping_contract()['AD'] == 'include_saving'

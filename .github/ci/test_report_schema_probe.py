@@ -44,6 +44,7 @@ class ReportSchemaProbeTests(unittest.TestCase):
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'),
             ('coverage', 'packages/shared/src/source-coverage.ts'))}
+        envelope['directory'] = json.loads((ROOT / 'packages/report-engine/src/procurement_engine/department_directory.json').read_text())
         program = """const fs=require('node:fs'),path=require('node:path');
 const originalRead=fs.readFileSync, originalDir=fs.readdirSync, originalStat=fs.lstatSync;
 const input=JSON.parse(originalRead(0,'utf8'));
@@ -88,6 +89,7 @@ require('./.github/ci/report-schema-probe.cjs').main().catch(()=>process.exitCod
             ('schemas', 'packages/shared/src/schemas.ts'),
             ('registry', 'packages/shared/src/department-registry.ts'),
             ('coverage', 'packages/shared/src/source-coverage.ts'))}
+        envelope['directory'] = json.loads((ROOT / 'packages/report-engine/src/procurement_engine/department_directory.json').read_text())
         for assurance, accepted in cases:
             with self.subTest(assurance_version=assurance and assurance['contract'], accepted=accepted):
                 result = subprocess.run(['node', '-e',

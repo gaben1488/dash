@@ -20,7 +20,18 @@ function loadCandidate(input, packageFile) {
     new Function('require', 'exports', 'module', compiled)(requireApproved, module.exports, module);
     return module.exports;
   };
-  const registry = compile(input.registry, {});
+  // The canonical department registry imports a checked-in JSON directory.
+  // Supply ONLY that exact, reviewed dependency; never relax the import
+  // allowlist or let the probe require arbitrary files from the container.
+  const directory = input.directory;
+  if (!directory || !Array.isArray(directory.departments) || directory.departments.length !== 8 ||
+      new Set(directory.departments.map(entry => entry.id)).size !== 8) {
+    throw new Error('INVALID_PROBE_DIRECTORY');
+  }
+  const registry = compile(input.registry, {
+    '../../report-engine/src/procurement_engine/department_directory.json':
+      { __esModule: true, default: directory },
+  });
   const zod = installed('zod');
   const coverage = compile(input.coverage, { zod });
   return compile(input.schemas, { zod, './department-registry.js': registry, './source-coverage.js': coverage });

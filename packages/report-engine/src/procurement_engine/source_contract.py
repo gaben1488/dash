@@ -3,10 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 
-from .normalize import clean_text
-
 # Compatibility export: adapter and formula closure share the editable directory.
-from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES as APPROVED_PRIMARY_TITLE_ALIASES
+from .normalize import clean_text
 
 
 def schema_fingerprint(header_rows: list[list], *, max_rows: int = 4, max_cols: int = 34) -> str:
