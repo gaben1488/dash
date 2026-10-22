@@ -151,3 +151,55 @@ describe('setDeptSheetCache — replace-per-dept-key при отвалившем
     expect(cache.УИО?.values).toEqual([['uio-row-fresh']]);
   });
 });
+
+
+describe('C08.02 — archived calculation context is enforced by the actual SQLite read/write path', () => {
+  it('rejects corrupted output before storing and skips tampered history on readback', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { eq } = await import('drizzle-orm');
+    const { dayNumberOf } = await import('@aemr/shared');
+    const { saveSnapshot, getSnapshotAtOrBefore, getStoredSnapshotById } = await import('./snapshot.js');
+    const { calculationDigest, sealSnapshotCalculationContext } =
+      await import('./snapshot-calculation-context.js');
+    const AT = '2026-10-22T08:00:00.000Z';
+    const baseline = snap('c0802-baseline', '2026-10-21T08:00:00.000Z', { УО: [['original']] });
+    expect(await saveSnapshot(baseline)).toBe(true);
+
+    const current = snap('c0802-sealed', AT, { УО: [['new']] });
+    const body = {
+      contract: 'aemr-calculation-context-v1' as const,
+      sources: { content: 'observed', profiles: 'approved' },
+      semantics: 'installed-definition',
+      thresholds: {},
+      calendar: { asOf: AT, productDay: 20748, utcOffsetHours: 12, weeklyCutoffHour: 18 },
+      scope: { targetYear: null, officialYear: null },
+      decisions: 'not-applied' as const,
+      access: 'full-dataset' as const,
+    };
+    (current.metadata as import('@aemr/shared').DataSnapshot['metadata']).calculationContext =
+      { ...body, id: calculationDigest(body) };
+    expect(sealSnapshotCalculationContext(current)).toBe(true);
+    expect(await saveSnapshot(current)).toBe(true);
+    expect(getStoredSnapshotById(current.id)?.id).toBe(current.id);
+
+    const stored = db.select({ data: schema.snapshots.data }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, current.id)).get();
+    const changed = JSON.parse(stored!.data!) as import('@aemr/shared').DataSnapshot;
+    changed.rowsByDept!.УО[0][0] = 'corrupted-after-save';
+    db.update(schema.snapshots).set({ data: JSON.stringify(changed) })
+      .where(eq(schema.snapshots.id, current.id)).run();
+
+    expect(() => getStoredSnapshotById(current.id)).toThrow('STORED_SNAPSHOT_INVALID');
+    const history = getSnapshotAtOrBefore(dayNumberOf('2026-10-22')!);
+    expect(history?.id).toBe(baseline.id);
+
+    const untrusted = snap('c0802-must-not-write', AT, { УО: [['another']] });
+    untrusted.metadata = {
+      ...current.metadata,
+      calculationContext: current.metadata.calculationContext,
+    };
+    expect(await saveSnapshot(untrusted)).toBe(false);
+    expect(db.select({ data: schema.snapshots.data }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, untrusted.id)).get()).toBeUndefined();
+  }, 30_000);
+});
