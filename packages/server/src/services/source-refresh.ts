@@ -231,6 +231,20 @@ export function formulaDeliveryState(): {
   };
 }
 
+/** Proof may be kept after values-only reads only for an unchanged source revision.
+ * A later source change/failed read invalidates a prior verified formula score.
+ * null = no accepted source cache yet (durable last-check evidence still dated).
+ */
+export function currentFormulaSourceProof(): Record<string, boolean> | null {
+  const cached = getDeptSheetCache();
+  if (Object.keys(cached).length === 0) return null;
+  return Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book => {
+    const reading = cached[book];
+    return [book, Boolean(reading && (reading.formulasRead || reading.retainedFormulas)
+      && reading.formulas.length > 0)];
+  }));
+}
+
 /** Restore attempted deliveries, including failures, before webhook handlers start. */
 export function restoreFormulaDeliveries(): void {
   formulaNotes.clear();
