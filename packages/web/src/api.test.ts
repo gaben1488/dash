@@ -63,6 +63,22 @@ it('keeps a measured zero distinct from an unknown metric after contract validat
   expect(data.snapshot.officialMetrics.unknown!.warnings).toEqual(['Ячейка не прочитана']);
 });
 
+it('rejects dropped calculated-period budget fields but accepts an explicit unknown', async () => {
+  const body = dashboardBody();
+  const required = [
+    'kpCount', 'kpFactCount', 'kpPlan', 'kpFact', 'kpPercent',
+    'epCount', 'epFactCount', 'epPlan', 'epFact', 'epPercent',
+    'fbPlan', 'kbPlan', 'mbPlan', 'fbFact', 'kbFact', 'mbFact',
+    'epFbPlan', 'epKbPlan', 'epMbPlan', 'epFbFact', 'epKbFact', 'epMbFact',
+  ];
+  const quarter = { ...Object.fromEntries(required.map(field => [field, null])), source: 'calculated' };
+  Object.assign(body.summaryByPeriod, { q2: quarter });
+  vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+  await expect(api.getDashboard()).resolves.toMatchObject({ summaryByPeriod: { q2: { epFbPlan: null } } });
+  Reflect.deleteProperty(quarter, 'epFbPlan');
+  await expect(api.getDashboard()).rejects.toThrow(/формат|контракт|обновите/i);
+});
+
 describe('скачивание опубликованного документа', () => {
   it('сохраняет авторизацию и возвращает байты, не пытаясь разобрать DOCX как JSON', async () => {
     vi.stubGlobal('localStorage', { getItem: () => 'test-token' });

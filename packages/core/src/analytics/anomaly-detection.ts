@@ -251,7 +251,8 @@ export const ANOMALY_LIMITS = {
   ratioTolerance: 0.005,
 } as const;
 
-/** Пороги 44-ФЗ, у которых имеет смысл искать «липнет снизу», тыс. ₽. */
+/** Исторические справочные ориентиры для поиска скученности плановых сумм, тыс. ₽.
+ * Не юридическая проверка: текущую редакцию нормы и НМЦК этот детектор не получает. */
 const THRESHOLD_POINTS: ReadonlyArray<{ limit: number; label: string }> = [
   {
     limit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub,
@@ -263,7 +264,7 @@ const THRESHOLD_POINTS: ReadonlyArray<{ limit: number; label: string }> = [
   },
   {
     limit: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
-    label: 'предел запроса котировок (10 млн ₽)',
+    label: 'исторический ориентир запроса котировок 10 млн ₽ (после 01.10.2026 не является действующим пределом)',
   },
 ];
 
@@ -819,7 +820,7 @@ export function detectBenfordDeviation(
 }
 
 /**
- * Признак 8 — суммы липнут к порогу 44-ФЗ снизу.
+ * Признак 8 — плановые суммы группируются возле исторического ориентира.
  *
  * Механизм проверки: сравниваем ПЛОТНОСТЬ сумм в последних 10 % под порогом
  * с плотностью в опорной полосе 50–90 % того же порога. Сравнение с соседней
@@ -856,7 +857,7 @@ export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFind
       findings.push({
         sign: 'threshold-hugging',
         scale: 'fitted',
-        title: 'Суммы липнут к порогу закона снизу',
+        title: 'Плановые суммы сгруппированы около справочного ориентира',
         explanation:
           `У учреждения «${subordinate}» ${inCorridor.length} закупок стоят в последних 10 % под ` +
           `порогом «${point.label}» — от ${fmt(corridorFrom)} до ${fmt(point.limit)} тыс. ₽. ` +
@@ -879,7 +880,7 @@ export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFind
         note:
           inReference.length < ANOMALY_LIMITS.thresholdMinRows
             ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво.'
-            : 'Порог сам по себе не нарушен: речь о концентрации сумм под ним, а не о превышении.',
+            : 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
         members: inCorridor.map(r => addressOf(r, `K${r.sheetRow}`)),
       });
     }
