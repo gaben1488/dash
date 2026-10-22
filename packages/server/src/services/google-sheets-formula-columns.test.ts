@@ -287,8 +287,11 @@ describe('R05.01 — source profile is the single implementation across consumer
   it('one object reference supplies read ranges and metadata protected groups', async () => {
     const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
     const { METADATA_CANON } = await import('./metadata-canon.js');
-    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_SOURCE_PROFILE.formulaColumnGroups);
-    expect(METADATA_CANON.protectedColumnGroups).toEqual(FORMULA_COLUMN_GROUPS);
+    // afterEach resets the module cache: compare two fresh module instances
+    // rather than the top-level profile reference created before vi.resetModules.
+    const { MASTER_SOURCE_PROFILE: liveProfile } = await import('@aemr/shared');
+    expect(FORMULA_COLUMN_GROUPS).toBe(liveProfile.formulaColumnGroups);
+    expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
     expect(FORMULA_COLUMNS).toEqual(
       Object.values(MASTER_SOURCE_PROFILE.fields)
         .filter(field => 'formula' in field).map(field => field.column),
