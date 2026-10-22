@@ -16,6 +16,7 @@ import {
 } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowState } from '@aemr/core';
 import { rowRevision } from './row-revision.js';
+import { parsePlanYear } from './period-params.js';
 
 /** Бейдж сигнала (core не экспортирует тип SignalBadge из барреля — деривим). */
 type SignalBadge = ReturnType<typeof getSignalBadges>[number];
@@ -197,7 +198,8 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string;
     factDate: sheetDateToIso(col('FACT_DATE')),
     factDateRaw: col('FACT_DATE') ?? '',
     factQuarter: col('FACT_QUARTER') ?? '',
-    planYear: parseInt(String(col('PLAN_YEAR') ?? ''), 10) || 0,
+    // Use the server's canonical strict year parser; `2026abc` is not 2026.
+    planYear: parsePlanYear(col('PLAN_YEAR')) ?? 0,
     factFB: toNumber(col('FB_FACT')),
     factKB: toNumber(col('KB_FACT')),
     factMB: toNumber(col('MB_FACT')),
