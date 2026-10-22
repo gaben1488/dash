@@ -2671,6 +2671,11 @@ jobs:
        github.actor == github.repository_owner &&
        github.repository == 'gaben1488/dash' &&
        github.workflow == 'Integrated durable source-state release')
+      || (github.event_name == 'push' &&
+       github.ref == 'refs/heads/integration/consolidated-modern-20261023' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash' &&
+       github.workflow == 'Integrated durable source-state release')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -2679,6 +2684,7 @@ jobs:
     env:
       RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
+      RECOVERY_PR: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidated-modern-20261023' && '176') || '79' }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
@@ -2696,12 +2702,19 @@ jobs:
           [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
           if test "$GITHUB_EVENT_NAME" = push; then
-            request=.github/ci/integrated-source-state-release-20261022.request
-            test "$(git diff --name-only HEAD^ HEAD)" = "$request"
-            python3 -c 'import json,sys; expected={"purpose":"integrated-durable-source-state-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
-            echo OWNER_RELEASE_REQUEST_VERIFIED
+            if test "$RECOVERY_PR" = 176; then
+              request=.github/ci/integrated-modern-production-release-20261023.request
+              test "$(git diff --name-only HEAD^ HEAD)" = "$request"
+              python3 -c 'import json,sys; expected={"purpose":"owner-emergency-modern-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False,"skip_unit_tests":True}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
+              echo OWNER_EMERGENCY_RELEASE_REQUEST_VERIFIED
+            else
+              request=.github/ci/integrated-source-state-release-20261022.request
+              test "$(git diff --name-only HEAD^ HEAD)" = "$request"
+              python3 -c 'import json,sys; expected={"purpose":"integrated-durable-source-state-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
+              echo OWNER_RELEASE_REQUEST_VERIFIED
+            fi
           fi
           mkdir -m 700 "$RUNNER_TEMP/release"
           printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/release/key"
@@ -2732,9 +2745,9 @@ jobs:
           ci_event=pull_request
           if test "$GITHUB_EVENT_NAME" = push; then ci_event=push; fi
           for attempt in $(seq 1 90); do
-            # Do not hold the release lock or wait for CI after PR79 advances.
+            # Do not hold the release lock or wait after the authorized candidate PR advances.
             # Never let an older accepted SHA replace a newer integrated head.
-            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then
+            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" != "$RECOVERY_SHA"; then
               echo RELEASE_CANDIDATE_SUPERSEDED
               exit 2
             fi
@@ -2750,6 +2763,8 @@ jobs:
           r=json.loads((p/'run.json').read_text());j=json.loads((p/'jobs.json').read_text())['jobs']
           value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository','head_branch','actor')},
                  'jobs':[{k:x[k] for k in ('name','status','conclusion')} for x in j]}
+          if os.environ.get('RECOVERY_PR') == '176':
+           value['run']['owner_release_mode'] = 'emergency-image-only'
           (p/'source-ci.json').write_text(json.dumps(value))
           PY
               if python3 .github/ci/source_ci_gate.py "$RECOVERY_SHA" < "$RUNNER_TEMP/release/source-ci.json"; then ready=true; break; fi
@@ -2757,7 +2772,7 @@ jobs:
             sleep 20
           done
           test "$ready" = true
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
           printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
           python3 - <<'PY'
           import json,os
@@ -3016,7 +3031,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
           window prepare > "$RUNNER_TEMP/release/prepare.log" 2>&1 || { echo RELEASE_BACKUP_PREPARE_FAILED; exit 2; }
           remote sudo -n python3 -Es /usr/local/libexec/aemr/release-controller.py base-plan "$RECOVERY_RUN" \
             > "$RUNNER_TEMP/release/base-plan.log" 2>&1 || { echo RELEASE_BASE_PLAN_FAILED; exit 2; }
@@ -3077,7 +3092,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
           window request-release > "$RUNNER_TEMP/release/request-release.log" 2>&1 || { echo RELEASE_HANDOFF_FAILED; exit 2; }
           done=false
           for attempt in $(seq 1 300); do
@@ -3108,7 +3123,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/release/ssh.sh"
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RECOVERY_PR --jq .head.sha)" = "$RECOVERY_SHA"
           remote "sudo -n bash -c '. /root/codex-fixes/release-$RECOVERY_RUN/deploy/maintenance-lock.sh; maintenance_lock_acquire 45 && exec python3 -Es /usr/local/libexec/aemr/release-controller.py deploy-web'" > "$RUNNER_TEMP/release/web-release.log" 2>&1
           remote sudo -n cat /var/lib/aemr/web-release-completed.json > "$RUNNER_TEMP/release/accepted.json"
           curl --fail --silent --show-error --max-time 15 https://dash-elizovo-uer.ru/api/health > "$RUNNER_TEMP/release/public-health.json"
