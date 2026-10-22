@@ -141,7 +141,8 @@ describe('представление снимка для HTTP Dashboard', () => 
     expect(data.snapshot.id).toBe(fixture.snapshot.id);
     expect(data.snapshot.officialMetrics).toEqual(fixture.snapshot.officialMetrics);
     expect(data.snapshot.calculatedMetrics).toEqual(fixture.snapshot.calculatedMetrics);
-    expect(data.snapshot.metadata).toEqual(fixture.snapshot.metadata);
+    expect(data.snapshot.metadata).toMatchObject(fixture.snapshot.metadata);
+    expect(data.snapshot.metadata.decisionView).toMatchObject({ basedOnContext: null, revision: expect.any(String) });
     expect(data.snapshot.datasetAnalyses).toEqual(fixture.snapshot.datasetAnalyses);
     expect(data.snapshot.issues).toEqual(fixture.snapshot.issues);
     expect(data.recentIssues).toEqual(data.snapshot.issues);

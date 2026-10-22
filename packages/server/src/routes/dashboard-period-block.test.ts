@@ -66,8 +66,8 @@ const HEADERS = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34)
 
 const UO_ROWS = [
   ...HEADERS,
-  makeRow({ id: 'uo-1', quarter: 1, planDate: '15.01.2026', plan: 100, factDate: '10.03.2026', fact: 90 }),
-  makeRow({ id: 'uo-2', quarter: 2, planDate: '20.04.2026', plan: 200 }),
+  makeRow({ id: '1', quarter: 1, planDate: '15.01.2026', plan: 100, factDate: '10.03.2026', fact: 90 }),
+  makeRow({ id: '2', quarter: 2, planDate: '20.04.2026', plan: 200 }),
 ];
 
 interface DashboardResponse {
