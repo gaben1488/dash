@@ -224,7 +224,7 @@ describe('dated threshold evidence', () => {
       expect(capturedThresholdValue({ ...captured!, unit: undefined }, 'ratio')).toBeNull();
     }
     expect(legalThresholdsVerifiedForContext(Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
-      value: thresholdValue(id), status: 'verified', edition: 'test', sourceRef: 'test',
+      value: thresholdValue(id), status: 'verified' as const, edition: 'test', sourceRef: 'test',
     }])))).toBe(false);
   });
 
