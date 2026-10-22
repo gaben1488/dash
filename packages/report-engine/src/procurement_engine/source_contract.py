@@ -57,7 +57,7 @@ def validate_master_profile_layout(profile=None):
         index = field.get('index')
         if (type(index) is not int or index < 0 or index >= 34
             or field.get('column') != _column_name(index)
-            or field.get('kind') not in {'text', 'money', 'date', 'flag', 'number', 'percent'}
+            or field.get('kind') not in {'text', 'money', 'date', 'flag', 'integer', 'number', 'percent'}
             or field.get('unit') not in {'none', 'thousandRub', 'rub', 'percent', 'fraction', 'date'}
             or (field.get('kind') == 'money' and field.get('unit') not in {'thousandRub', 'rub'})
             or (field.get('kind') == 'date' and field.get('unit') not in {'date', 'none'})
