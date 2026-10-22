@@ -59,6 +59,9 @@ def validate_master_profile_layout(profile=None):
             or field.get('column') != _column_name(index)
             or field.get('kind') not in {'text', 'money', 'date', 'flag', 'number', 'percent'}
             or field.get('unit') not in {'none', 'thousandRub', 'rub', 'percent', 'fraction', 'date'}
+            or (field.get('kind') == 'money' and field.get('unit') not in {'thousandRub', 'rub'})
+            or (field.get('kind') == 'date' and field.get('unit') not in {'date', 'none'})
+            or (field.get('kind') == 'text' and field.get('unit') != 'none')
             or type(field.get('requiredMeaning')) is not bool
             or not isinstance(field.get('modelField'), str) or not field['modelField']
             or (field['requiredMeaning'] and not field.get('headerProbe'))):

@@ -121,6 +121,8 @@ def test_master_profile_layout_rejects_unreviewed_field_and_dependency_changes()
         ('ID', {'index': 34}, 'MASTER_PROFILE_LAYOUT_INVALID'),
         ('ID', {'requiredMeaning': None}, 'MASTER_PROFILE_LAYOUT_INVALID'),
         ('ID', {'dependsOn': ['UNKNOWN']}, 'MASTER_PROFILE_DEPENDENCY_INVALID'),
+        ('FB_PLAN', {'unit': 'none'}, 'MASTER_PROFILE_LAYOUT_INVALID'),
+        ('FB_PLAN', {'kind': 'text'}, 'MASTER_PROFILE_LAYOUT_INVALID'),
     ]:
         damaged = deepcopy(profile)
         damaged['fields'][field_name].update(mutation)
