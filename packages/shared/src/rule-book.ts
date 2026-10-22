@@ -45,6 +45,21 @@ export function toNumber(val: unknown): number | null {
   return null;
 }
 
+/**
+ * Identity of a procurement row in column A. Unlike the monetary toNumber(),
+ * "173/18" is not 173: both segments are part of the stable address.
+ * Keep the money parser unchanged for budgets and totals.
+ */
+export function rowNumberKey(val: unknown): string | null {
+  const match = /^(\d+)(?:\s*\/\s*(\d+))?$/.exec(String(val ?? '').trim());
+  if (!match) return null;
+  const base = Number(match[1]);
+  if (!Number.isSafeInteger(base) || base <= 0) return null;
+  if (match[2] === undefined) return String(base);
+  const suffix = Number(match[2]);
+  return Number.isSafeInteger(suffix) && suffix > 0 ? `${base}/${suffix}` : null;
+}
+
 function hasData(val: unknown): boolean {
   return val !== null && val !== undefined && val !== '';
 }
@@ -720,14 +735,16 @@ const deptEconomySumConsistency: ValidationRule = {
 const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
   'procurement',
   'procurement_derived',
-  'service',
 ]);
 
 function isNumberedRow(row: ClassifiedRow): boolean {
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
-  // проверку всего листа — поэтому header из страховки исключён.
-  if (row.classification === 'header') return false;
+  // "service" also includes empty formula templates with H:K = 0.
+  // Only actual subjects are countable; a formula-only tail needs no A.
+  if (row.classification === 'header' || row.classification === 'summary' || row.classification === 'separator') return false;
+  if ((row.classification === 'service' || row.classification === 'note') && hasData(row.cells['G'])) {
+    return hasData(row.cells['C']) || hasData(row.cells['D']) || hasData(row.cells['L']);
+  }
   return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
 }
 
@@ -787,11 +804,11 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      // Identity ≠ money: 173, 173/1 and 173/18 are three distinct keys.
+      // Only a strictly whole number participates in gap statistics.
+      const key = rowNumberKey(raw) ?? raw;
+      const intNo = /^\d+$/.test(key) && Number.isSafeInteger(Number(key)) ? Number(key) : null;
       if (intNo !== null) ints.add(intNo);
-      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
-      const key = intNo !== null ? String(intNo) : raw;
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
       else byNo.set(key, [r.rowIndex]);
