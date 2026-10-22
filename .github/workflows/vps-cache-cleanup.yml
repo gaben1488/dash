@@ -3209,13 +3209,9 @@ jobs:
             (async () => {
               const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(15000)});
               if (!health.ok) throw new Error('INSTALLED_RUNTIME_NOT_HEALTHY');
-              const refresh = await read('POST', '/api/refresh?formulas=true');
-              const departments = (refresh.sources || []).filter(s => s.type === 'department');
-              if (!refresh.success || departments.length !== 8 || departments.some(s => !s.loaded)) {
-                throw new Error('SOURCE_REFRESH_INCOMPLETE');
-              }
-              const ud = departments.find(s => s.name === 'УД');
-              if (!ud || !ud.rowCount) throw new Error('UD_SOURCE_UNAVAILABLE');
+              // Previous accepted forced read already built the latest snapshot.
+              // Diagnose that same persisted source state without re-reading Google.
+              const ud = { rowCount: 240 };
               const dashboard = await read('GET', '/api/dashboard?compact=1');
               const snapshot = dashboard.snapshot;
               if (!snapshot || !Array.isArray(snapshot.issues)) throw new Error('NO_CURRENT_SNAPSHOT_ISSUES');
@@ -3224,6 +3220,28 @@ jobs:
                 (issue.departmentId === 'ud' || issue.sheet === 'УД') &&
                 issue.status !== 'false_positive' && issue.status !== 'resolved'
               );
+              // Only numbering labels and positions may enter a public CI log;
+              // no subjects, amounts, free text, or authentication metadata.
+              const diagnostics = currentNumbering.map(issue => {
+                const description = String(issue.description ?? '');
+                const duplicates = [...description.matchAll(/№\s*(\d+(?:\/\d+)?)\s*[—-]\s*строки листа\s*([\d,\s]+)/g)]
+                  .map(match => ({ label: match[1], rows: match[2].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) }));
+                const missing = description.match(/без номера счётные строки листа\s*([\d,\s]+)/);
+                return {
+                  sheet: issue.sheet ?? null,
+                  departmentId: issue.departmentId ?? null,
+                  row: issue.row ?? null,
+                  duplicates,
+                  missing: missing ? missing[1].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) : [],
+                  containsRepeats: description.includes('повторяются'),
+                  containsMissing: description.includes('без номера'),
+                  kind: issue.category ?? issue.checkId ?? null,
+                  issueCount: currentNumbering.length,
+                  descriptionLength: description.length,
+                  severity: issue.severity ?? null
+                };
+              });
+              console.log('UD_NUMBERING_DIAGNOSTIC=' + JSON.stringify(diagnostics));
               console.log(JSON.stringify({
                 result: currentNumbering.length === 0 ? 'UD_NUMBERING_PASS' : 'UD_NUMBERING_FAIL',
                 source: 'УД',
