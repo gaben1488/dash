@@ -543,8 +543,18 @@ export function buildWeeklyComparison(now: number = Date.now()): {
       '). Более старую неделю и произвольный суточный снимок не подставляем.',
   };
 
-  const before = verifiedBaselineRows(pair[0]);
-  const after = verifiedBaselineRows(pair[1]);
+  let before: ReturnType<typeof verifiedBaselineRows>;
+  let after: ReturnType<typeof verifiedBaselineRows>;
+  try {
+    before = verifiedBaselineRows(pair[0]);
+    after = verifiedBaselineRows(pair[1]);
+  } catch {
+    return {
+      weeklyComparison: null,
+      note: 'Недельная пара ' + window +
+        ' не проверена: чтение локальных контрольных доказательств завершилось отказом. Это не ноль пропавших закупок.',
+    };
+  }
   if (before.error !== null || after.error !== null) return {
     weeklyComparison: null,
     note: 'Недельная пара ' + window + ' не прошла проверку полноты: ' +
