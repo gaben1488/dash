@@ -2732,6 +2732,12 @@ jobs:
           ci_event=pull_request
           if test "$GITHUB_EVENT_NAME" = push; then ci_event=push; fi
           for attempt in $(seq 1 90); do
+            # Do not hold the release lock or wait for CI after PR79 advances.
+            # Never let an older accepted SHA replace a newer integrated head.
+            if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then
+              echo RELEASE_CANDIDATE_SUPERSEDED
+              exit 2
+            fi
             ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=$ci_event" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
             if test -n "$ci_run"; then
@@ -2751,6 +2757,7 @@ jobs:
             sleep 20
           done
           test "$ready" = true
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
           printf '%s' "$ci_run" > "$RUNNER_TEMP/release/ci-run-id"
           python3 - <<'PY'
           import json,os

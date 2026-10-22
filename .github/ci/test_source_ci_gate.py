@@ -48,6 +48,16 @@ class SourceGateTests(unittest.TestCase):
         ):
             self.assertFalse(self.module.source_ci_passed({**run, **changes}, self.jobs, self.sha))
 
+    def test_queued_production_release_refuses_superseded_pr79_head(self):
+        workflow = Path(__file__).resolve().parents[1] / 'workflows' / 'vps-cache-cleanup.yml'
+        source = workflow.read_text(encoding='utf-8')
+        job = source.split('  controlled-candidate-release:', 1)[1]
+        check = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then'
+        self.assertIn(check, job)
+        self.assertIn('RELEASE_CANDIDATE_SUPERSEDED', job)
+        self.assertLess(job.index(check), job.index('ci_run=$(gh api'))
+        self.assertIn('test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"', job)
+
     def test_other_sha_repository_or_workflow_never_admits(self):
         for field, value in (('head_sha', 'b' * 40), ('name', 'Other'), ('event', 'push'),
                              ('path', '.github/workflows/other.yml'),
