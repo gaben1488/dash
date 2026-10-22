@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # Validate the actual integration head without merging its code into old main.
+    # The deploy job below remains restricted to an approved main dispatch.
+    branches: [main, master, codex/dash-audit-integrated-20261010]
   pull_request:
     branches: [main, master, codex/dash-audit-integrated-20261010]
   workflow_dispatch:

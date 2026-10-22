@@ -3,10 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 
+# Compatibility export: this name is part of the legacy public API.
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES  # noqa: F401
 from .normalize import clean_text
-
-# Compatibility export: adapter and formula closure share the editable directory.
-from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES
 
 
 def schema_fingerprint(header_rows: list[list], *, max_rows: int = 4, max_cols: int = 34) -> str:

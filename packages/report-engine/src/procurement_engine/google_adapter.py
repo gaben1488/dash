@@ -11,8 +11,14 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES, MONITORING_SOURCE_SCHEMA, MASTER_SOURCE_PROFILE, DEPARTMENTS, validate_master_source_header
 from .atomic_snapshot import SourcePayload, capture_atomic_snapshot
+from .department_directory import (
+    APPROVED_PRIMARY_TITLE_ALIASES,
+    DEPARTMENTS,
+    MASTER_SOURCE_PROFILE,
+    MONITORING_SOURCE_SCHEMA,
+    validate_master_source_header,
+)
 from .raw_pipeline import (
     FORMULA_ERRORS,
     RAW_RULES_VERSION,

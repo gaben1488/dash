@@ -1,9 +1,16 @@
 name: Owner-authorized VPS maintenance
 
 on:
+  # Main-branch owner-only bridge calls this reviewed integrated release workflow.
+  # The existing event/sender/PR/exact-SHA/CI gates inside jobs are unchanged.
+  workflow_call:
   pull_request:
     branches: [main]
     types: [labeled]
+  push:
+    branches: [codex/dash-audit-integrated-20261010]
+    paths:
+      - '.github/ci/ud-source-refresh-20261022.request'
 
 permissions:
   contents: read
@@ -1344,9 +1351,12 @@ jobs:
                 repo=Path('/home/aemr/dash')
                 def public_source(name,sha=candidate):
                     return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
-                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts','packages/shared/src/source-coverage.ts')
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts',
+                       'packages/shared/src/source-coverage.ts',
+                       'packages/report-engine/src/procurement_engine/department_directory.json')
                 assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
-                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),'coverage':public_source(names[2])})
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),
+                                    'coverage':public_source(names[2]),'directory':public_source(names[3])})
                 program=public_source('.github/ci/report-schema-probe.cjs')
                 program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
                 schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
@@ -3159,3 +3169,122 @@ jobs:
         run: |
           sudo rm -rf "$RUNNER_TEMP/release" /var/lib/aemr/release-trial-clone \
             /var/lib/aemr/release-runtime "/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN"
+
+  ud-source-refresh:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.label.name == 'maintenance: ud-source-refresh' &&
+       github.event.sender.login == github.repository_owner &&
+       github.event.pull_request.number == 79 &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'codex/dash-audit-integrated-20261010') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash')
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Refresh the already deployed runtime and read back UD numbering
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 14m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image_sha=$(docker inspect --format '{{.Image}}' "$server")
+            image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_sha" 2>/dev/null || true)
+            checkout_rev=$(git -C /home/aemr/dash rev-parse HEAD 2>/dev/null || true)
+            latest_sha=$(docker image inspect --format '{{.Id}}' aemr-server:latest 2>/dev/null || true)
+            previous_sha=$(docker image inspect --format '{{.Id}}' aemr-server:previous 2>/dev/null || true)
+            echo "UD_DEPLOY_LINEAGE server_image=$image_sha revision_label=$image_revision checkout=$checkout_rev latest_image=$latest_sha previous_image=$previous_sha"
+            docker compose --env-file .env.production exec -T server node - <<'NODE'
+            const base = 'http://127.0.0.1:3000';
+            const key = process.env.AEMR_API_KEY;
+            if (!key) throw new Error('INSTALLED_RUNTIME_API_AUTH_NOT_CONFIGURED');
+            const headers = { authorization: `Bearer ${key}` };
+            const read = async (method, path) => {
+              const res = await fetch(base + path, { method, headers, signal: AbortSignal.timeout(540000) });
+              if (!res.ok) throw new Error(`RUNTIME_API_${method}_${res.status}`);
+              return await res.json();
+            };
+            (async () => {
+              const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(15000)});
+              if (!health.ok) throw new Error('INSTALLED_RUNTIME_NOT_HEALTHY');
+              // Previous accepted forced read already built the latest snapshot.
+              // Diagnose that same persisted source state without re-reading Google.
+              const ud = { rowCount: 240 };
+              const dashboard = await read('GET', '/api/dashboard?compact=1');
+              const snapshot = dashboard.snapshot;
+              if (!snapshot || !Array.isArray(snapshot.issues)) throw new Error('NO_CURRENT_SNAPSHOT_ISSUES');
+              const currentNumbering = snapshot.issues.filter(issue =>
+                (issue.category === 'row_numbering' || issue.checkId === 'row_numbering') &&
+                (issue.departmentId === 'ud' || issue.sheet === 'УД') &&
+                issue.status !== 'false_positive' && issue.status !== 'resolved'
+              );
+              // Inspect exactly the same department through the running registry
+              // API, output only column-A labels and row positions.
+              const liveRowsResponse = await read('GET', '/api/rows/ud?page=1&limit=500');
+              const seenRows = (liveRowsResponse.rows || [])
+                .map(entry => ({ row: entry.rowIndex, id: String(entry.id ?? '').trim() }))
+                .filter(entry => entry.id !== '');
+              const byId = new Map();
+              for (const entry of seenRows) byId.set(entry.id, [...(byId.get(entry.id) || []), entry.row]);
+              const sampleRows = new Set([11, 28, 54, 57, 68, 73, 74, 79, 84, 103, 123, 166, 175, 184, 192, 194, 205, 208, 228, 233, 235, 240]);
+              const sourceFile = require('node:fs').readFileSync('/app/packages/shared/src/rule-book.ts','utf8');
+              const installedRuleSha256 = require('node:crypto').createHash('sha256').update(sourceFile).digest('hex');
+              console.log('UD_RUNTIME_IDS=' + JSON.stringify({
+                rowsRead: seenRows.length,
+                sourceFileHash: installedRuleSha256,
+                strictSequenceCompare: sourceFile.includes("const parsed = /^\\d+$/.test(raw)"),
+                unsafeToNumber: sourceFile.includes("const n = toNumber(raw)"),
+                examples: seenRows.filter(item => sampleRows.has(item.row)),
+                compositeCount: seenRows.filter(item => item.id.includes('/')).length,
+                exactDupes: [...byId].filter(item => item[1].length > 1)
+              }));
+              // Only numbering labels and positions may enter a public CI log;
+              // no subjects, amounts, free text, or authentication metadata.
+              const diagnostics = currentNumbering.map(issue => {
+                const description = String(issue.description ?? '');
+                const duplicates = [...description.matchAll(/№\s*(\d+(?:\/\d+)?)\s*[—-]\s*строки листа\s*([\d,\s]+)/g)]
+                  .map(match => ({ label: match[1], rows: match[2].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) }));
+                const missing = description.match(/без номера счётные строки листа\s*([\d,\s]+)/);
+                return {
+                  sheet: issue.sheet ?? null,
+                  departmentId: issue.departmentId ?? null,
+                  row: issue.row ?? null,
+                  duplicates,
+                  missing: missing ? missing[1].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) : [],
+                  containsRepeats: description.includes('повторяются'),
+                  containsMissing: description.includes('без номера'),
+                  kind: issue.category ?? issue.checkId ?? null,
+                  issueCount: currentNumbering.length,
+                  descriptionLength: description.length,
+                  severity: issue.severity ?? null
+                };
+              });
+              console.log('UD_NUMBERING_DIAGNOSTIC=' + JSON.stringify(diagnostics));
+              console.log(JSON.stringify({
+                result: currentNumbering.length === 0 ? 'UD_NUMBERING_PASS' : 'UD_NUMBERING_FAIL',
+                source: 'УД',
+                source_read: true,
+                source_row_count: ud.rowCount,
+                snapshot_id: snapshot.id,
+                snapshot_at: snapshot.createdAt,
+                numbering_open: currentNumbering.length,
+                changed_google_sheets: false,
+                restarted_services: false,
+              }));
+              if (currentNumbering.length > 0) process.exitCode = 2;
+            })().catch(err => { console.error(String(err.message || err).slice(0,160)); process.exitCode = 1; });
+            NODE

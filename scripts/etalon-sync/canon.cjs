@@ -174,8 +174,22 @@ function goldenValidation(grbsValue) {
   // Решение владельца 30.08: справочник строгий — новое учреждение/программа
   // появляется ТОЛЬКО через страницу настроек; ручной ввод мимо списка отклоняется.
   const fromRange = (r) => ({ condition: { type: 'ONE_OF_RANGE', values: [{ userEnteredValue: r }] }, strict: true, showCustomUi: true });
+  // The live УД book has switched A to TEXT and accepted numbered sub-items
+  // such as 173/18. Only its input rule changes; do not silently relax the
+  // other seven GRBS books or reinterpret stored identifiers as quantities.
+  const isUD = /^Управление делами(?:\s|$)/i.test(String(grbsValue ?? '').trim());
+  const idRule = isUD ? {
+    condition: { type: 'CUSTOM_FORMULA', values: [{
+      userEnteredValue: '=OR($A4="";REGEXMATCH(TO_TEXT($A4);"^[1-9][0-9]*(/[1-9][0-9]*)?$"))',
+    }] },
+    strict: true, showCustomUi: false,
+    inputMessage: 'Укажите положительный целый № или составной № вида 173/18. Не дату.',
+  } : {
+    condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] },
+    strict: true, showCustomUi: false,
+  };
   return {
-    A: { condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] }, strict: true, showCustomUi: false },
+    A: idRule,
     B: grbsValue ? listOf([grbsValue], true) : null,
     C: fromRange("='_Настройки'!$H$2:$H"),
     D: fromRange("='_Настройки'!$I$2:$I"),
