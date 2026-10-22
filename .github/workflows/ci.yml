@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, codex/dash79-report-gate-fix-20261022]
   pull_request:
     branches: [main, master, codex/dash-audit-integrated-20261010]
   workflow_dispatch:
