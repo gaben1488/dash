@@ -20,7 +20,15 @@ function loadCandidate(input, packageFile) {
     new Function('require', 'exports', 'module', compiled)(requireApproved, module.exports, module);
     return module.exports;
   };
-  const registry = compile(input.registry, {});
+  // The integrated directory is now the SSOT, not the old inline registry.
+  // Only this exact JSON import is permitted in the synthetic schema probe.
+  const directory = JSON.parse(input.directory ?? fs.readFileSync(
+    path.resolve(path.dirname(packageFile), '../report-engine/src/procurement_engine/department_directory.json'),
+    'utf8',
+  ));
+  const registry = compile(input.registry, {
+    '../../report-engine/src/procurement_engine/department_directory.json': { default: directory },
+  });
   const zod = installed('zod');
   const coverage = compile(input.coverage, { zod });
   return compile(input.schemas, { zod, './department-registry.js': registry, './source-coverage.js': coverage });
