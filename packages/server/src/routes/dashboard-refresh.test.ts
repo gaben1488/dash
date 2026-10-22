@@ -135,7 +135,7 @@ describe('POST /api/refresh — полный цикл', () => {
     const cycle = vi.spyOn(sources, 'refreshAllSources');
     try {
       const response = await refresh('?formulas=true');
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode, response.body).toBe(200);
       expect(cycle).toHaveBeenCalledWith(expect.anything(), 'request', {
         withFormulas: true, fresh: true, askDrive: false,
       });
@@ -148,7 +148,7 @@ describe('POST /api/refresh — полный цикл', () => {
 
   it('книги и лист СВОД читаются ПАРАЛЛЕЛЬНО, а не одно за другим', async () => {
     const res = await refresh();
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
 
     const books = spans.find((s) => s.who === 'books');
     const svod = spans.find((s) => s.who === 'svod');
