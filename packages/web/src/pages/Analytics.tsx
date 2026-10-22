@@ -38,6 +38,7 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
+import { completeAverage, completeSum, cumulativePercentOfYear, observedNumber, percentOf } from '../lib/source-availability';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 
@@ -191,27 +192,28 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
 
 /** Progress bar for budget execution */
 function BudgetProgress({ label, plan, fact, color, formatMoney }: {
-  label: string; plan: number; fact: number; color: string; formatMoney: (v: number) => string;
+  label: string; plan: number | null; fact: number | null; color: string; formatMoney: (v: number) => string;
 }) {
-  const pct = plan > 0 ? Math.min((fact / plan) * 100, 150) : 0;
+  const pct = percentOf(fact, plan);
+  const displayPct = pct !== null ? Math.min(pct, 150) : null;
   return (
     <div className="mb-2">
       <div className="flex justify-between text-[10px] mb-0.5">
         <span className="font-medium text-zinc-500 dark:text-zinc-400">{label}</span>
-        <span className="text-zinc-400">{plan > 0 ? `${pct.toFixed(0)}%` : '—'}</span>
+        <span className="text-zinc-400">{displayPct !== null ? `${displayPct.toFixed(0)}%` : plan === 0 ? 'нет плана' : 'нет данных'}</span>
       </div>
       <div className="h-3 bg-zinc-100 dark:bg-zinc-700/50 rounded-full overflow-hidden relative">
         <div
           className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }}
+          style={{ width: `${Math.max(0, Math.min(displayPct ?? 0, 100))}%`, backgroundColor: color }}
         />
-        {pct > 100 && (
-          <div className="absolute top-0 right-0 h-full w-[2px] bg-red-500" style={{ left: `${(100 / pct) * 100}%` }} />
+        {displayPct !== null && displayPct > 100 && (
+          <div className="absolute top-0 right-0 h-full w-[2px] bg-red-500" style={{ left: `${(100 / displayPct) * 100}%` }} />
         )}
       </div>
       <div className="flex justify-between text-[9px] mt-0.5 text-zinc-400">
-        <span>Факт: {formatMoney(fact)}</span>
-        <span>План: {formatMoney(plan)}</span>
+        <span>Факт: {fact === null ? 'не прочитан' : formatMoney(fact)}</span>
+        <span>План: {plan === null ? 'не прочитан' : formatMoney(plan)}</span>
       </div>
     </div>
   );
@@ -286,7 +288,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
     return MONTH_LABELS.map((name, i) => {
       const point: Record<string, any> = { name };
       for (const sc of forecast.scenarios) {
-        point[sc.label] = sc.monthlyProjection?.[i] ?? 0;
+        point[sc.label] = observedNumber(sc.monthlyProjection?.[i]);
       }
       return point;
     });
@@ -422,17 +424,13 @@ export function Analytics() {
   // ── Quarterly trend: КП vs ЕП by quarter ──
   const quarterlyTrend = useMemo(() => {
     const quarters = ['q1', 'q2', 'q3', 'q4'] as const;
-    return quarters.map(qk => {
-      let kp = 0, ep = 0, plan = 0, fact = 0;
-      for (const d of filteredDepts) {
-        const q = d.quarters?.[qk];
-        kp += q?.kpCount ?? 0;
-        ep += q?.epCount ?? 0;
-        plan += q?.planTotal ?? 0;
-        fact += q?.factTotal ?? 0;
-      }
-      return { name: PERIOD_LABELS[qk], kp, ep, plan, fact };
-    });
+    return quarters.map(qk => ({
+      name: PERIOD_LABELS[qk],
+      kp: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.kpCount)),
+      ep: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.epCount)),
+      plan: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.planTotal)),
+      fact: completeSum(filteredDepts.map((d: any) => d.quarters?.[qk]?.factTotal)),
+    }));
   }, [filteredDepts]);
 
   // ── Execution trend by quarter per department (line chart) ──
@@ -496,10 +494,11 @@ export function Analytics() {
       return {
         name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
-        planFB: q.planFB ?? 0, planKB: q.planKB ?? 0, planMB: q.planMB ?? 0,
-        factFB: q.factFB ?? 0, factKB: q.factKB ?? 0, factMB: q.factMB ?? 0,
-        planTotal: q.planTotal ?? d.planTotal ?? 0,
-        factTotal: q.factTotal ?? d.factTotal ?? 0,
+        planFB: observedNumber(q.planFB), planKB: observedNumber(q.planKB), planMB: observedNumber(q.planMB),
+        factFB: observedNumber(q.factFB), factKB: observedNumber(q.factKB), factMB: observedNumber(q.factMB),
+        // Never borrow the annual value when the selected quarter is unread.
+        planTotal: observedNumber(q.planTotal),
+        factTotal: observedNumber(q.factTotal),
         color: chartColors[i % chartColors.length],
       };
     });
@@ -508,12 +507,12 @@ export function Analytics() {
   // ── Department shares (% of total) ──
   const deptShares = useMemo(() => {
     if (!hasDeptData) return [];
-    const totalPlan = budgetByDept.reduce((s: number, d: typeof budgetByDept[0]) => s + d.planTotal, 0);
-    const totalFact = budgetByDept.reduce((s: number, d: typeof budgetByDept[0]) => s + d.factTotal, 0);
+    const totalPlan = completeSum(budgetByDept.map(d => d.planTotal));
+    const totalFact = completeSum(budgetByDept.map(d => d.factTotal));
     return budgetByDept.map((d: typeof budgetByDept[0]) => ({
       ...d,
-      planShare: totalPlan > 0 ? +((d.planTotal / totalPlan) * 100).toFixed(1) : 0,
-      factShare: totalFact > 0 ? +((d.factTotal / totalFact) * 100).toFixed(1) : 0,
+      planShare: percentOf(d.planTotal, totalPlan),
+      factShare: percentOf(d.factTotal, totalFact),
     }));
   }, [budgetByDept, hasDeptData]);
 
@@ -535,7 +534,7 @@ export function Analytics() {
     return filteredDepts.map((d: any) => ({
       name: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
       id: d.department?.id,
-      trust: d.trustScore ?? 0,
+      trust: observedNumber(d.trustScore),
     }));
   }, [filteredDepts, hasDeptData]);
 
@@ -547,12 +546,12 @@ export function Analytics() {
       return {
         dept: productLabel(d.department?.id ?? productLabel(d.department?.id ?? d.department?.nameShort ?? '?')),
         id: d.department?.id,
-        execPct: q.executionPct ?? d.executionPercent ?? 0,
-        planTotal: q.planTotal ?? d.planTotal,
-        factTotal: q.factTotal ?? d.factTotal,
-        issues: d.issueCount ?? 0,
-        kpCount: q.kpCount ?? d.competitiveCount ?? 0,
-        epCount: q.epCount ?? d.soleCount ?? 0,
+        execPct: observedNumber(q.executionPct),
+        planTotal: observedNumber(q.planTotal),
+        factTotal: observedNumber(q.factTotal),
+        issues: observedNumber(d.issueCount),
+        kpCount: observedNumber(q.kpCount),
+        epCount: observedNumber(q.epCount),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
@@ -568,10 +567,10 @@ export function Analytics() {
         // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
         // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
         // рядом: иначе на графике разложение не сходится с фильтром на экране.
-        program: ba.program?.planTotal ?? 0,
-        current: (ba.current_program?.planTotal ?? 0) + (ba.current_non_program?.planTotal ?? 0),
-        programFact: ba.program?.factTotal ?? 0,
-        currentFact: (ba.current_program?.factTotal ?? 0) + (ba.current_non_program?.factTotal ?? 0),
+        program: observedNumber(ba.program?.planTotal),
+        current: completeSum([ba.current_program?.planTotal, ba.current_non_program?.planTotal]),
+        programFact: observedNumber(ba.program?.factTotal),
+        currentFact: completeSum([ba.current_program?.factTotal, ba.current_non_program?.factTotal]),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
@@ -580,18 +579,16 @@ export function Analytics() {
   const velocityData = useMemo(() => {
     if (!hasDeptData) return [];
     return filteredDepts.map((d: any) => {
-      const q1f = d.quarters?.q1?.factTotal ?? 0;
-      const q2f = d.quarters?.q2?.factTotal ?? 0;
-      const q3f = d.quarters?.q3?.factTotal ?? 0;
-      const q4f = d.quarters?.q4?.factTotal ?? 0;
-      const cumulative = [q1f, q1f + q2f, q1f + q2f + q3f, q1f + q2f + q3f + q4f];
-      const yearPlan = d.quarters?.year?.planTotal ?? 1;
+      const cumulative = cumulativePercentOfYear(
+        ['q1', 'q2', 'q3', 'q4'].map(qk => d.quarters?.[qk]?.factTotal),
+        d.quarters?.year?.planTotal,
+      );
       return {
         name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
-        q1: yearPlan > 0 ? +((cumulative[0] / yearPlan) * 100).toFixed(1) : 0,
-        q2: yearPlan > 0 ? +((cumulative[1] / yearPlan) * 100).toFixed(1) : 0,
-        q3: yearPlan > 0 ? +((cumulative[2] / yearPlan) * 100).toFixed(1) : 0,
-        q4: yearPlan > 0 ? +((cumulative[3] / yearPlan) * 100).toFixed(1) : 0,
+        q1: cumulative[0],
+        q2: cumulative[1],
+        q3: cumulative[2],
+        q4: cumulative[3],
       };
     });
   }, [filteredDepts, hasDeptData]);
@@ -599,19 +596,19 @@ export function Analytics() {
   // ── Subordinate rankings ──
   const topSubordinates = useMemo(() => {
     if (!hasDeptData) return [];
-    const all: { name: string; dept: string; executionPct: number; planTotal: number; factTotal: number }[] = [];
+    const all: { name: string; dept: string; executionPct: number | null; planTotal: number | null; factTotal: number | null }[] = [];
     for (const d of filteredDepts) {
       for (const sub of (d.subordinates ?? [])) {
         all.push({
           name: sub.name,
           dept: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
-          executionPct: sub.executionPct ?? 0,
-          planTotal: sub.planTotal ?? 0,
-          factTotal: sub.factTotal ?? 0,
+          executionPct: observedNumber(sub.executionPct),
+          planTotal: observedNumber(sub.planTotal),
+          factTotal: observedNumber(sub.factTotal),
         });
       }
     }
-    return all.sort((a, b) => b.planTotal - a.planTotal).slice(0, 15);
+    return all.sort((a, b) => (b.planTotal ?? -Infinity) - (a.planTotal ?? -Infinity)).slice(0, 15);
   }, [filteredDepts, hasDeptData]);
 
   /**
