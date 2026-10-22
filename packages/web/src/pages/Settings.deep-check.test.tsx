@@ -10,7 +10,7 @@ import { SettingsPage } from './Settings';
 
 const getSources = vi.fn();
 const settingsStatus = vi.fn();
-const checkSourceIntegrityDeep = vi.fn();
+const runSourceDiagnostics = vi.fn();
 
 vi.mock('../components/RuleReference', () => ({ RuleReference: () => null }));
 vi.mock('../api', async (importOriginal) => {
@@ -21,7 +21,7 @@ vi.mock('../api', async (importOriginal) => {
       ...actual.api,
       getSources: (...args: unknown[]) => getSources(...(args as [])),
       settingsStatus: (...args: unknown[]) => settingsStatus(...(args as [])),
-      checkSourceIntegrityDeep: (...args: unknown[]) => checkSourceIntegrityDeep(...(args as [])),
+      runSourceDiagnostics: (...args: unknown[]) => runSourceDiagnostics(...(args as [])),
     },
   };
 });
@@ -34,7 +34,7 @@ class ResizeObserverStub {
 (globalThis as Record<string, unknown>).ResizeObserver ??= ResizeObserverStub;
 
 function result(complete: boolean) {
-  return {
+  const deep = {
     complete, at: new Date().toISOString(), expectedBooks: 2, changedValueBooks: [],
     books: [
       { book: 'УО', metadataRead: true, metadataRemarks: 1, formulasRead: true,
@@ -44,6 +44,33 @@ function result(complete: boolean) {
         rowsJudged: complete ? 3 : null, formulaDefects: complete ? 0 : null,
         problems: complete ? [] : ['формулы этого запуска не прочитаны'] },
     ],
+  };
+  return {
+    schemaVersion: 'dash-source-diagnostics/v1' as const,
+    runId: 'test-run-1', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    status: complete ? 'complete' : 'partial', consistency: 'non_atomic' as const,
+    stages: {
+      deep: {
+        status: complete ? 'complete' : 'partial',
+        startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+        result: deep, error: null,
+      },
+      rows: {
+        status: 'complete', startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(), expectedSources: 2,
+        validatedBooks: 2, accessOnlyBooks: 0, failedSources: [],
+        results: [
+          { name: 'УО', success: true, validationPerformed: true, rowsChecked: 2,
+            summary: { total: 1, critical: 0, warning: 1, info: 0 }, issues: [] },
+          { name: 'УИО', success: true, validationPerformed: true, rowsChecked: 3,
+            summary: { total: 0, critical: 0, warning: 0, info: 0 }, issues: [] },
+        ], error: null,
+      },
+      metrics: { status: 'not_run', reason: 'not checked' },
+      text: { status: 'not_run', reason: 'not checked' },
+      crossbook: { status: 'not_run', reason: 'not checked' },
+      history: { status: 'not_run', reason: 'not checked' },
+    },
   };
 }
 
@@ -63,7 +90,7 @@ beforeEach(() => {
     ],
   });
   settingsStatus.mockResolvedValue({ configured: true });
-  checkSourceIntegrityDeep.mockResolvedValue(result(true));
+  runSourceDiagnostics.mockResolvedValue(result(true));
 });
 
 afterEach(() => {
@@ -80,13 +107,14 @@ function renderPage() {
   );
 }
 
-describe('Кнопка глубокой проверки', () => {
+describe('Единый источник диагностики на новой базе', () => {
   it('вручную запускает одно чтение, показывает охват и не требует исторической недели', async () => {
     renderPage();
-    const button = await screen.findByRole('button', { name: 'Глубокая проверка книг' });
+    const button = await screen.findByRole('button', { name: 'Проверить источники' });
     fireEvent.click(button);
-    await screen.findByText(/Чтение завершено/);
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
+    await screen.findByText(/Этапы проверки источников завершены/);
+    expect(document.body.textContent).toContain('Метрики, межкнижные сверки, текст и история этим запуском не проверялись.');
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain('2 из 2 книг');
     expect(document.body.textContent).toContain('отсутствие первого недельного среза проверке не мешает');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
@@ -95,10 +123,10 @@ describe('Кнопка глубокой проверки', () => {
   });
 
   it('непрочитанная книга не объявляется здоровой с нулём дефектов', async () => {
-    checkSourceIntegrityDeep.mockResolvedValueOnce(result(false));
+    runSourceDiagnostics.mockResolvedValueOnce(result(false));
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Глубокая проверка книг' }));
-    await screen.findByText(/Чтение неполное/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить источники' }));
+    await screen.findByText(/Проверка источников неполная/);
     expect(document.body.textContent).toContain('1 из 2 книг');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
     expect(document.body.textContent).toContain('формулы этого запуска не прочитаны');
@@ -106,16 +134,16 @@ describe('Кнопка глубокой проверки', () => {
 
   it('не начинает второе чтение, пока первое не закончилось', async () => {
     let finish: (value: ReturnType<typeof result>) => void = () => undefined;
-    checkSourceIntegrityDeep.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    runSourceDiagnostics.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     renderPage();
-    const button = await screen.findByRole('button', { name: 'Глубокая проверка книг' });
+    const button = await screen.findByRole('button', { name: 'Проверить источники' });
     fireEvent.click(button);
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Проверить данные во всех книгах' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Проверить данные во всех книгах' })).toBeNull();
     expect((screen.getByRole('button', { name: 'Прочитать книги заново' }) as HTMLButtonElement).disabled).toBe(true);
     finish(result(true));
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-    expect(checkSourceIntegrityDeep).toHaveBeenCalledTimes(1);
+    expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
   });
 });
