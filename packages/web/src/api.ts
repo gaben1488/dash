@@ -16,6 +16,7 @@ import {
   MetricDetailSchema,
   TrustScoreSchema,
   DashboardDataSchema,
+  UnifiedSvodResponseSchema,
 } from '@aemr/shared';
 
 export type RecommendationStage = 'ACTIVE' | 'HISTORY';
@@ -405,10 +406,10 @@ export const api = {
     return fetchJSON<any>(`/reconciliation/monthly${qs ? `?${qs}` : ''}`);
   },
 
-  /** Единая сетка СВОД (ГРБС × активность × метод × период) + сверка против листа СВОД ТД-ПМ. */
+  /** Mandatory Svod grid fields are validated before the UI can draw a number. */
   getSvodUnified: (year?: number | 'all') => {
     const qs = year !== undefined ? `?year=${year}` : '';
-    return fetchJSON<any>(`/svod/unified${qs}`);
+    return fetchParsed(`/svod/unified${qs}`, UnifiedSvodResponseSchema);
   },
 
   // Journal
