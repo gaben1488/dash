@@ -318,7 +318,8 @@ describe('представление снимка для HTTP Dashboard', () => 
     expect(normal.snapshot.createdAt).toBe(response.json().snapshot.createdAt);
   });
   it('fails closed for a malformed or forced identity read, without downgrading full dashboard validation', async () => {
-    for (const query of ['identity=0', 'identity=1&refresh=true', 'identity=1&year=2026junk']) {
+    for (const query of ['identity=0', 'identity=1&refresh=true', 'identity=1&year=2026junk',
+      'identity=1&compact=1', 'identity=1&unexpected=foo', 'identity=1&identity=1']) {
       expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
     }
     const previous = fixture.snapshot;

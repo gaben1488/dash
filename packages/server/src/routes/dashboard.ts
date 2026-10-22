@@ -95,7 +95,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   /** GET /api/dashboard — полные данные для дашборда */
   app.get('/api/dashboard', async (request, reply) => {
     const query = request.query as Record<string, string>;
-    if (query.identity !== undefined && (query.identity !== '1' || query.refresh === 'true')) {
+    if (query.identity !== undefined && (query.identity !== '1'
+        || Object.keys(query).some(key => key !== 'identity' && key !== 'year'))) {
       return reply.status(400).send({ code: 'DASHBOARD_IDENTITY_QUERY_INVALID' });
     }
     const force = query.refresh === 'true';
