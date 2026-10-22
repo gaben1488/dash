@@ -1,4 +1,5 @@
-from procurement_engine.google_adapter import GoogleSheetSourceAdapter
+import pytest
+from procurement_engine.google_adapter import GoogleReadError, GoogleSheetSourceAdapter
 from procurement_engine.raw_pipeline import header_hash
 
 
@@ -70,3 +71,44 @@ def test_wider_grid_captures_dependency_values_without_expanding_business_column
     result = audit_formula_dependencies({'sources': [{**contract, 'rows': 3,
         'values': payload.semantic_values, 'formula_evidence': evidence}]})
     assert result['closed'], result['issues']
+
+ 
+@pytest.mark.parametrize('registered_width, physical_width', [
+    (18, 18), (19, 19), (32, 32), (34, 34),
+    (18, 34), (19, 34), (32, 34), (34, 35),
+])
+def test_canonical_directory_exact_physical_width_guards_live_capture(
+        registered_width, physical_width):
+    """Historical frozen schemas stay readable; live width drift cannot hide columns."""
+    class Directory(Client):
+        def grid(self, provider, sheet_id):
+            assert sheet_id == 837564274
+            return {'title': 'Справочник заказчиков',
+                    'gridProperties': {'rowCount': 2, 'columnCount': physical_width}}
+
+        def values(self, provider, title, start, end, columns):
+            assert columns == physical_width
+            return [['Heading'], list(range(physical_width))][start - 1:end]
+
+        def formulas(self, provider, title, start, end, columns):
+            assert columns == physical_width
+            return self.values(provider, title, start, end, columns)
+
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 837564274, 'title': 'Справочник заказчиков'}],
+                    'named_ranges': []}
+
+    contract = {'source_id': 'directory', 'role': 'formula_dependency',
+                'provider_id': '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E',
+                'sheet_id': 837564274, 'sheet': 'Справочник заказчиков',
+                'columns': registered_width, 'header_rows': 1, 'units': 'directory',
+                'schema_fingerprint': header_hash([['Heading']], 1)}
+    adapter = GoogleSheetSourceAdapter(contract, Directory())
+    if registered_width != physical_width:
+        with pytest.raises(GoogleReadError, match='MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH'):
+            adapter.read_payload()
+        return
+    payload = adapter.read_payload()
+    assert len(payload.semantic_values[1]) == registered_width
+    assert payload.metadata['formula_evidence']['columns'] == registered_width
+    assert 'extra_values' not in payload.metadata['formula_evidence']
