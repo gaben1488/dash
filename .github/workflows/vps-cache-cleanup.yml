@@ -3190,7 +3190,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 14m
-          script_stop: true
+          script_stop: false
           script: |
             set -euo pipefail
             cd /home/aemr/dash/deploy
