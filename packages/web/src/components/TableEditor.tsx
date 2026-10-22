@@ -14,7 +14,7 @@ import { pluralRu } from '../lib/economy-copy';
 // Типы
 // ────────────────────────────────────────────────────────────
 
-export type CellType = 'text' | 'number' | 'currency' | 'date' | 'select';
+export type CellType = 'text' | 'multiline' | 'number' | 'currency' | 'date' | 'select';
 
 export interface ColumnConfig {
   key: string;
@@ -281,7 +281,7 @@ export function writeTablePrefs<T>(name: string, fingerprint: string, value: T):
 export function defaultColumnWidth(column: { width?: string; type?: CellType }): number {
   const match = /^w-(\d+)$/.exec(column.width ?? '');
   if (match) return Number(match[1]) * 4;
-  return column.type === 'text' ? 240 : 140;
+  return column.type === 'multiline' ? 400 : column.type === 'text' ? 240 : 140;
 }
 
 /**
@@ -460,7 +460,7 @@ export function TableEditor({
   const activeGuidance = activeGuidanceRow && activeGuidanceColumn?.guidanceForRow
     ? activeGuidanceColumn.guidanceForRow(activeGuidanceRow)
     : activeGuidanceColumn?.guidance;
-  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>(null);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
@@ -716,6 +716,9 @@ export function TableEditor({
     }
 
     if (e.key === 'Enter' || e.key === 'Tab') {
+      // Long-form M explanations may contain line breaks. Enter inserts a
+      // line; Ctrl+Enter/Tab commits without changing ordinary grid navigation.
+      if (e.key === 'Enter' && !e.ctrlKey && columns.find(c => c.key === editingCell.colKey)?.type === 'multiline') return;
       e.preventDefault();
       commitEdit();
 
@@ -1315,6 +1318,25 @@ export function TableEditor({
                                   <option key={opt} value={opt}>{opt}</option>
                                 ))}
                               </select>
+                            ) : col.type === 'multiline' ? (
+                              <textarea
+                                ref={el => { inputRef.current = el; }}
+                                rows={3}
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onFocus={() => { metadataFocusTransition.current = false; }}
+                                onBlur={event => {
+                                  if (metadataOpen || metadataFocusTransition.current ||
+                                      event.relatedTarget === metadataButtonRef.current) {
+                                    metadataFocusTransition.current = true; return;
+                                  }
+                                  commitEdit();
+                                }}
+                                aria-label={`${col.label}: значение`}
+                                aria-describedby={col.guidance || col.guidanceForRow ? guidanceId : undefined}
+                                aria-invalid={cellError ? true : undefined}
+                                className="w-full min-h-24 p-2 text-sm border-2 border-blue-400 rounded bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 outline-none resize-y"
+                              />
                             ) : (
                               <input
                                 ref={el => { inputRef.current = el; }}
