@@ -775,8 +775,8 @@ console.log('CANDIDATE_SCHEMA_PASS');
             self.web_start(plan, candidate=False)
         try:
             self.web_verify(plan, candidate=keep)
-        except RecoveryError:
-            if not keep:
+        except RecoveryError as error:
+            if not keep or str(error) == 'RELEASE_WEB_BACKEND_CHANGED':
                 raise
             # Acceptance is durable: recover the accepted image, never the old UI.
             self.web_start(plan, candidate=True)
