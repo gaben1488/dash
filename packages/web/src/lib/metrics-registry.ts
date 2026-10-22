@@ -6,7 +6,7 @@
  * Now: thin wrapper importing from @aemr/core + UI color helpers
  */
 
-import { METRIC_KB } from '@aemr/core';
+import { METRIC_KB } from '@aemr/shared';
 import type { KBEntry } from '../components/ui/kb-tooltip';
 import { getExecutionBand } from './chart-colors';
 
