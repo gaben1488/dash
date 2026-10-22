@@ -71,7 +71,8 @@ function put(
   if (value === null) return;
   if (!Number.isFinite(value)) throw new Error(`NONFINITE_PUBLISHED_METRIC:${key}`);
   const period = publicAddress.period;
-  const periodScope: PeriodScope = period === 'year' || period.startsWith('m') ? 'annual' : period;
+  const periodScope: PeriodScope = period === 'q1' || period === 'q2'
+    || period === 'q3' || period === 'q4' ? period : 'annual';
   const unit = LEGACY_UNIT[definition.unit];
   target.set(key, {
     metricKey: key, value, numericValue: value,
