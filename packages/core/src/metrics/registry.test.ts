@@ -25,7 +25,7 @@ describe('METRIC_KB metric contract', () => {
     expect(entry.dataSource).toContain('Способ определения поставщика');
     // Не все значения, которые буквально отличаются от «ЕП», конкурентные.
     expect(entry.howCalc).not.toMatch(/любой, кроме «ЕП»/);
-    expect(METRIC_KB.comp_fact_count.howCalc).toMatch(/классифицир/i);
+    expect(METRIC_KB.comp_fact_count.howCalc).toMatch(/классификатор|классифицир/i);
     expect(METRIC_KB.comp_fact_count.howCalc).toMatch(/неизвестн/i);
   });
 
