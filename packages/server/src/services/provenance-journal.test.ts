@@ -3,7 +3,7 @@ import { seedRevision, forgetRevision, resetRevisionMemory } from './file-revisi
 const source = vi.hoisted(() => vi.fn());
 vi.mock('./google-sheets.js', () => ({ getSheetDataFromSpreadsheet: source }));
 vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: {} }));
-const { readBookJournal, resetProvenanceJournalCache } = await import('./provenance-journal.js');
+const { readBookJournal, resetProvenanceJournalCache, parseProvenanceJournal } = await import('./provenance-journal.js');
 const rows = (value: unknown): unknown[][] => [['ВСЕ', 'H7', 'H', '173', value, 'updated', '2026-10-13', null]];
 beforeEach(() => { source.mockReset(); resetRevisionMemory(); resetProvenanceJournalCache(); });
 it('preserves parsed provenance for unchanged days and rereads a new revision immediately', async () => {
@@ -85,4 +85,23 @@ it('binds an old in-flight reply to its own reading rather than the newer winnin
   finish(rows('old'));
   expect((await old).records[0].source?.readAt).toBe(1000);
   expect(newer.records[0].source?.readAt).toBe(2000);
+});
+
+it('shared source grammar produces matching identity and raw provenance for 8/6 schema', async () => {
+  const { parseChangeLogDetailed } = await import('./changelog.js');
+  const sourceRows = [
+    ['Лист', 'Ячейка', 'Столбец', 'Строка', 'Было', 'Стало', 'Время', 'Автор'],
+    ['ВСЕ', 'J177', 10, '№ 195 · Услуги', 10, 12, '08.04.2026 9:09:54', null],
+    ['УАГЗО!B48', 'old', 'new', '06.04.2026 12:58:16', '', 'sent'],
+    ['Контроль', 'A1:C12', '(пакет)', '36', '', 'batchUpdate', '10.09.2026'],
+  ];
+  const provenance = parseProvenanceJournal(sourceRows, { spreadsheetId: 'book', at: 100 });
+  const changes = parseChangeLogDetailed(sourceRows, 'УО');
+  expect(provenance.records.map(row => row.cell)).toEqual(changes.records.map(row => row.cell));
+  expect(provenance.rowKeyless).toBe(1);
+  expect(provenance.records[0].row).toBe('№ 195 · Услуги');
+  expect(provenance.records[0].source).toMatchObject({ journalRow: 2, spreadsheetId: 'book' });
+  expect(provenance.records[1].sheet).toBe('УАГЗО');
+  expect(provenance.records[1].row).toBe('');
+  expect(changes.coverage).toMatchObject({ parsed: 2, nonCell: 1, unparsed: 1 });
 });
