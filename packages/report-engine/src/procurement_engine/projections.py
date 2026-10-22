@@ -14,7 +14,7 @@ def _base_envelope(report_model: dict, view: str) -> dict:
         "renderer_version": snapshot.get("renderer_version"),
         "report_model_version": (report_model.get("contract") or {}).get("report_model_version"),
     }
-    if "source_revision" in snapshot:
+    if (report_model.get("contract") or {}).get("source_revision_projection") == "v1" and "source_revision" in snapshot:
         out["source_revision"] = snapshot["source_revision"]
     return out
 
@@ -84,7 +84,8 @@ def project_management_view(report_model: dict) -> dict:
 def assert_projection_parity(report_model: dict, *projections: dict) -> None:
     expected = (report_model.get("snapshot") or {}).get("snapshot_id")
     headline = report_model.get("headline")
-    source_revision = (report_model.get("snapshot") or {}).get("source_revision")
+    source_revision = ((report_model.get("snapshot") or {}).get("source_revision")
+                       if (report_model.get("contract") or {}).get("source_revision_projection") == "v1" else None)
     for p in projections:
         if p.get("source_revision") != source_revision:
             raise ValueError("PROJECTION_SOURCE_REVISION_MISMATCH")
