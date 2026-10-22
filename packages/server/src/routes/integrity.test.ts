@@ -423,5 +423,10 @@ describe('single source admission for every consumer', () => {
     expect(acceptedCurrentBook('УО', { 'УО': current }, {
       'УО': { ...meta['УО'], rowCount: 5 },
     }).reason).toContain('полной матрицы');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, {
+      'УО': { ...meta['УО'], loadedAt: 'invalid' },
+    }).reason).toContain('Время');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, meta,
+      Date.parse('2026-10-21T23:59:59Z')).reason).toContain('Время');
   });
 });

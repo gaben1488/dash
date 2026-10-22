@@ -250,7 +250,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   for (const deptId of Object.keys(DEPARTMENT_SPREADSHEETS)) {
     const dept = findDept(deptId);
     if (!dept) continue;
-    const admitted = acceptedCurrentBook(dept.id, sheetValues, loadMeta);
+    const admitted = acceptedCurrentBook(dept.id, sheetValues, loadMeta, now);
     const values = admitted.values;
     if (!values) {
       silent.push(dept.id);

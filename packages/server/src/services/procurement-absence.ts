@@ -206,6 +206,7 @@ export function acceptedCurrentBook(
   deptId: string,
   values: Readonly<Record<string, readonly unknown[][]>>,
   metadata: Readonly<Record<string, CurrentReadMeta>>,
+  now: number = Date.now(),
 ): { values: readonly unknown[][] | null; meta: CurrentReadMeta | null; reason: string | null } {
   const books = Object.entries(values).filter(([name]) => findDept(name)?.id === deptId);
   const metas = Object.entries(metadata).filter(([name]) => findDept(name)?.id === deptId);
@@ -218,6 +219,10 @@ export function acceptedCurrentBook(
   if (data.length <= DEPT_HEADER_ROWS || data.some(row => !Array.isArray(row)) ||
       meta.error || !Number.isInteger(meta.rowCount) || meta.rowCount !== data.length) return {
     values: null, meta: null, reason: 'Нет подтверждённой полной матрицы книги',
+  };
+  const observedAt = Date.parse(meta.loadedAt);
+  if (!Number.isFinite(observedAt) || !Number.isFinite(now) || observedAt > now) return {
+    values: null, meta: null, reason: 'Время фактического чтения книги отсутствует или недостоверно',
   };
   return { values: data, meta, reason: null };
 }
@@ -288,7 +293,7 @@ export function compareCurrentToThursday(
       unavailableBooks.push({ dept: deptId, reason: 'Управление отсутствует в каноническом справочнике' });
       continue;
     }
-    const currentReading = acceptedCurrentBook(dept.id, liveValues, loadMeta);
+    const currentReading = acceptedCurrentBook(dept.id, liveValues, loadMeta, now);
     const previous = baselineRows.get(dept.latinId);
     const live = currentReading.values;
     const loadedAt = Date.parse(currentReading.meta?.loadedAt ?? '');
@@ -464,7 +469,7 @@ export function selectActiveSourceAbsences(
 
   const active = new Map<string, OperationalAbsenceDto>();
   for (const [dept, events] of candidates) {
-    const accepted = acceptedCurrentBook(dept, sheetValues, loadMeta);
+    const accepted = acceptedCurrentBook(dept, sheetValues, loadMeta, now);
     const current = accepted.values;
     const readAt = Date.parse(accepted.meta?.loadedAt ?? '');
     const eventTimes = events.map(event => Date.parse(event.observedAt ?? ''));
