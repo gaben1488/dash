@@ -90,7 +90,7 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
     // Отбор строк-позиций — как в rows.ts: предмет = G (не D!), мета-строки вон.
     const subject = String(cells.G ?? '').trim();
     const planTotal = cells.K;
-    if (!subject && !(Number(planTotal) > 0)) continue;
+    if (!subject && !((sheetNumber(planTotal) ?? 0) > 0)) continue;
     if (isMetaRow(subject.toLowerCase())) continue;
     rowsChecked++;
 
@@ -126,7 +126,7 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
     // Тип данных: итоги K (план) и Y (факт) обязаны быть числами.
     for (const col of ['K', 'Y'] as const) {
       const v = cells[col];
-      if (v !== null && v !== undefined && v !== '' && isNaN(Number(v))) {
+      if (v !== null && v !== undefined && v !== '' && sheetNumber(v) === null) {
         issues.push({
           row: rowNo,
           type: 'data_type',
@@ -139,8 +139,8 @@ export function validateRows(rawRows: unknown[][], department?: string): Pick<So
 
     // Отрицательные ДЕНЬГИ (не дни, не кварталы).
     for (const col of MONEY_COLS) {
-      const v = Number(cells[col]);
-      if (!isNaN(v) && v < 0) {
+      const v = sheetNumber(cells[col]);
+      if (v !== null && v < 0) {
         issues.push({
           row: rowNo,
           type: 'negative_money',
