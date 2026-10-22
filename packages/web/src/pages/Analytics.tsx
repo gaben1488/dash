@@ -674,6 +674,7 @@ export function Analytics() {
     }));
   }, [orgScope.mode, subBreakdown, subTotals, deptShares, chartColors, navigateTo, openOrgRows]);
 
+  const sharesIncomplete = shareRows.some(r => r.planTotal === null || r.factTotal === null);
   const topShare = shareRows.length > 0 && shareRows.every(r => r.planShare !== null)
     ? shareRows.reduce((max, r) => ((r.planShare ?? -1) > (max.planShare ?? -1) ? r : max), shareRows[0])
     : null;
@@ -960,8 +961,8 @@ export function Analytics() {
           </div>
         ) : (
           <CardEmpty
-              title="Плановых сумм по бюджетам нет"
-              description="Ни у одного выбранного управления не заполнены федеральный, краевой и муниципальный планы за этот период — столбцы складывать не из чего."
+              title="План и факт за выбранный период не прочитаны"
+              description="Нет подтверждённых расчётных значений для выбранного периода. Это не означает нулевую потребность или отсутствие закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
         )}
@@ -1044,14 +1045,14 @@ export function Analytics() {
           </div>
         ) : orgScope.mode === 'withSubs' ? (
           <CardEmpty
-            title={`У управления ${orgDeptLabel} нет сумм для разбивки`}
-            description="Ни у аппарата, ни у учреждений за выбранный период не заполнены план и факт — доли считать не от чего."
+            title={sharesIncomplete ? `Доли управления ${orgDeptLabel} не рассчитаны: неполные суммы` : `У управления ${orgDeptLabel} нет плановой базы для долей`}
+            description={sharesIncomplete ? 'Часть плановых или фактических значений не прочитана — неизвестное не заменяется нулём в знаменателе.' : 'При подтверждённой нулевой базе доля не вычисляется.'}
             action={{ label: 'Открыть строки управления', onClick: () => openOrgRows(ORG_ITSELF_SENTINEL) }}
           />
         ) : (
           <CardEmpty
-            title="Долей нет: план и факт по управлениям пусты"
-            description="Доля считается от суммы по всем показанным управлениям; пока сумма равна нулю, любая доля была бы делением на ноль."
+            title={sharesIncomplete ? 'Доли по управлениям не рассчитаны: источник неполон' : 'Доли по управлениям: нет положительной базы'}
+            description={sharesIncomplete ? 'Как минимум одна сумма выбранного управления не прочитана. Уменьшать знаменатель за счёт пропущенных данных нельзя.' : 'При подтверждённой нулевой базе доли не определены; ноль процентов не подставляется.'}
           />
         )}
       </AnalyticsCard>
@@ -1537,8 +1538,8 @@ export function Analytics() {
             </div>
           ) : (
             <CardEmpty
-              title="Сводка пуста: строк под текущий отбор нет"
-              description="Ни одно управление не дало строк за выбранный период и фильтры шапки — складывать нечего."
+              title="Сводка по управлениям не рассчитана"
+              description="Нет подтверждённых расчётных показателей за выбранный период. Отсутствующий источник нельзя назвать пустым отбором."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           )}
