@@ -24,8 +24,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A newer push must not interrupt a running deployment/state migration.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Keep exact-SHA CI running on the integration branch while other fixes
+  # arrive; cancelling every run prevented any candidate from proving itself.
+  # Other PR branches keep fast supersession; no automatic deployment is added.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' }}
 
 jobs:
   verify:
