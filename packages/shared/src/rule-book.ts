@@ -135,7 +135,7 @@ function diffToRubText(diffThousandRub: number): string {
  * Tiny binary arithmetic noise near the tie must not reverse the verdict.
  */
 function bookSumDiffers(diffThousandRub: number): boolean {
-  return Math.round(Math.abs(diffThousandRub) * 100 + 1e-9) > 0;
+  return Math.round(Math.abs(diffThousandRub) / (2 * SUM_TOLERANCE_THOUSAND_RUB) + 1e-9) > 0;
 }
 
 type BookSumInspection =
@@ -215,7 +215,7 @@ const budgetSumConsistencyPlan: ValidationRule = {
         message:
           `K${ctx.rowIndex} (план) = ${total}, ожидалось ${expectedSum} ` +
           `(H + I + J). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(округление до 0,01 тыс. руб.; порог ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `K${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -254,7 +254,7 @@ const budgetSumConsistencyFact: ValidationRule = {
         message:
           `O${ctx.rowIndex} (факт) = ${total}, ожидалось ${expectedSum} ` +
           `(L + M + N). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(округление до 0,01 тыс. руб.; порог ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `O${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -700,7 +700,7 @@ const deptFactSumConsistency: ValidationRule = {
         message:
           `Y${ctx.rowIndex} (факт итого) = ${total}, ожидалось ${expectedSum} ` +
           `(V + W + X). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(округление до 0,01 тыс. руб.; порог ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `Y${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -743,7 +743,7 @@ const deptEconomySumConsistency: ValidationRule = {
         message:
           `AC${ctx.rowIndex} (экономия итого) = ${total}, ожидалось ${expectedSum} ` +
           `(Z + AA + AB). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(округление до 0,01 тыс. руб.; порог ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `AC${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -1419,8 +1419,6 @@ const economyComponents: ValidationRule = {
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-
     // Пустота даты факта — ЕДИНЫЙ ДОМ канона (@aemr/shared fact-date.ts): в
     // книге заглушкой обычно стоит «Х», но канон знает все девять её написаний,
     // и сверять их здесь заново значило бы завести второй дом одного понятия.
@@ -1446,7 +1444,7 @@ const economyComponents: ValidationRule = {
       }
 
       const diff = Math.abs(restVal - expected);
-      if (diff <= TOLERANCE) continue;
+      if (!bookSumDiffers(diff)) continue;
       bad.push(
         `${rest}${ctx.rowIndex} (${what}) = ${restVal}, ожидалось ${expected}` +
         (factSigned ? ` (${plan} − ${fact})` : ' (даты заключения нет)') +
@@ -1459,7 +1457,7 @@ const economyComponents: ValidationRule = {
       passed: false,
       message:
         `Экономия по компонентам не сходится с «план − факт»: ${bad.join(' ')} ` +
-        `(допуск ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
+        `(округление до 0,01 тыс. руб.; порог ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
         `(AC = Z + AA + AB) такую строку пропускает: тройка между собой сходится, ` +
         `а сумма в ней вбита не та.`,
       cell: `${ECONOMY_COMPONENT_TRIPLES[0].rest}${ctx.rowIndex}`,
