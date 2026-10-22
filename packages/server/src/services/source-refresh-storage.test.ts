@@ -1,4 +1,5 @@
 import { afterAll, expect, it, vi } from 'vitest';
+import { DEPT_COLUMNS, DEPT_HEADER_LABELS } from '@aemr/shared';
 
 const state = vi.hoisted(() => {
   const sqlitePath = process.env.SQLITE_PATH;
@@ -60,7 +61,12 @@ it('records missing manual numbers after restarting with only the accepted SQLit
   const numbers = [1094, 1506, 1507, 1510, 1512, 1514, 1518];
   const row = (n: number) => { const r: unknown[] = []; r[0] = n; r[2] = 'Учреждение';
     r[6] = `Предмет ${n}`; r[10] = 100; r[11] = 'ЕП'; return r; };
-  const headers = [[], [], []];
+  // Stored rows may be used for a restart diff only with an admitted source header.
+  const masterHeader: string[] = [];
+  for (const [name, index] of Object.entries(DEPT_COLUMNS)) {
+    masterHeader[index] = DEPT_HEADER_LABELS[name as keyof typeof DEPT_COLUMNS];
+  }
+  const headers = [[], [], masterHeader];
   state.grid = [...headers, row(1000), ...numbers.map(row), row(1600)];
   await refreshAllSources(undefined, 'cycle', { books: ['УО'], svod: false, askDrive: false });
   state.books = {}; // A fresh process has no in-memory matrices.
