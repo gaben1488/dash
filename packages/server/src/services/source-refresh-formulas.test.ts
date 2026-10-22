@@ -39,6 +39,13 @@ vi.mock('./file-revision.js', () => ({
   seedRevision: vi.fn(),
 }));
 
+// Reading/delivery tests use an in-memory persistence stub; SQLite has its
+// own restart/compatibility regression test.
+vi.mock('./source-integrity-state.js', () => ({
+  saveFormulaAudit: vi.fn(),
+  loadFormulaAudits: vi.fn(() => []),
+}));
+
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
   loadWatermarks: vi.fn(() => new Map()),
