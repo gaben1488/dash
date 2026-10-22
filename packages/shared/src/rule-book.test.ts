@@ -30,7 +30,7 @@ function check(id: string, cells: Record<string, unknown>): RuleCheckResult {
 
 describe('неполные исходные значения не доказывают правильность арифметики', () => {
   it.each([
-    ['budget_sum_plan', { K: 100, H: 100, I: 0 }],
+    ['budget_sum_plan', { K: 100, H: 100, I: 0, J: '#REF!' }],
     ['budget_sum_fact', { O: 100, L: 100, M: '#REF!', N: 0 }],
     ['execution_percentage', { D: 10, G: 0 }],
     ['deviation_calc', { D: 10, F: -10 }],
