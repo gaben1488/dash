@@ -117,7 +117,7 @@ it('keeps a completed build invalidated if a newer source event arrived while it
   expect(google.read).toHaveBeenCalledTimes(2);
 });
 
-it('keeps an unchanged accepted generation across two idle days without Google or another snapshot', async () => {
+it('keeps a verified accepted generation without Google inside its captured Kamchatka day', async () => {
   const { source, db, schema } = fixture;
   source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
     values: Array.from({ length: DEPT_HEADER_ROWS }, () => []), formulas: [], sheetName: dept.nameShort,
@@ -126,7 +126,7 @@ it('keeps an unchanged accepted generation across two idle days without Google o
   const snapshot = await source.getSnapshot(true, 2026);
   expect(snapshot.metadata.sourceCoverage?.complete).toBe(true);
   const stored = db.select().from(schema.snapshots).all().map(row => row.id);
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 86400_000);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(snapshot.createdAt));
   try {
     expect((await source.getSnapshot(false, 2026)).id).toBe(snapshot.id);
     expect((await source.getSnapshot(false, 2026)).createdAt).toBe(snapshot.createdAt);
@@ -298,12 +298,38 @@ it('reuses a fully accepted saved calculation after restart without a Google rea
   await source.saveSnapshot(saved);
   const count = db.select().from(schema.snapshots).all().length;
   google.read.mockClear();
-  for (let n = 0; n < 2; n++) {
+  // A restart can reuse a proven release only within the captured product day.
+  // The frozen historical result remains readable after that day as history.
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-21T02:00:00Z'));
+  try {
+    for (let n = 0; n < 2; n++) {
+      const result = await source.getSnapshot(false, 2026);
+      expect(result.id).toBe(saved.id); expect(result.createdAt).toBe(saved.createdAt);
+      expect(result.metadata.readModel).toBeUndefined();
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    expect(google.read).not.toHaveBeenCalled();
+    expect(db.select().from(schema.snapshots).all()).toHaveLength(count);
+  } finally { clock.mockRestore(); }
+});
+
+
+it('C08.02: changes of product day do not promote an older snapshot to ready', async () => {
+  const { source } = fixture;
+  source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
+    values: Array.from({ length: DEPT_HEADER_ROWS }, () => []), formulas: [], sheetName: dept.nameShort,
+  }])));
+  google.read.mockResolvedValue([]);
+  const previous = await source.getSnapshot(true, 2026);
+  expect(previous.metadata.readModel).toBeUndefined();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(previous.createdAt) + 86400_000);
+  try {
     const result = await source.getSnapshot(false, 2026);
-    expect(result.id).toBe(saved.id); expect(result.createdAt).toBe(saved.createdAt);
-    expect(result.metadata.readModel).toBeUndefined();
-  }
-  await new Promise(resolve => setImmediate(resolve));
-  expect(google.read).not.toHaveBeenCalled();
-  expect(db.select().from(schema.snapshots).all()).toHaveLength(count);
+    expect(result.id).toBe(previous.id);
+    expect(result.createdAt).toBe(previous.createdAt);
+    expect(result.metadata.readModel?.state).toBe('refreshing');
+    // The background work is coalesced through the existing in-flight queue.
+    await source.getSnapshot(true, 2026);
+    expect(google.read).toHaveBeenCalledTimes(2);
+  } finally { clock.mockRestore(); }
 });
