@@ -26,6 +26,7 @@
  */
 import { getSheetDataFromSpreadsheet } from './google-sheets.js';
 import { knownFileRevisionKey } from './file-revision.js';
+import { normalizeSourceJournal, type SourceJournal } from './source-journal.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export const CHANGELOG_SHEET_NAME = '_ChangeLog';
@@ -41,6 +42,7 @@ export const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000;
 interface CachedRows {
   spreadsheetId: string;
   rows: unknown[][];
+  normalized: SourceJournal;
   at: number;
   revision: string | null;
 }
@@ -106,7 +108,7 @@ export async function readChangelogReading(
 
   const request = getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME, true)
     .then((rows) => {
-      const reading = { spreadsheetId, rows, at: now, revision };
+      const reading: CachedRows = { spreadsheetId, rows, normalized: normalizeSourceJournal(rows), at: now, revision };
       if (inFlight.get(dept)?.request === request && knownFileRevisionKey(spreadsheetId) === revision) cache.set(dept, reading);
       return reading;
     })
