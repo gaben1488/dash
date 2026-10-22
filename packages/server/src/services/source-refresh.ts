@@ -22,6 +22,8 @@ import {
   getSvodLoadFailure,
 } from './snapshot.js';
 import { sheetFingerprint } from './sheet-fingerprint.js';
+import type { BookFormulaVerdict } from './formula-sink.js';
+import { loadFormulaAudits, saveFormulaAudit } from './source-integrity-state.js';
 import { checkFileChanged, forgetRevision, lastKnownRevision, seedRevision } from './file-revision.js';
 import {
   SVOD_WATERMARK_KEY,
@@ -140,6 +142,8 @@ export function resetSourcePrints(): void {
  */
 export interface FormulaDelivery {
   book: string;
+  /** Общий момент текущего чтения — сверяется с сохранённым вердиктом. */
+  at?: string;
   values: unknown[][];
   formulas: unknown[][];
   startRow: number;
@@ -159,15 +163,19 @@ export interface FormulaDeliveryNote {
   cells: number;
   /** Принял ли разбор эту посылку (розетка занята и не отказала). */
   handled: boolean;
+  /** Успешно ли получена сетка формул; отказ Google и ошибка парсера — разные случаи. */
+  formulasRead?: boolean;
+  /** Зафиксирован ли этот исход на диске; false запрещает подтверждать проверку. */
+  persisted?: boolean;
   /** Почему не принял, если не принял. */
   failedBecause?: string;
 }
 
-let formulaSink: ((delivery: FormulaDelivery) => void) | null = null;
+let formulaSink: ((delivery: FormulaDelivery) => BookFormulaVerdict | undefined) | null = null;
 const formulaNotes = new Map<string, FormulaDeliveryNote>();
 
 /** Подключить слой разбора формул. `null` — отключить (стражи, выключение). */
-export function setFormulaSink(sink: ((delivery: FormulaDelivery) => void) | null): void {
+export function setFormulaSink(sink: ((delivery: FormulaDelivery) => BookFormulaVerdict | undefined) | null): void {
   formulaSink = sink;
 }
 
@@ -184,6 +192,14 @@ export function formulaDeliveryState(): {
     sinkConnected: formulaSink !== null,
     books: [...formulaNotes.values()].sort((a, b) => a.book.localeCompare(b.book, 'ru')),
   };
+}
+
+/** Поднять последнюю попытку для каждой книги без обращения к Google. */
+export function restoreFormulaDeliveries(): void {
+  formulaNotes.clear();
+  for (const entry of loadFormulaAudits()) {
+    formulaNotes.set(entry.delivery.book, entry.delivery);
+  }
 }
 
 /** Только для стражей: забыть следы доставок. */
@@ -206,28 +222,55 @@ function countFormulaCells(formulas: unknown[][]): number {
  */
 function deliverFormulas(
   data: Record<string, DeptSheetResult>,
+  errors: Record<string, string>,
+  requested: boolean,
   at: string,
   log?: { warn: (msg: string) => void },
 ): string[] {
   const delivered: string[] = [];
+  const remember = (note: FormulaDeliveryNote, verdict: BookFormulaVerdict | null): void => {
+    // Attempt and verdict are one SQLite write. A read failure is also an
+    // attempt: the previous result remains historical, not current.
+    try {
+      saveFormulaAudit(note, verdict);
+      note.persisted = true;
+    } catch (err) {
+      note.persisted = false;
+      note.failedBecause = [note.failedBecause, `результат не сохранён: ${(err as Error).message}`]
+        .filter(Boolean).join('; ');
+      log?.warn(`Состояние проверки формул книги «${note.book}» не сохранено: ${(err as Error).message}`);
+    }
+    formulaNotes.set(note.book, note);
+  };
+
   for (const [book, result] of Object.entries(data)) {
-    if (!result.formulasRead) continue;
+    if (!result.formulasRead) {
+      // A normal values-only refresh MUST NOT replace the last formula check.
+      if (requested) remember({
+        book, at, cells: 0, handled: false, formulasRead: false,
+        failedBecause: 'формулы не получены в этом чтении',
+      }, null);
+      continue;
+    }
     delivered.push(book);
     const note: FormulaDeliveryNote = {
       book,
       at,
       cells: countFormulaCells(result.formulas),
       handled: false,
+      formulasRead: true,
     };
+    let verdict: BookFormulaVerdict | null = null;
     if (formulaSink) {
       try {
-        formulaSink({
+        verdict = formulaSink({
           book,
+          at,
           values: result.values,
           formulas: result.formulas,
           startRow: result.startRow ?? 1,
           formulasRead: true,
-        });
+        }) ?? null;
         note.handled = true;
       } catch (err) {
         note.failedBecause = (err as Error).message;
@@ -236,7 +279,20 @@ function deliverFormulas(
     } else {
       note.failedBecause = 'разбор формул не подключён';
     }
-    formulaNotes.set(book, note);
+    remember(note, verdict);
+  }
+
+  if (requested) {
+    for (const [book, error] of Object.entries(errors)) {
+      remember({
+        book,
+        at,
+        cells: 0,
+        handled: false,
+        formulasRead: false,
+        failedBecause: `книга не прочитана: ${classifySourceFailure(error)}`,
+      }, null);
+    }
   }
   return delivered.sort();
 }
@@ -580,7 +636,7 @@ export function refreshAllSources(log?: {
     // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
     // журнала: разбор не имеет права задержать обновление экрана, а его исход
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
-    const formulaBooks = deliverFormulas(data, at, log);
+    const formulaBooks = deliverFormulas(data, errors, options.withFormulas ?? false, at, log);
 
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
     for (const [name, result] of Object.entries(data)) {

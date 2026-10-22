@@ -16,6 +16,7 @@
  */
 import { detectFormulaIntegrity, type FormulaDefect } from '@aemr/core';
 import { setFormulaSink, type FormulaDelivery } from './source-refresh.js';
+import { loadFormulaAudits } from './source-integrity-state.js';
 
 export interface BookFormulaVerdict {
   book: string;
@@ -40,6 +41,14 @@ export function formulaVerdicts(): BookFormulaVerdict[] {
   return [...verdicts.values()].sort((a, b) => a.book.localeCompare(b.book, 'ru'));
 }
 
+/** Восстановить последние подтверждённые вердикты при старте службы. */
+export function restoreFormulaVerdicts(): void {
+  verdicts.clear();
+  for (const entry of loadFormulaAudits()) {
+    if (entry.verdict) verdicts.set(entry.verdict.book, entry.verdict);
+  }
+}
+
 /** Только для стражей: забыть вердикты. */
 export function resetFormulaVerdicts(): void {
   verdicts.clear();
@@ -50,7 +59,7 @@ export function resetFormulaVerdicts(): void {
  * стражей: розетку из source-refresh обратно не достать, а проверять надо
  * именно разбор, а не факт подключения.
  */
-export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
+export function acceptFormulaDelivery(delivery: FormulaDelivery): BookFormulaVerdict {
   // ШАПКА КНИГИ НЕ СУДИТСЯ. Лист приходит целиком с первой строки, а данные
   // начинаются с четвёртой: строки 1-3 — заголовки, и третья из них несёт
   // НОМЕРА КОЛОНОК (1, 2, 3 … 27, 28). Гейт слоя «номер закупки — число
@@ -72,12 +81,14 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
     const a = Number(String((row?.[0] ?? '')).trim());
     if (Number.isFinite(a) && a > 0) rowsJudged++;
   }
-  verdicts.set(delivery.book, {
+  const verdict: BookFormulaVerdict = {
     book: delivery.book,
-    at: new Date().toISOString(),
+    at: delivery.at ?? new Date().toISOString(),
     rowsJudged,
     defects,
-  });
+  };
+  verdicts.set(delivery.book, verdict);
+  return verdict;
 }
 
 /**
@@ -88,7 +99,7 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
 export function connectFormulaSink(log?: { warn: (msg: string) => void }): void {
   setFormulaSink((delivery) => {
     try {
-      acceptFormulaDelivery(delivery);
+      return acceptFormulaDelivery(delivery);
     } catch (err) {
       log?.warn(`Разбор формул книги «${delivery.book}» не состоялся: ${(err as Error).message}`);
       throw err; // источник отметит посылку как непринятую — молчания не будет

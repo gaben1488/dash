@@ -34,7 +34,7 @@
  * снимков в местной базе. Момент чтения назван всегда (канон п.58).
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
@@ -478,7 +478,7 @@ export function buildOperationalComparison(): { operational: OperationalComparis
       continue;
     }
     checkedBooks++;
-    earliestRead = Math.min(earliestRead, Date.parse(sourceMeta.loadedAt));
+    earliestRead = Math.min(earliestRead, Date.parse(sourceMeta?.loadedAt ?? ''));
     const diff = diffSnapshots(was.get(id)!, liveRowsFromReading(values));
     missingCandidatesTotal += diff.vanished.length;
     if (diff.vanished.length || diff.moved.length || diff.unkeyed.before

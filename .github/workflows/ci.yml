@@ -39,7 +39,7 @@ jobs:
         run: pnpm verify:braces-patch
 
       - name: Verify deployment scope (no production writes)
-        run: python3 -m unittest discover -s .github/ci -p 'test_deploy_scope.py' -v
+        run: python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
 
       - name: ESLint
         run: pnpm lint
@@ -132,7 +132,13 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [verify, report-engine, server-image, deploy_scope]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy_scope.outputs.runtime_changed == 'true'
+    # SAFETY STOP (2026-10-22): main is a legacy lineage, not the accepted
+    # integrated runtime in PR #79. A green healthcheck is not a migration
+    # or feature-parity proof. Do not automatically downgrade the VPS from
+    # integrated code or stop its report worker on any main push.
+    # Restore release only through the approved exact-SHA candidate path
+    # with stateful backup, restore/readback and worker continuity checks.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -187,14 +193,49 @@ jobs:
                 release_scope=app_only
               fi
             fi
+            # ONE additive integrity-state release only: require the exact,
+            # reviewed file set, not a reusable wildcard for app.ts or db/schema.
+            # Anything else follows the established full report-worker gate.
+            expected_integrity_files=$(cat <<'INTEGRITY_PATHS'
+            .github/ci/test_source_integrity_release.py
+            .github/workflows/ci.yml
+            deploy/source-integrity-release.py
+            docs/decisions/0012-durable-source-integrity-observations.md
+            packages/server/src/app.ts
+            packages/server/src/db/ddl.ts
+            packages/server/src/db/schema.ts
+            packages/server/src/routes/source-integrity.test.ts
+            packages/server/src/routes/source-integrity.ts
+            packages/server/src/services/formula-sink.ts
+            packages/server/src/services/metadata-watch.ts
+            packages/server/src/services/source-integrity-state.test.ts
+            packages/server/src/services/source-integrity-state.ts
+            packages/server/src/services/source-refresh-formulas.test.ts
+            packages/server/src/services/source-refresh.ts
+            INTEGRITY_PATHS
+            )
+            if [ "${changed_files:-}" = "$expected_integrity_files" ]; then
+              release_scope=integrity_only
+            fi
             echo "Release scope: $release_scope (unknown paths use full gate)."
             cd deploy
             previous_worker=
             if [ "$release_scope" = standard ]; then
               previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
             fi
+            integrity_deploy_started=0
+            # Record the pre-release worker only for continuity checks; never
+            # stop/recreate it during this isolated source-state deployment.
+            integrity_worker_before=
+            if [ "$release_scope" = integrity_only ]; then
+              integrity_worker_before=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            fi
             restore_worker_on_failure() {
               result=$?
+              if [ "$result" -ne 0 ] && [ "$integrity_deploy_started" = 1 ]; then
+                echo 'Source-state release failed; restoring previous application images.'
+                sh /home/aemr/dash/deploy/rollback.sh || echo 'Automatic rollback failed — manual attention required.'
+              fi
               if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
                 docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
@@ -247,6 +288,10 @@ jobs:
             else
               echo "Current server is not healthy; preserving the existing rollback point."
             fi
+            if [ "$release_scope" = integrity_only ] && [ "$current_health" != "healthy" ]; then
+              echo "Source-state release aborted: no healthy rollback baseline." >&2
+              exit 1
+            fi
 
             git fetch origin
             git checkout main
@@ -255,9 +300,20 @@ jobs:
             git reset --hard "$tested_commit"
             test "$(git rev-parse HEAD)" = "$tested_commit"
             git log --oneline -1
+            if [ "$release_scope" = integrity_only ]; then
+              # The online sqlite3.backup API captures a WAL-consistent database
+              # while the running server and worker keep serving requests.
+              # No unverified cp of a live WAL database, no secret output.
+              docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
+                exec -T -e RELEASE_SHA="$tested_commit" server \
+                /opt/report-env/bin/python - backup < deploy/source-integrity-release.py
+            fi
             cd /home/aemr/dash/deploy
             # Even if COMPOSE_PROFILES=reports is set, preserve the existing
             # worker until its separate preflight can safely replace it.
+            if [ "$release_scope" = integrity_only ]; then
+              integrity_deploy_started=1
+            fi
             if ! docker compose --env-file .env.production up -d --build server web caddy; then
               df -h /
               server_id=$(docker compose --env-file .env.production ps --all --quiet server)
@@ -278,6 +334,45 @@ jobs:
             # Start the scheduler only after a successful service-account release.
             if [ "$release_scope" = standard ]; then
               bash enable-reports.sh
+            elif [ "$release_scope" = integrity_only ]; then
+              cd /home/aemr/dash
+              # One explicit source read now, then an actual container restart.
+              # Compare digests of cell-level evidence locally; never print it.
+              docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
+                exec -T server /opt/report-env/bin/python - deep-check < deploy/source-integrity-release.py
+              before_integrity=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
+                exec -T server /opt/report-env/bin/python - fingerprint < deploy/source-integrity-release.py)
+              cd deploy
+              docker compose --env-file .env.production restart server >/dev/null
+              healthy=0
+              for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+                if docker compose --env-file .env.production exec -T server \
+                  curl -fsS -m 10 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+                  healthy=1
+                  break
+                fi
+                sleep 5
+              done
+              if [ "$healthy" != 1 ]; then
+                echo 'Source-state restart failed health readback.' >&2
+                exit 1
+              fi
+              cd /home/aemr/dash
+              after_integrity=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
+                exec -T server /opt/report-env/bin/python - fingerprint < deploy/source-integrity-release.py)
+              if [ "$before_integrity" != "$after_integrity" ]; then
+                echo 'Persistent source integrity evidence changed or disappeared across restart.' >&2
+                exit 1
+              fi
+              if [ -n "$integrity_worker_before" ]; then
+                integrity_worker_after=$(docker compose -f deploy/docker-compose.yml \
+                  --env-file deploy/.env.production --profile reports ps --status running --quiet report-worker)
+                if [ "$integrity_worker_before" != "$integrity_worker_after" ]; then
+                  echo 'Report-worker continuity mismatch; source-only release not accepted.' >&2
+                  exit 1
+                fi
+              fi
+              echo 'SOURCE_STATE_RESTART_READBACK_PASS; report worker not redeployed.'
             else
               echo 'Application-only check hotfix deployed; report worker and weekly evidence unchanged.'
             fi
