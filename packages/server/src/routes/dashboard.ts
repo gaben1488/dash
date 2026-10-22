@@ -106,6 +106,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Decisions are read on every request; never mutate the historical snapshot.
+    // Returning the previous accepted read-model is useful to GET readers,
+    // but an explicit POST refresh must never advertise it as a new success.
+    if (snapshot.metadata?.readModel?.state || snapshot.metadata?.sourceCoverage?.complete === false) {
+      return reply.status(503).send({
+        success: false,
+        quick,
+        error: 'SOURCE_FULL_BASE_NOT_UPDATED',
+        lastAcceptedUnchanged: true,
+      });
+    }
     snapshot = withPersistedDecisions(snapshot);
 
     // Формируем KPI-карточки
@@ -422,7 +432,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // числами — вторую правду о чтении источников держать нельзя (п.112).
       // Страж: routes/dashboard-refresh.test.ts.
       try {
-        await refreshAllSources(
+        const acquisition = await refreshAllSources(
           {
             info: (msg) => app.log.info(msg),
             warn: (msg) => app.log.warn(msg),
@@ -433,10 +443,44 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           // что дефектов нет.
           withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
         );
+        if (acquisition.failed.length > 0 || !acquisition.svodOk) {
+          // A failed source cycle never commits a partial baseline, even if
+          // the last complete read is still available for historical viewing.
+          // Do not launch a new calculation or call successful *observations*
+          // a successful refresh.
+          const failed = new Set(acquisition.failed);
+          const meta = getDeptLoadMeta();
+          const declined = Object.keys(DEPARTMENT_SPREADSHEETS).map(name => ({
+            name,
+            type: 'department' as const,
+            loaded: false,
+            error: failed.has(name)
+              ? meta[name]?.error ?? 'SOURCE_READ_FAILED'
+              : 'SOURCE_FULL_BASE_NOT_UPDATED',
+          }));
+          declined.push({
+            name: SVOD_SHEET_NAME,
+            type: 'svod',
+            loaded: false,
+            error: acquisition.svodOk ? 'SOURCE_FULL_BASE_NOT_UPDATED' : 'SVOD_READ_FAILED',
+          });
+          return reply.status(503).send({
+            success: false,
+            sources: declined,
+            quick,
+            error: 'SOURCE_FULL_BASE_NOT_UPDATED',
+            lastAcceptedUnchanged: true,
+          });
+        }
       } catch (err) {
-        // Цикл сам не валится от отказа отдельной книги; сюда попадает только
-        // неожиданная поломка. Ответ строится из меты — что успело, то видно.
-        app.log.warn('Department sheets load failed: %s', err instanceof Error ? err.message : String(err));
+        const reason = err instanceof Error ? err.message : String(err);
+        app.log.warn('Department sheets load failed: %s', reason);
+        return reply.status(503).send({
+          success: false,
+          quick,
+          error: 'SOURCE_FULL_BASE_NOT_UPDATED',
+          reason: 'SOURCE_REFRESH_FAILED',
+        });
       }
 
       // Ответ маршрута строится из меты цикла: та же правда, что у /api/health.
