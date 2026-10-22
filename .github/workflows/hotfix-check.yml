@@ -51,6 +51,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: R05.01 canonical source-profile regressions (synthetic, no Google)
+        run: |
+          pnpm --filter @aemr/shared exec vitest run src/column-map.test.ts
+          pnpm --filter @aemr/server exec vitest run src/services/google-sheets-formula-columns.test.ts src/services/google-sheets-dept-errors.test.ts src/services/google-sheets-timeout.test.ts
       - name: SVOD 278 and budget formulas
         run: pnpm --filter @aemr/core exec vitest run src/pipeline/validate.test.ts
       - name: Russian correction and subordinate dictionary
