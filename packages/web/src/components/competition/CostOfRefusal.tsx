@@ -12,6 +12,7 @@ import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
 import type { DrillFilters } from '../../lib/drill';
 import { scatterPointDrill } from '../../lib/scatter-point-drill';
+import { conditionalEpProjection } from '../../lib/scatter-scenario';
 import { useScopedQuery } from '../../hooks/useScopedQuery';
 import { scatterScope } from '../../lib/scatter-scope';
 import type { LimitComparisonPoint as ScatterPoint } from '@aemr/shared';
@@ -69,6 +70,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const formatMoney = useStore((s) => s.formatMoney);
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const selectedSubordinates = useStore((s) => s.selectedSubordinates);
+  const selectedBudgets = useStore((s) => s.selectedBudgets);
   const navigateTo = useStore((s) => s.navigateTo);
   const snapshotId = useStore(s => s.dashboardData?.snapshot.id);
   const dashboardLoading = useStore(s => s.loading);
@@ -98,8 +100,13 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const rows = resp?.points ?? [];
   const stats = { sumPlan: resp?.summary.limitTotal ?? 0, sumFact: resp?.summary.contractTotal ?? 0,
     reductionPct: resp?.summary.limitReductionPercent ?? null };
-  const refusalCost = stats.reductionPct !== null && epHasData && resp?.coverage.complete && !dashboardLoading && (year === 'all' || year === dataYear)
-    ? epPlan * (stats.reductionPct / 100) : null;
+  const activityAligned = selectedActivities.size === 0 && (!activityFilter || activityFilter === 'all');
+  const refusalCost = conditionalEpProjection({
+    scatter: resp, epPlan, epHasData, dashboardLoading,
+    yearMatches: year === dataYear,
+    activityAligned, budgetAligned: selectedBudgets.size === 0,
+    searchAligned: !searchQuery?.trim(),
+  });
 
   const sortedRows = useMemo(
     () => [...rows].sort((a, b) => b.planTotal - a.planTotal),
@@ -120,6 +127,10 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   }
   if (resp && resp.excluded.unknownMethod > 0) caveats.push(`${resp.excluded.unknownMethod} строк с неподтверждённым способом не входят в конкурентную базу.`);
   if (resp && !resp.coverage.complete) caveats.push('Итоговая оценка не рассчитана: состав источников неполон.');
+  if (!activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()) {
+    caveats.push('Сценарная сумма не рассчитывается: план ЕП и точки конкурентного отбора нельзя подтвердить в одинаковом разрезе деятельности, бюджета или поиска. Снимите эти фильтры, если нужен общий арифметический сценарий.');
+  }
+  if (year !== dataYear) caveats.push('Сценарная сумма не рассчитывается при выборе другого года или всех лет: план ЕП относится к году загруженного среза.');
 
   const detailId = 'cost-of-refusal-rows';
 
