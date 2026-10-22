@@ -9,11 +9,11 @@ REQUIRED = {'Lint, TypeScript, Tests, Build, Audit',
 
 def source_ci_passed(run, jobs, sha):
     # Historical PR admission is unchanged. The sole new production path is an
-    # owner-initiated push on the reviewed PR79 integration branch, admitted
+    # owner-initiated push on PR79 integration or pinned PR129 release, admitted
     # only against the exact tested SHA and the same three mandatory jobs.
     owner_integrated_push = (
         run.get('event') == 'push'
-        and run.get('head_branch') == 'codex/dash-audit-integrated-20261010'
+        and run.get('head_branch') in ('codex/dash-audit-integrated-20261010', 'release/dash79-modern-forward-20261022')
         and (run.get('actor') or {}).get('login') == 'gaben1488'
     )
     if (not re.fullmatch('[a-f0-9]{40}', sha) or run.get('head_sha') != sha

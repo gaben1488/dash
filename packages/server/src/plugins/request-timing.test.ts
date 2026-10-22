@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
-import { registerRequestTiming, requestStage, measureAsyncStage, measureReadStage } from './request-timing.js';
+import { registerRequestTiming, requestStage, measureAsyncStage, measureReadStage, withoutRequestTiming } from './request-timing.js';
 
 it('measures the actual request and serialization window without exposing source query values', async () => {
   const app = Fastify();
@@ -60,5 +60,20 @@ it('correlates Google attempt and normalization with the enclosing model request
   expect(await measureAsyncStage('google', async () => 'background')).toBe('background');
   const unrelated = await app.inject('/unknown');
   expect(String(unrelated.headers['server-timing'])).not.toContain('google;dur=');
+  await app.close();
+});
+
+it('excludes independent background source refresh from foreground HTTP stage durations', async () => {
+  const app = Fastify(); registerRequestTiming(app);
+  app.get('/stale', request => requestStage(request, 'model', async () => {
+    const value = await withoutRequestTiming(() =>
+      measureAsyncStage('google', async () => 'saved-background'));
+    return { value };
+  }));
+  const result = await app.inject('/stale');
+  expect(result.statusCode).toBe(200);
+  expect(result.json()).toEqual({ value: 'saved-background' });
+  expect(String(result.headers['server-timing'])).toContain('model;dur=');
+  expect(String(result.headers['server-timing'])).not.toContain('google;dur=');
   await app.close();
 });

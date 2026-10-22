@@ -16,7 +16,7 @@ METRICS = ("plan_count", "fact_count", "plan_amount", "fact_amount",
            "confirmed_saving_amount", "execution_pct")
 SCOPES = (("year", None), ("q1", 1), ("q2", 2), ("q3", 3), ("q4", 4))
 METHODS = (("comp", "ЭА"), ("ep", "ЕП"))
-TOLERANCE = Decimal("0.00000001")  # thousand RUB: one millionth of a kopeck
+TOLERANCE = Decimal("0.00000001")  # thousand RUB: 0.001 kopeck
 
 
 def cells(block):
@@ -73,9 +73,9 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
 
     content = model.get("report_content") or {}
     by_grbs = content.get("by_grbs") or {}
-    grbs_by_source = {source["source_id"]: source["grbs"] for source in manifest["sources"]
-                      if source["role"] == "master"}
-    if set(by_grbs) != set(grbs_by_source.values()):
+    grbs_by_source = {source["source_id"]: (source.get("payload_metadata") or {}).get("grbs")
+                      for source in manifest["sources"] if source["role"] == "master"}
+    if not all(grbs_by_source.values()) or set(by_grbs) != set(grbs_by_source.values()):
         raise ValueError("ARTIFACT_MASTER_SCOPE_MISMATCH")
 
     mismatches = []
@@ -94,6 +94,25 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
             bad = differences(cells(reference), cells(block) if isinstance(block, dict) else [])
             mismatches.extend({"scope": "global", "method": kind, "period": scope, "metric": name}
                               for name in bad)
+    # The API/UI headline must agree with frozen source rows, not merely
+    # agree with the copied dashboard JSON. Its quarter is the selected plan
+    # quarter, which can differ from the as-of date's calendar quarter.
+    headline = model.get("headline") or {}
+    selected_quarter = headline.get("current_quarter")
+    if type(selected_quarter) is not int or selected_quarter not in (1, 2, 3, 4):
+        raise ValueError("ARTIFACT_HEADLINE_SCOPE_MISMATCH")
+    for kind, method in METHODS:
+        view = "competitive" if kind == "comp" else "single_supplier"
+        for scope, quarter in (("year", None), ("quarter", selected_quarter)):
+            reference = metric_block(all_rows, report_year=manifest["report_year"],
+                                     as_of=as_of, method=method, planned_quarter=quarter)
+            block = headline.get(view, {}).get(scope) or {}
+            for metric in ("plan_count", "fact_count", "plan_amount", "fact_amount", "execution_pct"):
+                expected_value = (reference["exact_decimal"][metric]
+                                  if metric in {"plan_amount", "fact_amount"} else reference[metric])
+                if not equal_cell(metric, expected_value, block.get(metric)):
+                    mismatches.append({"scope": "headline", "method": kind,
+                                       "period": scope, "metric": metric})
     if not validate_document_plans(model):
         raise ValueError("ARTIFACT_DOCUMENT_PLAN_MISMATCH")
     plans = planned_documents(model)
@@ -205,7 +224,7 @@ console.log(JSON.stringify(results));
         "snapshot_id": manifest["snapshot_id"], "report_year": manifest["report_year"],
         "as_of": as_of, "masters": len(masters),
         "ts_python_cells": len(expected) * len(METRICS),
-        "model_cells": len(expected) * len(METRICS) + 2 * len(SCOPES) * len(METRICS) if acceptance else 0,
+        "model_cells": len(expected) * len(METRICS) + 2 * len(SCOPES) * len(METRICS) + 20 if acceptance else 0,
         "validated_word_documents": 2 if acceptance else 0,
         "mismatch_count": len(mismatches),
         "mismatches": mismatches[:30],
@@ -231,7 +250,7 @@ if __name__ == "__main__":
                    "TS_COMPARISON_FAILED", "TS_COMPARISON_SHAPE_MISMATCH",
                    "ARTIFACT_SET_INCOMPLETE", "ARTIFACT_SNAPSHOT_MISMATCH",
                    "ARTIFACT_DASHBOARD_MISMATCH", "ARTIFACT_MASTER_SCOPE_MISMATCH",
-                   "ARTIFACT_DOCUMENT_PLAN_MISMATCH"}
+                   "ARTIFACT_DOCUMENT_PLAN_MISMATCH", "ARTIFACT_HEADLINE_SCOPE_MISMATCH"}
         print(json.dumps({"state": "PROBE_FAILED", "error_type": type(error).__name__,
                           "code": str(error) if str(error) in allowed else "INVALID_INPUT_OR_RUNTIME"}))
         raise SystemExit(2)

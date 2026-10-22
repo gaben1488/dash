@@ -2667,7 +2667,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.head_ref == 'codex/dash-audit-integrated-20261010') ||
       (github.event_name == 'push' &&
-       github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+       (github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' || github.ref == 'refs/heads/release/dash79-modern-forward-20261022') &&
        github.actor == github.repository_owner &&
        github.repository == 'gaben1488/dash' &&
        github.workflow == 'Integrated durable source-state release')
@@ -2679,6 +2679,7 @@ jobs:
     env:
       RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
+      RELEASE_PR: ${{ github.ref == 'refs/heads/release/dash79-modern-forward-20261022' && '129' || '79' }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
@@ -2696,7 +2697,7 @@ jobs:
           [[ "$RECOVERY_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
-          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR --jq .head.sha)" = "$RECOVERY_SHA"
           if test "$GITHUB_EVENT_NAME" = push; then
             request=.github/ci/integrated-source-state-release-20261022.request
             test "$(git diff --name-only HEAD^ HEAD)" = "$request"
