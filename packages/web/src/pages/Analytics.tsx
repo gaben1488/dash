@@ -387,6 +387,9 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 export function Analytics() {
   const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths, year, periodMode, selectedActivities, deptOnlyMode, searchQueryDebounced, dashboardData } = useStore();
   const fd = useFilteredData();
+  // Budget slices belong to the source-row budget fields; scatter currently
+  // compares whole-position K/Y and cannot reproduce this budget axis.
+  const selectedScatterBudgets = useStore(s => s.selectedBudgets);
   // Режим организаций (приказ владельца 20.08): «с подведомственными» —
   // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
   // учреждениям; «только ГРБС» — разбивки нет, и об этом сказано словами.
@@ -1319,6 +1322,12 @@ export function Analytics() {
         ? `${scatterCoverage?.complete ? '' : 'Частичный охват: '}Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%`
         : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
         <SourceCoverageNotice coverage={scatterCoverage} />
+        {selectedScatterBudgets.size > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-300" role="note">
+            Выбранный бюджет не сужает это облако: план K и отражённый факт Y относятся к позиции целиком.
+            В других карточках бюджетный фильтр может применяться к отдельным составляющим; не сопоставляйте их показатели напрямую.
+          </p>
+        )}
         <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают арифметическую разницу, без правовой оценки. Нажатие на точку переносит год, месяц, управление, учреждение, вид деятельности, способ и предмет в отбор Реестра. При одинаковых реквизитах могут остаться несколько строк: это не уникальная адресная ссылка.</p>
         {(scatterQuery.data?.excluded.unknownMethod ?? 0) > 0 && (
           <p className="text-xs text-[var(--ink-muted)]">
