@@ -481,7 +481,20 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
     let snapshot;
     try {
-      snapshot = await getSnapshot(true);
+      // The economical command must not materialize another identical full
+      // model when the accepted source generation has not changed. A truly
+      // new generation or cold start still waits for the complete build.
+      if (quick) {
+        try {
+          const existing = await getSnapshot(false);
+          snapshot = existing.metadata?.readModel?.state ? await getSnapshot(true) : existing;
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'SNAPSHOT_NOT_READY') throw error;
+          snapshot = await getSnapshot(true);
+        }
+      } else {
+        snapshot = await getSnapshot(true);
+      }
       sources.push({
         name: SVOD_SHEET_NAME,
         type: 'svod',
