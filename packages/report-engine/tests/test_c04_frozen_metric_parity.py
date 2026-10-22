@@ -72,7 +72,7 @@ def test_c04_eight_masters_two_methods_five_scopes_and_pinned_word(frozen_case):
     assert evidence["scope"] == "FROZEN_TS_PYTHON_MODEL_DASHBOARD_WORD"
     assert evidence["masters"] == 8
     assert evidence["ts_python_cells"] == 480
-    assert evidence["model_cells"] == 540
+    assert evidence["model_cells"] == 560
     assert evidence["validated_word_documents"] == 2
     assert evidence["mismatch_count"] == 0
     assert evidence["as_of"] == "2026-09-30"
@@ -96,6 +96,22 @@ def test_c04_word_tampering_blocks_acceptance(frozen_case, tmp_path):
     document.save(altered)
     with pytest.raises(ValueError, match="DOCUMENT_CONTENT_MISMATCH"):
         PROBE.compare(root / "snapshot_bundle", REPO, **{**paths, "main_docx": altered})
+
+
+def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_case, tmp_path):
+    root, paths = frozen_case
+    changed_model = json.loads(paths["report_model"].read_text())
+    changed_dashboard = json.loads(paths["dashboard"].read_text())
+    for document in (changed_model, changed_dashboard):
+        document["headline"]["competitive"]["year"]["plan_count"] += 1
+    model_file = tmp_path / "false-model.json"
+    dashboard_file = tmp_path / "false-dashboard.json"
+    model_file.write_text(json.dumps(changed_model))
+    dashboard_file.write_text(json.dumps(changed_dashboard))
+    with pytest.raises(ValueError, match="ARTIFACT_DOCUMENT_PLAN_MISMATCH"):
+        PROBE.compare(root / "snapshot_bundle", REPO, **{
+            **paths, "report_model": model_file, "dashboard": dashboard_file,
+        })
 
 
 def test_c04_model_must_match_exact_frozen_source(frozen_case, tmp_path):
