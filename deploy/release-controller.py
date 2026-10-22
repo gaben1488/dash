@@ -73,6 +73,18 @@ class ReleaseController:
         trial.SOURCE_GATE = SOURCE_GATE
         return trial.check_source_ci(plan)
 
+    @staticmethod
+    def _web_toolchain():
+        # Bind the actual trusted operator/recovery/CI-gate bytes, not only the
+        # checked-out Git diff. A host-side tool replacement invalidates web-only.
+        return {name: recovery.digest(recovery.read_owned(path, private=False))
+                for name, path in {
+                    'controller': Path(__file__),
+                    'recovery': Path(recovery.__file__),
+                    'trial': Path(trial.__file__),
+                    'source_gate': SOURCE_GATE,
+                }.items()}
+
     def _images(self, plan):
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
             if json.loads(self.executor.command(['image', 'inspect', image]))[0].get('Id') != image:
@@ -308,7 +320,8 @@ class ReleaseController:
         recovery.atomic_json(recovery.RUNTIME_DIR / 'stage.json', stage)
         recovery.atomic_json(recovery.RUNTIME_DIR / 'component.json',
                              {'mode': 'web' if backend_sha else 'full', 'backend_sha': backend_sha,
-                              'stage_sha256': recovery.digest(encode(stage))})
+                              'stage_sha256': recovery.digest(encode(stage)),
+                               'tools_sha256': self._web_toolchain()})
         return {'state': 'RELEASE_CONFIGURATION_STAGED'}
 
     def deploy_web(self):
@@ -320,6 +333,7 @@ class ReleaseController:
                 json.dumps(stage, sort_keys=True, allow_nan=False).encode())
                 or self._web_source(stage['images'], stage['release_sha']) != component.get('backend_sha')
                 or self._source(stage) != stage['source_ci_sha256']
+                or component.get('tools_sha256') != self._web_toolchain()
                 # The privileged tool is a stage-bound input, even for web-only.
                 # A changed installed tool cannot inherit the prior component proof.
                 or stage['tool_sha256'] != recovery.digest(recovery.read_owned(recovery.TOOL, private=False))):
