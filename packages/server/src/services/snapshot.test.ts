@@ -127,6 +127,27 @@ describe('saveSnapshot — честный boolean-результат (не гл�
   });
 });
 
+describe('C08.02 — reject a snapshot with mismatching evidence before SQL insertion', () => {
+  it('does not save a tampered snapshot or rewrite an older valid one', async () => {
+    const { saveSnapshot, getSnapshotHistory } = await import('./snapshot.js');
+    const valid = snap('evidence-valid-legacy', '2026-10-22T08:00:00Z', { УО: [['original']] });
+    expect(await saveSnapshot(valid)).toBe(true);
+
+    const corrupted = snap('evidence-invalid', '2026-10-22T09:00:00Z', { УО: [['tampered']] });
+    corrupted.calculationEvidence = {
+      contract: 'dash-calculation-evidence-v1',
+      snapshotId: corrupted.id, capturedAt: corrupted.createdAt,
+      spreadsheetId: corrupted.spreadsheetId,
+      outputSha256: 'intentionally-wrong',
+      books: {},
+    } as NonNullable<typeof corrupted.calculationEvidence>;
+    expect(await saveSnapshot(corrupted)).toBe(false);
+    const history = getSnapshotHistory();
+    expect(history.some(row => row.id === 'evidence-invalid')).toBe(false);
+    expect(history.some(row => row.id === 'evidence-valid-legacy')).toBe(true);
+  });
+});
+
 describe('setDeptSheetCache — replace-per-dept-key при отвалившемся департаменте (B-9)', () => {
   it('не должен молча отдавать старые строки упавшего в этом цикле деп-листа как текущие', async () => {
     const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
