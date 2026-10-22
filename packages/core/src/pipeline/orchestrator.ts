@@ -603,10 +603,31 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
-      const sheetSignals = detectSheetSignals(rows as unknown[][], asOf);
+      const signalFailures: number[] = [];
+      const sheetSignals = detectSheetSignals(rows as unknown[][], asOf,
+        sheetRow => signalFailures.push(sheetRow));
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
+      // A detector exception is an incomplete analysis, NOT a clean signal row.
+      // One bounded issue per book keeps the original rows/other signals intact.
+      if (signalFailures.length > 0) {
+        allIssues.push({
+          id: issueIdentity(['signal-detection-failed', sheetName]),
+          severity: 'error',
+          origin: 'runtime_error',
+          category: 'signal_detection_failed',
+          title: `Проверка сигналов книги «${sheetName}» выполнена не полностью`,
+          description: `Детектор сигналов не смог проверить ${signalFailures.length} строк (первая: ${signalFailures[0]}). Отсутствие других замечаний по ним не означает успешную проверку.`,
+          sheet: sheetName,
+          row: signalFailures[0],
+          departmentId: deptId,
+          recommendation: 'Проверить ошибку разбора сигналов и повторить проверку; не изменять книгу автоматически.',
+          status: 'open',
+          detectedAt: asOf.toISOString(),
+          detectedBy: 'pipeline:signals',
+        });
+      }
 
       // Целостность формул книги — судится НОСИТЕЛЬ (ячейка формульной графы),
       // а не смысл строки, поэтому отдельным слоем. Слой сам молчит, когда
@@ -890,18 +911,26 @@ const SIGNAL_ISSUE_MAP: Record<string, {
  * dataset-анализа. Семантика сбора — как у 4b (все парсабельные строки);
  * фильтр мета-/пустых строк остаётся на стороне замечаний.
  */
-function detectSheetSignals(
+export function detectSheetSignals(
   rows: unknown[][],
   asOf: Date,
+  onFailure: (physicalRow: number) => void = () => undefined,
+  detector: typeof detectSignals = detectSignals,
 ): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
   const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
   for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
-    const row = rows[r] as unknown[];
-    if (!row || row.length < 5) continue;
+    const row = rows[r];
+    // Intentional service/header/short note rows are outside the detector's
+    // scope; don't report them as failed purchases.
+    if (!Array.isArray(row) || row.length < 5) continue;
     const cells = buildCellDict(row);
     try {
-      out.set(r, { cells, signals: detectSignals(cells, asOf) });
-    } catch { /* skip unparseable rows */ }
+      out.set(r, { cells, signals: detector(cells, asOf) });
+    } catch {
+      // Preserve the physical 1-based Sheets row; dataset analysis must not
+      // silently treat the missing signal entry as 'no signals'.
+      onFailure(r + 1);
+    }
   }
   return out;
 }
