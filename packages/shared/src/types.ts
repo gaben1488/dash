@@ -485,6 +485,21 @@ export interface CalculationContext {
   scope: { targetYear: number | null; officialYear: number | null };
   decisions: 'not-applied';
   access: 'full-dataset';
+  /**
+   * C08.02: an output attestation of this SAME context, not a second
+   * CalculationEvidence table or a second input semantic version.
+   * Absent on historical pre-attestation snapshots; absence != verified.
+   */
+  output?: {
+    contract: 'aemr-calculation-output-v1';
+    sha256: string;
+    sourceReceipt: string | null;
+    sourceRevision: string | null;
+    sourceCoverageComplete: boolean;
+    codeCommit: string | null;
+    /** Matching bytes do not prove a deterministic independent replay. */
+    fullReplayVerified: false;
+  };
 }
 
 export interface DataSnapshot {
