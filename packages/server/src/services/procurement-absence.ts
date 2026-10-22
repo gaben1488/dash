@@ -185,6 +185,37 @@ function text(row: readonly unknown[], column: number): string {
   return String(row[column] ?? '').trim();
 }
 
+interface CurrentReadMeta {
+  loadedAt: string;
+  rowCount?: number;
+  error?: string;
+}
+
+/**
+ * One admission rule for the live baseline and durable webhook observations.
+ * A duplicate alias, incomplete matrix or absent source fails closed before
+ * attempting to infer any vanished procurement number.
+ */
+function acceptedCurrentBook(
+  deptId: string,
+  values: Readonly<Record<string, readonly unknown[][]>>,
+  metadata: Readonly<Record<string, CurrentReadMeta>>,
+): { values: readonly unknown[][] | null; meta: CurrentReadMeta | null; reason: string | null } {
+  const books = Object.entries(values).filter(([name]) => findDept(name)?.id === deptId);
+  const metas = Object.entries(metadata).filter(([name]) => findDept(name)?.id === deptId);
+  if (books.length !== 1 || metas.length !== 1) return {
+    values: null, meta: null,
+    reason: 'Нет однозначного чтения книги: алиасы конфликтуют либо источник не прочитан',
+  };
+  const data = books[0][1];
+  const meta = metas[0][1];
+  if (data.length <= DEPT_HEADER_ROWS || data.some(row => !Array.isArray(row)) ||
+      meta.error || !Number.isInteger(meta.rowCount) || meta.rowCount !== data.length) return {
+    values: null, meta: null, reason: 'Нет подтверждённой полной матрицы книги',
+  };
+  return { values: data, meta, reason: null };
+}
+
 /** Один набор проверяемых признаков для оперативного и исторического диффа. */
 function hasNotableDiff(diff: RowDiff): boolean {
   return diff.vanished.length > 0 || diff.moved.length > 0 ||
@@ -251,21 +282,15 @@ export function compareCurrentToThursday(
       unavailableBooks.push({ dept: deptId, reason: 'Управление отсутствует в каноническом справочнике' });
       continue;
     }
-    // An alias collision must never silently choose the first cached reading.
-    const sourceMatches = Object.entries(liveValues).filter(([name]) => findDept(name)?.id === dept.id);
-    const metaMatches = Object.entries(loadMeta).filter(([name]) => findDept(name)?.id === dept.id);
+    const currentReading = acceptedCurrentBook(dept.id, liveValues, loadMeta);
     const previous = baselineRows.get(dept.latinId);
-    const live = sourceMatches.length === 1 ? sourceMatches[0][1] : undefined;
-    const meta = metaMatches.length === 1 ? metaMatches[0][1] : undefined;
-    const loadedAt = Date.parse(meta?.loadedAt ?? '');
+    const live = currentReading.values;
+    const loadedAt = Date.parse(currentReading.meta?.loadedAt ?? '');
     let unavailable: string | null = null;
     if (!previous || previous.length === 0) {
       unavailable = 'В заверенном четверговом снимке нет сопоставимых закупок этой книги';
-    } else if (sourceMatches.length !== 1 || metaMatches.length !== 1) {
-      unavailable = 'Нет однозначного текущего чтения: отсутствует источник либо столкнулись алиасы книги';
-    } else if (!live || live.length <= DEPT_HEADER_ROWS || !meta || meta.error ||
-               meta.rowCount !== live.length || live.some(row => !Array.isArray(row))) {
-      unavailable = 'Текущая книга не прочитана полностью или не совпадает длина подтверждённой матрицы';
+    } else if (currentReading.reason) {
+      unavailable = currentReading.reason;
     } else if (!Number.isFinite(loadedAt) || loadedAt < baseAt) {
       unavailable = 'Текущее чтение книги предшествует заверенному четвергу либо время неизвестно';
     } else if (!Number.isFinite(now) || !Number.isFinite(maxAge) || maxAge <= 0 ||
@@ -426,27 +451,15 @@ export function selectActiveSourceAbsences(
 
   const active = new Map<string, OperationalAbsenceDto>();
   for (const [dept, events] of candidates) {
-    // The source cache can contain aliases; first-match would silently pick
-    // one revision and claim an absence from the wrong book.
-    const sourceMatches = Object.entries(sheetValues)
-      .filter(([name]) => findDept(name)?.id === dept);
-    const metaMatches = Object.entries(loadMeta)
-      .filter(([name]) => findDept(name)?.id === dept);
-    const current = sourceMatches.length === 1 ? sourceMatches[0][1] : undefined;
-    const meta = metaMatches.length === 1 ? metaMatches[0][1] : undefined;
-    const readAt = Date.parse(meta?.loadedAt ?? '');
+    const accepted = acceptedCurrentBook(dept, sheetValues, loadMeta);
+    const current = accepted.values;
+    const readAt = Date.parse(accepted.meta?.loadedAt ?? '');
     const eventTimes = events.map(event => Date.parse(event.observedAt ?? ''));
-    let reason: string | null = null;
-    if (sourceMatches.length !== 1 || metaMatches.length !== 1) {
-      reason = 'Нет однозначного чтения книги: совпало несколько алиасов либо источник отсутствует';
-    } else if (!current || current.length <= DEPT_HEADER_ROWS ||
-        current.some(row => !Array.isArray(row)) || !meta || meta.error ||
-        !Number.isInteger(meta.rowCount) || meta.rowCount !== current.length) {
-      reason = 'Нет подтверждённой полной матрицы книги';
-    } else if (!Number.isFinite(now) || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0 ||
-        !Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs) {
+    let reason: string | null = accepted.reason;
+    if (!reason && (!Number.isFinite(now) || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0 ||
+        !Number.isFinite(readAt) || readAt > now || now - readAt > maxAgeMs)) {
       reason = 'Текущее чтение книги устарело или время не подтверждено';
-    } else if (eventTimes.some(at => !Number.isFinite(at) || at > now || at > readAt)) {
+    } else if (!reason && eventTimes.some(at => !Number.isFinite(at) || at > now || at > readAt)) {
       reason = 'Момент наблюдения новее подтверждённого чтения или неизвестен';
     }
     if (reason) {
