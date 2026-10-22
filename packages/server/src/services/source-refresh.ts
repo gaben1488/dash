@@ -665,9 +665,11 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // book is missing/failed or the required SVOD read failed. Retaining the
     // last good cache+watermarks is essential: accepting seven new books while
     // the eighth failed would publish a novel, never-observed mixed revision.
-    for (const name of booksToRead) {
-      if (!data[name] && !errors[name]) errors[name] = 'SOURCE_INCOMPLETE_RESULT';
-    }
+    // Each book is an independently complete source unit. A targeted
+    // webhook may update one book without reading unaffected units, but a
+    // *published* cross-book model still requires the full verified receipt
+    // (enforced in snapshot.ts). Never accept an explicit failure of any
+    // requested unit as a successful delta.
     if (Object.keys(errors).length > 0 || !svodOk) {
       const failed = Object.keys(errors);
       const at = new Date().toISOString();
