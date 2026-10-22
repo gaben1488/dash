@@ -66,6 +66,19 @@ describe('row_numbering — дубли', () => {
   });
 });
 
+describe('row_numbering — общая идентичность номера для независимых проверок', () => {
+  it('не смешивает номер 173 с номером 00173: адреса сохраняют ведущие нули', () => {
+    expect(run([procRow(4, '173'), procRow(5, '00173')])).toHaveLength(0);
+  });
+
+  it('целая текстовая запись 94,00 и число 94 являются одним номером', () => {
+    const [issue] = run([procRow(4, 94), procRow(5, '94,00')]);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('№ 94');
+    expect(issue.description).toContain('4, 5');
+  });
+});
+
 describe('row_numbering — составные номера и хвост формул', () => {
   it('№ 173, 173/1, 173/2 не являются дублями', () => {
     expect(run([procRow(4, '173'), procRow(5, '173/1'), procRow(6, '173/2')])).toHaveLength(0);

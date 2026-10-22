@@ -109,6 +109,27 @@ describe('classifyRows — procurement detection', () => {
     expect(r.classificationConfidence).toBe(0.9);
   });
 
+  it('classifies composite procurement label in A with amounts as procurement', () => {
+    const row = classifySingle(5, makeCells({
+      A: '173/18', C: 'Х', G: 'Ремонт оборудования', L: 'ЭА', K: 100,
+    }));
+    expect(row.classification).toBe('procurement');
+  });
+
+  it('classifies composite procurement label in A without amounts as procurement_derived', () => {
+    const row = classifySingle(5, makeCells({
+      A: '121/1', C: 'Х', G: 'Поставка материалов', L: 'ЕП',
+    }));
+    expect(row.classification).toBe('procurement_derived');
+  });
+
+  it('does not treat a malformed composite label as a valid procurement ID', () => {
+    const row = classifySingle(5, makeCells({
+      A: '173//18', C: 'Х', G: 'Поставка материалов', L: 'ЕП', K: 100,
+    }));
+    expect(row.classification).toBe('service');
+  });
+
   it('classifies row with numeric ID in B and amounts as procurement', () => {
     const r = classifySingle(5, makeCells({ B: '3', J: 250000 }));
     expect(r.classification).toBe('procurement');

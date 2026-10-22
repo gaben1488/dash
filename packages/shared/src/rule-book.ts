@@ -10,6 +10,7 @@ import {
 import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
 import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
+import { readProcurementSequence } from './sequence-integrity.js';
 import { parseSheetNumber } from './editable-amount.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
@@ -796,13 +797,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      // № п/п is an identifier, NOT an amount: parseFloat('173/1') === 173
-      // would otherwise merge distinct positions and generate false warnings.
-      const parsed = /^\d+$/.test(raw) ? Number(raw) : null;
-      const intNo = parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
-      if (intNo !== null) ints.add(intNo);
-      // Numeric 531 and string "531" share an address; "531/1" is separate.
-      const key = intNo !== null ? String(intNo) : raw;
+      // The same shared parser is used by the independent sequence-integrity
+      // path: numeric 531 = text "531", but 173/1 and 00173 stay distinct.
+      const key = readProcurementSequence(r.cells['A']) ?? raw;
+      const intNo = /^[0-9]+$/.test(key) && Number.isSafeInteger(Number(key))
+        ? Number(key) : null;
+      if (intNo !== null && intNo > 0) ints.add(intNo);
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
       else byNo.set(key, [r.rowIndex]);
