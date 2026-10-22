@@ -3,7 +3,7 @@
  *
  * The two existing inspectors have different scopes and read at different
  * moments: this is a correlated RUN, not a frozen historical snapshot.
- * Never imply that text, metrics, crossbook or history were checked here.
+ * Only stages explicitly executed on current source rows can be marked complete.
  */
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -11,19 +11,21 @@ import { SHDYU_MONTHLY_SHEET_NAME, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { SourceDiagnosticRun, SourceDiagnosticStageState } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { redactFieldValue } from '../services/source-log.js';
+import { getDeptCacheFilledAt, getDeptSheetValues } from '../services/snapshot.js';
+import { buildTextHygieneResponse } from './text-hygiene.js';
 import { validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
 import { checkSourcesDeep } from './source-integrity.js';
 
 type StageState = SourceDiagnosticStageState;
 type DeepStage = SourceDiagnosticRun['stages']['deep'];
 type RowsStage = SourceDiagnosticRun['stages']['rows'];
+type TextStage = SourceDiagnosticRun['stages']['text'];
 
 const notRun = {
   metrics: { state: 'not_run', reason: 'Метрики не пересчитывались и их значения этим запросом не подтверждены' },
   crossbook: { state: 'not_run', reason: 'Межкнижная сверка не запускалась' },
-  text: { state: 'not_run', reason: 'Орфография и текстовая гигиена не запускались' },
   history: { state: 'not_run', reason: 'Исторические и недельные снимки не сравнивались' },
-} as const satisfies Pick<SourceDiagnosticRun['stages'], 'metrics' | 'crossbook' | 'text' | 'history'>;
+} as const satisfies Pick<SourceDiagnosticRun['stages'], 'metrics' | 'crossbook' | 'history'>;
 
 function safeError(err: unknown): string {
   return String(redactFieldValue(err instanceof Error ? err.message : String(err)));
@@ -107,14 +109,66 @@ async function runDiagnostics(app: FastifyInstance): Promise<SourceDiagnosticRun
     };
   }
 
-  const status: StageState = deep.state === 'complete' && rows.state === 'complete'
+  // Text diagnostics must run on the live cache just filled by this inspection.
+  // Their standalone route may legitimately fall back to a saved snapshot; the
+  // combined run must not silently treat historical text as a fresh finding.
+  const textStart = new Date().toISOString();
+  const noText = (reason: string): TextStage => ({
+    state: 'not_run', startedAt: null, completedAt: null, error: null, reason,
+    rowsSource: null, asOf: null, booksChecked: 0, silentBooks: [],
+    findings: null, rowsChecked: null, cellsChecked: null,
+  });
+  let text: TextStage;
+  if (deep.state === 'failed' || getDeptCacheFilledAt() <= 0
+    || Object.keys(getDeptSheetValues()).length === 0) {
+    text = noText('Свежие строки книг недоступны; исторические тексты не считаются проверенными.');
+  } else {
+    try {
+      const review = await buildTextHygieneResponse();
+      const expected = Object.keys(DEPARTMENT_SPREADSHEETS);
+      const exact = expected.length > 0 && review.booksSilent.length === 0
+        && review.booksChecked.length === expected.length
+        && expected.every(name => review.booksChecked.includes(name));
+      if (review.rowsSource !== 'live') {
+        text = noText('Получены только строки сохранённого снимка; актуальные тексты не проверены.');
+        text.rowsSource = review.rowsSource;
+        text.asOf = review.asOf;
+        text.silentBooks = review.booksSilent;
+      } else {
+        const complete = deep.state === 'complete' && exact
+          && Number.isFinite(review.totals.cellsChecked)
+          && Number.isFinite(review.totals.hygieneFindings)
+          && Number.isFinite(review.totals.languageFindings);
+        text = {
+          state: complete ? 'complete' : 'partial',
+          startedAt: textStart, completedAt: new Date().toISOString(),
+          error: null,
+          reason: complete ? null : 'Текстовая проверка охватила не все ожидаемые книги или источник не подтверждён.',
+          rowsSource: 'live', asOf: review.asOf,
+          booksChecked: review.booksChecked.length, silentBooks: review.booksSilent,
+          findings: review.totals.hygieneFindings + review.totals.languageFindings,
+          rowsChecked: review.totals.rowsChecked, cellsChecked: review.totals.cellsChecked,
+        };
+      }
+    } catch (err) {
+      text = {
+        state: 'failed', startedAt: textStart, completedAt: new Date().toISOString(),
+        error: safeError(err), reason: null,
+        rowsSource: null, asOf: null, booksChecked: 0, silentBooks: [],
+        findings: null, rowsChecked: null, cellsChecked: null,
+      };
+    }
+  }
+
+  const status: StageState = deep.state === 'complete' && rows.state === 'complete' && text.state === 'complete'
     ? 'complete'
-    : deep.state === 'failed' && rows.state === 'failed' ? 'failed' : 'partial';
+    : deep.state === 'failed' && rows.state === 'failed' && (text.state === 'failed' || text.state === 'not_run')
+      ? 'failed' : 'partial';
 
   return {
     schemaVersion: 'sources-diagnostics/v1', runId, startedAt,
     completedAt: new Date().toISOString(), status, consistency: 'non_atomic',
-    stages: { deep, rows, ...notRun },
+    stages: { deep, rows, text, ...notRun },
   };
 }
 
