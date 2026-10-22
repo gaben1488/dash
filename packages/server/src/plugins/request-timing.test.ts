@@ -52,9 +52,9 @@ it('correlates Google attempt and normalization with the enclosing model request
   expect(first.statusCode).toBe(200);
   expect(first.json()).toEqual({ entries: 2 });
   const timing = String(first.headers['server-timing']);
-  expect(timing).toMatch(/model;dur=\\d+(?:\\.\\d+)?/);
-  expect(timing).toMatch(/google;dur=\\d+(?:\\.\\d+)?/);
-  expect(timing).toMatch(/normalize;dur=\\d+(?:\\.\\d+)?/);
+  expect(timing).toMatch(/model;dur=\d+(?:\.\d+)?/);
+  expect(timing).toMatch(/google;dur=\d+(?:\.\d+)?/);
+  expect(timing).toMatch(/normalize;dur=\d+(?:\.\d+)?/);
   expect(timing).not.toContain('PRIVATE');
   // Off-request source reads must not create an HTTP window or leak into later requests.
   expect(await measureAsyncStage('google', async () => 'background')).toBe('background');
