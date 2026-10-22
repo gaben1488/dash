@@ -158,8 +158,11 @@ export function computeFilteredData(input: FilterInputs) {
     });
     activityMethodCoverage = activityTotals.complete;
     budgetCoverageComplete = activityTotals.complete;
-    sourceMoneyComplete &&= activityTotals.complete;
-    if (isActivityFiltered) sourceCountComplete &&= activityTotals.complete;
+    // The filtered cross-index, not unfiltered annual fields, is the proof
+    // for a selected activity/method. Count scope remains independent when
+    // only procurement method changes.
+    sourceMoneyComplete = activityTotals.complete;
+    if (isActivityFiltered) sourceCountComplete = activityTotals.complete;
     // Never label an unverifiable historical method slice as exact. Keep
     // separately known whole/method totals and tell the user provenance lacks.
     if (activityTotals.complete || isActivityFiltered) {
