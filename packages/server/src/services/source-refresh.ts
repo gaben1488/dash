@@ -729,8 +729,9 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
       const revision = acquisitionRevisions.get(name);
       if (revision) reading.sourceVersion = revision.version ?? revision.modifiedTime ?? undefined;
     }
-    // A SVOD-only or skipped/no-op cycle never refreshes departmental read time.
-    if (Object.keys(data).length > 0 || Object.keys(errors).length > 0) {
+    // SVOD-only has no departmental attestation. A full Drive revision check,
+    // however, may confirm unchanged books and legitimately renew cache freshness.
+    if (targetBooks === undefined || targetBooks.length > 0) {
       setDeptSheetCache(data, Object.keys(errors));
     }
     for (const [name, print] of nextPrints) {

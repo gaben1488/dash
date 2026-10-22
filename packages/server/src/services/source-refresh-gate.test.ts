@@ -172,6 +172,8 @@ describe('перечитка спрашивает Drive, прежде чем ч�
     expect(getSheetData).not.toHaveBeenCalled();
     // Кэш снимка не сбрасывается: на экране те же числа, что и в кэше.
     expect(invalidateCache).not.toHaveBeenCalled();
+    // A complete revision attestation is distinct from a SVOD-only cycle.
+    expect(setDeptSheetCache).toHaveBeenCalledWith({}, []);
     expect(r.booksRead).toBe(0);
     expect(r.skipped.length).toBeGreaterThan(0);
   });
