@@ -4,14 +4,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getSheetData, readDeptSheet, getDeptSheetValues } = vi.hoisted(() => ({
+const { getSheetData, readDeptSheet, getDeptSheetCache } = vi.hoisted(() => ({
   getSheetData: vi.fn(),
   readDeptSheet: vi.fn(),
-  getDeptSheetValues: vi.fn(),
+  getDeptSheetCache: vi.fn(),
 }));
 
 vi.mock('./google-sheets.js', () => ({ getSheetData, readDeptSheet }));
-vi.mock('./snapshot.js', () => ({ getDeptSheetValues }));
+vi.mock('./snapshot.js', () => ({ getDeptSheetCache }));
 vi.mock('../config.js', () => ({ DEPARTMENT_SPREADSHEETS: { УО: 'ss-uo' } }));
 
 import { readDeptRows } from './rows-read.js';
@@ -21,16 +21,37 @@ const values = [['шапка 1'], ['шапка 2'], ['шапка 3'], ['1', 'Р�
 
 beforeEach(() => {
   vi.resetAllMocks();
-  getDeptSheetValues.mockReturnValue({});
+  getDeptSheetCache.mockReturnValue({});
 });
 
 describe('readDeptRows — каскад чтения', () => {
   it('ступень 1: непустой кэш отдела возвращается без обращений к API', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: values });
+    getDeptSheetCache.mockReturnValue({ УО: { providerId: 'ss-uo', values } });
 
     expect(await readDeptRows(dept)).toEqual({ ok: true, values });
     expect(getSheetData).not.toHaveBeenCalled();
     expect(readDeptSheet).not.toHaveBeenCalled();
+  });
+
+  it('не использует кэш предыдущей книги после изменения source binding', async () => {
+    const oldRows = [['old'], ['old'], ['old'], ['OLD']];
+    getDeptSheetCache.mockReturnValue({ УО: { providerId: 'old-source', values: oldRows } });
+    readDeptSheet.mockResolvedValue({ values });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+    expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
+  });
+
+  it('не считает кэш без подтверждённого providerId первичным источником', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: { values } });
+    readDeptSheet.mockResolvedValue({ values });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values });
+    expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
+  });
+
+  it('при ошибке нового источника не выдаёт старый кэш за успех', async () => {
+    getDeptSheetCache.mockReturnValue({ УО: { providerId: 'old-source', values } });
+    readDeptSheet.mockRejectedValue(new Error('quota 429'));
+    expect(await readDeptRows(dept)).toMatchObject({ ok: false, reason: 'read-error' });
   });
 
   it('при пустом кэше читает master, даже когда зеркало непустое и отличается', async () => {
@@ -43,7 +64,7 @@ describe('readDeptRows — каскад чтения', () => {
   });
 
   it('пустой кэш ([]) не считается данными — каскад идёт дальше', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: [] });
+    getDeptSheetCache.mockReturnValue({ УО: { providerId: 'ss-uo', values: [] } });
     getSheetData.mockResolvedValue([['stale mirror']]);
     readDeptSheet.mockResolvedValue({ values });
 
@@ -96,7 +117,7 @@ describe('readDeptRows — каскад чтения', () => {
     expect(await readDeptRows(dept)).toMatchObject({ ok: false, reason: 'read-error' });
   });
   it('обрывочный кэш не подменяет пригодное чтение master', async () => {
-    getDeptSheetValues.mockReturnValue({ УО: [['#REF!']] });
+    getDeptSheetCache.mockReturnValue({ УО: { providerId: 'ss-uo', values: [['#REF!']] } });
     readDeptSheet.mockResolvedValue({ values });
     expect(await readDeptRows(dept)).toEqual({ ok: true, values });
     expect(readDeptSheet).toHaveBeenCalled();
