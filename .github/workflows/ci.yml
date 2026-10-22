@@ -178,14 +178,11 @@ jobs:
             before_sha='${{ github.event.before }}'
             tested_sha='${{ github.sha }}'
             if git cat-file -e "$before_sha^{commit}" 2>/dev/null && git cat-file -e "$tested_sha^{commit}" 2>/dev/null; then
-              only_source_ui=true
-              while IFS= read -r file; do
-                case "$file" in
-                  packages/server/src/routes/source-integrity.ts|packages/server/src/routes/source-integrity.test.ts|packages/web/src/api.ts|packages/web/src/pages/Settings.tsx|packages/web/src/pages/Settings.deep-check.test.tsx|packages/core/package.json|packages/server/package.json|packages/shared/package.json|packages/web/package.json|pnpm-lock.yaml|.github/workflows/source-deep-check.yml|.github/workflows/ci.yml) ;;
-                  *) only_source_ui=false ;;
-                esac
-              done < <(git diff --name-only "$before_sha" "$tested_sha")
-              if [ "$only_source_ui" = true ]; then release_scope=app_only; fi
+              changed_files=$(git diff --name-only "$before_sha" "$tested_sha")
+              # Unknown changed paths retain the full report-worker release gate.
+              if [ -n "$changed_files" ] && ! printf '%s\n' "$changed_files" | grep -Eqv '^(packages/server/src/routes/source-integrity(\.test)?\.ts|packages/web/src/api\.ts|packages/web/src/pages/Settings(\.deep-check\.test)?\.tsx|packages/(core|server|shared|web)/package\.json|pnpm-lock\.yaml|\.github/workflows/(source-deep-check|ci)\.yml)$'; then
+                release_scope=app_only
+              fi
             fi
             echo "Release scope: $release_scope (unknown paths use full gate)."
             cd deploy

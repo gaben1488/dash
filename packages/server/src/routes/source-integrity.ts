@@ -154,7 +154,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           };
         });
         return {
-          complete: deliveries.sinkConnected && books.every((book) => book.problems.length === 0),
+          complete: expected.length > 0 && deliveries.sinkConnected && books.every((book) => book.problems.length === 0),
           at: new Date().toISOString(),
           expectedBooks: expected.length,
           books,
