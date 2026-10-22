@@ -675,7 +675,7 @@ SQLITE_PATH=./data/aemr.db
             <span className="font-medium">
               {issuesFound > 0
                 ? `Найдено ${issuesFound} ${pluralRu(issuesFound, 'замечание', 'замечания', 'замечаний')} в ${checkedSources.length} ${pluralRu(checkedSources.length, 'проверенной книге', 'проверенных книгах', 'проверенных книгах')}`
-                : `В построчной проверке ${checkedSources.length} книг ГРБС замечаний не найдено`}
+                : `Построчно проверены книги ГРБС: ${checkedSources.length}. Замечаний не найдено`}
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs opacity-80">
