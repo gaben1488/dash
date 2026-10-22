@@ -60,6 +60,7 @@ export function MetricCalculationEvidence({ metricKey, snapshotId, year }: {
         <p>Показатель: {evidence.definition.label} ({evidence.definition.key}) · зависимости: {
           context.dependencies.length ? context.dependencies.join(', ') : 'нет (базовый показатель)'
         }.</p>
+        <p>Исполняемая формула: <code>{context.formula}</code>.</p>
         <p>Идентификатор снимка: <code>{context.version.snapshotId}</code>.</p>
         {context.version.status === 'captured'
           ? <><p>Версия расчёта: <code>{context.version.calculationContextId}</code>.</p>
