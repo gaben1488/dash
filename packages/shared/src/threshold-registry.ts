@@ -110,6 +110,7 @@ export interface ThresholdEntry {
   readonly note?: string;
 }
 
+/** Legacy internal screening only: this is not a legal limit or a verified performance norm. */
 export const INTERNAL_EP_SHARE_BY_ROLE = {
   ОПЕРАЦИОННЫЙ: 0.50,
   ИНВЕСТИЦИОННЫЙ: 0.30,
@@ -685,6 +686,4 @@ export const LEGAL_RULES_UNVERIFIED = {
   reason: 'Не подтверждена действующая на дату среза редакция правовых порогов. Справочные числа не доказывают применимость нормы или нарушение; требуется проверка сопровождением.',
 } as const;
 
-
-/** Legacy internal screening guides, never legal limits or an approved performance grade. */
 

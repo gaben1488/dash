@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { thresholdAt } from '@aemr/shared';
 
 const EP_LIMIT = thresholdAt('law.epSmallSingleContract', '2026-10-22');
-import { checkEPContractLimits, checkAntiDumping, analyzeEPReasons } from './compliance-44fz';
+import { checkEPContractLimits, checkEPShareLimits, checkAntiDumping, analyzeEPReasons } from './compliance-44fz';
 
 /** Минимальная RowData (структурно совпадает с внутренним интерфейсом). */
 function row(over: Partial<{
@@ -33,6 +33,18 @@ describe('compliance-44fz — нормализация способа (алиа�
     expect(checkEPContractLimits(rows, 'УО', { ...EP_LIMIT, unit: undefined })).toEqual([]);
     expect(checkEPContractLimits(rows, 'УО', { ...EP_LIMIT, value: 1_200 })).toEqual([]);
     expect(checkEPContractLimits(rows, 'УО', EP_LIMIT)).toHaveLength(1);
+  });
+
+  it('applies a captured role reference only, not a current or legal percentage', () => {
+    const captured = thresholdAt('competition.epRoleInvestmentShare', '2026-10-22');
+    const check = (value?: typeof captured) => checkEPShareLimits(4, 10, 4_000, 10_000, 'ИНВЕСТИЦИОННЫЙ', 'УАГЗО', value);
+    const issues = check(captured);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ ruleCode: 'ep_share_role', severity: 'info' });
+    expect(issues[0].description).toContain('не правовая норма');
+    expect(check()).toEqual([]);
+    expect(check({ ...captured, unit: 'percent' })).toEqual([]);
+    expect(check({ ...captured, value: 0.8 })).toEqual([]);
   });
 
   it('analyzeEPReasons считает ЕП-алиасы (ЭЕП, еп, Ед. поставщик), но не конкурентные', () => {
