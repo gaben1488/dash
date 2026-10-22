@@ -18,6 +18,8 @@ def compare(sqlite_doc: dict, pg_doc: dict) -> dict:
         raise ValueError("non-comparable workload parameters")
     if sqlite_doc["result"]["data_contract_sha256"]!=pg_doc["result"]["data_contract_sha256"]:
         raise ValueError("seeded data differs between engines")
+    if sqlite_doc["result"].get("post_write_contract_sha256")!=pg_doc["result"].get("post_write_contract_sha256"):
+        raise ValueError("concurrent write results differ between engines")
     return {
         "pilot":"C08.14",
         "gate":"PASS_SYNTHETIC_ONLY",
