@@ -49,6 +49,32 @@ class RuntimePassportTests(unittest.TestCase):
     def build(self):
         return self.module.seal(self.artifact, self.metadata, self.stage, self.accepted, self.containers, self.ops, self.observed)
 
+    def test_passport_reads_only_canonical_live_snapshot_identity_once(self):
+        calls = []
+        def get(path, *, limit):
+            calls.append((path, limit))
+            return {'snapshot': {'id': 'snapshot-new', 'createdAt': '2026-10-18T00:00:00Z'}}
+        value = self.module.read_snapshot_identity(get, 2026)
+        self.assertEqual(value['id'], 'snapshot-new')
+        self.assertEqual(calls, [('/api/dashboard?identity=1&year=2026', 2048)])
+        self.assertNotIn('compact=1', calls[0][0])
+
+    def test_passport_refuses_expanded_stale_or_malformed_identity(self):
+        good = {'snapshot': {'id': 'snapshot-new', 'createdAt': '2026-10-18T00:00:00Z'}}
+        self.assertEqual(self.module.snapshot_identity(good), good['snapshot'])
+        for changed in (
+            {'snapshot': {**good['snapshot'], 'issues': []}},
+            {'snapshot': {'id': 'demo-snapshot', 'createdAt': 'without-a-date'}},
+            {'snapshot': {'id': 'snapshot-new', 'createdAt': '2026-10-18T00:00:00'}},
+            {**good, 'full_dashboard': {}},
+            {'snapshot': {'id': '', 'createdAt': '2026-10-18T00:00:00Z'}},
+            {'snapshot': None},
+        ):
+            with self.subTest(payload=changed), self.assertRaises((ValueError, TypeError)):
+                self.module.snapshot_identity(changed)
+        with self.assertRaises(ValueError):
+            self.module.read_snapshot_identity(lambda *_a, **_kw: good, 0)
+
     def test_actual_runtime_and_observed_data_keep_distinct_versions_without_copying_env(self):
         value = self.build()
         self.assertEqual(value['data']['dashboard']['snapshot_id'], 'snapshot-new')
