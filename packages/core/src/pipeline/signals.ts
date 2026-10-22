@@ -33,6 +33,7 @@ import {
   isInitiativeMarker,
   isProceduralMismatch,
   parseSheetDate,
+  readProcurementSequence,
   isAnnualEpAggregate,
   futureFactDateSeverity,
   hasNegatedEpMonopoly,
@@ -627,7 +628,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // or if the plan date is in the past. Pure future-plan rows are expected to have
   // incomplete data (no method, no amounts yet).
   // Текстовые исключения («планирование», «отменена») сняты каноном п.27.
-  let dataQuality = false;
+  // Subject G is mandatory from the moment the procurement receives an
+  // identifier, even when the plan date is in the future and money is absent.
+  // Read the full address: 12/1 is not the numeric 12.
+  let dataQuality = readProcurementSequence(cells['A']) !== null
+    && cellText(cells, 'G') === '';
   const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
     // Обязательность зависит от вида деятельности (уточнение владельца §22 п.2
@@ -638,7 +643,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     if (cellText(cells, 'F') === PROGRAM_ACTIVITY_TYPE) {
       required.push(PROGRAM_REQUIRED_COLUMN);
     }
-    dataQuality = required.some(col => {
+    dataQuality = dataQuality || required.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
     });
