@@ -172,14 +172,14 @@ describe('расстояние Левенштейна с потолком', () =
 });
 
 describe('детектор 6 — отступление имени подведа от справочника', () => {
-  it('живой кейс «Жар-Птица»: № без пробела → канон справочника целиком', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птица»');
+  it('реальная опечатка в имени «Жар-Птица» исправляется на канон целиком', () => {
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птиица»');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('тот же кейс с кавычками-лапками: нормализация кавычек не мешает найти канон', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птица“');
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птиица“');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
