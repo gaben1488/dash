@@ -68,7 +68,7 @@ describe('слепок канона оформления', () => {
     const otherA = other.A as { condition: { type: string } };
     expect(udA.strict).toBe(true);
     expect(udA.condition.type).toBe('CUSTOM_FORMULA');
-    expect(udA.condition.values[0].userEnteredValue).toContain('([1-9][0-9]*)?');
+    expect(udA.condition.values[0].userEnteredValue).toContain('(/[1-9][0-9]*)?');
     expect(otherA.condition.type).toBe('NUMBER_GREATER');
   }, 30_000);
 
