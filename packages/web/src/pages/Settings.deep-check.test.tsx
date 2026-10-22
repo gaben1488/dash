@@ -7,10 +7,14 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { SettingsPage } from './Settings';
+import { useStore } from '../store';
 
 const getSources = vi.fn();
 const settingsStatus = vi.fn();
 const runSourceDiagnostics = vi.fn();
+const refreshSources = vi.fn();
+const refreshDashboard = vi.fn();
+const originalFetchDashboard = useStore.getState().fetchDashboard;
 
 vi.mock('../components/RuleReference', () => ({ RuleReference: () => null }));
 vi.mock('../api', async (importOriginal) => {
@@ -22,6 +26,7 @@ vi.mock('../api', async (importOriginal) => {
       getSources: (...args: unknown[]) => getSources(...(args as [])),
       settingsStatus: (...args: unknown[]) => settingsStatus(...(args as [])),
       runSourceDiagnostics: (...args: unknown[]) => runSourceDiagnostics(...(args as [])),
+      refresh: (...args: unknown[]) => refreshSources(...(args as [])),
     },
   };
 });
@@ -91,9 +96,13 @@ beforeEach(() => {
   });
   settingsStatus.mockResolvedValue({ configured: true });
   runSourceDiagnostics.mockResolvedValue(result(true));
+  refreshSources.mockResolvedValue({ success: true, issueCount: 0, formulaBooks: ['УО', 'УИО'] });
+  refreshDashboard.mockResolvedValue(true);
+  useStore.setState({ fetchDashboard: refreshDashboard });
 });
 
 afterEach(() => {
+  useStore.setState({ fetchDashboard: originalFetchDashboard });
   cleanup();
   vi.clearAllMocks();
   window.localStorage.clear();
@@ -125,6 +134,7 @@ describe('Единый источник диагностики на новой �
     await screen.findByText(/Этапы проверки источников завершены/);
     expect(document.body.textContent).toContain('Метрики, межкнижные сверки, текст и история этим запуском не проверялись.');
     expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
+    expect(refreshDashboard).toHaveBeenCalledWith(true);
     expect(document.body.textContent).toContain('2 из 2 книг');
     expect(document.body.textContent).toContain('отсутствие первого недельного среза проверке не мешает');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
@@ -151,9 +161,26 @@ describe('Единый источник диагностики на новой �
     expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Проверить данные во всех книгах' })).toBeNull();
-    expect((screen.getByRole('button', { name: 'Прочитать книги заново' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Прочитать книги и формулы' }) as HTMLButtonElement).disabled).toBe(true);
     finish(result(true));
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     expect(runSourceDiagnostics).toHaveBeenCalledTimes(1);
   });
 });
+
+it('ручное чтение книг получает формулы и обновляет текущую оценку, а не только источники', async () => {
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: 'Прочитать книги и формулы' }));
+  await waitFor(() => expect(refreshSources).toHaveBeenCalledWith(false, true));
+  await waitFor(() => expect(refreshDashboard).toHaveBeenCalledWith(true));
+  await screen.findByText(/Формулы получены: 2 из 8 книг/);
+});
+
+it('не выдаёт старый балл за новый, если обновить аналитический экран не получилось', async () => {
+  refreshDashboard.mockResolvedValueOnce(false);
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: 'Прочитать книги и формулы' }));
+  await screen.findByText(/Оценка на экране не обновлена/);
+  expect(refreshSources).toHaveBeenCalledWith(false, true);
+});
+
