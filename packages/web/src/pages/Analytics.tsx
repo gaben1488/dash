@@ -1284,8 +1284,8 @@ export function Analytics() {
                               {sub.executionPct.toFixed(0)}%
                             </span>
                           ) : (
-                            <span className="text-[10px] text-[var(--ink-faint)]" title="Плана за период нет — исполнять нечего">
-                              нет базы
+                            <span className="text-[10px] text-[var(--ink-faint)]" title={sub.planTotal === 0 ? 'За период нет плана' : sub.planTotal === null ? 'План не прочитан' : 'Факт или процент исполнения не подтверждён'}
+                              {sub.planTotal === 0 ? 'нет плана' : sub.planTotal === null ? 'план не прочитан' : 'не оценено'}
                             </span>
                           )}
                         </td>
@@ -1669,11 +1669,14 @@ const BENFORD_TONE_CLS: Record<'ok' | 'warn' | 'bad', string> = {
 function BenfordBreakdown({ row, isDark }: { row: DatasetAuditRow; isDark: boolean }) {
   const { contentStyle, itemStyle, labelStyle } = getTooltipStyle(isDark);
   const chartData = useMemo(() => {
-    if (!row.benfordObserved || !row.benfordExpected) return [];
+    if (!row.benfordObserved || !row.benfordExpected ||
+      row.benfordObserved.length !== 9 || row.benfordExpected.length !== 9 ||
+      row.benfordObserved.some(n => observedNumber(n) === null) ||
+      row.benfordExpected.some(n => observedNumber(n) === null)) return [];
     return row.benfordObserved.map((obs, i) => ({
       digit: String(i + 1),
       fact: +(obs * 100).toFixed(1),
-      expected: +((row.benfordExpected?.[i] ?? 0) * 100).toFixed(1),
+      expected: +((row.benfordExpected![i] as number) * 100).toFixed(1),
     }));
   }, [row]);
 
