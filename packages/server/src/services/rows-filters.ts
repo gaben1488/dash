@@ -1,8 +1,7 @@
 /**
  * Query-фильтры списка строк /api/rows/:deptId (E11-2, rethink 2026-07-22).
  * Чистые функции от (rows, параметры запроса) — никакого чтения store/глобалей.
- * Отсутствующий параметр не сужает выборку. Явный ошибочный год отклоняется,
- * а не расширяет выборку до всех лет.
+ * Инвариант каждого фильтра: пустой параметр = всё проходит (массив как есть).
  * Осевые каноны — из @aemr/shared: способы (METHOD_FAMILY_MAP), «само управление»
  * (isOrgItself), активность ТД/ПМ (matchesActivityScope).
  */
@@ -27,7 +26,12 @@ export interface FilterableRow {
   planYear: number;
 }
 
-export { parseYearFilterParam as parseYearFilter } from './period-params.js';
+/** Разбор query.year: 'all'/мусор/вне [2020..2100] → undefined (фильтр выключен). */
+export function parseYearFilter(yearRaw: string | undefined): number | undefined {
+  if (!yearRaw || yearRaw === 'all') return undefined;
+  const n = parseInt(yearRaw, 10);
+  return Number.isInteger(n) && n >= 2020 && n <= 2100 ? n : undefined;
+}
 
 /** Поля, по которым ищет applySearchFilter (единый список вместо цепочки ||). */
 const SEARCH_FIELDS: readonly (keyof FilterableRow)[] =
@@ -63,7 +67,7 @@ export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: 
  * (пусто / самоссылка X/Х/тире / плейсхолдеры «н/д», «нет» — единый канон оси C).
  * filterSubordinate уже trim + lower-case (как в исходном роуте).
  */
-export function applySubordinateFilter<T extends Pick<FilterableRow, 'subordinate'>>(rows: T[], filterSubordinate: string): T[] {
+export function applySubordinateFilter<T extends FilterableRow>(rows: T[], filterSubordinate: string): T[] {
   if (!filterSubordinate) return rows;
   const subs = filterSubordinate.split(',').map(s => subordinateNameMatchKey(s)).filter(Boolean);
   const wantsOrgItself = subs.includes(ORG_ITSELF_SENTINEL);

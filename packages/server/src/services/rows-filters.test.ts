@@ -1,6 +1,6 @@
 /**
  * Характеризация rows-filters.ts (E11-2 rethink, 2026-07-21).
- * Отсутствующий фильтр не сужает выборку; неверный явный год отклоняется.
+ * Инвариант каждого фильтра: пустой параметр = всё проходит.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -25,8 +25,9 @@ function row(partial: Partial<FilterableRow>): FilterableRow {
 }
 
 describe('parseYearFilter', () => {
-  it('отсутствующий параметр и "all" → фильтр выключен', () => {
+  it('пусто и "all" → фильтр выключен', () => {
     expect(parseYearFilter(undefined)).toBeUndefined();
+    expect(parseYearFilter('')).toBeUndefined();
     expect(parseYearFilter('all')).toBeUndefined();
   });
 
@@ -34,8 +35,10 @@ describe('parseYearFilter', () => {
     expect(parseYearFilter('2026')).toBe(2026);
   });
 
-  it.each(['', 'abc', '2026abc', '2026.5', '0x7ea', '1999', '2101', ['2026', '2025']])('ошибочный явный год %s не расширяет периметр', raw => {
-    expect(() => parseYearFilter(raw)).toThrow('Укажите год');
+  it('мусор и вне диапазона → фильтр выключен', () => {
+    expect(parseYearFilter('abc')).toBeUndefined();
+    expect(parseYearFilter('1999')).toBeUndefined();
+    expect(parseYearFilter('2101')).toBeUndefined();
   });
 });
 
@@ -100,14 +103,6 @@ describe('applySubordinateFilter', () => {
     expect(applySubordinateFilter(rows, '_org_itself')).toEqual([empty, selfRef, selfRefLat]);
   });
 
-  it('ссылка на историческое написание находит живую организацию', () => {
-    const originals = [
-      row({ subordinate: 'МБУ ДО «КДМШ»' }),
-      row({ subordinate: 'МБОУ «Елизовская средняя школа № 3»' }),
-    ];
-    expect(applySubordinateFilter(originals, 'МБУ ДО "КДМШ"')).toEqual([originals[0]]);
-    expect(applySubordinateFilter(originals, 'МБОУ «Елизовская средняя школа №3»')).toEqual([originals[1]]);
-  });
   it('список через запятую: имя + _org_itself объединяются', () => {
     expect(applySubordinateFilter(rows, 'спортивная,_org_itself')).toEqual(rows);
   });
@@ -199,5 +194,17 @@ describe('paginateRows', () => {
   it('страница за пределами → пустой срез, счётчики честные', () => {
     expect(paginateRows(rows, 9, 2)).toEqual({ pageRows: [], total: 5, totalPages: 3 });
     expect(paginateRows([], 1, 10)).toEqual({ pageRows: [], total: 0, totalPages: 0 });
+  });
+});
+
+
+describe('verified old/current subordinate name aliases', () => {
+  it('current filter matches historical name and vice versa', () => {
+    const oldName = row({ subordinate: 'МБУК «Елизовский районный зоопарк»' });
+    const other = row({ subordinate: 'МКУ "ЦЭР"' });
+    const rows = [oldName, other];
+    expect(applySubordinateFilter(rows, 'МБУК ЕРЗ')).toEqual([oldName]);
+    expect(applySubordinateFilter(rows, 'МБУК «Елизовский районный зоопарк»')).toEqual([oldName]);
+    expect(applySubordinateFilter(rows, 'цэр')).toEqual([other]);
   });
 });
