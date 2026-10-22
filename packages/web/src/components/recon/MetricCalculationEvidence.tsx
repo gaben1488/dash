@@ -7,20 +7,28 @@ export function MetricCalculationEvidence({ metricKey, snapshotId, year }: {
   metricKey: string; snapshotId: string; year: number | 'all';
 }) {
   const [open, setOpen] = useState(false);
-  const [evidence, setEvidence] = useState<MetricExplanation | null>(null);
-  const [error, setError] = useState(false);
+  const requestKey = JSON.stringify([metricKey, snapshotId, year]);
+  const [loaded, setLoaded] = useState<{
+    requestKey: string; evidence: MetricExplanation | null; error: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!open) return;
-    // A changed metric, year or snapshot must never briefly display the old
-    // result's evidence while the new request is in flight.
-    setEvidence(null); setError(false);
     let active = true;
     api.getMetric(metricKey, { snapshotId, year }).then(result => {
-      if (active) setEvidence(result.explanation ?? { status: 'unavailable', reason: 'NO_CALCULATED_VALUE' });
-    }).catch(() => { if (active) setError(true); });
+      if (active) setLoaded({ requestKey, evidence: result.explanation ?? {
+        status: 'unavailable', reason: 'NO_CALCULATED_VALUE',
+      }, error: false });
+    }).catch(() => {
+      if (active) setLoaded({ requestKey, evidence: null, error: true });
+    });
     return () => { active = false; };
-  }, [open, metricKey, snapshotId, year]);
+  }, [open, metricKey, snapshotId, year, requestKey]);
 
+  // A changed scope must never render evidence from the preceding snapshot —
+  // not even for the paint before useEffect fetches the new request.
+  const current = loaded?.requestKey === requestKey ? loaded : null;
+  const evidence = current?.evidence ?? null;
+  const error = current?.error ?? false;
   if (!open) return <button className="mt-2 underline text-indigo-700 dark:text-indigo-300"
     onClick={() => setOpen(true)}>Показать основания расчёта</button>;
   if (error) return <p role="status">Не удалось получить основания этого снимка. Обновите страницу и повторите.</p>;
