@@ -264,3 +264,44 @@ describe('R05.01 — реестр профилей охраняет каждый
     expect(valuesGet).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('R05.01 — source-profile contract is the single reviewed graph', () => {
+  it('all eight masters have unique source identities and the same role/profile', () => {
+    expect(DEPARTMENT_REGISTRY).toHaveLength(8);
+    expect(new Set(DEPARTMENT_REGISTRY.map(dept => dept.source.providerId)).size).toBe(8);
+    expect(new Set(DEPARTMENT_REGISTRY.map(dept => dept.source.sourceId)).size).toBe(8);
+    for (const dept of DEPARTMENT_REGISTRY) {
+      expect(dept.source.sheetId).toBeGreaterThan(0);
+      expect(dept.source.role).toBe('master');
+      expect(dept.source.profile).toBe(MASTER_SOURCE_PROFILE.id);
+      expect(dept.source.access).toBe('read');
+    }
+    const columns = Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.index).sort((a, b) => a - b);
+    expect(columns).toEqual(Array.from({ length: 34 }, (_, i) => i));
+  });
+
+  it('golden formula dependency graph matches field-level source metadata', () => {
+    const require_ = createRequire(import.meta.url);
+    const canon = require_('../../../../scripts/etalon-sync/canon.cjs') as {
+      GOOGLE_FORMULAS_CANON: Array<[string, string]>;
+    };
+    const entries = Object.entries(MASTER_SOURCE_PROFILE.fields);
+    const byColumn = new Map(entries.map(([key, field]) => [field.column, key]));
+    expect(canon.GOOGLE_FORMULAS_CANON).toHaveLength(11);
+    for (const [column, formula] of canon.GOOGLE_FORMULAS_CANON) {
+      const entry = entries.find(([, field]) => field.column === column);
+      expect(entry).toBeDefined();
+      const [, rawField] = entry!;
+      const field = rawField as unknown as { dependsOn?: string[]; externalReferences?: string[] };
+      const expectedNames = [...new Set(
+        [...formula.matchAll(/\b([A-Z]{1,2})4:[A-Z]{1,2}\b/g)]
+          .map(match => byColumn.get(match[1]))
+          .filter((name): name is string => name !== undefined),
+      )].sort();
+      expect([...(field.dependsOn ?? [])].sort()).toEqual(expectedNames);
+      expect(field.externalReferences ?? []).toEqual(
+        formula.includes('Settings!$B$6') ? ['Settings!B6'] : [],
+      );
+    }
+  }, 30_000);
+});
