@@ -655,10 +655,10 @@ export function Analytics() {
         key: r.key,
         name: r.label,
         color: chartColors[i % chartColors.length],
-        planTotal: r.planTotal ?? 0,
-        factTotal: r.factTotal ?? 0,
-        planShare: plan > 0 ? +(((r.planTotal ?? 0) / plan) * 100).toFixed(1) : 0,
-        factShare: fact > 0 ? +(((r.factTotal ?? 0) / fact) * 100).toFixed(1) : 0,
+        planTotal: r.hasRows ? r.planTotal : 0,
+        factTotal: r.hasRows ? r.factTotal : 0,
+        planShare: percentOf(r.hasRows ? r.planTotal : 0, plan),
+        factShare: percentOf(r.hasRows ? r.factTotal : 0, fact),
         open: () => openOrgRows(r.key),
       }));
     }
@@ -666,37 +666,33 @@ export function Analytics() {
       key: String(d.id ?? i),
       name: d.name as string,
       color: d.color as string,
-      planTotal: d.planTotal as number,
-      factTotal: d.factTotal as number,
-      planShare: d.planShare as number,
-      factShare: d.factShare as number,
+      planTotal: observedNumber(d.planTotal),
+      factTotal: observedNumber(d.factTotal),
+      planShare: observedNumber(d.planShare),
+      factShare: observedNumber(d.factShare),
       open: () => { if (d.id) navigateTo('data', { department: d.id }); },
     }));
   }, [orgScope.mode, subBreakdown, subTotals, deptShares, chartColors, navigateTo, openOrgRows]);
 
-  const topShare = shareRows.length > 0
-    ? shareRows.reduce((max, r) => (r.planShare > max.planShare ? r : max), shareRows[0])
+  const topShare = shareRows.length > 0 && shareRows.every(r => r.planShare !== null)
+    ? shareRows.reduce((max, r) => ((r.planShare ?? -1) > (max.planShare ?? -1) ? r : max), shareRows[0])
     : null;
 
   // ── Assertion-driven title data ──
-  const epTotal = quarterlyTrend.reduce((s, q) => s + q.ep, 0);
-  const kpTotal = quarterlyTrend.reduce((s, q) => s + q.kp, 0);
-  const epSharePct = (epTotal + kpTotal) > 0 ? (epTotal / (epTotal + kpTotal)) * 100 : 0;
+  const epTotal = completeSum(quarterlyTrend.map(q => q.ep));
+  const kpTotal = completeSum(quarterlyTrend.map(q => q.kp));
+  const epSharePct = percentOf(epTotal, completeSum([epTotal, kpTotal]));
 
-  const totalPlan = budgetByDept.reduce((s, d) => s + d.planTotal, 0);
-  const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
-  const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
+  const totalPlan = completeSum(budgetByDept.map(d => d.planTotal));
+  const totalFact = completeSum(budgetByDept.map(d => d.factTotal));
+  const overallExecPct = percentOf(totalFact, totalPlan);
 
   const limitReduction = scatterSummary?.limitReductionPercent ?? null;
 
-  const avgExecHeatmap = heatmapData.length > 0
-    ? heatmapData.reduce((s: number, d: any) => s + (d.execPct ?? 0), 0) / heatmapData.length
-    : 0;
-
-  const avgTrust = trustData.length > 0
-    ? trustData.reduce((s, d) => s + d.trust, 0) / trustData.length
-    : 0;
-  const lowTrustCount = trustData.filter(d => d.trust < 60).length;
+  const avgExecHeatmap = completeAverage(heatmapData.map(d => d.execPct));
+  const avgTrust = completeAverage(trustData.map(d => d.trust));
+  const knownTrustCount = trustData.filter(d => d.trust !== null).length;
+  const lowTrustCount = trustData.filter(d => d.trust !== null && d.trust < 60).length;
 
   const totalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0) + ((d as any).significant ?? 0) + ((d as any).warning ?? 0) + ((d as any).info ?? 0), 0);
   const criticalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0), 0);
@@ -707,15 +703,15 @@ export function Analytics() {
     return filteredDepts
       .map((d: any, i: number) => {
         const q = d.quarters?.[periodKey] ?? {};
-        const fact = q.factTotal ?? d.factTotal ?? 0;
+        const fact = observedNumber(q.factTotal);
         return {
           name: productLabel(d.department?.id ?? d.department?.nameShort ?? '?'),
           id: d.department?.id,
-          size: Math.max(fact, 0),
+          size: fact === null ? null : Math.max(fact, 0),
           fill: chartColors[i % chartColors.length],
         };
       })
-      .filter(d => d.size > 0);
+      .filter(d => d.size !== null && d.size > 0);
   }, [filteredDepts, hasDeptData, periodKey, chartColors]);
 
   return (
