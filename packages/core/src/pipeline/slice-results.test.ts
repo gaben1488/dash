@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEPT_COLUMNS } from '@aemr/shared';
 import { CalcEngine, getValue, sliceResults, standardRowFilter } from './calc-engine.js';
+import { adaptToRecalcMetrics } from './calc-engine-adapter.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -167,6 +168,29 @@ describe('sliceResults — C03.01: exact multi-axis scope', () => {
     expect(full.get('plan_total')?.value).toBe(305);
     expect(full.get('economy_fb')?.value).toBe(15);
     expect(full.get('exec_count_pct')?.value).toBeCloseTo(3 / 4);
+  });
+
+  it('projects the same exact scope into the legacy dashboard adapter, not just the core map', () => {
+    const adapter = adaptToRecalcMetrics(g, 'УО');
+    const allPlannedQuarters = sliceResults(g, { quarters: ['q1', 'q2'] });
+    expect(adapter.year.planTotal).toBe(635); // same six quarter-qualified raw atoms
+    expect(adapter.year.planTotal).toBe(allPlannedQuarters.get('plan_total')?.value);
+    expect(adapter.year.factTotal).toBe(allPlannedQuarters.get('fact_total')?.value);
+    expect(adapter.year.economyTotal).toBe(allPlannedQuarters.get('economy_total')?.value);
+    // Only explicitly requested diagnostics include the orphan; year is not widened.
+    expect(adapter.orphanFact.factTotal).toBe(7.5);
+    expect(adapter.orphanFact.economyTotal).toBe(3);
+
+    const alpha = adapter.bySubordinate.find(sub => sub.name === 'МБУ Альфа');
+    expect(alpha).toBeDefined();
+    const q1CompetitivePM = alpha!.activityByPeriod.q1.program.byMethod!.competitive!;
+    const same = sliceResults(g, { quarters: ['q1'], subordinates: ['МБУ Альфа'],
+      activities: ['program'], methods: ['competitive'] });
+    expect(q1CompetitivePM.plan).toBe(same.get('plan_count')?.value);
+    expect(q1CompetitivePM.fact).toBe(same.get('fact_count')?.value);
+    expect(q1CompetitivePM.planSum).toBe(same.get('plan_total')?.value);
+    expect(q1CompetitivePM.planFB).toBe(same.get('plan_fb')?.value);
+    expect(q1CompetitivePM.planKB).toBe(same.get('plan_kb')?.value);
   });
 
   it('deduplicates repeated choices instead of doubling money or contributing rows', () => {
