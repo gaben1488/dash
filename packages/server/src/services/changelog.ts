@@ -26,7 +26,7 @@ export interface ChangeRecord {
   atMs: number;
   author: string;
   /** No clock time exists in a date-only source row. */
-  timePrecision?: 'day';
+  timePrecision?: 'day' | 'unknown';
   /** 0-based count among identical source events, stable under unrelated reordering. */
   sourceOccurrence?: number;
 }
@@ -140,6 +140,6 @@ export function changesSince(records: ChangeRecord[], sinceSourceLocalMs: number
   const DAY = 86400000;
   return records
     .filter(r => r.atMs >= sinceSourceLocalMs ||
-      (r.timePrecision === 'day' && r.atMs + DAY > sinceSourceLocalMs))
+      ((r.timePrecision === 'day' || r.timePrecision === 'unknown') && r.atMs + DAY > sinceSourceLocalMs))
     .sort((a, b) => b.atMs - a.atMs);
 }
