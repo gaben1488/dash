@@ -1,0 +1,53 @@
+name: VPS current-main read-only preflight
+
+on:
+  push:
+    branches: [ops/main-release-readonly-20261023]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: >-
+      github.repository == 'gaben1488/dash' &&
+      github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Observe installed git, API, worker, storage and rollback point (read-only)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash
+            sha=$(git rev-parse HEAD)
+            branch=$(git branch --show-current)
+            expected='90fa989fe42b27351430c70a07f380768ed106fa'
+            echo "installed_git_sha=$sha"
+            echo "expected_main_sha_at_probe_creation=$expected"
+            echo "git_matches_expected_main=$([ "$sha" = "$expected" ] && echo true || echo false)"
+            echo "installed_git_branch=$branch"
+            echo 'docker_services:'
+            cd deploy
+            docker compose --env-file .env.production --profile reports ps --all
+            for role in server report-worker web; do
+              cid=$(docker compose --env-file .env.production --profile reports ps --all --quiet "$role")
+              if [ -z "$cid" ]; then
+                echo "$role=ABSENT"
+              else
+                docker inspect --format "$role image={{.Image}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" "$cid"
+              fi
+            done
+            test -d /home/aemr/.dash-private-backups && echo 'private_backup_root_exists=true' || echo 'private_backup_root_exists=false'
+            test -f /var/lib/aemr/release-runtime/stage.json && echo 'release_stage_exists=true' || echo 'release_stage_exists=false'
+            echo 'filesystem_capacity_bytes:'
+            df -PB1 / | tail -1
