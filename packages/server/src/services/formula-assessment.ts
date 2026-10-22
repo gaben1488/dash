@@ -29,6 +29,7 @@ export function assessFormulaResults(
   expectedBooks: readonly string[],
   deliveries: readonly FormulaDeliveryNote[],
   verdicts: readonly BookFormulaVerdict[],
+  currentProof: Readonly<Record<string, boolean>> | null = null,
 ): FormulaAssessment {
   const attempts = new Map(deliveries.map(d => [d.book, d]));
   const byBook = new Map(verdicts.map(v => [v.book, v]));
