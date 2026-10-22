@@ -2,7 +2,8 @@ import { calculationDigest } from './snapshot-calculation-context.js';
 import type { Issue, DataSnapshot } from '@aemr/shared';
 import { computeTrustScore, issueIdentity, ruleIssueIdentityParts } from '@aemr/core';
 import { buildCellDict, DEPT_HEADER_ROWS, classifySheet } from '@aemr/shared';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { measureReadStage } from '../plugins/request-timing.js';
 import { db, schema } from '../db/index.js';
 
 /**
@@ -15,7 +16,7 @@ import { db, schema } from '../db/index.js';
  */
 export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot): Issue[] {
   if (issues.length === 0) return issues;
-  const rows = db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all();
+  const rows = measureReadStage('sql', () => db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all());
   if (rows.length === 0) return issues;
   const statusById = new Map(rows.map((r) => [r.id, r.status]));
   const resolveAnchor = createRuleRowAnchorResolver();
@@ -30,9 +31,12 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
     return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
   });
   if (!snapshot?.rowsByDept) return current;
-  const decisionIds = new Set(db.select({ id: schema.issueHistory.issueId }).from(schema.issueHistory).all().map(r => r.id));
-  for (const event of db.select({ id: schema.auditLog.entityId }).from(schema.auditLog).where(eq(schema.auditLog.action, 'issue_comment')).all()) if (event.id) decisionIds.add(event.id);
-  const saved = db.select().from(schema.issues).all().filter(r => decisionIds.has(r.id) || r.status !== 'open' || !!r.comment?.trim());
+  const decisionIds = new Set(measureReadStage('sql', () =>
+    db.select({ id: schema.issueHistory.issueId }).from(schema.issueHistory).all()).map(r => r.id));
+  for (const event of measureReadStage('sql', () => db.select({ id: schema.auditLog.entityId })
+    .from(schema.auditLog).where(eq(schema.auditLog.action, 'issue_comment')).all())) if (event.id) decisionIds.add(event.id);
+  const saved = measureReadStage('sql', () => db.select().from(schema.issues).all())
+    .filter(r => decisionIds.has(r.id) || r.status !== 'open' || !!r.comment?.trim());
   for (const savedIssue of saved) decisionIds.add(savedIssue.id);
   // Set lookup prevents quadratic repeated scans through current signal cards.
   const currentIds = new Set(issues.map(issue => issue.id));
@@ -47,8 +51,17 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
   let cases: SavedRuleDecision[] = [];
   if (candidates.length > 0) {
     const query = db.select({ data: schema.snapshots.data }).from(schema.snapshots).toSQL();
-    const records = db.$client.prepare(query.sql).iterate(...query.params) as Iterable<{ data: string | null }>;
-    cases = collectHistoricalRuleDecisions(candidates, records);
+    const rows = db.$client.prepare(query.sql).iterate(...query.params) as IterableIterator<{ data: string | null }>;
+    // Time actual SQLite cursor stepping independently from JSON decoding.
+    // A prepared statement by itself does not read its historical payloads.
+    function* measuredRows(): Generator<{ data: string | null }> {
+      for (;;) {
+        const step = measureReadStage('sql', () => rows.next());
+        if (step.done) return;
+        yield step.value;
+      }
+    }
+    cases = collectHistoricalRuleDecisions(candidates, measuredRows());
   }
   // An explicit decision on the new ID wins; an undecided new open row does not
   // erase the previously saved case simply because the pipeline saved it first.
@@ -96,7 +109,7 @@ export function collectHistoricalRuleDecisions(
     if (tokens.size === 0) continue; // most old snapshots are irrelevant.
 
     try {
-      const historical = JSON.parse(data) as IdentitySnapshot;
+      const historical = measureReadStage('decode', () => JSON.parse(data) as IdentitySnapshot);
       // Malformed issue lists or issue entries are not successful evidence.
       // Undefined issues are legitimate unrelated legacy snapshot metadata.
       const ids = new Set(historical.issues?.map(issue => issue.id) ?? []);
