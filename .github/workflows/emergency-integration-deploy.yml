@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-vps
+  group: emergency-integration-vps
   cancel-in-progress: false
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
     environment: production
     timeout-minutes: 90
     env:
-      TARGET_SHA: 17ab1ad8688ca536251c2ba697c8d59ba7e31a8a
+      TARGET_SHA: 90fa989fe42b27351430c70a07f380768ed106fa
       VPS_HOST: '193.233.91.162'
     steps:
       - name: Check out exact application source
