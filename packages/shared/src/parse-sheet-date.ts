@@ -11,30 +11,44 @@
  * 1899-12-30, диапазон 40000..60000 ≈ 2009..2064), ISO/прочие строки new Date().
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
+/** True calendar day: 31 February must never silently become 3 March. */
+function strictCalendarDay(year: number, month: number, day: number): number | null {
+  if (![year, month, day].every(Number.isInteger)
+    || year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const candidate = new Date(0);
+  candidate.setUTCFullYear(year, month - 1, day);
+  candidate.setUTCHours(0, 0, 0, 0);
+  if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1
+    || candidate.getUTCDate() !== day) return null;
+  return candidate.getTime() / 86400000;
+}
+
 export function parseSheetDate(val: unknown): Date | null {
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   if (val === null || val === undefined || val === '') return null;
 
   const s = String(val).trim();
-
-  // дд.мм.гггг
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
-    const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
-    return isNaN(d.getTime()) ? null : d;
+    if (strictCalendarDay(Number(yyyy), Number(mm), Number(dd)) === null) return null;
+    // Preserve historical local-midnight behaviour of Russian date cells.
+    return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
   }
 
-  // Google/Excel serial (число дней от 1899-12-30).
   const serial = Number(s);
-  if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    const d = new Date((serial - 25569) * 86400000);
-    return isNaN(d.getTime()) ? null : d;
+  if (s !== '' && Number.isFinite(serial) && serial > 40000 && serial < 60000) {
+    return new Date((serial - 25569) * 86400000);
   }
 
-  // ISO yyyy-mm-dd или полная ISO-строка
-  const iso = new Date(s);
-  return isNaN(iso.getTime()) ? null : iso;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (iso) {
+    if (strictCalendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3])) === null) return null;
+    const parsed = new Date(s);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  // Never guess a locale or turn a year-only string into 1 January.
+  return null;
 }
 
 /** Миллисекунд в сутках. */
@@ -78,20 +92,21 @@ export function dayNumberOf(val: unknown): number | null {
   const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (ruMatch) {
     const [, dd, mm, yyyy] = ruMatch;
-    return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
+    return strictCalendarDay(Number(yyyy), Number(mm), Number(dd));
   }
 
   // Google/Excel serial — уже число суток, только сместить эпоху
   const serial = Number(s);
   if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    return Math.round(serial) - SERIAL_EPOCH_OFFSET;
+    // Fractional serials include a time of day, not the following day.
+    return Math.floor(serial) - SERIAL_EPOCH_OFFSET;
   }
 
   // ISO «YYYY-MM-DD» или «YYYY-MM-DDTHH:mm:ss…» — компоненты даты из строки
   const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
-    return Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)) / MS_PER_DAY;
+    return strictCalendarDay(Number(yyyy), Number(mm), Number(dd));
   }
 
   return null;
