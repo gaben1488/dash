@@ -38,6 +38,9 @@ const CURRENT_DIRECTORY_COLUMNS = {
   SOURCE_BOOK_NAME: 11,
   OKRUG_FULL_NAME: 16,
   OKRUG_SHORT_NAME: 17,
+  GROUP: 1,
+  ENTITY_TYPE: 6,
+  STATUS: 9,
 } as const;
 
 /** Дословные подписи прежней схемы — оставлены для совместимого импорта. */
@@ -72,8 +75,55 @@ function directoryAliases(raw: unknown[], modern: boolean): string[] {
   return [...direct, ...aliases].filter((value): value is string => Boolean(value && value !== '-'));
 }
 
+/** Groups are not juridical persons; unverified types are not institutions. */
+export type DirectoryEntityKind = 'institution' | 'department' | 'joint_group' | 'unknown';
+
+/** Original names with cell-level evidence, never fabricated effective dates. */
+export interface DirectoryNameEvidence {
+  readonly name: string;
+  readonly role: 'canonical' | 'previous' | 'source_book' | 'current' | 'alias';
+  readonly sourceAddress: string;
+}
+
+function directoryEntityKind(raw: unknown[]): DirectoryEntityKind {
+  const group = monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.GROUP]);
+  const type = monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.ENTITY_TYPE]);
+  const status = monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.STATUS]);
+  if (group === 'Совместная закупка' || group === 'Группа заказчиков' ||
+      type === 'Группа заказчиков' || status === 'Группа заказчиков') return 'joint_group';
+  if (group === 'Орган управления') return 'department';
+  if (group === 'Подведомственное учреждение' || group === 'Учреждение обеспечения' ||
+      group === 'Краевое учреждение') return 'institution';
+  return 'unknown';
+}
+
+function directoryNameEvidence(raw: unknown[], row: number): DirectoryNameEvidence[] {
+  const result: DirectoryNameEvidence[] = [];
+  const sources = [
+    [3, 'D', 'canonical'], [4, 'E', 'canonical'],
+    [5, 'F', 'previous'], [11, 'L', 'source_book'],
+    [16, 'Q', 'current'], [17, 'R', 'current'],
+  ] as const;
+  for (const [column, letter, role] of sources) {
+    const name = monitoringText(raw[column]);
+    if (name && name !== '-') result.push({
+      name, role, sourceAddress: `${MONITORING_DIRECTORY_SHEET}!${letter}${row}`,
+    });
+  }
+  for (const value of monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.ALIASES])?.split(';') ?? []) {
+    const name = value.trim();
+    if (name && name !== '-') result.push({
+      name, role: 'alias', sourceAddress: `${MONITORING_DIRECTORY_SHEET}!I${row}`,
+    });
+  }
+  return result;
+}
+
 export interface DirectoryEntry {
   readonly institutionId?: string | null;
+  readonly entityKind?: DirectoryEntityKind;
+  readonly status?: string | null;
+  readonly nameEvidence?: readonly DirectoryNameEvidence[];
   readonly sheet: string;
   readonly row: number;
   readonly ordinal: number | null;
@@ -87,7 +137,7 @@ export interface DirectoryEntry {
   readonly fullMissing: boolean;
   /** Сколько строк реестра ссылается на это учреждение (наша нормализация). */
   readonly usageCount: number;
-readonly aliases?: readonly string[];
+  readonly aliases?: readonly string[];
 }
 
 /** Написание заказчика, которому в справочнике нет пары. */
@@ -187,6 +237,9 @@ export function parseMonitoringDirectory(
       row: i + 1,
       ordinal: monitoringNumber(raw[C.ORDINAL]),
       grbs,
+      entityKind: modern ? directoryEntityKind(raw) : 'unknown',
+      status: modern ? monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.STATUS]) : null,
+      nameEvidence: modern ? directoryNameEvidence(raw, i + 1) : [],
       fullName,
       shortName,
       shortIsFull: normFull !== null && normShort !== null && normFull === normShort,
