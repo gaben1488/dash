@@ -25,7 +25,7 @@
  * стояло ни одного дефекта).
  */
 import type { Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS } from '@aemr/shared';
+import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
 /**
@@ -209,12 +209,16 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
   const startRow = input.startRow ?? 1;
   const height = Math.max(values.length, formulas.length);
 
-  // Судимые строки: только те, у кого в A стоит настоящий номер закупки.
+  // Физическая граница данных: строки 1–3 — шапка, даже если в графе A
+  // стоят числа (например, нумерация столбцов 1/2/3).
+  // Единый гейт защищает конвейер снимков и прямой приёмник формул.
   const judged: Array<{ index: number; row: number; seq: string }> = [];
   for (let i = 0; i < height; i++) {
+    const row = startRow + i;
+    if (row <= DEPT_HEADER_ROWS) continue;
     const seq = purchaseNumber((values[i] ?? [])[DEPT_COLUMNS.ID]);
     if (seq === null) continue;
-    judged.push({ index: i, row: startRow + i, seq });
+    judged.push({ index: i, row, seq });
   }
   if (judged.length === 0) return [];
 
