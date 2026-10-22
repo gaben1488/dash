@@ -6,7 +6,7 @@
  * Now: thin wrapper importing from @aemr/core + UI color helpers
  */
 
-import { METRIC_KB } from '@aemr/shared';
+import { METRIC_KB, executableFormula } from '@aemr/shared';
 import type { KBEntry } from '../components/ui/kb-tooltip';
 import { getExecutionBand } from './chart-colors';
 
@@ -18,7 +18,7 @@ function toKBEntry(key: string): KBEntry {
   if (!entry) return {};
   return {
     description: entry.label,
-    formula: entry.formula,
+    formula: executableFormula(key) ?? entry.formula,
     source: entry.source,
     cell: entry.cell,
     thresholds: entry.thresholds,
