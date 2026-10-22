@@ -132,7 +132,13 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [verify, report-engine, server-image, deploy_scope]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy_scope.outputs.runtime_changed == 'true'
+    # SAFETY STOP (2026-10-22): main is a legacy lineage, not the accepted
+    # integrated runtime in PR #79. A green healthcheck is not a migration
+    # or feature-parity proof. Do not automatically downgrade the VPS from
+    # integrated code or stop its report worker on any main push.
+    # Restore release only through the approved exact-SHA candidate path
+    # with stateful backup, restore/readback and worker continuity checks.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
