@@ -294,6 +294,14 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.weeklyComparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const journalBooks = useMemo(
+    () => filterByDeptScope(data?.changelogEvidence?.books ?? [], deptScope, book => book.dept),
+    [data, deptScope],
+  );
+  const journalUnavailable = useMemo(
+    () => filterByDeptScope(data?.changelogEvidence?.unavailableBooks ?? [], deptScope, book => book.dept),
+    [data, deptScope],
+  );
   const operationalEntries = filterByDeptScope(data?.operational?.entries ?? [], deptScope, entry => entry.dept);
   const operationalUnavailable = filterByDeptScope(
     data?.operational?.unavailableBooks ?? [], deptScope, item => item.dept);
@@ -419,9 +427,18 @@ export function IntegritySection() {
 
           <Card bare aria-label="Пропавшие закупки">
             <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
-              <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
-                Пропавшие закупки
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
+                  Пропавшие закупки: контрольный четверг → сейчас
+                </h3>
+                <button type="button" onClick={reload} disabled={loading}
+                  aria-label="Перечитать текущие книги и сверить с четвергом"
+                  className="inline-flex items-center gap-1 ds-text-xs font-[var(--weight-medium)] text-[var(--accent)] hover:underline disabled:opacity-50"
+                >
+                  <RotateCcw size={12} aria-hidden="true" />
+                  {loading ? 'Сверяем…' : 'Сверить сейчас'}
+                </button>
+              </div>
               {data.comparison === null ? (
                 <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
                   {data.comparisonNote}
@@ -429,8 +446,8 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
-                    книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
+                    Проверенный четверговый срез: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    книги перечитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
                     {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
                     удаление закупки; возможна перенумерация.
                   </p>
@@ -490,6 +507,67 @@ export function IntegritySection() {
                   </>
                 )}
               </div>
+              {data.changelogEvidence && (
+                <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
+                  <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                    Сверка журнала _ChangeLog с текущими строками
+                  </h4>
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                    После перечитки книги сопоставлены сохранённые записи журнала.
+                    Используются № п/п и фактическое новое значение ячейки, а не прежняя
+                    позиция строки. Номер уведомления Drive не равен количеству правок.
+                  </p>
+                  {journalBooks.length === 0 && journalUnavailable.length === 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--ink-faint)]">
+                      Книг с кандидатами для адресной сверки нет; это не означает,
+                      что физическое удаление строки записано в журнале.
+                    </p>
+                  )}
+                  {journalBooks.map((book) => (
+                    <div key={book.dept} className="mt-2 text-xs">
+                      <p className="font-[var(--weight-medium)] text-[var(--ink)]">
+                        {book.dept}: {book.entriesSinceControl} записей за окно ·
+                        {book.matchesCurrent} совпадений с текущими значениями ·
+                        {book.needsReview} требуют проверки
+                        {book.withoutStableKey > 0
+                          ? ' (без № п/п: ' + book.withoutStableKey + ')' : ''}
+                      </p>
+                      <p className="mt-0.5 ds-text-3xs text-[var(--ink-faint)]">
+                        Журнал прочитан {fmtMoment(book.readAt)}. Совпадение отдельной ячейки
+                        не доказывает полноту журнала или удаление закупки.
+                      </p>
+                      {book.examples.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {book.examples.slice(0, 6).map((entry) => (
+                            <li key={entry.rowSeq + ':' + entry.sourceCell + ':' + entry.at}
+                              className="ds-text-3xs text-[var(--ink-muted)]">
+                              № {entry.rowSeq}: было {entry.sourceCell}
+                              {entry.currentCell ? ', сейчас ' + entry.currentCell : ', актуальный адрес не установлен'}
+                              {' · '}{entry.status === 'matches-current'
+                                ? 'новое значение совпадает'
+                                : entry.status === 'ambiguous-number' ? 'номер неоднозначен'
+                                  : entry.status === 'row-not-found' ? 'номер не найден'
+                                    : entry.status === 'conflicting-log' ? 'записи журнала противоречат'
+                                      : entry.status === 'context-unverified' ? 'предмет закупки не подтверждён'
+                                        : 'значение сейчас отличается'}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                  {journalUnavailable.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Журнал не подтверждён: {journalUnavailable.map(book =>
+                        book.dept + ' — ' + book.reason).join('; ')}.
+                    </p>
+                  )}
+                  <p className="mt-2 ds-text-3xs text-[var(--ink-faint)]">
+                    _ChangeLog не регистрирует физическое удаление строк.
+                    Кандидаты отсутствия выше остаются видимыми независимо от этого журнала.
+                  </p>
+                </div>
+              )}
               {data.operational && (
                 <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
                   <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">

@@ -5,7 +5,7 @@
  * Все данные теста вымышленные; Google и production не используются.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -182,21 +182,22 @@ describe('контрольная сверка с действующими кни
     ]);
   });
 
-  it('HTTP-кэш переключает недельную базу на границе понедельника без ожидания TTL', async () => {
+  it('HTTP-кэш проверяет новую четверговую границу 18:00, не ждёт понедельника и не подставляет старую неделю', async () => {
     snapshot.setDeptLoadMeta(Object.fromEntries(departmentNames.map((name) => [
-      name, { loadedAt: '2026-10-11T11:59:58Z', sheetName: 'ВСЕ', rowCount: 4 },
+      name, { loadedAt: '2026-10-15T05:59:58Z', sheetName: 'ВСЕ', rowCount: 4 },
     ])));
     const app = (await import('fastify')).default({ logger: false });
     await app.register(integrity.integrityRoutes);
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-11T11:59:59Z'));
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-15T05:59:59Z'));
     try {
-      const sunday = await app.inject({ url: '/api/integrity' });
-      expect(sunday.statusCode).toBe(200);
-      expect(sunday.json().comparison).toBeNull();
-      clock.mockReturnValue(Date.parse('2026-10-11T12:00:00Z'));
-      const monday = await app.inject({ url: '/api/integrity' });
-      expect(monday.statusCode).toBe(200);
-      expect(monday.json().comparison?.baselineId).toBe('control-latest');
+      const before = await app.inject({ url: '/api/integrity' });
+      expect(before.statusCode).toBe(200);
+      expect(before.json().comparison?.baselineId).toBe('control-latest');
+      clock.mockReturnValue(Date.parse('2026-10-15T06:00:00Z'));
+      const after = await app.inject({ url: '/api/integrity' });
+      expect(after.statusCode).toBe(200);
+      expect(after.json().comparison).toBeNull();
+      expect(after.json().comparisonNote).toContain('2026-10-15');
     } finally {
       clock.mockRestore();
       await app.close();
@@ -217,6 +218,50 @@ describe('контрольная сверка с действующими кни
       expect(result.note).toContain('неполных');
     } finally {
       dbModule.db.delete(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).run();
+    }
+  });
+
+  it('физически убранная строка видна при текущем чтении против четверга без webhook', async () => {
+    const id = 'control-latest';
+    const stored = dbModule.db.select({ data: dbModule.schema.snapshots.data })
+      .from(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).get();
+    const original = stored?.data ?? null;
+    expect(original).toBeTruthy();
+    const source = JSON.parse(original!) as { rowsByDept: Record<string, unknown[][]> };
+    const deletedRow = sheet('11')[3];
+    const shared = await import('@aemr/shared');
+    // On Thursday both numbers existed. Today the physical row #11 was removed.
+    // No mock webhook, SQLite source observation or delivery event is involved.
+    dbModule.db.update(dbModule.schema.snapshots).set({
+      data: JSON.stringify({
+        ...source,
+        rowsByDept: { ...source.rowsByDept, УО: [...source.rowsByDept['УО'], deletedRow] },
+      }),
+    }).where(eq(dbModule.schema.snapshots.id, id)).run();
+    dbModule.db.insert(dbModule.schema.procurementRows).values({
+      snapshotId: id, departmentId: 'uo', rowIndex: 5,
+      cellsJson: JSON.stringify(shared.buildCellDict(deletedRow)),
+      subject: 'Ремонт кровли', planAmount: 100, factAmount: null, createdAt: CONTROL_AT,
+    }).run();
+    try {
+      snapshot.setDeptSheetCache({ УО: { sheetName: 'ВСЕ', values: sheet('10'), formulas: [] } });
+      const { comparison, note } = integrity.buildComparison(NOW);
+      expect(note).toBe('');
+      expect(comparison?.baselineId).toBe(id);
+      expect(comparison?.afterAt).toBe(CURRENT_AT);
+      expect(comparison?.vanishedTotal).toBe(1);
+      expect(comparison?.books.find(book => book.dept === 'УО')?.vanished)
+        .toEqual([expect.objectContaining({
+          rowSeq: '11', wasAtSheetRow: 5, subject: 'Ремонт кровли',
+        })]);
+    } finally {
+      dbModule.db.delete(dbModule.schema.procurementRows).where(and(
+        eq(dbModule.schema.procurementRows.snapshotId, id),
+        eq(dbModule.schema.procurementRows.departmentId, 'uo'),
+        eq(dbModule.schema.procurementRows.rowIndex, 5),
+      )).run();
+      dbModule.db.update(dbModule.schema.snapshots).set({ data: original! })
+        .where(eq(dbModule.schema.snapshots.id, id)).run();
     }
   });
 

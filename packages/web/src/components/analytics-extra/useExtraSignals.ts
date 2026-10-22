@@ -29,12 +29,15 @@ function useRemote<T>(
   enabled: boolean,
   rereadSourceOnReload = false,
   softRefreshEvent?: string,
+  freshOnOpen = false,
 ): UseRemoteResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   // Manual refresh may read Google; SSE revalidation MUST only read local API.
-  const [request, setRequest] = useState({ version: 0, forceSource: false });
+  // The Control screen must compare the current source with Thursday even if
+  // Drive never delivered a webhook. One explicit read on mount, no polling.
+  const [request, setRequest] = useState({ version: 0, forceSource: freshOnOpen });
   const reload = useCallback(() => setRequest((r) => ({
     version: r.version + 1, forceSource: true,
   })), []);
@@ -86,7 +89,7 @@ export function useAnomalies(enabled = true): UseRemoteResult<AnomaliesResponse>
   return useRemote<AnomaliesResponse>('/anomalies', enabled);
 }
 
-/** Целостность книг — раздел «Контроль». */
+/** Целостность книг — при открытии независимая сверка с Google, далее дешёвый SSE. */
 export function useIntegrity(enabled = true): UseRemoteResult<IntegrityResponse> {
-  return useRemote<IntegrityResponse>('/integrity', enabled, true, 'department-books-updated');
+  return useRemote<IntegrityResponse>('/integrity', enabled, true, 'department-books-updated', true);
 }
