@@ -261,7 +261,7 @@ describe('POST /api/webhook/drive', () => {
     );
   });
 
-  it('СТРАЖ адресности: правка книги УО перечитывает только её, без листа СВОД и чужих книг', async () => {
+  it('СТРАЖ адресности: УО обновляет только свой master и зависимый СВОД, без чужих master-книг', async () => {
     vi.useFakeTimers();
     webhookConfig.secret = 'верный-секрет';
     await post(notification());
