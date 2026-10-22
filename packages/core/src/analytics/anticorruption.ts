@@ -15,7 +15,8 @@
  * Флаги требуют проверки и не дают штрафа к дисциплине без подтверждённого нарушения.
  */
 
-import { LAW_44FZ, classifyEPReason } from './compliance-44fz.js';
+import type { DatedThreshold } from '@aemr/shared';
+import { classifyEPReason } from './compliance-44fz.js';
 
 export type AntiCorruptionIndicator =
   | 'splitting'
@@ -55,6 +56,8 @@ export interface AntiCorruptionInput {
   totalPlan?: number;
   /** Порог доли ЕП для роли ГРБС (по умолчанию 0.5). */
   epShareLimit?: number;
+  /** Exact legal reference captured with this snapshot; not today's constant. */
+  epSingleContractReference?: DatedThreshold;
 }
 
 export interface AntiCorruptionResult {
@@ -91,7 +94,11 @@ function normalizeSubject(s: string): string {
  * bug-hunt 2026-08-08 (БАГ #1) planTotal сравнивался как рубли — предлимитная полоса
  * 480-600 тыс. требовала контрактов на полмиллиарда, недостижимо на реальных данных.
  */
-export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
+export function detectSplitting(rows: AntiCorruptionRow[], reference?: DatedThreshold): AntiCorruptionFlag[] {
+  // No usable historical unit/origin: no threshold-based indicator, never silently
+  // borrow the current statutory constant for a previous release.
+  if (!reference || reference.unit !== 'thousandRub' || reference.source !== 'law44'
+      || !Number.isFinite(reference.value) || reference.value <= 0) return [];
   const epRows = rows.filter(r => r.method === 'ЕП' && r.planTotal > 0);
   const groups = new Map<string, AntiCorruptionRow[]>();
   for (const r of epRows) {
@@ -102,7 +109,7 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
     else groups.set(key, [r]);
   }
 
-  const limit = LAW_44FZ.epSingleContractLimit; // 600 (тыс. руб.)
+  const limit = reference.value; // dated snapshot amount in thousand rubles
   const bandLow = limit * 0.8; // 480 (тыс. руб.) — «предлимитная» полоса
   const flags: AntiCorruptionFlag[] = [];
 
@@ -130,7 +137,7 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
         severity: 'high',
         score,
         subject: subj,
-        message: `Возможное дробление: ${group.length} ЕП на однородный предмет «${subj}» на сумму ${(total / 1_000).toFixed(1)} млн ₽ (индекс ${score}/100) — требует проверки`,
+        message: `Возможное дробление — внутренний индикатор для проверки, не нарушение: ${group.length} позиций ЕП по предмету «${subj}» на сумму ${(total / 1_000).toFixed(1)} млн ₽ (индекс ${score}/100). Справочный порог ${limit} тыс. ₽${reference.status === 'verified' ? '' : '; редакция нормы не подтверждена'}; данные договоров и применимость основания требуют проверки.`,
       });
     }
   }
@@ -142,20 +149,14 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
  * r.planTotal уже в тыс. руб. — деление на 1000 в сообщении убрано (bug-hunt
  * 2026-08-08, БАГ #1): второе деление превращало «601 тыс.» в «1 тыс.».
  */
-export function detectEpOverLimit(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
-  const flags: AntiCorruptionFlag[] = [];
-  for (const r of rows) {
-    if (r.method !== 'ЕП') continue;
-    if (r.planTotal > LAW_44FZ.epSingleContractLimit) {
-      flags.push({
-        indicator: 'ep_over_limit',
-        severity: 'high',
-        rowIndex: r.rowIndex,
-        message: `ЕП ${r.planTotal.toFixed(0)} тыс ₽ > предельных 600 тыс (строка ${r.rowIndex}) — требует проверки основания`,
-      });
-    }
-  }
-  return flags;
+/**
+ * One annual master-register K value may represent many separate contracts.
+ * Without contract-grain amounts, checking a *single-contract* art.93 ceiling
+ * cannot establish any `ep_over_limit` flag, whatever the snapshot edition.
+ * Compliance exposes this missing evidence as an unavailable check instead.
+ */
+export function detectEpOverLimit(_rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
+  return [];
 }
 
 /** #9 Годовая доля ЕП выше порога роли. */
@@ -204,9 +205,9 @@ export function detectSupplierConcentration(rows: AntiCorruptionRow[]): AntiCorr
  * Оркестратор: все индикаторы по одному ГРБС → флаги + штраф дисциплины.
  */
 export function detectAntiCorruption(grbsId: string, input: AntiCorruptionInput): AntiCorruptionResult {
-  const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5 } = input;
+  const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5, epSingleContractReference } = input;
   const flags: AntiCorruptionFlag[] = [
-    ...detectSplitting(rows),
+    ...detectSplitting(rows, epSingleContractReference),
     ...detectEpOverLimit(rows),
     ...detectAnnualEpShare(epTotal, totalPlan, epShareLimit),
     ...detectSupplierConcentration(rows),
@@ -216,5 +217,9 @@ export function detectAntiCorruption(grbsId: string, input: AntiCorruptionInput)
   return { grbsId, flags, disciplinaryPenalty, unavailableIndicators: [
     { indicator: 'zero_competition', reason: 'Нет данных об участниках и ходе торгов; официальная экономия не измеряет конкуренцию.' },
     { indicator: 'price_inflation', reason: 'Нет сопоставимой НМЦК и ценового обоснования; экономия по AD не доказывает завышение цены.' },
+    { indicator: 'ep_over_limit', reason: 'K отражает годовую позицию, а не цену каждого отдельного договора. Превышение лимита одной закупки невозможно доказать без договорного состава и основания.' },
+    ...(!epSingleContractReference || epSingleContractReference.unit !== 'thousandRub' || epSingleContractReference.source !== 'law44'
+      ? [{ indicator: 'splitting' as const, reason: 'Порог не зафиксирован на дату снимка с подтверждённой единицей и происхождением; скрининг дробления недоступен.' }]
+      : []),
   ] };
 }
