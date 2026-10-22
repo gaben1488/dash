@@ -121,6 +121,24 @@ describe('calculation evidence: fail-closed archive checks', () => {
       .toMatchObject({ status: 'invalid', mismatches: ['archived_rows:УО'] });
   });
 
+  it('rejects a passport with a silently omitted archived department', () => {
+    const snap = snapshot();
+    snap.calculationEvidence = makeCalculationEvidence(input(), snap, evidenceSources());
+    delete snap.calculationEvidence.books.УЭР;
+    const checked = inspectArchivedCalculationEvidence(snap);
+    expect(checked.status).toBe('invalid');
+    expect(checked.mismatches).toContain('archived_book_unlisted:УЭР');
+  });
+
+  it('does not treat an attested full scope with missing source version as matching', () => {
+    const snap = snapshot();
+    snap.calculationEvidence = makeCalculationEvidence(input(), snap, evidenceSources());
+    snap.calculationEvidence.books.УЭР.lastObservedDriveVersion = null;
+    const checked = inspectArchivedCalculationEvidence(snap);
+    expect(checked.status).toBe('invalid');
+    expect(checked.mismatches).toContain('scope_inconsistent');
+  });
+
   it('detects mutated outputs while never treating legacy snapshots as verified', () => {
     const legacy = snapshot();
     expect(inspectArchivedCalculationEvidence(legacy).status).toBe('unverified');
@@ -145,5 +163,18 @@ describe('calculation evidence: fail-closed archive checks', () => {
         УЭР: { loadedAt: AT, rowCount: 2, sheetName: 'ВСЕ' } },
     }));
     expect(stale.blockers).toContain('source_read_stale_or_future:УО');
+
+    const unversioned = makeCalculationEvidence(input(), snapshot(), evidenceSources({
+      observedDriveVersions: { УО: '123', УЭР: null },
+    }));
+    expect(unversioned.scope).toBe('partial');
+    expect(unversioned.blockers).toContain('source_revision_unobserved:УЭР');
+
+    const rowMismatch = makeCalculationEvidence(input(), snapshot(), evidenceSources({
+      readMeta: { УО: { loadedAt: AT, rowCount: 99, sheetName: 'ВСЕ' },
+        УЭР: { loadedAt: AT, rowCount: 2, sheetName: 'ВСЕ' } },
+    }));
+    expect(rowMismatch.scope).toBe('partial');
+    expect(rowMismatch.blockers).toContain('source_row_count_mismatch:УО');
   });
 });
