@@ -143,6 +143,14 @@ describe('parseJournalInstant — живые формы колонки «Вре�
     expect(parseJournalInstant('2026-08-05T16:52:26')?.at).toBe('2026-08-05T16:52:26');
   });
 
+  it('both journal consumers accept actual source clock variants and reject impossible dates', () => {
+    expect(parseJournalInstant('10.09.2026, 17:21:15')?.at).toBe('2026-09-10T17:21:15');
+    expect(parseJournalInstant('08.04.2026 9:09:54')?.at).toBe('2026-04-08T09:09:54');
+    expect(parseJournalInstant('31.02.2026')).toBeNull();
+    expect(parseJournalInstant('22.10.2026 25:14:00')).toBeNull();
+    expect(parseJournalInstant('2026-02-30T17:00:00')).toBeNull();
+  });
+
   it('мусор → null (событию некуда встать на ленту)', () => {
     expect(parseJournalInstant('позавчера')).toBeNull();
     expect(parseJournalInstant('')).toBeNull();

@@ -507,9 +507,14 @@ export const api = {
     return fetchJSON<{
       since: string;
       total: number;
+      source: 'db' | 'live';
+      failedDepts?: string[];
+      coverage?: Record<string, { rawRows: number; parsed: number; dayOnly: number;
+        unparsed: number; nonCell: number; invalidTime: number }>;
       records: Array<{
         dept: string; sheet: string; cell: string; attribute: string;
         oldValue: string; newValue: string; atMs: number; author: string;
+        timePrecision?: 'day';
       }>;
     }>(`/changes${qs}`);
   },

@@ -84,6 +84,12 @@ function looksLikeCell(value: unknown): boolean {
   return /^[A-Z]{1,2}\d+$/i.test(String(value ?? '').trim());
 }
 
+/** Some legacy six-column rows include a sheet-qualified cell address. */
+function sixColumnAddress(value: unknown): { sheet: string; cell: string } | null {
+  const m = String(value ?? '').trim().match(/^(?:(.+)!)?([A-Z]{1,2}\d+)$/i);
+  return m ? { sheet: m[1] ?? '', cell: m[2].toUpperCase() } : null;
+}
+
 /**
  * Разбирает сырые строки листа «_ChangeLog» в записи ядра.
  *
@@ -118,11 +124,12 @@ export function parseProvenanceJournal(rows: readonly unknown[][]): {
     }
 
     // Схема УАГЗО, 6 колонок: адрес в первой ячейке, поля «Строка» нет вовсе.
-    if (looksLikeCell(row[0])) {
+    const legacy = sixColumnAddress(row[0]);
+    if (legacy) {
       rowKeyless += 1;
       records.push({
-        sheet: '',
-        cell: row[0],
+        sheet: legacy.sheet,
+        cell: legacy.cell,
         column: '',
         // Пустой ключ намеренно: ядро посчитает запись в unparsedRowKeys, а не
         // припишет её закупке, которая сегодня стоит на этом месте листа.

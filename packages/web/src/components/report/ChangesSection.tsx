@@ -27,18 +27,19 @@ interface ChangeRecord {
   oldValue: string;
   newValue: string;
   atMs: number;
+  timePrecision?: 'day';
   author: string;
 }
 
 /** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза.
  *  Экспорт: тем же словом время называет журнал эфира в углу шапки. */
-export function fmtAt(ms: number): string {
+export function fmtAt(ms: number, precision?: 'day'): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mi = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${dd}.${mm}, ${hh}:${mi}`;
+  return precision === 'day' ? `${dd}.${mm} (время не указано)` : `${dd}.${mm}, ${hh}:${mi}`;
 }
 
 /** Значение в журнале бывает пустым — читателю честнее слово, чем дыра. */
@@ -122,7 +123,7 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
       <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
       <span aria-hidden="true">→</span>{' '}
       <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
-      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs)}</span>
+      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs, r.timePrecision)}</span>
     </p>
   );
 }
@@ -139,7 +140,13 @@ export function ChangesSection({ since, depts = [] }: {
    */
   depts?: readonly string[];
 }) {
-  const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
+  const [data, setData] = useState<{
+    since: string;
+    records: ChangeRecord[];
+    coverage?: Record<string, { rawRows: number; parsed: number; dayOnly: number;
+      unparsed: number; nonCell: number; invalidTime: number }>;
+    failedDepts?: string[];
+  } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +203,12 @@ export function ChangesSection({ since, depts = [] }: {
   }
 
   const sinceRu = formatDateCell(data.since);
+  const affected = Object.entries(data.coverage ?? {}).filter(([dept]) =>
+    deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
+  const unparsed = affected.reduce((sum, [, state]) => sum + state.unparsed, 0);
+  const nonCell = affected.reduce((sum, [, state]) => sum + state.nonCell, 0);
+  const failed = (data.failedDepts ?? []).filter(dept =>
+    deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
   // Паспорт периметра ленты: чьи книги, с какого момента и сколько правок в
   // этом периметре (канон п.58а — подпись строится из ДАННЫХ, по которым
   // посчитано число, а не из бейджа шапки).
@@ -213,7 +226,17 @@ export function ChangesSection({ since, depts = [] }: {
         )}
       </div>
 
-      {methodChanges.length > 0 && (
+      {(failed.length > 0 || unparsed > 0) && (
+         <p role="status" className="text-[12px] text-amber-700 dark:text-amber-300">
+           Журнал источников прочитан не полностью: {failed.length > 0
+             ? `не ответили: ${failed.join(', ')}; ` : ''}
+           неразобранных записей: {unparsed}
+           {nonCell > 0 ? ` (из них ${nonCell} массовых или структурных операций)` : ''}.
+           Это не ноль изменений: полнота требует сравнения снимков источников.
+         </p>
+       )}
+
+       {methodChanges.length > 0 && (
         <div>
           <div className="mb-1 text-[12px] font-medium text-violet-700 dark:text-violet-400">
             Смена способа определения поставщика{' '}
