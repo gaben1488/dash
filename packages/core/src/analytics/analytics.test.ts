@@ -404,12 +404,10 @@ describe('forecast — buildScenarios', () => {
 // compliance-44fz.ts
 // ===========================================================================
 describe('compliance — checkEPContractLimits', () => {
-  it('flags EP contract above 600K', () => {
+  it('does not invent a legal limit without a dated captured threshold', () => {
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 700_000, factTotal: 0, economy: 0, subject: 'test' }];
     const issues = checkEPContractLimits(rows, 'dept1');
-    expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('info');
-    expect(issues[0].ruleCode).toBe('ep_contract_limit');
+    expect(issues).toEqual([]); // no captured threshold or individual contract evidence
   });
 
   it('does not flag EP contract at exactly 600K', () => {
@@ -457,10 +455,10 @@ describe('compliance — checkAntiDumping', () => {
 });
 
 describe('compliance — checkEPShareLimits', () => {
-  it('flags EP share exceeding role limit', () => {
+  it('does not infer a role reference without a frozen captured threshold', () => {
     // ОПЕРАЦИОННЫЙ role limit = 50%
     const issues = checkEPShareLimits(60, 100, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
-    expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(true);
+    expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(false);
   });
 
   it('does not flag EP share within role limit', () => {
