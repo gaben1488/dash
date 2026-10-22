@@ -1,256 +1,66 @@
 {
   "numbers": [
-    {
-      "raw": "1 234,56",
-      "value": "1234.56"
-    },
-    {
-      "raw": "1 234,56",
-      "value": "1234.56"
-    },
-    {
-      "raw": "-20 000",
-      "value": "-20000"
-    },
-    {
-      "raw": 0,
-      "value": "0"
-    },
-    {
-      "raw": "0",
-      "value": "0"
-    },
-    {
-      "raw": "",
-      "value": null
-    },
-    {
-      "raw": null,
-      "value": null
-    },
-    {
-      "raw": "123abc",
-      "invalid": true
-    },
-    {
-      "raw": "Infinity",
-      "invalid": true
-    },
-    {
-      "raw": "1 23",
-      "invalid": true
-    },
-    {
-      "raw": "1,2,3",
-      "invalid": true
-    },
-    {
-      "raw": "1e309",
-      "invalid": true
-    },
-    {
-      "raw": true,
-      "invalid": true
-    }
+    {"raw": "1 234,56", "value": "1234.56"},
+    {"raw": "1 234,56", "value": "1234.56"},
+    {"raw": "-20 000", "value": "-20000"},
+    {"raw": 0, "value": "0"},
+    {"raw": "0", "value": "0"},
+    {"raw": "", "value": null},
+    {"raw": null, "value": null},
+    {"raw": "123abc", "invalid": true},
+    {"raw": "Infinity", "invalid": true},
+    {"raw": "1 23", "invalid": true},
+    {"raw": "1,2,3", "invalid": true},
+    {"raw": "1e309", "invalid": true},
+    {"raw": true, "invalid": true}
   ],
   "dates": [
-    {
-      "raw": "29.02.2024",
-      "value": "2024-02-29"
-    },
-    {
-      "raw": "2026-01-01",
-      "value": "2026-01-01"
-    },
-    {
-      "raw": 46023,
-      "value": "2026-01-01"
-    },
-    {
-      "raw": 46023.75,
-      "value": "2026-01-01"
-    },
-    {
-      "raw": "46023.75",
-      "value": "2026-01-01"
-    },
-    {
-      "raw": "2026-01-01T23:30:00-05:00",
-      "value": "2026-01-01"
-    },
-    {
-      "raw": 2026,
-      "value": null
-    },
-    {
-      "raw": "0xB3C7",
-      "value": null
-    },
-    {
-      "raw": "4.6023e4",
-      "value": null
-    },
-    {
-      "raw": "31.02.2026",
-      "value": null
-    },
-    {
-      "raw": "29.02.2026",
-      "value": null
-    },
-    {
-      "raw": "2026",
-      "value": null
-    },
-    {
-      "raw": "2026-01-01TNOT_A_TIME",
-      "value": null
-    },
-    {
-      "raw": "Х",
-      "value": null
-    },
-    {
-      "raw": "0099-12-31",
-      "value": "0099-12-31"
-    },
-    {
-      "raw": "0001-12-31",
-      "value": "0001-12-31"
-    },
-    {
-      "raw": "2026-10-22T23:59:59+12:00",
-      "value": "2026-10-22"
-    },
-    {
-      "raw": "2026-02-29T10:00:00Z",
-      "value": null
-    }
+    {"raw": "29.02.2024", "value": "2024-02-29"},
+    {"raw": "2026-01-01", "value": "2026-01-01"},
+    {"raw": 46023, "value": "2026-01-01"},
+    {"raw": 46023.75, "value": "2026-01-01"},
+    {"raw": "46023.75", "value": "2026-01-01"},
+    {"raw": "2026-01-01T23:30:00-05:00", "value": "2026-01-01"},
+    {"raw": 2026, "value": null},
+    {"raw": "0xB3C7", "value": null},
+    {"raw": "4.6023e4", "value": null},
+    {"raw": "31.02.2026", "value": null},
+    {"raw": "29.02.2026", "value": null},
+    {"raw": "2026", "value": null},
+    {"raw": "2026-01-01TNOT_A_TIME", "value": null},
+    {"raw": "Х", "value": null},
+    {"raw":"0099-12-31","value":"0099-12-31"},
+    {"raw":"0001-12-31","value":"0001-12-31"},
+    {"raw":"2026-10-22T23:59:59+12:00","value":"2026-10-22"},
+    {"raw":"2026-02-29T10:00:00Z","value":null}
   ],
   "moneyScales": [
-    {
-      "raw": "20 000",
-      "from": "thousand_rubles",
-      "to": "rubles",
-      "value": "20000000"
-    },
-    {
-      "raw": "20",
-      "from": "million_rubles",
-      "to": "thousand_rubles",
-      "value": "20000"
-    },
-    {
-      "raw": "600 000",
-      "from": "rubles",
-      "to": "thousand_rubles",
-      "value": "600"
-    },
-    {
-      "raw": "-20 000",
-      "from": "thousand_rubles",
-      "to": "rubles",
-      "value": "-20000000"
-    },
-    {
-      "raw": "1 234,56",
-      "from": "thousand_rubles",
-      "to": "rubles",
-      "value": "1234560"
-    }
+    {"raw":"20 000","from":"thousand_rubles","to":"rubles","value":"20000000"},
+    {"raw":"20","from":"million_rubles","to":"thousand_rubles","value":"20000"},
+    {"raw":"600 000","from":"rubles","to":"thousand_rubles","value":"600"},
+    {"raw":"-20 000","from":"thousand_rubles","to":"rubles","value":"-20000000"},
+    {"raw":"1 234,56","from":"thousand_rubles","to":"rubles","value":"1234560"}
   ],
   "percentScales": [
-    {
-      "raw": "1,5%",
-      "encoding": "fraction",
-      "value": "0.015"
-    },
-    {
-      "raw": 1.5,
-      "encoding": "fraction",
-      "value": "1.5"
-    },
-    {
-      "raw": 1.5,
-      "encoding": "points",
-      "value": "0.015"
-    },
-    {
-      "raw": "-1,5%",
-      "encoding": "points",
-      "value": "-0.015"
-    },
-    {
-      "raw": "0%",
-      "encoding": "fraction",
-      "value": "0"
-    },
-    {
-      "raw": null,
-      "encoding": "fraction",
-      "value": null
-    }
+    {"raw":"1,5%","encoding":"fraction","value":"0.015"},
+    {"raw":1.5,"encoding":"fraction","value":"1.5"},
+    {"raw":1.5,"encoding":"points","value":"0.015"},
+    {"raw":"-1,5%","encoding":"points","value":"-0.015"},
+    {"raw":"0%","encoding":"fraction","value":"0"},
+    {"raw":null,"encoding":"fraction","value":null}
   ],
   "methods": [
-    {
-      "raw": "ЕП",
-      "ts": "ЕП",
-      "py": "ЕП"
-    },
-    {
-      "raw": "ЭА",
-      "ts": "ЭА",
-      "py": "ЭА"
-    },
-    {
-      "raw": "ЭЕП",
-      "ts": "ЕП",
-      "py": "ЕП"
-    },
-    {
-      "raw": "ЭА (МЭП)",
-      "ts": "ЭА",
-      "py": "ЭА"
-    },
-    {
-      "raw": "ЭА МЭП",
-      "ts": "ЭА",
-      "py": "ЭА"
-    },
-    {
-      "raw": "ЭА (малый)",
-      "ts": "ЭА",
-      "py": "ЭА"
-    },
-    {
-      "raw": "ЕП (ст.93)",
-      "ts": "ЕП",
-      "py": "ЕП"
-    },
-    {
-      "raw": "Ед. поставщик",
-      "ts": "ЕП",
-      "py": "ЕП"
-    },
-    {
-      "raw": "ЭК",
-      "ts": "ЭК",
-      "py": "ЭА"
-    },
-    {
-      "raw": "ЭЗК",
-      "ts": "ЭЗК",
-      "py": "ЭА"
-    },
-    {
-      "raw": "НЕРАСПОЗНАННЫЙ",
-      "ts": null,
-      "py": null
-    },
-    {
-      "raw": null,
-      "ts": null,
-      "py": null
-    }
+    {"raw":"ЕП","ts":"ЕП","py":"ЕП"},
+    {"raw":"ЭА","ts":"ЭА","py":"ЭА"},
+    {"raw":"ЭЕП","ts":"ЕП","py":"ЕП"},
+    {"raw":"ЭА (МЭП)","ts":"ЭА","py":"ЭА"},
+    {"raw":"ЭА МЭП","ts":"ЭА","py":"ЭА"},
+    {"raw":"ЭА (малый)","ts":"ЭА","py":"ЭА"},
+    {"raw":"ЕП (ст.93)","ts":"ЕП","py":"ЕП"},
+    {"raw":"Ед. поставщик","ts":"ЕП","py":"ЕП"},
+    {"raw":"ЭК","ts":"ЭК","py":"ЭА"},
+    {"raw":"ЭЗК","ts":"ЭЗК","py":"ЭА"},
+    {"raw":"НЕРАСПОЗНАННЫЙ","ts":null,"py":null},
+    {"raw":null,"ts":null,"py":null}
   ]
 }
