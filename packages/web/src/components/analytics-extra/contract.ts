@@ -261,6 +261,14 @@ export interface IntegrityResponse {
   weeklyComparisonNote: string;
   /** Optional so old installed servers continue to render honestly. */
   operational?: OperationalAbsenceReport;
+  /** Only set for a request that explicitly reread the Google source. */
+  sourceRefresh?: {
+    attempted: true;
+    complete: boolean;
+    checkedAt: string;
+    failedBooks: string[];
+    error: string | null;
+  };
   notes: string[];
 }
 

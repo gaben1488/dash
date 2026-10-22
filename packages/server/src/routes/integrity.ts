@@ -118,6 +118,14 @@ export interface IntegrityResponse {
   /** Почему оперативного сравнения нет — фраза для экрана. */
   comparisonNote: string;
   operational: OperationalAbsenceReport;
+  /** Only present after explicit source acquisition; ordinary GET never reads Google. */
+  sourceRefresh?: {
+    attempted: true;
+    complete: boolean;
+    checkedAt: string;
+    failedBooks: string[];
+    error: string | null;
+  };
   notes: string[];
 }
 
@@ -319,6 +327,29 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
   };
 }
 
+/**
+ * Never pass a cached state off as a successful forced source read.
+ * Weekly historic evidence remains accessible; current/operational conclusions
+ * are withheld until a new accepted reading. No source or SQLite writes here.
+ */
+export function refuseUnverifiedCurrentSource(
+  response: IntegrityResponse, reason: string,
+): IntegrityResponse {
+  return {
+    ...response,
+    books: response.books.map(book => ({
+      ...book, rowsAvailable: false, sequence: null, dateFormat: [],
+      note: 'Текущее чтение не подтверждено: ' + reason,
+    })),
+    totals: { gapCount: 0, duplicates: 0, countableWithoutSeq: 0, dateFormat: 0 },
+    comparison: null,
+    comparisonNote: 'Принудительная перечитка не завершилась. ' + reason +
+      '. По прежнему кэшу отсутствие закупок не утверждается.',
+    operational: { ...response.operational, entries: [], error: reason },
+    notes: [...response.notes, 'Действующие книги не приняты после попытки чтения: ' + reason],
+  };
+}
+
 export async function integrityRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /api/integrity — нумерация, вид ячеек дат и пропавшие строки.
@@ -335,20 +366,54 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
         cached.sourceAt === getDeptCacheFilledAt()) {
       return reply.send(cached.response);
     }
+    let forced: IntegrityResponse['sourceRefresh'];
     if (fresh) {
-      // Ручная кнопка действительно перечитывает 8 источников, без проверки
-      // ревизии Drive. Это read-only Google Sheets, без записи в книги.
-      // Даже если чтение частично упало, buildComparison выдаёт честные gaps.
+      // The same coordinator used by webhook/cron owns Google reads and its
+      // durable source-revision acceptance; this route never acquires directly.
       try {
-        await refreshAllSources(undefined, 'request', { askDrive: false, svod: false, fresh: true });
+        const result = await refreshAllSources(undefined, 'request', {
+          askDrive: false, svod: false, fresh: true,
+        });
+        const missing = Object.keys(DEPARTMENT_SPREADSHEETS).filter(
+          book => !result.loaded.includes(book),
+        );
+        const failedBooks = [...new Set([...result.failed, ...missing])];
+        forced = {
+          attempted: true,
+          complete: failedBooks.length === 0,
+          checkedAt: new Date().toISOString(),
+          failedBooks,
+          error: null,
+        };
       } catch {
-        // The response still names unread books and preserves verified history.
-        // A failed source acquisition cannot be reported as an empty comparison.
+        forced = {
+          attempted: true,
+          complete: false,
+          checkedAt: new Date().toISOString(),
+          failedBooks: Object.keys(DEPARTMENT_SPREADSHEETS),
+          error: 'Не удалось завершить принудительное чтение источников',
+        };
       }
     }
     const readAt = Date.now();
-    const response = buildIntegrityResponse(readAt);
-    cached = { at: readAt, sourceAt: getDeptCacheFilledAt(), response };
+    const base = buildIntegrityResponse(readAt);
+    // A source failure that threw before publication may leave the old cache
+    // looking young; invalidate *all* current-side evidence, not old weeks.
+    const response = forced?.error
+      ? refuseUnverifiedCurrentSource(base, forced.error)
+      : base;
+    if (forced) {
+      response.sourceRefresh = forced;
+      if (forced.failedBooks.length > 0) {
+        response.notes.push('Принудительная сверка неполна: ' +
+          forced.failedBooks.join(', ') + '. Это не ноль пропавших закупок.');
+      }
+    }
+    if (!forced?.error) {
+      // Transient acquisition-attempt metadata is not stored in GET cache.
+      const cacheResponse = forced ? base : response;
+      cached = { at: readAt, sourceAt: getDeptCacheFilledAt(), response: cacheResponse };
+    }
     return reply.send(response);
   });
 }

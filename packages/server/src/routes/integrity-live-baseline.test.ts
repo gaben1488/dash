@@ -254,6 +254,17 @@ describe('контрольная сверка с действующими кни
     }
   });
 
+  it('не принимает прежний кэш за успешное новое чтение после отказа источника', () => {
+    const before = integrity.buildIntegrityResponse(NOW);
+    const failed = integrity.refuseUnverifiedCurrentSource(before, 'SOURCE_REFRESH_FAILED');
+    expect(failed.comparison).toBeNull();
+    expect(failed.comparisonNote).toContain('не завершилась');
+    expect(failed.weeklyComparison).toEqual(before.weeklyComparison);
+    expect(failed.books.every(book => !book.rowsAvailable && book.sequence === null)).toBe(true);
+    expect(failed.operational.entries).toEqual([]);
+    expect(failed.operational.error).toBe('SOURCE_REFRESH_FAILED');
+  });
+
   it('отказ текущей книги даёт неполную сверку, а не ложное исчезновение', () => {
     snapshot.setDeptSheetCache({}, ['УО']);
     snapshot.setDeptLoadMeta({

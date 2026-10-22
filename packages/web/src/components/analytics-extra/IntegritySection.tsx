@@ -263,6 +263,12 @@ function VanishedCard({ book, afterLabel = 'сейчас' }: { book: VanishedBoo
           Сместились по листу без изменения №: {book.moved.length}. Это не пропажа.
         </p>
       )}
+      {book.appeared > 0 && (
+        <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
+          Появились прежние отсутствовавшие номера: {book.appeared}.
+          Это не подтверждение создания новых закупок.
+        </p>
+      )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
           Строк без «№ п/п»: в контроле {book.unkeyed.before}, {afterLabel} {book.unkeyed.after} — их
@@ -378,6 +384,16 @@ export function IntegritySection() {
             </button>
           </div>
         </div>
+      )}
+
+      {data?.sourceRefresh && !data.sourceRefresh.complete && (
+        <p role="status" className="ds-text-xs text-[var(--data-warn)]">
+          Сверка с текущими книгами неполна: {data.sourceRefresh.error ??
+            'источники не прочитаны полностью'}.
+          {data.sourceRefresh.failedBooks.length > 0 &&
+            (' Не проверены: ' + data.sourceRefresh.failedBooks.join(', ') + '.')}
+          Неизвестные изменения не считаются нулевыми.
+        </p>
       )}
 
       {orgNote && (
