@@ -2,9 +2,15 @@ import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DashboardDataSchema, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore } from '@aemr/core';
-const fixture = vi.hoisted(() => ({ snapshot: {} as DataSnapshot, failure: null as unknown }));
+const fixture = vi.hoisted(() => ({
+  snapshot: {} as DataSnapshot, failure: null as unknown, snapshotArgs: [] as unknown[],
+}));
 vi.mock('../config.js', () => ({ config: { database: { url: ':memory:' } }, DEPARTMENT_SPREADSHEETS: {} }));
-vi.mock('../services/snapshot.js', () => ({ getSnapshot: async () => { if (fixture.failure) throw fixture.failure; return fixture.snapshot; },
+vi.mock('../services/snapshot.js', () => ({ getSnapshot: async (...args: unknown[]) => {
+  fixture.snapshotArgs = args;
+  if (fixture.failure) throw fixture.failure;
+  return fixture.snapshot;
+},
   getDeptSheetCache: () => ({}), getDeptLoadMeta: () => ({}), invalidateCache: vi.fn(), setSvodGridCache: vi.fn() }));
 vi.mock('../services/google-sheets.js', () => ({ getSheetData: vi.fn() }));
 vi.mock('../services/source-refresh.js', () => ({ refreshAllSources: vi.fn() }));
@@ -26,7 +32,8 @@ beforeAll(async () => {
   fixture.snapshot = { id: 'payload-snapshot', spreadsheetId: 'fixture-book', createdAt: metric.readAt,
     officialMetrics: { 'fixture.plan': metric }, calculatedMetrics: { 'fixture.calculated': { ...metric, origin: 'calculated' } },
     deltas: [], issues, trust: computeTrustScore(new Map(), issues, [], 'payload-snapshot'), rowCount: 1,
-    metadata: { sheetsRead: ['СВОД ТД-ПМ'], cellsRead: 34, readDurationMs: 1, pipelineDurationMs: 1, targetYear: 2026 },
+    metadata: { sheetsRead: ['СВОД ТД-ПМ'], cellsRead: 34, readDurationMs: 1, pipelineDurationMs: 1,
+      targetYear: 2026, sourceCoverage: { expectedDepartments: ['УО'], readDepartments: ['УО'], unreadDepartments: [], complete: true } },
     datasetAnalyses: { uksimp: { marker: 'Используется экраном аналитики' } },
     ...Object.fromEntries(internalFields.map(key => [key, { privateHistory: 'Синтетическая строка'.repeat(10_000) }])) };
   saved = JSON.stringify(fixture.snapshot);
@@ -305,6 +312,59 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
   });
 
+  it('gives release readback the exact active snapshot identity without a second source or full DTO', async () => {
+    const response = await app.inject('/api/dashboard?year=2026&identity=1');
+    expect(fixture.snapshotArgs).toEqual([false, 2026, true]);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.json()).toEqual({ snapshot: { id: fixture.snapshot.id, createdAt: fixture.snapshot.createdAt } });
+    expect(Buffer.byteLength(response.body)).toBeLessThan(200);
+    expect(response.body).not.toContain('privateHistory');
+    const normal = (await app.inject('/api/dashboard?year=2026')).json();
+    expect(normal.snapshot.id).toBe(response.json().snapshot.id);
+    expect(normal.snapshot.createdAt).toBe(response.json().snapshot.createdAt);
+  });
+  it('fails closed for a malformed or forced identity read, without downgrading full dashboard validation', async () => {
+    for (const query of ['identity=0', 'identity=1&refresh=true', 'identity=1&year=2026junk',
+      'identity=1&compact=1', 'identity=1&unexpected=foo', 'identity=1&identity=1']) {
+      expect((await app.inject('/api/dashboard?' + query)).statusCode).toBe(400);
+    }
+    const previous = fixture.snapshot;
+    fixture.snapshot = { ...previous, rowCount: -1 };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(response.statusCode).toBe(500);
+      expect(response.json().code).toBe('SNAPSHOT_IDENTITY_INVALID');
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
+  it('never signs a stale or still refreshing snapshot as installed runtime evidence', async () => {
+    const previous = fixture.snapshot;
+    try {
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, readModel: { state: 'refreshing', reason: 'SOURCE_CHANGED' },
+      } } as DataSnapshot;
+      const pending = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(pending.statusCode).toBe(503);
+      expect(pending.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, sourceCoverage: { expectedDepartments: ['УО'], readDepartments: [],
+          unreadDepartments: [{ department: 'УО', reason: 'Не прочитано' }], complete: false },
+      } } as DataSnapshot;
+      const incomplete = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(incomplete.statusCode).toBe(503);
+      expect(incomplete.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, sourceCoverage: undefined,
+      } } as DataSnapshot;
+      const unknown = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(unknown.statusCode).toBe(503);
+      expect(unknown.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
   it('transmits the complete issue set once when the workspace opts into references', async () => {
     const response = await app.inject('/api/dashboard?year=2026&compact=1');
     expect(response.statusCode).toBe(200);

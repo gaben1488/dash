@@ -22,7 +22,7 @@ def three_document_candidate(path):
 
 
 @pytest.mark.parametrize('damage', ['catalog_directory', 'published_file', 'orphan_release'])
-@pytest.mark.parametrize('view', ['status', 'history'])
+@pytest.mark.parametrize('view', ['status', 'history', 'identity'])
 def test_broken_catalog_is_not_reported_as_clean_start(tmp_path, damage, view):
     root = tmp_path / 'published'
     if damage == 'published_file':
@@ -62,6 +62,54 @@ def test_status_hashes_only_published_documents(tmp_path, monkeypatch, context):
     result = json.loads(read_publication(state, 'status', **kwargs))
     assert result['latest' if context == 'latest' else 'selected']['release_id'] == release['release_id']
     assert sorted(hashed) == ['main_report.docx', 'management_report.docx', 'operational_report.docx']
+
+
+def test_release_identity_reads_only_published_evidence_and_not_live_attempt(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    first = store.publish(three_document_candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    live_status = state / 'status.json'
+    live_status.write_text('broken unrelated live attempt ' * 60000, encoding='utf-8')
+    checked = []
+    original_read = Path.read_text
+    from procurement_engine import publication_store
+    original_hash = publication_store._hash
+
+    def read(path, *args, **kwargs):
+        assert path != live_status, 'passport must not load a large unverified live attempt'
+        return original_read(path, *args, **kwargs)
+
+    def tracked_hash(path):
+        checked.append(path.name)
+        return original_hash(path)
+
+    monkeypatch.setattr(Path, 'read_text', read)
+    monkeypatch.setattr(publication_store, '_hash', tracked_hash)
+    light = read_publication(state, 'identity')
+    value = json.loads(light)
+    assert set(value) == {'latest'}
+    assert value['latest'] == {key: first[key] for key in (
+        'release_id', 'snapshot_id', 'rules_version', 'renderer_version', 'cutoff_at')}
+    assert len(light) < 1024
+    assert sorted(checked) == ['main_report.docx', 'management_report.docx', 'operational_report.docx']
+    assert live_status.exists()
+    assert (state / 'status.json').read_bytes() != b''
+
+    with pytest.raises(PublicationError, match='PUBLICATION_CONTEXT_INVALID'):
+        read_publication(state, 'identity', first['release_id'])
+    with pytest.raises(PublicationError, match='PUBLICATION_CONTEXT_INVALID'):
+        read_publication(state, 'identity', selection=('2026-09-30', 2026, 3))
+    (store.releases / first['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        read_publication(state, 'identity')
+
+
+def test_empty_identity_read_has_no_side_effects(tmp_path):
+    state = tmp_path / 'not-started'
+    assert json.loads(read_publication(state, 'identity')) == {'latest': None}
+    assert not state.exists()
 
 
 @pytest.mark.parametrize('view', ['main', 'supplement', 'operational', 'dashboard'])

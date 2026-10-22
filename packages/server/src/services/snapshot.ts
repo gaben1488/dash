@@ -449,7 +449,21 @@ function announceSnapshot(snapshot: DataSnapshot, year: number | null): void {
   });
 }
 
-export async function getSnapshot(force = false, targetYear?: number): Promise<PipelineSnapshot> {
+/** A passive release proof must never spawn a Google read, calculation or persistence. */
+function acceptedReadOnlySnapshot(snapshot: PipelineSnapshot): boolean {
+  if (isDemoMode || snapshot.id.startsWith('demo-')
+      || snapshot.spreadsheetId !== config.google.spreadsheetId
+      || snapshot.metadata.readModel
+      || snapshot.metadata.sourceCoverage?.complete !== true
+      || Object.values(deptLoadMeta).some(meta => meta.error) || svodLoadFailure) return false;
+  const receipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
+    ...cachedDeptSheetData, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}),
+  });
+  return receipt !== null && snapshot.metadata.sourceReceipt === receipt
+    && currentCalculationContextMatches(snapshot);
+}
+
+export async function getSnapshot(force = false, targetYear?: number, passive = false): Promise<PipelineSnapshot> {
   // Год: валидный → этот год; иначе undefined = ВСЕ ГОДЫ (базовый вид = сумма за все
   // годы, req 4). НЕ коэрсим в currentYear — запрос без года агрегирует все годы.
   const year = Number.isInteger(targetYear) && (targetYear as number) >= 2020 && (targetYear as number) <= 2100
@@ -461,6 +475,19 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const ttl = config.cache.ttlSeconds * 1000;
 
   const cached = cachedSnapshots.get(cacheKey);
+  if (passive) {
+    // The installed-runtime passport is an observation, not a refresh request.
+    // Accepted memory or the same saved SQLite scope is sufficient; never queue
+    // a build or substitute an older/incomplete/other-year snapshot.
+    if (!force && !isDemoMode) {
+      if (cached && cached.generation === cacheGeneration && cached.timestamp > 0
+          && acceptedReadOnlySnapshot(cached.snapshot)) return recordSnapshotRead(cached.snapshot);
+      const persisted = loadLatestSavedSnapshot(year);
+      if (persisted && acceptedReadOnlySnapshot(persisted)) return recordSnapshotRead(persisted);
+    }
+    throw Object.assign(new Error('Проверенный снимок для паспорта не готов.'),
+      { code: 'SNAPSHOT_NOT_READY', statusCode: 503 });
+  }
   // A valid calculation belongs to an input generation, not a five-minute TTL.
   // Source/decision changes explicitly invalidate it. Retrying a failed or
   // interrupted build still uses TTL; a page visit alone never creates data.
@@ -480,13 +507,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
       ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
       : cached.snapshot;
     if (previous && needsStorageRead) {
-      const receipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
-        ...cachedDeptSheetData, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}),
-      });
-      if (receipt && previous.metadata.sourceReceipt === receipt
-        && previous.metadata.sourceCoverage?.complete === true
-        && !Object.values(deptLoadMeta).some(meta => meta.error) && !svodLoadFailure
-        && currentCalculationContextMatches(previous)) {
+      if (acceptedReadOnlySnapshot(previous)) {
         rememberSnapshot(cacheKey, previous, now);
         return recordSnapshotRead(previous);
       }

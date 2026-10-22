@@ -34,6 +34,9 @@ vi.mock('../config.js', () => ({
     cache: { ttlSeconds: 300 },
   },
   isDemoMode: false,
+  // The retry contract exercises a generic non-master sheet. Registered masters
+  // are checked against their reviewed 34-field header in separate source tests.
+  DEPARTMENT_SPREADSHEETS: {},
 }));
 
 /** Отказ googleapis: числовой код в `status`, как его отдаёт библиотека. */

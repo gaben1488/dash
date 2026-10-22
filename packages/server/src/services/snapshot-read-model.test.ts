@@ -39,6 +39,16 @@ async function seed() {
   return { source, db, schema, saved, raw, reject, resolve };
 }
 
+it('passive passport read rejects an unproved saved model without starting a refresh', async () => {
+  const { source, db, schema, raw } = fixture;
+  const rejected = await source.getSnapshot(false, 2026, true)
+    .then(() => 'UNEXPECTED_SUCCESS', (error: { code?: string }) => error.code);
+  expect(rejected).toBe('SNAPSHOT_NOT_READY');
+  await new Promise(resolve => setImmediate(resolve));
+  expect(google.read).not.toHaveBeenCalled();
+  expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(raw);
+});
+
 it('returns the same-scope persisted model while one slow background import serves all readers', async () => {
   const { source, db, schema, saved, raw, reject } = fixture;
   const scan = vi.spyOn(db.$client, 'prepare');
@@ -348,11 +358,24 @@ it('reuses a fully accepted saved calculation after restart without a Google rea
     { version: 'fixture-main-v1', modifiedTime: null }, { fileId: config.google.spreadsheetId, values: [] });
   const saved = calculateSnapshot({ spreadsheetId: config.google.spreadsheetId, asOf: new Date('2026-10-21T00:00:00Z'),
     sheetRows: rows, batchGetData: [], reportMap: REPORT_MAP, targetYear: 2026, officialYear: 2026 });
-  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId);
+  // The source receipt is valid only when the exact primary books and derived
+  // SVOD are already accepted by this same reader. Stored watermark rows alone
+  // do not establish a current model and must not open the passive passport.
+  const acceptedBooks = Object.fromEntries(Object.entries(rows).map(([book, values]) =>
+    [book, { values, formulas: [], sheetName: book }]));
+  source.setDeptSheetCache(acceptedBooks);
+  source.setSvodGridCache([]);
+  saved.metadata.sourceReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId,
+    { ...acceptedBooks, [SVOD_WATERMARK_KEY]: { values: [] } });
+  expect(saved.metadata.sourceReceipt).not.toBeNull();
   saved.metadata.sourceCoverage = departmentCoverage(Object.keys(rows), Object.keys(rows));
   await source.saveSnapshot(saved);
   const count = db.select().from(schema.snapshots).all().length;
   google.read.mockClear();
+  const passive = await source.getSnapshot(false, 2026, true);
+  expect(passive.id).toBe(saved.id);
+  expect(passive.createdAt).toBe(saved.createdAt);
+  expect(google.read).not.toHaveBeenCalled();
   for (let n = 0; n < 2; n++) {
     const result = await source.getSnapshot(false, 2026);
     expect(result.id).toBe(saved.id); expect(result.createdAt).toBe(saved.createdAt);

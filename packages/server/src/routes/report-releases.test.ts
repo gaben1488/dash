@@ -50,6 +50,31 @@ it('does not acknowledge a refresh when durable admission fails', async () => {
   await app.close();
 });
 
+it('provides a small verified release identity through the same publication reader', async () => {
+  const app = Fastify();
+  const receipt = { release_id: 'REL-' + 'a'.repeat(64), snapshot_id: 'frozen-snapshot',
+    rules_version: 'v1', renderer_version: 'r1', cutoff_at: '2026-10-20T10:00:00Z' };
+  const read = vi.fn(async (view: string) => Buffer.from(JSON.stringify(
+    view === 'identity' ? { latest: receipt } : { latest: { ...receipt, automation_assurance: { full: true } } })));
+  await app.register(reportReleaseRoutes, { read });
+  const small = await app.inject('/api/report-releases?identity=1');
+  expect(small.statusCode).toBe(200);
+  expect(small.headers['cache-control']).toBe('private, no-store');
+  expect(small.json()).toEqual({ latest: receipt });
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(read).toHaveBeenCalledWith('identity', undefined, undefined, expect.any(AbortSignal));
+  for (const query of ['identity=0', 'identity=1&date=2026-10-20&year=2026&quarter=4', 'identity=1&identity=1']) {
+    expect((await app.inject('/api/report-releases?' + query)).statusCode).toBe(400);
+  }
+  const pinned = '/api/report-releases/' + receipt.release_id + '/status?identity=1';
+  expect((await app.inject(pinned)).statusCode).toBe(400);
+  expect(read).toHaveBeenCalledTimes(1);
+  const existing = await app.inject('/api/report-releases');
+  expect(existing.json().latest.automation_assurance.full).toBe(true);
+  expect(read).toHaveBeenLastCalledWith('status', undefined, undefined, expect.any(AbortSignal));
+  await app.close();
+});
+
 it('reads a bounded history page separately from the selected release detail', async () => {
   const app = Fastify();
   const read = vi.fn(async () => Buffer.from('{"releases":[],"next":null}'));
