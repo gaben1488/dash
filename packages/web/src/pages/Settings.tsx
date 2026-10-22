@@ -117,6 +117,9 @@ export function SettingsPage() {
   const [saveSourceFeedback, setSaveSourceFeedback] = useState<Record<string, Feedback>>({});
 
   const [refreshFeedback, setRefreshFeedback] = useState<Feedback>({ state: 'idle' });
+  const [deepChecking, setDeepChecking] = useState(false);
+  const [deepCheck, setDeepCheck] = useState<Awaited<ReturnType<typeof api.checkSourceIntegrityDeep>> | null>(null);
+  const [deepCheckError, setDeepCheckError] = useState<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Соответствие ячеек ────────────────────────────────── */
@@ -239,7 +242,9 @@ export function SettingsPage() {
   /* ── Действия: источники ───────────────────────────────── */
 
   const handleRefreshAll = async () => {
-    if (refreshFeedback.state === 'loading') return;
+    if (refreshFeedback.state === 'loading' || deepChecking) return;
+    setDeepCheck(null); // result of a previous deep read is no longer current
+    setDeepCheckError(null);
     setRefreshFeedback({ state: 'loading', message: 'Читаем книги заново…' });
     if (refreshTimerRef.current) { clearTimeout(refreshTimerRef.current); refreshTimerRef.current = null; }
 
@@ -267,6 +272,27 @@ export function SettingsPage() {
     } catch (err) {
       setRefreshFeedback({ state: 'error', message: `Книги не перечитаны. ${humanizeRequestError(err)}` });
       refreshTimerRef.current = setTimeout(() => setRefreshFeedback({ state: 'idle' }), 12000);
+    }
+  };
+
+  const handleDeepCheck = async () => {
+    if (deepChecking || refreshFeedback.state === 'loading' || validatingAll) return;
+    setDeepChecking(true);
+    setDeepCheck(null);
+    setDeepCheckError(null);
+    try {
+      // One explicit, read-only request. Ordinary webhook refreshes stay cheap.
+      const result = await api.checkSourceIntegrityDeep();
+      if (!result || typeof result.complete !== 'boolean' || !Array.isArray(result.books)) {
+        throw new Error('Сервер не подтвердил результат углублённой проверки');
+      }
+      setDeepCheck(result);
+      // Only refresh the on-screen source status from server memory.
+      await fetchSourcesData();
+    } catch (err) {
+      setDeepCheckError(humanizeRequestError(err));
+    } finally {
+      setDeepChecking(false);
     }
   };
 
@@ -537,6 +563,9 @@ SQLITE_PATH=./data/aemr.db
   const totalRows = rowsKnown.reduce((sum, s) => sum + (s.rows ?? 0), 0);
   const okSources = sources.filter(s => s.status === 'ok').length;
   const errorSources = sources.filter(s => s.status === 'error').length;
+  const deepParsedBooks = deepCheck?.books.filter(b => b.analyzed && b.metadataRead).length ?? 0;
+  const deepFormulaDefects = deepCheck?.books.reduce((sum, b) => sum + (b.formulaDefects ?? 0), 0) ?? 0;
+  const deepMetadataRemarks = deepCheck?.books.reduce((sum, b) => sum + (b.metadataRemarks ?? 0), 0) ?? 0;
 
   // Диагностика собирается из того же состояния, что и остальная страница —
   // второго источника правды о поломках не заводим.
@@ -706,7 +735,7 @@ SQLITE_PATH=./data/aemr.db
               </span>
               <button
                 onClick={handleRefreshAll}
-                disabled={refreshFeedback.state === 'loading'}
+                disabled={refreshFeedback.state === 'loading' || deepChecking}
                 className={clsx(
                   'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition',
                   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
@@ -846,9 +875,68 @@ SQLITE_PATH=./data/aemr.db
                       : <CheckCircle2 size={11} aria-hidden="true" />}
                     Проверить данные во всех книгах
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeepCheck()}
+                    disabled={deepChecking || validatingAll || refreshFeedback.state === 'loading'}
+                    title="Принудительное чтение значений и 11 формульных колонок, защит, проверок ввода и количества правил оформления. Google Таблицы не изменяются."
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition disabled:opacity-50 disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                  >
+                    {deepChecking
+                      ? <Loader2 size={11} className="animate-spin" aria-hidden="true" />
+                      : <Search size={11} aria-hidden="true" />}
+                    {deepChecking ? 'Проверяем формулы…' : 'Глубокая проверка книг'}
+                  </button>
                   {lastRefreshed && <span className="ml-auto">Читались: {timeAgo(lastRefreshed)}</span>}
                   {sourcesLoading && <Loader2 size={12} className="animate-spin text-blue-500 ml-1" aria-label="Обновляем список" />}
                 </div>
+
+                {(deepChecking || deepCheckError || deepCheck) && (
+                  <section
+                    aria-label="Результат углублённой проверки источников"
+                    aria-live="polite"
+                    aria-busy={deepChecking}
+                    className={clsx('mb-4 rounded-xl border px-4 py-3 text-xs space-y-2', TILE_SKIN)}
+                  >
+                    {deepChecking && <p className="text-zinc-600 dark:text-zinc-300">Принудительно читаем значения, формулы и настройки восьми книг…</p>}
+                    {deepCheckError && (
+                      <p className="text-red-700 dark:text-red-300">
+                        Проверка не выполнена: {deepCheckError}. Предыдущее состояние не считается новым результатом.
+                      </p>
+                    )}
+                    {deepCheck && (
+                      <>
+                        <p className="font-semibold text-zinc-800 dark:text-zinc-100">
+                          {deepCheck.complete ? 'Чтение завершено' : 'Чтение неполное'}:
+                          {' '}{deepParsedBooks} из {deepCheck.expectedBooks} книг проверены по формулам и настройкам.
+                          {' '}Обнаружено: {deepFormulaDefects} замечаний к формулам и {deepMetadataRemarks} к настройкам
+                          {deepParsedBooks < deepCheck.expectedBooks ? ' (только по прочитанным книгам)' : ''}.
+                        </p>
+                        <p className="text-zinc-600 dark:text-zinc-400">
+                          Сверены формульные колонки, защиты, проверки ввода и количество правил условного форматирования.
+                          Сами условия форматирования не вычисляются. Новая недельная копия не создаётся;
+                          отсутствие первого недельного среза проверке не мешает.
+                          {' '}Проверено: {timeAgo(deepCheck.at)}.
+                        </p>
+                        <details className="text-zinc-700 dark:text-zinc-300">
+                          <summary className="cursor-pointer select-none font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">
+                            Результат по каждой книге
+                          </summary>
+                          <ul className="mt-2 space-y-1 pl-3">
+                            {deepCheck.books.map(book => (
+                              <li key={book.book}>
+                                <strong>{book.book}:</strong>{' '}
+                                {book.analyzed && book.metadataRead
+                                  ? `строк проверено ${book.rowsJudged}, замечаний по формулам ${book.formulaDefects}, по настройкам ${book.metadataRemarks}`
+                                  : `проверка неполная — ${book.problems.join('; ') || 'нет подтверждения чтения'}`}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </>
+                    )}
+                  </section>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {sources.map(src => {
