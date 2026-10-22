@@ -457,6 +457,10 @@ function parseCellAddress(raw: unknown): { letter: string; row: number } | null 
  */
 export interface JournalRecord {
   source?: PlanEventSource;
+  /** Canonical source identity from one acquisition; never a sheet-row coordinate. */
+  sourceEventIdentity?: string;
+  /** Precision of the source's original clock; not guessed from pseudo-midnight. */
+  sourceTimePrecision?: JournalTimePrecision;
   /**
    * A «Лист» — имя листа книги. ВНИМАНИЕ: имя не совпадает с именем управления
    * во всех книгах — УФБП пишет «УФБП», а УО пишет «ВСЕ» (замер 18.08). Поэтому
