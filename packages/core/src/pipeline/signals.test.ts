@@ -2518,3 +2518,22 @@ describe('economy mark is evaluated at the supplied snapshot day', () => {
     expect(rule.check({ cells, rowIndex: 4, sheet: 'УКСиМП', classification: 'procurement', asOf: new Date(NaN) }).passed).toBe(true);
   });
 });
+
+describe('integrated hotfix: G is required as soon as a procurement has an ID', () => {
+  it('flags empty G for future planning ID 12/1 without monetary rows', () => {
+    const flags = detectSignals(makeCells({
+      A: '12/1', D: '', G: '', H: null, I: null, J: null, K: null,
+      N: '31.12.2026', Q: 'Х',
+    }), REF_DATE);
+    expect(flags.dataQuality).toBe(true);
+    expect(flags.overdue).toBe(false);
+  });
+
+  it('does not call an unnumbered unfinished draft a missing-subject procurement', () => {
+    const flags = detectSignals(makeCells({
+      A: '', D: '', G: '', H: null, I: null, J: null, K: null,
+      N: '31.12.2026', Q: 'Х',
+    }), REF_DATE);
+    expect(flags.dataQuality).toBe(false);
+  });
+});
