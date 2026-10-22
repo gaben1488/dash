@@ -140,7 +140,13 @@ export function ChangesSection({ since, depts = [] }: {
    */
   depts?: readonly string[];
 }) {
-  const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
+  const [data, setData] = useState<{
+    since: string;
+    records: ChangeRecord[];
+    coverage?: Record<string, { rawRows: number; parsed: number; dayOnly: number;
+      unparsed: number; nonCell: number; invalidTime: number }>;
+    failedDepts?: string[];
+  } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +203,12 @@ export function ChangesSection({ since, depts = [] }: {
   }
 
   const sinceRu = formatDateCell(data.since);
+  const affected = Object.entries(data.coverage ?? {}).filter(([dept]) =>
+    deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
+  const unparsed = affected.reduce((sum, [, state]) => sum + state.unparsed, 0);
+  const nonCell = affected.reduce((sum, [, state]) => sum + state.nonCell, 0);
+  const failed = (data.failedDepts ?? []).filter(dept =>
+    deptSet.size === 0 || deptSet.has(toCanonicalDeptId(dept)));
   // Паспорт периметра ленты: чьи книги, с какого момента и сколько правок в
   // этом периметре (канон п.58а — подпись строится из ДАННЫХ, по которым
   // посчитано число, а не из бейджа шапки).
@@ -214,7 +226,17 @@ export function ChangesSection({ since, depts = [] }: {
         )}
       </div>
 
-      {methodChanges.length > 0 && (
+      {(failed.length > 0 || unparsed > 0) && (
+         <p role="status" className="text-[12px] text-amber-700 dark:text-amber-300">
+           Журнал источников прочитан не полностью: {failed.length > 0
+             ? `не ответили: ${failed.join(', ')}; ` : ''}
+           неразобранных записей: {unparsed}
+           {nonCell > 0 ? ` (из них ${nonCell} массовых или структурных операций)` : ''}.
+           Это не ноль изменений: полнота требует сравнения снимков источников.
+         </p>
+       )}
+
+       {methodChanges.length > 0 && (
         <div>
           <div className="mb-1 text-[12px] font-medium text-violet-700 dark:text-violet-400">
             Смена способа определения поставщика{' '}
