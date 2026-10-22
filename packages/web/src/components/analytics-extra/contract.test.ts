@@ -80,22 +80,25 @@ describe('контроль пропавших: сводка соответств
     const uo = { sequence: sequence(3, 1, 2) };
     const ud = { sequence: sequence(9, 2, 4) };
     expect(scopedIntegrityTotals([uo, ud])).toEqual({
-      gapCount: 12, duplicates: 3, countableWithoutSeq: 6,
+      gapCount: 12, duplicates: 3, countableWithoutSeq: 6, checkedBooks: 2, unreadBooks: 0,
     });
     expect(scopedIntegrityTotals([uo])).toEqual({
-      gapCount: 3, duplicates: 1, countableWithoutSeq: 2,
+      gapCount: 3, duplicates: 1, countableWithoutSeq: 2, checkedBooks: 1, unreadBooks: 0,
     });
     expect(scopedIntegrityTotals([ud])).toEqual({
-      gapCount: 9, duplicates: 2, countableWithoutSeq: 4,
+      gapCount: 9, duplicates: 2, countableWithoutSeq: 4, checkedBooks: 1, unreadBooks: 0,
     });
   });
 
   it('не считает непрочитанную книгу ни подтверждённым нулём, ни нарушением', () => {
     expect(scopedIntegrityTotals([{ sequence: null }, { sequence: sequence(2, 1, 3) }])).toEqual({
-      gapCount: 2, duplicates: 1, countableWithoutSeq: 3,
+      gapCount: 2, duplicates: 1, countableWithoutSeq: 3, checkedBooks: 1, unreadBooks: 1,
     });
     expect(scopedIntegrityTotals([])).toEqual({
-      gapCount: 0, duplicates: 0, countableWithoutSeq: 0,
+      gapCount: 0, duplicates: 0, countableWithoutSeq: 0, checkedBooks: 0, unreadBooks: 0,
+    });
+    expect(scopedIntegrityTotals([{ sequence: null }])).toEqual({
+      gapCount: 0, duplicates: 0, countableWithoutSeq: 0, checkedBooks: 0, unreadBooks: 1,
     });
   });
 });
