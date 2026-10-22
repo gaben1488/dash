@@ -13,7 +13,7 @@
  * по строке целиком: иначе тест врал бы о том, что именно он проверил.
  */
 import { describe, expect, it } from 'vitest';
-import { LEVEL_LABEL, SCALE_TITLE, addressText, fmtTys } from './contract';
+import { LEVEL_LABEL, SCALE_TITLE, addressText, fmtTys, scopedIntegrityTotals, type SequenceReportDto } from './contract';
 
 /** Части подписи денег без оглядки на род пробела между разрядами. */
 const moneyParts = (value: number): string[] => fmtTys(value).split(/\s+/u);
@@ -56,5 +56,34 @@ describe('внутренние коды на экран не выходят (п�
   it('шкалы названы вопросом читателя, а не ключом', () => {
     expect(SCALE_TITLE.typo).toBe('Похоже на опечатку');
     expect(SCALE_TITLE.fitted).toBe('Похоже на подгон');
+  });
+});
+
+describe('контроль: фильтр управления, охват и честная неизвестность', () => {
+  const seq = (gap: number, dup: number): SequenceReportDto => ({
+    rows: 10, countable: 10, numbered: 10, countableWithoutSeq: 0,
+    coveragePct: 100, range: null, gaps: [], gapCount: gap,
+    duplicates: Array.from({ length: dup }, (_, i) => ({
+      rowSeq: String(i), sheetRows: [4, 5], subjects: ['A', 'B'],
+    })),
+    unnumbered: [], note: '',
+  });
+  it('не показывает районные нарушения внутри одного ГРБС', () => {
+    const a = { sequence: seq(1, 2) };
+    const b = { sequence: seq(9, 3) };
+    expect(scopedIntegrityTotals([a, b])).toMatchObject({
+      gapCount: 10, duplicates: 5, checkedBooks: 2, unreadBooks: 0,
+    });
+    expect(scopedIntegrityTotals([a])).toMatchObject({
+      gapCount: 1, duplicates: 2, checkedBooks: 1, unreadBooks: 0,
+    });
+  });
+  it('книги с неизвестной нумерацией исключены из знаменателя, но показаны', () => {
+    expect(scopedIntegrityTotals([{ sequence: null }, { sequence: seq(0, 0) }])).toMatchObject({
+      gapCount: 0, duplicates: 0, checkedBooks: 1, unreadBooks: 1,
+    });
+    expect(scopedIntegrityTotals([{ sequence: null }])).toMatchObject({
+      checkedBooks: 0, unreadBooks: 1,
+    });
   });
 });
