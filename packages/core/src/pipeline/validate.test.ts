@@ -609,7 +609,7 @@ describe('СВОД — хотфикс: эксперимент с 279-й стро
     const rule = makeRule({
       scope: 'both',
       check: ctx => {
-        seen.push(ctx.allRows.map(row => row.rowIndex));
+        seen.push(ctx.allRows?.map(row => row.rowIndex) ?? []);
         return { passed: true };
       },
     });
