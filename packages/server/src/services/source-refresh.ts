@@ -220,12 +220,35 @@ function countFormulaCells(formulas: unknown[][]): number {
  */
 function deliverFormulas(
   data: Record<string, DeptSheetResult>,
+  errors: Record<string, string>,
+  requested: boolean,
   at: string,
   log?: { warn: (msg: string) => void },
 ): string[] {
   const delivered: string[] = [];
+  const remember = (note: FormulaDeliveryNote, verdict: BookFormulaVerdict | null): void => {
+    // Attempt and verdict are one SQLite write. A read failure is also an
+    // attempt: the previous result remains historical, not current.
+    try {
+      saveFormulaAudit(note, verdict);
+      note.persisted = true;
+    } catch (err) {
+      note.persisted = false;
+      note.failedBecause = [note.failedBecause, `результат не сохранён: ${(err as Error).message}`]
+        .filter(Boolean).join('; ');
+      log?.warn(`Состояние проверки формул книги «${note.book}» не сохранено: ${(err as Error).message}`);
+    }
+    formulaNotes.set(note.book, note);
+  };
+
   for (const [book, result] of Object.entries(data)) {
-    if (!result.formulasRead) continue;
+    if (!result.formulasRead) {
+      // A normal values-only refresh MUST NOT replace the last formula check.
+      if (requested) remember({
+        book, at, cells: 0, handled: false, failedBecause: 'формулы не получены в этом чтении',
+      }, null);
+      continue;
+    }
     delivered.push(book);
     const note: FormulaDeliveryNote = {
       book,
@@ -252,18 +275,19 @@ function deliverFormulas(
     } else {
       note.failedBecause = 'разбор формул не подключён';
     }
-    // Попытка и вердикт пишутся ОДНОЙ записью: рестарт никогда не должен
-    // соединять сегодняшнюю доставку с вчерашним «дефектов нет».
-    try {
-      saveFormulaAudit(note, verdict);
-      note.persisted = true;
-    } catch (err) {
-      note.persisted = false;
-      note.failedBecause = [note.failedBecause, `результат не сохранён: ${(err as Error).message}`]
-        .filter(Boolean).join('; ');
-      log?.warn(`Состояние проверки формул книги «${book}» не сохранено: ${(err as Error).message}`);
+    remember(note, verdict);
+  }
+
+  if (requested) {
+    for (const [book, error] of Object.entries(errors)) {
+      remember({
+        book,
+        at,
+        cells: 0,
+        handled: false,
+        failedBecause: `книга не прочитана: ${classifySourceFailure(error)}`,
+      }, null);
     }
-    formulaNotes.set(book, note);
   }
   return delivered.sort();
 }
@@ -604,7 +628,7 @@ export function refreshAllSources(log?: {
     // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
     // журнала: разбор не имеет права задержать обновление экрана, а его исход
     // обязан попасть в ту же строку журнала, что и остальной итог цикла.
-    const formulaBooks = deliverFormulas(data, at, log);
+    const formulaBooks = deliverFormulas(data, errors, options.withFormulas ?? false, at, log);
 
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
     for (const [name, result] of Object.entries(data)) {
