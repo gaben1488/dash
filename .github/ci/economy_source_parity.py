@@ -65,6 +65,14 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
             or stamp.get("report_year") != manifest["report_year"]
             or stamp.get("rules_version") != manifest.get("rules_version")):
         raise ValueError("ARTIFACT_SNAPSHOT_MISMATCH")
+    # A renderer-projected dashboard cannot silently describe a different
+    # source acquisition from the manifest that produced its Word documents.
+    expected_projection_revision = (stamp.get("source_revision")
+                                    if (model.get("contract") or {}).get("source_revision_projection") == "v1"
+                                    else None)
+    if (stamp.get("source_revision") != manifest.get("source_revision")
+            or dashboard.get("source_revision") != expected_projection_revision):
+        raise ValueError("ARTIFACT_SOURCE_REVISION_MISMATCH")
     if (dashboard.get("snapshot_id") != stamp["snapshot_id"]
             or parse_date(dashboard.get("report_date")) != as_of
             or dashboard.get("rules_version") != stamp.get("rules_version")
@@ -249,6 +257,7 @@ if __name__ == "__main__":
         allowed = {"SOURCE_BUNDLE_INVALID", "MASTER_SET_INCOMPLETE", "SOURCE_DATE_INVALID",
                    "TS_COMPARISON_FAILED", "TS_COMPARISON_SHAPE_MISMATCH",
                    "ARTIFACT_SET_INCOMPLETE", "ARTIFACT_SNAPSHOT_MISMATCH",
+                   "ARTIFACT_SOURCE_REVISION_MISMATCH",
                    "ARTIFACT_DASHBOARD_MISMATCH", "ARTIFACT_MASTER_SCOPE_MISMATCH",
                    "ARTIFACT_DOCUMENT_PLAN_MISMATCH", "ARTIFACT_HEADLINE_SCOPE_MISMATCH"}
         print(json.dumps({"state": "PROBE_FAILED", "error_type": type(error).__name__,

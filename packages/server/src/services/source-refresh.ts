@@ -34,11 +34,11 @@ import {
   noteHonestGap,
   saveWatermark,
 } from './book-watermark.js';
-import { findDept, SVOD_SHEET_NAME } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, findDept, SVOD_SHEET_NAME, validateMasterSourceHeader } from '@aemr/shared';
 import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
 import { diffBook, isSilent } from './live-diff.js';
 import { classifySourceFailure, isTransientSourceFailure } from './source-failure.js';
-import { logSnapshotChange } from './source-log.js';
+import { logSnapshotChange, logSourceFailure } from './source-log.js';
 
 export interface SourceRefreshResult {
   loaded: string[];
@@ -107,6 +107,18 @@ function seedFromWatermarks(): void {
     if (book === SVOD_WATERMARK_KEY && reading.fileId === config.google.spreadsheetId) {
       setSvodGridCache(reading.values, mark.parsedAt);
     } else if (DEPARTMENT_SPREADSHEETS[book] === reading.fileId) {
+      // The stored checksum proves bytes were preserved, not that a previous
+      // reader admitted today's mandatory meanings. Do not seed an incompatible
+      // master into active KPI/rows/Word caches; keep its historical bytes and
+      // force the existing refresh path to reacquire the current source.
+      try {
+        validateMasterSourceHeader(reading.values[DEPT_HEADER_ROWS - 1] ?? []);
+      } catch {
+        logSourceFailure(`восстановление схемы источника «${book}»`, {
+          ms: 0, reason: 'MASTER_SOURCE_STORED_PROFILE_INCOMPATIBLE',
+        });
+        continue;
+      }
       restoredReadings.set(book, { values: reading.values });
       if (!currentCache[book]) {
         const sheetName = findDept(book)?.source.sheet ?? book;
@@ -597,6 +609,27 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
             .catch((error: unknown) => ({ error }))
         : Promise.resolve(null),
     ]);
+    // The report worker may have its own adapter, but its accepted matrices
+    // enter the SAME live cache and later feed API/metrics/Word. Recheck their
+    // mandatory meanings with the one shared profile before committing any
+    // report source, instead of treating a matching Drive revision as schema proof.
+    if (acquire) {
+      for (const [name, reading] of Object.entries(data)) {
+        if (!(name in sourceBooks)) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = 'REPORT_SOURCE_NOT_REGISTERED';
+          continue;
+        }
+        try {
+          validateMasterSourceHeader(reading.values?.[DEPT_HEADER_ROWS - 1] ?? []);
+        } catch (error) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = error instanceof Error && error.message.startsWith('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:')
+            ? error.message : 'MASTER_SOURCE_PROFILE_INVALID';
+        }
+      }
+    }
+
     await Promise.all(Object.keys(data).map(async name => {
       if (acquire) {
         // The full connector may have retried a changing source. Recheck its

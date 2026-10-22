@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS, DEPT_HEADER_LABELS, isMetaRow, validateMasterSourceHeader } from './column-map';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, MASTER_SOURCE_PROFILE, buildCellDict, isMetaRow, validateMasterSourceHeader } from './column-map';
 
 /**
  * Фикстура: строка 3 (шапка) листа ГРБС — снято с живой книги УЭР 2026-07-29,
@@ -79,6 +79,15 @@ describe('column-map canon (DEPT_COLUMNS)', () => {
     expect([DEPT_COLUMNS.ECONOMY_FB, DEPT_COLUMNS.ECONOMY_KB, DEPT_COLUMNS.ECONOMY_MB]).toEqual([25, 26, 27]);
     expect(DEPT_COLUMNS.FLAG).toBe(29);
   });
+});
+
+it('master source field indices are the sole mapping for all A:AH cells, including comments', () => {
+  const fields = Object.values(MASTER_SOURCE_PROFILE.fields);
+  expect(COL_LETTER_INDEX).toEqual(Object.fromEntries(fields.map(field => [field.column, field.index])));
+  const example = Array.from({ length: MASTER_SOURCE_PROFILE.columns }, (_, index) => `field-${index}`);
+  expect(buildCellDict(example)).toEqual(
+    Object.fromEntries(fields.map(field => [field.column, example[field.index]])),
+  );
 });
 
 /**

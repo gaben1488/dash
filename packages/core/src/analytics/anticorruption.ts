@@ -15,8 +15,8 @@
  * Флаги требуют проверки и не дают штрафа к дисциплине без подтверждённого нарушения.
  */
 
-import { LAW_44FZ, classifyEPReason } from './compliance-44fz.js';
-import { normalizeMethod, type DatedThreshold } from '@aemr/shared';
+import { classifyEPReason } from './compliance-44fz.js';
+import { normalizeMethod, capturedThresholdValue, type DatedThreshold } from '@aemr/shared';
 
 export type AntiCorruptionIndicator =
   | 'splitting'
@@ -54,8 +54,8 @@ export interface AntiCorruptionInput {
   /** Годовые агрегаты для #9 (доля ЕП). */
   epTotal?: number;
   totalPlan?: number;
-  /** Порог доли ЕП для роли ГРБС (по умолчанию 0.5). */
-  epShareLimit?: number;
+  /** Frozen internal threshold by role, without a fallback to today's parameters. */
+  epShareThreshold?: DatedThreshold;
   /** Frozen source-law reference for the same capture; no implicit current-day lookup. */
   epSingleThreshold?: DatedThreshold;
 }
@@ -94,8 +94,10 @@ function normalizeSubject(s: string): string {
  * bug-hunt 2026-08-08 (БАГ #1) planTotal сравнивался как рубли — предлимитная полоса
  * 480-600 тыс. требовала контрактов на полмиллиарда, недостижимо на реальных данных.
  */
-export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
-  const epRows = rows.filter(r => r.method === 'ЕП' && r.planTotal > 0);
+export function detectSplitting(rows: AntiCorruptionRow[], captured?: DatedThreshold): AntiCorruptionFlag[] {
+  const limit = capturedThresholdValue(captured, 'thousandRub');
+  if (limit === null) return [];
+  const epRows = rows.filter(r => normalizeMethod(r.method) === 'ЕП' && r.planTotal > 0);
   const groups = new Map<string, AntiCorruptionRow[]>();
   for (const r of epRows) {
     const key = normalizeSubject(r.subject);
@@ -105,8 +107,7 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
     else groups.set(key, [r]);
   }
 
-  const limit = LAW_44FZ.epSingleContractLimit; // 600 (тыс. руб.)
-  const bandLow = limit * 0.8; // 480 (тыс. руб.) — «предлимитная» полоса
+  const bandLow = limit * 0.8; // Captured reference in thousandRub, not a current-day constant.
   const flags: AntiCorruptionFlag[] = [];
 
   for (const [subj, group] of groups) {
@@ -142,8 +143,8 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
 
 /** #8 Retained legacy indicator ID; a PLAN POSITION is never an individual contract. */
 export function detectEpOverLimit(rows: AntiCorruptionRow[], captured?: DatedThreshold): AntiCorruptionFlag[] {
-  const limit = captured?.value ?? LAW_44FZ.epSingleContractLimit;
-  if (!Number.isFinite(limit) || limit <= 0) return [];
+  const limit = capturedThresholdValue(captured, 'thousandRub');
+  if (limit === null) return [];
   const flags: AntiCorruptionFlag[] = [];
   for (const r of rows) {
     if (normalizeMethod(r.method) !== 'ЕП' || !Number.isFinite(r.planTotal)) continue;
@@ -206,16 +207,21 @@ export function detectSupplierConcentration(rows: AntiCorruptionRow[]): AntiCorr
  * Оркестратор: все индикаторы по одному ГРБС → флаги + штраф дисциплины.
  */
 export function detectAntiCorruption(grbsId: string, input: AntiCorruptionInput): AntiCorruptionResult {
-  const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5, epSingleThreshold } = input;
+  const { rows, epTotal = 0, totalPlan = 0, epShareThreshold, epSingleThreshold } = input;
+  const shareLimit = capturedThresholdValue(epShareThreshold, 'ratio');
   const flags: AntiCorruptionFlag[] = [
-    ...detectSplitting(rows),
+    ...detectSplitting(rows, epSingleThreshold),
     ...detectEpOverLimit(rows, epSingleThreshold),
-    ...detectAnnualEpShare(epTotal, totalPlan, epShareLimit),
+    ...(shareLimit === null ? [] : detectAnnualEpShare(epTotal, totalPlan, shareLimit)),
     ...detectSupplierConcentration(rows),
   ];
   // Screening flags are questions for review, not evidence of a disciplinary violation.
   const disciplinaryPenalty = 0;
   return { grbsId, flags, disciplinaryPenalty, unavailableIndicators: [
+    ...(capturedThresholdValue(epSingleThreshold, 'thousandRub') === null
+      ? [{ indicator: 'ep_over_limit' as const, reason: 'В снимке отсутствует юридический ориентир с подтверждённой единицей; текущее значение не подставлено.' }] : []),
+    ...(shareLimit === null
+      ? [{ indicator: 'ep_annual_share' as const, reason: 'В снимке нет сохранённого внутреннего ориентира доли ЕП для роли ГРБС.' }] : []),
     { indicator: 'zero_competition', reason: 'Нет данных об участниках и ходе торгов; официальная экономия не измеряет конкуренцию.' },
     { indicator: 'price_inflation', reason: 'Нет сопоставимой НМЦК и ценового обоснования; экономия по AD не доказывает завышение цены.' },
   ] };

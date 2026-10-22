@@ -135,6 +135,61 @@ it('keeps an unchanged accepted generation across two idle days without Google o
   } finally { clock.mockRestore(); }
 });
 
+it('C04.01 pins the calculation day to the shared capture, not a later Dash request', async () => {
+  const { source } = fixture;
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const { dayNumberOf } = await import('@aemr/shared');
+  const revision = 'SRC-' + 'c'.repeat(64);
+  // One second before Kamchatka midnight; a later request cannot move
+  // the fact/AD gates into the next civil day of the same source revision.
+  const capturedAt = '2026-06-14T11:59:59.000Z';
+  source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
+    values: Array.from({ length: DEPT_HEADER_ROWS }, () => []),
+    formulas: [], sheetName: dept.nameShort, providerId: DEPARTMENT_SPREADSHEETS[dept.nameShort],
+    sourceRevision: revision, sourceVersion: 'shared-accepted', readAt: capturedAt,
+    formulasRead: true,
+  }])));
+  google.read.mockResolvedValue([]);
+  const snapshot = await source.getSnapshot(true, 2026);
+  expect(snapshot.metadata.sourceRevision).toBe(revision);
+  expect(snapshot.createdAt).toBe(capturedAt);
+  expect(snapshot.metadata.calculationContext?.calendar.productDay).toBe(dayNumberOf('2026-06-14'));
+
+  // A local edit does not rewrite the earlier recorded snapshot, nor may it
+  // retain the source-revision claim or its pinned old calculation instant.
+  expect(source.patchDeptSheetCacheCell(DEPARTMENTS[0].nameShort, 1, 0, 'changed')).toBe(true);
+  const next = await source.getSnapshot(true, 2026);
+  expect(next.metadata.sourceRevision).toBeUndefined();
+  expect(next.createdAt).not.toBe(capturedAt);
+  expect(source.getStoredSnapshotById(snapshot.id)?.metadata.sourceRevision).toBe(revision);
+});
+
+it('C04.01 exposes the report source revision only for one complete unchanged master capture', async () => {
+  const { source } = fixture;
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const revision = 'SRC-' + 'd'.repeat(64);
+  const names = DEPARTMENTS.map(dept => dept.nameShort);
+  expect(Object.keys(DEPARTMENT_SPREADSHEETS).sort()).toEqual([...names].sort());
+  source.setDeptSheetCache(Object.fromEntries(names.map(name => [name, {
+    values: Array.from({ length: DEPT_HEADER_ROWS }, () => []),
+    formulas: [], sheetName: name, providerId: DEPARTMENT_SPREADSHEETS[name],
+    sourceRevision: revision, sourceVersion: 'accepted-full-capture',
+    formulasRead: true, readAt: '2026-10-22T01:00:00.000Z',
+  }])));
+  google.read.mockResolvedValue([]);
+  const accepted = await source.getSnapshot(true, 2026);
+  expect(accepted.metadata.sourceCoverage?.complete).toBe(true);
+  expect(accepted.metadata.sourceRevision).toBe(revision);
+  expect(source.getStoredSnapshotById(accepted.id)?.metadata.sourceRevision).toBe(revision);
+
+  // A targeted cell write no longer proves that ALL eight masters match the
+  // report's capture; keep the original frozen revision on the old snapshot.
+  expect(source.patchDeptSheetCacheCell(names[0], 1, 0, 'edited')).toBe(true);
+  const changed = await source.getSnapshot(true, 2026);
+  expect(changed.metadata.sourceRevision).toBeUndefined();
+  expect(source.getStoredSnapshotById(accepted.id)?.metadata.sourceRevision).toBe(revision);
+});
+
 it('bounds retained scope models and serializes different scopes without delaying saved readers', async () => {
   const { source, saved, reject, db } = fixture;
   const years = [2022, 2023, 2024, 2025, 2026];
