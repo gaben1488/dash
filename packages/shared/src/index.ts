@@ -168,3 +168,5 @@ export * from './threshold-registry.js';
 // именами колонок. Модуль писался агентом, который погиб на середине;
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
+// Shared manual source inspection contract and explicit absent stages.
+export * from './source-diagnostics.js';

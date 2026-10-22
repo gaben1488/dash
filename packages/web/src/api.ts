@@ -1,4 +1,4 @@
-import type { DashboardData } from '@aemr/shared';
+import type { DashboardData, SourceDiagnosticRun, SourceDeepCheck } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -396,6 +396,10 @@ export const api = {
   validateSource: (name: string) =>
     fetchJSON<any>(`/sources/${encodeURIComponent(name)}/validate`, { method: 'POST' }),
 
+  /** One correlated (non-atomic) server-run diagnostic of books and formulas. */
+  runSourceDiagnostics: () =>
+    fetchJSON<SourceDiagnosticRun>('/sources/diagnostics/run', { method: 'POST' }),
+
   /** Валидация всех источников разом (СВОД + 8 ГРБС + «СВОД с месяцами»). */
   validateAllSources: () =>
     fetchJSON<any>('/sources/validate-all', { method: 'POST' }),
@@ -418,23 +422,7 @@ export const api = {
    * spreadsheet metadata. No separate weekly historical snapshot is created.
    */
   checkSourceIntegrityDeep: () =>
-    fetchJSON<{
-      complete: boolean;
-      at: string;
-      expectedBooks: number;
-      changedValueBooks: string[];
-      books: Array<{
-        book: string;
-        metadataRead: boolean;
-        metadataRemarks: number | null;
-        formulasRead: boolean;
-        analyzed: boolean;
-        formulaCells: number | null;
-        rowsJudged: number | null;
-        formulaDefects: number | null;
-        problems: string[];
-      }>;
-    }>('/sources/integrity/check', { method: 'POST' }),
+    fetchJSON<SourceDeepCheck>('/sources/integrity/check', { method: 'POST' }),
   getSourceIntegrity: () =>
     fetchJSON<{
       at: string;

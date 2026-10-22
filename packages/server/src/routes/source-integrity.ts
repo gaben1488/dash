@@ -25,6 +25,7 @@
  * нет» — ровно та подмена, которую запрещает канон.
  */
 import type { FastifyInstance } from 'fastify';
+import type { SourceDeepCheck, SourceDeepCheckBook } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { formulaDeliveryState, refreshAllSources } from '../services/source-refresh.js';
 import { metadataWatchState, sweepMetadata } from '../services/metadata-watch.js';
@@ -36,26 +37,8 @@ import { sourceIntegrityStorageWarnings } from '../services/source-integrity-sta
 // generate two simultaneous bursts of Google Sheets requests.
 let deepCheckInFlight: Promise<DeepSourceCheck> | null = null;
 
-export interface DeepSourceCheckBook {
-  book: string;
-  metadataRead: boolean;
-  metadataRemarks: number | null;
-  formulasRead: boolean;
-  analyzed: boolean;
-  formulaCells: number | null;
-  rowsJudged: number | null;
-  formulaDefects: number | null;
-  problems: string[];
-}
-
-export interface DeepSourceCheck {
-  complete: boolean;
-  at: string;
-  expectedBooks: number;
-  books: DeepSourceCheckBook[];
-  changedValueBooks: string[];
-  // Deliberately no snapshot ID: manual verification never seals a historical week.
-}
+export type DeepSourceCheck = SourceDeepCheck;
+type DeepSourceCheckBook = SourceDeepCheckBook;
 
 export function sourceIntegrityRoutes(app: FastifyInstance): void {
   app.get('/api/sources/integrity', async () => {

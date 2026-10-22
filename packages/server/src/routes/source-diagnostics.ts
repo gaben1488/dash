@@ -8,48 +8,15 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { SHDYU_MONTHLY_SHEET_NAME, SVOD_SHEET_NAME } from '@aemr/shared';
+import type { SourceDiagnosticRun, SourceDiagnosticStageState } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { redactFieldValue } from '../services/source-log.js';
-import { validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
-import { checkSourcesDeep, type DeepSourceCheck } from './source-integrity.js';
+import { validateAllSources } from '../services/source-validation.js';
+import { checkSourcesDeep } from './source-integrity.js';
 
-type StageState = 'complete' | 'partial' | 'failed';
-interface BaseStage {
-  state: StageState;
-  startedAt: string;
-  completedAt: string;
-  error: string | null;
-}
-interface DeepStage extends BaseStage {
-  result: DeepSourceCheck | null;
-}
-interface RowsStage extends BaseStage {
-  expectedSources: number;
-  checkedBooks: number;
-  accessOnlyBooks: number;
-  failedSources: string[];
-  results: SourceValidationResult[];
-}
-interface SkippedStage {
-  state: 'not_run';
-  reason: string;
-}
-export interface SourceDiagnosticRun {
-  schemaVersion: 'sources-diagnostics/v1';
-  runId: string;
-  startedAt: string;
-  completedAt: string;
-  status: StageState;
-  consistency: 'non_atomic';
-  stages: {
-    deep: DeepStage;
-    rows: RowsStage;
-    metrics: SkippedStage;
-    crossbook: SkippedStage;
-    text: SkippedStage;
-    history: SkippedStage;
-  };
-}
+type StageState = SourceDiagnosticStageState;
+type DeepStage = SourceDiagnosticRun['stages']['deep'];
+type RowsStage = SourceDiagnosticRun['stages']['rows'];
 
 const notRun = {
   metrics: { state: 'not_run', reason: 'Метрики не пересчитывались и их значения этим запросом не подтверждены' },
