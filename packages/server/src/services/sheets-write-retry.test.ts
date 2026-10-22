@@ -34,6 +34,7 @@ vi.mock('../config.js', () => ({
     cache: { ttlSeconds: 300 },
   },
   isDemoMode: false,
+  DEPARTMENT_SPREADSHEETS: {},
 }));
 
 /** Отказ googleapis: числовой код в `status`, как его отдаёт библиотека. */
