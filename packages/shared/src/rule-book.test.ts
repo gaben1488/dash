@@ -174,3 +174,40 @@ describe('§22 п.3 — допуск сверки итогов равен 5 ру
     });
   }
 });
+
+describe('УФ ↔ интегрированный Dash: строгое ROUND и неполные суммы', () => {
+  const cases: Array<{ id: string; total: string; components: string[] }> = [
+    { id: 'budget_sum_plan', total: 'K', components: ['H', 'I', 'J'] },
+    { id: 'budget_sum_fact', total: 'O', components: ['L', 'M', 'N'] },
+    { id: 'dept_fact_sum', total: 'Y', components: ['V', 'W', 'X'] },
+    { id: 'dept_economy_sum', total: 'AC', components: ['Z', 'AA', 'AB'] },
+  ];
+
+  for (const { id, total, components } of cases) {
+    const input = (whole: unknown, first: unknown, second: unknown = 0, third: unknown = 0) => ({
+      A: '173/18',
+      [total]: whole,
+      [components[0]]: first,
+      [components[1]]: second,
+      [components[2]]: third,
+    });
+
+    it(`${id}: 5 руб. в любую сторону уже красит УФ, 4,9 руб. нет`, () => {
+      expect(check(id, input(100.005, 100)).passed).toBe(false);
+      expect(check(id, input(99.995, 100)).passed).toBe(false);
+      expect(check(id, input(100.0049, 100)).passed).toBe(true);
+    });
+
+    it(`${id}: пустое слагаемое SUM равно нулю, но расхождение выявляется`, () => {
+      expect(check(id, input(100, 100, '')).passed).toBe(true);
+      expect(check(id, input(130, 100, '')).passed).toBe(false);
+    });
+
+    it(`${id}: нет числа итога или компонент испорчен — НЕ проверено, не PASS`, () => {
+      for (const invalid of [null, '', 'abc']) {
+        expect(check(id, input(invalid, 100)).passed).toBeNull();
+      }
+      expect(check(id, input(100, '12abc', 80)).passed).toBeNull();
+    });
+  }
+});
