@@ -10,7 +10,9 @@ import { useStore } from '../../store';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
-import { buildDrill, type DrillFilters } from '../../lib/drill';
+import type { DrillFilters } from '../../lib/drill';
+import { scatterPointDrill } from '../../lib/scatter-point-drill';
+import { conditionalEpProjection } from '../../lib/scatter-scenario';
 import { useScopedQuery } from '../../hooks/useScopedQuery';
 import { scatterScope } from '../../lib/scatter-scope';
 import type { LimitComparisonPoint as ScatterPoint } from '@aemr/shared';
@@ -39,19 +41,11 @@ function RowLink({ point, onNavigate }: {
   point: ScatterPoint;
   onNavigate: (page: 'data', filters: DrillFilters) => void;
 }) {
-  const quarter = point.quarter;
-  const target = buildDrill(
-    {
-      dept: point.department,
-      ...(quarter !== null ? { quarter } : {}),
-      method: 'КП',
-      search: point.subject,
-    },
-    'data',
-  );
-  const hint = target.warning === ''
+  const target = scatterPointDrill(point);
+  const hint = (target.warning === ''
     ? `${target.summary}. ${point.subject}`
-    : `${target.summary}. ${target.warning}`;
+    : `${target.summary}. ${target.warning}`)
+    + ' Это отбор Реестра, а не уникальная ссылка на физическую строку.';
   return (
     <button
       type="button"
@@ -77,6 +71,8 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const formatMoney = useStore((s) => s.formatMoney);
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const selectedSubordinates = useStore((s) => s.selectedSubordinates);
+  const selectedBudgets = useStore((s) => s.selectedBudgets);
+  const selectedMethods = useStore((s) => s.selectedMethods);
   const navigateTo = useStore((s) => s.navigateTo);
   const snapshotId = useStore(s => s.dashboardData?.snapshot.id);
   const dashboardLoading = useStore(s => s.loading);
@@ -106,8 +102,18 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const rows = resp?.points ?? [];
   const stats = { sumPlan: resp?.summary.limitTotal ?? 0, sumFact: resp?.summary.contractTotal ?? 0,
     reductionPct: resp?.summary.limitReductionPercent ?? null };
-  const refusalCost = stats.reductionPct !== null && epHasData && resp?.coverage.complete && !dashboardLoading && (year === 'all' || year === dataYear)
-    ? epPlan * (stats.reductionPct / 100) : null;
+  const activityAligned = selectedActivities.size === 0 && (!activityFilter || activityFilter === 'all');
+  const methodAligned = selectedMethods.size === 0
+    || (selectedMethods.has('single') && selectedMethods.has('competitive'));
+  const refusalCost = conditionalEpProjection({
+    scatter: resp, epPlan, epHasData,
+    dashboardLoading: dashboardLoading || loading || Boolean(error),
+    yearMatches: year === dataYear,
+    activityAligned, budgetAligned: selectedBudgets.size === 0,
+    searchAligned: !searchQuery?.trim(),
+    institutionAligned: selectedSubordinates.size === 0 && deptOnlyMode.size === 0,
+    methodAligned,
+  });
 
   const sortedRows = useMemo(
     () => [...rows].sort((a, b) => b.planTotal - a.planTotal),
@@ -128,6 +134,22 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   }
   if (resp && resp.excluded.unknownMethod > 0) caveats.push(`${resp.excluded.unknownMethod} строк с неподтверждённым способом не входят в конкурентную базу.`);
   if (resp && !resp.coverage.complete) caveats.push('Итоговая оценка не рассчитана: состав источников неполон.');
+  if (!activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()
+    || selectedSubordinates.size > 0 || deptOnlyMode.size > 0) {
+    caveats.push('Сценарная сумма не рассчитывается: план ЕП и конкурентную выборку нельзя подтвердить в одинаковом разрезе деятельности, бюджета, поиска или учреждения. Снимите несовместимые фильтры, если нужен общий арифметический сценарий.');
+  }
+  if (year !== dataYear) caveats.push('Сценарная сумма не рассчитывается при выборе другого года или всех лет: план ЕП относится к году загруженного среза.');
+  if (!methodAligned) caveats.push('Сценарная сумма не рассчитывается при выборе только одного способа закупки: план ЕП и конкурентная выборка больше не описывают один отбор.');
+  const scenarioUnavailable = !epHasData
+    ? 'без подтверждённого объёма ЕП оценка не считается'
+    : !resp?.coverage.complete
+      ? 'состав источников неполон — оценка не рассчитана'
+      : !resp.summary.count
+        ? 'нет сопоставимых конкурентных позиций'
+        : !methodAligned || !activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()
+          || selectedSubordinates.size > 0 || deptOnlyMode.size > 0 || year !== dataYear
+          ? 'несовместимый периметр — см. ограничения выше'
+          : 'расчёт ещё не готов';
 
   const detailId = 'cost-of-refusal-rows';
 
@@ -135,8 +157,8 @@ export function CostOfRefusal({ epPlan, epHasData }: {
     <CompetitionCard
       // Заголовок-существительное и ровно тот, каким метрика названа в базе
       // знаний («Цена отказа от конкурса»): одно имя у числа на всех экранах.
-      title="Цена отказа от конкурса"
-      subtitle="Условная оценка по разнице плана и отражённого факта конкурентных позиций. Смысл K и Y определяется источником. Эти колонки не устанавливают НМЦК или ЛБО автоматически; результат не доказывает потери от выбора ЕП."
+      title="Цена отказа от конкурса — условный сценарий"
+      subtitle="Только арифметическое сопоставление плана K и отражённого факта Y. Эти суммы сами по себе не устанавливают НМЦК, ЛБО, экономию или потерю бюджета. Сравниваемые предметы ЕП и торгов не доказаны сопоставимыми."
       icon={Scale}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.refusal_cost}
@@ -213,15 +235,15 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                 теме её отделяет янтарная подложка, а не обводка (п.129). */}
             <div className="rounded-lg border border-amber-200/70 dark:border-transparent bg-amber-50/50 dark:bg-amber-400/[0.07] px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-amber-700/80 dark:text-amber-400/80">
-                Цена отказа от конкурса
+                Условный перенос разницы на план ЕП
               </p>
               <p className="text-lg font-semibold tabular-nums text-amber-700 dark:text-amber-400 mt-0.5">
                 {refusalCost !== null ? `≈ ${formatMoney(refusalCost)}` : '—'}
               </p>
               <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70 mt-0.5">
                 {refusalCost !== null
-                  ? 'оценка, не обещание — методика ниже'
-                  : epHasData ? 'состав источников неполон — оценка не рассчитана' : 'без объёма ЕП оценка не считается'}
+                  ? 'чисто сценарная арифметика, не сумма потерь или экономии'
+                  : scenarioUnavailable}
               </p>
             </div>
           </div>
@@ -229,9 +251,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
           {/* Методика — прямо на карточке (канон п. 53: карточка диагноста). */}
           <p className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400 mt-3">
             Методика: взвешенная разница = 1 − Σ факт Y / Σ план K по конкурентным
-            позициям с отражённым фактом в выбранном периметре ({rows.length} {procWord(rows.length)};
+            позициям с отражённым фактом в выбранном периметре ({resp?.total ?? rows.length} {procWord(resp?.total ?? rows.length)};
             план {formatMoney(stats.sumPlan)}, факт {formatMoney(stats.sumFact)}).
-            Сценарная оценка = плановый объём ЕП × это снижение. Это условный перенос разницы плана и факта на объём ЕП, без доказанной причинной связи. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
+            Сценарная оценка = плановый объём ЕП × эта разница. Сравнимость предметов, цен, объёма и допзатрат не установлена, так что число не является бюджетной потерей, прогнозом или обещанной экономией. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
           </p>
 
           <div className="mt-3 flex items-center gap-3 flex-wrap">

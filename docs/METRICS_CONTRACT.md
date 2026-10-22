@@ -212,6 +212,37 @@ causal claim or NMCK substitution. A partial source perimeter does not yield
 an overall estimate. Actual tender reduction uses the monitoring registry's
 separate NMCK/auction-price contract; official economy uses AD/Z/AA/AB.
 
+### C04.03: product-wide dependency and provenance rules
+
+| Consumer | What may be shown | What must not be inferred |
+| --- | --- | --- |
+| Master rows → `GET /api/rows/scatter` | K/Y descriptive comparison, N/Q, original row index, signed AD-gated economy **separately**, coverage and exclusion counts | K/Y alone ≠ NMCK, LBO, savings, contract performance or payments |
+| Analytics scatter → Registry drill | The same source snapshot and N-based year/month, GRBS, institution, activity, recognized method, subject; row index in tooltip | A set of matching filters is **not** a unique stable row identity; duplicated subjects must be verified against the source |
+| Competition / conditional refusal scenario | Hypothetical `EP plan × weighted K/Y difference` only when source/period/organization/method/activity/budget/search/institution filters are demonstrably compatible | No proven counterfactual, causality, award-price saving, loss or legal violation |
+| Economy, Dashboard, SVOD, Pulse | Their own declared metrics and denominators; approved signed Z+AA+AB with Q and AD gate only in its official metric | The descriptive scatter ratio must not replace official savings or official SVOD classification |
+| Monitoring procedures | Verified procedure NMCK and contract/auction evidence, with its own stage and unit | A procedure method is not automatically an admissible master-book L value |
+| Frozen Report / Word / historical API | Immutable source instant, selected rule version and numerical replay; previous documents remain unchanged | Current rows or today's date do not backfill a historical fact |
+
+The primary GRBS books validate method L using `GRBS_BOOK_METHODS` (EA/EP);
+a method recognized only by the separate monitoring dictionary is not evidence
+of competitive procurement in those master books. The official non-EP bucket
+in SVOD remains a different, legacy-compatible partition and must not be
+relabelled as a verified tender. Explicit month/quarter selection is a
+calendar filter; `periodMode=week` is visual navigation, **not** a hidden
+N-date filter (see `store.ts` and `useFilteredData`). Selected sources and
+calculation instants stay pinned to the displayed snapshot; incomplete coverage
+means a *partial* subtotal, not zero or an accepted district total.
+
+Regression chain: `rows-scatter.test.ts` (raw rows → frozen API and independent
+oracle), `scatter-scope.test.ts` (week versus explicit month/quarter),
+`scatter-point-drill.test.ts` (typed raw/Recharts payload and non-unique
+row scope), `scatter-scenario.test.ts` (fail-closed scope compatibility),
+`test_c04_frozen_metric_parity.py` (source → report model → Dashboard/Word).
+A full product release still additionally requires exact-SHA CI, read-only live
+source verification, independently verified SQLite+WAL/document restore, worker
+continuity and a post-install desktop/mobile/API/Word readback. Unit green alone
+does not satisfy these gates.
+
 ## Worked Example
 
 Three source rows:
