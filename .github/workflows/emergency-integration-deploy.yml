@@ -1,0 +1,153 @@
+name: Emergency Dash integration deployment (no CI, no backup)
+
+on:
+  push:
+    branches: [emergency/integration-deploy-20261023]
+    paths: [.github/workflows/emergency-integration-deploy.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build exact integration and replace live containers
+    if: github.repository == 'gaben1488/dash' && github.ref == 'refs/heads/emergency/integration-deploy-20261023'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    env:
+      TARGET_SHA: 17ab1ad8688ca536251c2ba697c8d59ba7e31a8a
+      VPS_HOST: '193.233.91.162'
+    steps:
+      - name: Check out exact application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Build application images only (no tests and no existing CI gate)
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          docker build --label "org.opencontainers.image.revision=$TARGET_SHA" -f deploy/Dockerfile.server -t "aemr-server:emergency-$TARGET_SHA" .
+          docker build --label "org.opencontainers.image.revision=$TARGET_SHA" -f deploy/Dockerfile.web -t "aemr-web:emergency-$TARGET_SHA" .
+          echo 'EXACT_INTEGRATION_IMAGES_BUILT'
+      - name: Transfer immutable image contents (no state backup)
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/dash-emergency"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/dash-emergency/key"
+          ssh-keyscan -T 10 -H "$VPS_HOST" > "$RUNNER_TEMP/dash-emergency/known_hosts" 2>/dev/null
+          test -s "$RUNNER_TEMP/dash-emergency/known_hosts"
+          remote() {
+            ssh -i "$RUNNER_TEMP/dash-emergency/key" -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o UserKnownHostsFile="$RUNNER_TEMP/dash-emergency/known_hosts" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$VPS_HOST" "$@"
+          }
+          remote "sudo -n test -f /home/aemr/dash/deploy/.env.production && sudo -n docker inspect aemr-server-1 aemr-web-1 aemr-caddy-1 >/dev/null"
+          available=$(remote "sudo -n df -PB1 /var/lib/docker" | awk 'NR==2 {print $4}')
+          test "$available" -ge 2147483648 || { echo 'VPS_IMAGE_STORAGE_INSUFFICIENT'; exit 2; }
+          docker save "aemr-server:emergency-$TARGET_SHA" "aemr-web:emergency-$TARGET_SHA" | gzip -1 | remote "gzip -dc | sudo -n docker load >/dev/null"
+          remote "sudo -n docker image inspect 'aemr-server:emergency-$TARGET_SHA' 'aemr-web:emergency-$TARGET_SHA' >/dev/null"
+          echo 'EXACT_INTEGRATION_IMAGES_ON_VPS'
+      - name: Switch services, verify health, preserve previous image tags
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          key="$RUNNER_TEMP/dash-emergency/key"
+          known="$RUNNER_TEMP/dash-emergency/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$key"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o UserKnownHostsFile="$known" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$VPS_HOST" "sudo -n bash -s -- '$TARGET_SHA' '$GITHUB_RUN_ID'" <<'REMOTE'
+          set -Eeuo pipefail
+          umask 077
+          sha="$1"
+          run="$2"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$run" =~ ^[0-9]+$ ]]
+          exec 9>>/run/lock/aemr-maintenance.lock
+          flock -x -w 90 9 || { echo 'EXISTING_RELEASE_LOCK_BUSY'; exit 2; }
+          test ! -e /var/lib/aemr/pending-release.json
+          test ! -e /var/lib/aemr/release-recovery-progress.json
+          base=/home/aemr/dash/deploy
+          test -f "$base/docker-compose.yml"
+          test -f "$base/.env.production"
+          compose() { docker compose -f "$base/docker-compose.yml" --env-file "$base/.env.production" --profile reports "$@"; }
+          compose config --quiet
+          old_server=$(docker inspect --format '{{.Image}}' aemr-server-1)
+          old_web=$(docker inspect --format '{{.Image}}' aemr-web-1)
+          old_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{.Name}}{{end}}{{end}}' aemr-server-1)
+          test -n "$old_volume"
+          candidate_server=$(docker image inspect --format '{{.Id}}' "aemr-server:emergency-$sha")
+          candidate_web=$(docker image inspect --format '{{.Id}}' "aemr-web:emergency-$sha")
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "aemr-server:emergency-$sha")" = "$sha"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "aemr-web:emergency-$sha")" = "$sha"
+          worker_was_running=0
+          if test "$(docker inspect --format '{{.State.Running}}' aemr-report-worker-1 2>/dev/null || echo false)" = true; then worker_was_running=1; fi
+          previous_server="aemr-server:before-emergency-$run"
+          previous_web="aemr-web:before-emergency-$run"
+          docker tag "$old_server" "$previous_server"
+          docker tag "$old_web" "$previous_web"
+          receipt="/var/lib/aemr/emergency-release-$run.txt"
+          (printf 'candidate=%s\nprevious_server=%s\nprevious_web=%s\nprevious_volume=%s\n' "$sha" "$old_server" "$old_web" "$old_volume") > "$receipt"
+          chmod 600 "$receipt"
+          replaced=0
+          rollback() {
+            status="$1"
+            trap - ERR
+            if test "$replaced" -eq 1; then
+              set +e
+              docker tag "$previous_server" aemr-server:latest
+              docker tag "$previous_web" aemr-web:latest
+              compose up -d --no-build --no-deps --force-recreate server web
+              if test "$worker_was_running" -eq 1; then compose up -d --no-build --no-deps --force-recreate report-worker; fi
+              echo 'EMERGENCY_DEPLOY_FAILED_PREVIOUS_IMAGES_RESTORED_ATTEMPTED_NO_DB_ROLLBACK'
+            fi
+            exit "$status"
+          }
+          trap 'rollback "$?"' ERR
+          replaced=1
+          docker tag "$candidate_server" aemr-server:latest
+          docker tag "$candidate_web" aemr-web:latest
+          if test "$worker_was_running" -eq 1; then docker stop --time=75 aemr-report-worker-1 >/dev/null; fi
+          compose up -d --no-build --no-deps --force-recreate server web
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if test "$(docker inspect --format '{{.State.Health.Status}}' aemr-server-1 2>/dev/null || echo none)" = healthy &&
+               docker exec aemr-server-1 curl -fsS --max-time 5 http://127.0.0.1:3000/api/health >/dev/null 2>&1 &&
+               docker exec aemr-web-1 wget -q -T 5 -O /dev/null http://127.0.0.1/index.html >/dev/null 2>&1; then
+              healthy=1
+              break
+            fi
+            sleep 3
+          done
+          test "$healthy" -eq 1
+          test "$(docker inspect --format '{{.Image}}' aemr-server-1)" = "$candidate_server"
+          test "$(docker inspect --format '{{.Image}}' aemr-web-1)" = "$candidate_web"
+          test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{.Name}}{{end}}{{end}}' aemr-server-1)" = "$old_volume"
+          docker exec aemr-caddy-1 wget -q -T 5 -O /dev/null http://server:3000/api/health
+          docker exec aemr-caddy-1 wget -q -T 5 -O /dev/null http://web:80/index.html
+          if test "$worker_was_running" -eq 1; then
+            compose up -d --no-build --no-deps --force-recreate report-worker
+            test "$(docker inspect --format '{{.State.Running}}' aemr-report-worker-1)" = true
+            test "$(docker inspect --format '{{.Image}}' aemr-report-worker-1)" = "$candidate_server"
+          fi
+          printf 'state=HEALTHY\ncandidate=%s\n' "$sha" >> "$receipt"
+          replaced=0
+          echo "EMERGENCY_INTEGRATION_DEPLOYED_HEALTHY $sha"
+          REMOTE
+      - name: State the release scope
+        if: always()
+        run: |
+          echo "Only images and application containers are changed."
+          echo "No CI, no production data backup, no Google Sheets writes from deployment steps."
+          echo "Previous container image IDs are tagged on the VPS; data migrations are not rolled back."
