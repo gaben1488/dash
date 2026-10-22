@@ -160,8 +160,11 @@ describe('applyYearFilter', () => {
     expect(applyYearFilter([y2025, y2026, noYear], undefined)).toEqual([y2025, y2026, noYear]);
   });
 
-  it('строки без года (planYear=0) остаются видимыми при любом годе', () => {
-    expect(applyYearFilter([y2025, y2026, noYear], 2026)).toEqual([y2026, noYear]);
+  it('один год не присваивает неизвестный год всем выбранным годам', () => {
+    expect(applyYearFilter([y2025, y2026, noYear], 2026)).toEqual([y2026]);
+    expect(applyYearFilter([y2025, y2026, noYear], 2025)).toEqual([y2025]);
+    // The remainder is measured independently by the API before scoping.
+    expect([y2025, y2026, noYear].filter(r => r.planYear === 0)).toEqual([noYear]);
   });
 });
 
