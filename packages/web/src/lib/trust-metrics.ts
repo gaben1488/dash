@@ -1,6 +1,74 @@
 import { summarizeCheckCoverage } from '@aemr/shared';
 import type { DepartmentSummary, TrustComponent, TrustScore } from '@aemr/shared';
 
+
+/** Server's confirmed formula observations are a live read model, not a weekly snapshot. */
+export interface LiveFormulaAssessment {
+  expectedBooks: number;
+  checkedBooks: number;
+  checkedAt: string | null;
+  score: number | null;
+  checks: { expected: number; checked: number; failed: number } | null;
+  books: Array<{
+    book: string;
+    checkedAt: string | null;
+    score: number | null;
+    checks: { expected: number; checked: number; failed: number } | null;
+    defects: number | null;
+  }>;
+}
+
+export function currentFormulaScope(
+  evidence: LiveFormulaAssessment,
+  selectedBooks?: readonly string[],
+): { expectedBooks: number; checkedBooks: number; checkedAt: string | null; score: number | null;
+  checks: { expected: number; checked: number; failed: number } | null } {
+  if (selectedBooks === undefined) return evidence;
+  const chosen = [...new Set(selectedBooks)];
+  const byBook = new Map(evidence.books.map(book => [book.book, book]));
+  const checked = chosen.map(book => byBook.get(book)).filter(
+    (book): book is LiveFormulaAssessment['books'][number] =>
+      book !== undefined && book.score !== null && book.checks !== null,
+  );
+  const combined = chosen.length > 0 && checked.length === chosen.length
+    ? summarizeCheckCoverage(checked.map(book => book.checks!)) : null;
+  return {
+    expectedBooks: chosen.length,
+    checkedBooks: checked.length,
+    checkedAt: checked.length > 0 ? checked.map(book => book.checkedAt!).sort().at(-1)! : null,
+    score: combined?.score ?? null,
+    checks: combined ? { expected: combined.expected, checked: combined.checked, failed: combined.failed } : null,
+  };
+}
+
+/** Recalculate visible trust without rewriting the preserved source snapshot.
+ * Other component scores stay on their original snapshot; incomplete latest
+ * formula reads must *lower confidence*, not revive a historical 100%.
+ */
+export function withCurrentFormulaAssessment(
+  view: TrustViewModel,
+  evidence: LiveFormulaAssessment,
+  selectedBooks?: readonly string[],
+): TrustViewModel {
+  if (!view.components.some(c => c.name === 'formula_integrity')) return view;
+  const scope = currentFormulaScope(evidence, selectedBooks);
+  const components = view.components.map(component => component.name === 'formula_integrity'
+    ? {
+      ...component,
+      score: scope.score,
+      ...(scope.checks ? { checks: scope.checks } : { checks: undefined }),
+      details: scope.score === null
+        ? `Подтверждён результат ${scope.checkedBooks} из ${scope.expectedBooks} книг. Полное покрытие формульных граф не доказано.`
+        : `По последним чтениям книг проверено ${scope.checks!.checked} из ${scope.checks!.expected} ячеек; дефектов: ${scope.checks!.failed}.`,
+    }
+    : component);
+  return {
+    ...view,
+    components,
+    overallScore: view.unavailableComponents.length === 0 ? weightedTrustOverall(components) : null,
+  };
+}
+
 export interface TrustViewModel {
   overallScore: number | null;
   unavailableComponents: string[];
