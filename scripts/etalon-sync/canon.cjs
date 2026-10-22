@@ -9,6 +9,7 @@
  * сигналы → 223 → визуальный слой.
  */
 const { colIndex, rgbFromHex } = require('./lib.cjs');
+const { masterProfile } = require('../../packages/report-engine/src/procurement_engine/department_directory.json');
 
 // ---------- палитра (канон УО + контрольные цвета 47-набора) ----------
 const C = {
@@ -71,7 +72,7 @@ function goldenCF(sheetId, opts) {
   const all = [
     // 1. Контроль формул (одно правило на все формульные группы)
     { name: 'Формула сломана (K, O:P, R:T, Y:AC)',
-      ranges: [rng(sheetId, 'K'), rng(sheetId, 'O', 'P'), rng(sheetId, 'R', 'T'), rng(sheetId, 'Y', 'AC')],
+      ranges: masterProfile.formulaColumnGroups.map(g => rng(sheetId, g.from, g.to)),
       rule: boolRule(FORMULA_GUARD, fmt(C.formulaBroken, C.white, true)) },
     // 2. Точечные красные — обязательность и типы
     { name: 'Пустой предмет закупки G', ranges: [rng(sheetId, 'G')],
@@ -154,10 +155,9 @@ function goldenProtections(sheetId, editors, opts) {
   const mk = (desc, range) => ({ description: desc, range, warningOnly: false, editors: { users: editors } });
   const out = [
     mk('Шапка (строки 1-3)', { sheetId, startRowIndex: 0, endRowIndex: 3 }),
-    mk('Формульный столбец K', rng(sheetId, 'K')),
-    mk('Формульные столбцы O:P', rng(sheetId, 'O', 'P')),
-    mk('Формульные столбцы R:T', rng(sheetId, 'R', 'T')),
-    mk('Формульные столбцы Y:AC', rng(sheetId, 'Y', 'AC')),
+    ...masterProfile.formulaColumnGroups.map(({ from, to }) =>
+      mk(from === to ? `Формульный столбец ${from}` : `Формульные столбцы ${from}:${to}`,
+        rng(sheetId, from, to))),
   ];
   if (opts && opts.keepAD) out.push(mk('Флаг учёта экономии AD', rng(sheetId, 'AD')));
   return out;
@@ -246,7 +246,7 @@ function serviceCF(sheetId) {
  * Existing etalon-sync callers keep their exported [column, expression] array.
  * No independent duplicate of the 11 expressions is maintained here.
  */
-const { masterProfile } = require('../../packages/report-engine/src/procurement_engine/department_directory.json');
+
 const GOOGLE_FORMULAS_CANON = Object.values(masterProfile.fields)
   .filter(field => typeof field.formula === 'string')
   .sort((a, b) => a.index - b.index)
