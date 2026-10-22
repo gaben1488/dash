@@ -6,3 +6,4 @@ Attempt 2: corrected SSH script_stop=false to avoid heredoc injection; no deploy
 Attempt 3: snapshot warning diagnostics only, no source reread, no production changes.
 Attempt 4: compare live registry A labels with snapshot verdict and installed rule code hash; read-only.
 Attempt 5: source-image lineage diagnosis (read-only).
+Attempt 5: run pinned isolated TypeScript regressions for integrated PR79; production release not requested.
