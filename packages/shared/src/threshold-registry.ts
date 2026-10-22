@@ -89,8 +89,21 @@ export interface ThresholdEdition {
   readonly sourceRef: string;
 }
 
+export type ThresholdBasis =
+  | 'contract_price'
+  | 'plan_position_total'
+  | 'customer_year_total'
+  | 'customer_year_ep_amount_share'
+  | 'procurement_nmck'
+  | 'department_ep_count_share'
+  | 'department_ep_amount_share';
+
 export interface ThresholdEntry {
   readonly editions?: readonly ThresholdEdition[];
+  /** A percent without a numerator/denominator or a contract grain is not a metric. */
+  readonly basis?: ThresholdBasis;
+  /** Explicitly permitted proxy grains for informational screening, never legal verdicts. */
+  readonly screeningBasis?: readonly ThresholdBasis[];
   /** Человеческое имя порога — то, как он называется в разговоре. */
   readonly label: string;
   /** Значение. Берётся из существующей константы там, где она есть. */
@@ -288,7 +301,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: 5,
     unit: 'percent',
     domain: 'economy',
-    means: 'Экономия ниже пяти процентов подозрительна: торги, вероятно, были формальными.',
+    means: 'Разница от лимита ниже пяти процентов — информационный ориентир; характер торгов и конкуренция по этому числу не установлены.',
     source: 'own',
     sourceRef: 'METRIC_KB.economy_rate.thresholds («5-25 % норма»)',
     note:
@@ -301,7 +314,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: 2,
     unit: 'percent',
     domain: 'economy',
-    means: 'Среднее снижение на торгах ниже двух процентов — признак отсутствия конкуренции.',
+    means: 'Средняя разница от лимита ниже двух процентов — повод проверить цену и ход торгов, не доказательство отсутствия конкуренции.',
     source: 'own',
     sourceRef: 'METRIC_KB.avg_reduction_pct.thresholdsFull',
     note:
@@ -350,6 +363,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
   // Дополнительные внутренние ориентиры прежней модели ГРБС, не законные пределы.
   'competition.epRoleOperationalShare': {
+    basis: 'department_ep_count_share',
     label: 'Внутренний ориентир доли ЕП операционного управления',
     value: INTERNAL_EP_SHARE_BY_ROLE.ОПЕРАЦИОННЫЙ, unit: 'ratio', domain: 'competition',
     means: 'Доля ЕП свыше половины — повод для просмотра, а не нарушение.',
@@ -357,6 +371,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
   },
   'competition.epRoleInvestmentShare': {
+    basis: 'department_ep_count_share',
     label: 'Внутренний ориентир доли ЕП инвестиционного управления',
     value: INTERNAL_EP_SHARE_BY_ROLE.ИНВЕСТИЦИОННЫЙ, unit: 'ratio', domain: 'competition',
     means: 'Доля ЕП свыше тридцати процентов — повод для просмотра, а не нарушение.',
@@ -364,6 +379,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     note: 'НЕПОДТВЕРЖДЁННЫЙ ВНУТРЕННИЙ ОРИЕНТИР. Не является нормой 44-ФЗ и не доказывает нарушения. Значение сохраняется в историческом снимке.',
   },
   'competition.epRoleMixedShare': {
+    basis: 'department_ep_count_share',
     label: 'Внутренний ориентир доли ЕП смешанного управления',
     value: INTERNAL_EP_SHARE_BY_ROLE.СМЕШАННЫЙ, unit: 'ratio', domain: 'competition',
     means: 'Доля ЕП свыше сорока процентов — повод для просмотра, а не нарушение.',
@@ -459,6 +475,8 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
 
   'law.epSmallSingleContract': {
+    basis: 'contract_price',
+    screeningBasis: ['plan_position_total'],
     label: 'Разовая мелкая закупка у единственного поставщика',
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub,
     unit: 'thousandRub',
@@ -468,6 +486,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.4',
   },
   'law.epSmallAnnualFixed': {
+    basis: 'customer_year_total',
     label: 'Годовой предел мелких закупок (твёрдый вариант)',
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualFixedLimitThousandRub,
     unit: 'thousandRub',
@@ -477,6 +496,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.4',
   },
   'law.epSmallAnnualShare': {
+    basis: 'customer_year_ep_amount_share',
     label: 'Годовой предел мелких закупок (доля СГОЗ)',
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualShareLimit,
     unit: 'ratio',
@@ -486,6 +506,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.4',
   },
   'law.epSmallAnnualAbsolute': {
+    basis: 'customer_year_total',
     label: 'Потолок доли СГОЗ для мелких закупок',
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimitThousandRub,
     unit: 'thousandRub',
@@ -496,6 +517,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     note: 'С 01.10.2026 для непосредственного обеспечения жизнедеятельности населения сельских населённых пунктов предусмотрено исключение из предела 50 млн руб. Само наличие сельского адреса применимость исключения не доказывает.',
   },
   'law.epEducationSingleContract': {
+    basis: 'contract_price',
     label: 'Разовая закупка образования и культуры у единственного поставщика',
     value: LAW_44FZ_THRESHOLDS.epEducationSingleContractLimitThousandRub,
     unit: 'thousandRub',
@@ -508,6 +530,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
       'стояли пять миллионов, но это годовой твёрдый вариант, а не разовый лимит.',
   },
   'law.epEducationAnnualFixed': {
+    basis: 'customer_year_total',
     label: 'Годовой предел образования и культуры (твёрдый вариант)',
     value: LAW_44FZ_THRESHOLDS.epEducationAnnualFixedLimitThousandRub,
     unit: 'thousandRub',
@@ -517,6 +540,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.5',
   },
   'law.epEducationAnnualShare': {
+    basis: 'customer_year_ep_amount_share',
     label: 'Годовой предел образования и культуры (доля СГОЗ)',
     value: LAW_44FZ_THRESHOLDS.epEducationAnnualShareLimit,
     unit: 'ratio',
@@ -526,6 +550,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.5',
   },
   'law.epEducationAnnualAbsolute': {
+    basis: 'customer_year_total',
     label: 'Потолок доли СГОЗ для образования и культуры',
     value: LAW_44FZ_THRESHOLDS.epEducationAnnualAbsoluteLimitThousandRub,
     unit: 'thousandRub',
@@ -535,6 +560,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     sourceRef: '44-ФЗ ст.93 ч.1 п.5',
   },
   'law.eShopPurchaseLimit': {
+    basis: 'contract_price',
     label: 'Предел закупки через электронный магазин',
     value: LAW_44FZ_THRESHOLDS.eShopPurchaseLimitThousandRub,
     unit: 'thousandRub',
@@ -545,6 +571,7 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     note: 'Предел относится к специальному электронному механизму закупки товаров и предусмотренных законом прав на ПО. Способ из текста строки сам по себе не подтверждает применение части 12.',
   },
   'law.quotationPurchaseLimit': {
+    basis: 'procurement_nmck',
     label: 'Предел запроса котировок',
     value: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
     unit: 'thousandRub',
@@ -609,6 +636,7 @@ export function ownThresholds(): readonly string[] {
 export function formatThreshold(id: string, captured?: DatedThreshold): string {
   const entry = THRESHOLD_REGISTRY[id];
   if (!entry) return '—';
+  if (entry.source === 'law44' && !captured) return '— (нужна дата и проверенная редакция)';
   if (entry.editions?.length && !captured) return '— (нужна дата среза)';
   if (captured && capturedThresholdValue(captured, entry.unit) === null) return '— (единица или значение среза недоступны)';
   if (captured?.status === 'unverified') return '— (редакция порога не подтверждена)';
@@ -619,6 +647,9 @@ export function formatThreshold(id: string, captured?: DatedThreshold): string {
 
 
 export interface DatedThreshold {
+  /** Optional for old snapshots; required for authoritative legal evaluation. */
+  id?: string;
+  asOfDay?: string;
   value: number;
   /** Optional on disk: legacy snapshots without a unit may be displayed but not numerically checked. */
   unit?: ThresholdUnit;
@@ -656,11 +687,91 @@ export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry
   if (applicable.length > 1) throw new Error('AMBIGUOUS_THRESHOLD_EDITION');
   const selected = applicable[0]?.edition;
   return {
+    id, asOfDay,
     value: selected?.value ?? entry.value,
     unit: entry.unit,
     status: selected?.verification === 'verified' ? 'verified'
       : entry.source === 'own' && editions.length === 0 ? 'internal' : 'unverified',
     edition: selected?.id ?? null, sourceRef: selected?.sourceRef ?? entry.sourceRef ?? null,
+  };
+}
+
+
+/**
+ * Single evaluation boundary for consumers of dated thresholds.
+ * Reference screening does not produce a legal pass/fail. A legal decision
+ * needs verified edition, preserved day, identical unit and subject grain,
+ * and confirmed applicability. Unknown input is never a zero or a pass.
+ */
+export type ThresholdAssessmentStatus = 'unavailable' | 'reference' | 'legal';
+export interface ThresholdAssessment {
+  readonly id: string;
+  readonly status: ThresholdAssessmentStatus;
+  readonly exceeded: boolean | null;
+  readonly reason: string | null;
+  readonly evidence: DatedThreshold | null;
+}
+export interface ThresholdAssessmentInput {
+  readonly id: string;
+  readonly captured: DatedThreshold | null | undefined;
+  readonly value: number | null | undefined;
+  readonly unit: ThresholdUnit;
+  readonly basis: ThresholdBasis;
+  readonly purpose: 'screening' | 'legal';
+  /** Required for authoritative legal checks: the original frozen calendar day. */
+  readonly asOfDay?: string;
+  /** Legally relevant event date, not a snapshot/read date. */
+  readonly eventDay?: string;
+  readonly applicability?: 'confirmed' | 'unknown' | 'excluded';
+}
+
+export function assessThreshold(input: ThresholdAssessmentInput): ThresholdAssessment {
+  const { id, captured, basis, purpose } = input;
+  const definition = threshold(id);
+  if (!definition) throw new Error(`UNKNOWN_THRESHOLD: ${id}`);
+  const unavailable = (reason: string): ThresholdAssessment => ({
+    id, status: 'unavailable', exceeded: null, reason, evidence: captured ?? null,
+  });
+  if (!captured) return unavailable('missing_frozen_threshold');
+  if (captured.id && captured.id !== id) return unavailable('threshold_identity_mismatch');
+  if (input.asOfDay && captured.asOfDay !== input.asOfDay) return unavailable('threshold_date_mismatch');
+  if (captured.unit !== definition.unit || input.unit !== definition.unit
+    || capturedThresholdValue(captured, definition.unit) === null) {
+    return unavailable('threshold_unit_or_value_unavailable');
+  }
+  if (input.value === null || input.value === undefined
+    || !Number.isFinite(input.value) || input.value < 0) {
+    return unavailable('observation_unavailable');
+  }
+  if (definition.editions?.length && !captured.edition) return unavailable('no_applicable_edition');
+  if (input.applicability === 'excluded') return unavailable('not_applicable');
+
+  if (purpose === 'legal') {
+    if (definition.source !== 'law44' || captured.status !== 'verified'
+      || !captured.id || !captured.asOfDay || captured.asOfDay !== input.asOfDay
+      || !captured.edition || !captured.sourceRef) {
+      return unavailable('legal_edition_not_verified');
+    }
+    if (definition.basis !== basis) return unavailable('legal_measurement_basis_mismatch');
+    if (!input.eventDay) return unavailable('legal_event_date_unavailable');
+    if (input.eventDay !== captured.asOfDay) return unavailable('legal_edition_event_mismatch');
+    if (input.applicability !== 'confirmed') return unavailable('legal_applicability_unconfirmed');
+    return { id, status: 'legal', exceeded: input.value > captured.value, reason: null, evidence: captured };
+  }
+
+  if (definition.basis !== basis && !definition.screeningBasis?.includes(basis)) {
+    return unavailable('screening_measurement_basis_mismatch');
+  }
+  // Law references may guide inspection even when their edition is unverified,
+  // but a downstream consumer must keep the status 'reference' and this reason.
+  if (captured.status === 'unverified' && definition.source !== 'law44') {
+    return unavailable('internal_reference_unverified');
+  }
+  return {
+    id, status: 'reference', exceeded: input.value > captured.value,
+    reason: definition.source === 'law44'
+      ? 'reference_only_not_a_legal_verdict' : 'internal_screening_only',
+    evidence: captured,
   };
 }
 
@@ -675,6 +786,9 @@ export function legalThresholdsVerifiedForContext(
   return !!captured && thresholdsByDomain('law')
     .filter(id => THRESHOLD_REGISTRY[id]!.source === 'law44')
     .every(id => captured[id]?.status === 'verified'
+      && captured[id]?.id === id
+      && !!captured[id]?.asOfDay
+      && !!captured[id]?.edition
       && captured[id]?.unit === THRESHOLD_REGISTRY[id]!.unit
       && !!captured[id]?.sourceRef);
 }

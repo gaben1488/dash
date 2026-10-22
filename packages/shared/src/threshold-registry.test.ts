@@ -167,7 +167,7 @@ describe('обращение к реестру', () => {
 
   it('число печатается с единицей', () => {
     expect(formatThreshold('economy.highSharePct')).toBe('25 %');
-    expect(formatThreshold('law.epSmallSingleContract')).toBe('600 тыс. руб.');
+    expect(formatThreshold('law.epSmallSingleContract')).toContain('проверенная редакция');
     // Доля закона печатается процентом — так её читает человек.
     expect(formatThreshold('law.epSmallAnnualShare')).toBe('10 %');
     expect(formatThreshold('нет.такого')).toBe('—');
@@ -192,7 +192,7 @@ describe('dated threshold evidence', () => {
     expect(legalThresholdsVerifiedForContext(captured)).toBe(false);
     expect(legalThresholdsVerifiedForContext(null)).toBe(false);
     const pretendAll = Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
-      value: thresholdValue(id), unit: threshold(id)!.unit, status: 'verified' as const, edition: 'test', sourceRef: 'test',
+      id, asOfDay: '2026-10-22', value: thresholdValue(id), unit: threshold(id)!.unit, status: 'verified' as const, edition: 'test', sourceRef: 'test',
     }]));
     expect(legalThresholdsVerifiedForContext(pretendAll)).toBe(true);
     delete pretendAll['law.quotationPurchaseLimit'];
@@ -232,7 +232,7 @@ describe('dated threshold evidence', () => {
   it('prints a frozen quotation limit, never a current reference for an unspecified date', () => {
     const old = thresholdAt('law.quotationPurchaseLimit', '2026-09-30');
     const changed = thresholdAt('law.quotationPurchaseLimit', '2026-10-01');
-    expect(formatThreshold('law.quotationPurchaseLimit')).toContain('нужна дата среза');
+    expect(formatThreshold('law.quotationPurchaseLimit')).toContain('нужна дата');
     expect(formatThreshold('law.quotationPurchaseLimit', old)).toBe('10000 тыс. руб.');
     expect(formatThreshold('law.quotationPurchaseLimit', changed)).toBe('20000 тыс. руб.');
     expect(formatThreshold('law.quotationPurchaseLimit', thresholdAt('law.quotationPurchaseLimit', '2028-01-01')))

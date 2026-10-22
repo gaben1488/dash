@@ -8,6 +8,7 @@ import {
   checkEPContractLimits,
   checkAntiDumping,
   ANTI_DUMPING_UNAVAILABLE,
+  EP_CONTRACT_SCOPE_UNAVAILABLE,
   EP_ANNUAL_UNAVAILABLE,
   checkEPShareLimits,
   analyzeEPReasons,
@@ -148,7 +149,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         critical: allIssues.filter(i => i.severity === 'critical').length,
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
-        unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
+        unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_CONTRACT_SCOPE_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
           ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
@@ -258,8 +259,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         // (тот же источник, что в /compliance выше).
         result[dept.id] = detectAntiCorruption(dept.id, {
           rows: rowData,
-          epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
-          totalPlan: recalc?.year?.planTotal ?? 0,
+          epCount: recalc?.totalEP,
+          totalCount: recalc ? recalc.totalCompetitive + recalc.totalEP : undefined,
           epShareThreshold,
           epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
@@ -299,8 +300,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
         const anticorruption = detectAntiCorruption(profile.grbsId, {
           rows: rowData,
-          epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
-          totalPlan: recalc?.year?.planTotal ?? 0,
+          epCount: recalc?.totalEP,
+          totalCount: recalc ? recalc.totalCompetitive + recalc.totalEP : undefined,
           epShareThreshold,
           epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
@@ -332,7 +333,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           anticorruptionFlags: anticorruption.flags.length,
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,
-          unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
+          unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_CONTRACT_SCOPE_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
           ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,

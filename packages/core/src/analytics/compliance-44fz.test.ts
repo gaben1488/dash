@@ -3,6 +3,7 @@ import { thresholdAt } from '@aemr/shared';
 
 const EP_LIMIT = thresholdAt('law.epSmallSingleContract', '2026-10-22');
 import { checkEPContractLimits, checkEPShareLimits, checkAntiDumping, analyzeEPReasons } from './compliance-44fz';
+import { detectAntiCorruption } from './anticorruption.js';
 
 /** Минимальная RowData (структурно совпадает с внутренним интерфейсом). */
 function row(over: Partial<{
@@ -45,6 +46,33 @@ describe('compliance-44fz — нормализация способа (алиа�
     expect(check()).toEqual([]);
     expect(check({ ...captured, unit: 'percent' })).toEqual([]);
     expect(check({ ...captured, value: 0.8 })).toEqual([]);
+  });
+
+  it('uses the identical count denominator in compliance and anticorruption, never amount', () => {
+    const captured = thresholdAt('competition.epRoleInvestmentShare', '2026-10-22');
+    const flagged = checkEPShareLimits(4, 10, 1, 1_000_000, 'ИНВЕСТИЦИОННЫЙ', 'УАГЗО', captured);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].thresholdEvidence).toMatchObject({
+      id: 'competition.epRoleInvestmentShare', status: 'reference', exceeded: true,
+      evidence: { unit: 'ratio', value: 0.3, asOfDay: '2026-10-22' },
+    });
+    const anti = detectAntiCorruption('УАГЗО', {
+      rows: [], epCount: 4, totalCount: 10, epTotal: 1, totalPlan: 1_000_000,
+      epShareThreshold: captured,
+    });
+    expect(anti.flags.filter(f => f.indicator === 'ep_annual_share')).toHaveLength(1);
+    expect(anti.flags.find(f => f.indicator === 'ep_annual_share')?.thresholdEvidence)
+      .toMatchObject(flagged[0].thresholdEvidence!);
+    const moneyOnly = detectAntiCorruption('УАГЗО', {
+      rows: [], epTotal: 900_000, totalPlan: 1_000_000, epShareThreshold: captured,
+    });
+    expect(moneyOnly.flags.filter(f => f.indicator === 'ep_annual_share')).toEqual([]);
+    expect(moneyOnly.unavailableIndicators.map(i => i.indicator)).toContain('ep_annual_share');
+    const below = detectAntiCorruption('УАГЗО', {
+      rows: [], epCount: 2, totalCount: 10, epTotal: 900_000, totalPlan: 1_000_000,
+      epShareThreshold: captured,
+    });
+    expect(below.flags.filter(f => f.indicator === 'ep_annual_share')).toEqual([]);
   });
 
   it('analyzeEPReasons считает ЕП-алиасы (ЭЕП, еп, Ед. поставщик), но не конкурентные', () => {
