@@ -66,6 +66,39 @@ describe('row_numbering — дубли', () => {
   });
 });
 
+describe('row_numbering — составные номера не деньги и не даты', () => {
+  it('различает 173, 173/1, 173/18 и 121/1 — ложных дублей нет', () => {
+    expect(run([
+      procRow(4, 173),
+      procRow(5, '173/1'),
+      procRow(6, '173/18'),
+      procRow(7, 121),
+      procRow(8, '121/1'),
+    ])).toHaveLength(0);
+  });
+
+  it('два одинаковых составных номера — настоящий дубль с адресами обеих строк', () => {
+    const [issue] = run([procRow(4, '173/18'), procRow(5, '173/1'), procRow(6, '173/18')]);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain('4, 6');
+    expect(issue.description).not.toContain('№ 173 —');
+  });
+
+  it('пробелы вокруг дробной черты не создают два разных номера', () => {
+    const [issue] = run([procRow(4, '173 / 18'), procRow(5, '173/18')]);
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain('4, 5');
+  });
+
+  it('23/1 и 24/1 не трактуются как числа 23 и 24 или как сериал даты', () => {
+    const [issue] = run([procRow(4, '23/1'), procRow(5, '24/1'), procRow(6, '23/1')]);
+    expect(issue.description).toContain('№ 23/1');
+    expect(issue.description).not.toContain('№ 23 —');
+    expect(issue.description).not.toContain('46045');
+  });
+});
+
 describe('row_numbering — пропуски (п.118: информация, не нарушение)', () => {
   it('ТОЛЬКО пропуски — карточки нет: дыра это след удалённой строки', () => {
     expect(run([procRow(4, 1), procRow(5, 2), procRow(6, 5)])).toHaveLength(0);
@@ -86,6 +119,20 @@ describe('row_numbering — пустые A', () => {
       cells: { A: '', C: 'ИТОГО', K: 300 },
     });
     expect(run([procRow(4, 1), procRow(5, 2), summary])).toHaveLength(0);
+  });
+});
+
+describe('row_numbering — заполненные строки против пустого формульного хвоста', () => {
+  it('service с нулевыми результатами формул, без предмета и способа не требует A', () => {
+    const tail = procRow(1000, '', { classification: 'service', cells: { A: '', H: 0, I: 0, J: 0, K: 0 } });
+    expect(run([procRow(4, 1), tail])).toHaveLength(0);
+  });
+
+  it('реальная строка service с предметом и способом без A требует номер', () => {
+    const missing = procRow(7, '', { classification: 'service', cells: { A: '', C: 'Х', G: 'Техобслуживание', L: 'ЕП', K: 0 } });
+    const [issue] = run([procRow(4, 1), missing]);
+    expect(issue.description).toContain('без номера');
+    expect(issue.description).toContain('7');
   });
 });
 

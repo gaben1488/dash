@@ -1,4 +1,4 @@
-import { toNumber } from '@aemr/shared';
+import { rowNumberKey, toNumber } from '@aemr/shared';
 import type { ClassifiedRow, RowClassification } from '@aemr/shared';
 
 /**
@@ -33,8 +33,8 @@ function classifyRow(
     };
   }
 
-  // Проверяем наличие числового идентификатора (столбец A или B)
-  const hasId = isNumeric(cells['A']) || isNumeric(cells['B']);
+  // A may contain a composite stable identifier ("173/18"), not an amount.
+  const hasId = isNumeric(cells['A']) || rowNumberKey(cells['A']) !== null || isNumeric(cells['B']);
 
   // Проверяем наличие суммовых столбцов
   const hasAmounts = isNumeric(cells['H']) || isNumeric(cells['I']) ||
