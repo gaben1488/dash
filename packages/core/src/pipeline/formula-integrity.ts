@@ -142,9 +142,10 @@ export function normalizeFormula(raw: unknown, sheetRow: number): string {
  * identity from a monetary or floating-point parser.
  *
  * A missing subject G is itself a data-quality defect. It must NOT exempt a
- * real procurement from formula auditing when its method or budget already
- * proves that a procurement exists. Numeric headings without these business
- * fields remain excluded so they cannot poison the modal formula baseline.
+ * real procurement from formula auditing when its method or source-level
+ * budget already proves that a procurement exists. An isolated total K/Y
+ * is insufficient (numeric service rows can carry totals); excluding such
+ * rows avoids contaminating the modal formula baseline.
  */
 export function formulaIntegrityRowNumber(row: ReadonlyArray<unknown>): string | null {
   const seq = readProcurementSequence(row[DEPT_COLUMNS.ID]);
@@ -156,8 +157,7 @@ export function formulaIntegrityRowNumber(row: ReadonlyArray<unknown>): string |
     const method = String(row[DEPT_COLUMNS.METHOD] ?? '').trim();
     const hasBudget = [
       DEPT_COLUMNS.FB_PLAN, DEPT_COLUMNS.KB_PLAN, DEPT_COLUMNS.MB_PLAN,
-      DEPT_COLUMNS.TOTAL_PLAN, DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT,
-      DEPT_COLUMNS.MB_FACT, DEPT_COLUMNS.TOTAL_FACT,
+      DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT, DEPT_COLUMNS.MB_FACT,
     ].some((index) => {
       const amount = parseSheetNumber(row[index]);
       return amount !== null && amount !== 0;
