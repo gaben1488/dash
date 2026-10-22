@@ -230,3 +230,31 @@ describe('детектор 6 — отступление имени подвед�
     expect(nearestCanonicalSubordinate('МБУ ДО «ЕДМШ»')).toBeNull();
   });
 });
+
+describe('хотфикс: живой справочник и исправление хозтоваров', () => {
+  it('оригинальная запись УО G2702 исправляется по контексту, а не в «хор. товаров»', () => {
+    const raw = 'Покупка хоp. товаров'; // латинская p в исходной Google-ячейке
+    const findings = detectCellHygiene(raw);
+    expect(findings.some(f => f.kind === 'mixed_alphabet' && f.fix === 'Покупка хоз. товаров')).toBe(true);
+    expect(hygieneFix(raw)).toBe('Покупка хоз. товаров');
+    expect(hygieneFix('Покупка хор. товаров')).toBe('Покупка хоз. товаров');
+  });
+
+  it('не переписывает настоящий хор и уже правильное сокращение', () => {
+    for (const phrase of ['Репетиция хор. коллектива', 'Покупка хор. инструментов', 'Покупка хоз. товаров']) {
+      expect(hygieneFix(phrase)).toBe(phrase);
+    }
+  });
+
+  it('действующие R/E имена и подтверждённые алиасы не создают ложного расхождения', () => {
+    for (const name of [
+      'МБУ ДО СШ «Лидер»', // только тип кавычек относительно действующей C
+      'МБОУ ЕСШ №7 им. О.Н. Мамченкова', // пробел около номера
+      'МБУ ДО «КДМШ»', // подтверждённый исторический алиас
+      'УО (Опека)', // категория, не отдельное юридическое лицо
+    ]) {
+      expect(detectSubordinateNameHygiene(name).filter(f => f.kind === 'registry_mismatch'), name).toEqual([]);
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+    }
+  });
+});
