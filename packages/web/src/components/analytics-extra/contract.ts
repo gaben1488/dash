@@ -252,7 +252,7 @@ export interface IntegrityResponse {
         sourceCell: string;
         currentCell: string | null;
         at: string;
-        status: 'matches-current' | 'different-current' | 'row-not-found' | 'ambiguous-number' | 'conflicting-log';
+        status: 'matches-current' | 'different-current' | 'row-not-found' | 'ambiguous-number' | 'conflicting-log' | 'context-unverified';
       }>;
       note: string;
     }>;
