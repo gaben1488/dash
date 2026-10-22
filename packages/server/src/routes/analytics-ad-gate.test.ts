@@ -124,7 +124,9 @@ it.each(['нет', 'да'])('does not infer competition or initial price from ec
   expect(result).toBeDefined();
   expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
   expect(result.disciplinaryPenalty).toBe(0);
-  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(
+    expect.arrayContaining(['zero_competition', 'price_inflation', 'ep_over_limit']),
+  );
 }, 30_000);
 
 
