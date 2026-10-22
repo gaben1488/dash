@@ -1,0 +1,38 @@
+name: Hotfix validation (no deployment)
+
+on:
+  push:
+    branches:
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - 'codex/dash-audit-integrated-20261010'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, TypeScript, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify dependency security guard
+        run: pnpm verify:braces-patch
+      - name: ESLint
+        run: pnpm lint
+      - name: TypeScript
+        run: pnpm typecheck
+      - name: Full unit tests
+        run: pnpm -r test
+      - name: Build
+        run: pnpm build
