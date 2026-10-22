@@ -117,7 +117,7 @@ jobs:
                 except Exception as error:
                     print(json.dumps({'source':label,'error':type(error).__name__},sort_keys=True))
             print('READ_ONLY_RUNTIME_STRICT_CONTROLLER_BEGIN')
-            import sys,importlib.util,stat
+            import sys,importlib.util
             sys.path.insert(0,'/usr/local/libexec/aemr')
             try:
                 spec=importlib.util.spec_from_file_location('readonly_controller','/usr/local/libexec/aemr/release-controller.py')
@@ -145,9 +145,7 @@ jobs:
                         output=cmd('docker','compose','--project-directory',str(root),
                             '--env-file',str(root/'.env.production'),'-f',str(path),
                             '--profile','reports','config','--format','json')
-                        config=json.loads(output.replace('$','
-            PYDIAG
-))
+                        config=json.loads(output.replace('$$','$'))
                         checker._saved_runtime(binding,records,config)
                         result={'source':label,'operator_file':file_valid,'strict_result':'PASS'}
                     except Exception as error:
