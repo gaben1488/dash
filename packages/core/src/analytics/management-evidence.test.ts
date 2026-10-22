@@ -20,7 +20,7 @@ describe('management signals require relevant evidence', () => {
       edition: 'synthetic-test-only', sourceRef: 'synthetic verified-unit fixture' } as const;
     const screened = detectAntiCorruption('D', { rows: ep, epSingleThreshold: captured });
     expect(screened.flags.some(flag => flag.indicator === 'ep_over_limit')).toBe(true);
-    expect(screened.flags.every(flag => flag.severity !== 'critical')).toBe(true);
+    expect(screened.flags.find(flag => flag.indicator === 'ep_over_limit')?.severity).toBe('low');
     expect(screened.disciplinaryPenalty).toBe(0);
   });
 });
