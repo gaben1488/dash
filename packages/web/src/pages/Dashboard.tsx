@@ -846,8 +846,8 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
     // от СУММ, а не как среднее долей управлений. Нулевой знаменатель даёт
     // `null` с причиной — как прочерк листа, а не «исполнено 0 %».
     const countRatio = ratio({
-      numerator: fd.totalFactCount,
-      denominator: fd.totalPlanCount,
+      numerator: fd.sourceCountComplete ? fd.totalFactCount : null,
+      denominator: fd.sourceCountComplete ? fd.totalPlanCount : null,
       unit: 'шт',
       perimeter,
       provenance: tileProvenance(
@@ -858,8 +858,8 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       nullReason: NO_PLAN_REASON,
     });
     const amountRatio = ratio({
-      numerator: fd.budgetCoverageComplete ? fd.totalFact : null,
-      denominator: fd.budgetCoverageComplete ? fd.totalPlan : null,
+      numerator: fd.budgetCoverageComplete && fd.sourceMoneyComplete ? fd.totalFact : null,
+      denominator: fd.budgetCoverageComplete && fd.sourceMoneyComplete ? fd.totalPlan : null,
       unit: 'тыс.руб',
       perimeter,
       provenance: tileProvenance(
@@ -944,8 +944,8 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
   //    исчезала, и ряд показателей менял состав без единого слова.
   {
     const economyFigure = toPercent(ratio({
-      numerator: fd.budgetCoverageComplete ? getFilteredEconomyTotal(fd) : null,
-      denominator: fd.budgetCoverageComplete ? fd.totalPlan : null,
+      numerator: fd.budgetCoverageComplete && fd.sourceMoneyComplete ? getFilteredEconomyTotal(fd) : null,
+      denominator: fd.budgetCoverageComplete && fd.sourceMoneyComplete ? fd.totalPlan : null,
       unit: 'тыс.руб',
       perimeter,
       provenance: tileProvenance(

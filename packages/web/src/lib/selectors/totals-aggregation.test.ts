@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PeriodResolution } from './period-resolution';
-import { aggregateTotals } from './totals-aggregation';
+import { aggregateTotals, nodeSourceCoverage } from './totals-aggregation';
 
 const yearResolution: PeriodResolution = {
   periodKey: 'year', coveredQuarters: [], fullQuarters: [], partialMonths: [],
@@ -34,6 +34,26 @@ describe('aggregateTotals (извлечено из useFilteredData §8, выжи
     expect(t.totalPlanCount).toBe(0); // quarters.year нет — счётчики не суммируются
   });
 
+  it('C05.02 distinguishes complete measured quarter, annual source and unread quarter', () => {
+    expect(nodeSourceCoverage(dept, q1Resolution)).toEqual({ count: true, money: true });
+    expect(nodeSourceCoverage(dept, { ...q1Resolution, periodKey: 'q2' }))
+      .toEqual({ count: false, money: false });
+    const annual = nodeSourceCoverage(dept, yearResolution);
+    expect(annual.money).toBe(true);
+    expect(annual.count).toBe(false); // year count is absent, not zero
+    const missing = aggregateTotals([{ ...dept, quarters: {} }], q1Resolution, noOpts);
+    expect(missing.sourceCountComplete).toBe(false);
+    expect(missing.sourceMoneyComplete).toBe(false);
+  });
+
+  it('C05.02 requires every department before claiming the annual/quarter totals complete', () => {
+    const partial = { ...dept, quarters: { q1: { ...dept.quarters.q1, factTotal: null } } };
+    const result = aggregateTotals([dept, partial], q1Resolution, noOpts);
+    expect(result.sourceCountComplete).toBe(true);
+    expect(result.sourceMoneyComplete).toBe(false);
+    expect(aggregateTotals([], q1Resolution, noOpts).sourceMoneyComplete).toBe(false);
+  });
+
   it('квартал с КП/ЕП-разбивкой — суммирует разбивку, не общий тотал', () => {
     const t = aggregateTotals([dept], q1Resolution, noOpts);
     expect(t.totalKP).toBe(2);
@@ -61,6 +81,7 @@ describe('aggregateTotals (извлечено из useFilteredData §8, выжи
     expect(t).toEqual({
       totalKP: 3, totalEP: 2, totalPlan: 70, totalFact: 30,
       totalPlanCount: 4, totalFactCount: 2,
+      sourceCountComplete: true, sourceMoneyComplete: false,
     });
   });
 
