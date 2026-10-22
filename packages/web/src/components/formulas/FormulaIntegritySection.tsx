@@ -46,7 +46,7 @@ function bookLabel(book: string): string {
   return label === book ? book : `${book} — ${label}`;
 }
 
-export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIssueLike[] }) {
+export function FormulaIntegritySection({ issues, readToken }: { issues: readonly FormulaIssueLike[]; readToken?: string | null }) {
   const [readState, setReadState] = useState<FormulaReadState | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,6 +55,9 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    setReadState(null);
+    setLoadError(null);
     api.getSourceIntegrity()
       .then((res) => { if (alive) { setReadState(res.formulas); setLoadError(null); } })
       // Ошибка запроса — это НЕ «формулы чисты» и не «формулы не читались»:
@@ -62,7 +65,7 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
       .catch((err) => { if (alive) setLoadError(humanizeRequestError(err)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [readToken]);
 
   const defects = useMemo(() => collectFormulaDefects(issues), [issues]);
   const counts = useMemo(() => countFormulaDefects(defects), [defects]);
