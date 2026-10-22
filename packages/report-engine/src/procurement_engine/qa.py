@@ -105,7 +105,7 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
         pq = int(_num(_cell(row, 14))) if _num(_cell(row, 14)) in (1, 2, 3, 4) else None
         py = parse_integer(_cell(row, 15))
         dy, dq = _year_from_date(planned_date), _quarter_from_date(planned_date)
-        if dy and py and dy != py:
+        if dy and dy != py:
             issues.append(ValidationIssue("ERROR", "PLAN_YEAR_DATE_MISMATCH", f"{grbs} row {rn}: P != year(N)", ctx))
         if dq and pq and dq != pq:
             issues.append(ValidationIssue("ERROR", "PLAN_QUARTER_DATE_MISMATCH", f"{grbs} row {rn}: O != quarter(N)", ctx))
@@ -141,7 +141,7 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
     for pid, rows in ids.items():
         if len(rows) > 1:
             issues.append(ValidationIssue(
-                "WARN", "DUPLICATE_BUSINESS_ID",
+                "INFO", "DUPLICATE_BUSINESS_ID",
                 f"{grbs}: A={pid} occurs on multiple rows; A alone cannot be a stable identity key",
                 {"grbs": grbs, "source_id": source_id, "sheet": sheet_name, "procurement_id": pid, "rows": rows}))
     return issues

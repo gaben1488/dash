@@ -119,13 +119,16 @@ export interface RefreshPassport {
 /** Ответ /api/sources → паспорт; старый сервер без поля refresh даёт null, а не выдумку. */
 export function parseRefreshPassport(data: unknown): RefreshPassport | null {
   const r = (data as { refresh?: unknown } | null)?.refresh;
-  if (!r || typeof r !== 'object') return null;
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
   const o = r as Record<string, unknown>;
+  if (typeof o.workWindowLabel !== 'string' || o.workWindowLabel.trim() === '' ||
+      typeof o.withinWorkWindow !== 'boolean' || typeof o.webhookConfigured !== 'boolean' ||
+      typeof o.autoRefreshMinutes !== 'number' || !Number.isFinite(o.autoRefreshMinutes) || o.autoRefreshMinutes < 0) return null;
   return {
-    workWindowLabel: typeof o.workWindowLabel === 'string' ? o.workWindowLabel : '8:45–18:20 по Камчатке',
-    withinWorkWindow: Boolean(o.withinWorkWindow),
-    autoRefreshMinutes: typeof o.autoRefreshMinutes === 'number' ? o.autoRefreshMinutes : 0,
-    webhookConfigured: Boolean(o.webhookConfigured),
+    workWindowLabel: o.workWindowLabel,
+    withinWorkWindow: o.withinWorkWindow,
+    autoRefreshMinutes: o.autoRefreshMinutes,
+    webhookConfigured: o.webhookConfigured,
   };
 }
 

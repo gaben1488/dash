@@ -1,4 +1,4 @@
-import type { DashboardData } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -13,7 +13,9 @@ import {
   SourcesResponseSchema,
   SnapshotHistoryResponseSchema,
   MetricsResponseSchema,
+  MetricDetailSchema,
   TrustScoreSchema,
+  DashboardDataSchema,
 } from '@aemr/shared';
 
 export type RecommendationStage = 'ACTIVE' | 'HISTORY';
@@ -74,7 +76,7 @@ export interface EpReasonsResponse {
     /** Сколько строк книг прочитано — знаменатель честности разбора. */
     rowsScanned: number;
     /** Момент чтения книг (канон п.58). */
-    readAt: string;
+    readAt: string | null;
   };
 }
 
@@ -109,6 +111,8 @@ export type RowTimelineResponse = RowTimeline & {
     journalEntries: number;
     snapshotObservations: number;
     weekSliceDates: string[];
+    /** null — признаков разрыва за последний контрольный интервал не обнаружено. */
+    identityWarning?: string | null;
   };
 };
 
@@ -136,6 +140,8 @@ export interface MonitoringResponse {
 
 /** Ответ GET /api/timeline/upcoming — «близкие к плановой дате» (канон п.75б). */
 export interface UpcomingResponse {
+  coverage?: SourceCoverage;
+  readAt?: string | null;
   /** День расчёта (ISO) по календарю продукта. */
   asOf: string;
   /** Окно вперёд, дней. */
@@ -183,15 +189,24 @@ function httpErrorPhrase(status: number): string {
 export class ApiError extends Error {
   readonly status: number;
   readonly body: string;
+  readonly code: string | null;
 
   constructor(status: number, body: string) {
+    let code: string | null = null;
+    try {
+      const payload: unknown = JSON.parse(body);
+      if (payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'string') code = payload.code;
+    } catch { /* A proxy can return HTML; HTTP status still describes that failure. */ }
     // Текст ошибки видит пользователь в красной плашке шапки — он русский
     // и объясняет ситуацию, а не пересказывает протокол. Код и тело
     // остаются в скобках: без них не отличить «нет прав» от «сервер лёг».
-    super(`${httpErrorPhrase(status)} (код ${status}${body ? `: ${body.slice(0, 120)}` : ''})`);
+    super(status === 503 && code === 'SNAPSHOT_NOT_READY'
+      ? 'Срез данных ещё готовится. Дождитесь завершения чтения и повторите запрос.'
+      : `${httpErrorPhrase(status)} (код ${status}${body ? `: ${body.slice(0, 120)}` : ''})`);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.code = code;
   }
 }
 
@@ -237,13 +252,21 @@ async function fetchResponse(url: string, init?: RequestInit): Promise<Response>
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  // Attach Bearer token if configured (for auth middleware), unless the caller already set one
+  // Production is served through Caddy Basic auth. The browser owns the
+  // cached Basic credentials and Caddy injects the server-side Bearer token.
+  // A legacy aemr_api_key in localStorage MUST NOT overwrite Authorization:
+  // Bearer would be rejected by Caddy as invalid Basic credentials.
+  // Only the direct local development API needs a browser-supplied Bearer.
   const apiKey = typeof localStorage !== 'undefined' ? localStorage.getItem('aemr_api_key') : null;
-  if (apiKey && !headers.has('Authorization')) {
+  if (!import.meta.env.PROD && apiKey && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${apiKey}`);
   }
-  const res = await fetch(`${API_BASE}${url}`, {
+  // Some shared clients return a complete API path. Apply the base exactly
+  // once; /apiary is still an ordinary endpoint, not the /api namespace.
+  const requestUrl = /^\/api(?:\/|\?|$)/.test(url) ? url : `${API_BASE}${url}`;
+  const res = await fetch(requestUrl, {
     ...init,
+    credentials: init?.credentials ?? 'same-origin',
     headers,
   });
   if (!res.ok) {
@@ -284,12 +307,18 @@ export async function fetchParsed<T>(url: string, schema: ParseSchema<T>, init?:
 
 export const api = {
   // Dashboard
-  getDashboard: (refresh = false, year?: number | 'all') => {
-    const params = new URLSearchParams();
+  getDashboard: (refresh = false, year?: number | 'all', signal?: AbortSignal) => {
+    const params = new URLSearchParams({ compact: '1' });
     if (refresh) params.set('refresh', 'true');
     if (year !== undefined) params.set('year', String(year));
     const qs = params.toString();
-    return fetchJSON<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`);
+    return fetchParsed<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`, DashboardDataSchema, { signal }).then(data => {
+      if (data.recentIssuesRef === undefined) return data;
+      if (data.recentIssuesRef !== 'snapshot.issues' || !Array.isArray(data.snapshot?.issues)) {
+        throw new ApiContractError('/dashboard', 'invalid recentIssuesRef');
+      }
+      return { ...data, recentIssues: data.snapshot.issues };
+    });
   },
 
   refresh: (quick = false) =>
@@ -299,8 +328,10 @@ export const api = {
   getMetrics: () =>
     fetchParsed('/metrics', MetricsResponseSchema),
 
-  getMetric: (key: string) =>
-    fetchJSON<any>(`/metrics/${encodeURIComponent(key)}`),
+  getMetric: (key: string, scope?: { year: number | 'all'; snapshotId: string }) => {
+    const query = scope ? `?${new URLSearchParams({ year: String(scope.year), snapshotId: scope.snapshotId })}` : '';
+    return fetchParsed(`/metrics/${encodeURIComponent(key)}${query}`, MetricDetailSchema);
+  },
 
   // Issues
   getIssues: (filters?: Record<string, string>) => {
@@ -308,11 +339,22 @@ export const api = {
     return fetchParsed(`/issues?${params}`, IssuesListResponseSchema);
   },
 
-  updateIssueStatus: (id: string, status: string, reason?: string) =>
-    fetchJSON<any>(`/issues/${id}/status`, {
+  updateIssueStatus: async (id: string, status: string, reason?: string) => {
+    const acknowledgement = await fetchJSON<{ success?: unknown; issueId?: unknown; toStatus?: unknown } | null>(`/issues/${encodeURIComponent(id)}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status, reason }),
-    }),
+    });
+    if (acknowledgement?.success !== true || acknowledgement.issueId !== id || acknowledgement.toStatus !== status) {
+      throw new Error('Сервер не подтвердил сохранение статуса. Обновите замечание перед повторной попыткой.');
+    }
+    // HTTP success alone is not proof of persistence. Read the authoritative
+    // decision before showing success; do not retry a potentially saved PUT.
+    const persisted = await fetchJSON<{ issue?: { id?: unknown; status?: unknown } } | null>(`/issues/${encodeURIComponent(id)}`);
+    if (persisted?.issue?.id !== id || persisted.issue.status !== status) {
+      throw new Error('Сохранение статуса не подтверждено при повторном чтении. Обновите замечание.');
+    }
+    return acknowledgement;
+  },
 
   addIssueComment: (id: string, comment: string) =>
     fetchJSON<any>(`/issues/${id}/comment`, {
@@ -320,10 +362,8 @@ export const api = {
       body: JSON.stringify({ comment }),
     }),
 
-  // Валидация контрактом + широкий тип: страница держит свой локальный HistoryEntry
-  // (passthrough-схема не сужается до него — сузим при типизации DTO).
-  getIssueHistory: (id: string): Promise<any> =>
-    fetchParsed(`/issues/${id}/history`, IssueHistoryResponseSchema),
+  getIssueHistory: (id: string) =>
+    fetchParsed(`/issues/${encodeURIComponent(id)}/history`, IssueHistoryResponseSchema),
 
   // Trust
   getTrust: () =>
@@ -345,7 +385,7 @@ export const api = {
     }),
 
   /** Batch-save edited rows (multiple field updates with audit logging) */
-  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>) =>
+  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>) =>
     fetchJSON<any>('/data/rows', {
       method: 'POST',
       body: JSON.stringify({ rows }),
@@ -395,6 +435,10 @@ export const api = {
 
   validateSource: (name: string) =>
     fetchJSON<any>(`/sources/${encodeURIComponent(name)}/validate`, { method: 'POST' }),
+
+  /** One server-owned non-atomic diagnostic run; other checks remain independent. */
+  runSourceDiagnostics: () =>
+    fetchJSON<SourceDiagnosticRun>('/sources/diagnostics/run', { method: 'POST' }),
 
   /** Валидация всех источников разом (СВОД + 8 ГРБС + «СВОД с месяцами»). */
   validateAllSources: () =>
@@ -457,7 +501,7 @@ export const api = {
     fetchJSON<any>('/settings/env', { method: 'POST', body: JSON.stringify(form) }),
 
   getSubordinates: () =>
-    fetchJSON<Record<string, string[]>>('/rows/subordinates'),
+    fetchJSON<{ subordinates: Record<string, string[]>; coverage: SourceCoverage }>('/rows/subordinates?coverage=1'),
 
   // Mapping
   getMapping: () =>
@@ -479,10 +523,18 @@ export const api = {
   getSubjects: () =>
     fetchJSON<any>('/rows/subjects'),
 
+  getReportReleaseHistory: (before?: string) => fetchJSON<{
+    releases: Array<{ release_id: string; report_date: string; cutoff_at: string; report_year: number | null; quarter: number | null }>;
+    next: string | null;
+  }>(`/report-releases/history${before ? '?before=' + encodeURIComponent(before) : ''}`),
+
   // Scatter data for Economy page
-  getScatterData: (params?: Record<string, string>) => {
+  getScatterData: (params?: Record<string, string>, signal?: AbortSignal) => {
     const search = params ? new URLSearchParams(params).toString() : '';
-    return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
+    return fetchJSON<LimitComparisonResponse>(`/rows/scatter${search ? `?${search}` : ''}`, { signal }).then(data => {
+      if (params?.snapshot_id && data.sourceSnapshotId !== params.snapshot_id) throw new ApiContractError('/rows/scatter', 'snapshot mismatch');
+      return data;
+    });
   },
 
   // Один работающий RecommendationLedger. Новая запись УЭР является
@@ -561,6 +613,7 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
+      coverage?: SourceCoverage;
       rowsScanned: number;
       total: number;
       byKind: Record<string, number>;
@@ -575,7 +628,8 @@ export const api = {
     fetchJSON<{
       asOf: string;
       source: 'live' | 'snapshot';
-      unfunded: { rows: number; planSum: number };
+      coverage?: SourceCoverage;
+      unfunded: { rows: number; planSum: number; initiativeRows?: number };
       yearlong: { rows: number; planSum: number };
     }>('/registry/buckets'),
 

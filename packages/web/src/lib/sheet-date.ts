@@ -1,4 +1,4 @@
-import { parseSheetDate } from '@aemr/shared';
+import { dayNumberOf, isoOfDayNumber, parseSheetDate } from '@aemr/shared';
 
 /**
  * Дата-канон на стороне web (fidelity-аудит 2026-07-16 §2.2).
@@ -37,21 +37,6 @@ export function formatDateCell(value: unknown): string {
 
 /** Месяц (1..12) значения даты для квартальных/месячных фильтров; не дата → null. */
 export function monthOfDateValue(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const s = String(value).trim();
-
-  const iso = s.match(ISO_RE);
-  if (iso) return Number(iso[2]);
-
-  const ru = s.match(RU_RE);
-  if (ru) return Number(ru[2]);
-
-  // Серийник — только через канон; «не дата» → null (строка не должна
-  // ложно классифицироваться в январь, как это делал new Date(46034)).
-  const serial = Number(s);
-  if (!isNaN(serial)) {
-    const d = parseSheetDate(s);
-    return d ? d.getUTCMonth() + 1 : null;
-  }
-  return null;
+  const day = dayNumberOf(value);
+  return day === null ? null : Number(isoOfDayNumber(day).slice(5, 7));
 }

@@ -1,20 +1,34 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
+  departmentCoverage,
+  SourceCoverageSchema,
+  findDept,
   COL_LETTER_INDEX,
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
-  FACT_DATE_PLACEHOLDERS,
+  dayNumberOf,
+  productCalendarDay,
+  PRODUCT_UTC_OFFSET_HOURS,
+  parseEditableAmount,
   buildCellDict,
   isMetaRow,
   isOrgItself,
+  toNumber as sheetNumber,
+  normalizeMethod,
+  classifyActivity,
+  parseActivityScope,
+  matchesActivityScope,
+  isoOfDayNumber,
 } from '@aemr/shared';
-import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
-import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
+import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow, readCurrentDeptRowFormulas } from '../services/google-sheets.js';
+import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
+import { withRowWriteLock } from '../services/row-write-lock.js';
+import { getDeptSheetValues, getDeptSheetCache, getStoredSnapshotById, patchDeptSheetCacheCell } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
-import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
+import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization, approvedEconomy } from '@aemr/core';
 import { readDeptRows } from '../services/rows-read.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 import {
@@ -50,6 +64,17 @@ function columnTitle(letter: string): string {
   return key ? DEPT_HEADER_LABELS[key] : letter;
 }
 
+/** Date input must be a real calendar date, not merely match a prefix. */
+function validEditableDate(raw: unknown): string | null {
+  const str = String(raw ?? '').trim();
+  if (!str) return '';
+  if (!/^(?:\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})$/.test(str)) return null;
+  return dayNumberOf(str) === null ? null : str;
+}
+
+const MAX_BATCH_ROWS = 50;
+const MAX_BATCH_CELLS = 100;
+
 /**
  * Причина недоступности книги управления — человеческой фразой с действием.
  * Одно место на все роуты чтения: пользователь должен понять, к кому идти
@@ -65,16 +90,32 @@ function sourceUnavailableMessage(deptShortName: string, reason: 'read-error' | 
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
  * Возвращает текст ошибки или null, если писать можно.
  *
- * Нижняя граница: строка 1 — заголовок. Верхняя: строка обязана существовать в листе
+ * Нижняя граница: первые три строки — шапка. Верхняя: строка обязана существовать в листе
  * (иначе writeCellValue создаст ячейку за пределами данных и побьёт итоговые формулы,
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
-  if (!Number.isInteger(idx) || idx < 2) return `Номер строки «${display}» не подходит: строки данных начинаются со второй`;
+  if (!Number.isSafeInteger(idx) || idx <= DEPT_HEADER_ROWS) return `Номер строки «${display}» не подходит: строки данных начинаются с ${DEPT_HEADER_ROWS + 1}-й`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
+  return null;
+}
+
+/** Live row evidence is required even for explicitly enabled legacy writes. */
+function sourceCellWriteError(row: readonly unknown[], formulas: readonly unknown[], field: string): { status: 403 | 409; error: string } | null {
+  if (row.length === 0 || formulas.length === 0) {
+    return { status: 409, error: 'Исходная строка исчезла или переместилась — обновите реестр; правка не выполнялась' };
+  }
+  if ([row[0], row[DEPT_COLUMNS.SUBJECT], formulas[0], formulas[DEPT_COLUMNS.SUBJECT]]
+    .some(value => isMetaRow(String(value ?? '')))) {
+    return { status: 403, error: 'Это итоговая или служебная строка — её ячейки нельзя изменять через реестр' };
+  }
+  const formula = formulas[COL_LETTER_INDEX[field]];
+  if (typeof formula === 'string' && formula.trimStart().startsWith('=')) {
+    return { status: 403, error: 'Выбранная ячейка содержит формулу — измените исходные данные, правка не выполнялась' };
+  }
   return null;
 }
 
@@ -91,19 +132,19 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
  * продукт начинал считать все восемь книг свежими и откладывал настоящую
  * перечитку на целое окно свежести, а момент чтения (канон п.58) врал.
  *
- * Правка одной ячейки и должна быть правкой одной ячейки: значения книги живут
- * в кэше по ссылке, поэтому достаточно записать новое значение на место старого.
+ * Правка заменяет только текущую строку/книгу, сохраняя остальные источники и
+ * время полного чтения. Уже выбранные входы расчёта остаются неизменными.
  * Возвращает false, если строки в прочитанных значениях нет (правка ушла в
  * книгу, но показать её до перечитки неоткуда).
  */
-function reflectEditInCache(deptShortName: string, rowIndex: number, field: string, value: unknown): boolean {
+function reflectEditInCache(deptShortName: string, rowIndex: number, field: string, value: unknown, expectedRow?: readonly unknown[]): boolean {
   const deptResult = getDeptSheetCache()[deptShortName];
   if (!deptResult) return false;
   const colIdx = COL_LETTER_INDEX[field];
   const row = deptResult.values[rowIndex - 1];
   if (colIdx === undefined || !row) return false;
-  (row as unknown[])[colIdx] = value;
-  return true;
+  if (expectedRow && !writtenRowMatches(expectedRow, row, [13, 16])) return false;
+  return patchDeptSheetCacheCell(deptShortName, rowIndex, colIdx, value);
 }
 
 /**
@@ -150,7 +191,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const sortCol = query.sort ?? '';
     const sortOrder: 'asc' | 'desc' = query.order === 'desc' ? 'desc' : 'asc';
 
-    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    // Чтение строк — cache-first в rows-read (кэш → основная книга управления).
     const read = await readDeptRows(dept);
     if (!read.ok) {
       if (read.reason === 'read-error') {
@@ -207,14 +248,14 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/rows/:deptId/:rowIndex', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const idx = parseInt(rowIndex, 10);
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
       return reply.status(404).send({ error: `Управление «${deptId}» не найдено` });
     }
 
-    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    // Чтение строк — cache-first в rows-read (кэш → основная книга управления).
     const read = await readDeptRows(dept);
     if (!read.ok) {
       if (read.reason === 'read-error') {
@@ -233,7 +274,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isInteger(idx)) {
       return reply.status(400).send({ error: `Номер строки «${rowIndex}» не похож на число` });
     }
-    if (idx < 2 || idx - 1 >= rawRows.length) {
+    if (idx <= DEPT_HEADER_ROWS || idx - 1 >= rawRows.length) {
       return reply.status(404).send({
         error: `Строки ${idx} в книге управления «${dept.nameShort}» нет — сейчас там ${rawRows.length} строк`,
       });
@@ -245,7 +286,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     const signals = detectSignals(cells);
     const state = classifyRowState(signals);
-    const badges = getSignalBadges(signals);
+    const badges = getSignalBadges(signals, { dept: dept.id, id: cells.A, subject: cells.G,
+      method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: sheetNumber(cells.Y) ?? undefined, epReason: cells.M, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+      necessityJustification: cells.AE, commentGRBS: cells.AF });
 
     // Build Google Sheets source URL
     const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort] ?? config.google.spreadsheetId;
@@ -276,10 +319,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const body = request.body as { field?: string; value?: unknown };
-    const idx = parseInt(rowIndex, 10);
+    const body = request.body as { field?: string; value?: unknown; expectedRevision?: string } | null;
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
-    if (!body.field || body.value === undefined) {
+    if (!body || typeof body.field !== 'string' || !body.field.trim() || body.value === undefined) {
       return reply.status(400).send({ error: 'Не указано, какой столбец и какое значение сохранять' });
     }
 
@@ -316,7 +359,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         details: `запрошенный столбец: ${body.field}`,
       });
     }
-    // idx обязан быть integer >= 2 (строка 1 — заголовок) И существовать в листе,
+    // idx обязан быть integer >= 4 (строки 1–3 — шапка) И существовать в листе,
     // иначе cellAddress "GNaN"/"G-1"/header либо запись за пределами данных.
     const boundsError = rowWriteError(idx, dept.nameShort, rowIndex);
     if (boundsError) {
@@ -327,29 +370,25 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     // Type validation and normalization
     if (NUMERIC_COLUMNS.has(field)) {
-      const num = typeof body.value === 'number' ? body.value
-        : parseFloat(String(body.value).replace(/\s/g, '').replace(/,/g, '.'));
-      if (isNaN(num)) {
+      const parsed = parseEditableAmount(body.value);
+      if (!parsed.ok) {
         return reply.status(400).send({
           error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = num;
+      normalizedValue = parsed.value;
     } else if (DATE_COLUMNS.has(field)) {
-      // Accept DD.MM.YYYY or ISO format
-      const str = String(body.value).trim();
-      const ddmmyyyy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!ddmmyyyy && !iso && str !== '') {
+      const date = validEditableDate(body.value);
+      if (date === null) {
         return reply.status(400).send({
-          error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+          error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = str;
+      normalizedValue = date;
     }
     // TEXT_COLUMNS: accept any string value
 
@@ -365,12 +404,66 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     const cellAddress = `${field}${idx}`;
     const now = new Date().toISOString();
+    const expectedRevision = body.expectedRevision;
+    if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+        process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+      return reply.status(409).send({ error: 'Обновите реестр: для безопасной правки нужна версия исходной строки' });
+    }
+    return withRowWriteLock(`${spreadsheetId}:${idx}`, async () => {
+      let originalRow: unknown[];
+      try {
+        originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, idx);
+      } catch (readErr) {
+        app.log.warn({ err: readErr }, 'field-update: source preflight failed');
+        return reply.status(503).send({ error: 'Исходная строка не прочитана — правка не выполнялась' });
+      }
+      if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
+        return reply.status(409).send({ error: 'Строка изменилась или переместилась. Обновите реестр; правка не выполнена.' });
+      }
+      let formulas: unknown[];
+      try {
+        formulas = await readCurrentDeptRowFormulas(spreadsheetId, sheetName, idx);
+      } catch (readErr) {
+        app.log.warn({ err: readErr }, 'field-update: source formula preflight failed');
+        return reply.status(503).send({ error: 'Формулы исходной строки не прочитаны — правка не выполнялась' });
+      }
+      const sourceError = sourceCellWriteError(originalRow, formulas, field);
+      if (sourceError) return reply.status(sourceError.status).send({ error: sourceError.error });
+      const previousValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+      try {
+        db.insert(schema.auditLog).values({
+          action: 'cell_edit_intent', entity: 'row',
+          entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId, rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
+          details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+          timestamp: now,
+        }).run();
+      } catch (auditErr) {
+        app.log.error({ err: auditErr }, 'field-update: audit intent unavailable');
+        return reply.status(503).send({ error: 'Журнал изменений недоступен — запись в книгу не выполнялась' });
+      }
 
     try {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
+      if (expectedRevision) {
+        const intended = [...originalRow];
+        intended[COL_LETTER_INDEX[field]] = normalizedValue;
+        let confirmed: unknown[];
+        try {
+          confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, idx);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'field-update: written but source confirmation unavailable');
+          return reply.status(503).send({ error: 'Запись отправлена, но источник не подтвердил результат. Перечитайте строку перед повтором.', savedToSource: true, action: 'refresh_and_reconcile' });
+        }
+        if (!writtenRowMatches(intended, confirmed, [COL_LETTER_INDEX[field]])) {
+          return reply.status(409).send({ error: 'После записи строка или её значение изменились. Результат не подтверждён — перечитайте реестр.', savedToSource: true, action: 'refresh_and_reconcile' });
+        }
+      }
+
       // Прочитанные значения книги догоняют сохранённую правку (см. reflectEditInCache).
-      reflectEditInCache(dept.nameShort, idx, field, normalizedValue);
+      reflectEditInCache(dept.nameShort, idx, field, normalizedValue, expectedRevision ? originalRow : undefined);
 
       // Audit log
       try {
@@ -378,18 +471,26 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           action: 'cell_edit',
           entity: 'row',
           entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId,
+          rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
           details: JSON.stringify({
             department: deptId,
             row: idx,
             field,
-            oldValue: null, // Would need pre-read for old value
+            oldValue: previousValue,
             newValue: normalizedValue,
             sheetRange: result.updatedRange,
           }),
           timestamp: now,
         }).run();
       } catch (logErr) {
-        app.log.warn({ logErr }, 'field-update: failed to write audit log');
+        app.log.error({ err: logErr }, 'field-update: source saved but confirmation audit failed');
+        return reply.status(503).send({
+          error: 'Значение записано в Google Таблицу, но журнал не подтвердил операцию',
+          savedToSource: true,
+          action: 'refresh_and_reconcile',
+        });
       }
 
       return reply.send({
@@ -411,7 +512,6 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({
           error: `Нет прав на запись в книгу управления «${dept.nameShort}»`,
           reason: 'Учётной записи сервиса выдан доступ только на чтение. Откройте доступ на редактирование книги и повторите правку',
-          details: err.message,
         });
       }
 
@@ -420,9 +520,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({
         error: `Не удалось сохранить значение в ячейку ${cellAddress}`,
         reason: 'Google Таблицы не приняли правку. Повторите через минуту; если повторяется — проверьте доступ к книге',
-        details: err.message ?? String(err),
       });
     }
+    });
   });
 
   /**
@@ -436,11 +536,26 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.post('/api/data/rows', async (request, reply) => {
     const body = request.body as {
-      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
+      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>;
     };
 
-    if (!body.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
+    if (!body?.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
       return reply.status(400).send({ error: 'Не переданы строки для сохранения' });
+    }
+    // Bound Google API writes BEFORE any side effect; JSON bodyLimit alone is not
+    // a limit on the number of potentially expensive sequential cell updates.
+    if (body.rows.length > MAX_BATCH_ROWS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_ROWS} строк` });
+    }
+    if (body.rows.some(entry => !entry || typeof entry !== 'object' ||
+      typeof entry.deptId !== 'string' || !Number.isSafeInteger(entry.rowIndex) ||
+      !entry.changes || typeof entry.changes !== 'object' ||
+      Array.isArray(entry.changes) || Object.keys(entry.changes).length === 0)) {
+      return reply.status(400).send({ error: 'Каждая строка должна содержать управление, номер и изменяемые поля' });
+    }
+    const cellCount = body.rows.reduce((sum, entry) => sum + Object.keys(entry.changes).length, 0);
+    if (cellCount > MAX_BATCH_CELLS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_CELLS} ячеек` });
     }
 
     const FORMULA_COLUMNS = new Set(['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC']);
@@ -456,6 +571,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     }> = [];
 
     const now = new Date().toISOString();
+    const rowRevisions: Record<string, string> = {};
 
     for (const entry of body.rows) {
       const dept = DEPARTMENTS.find(d => d.id === entry.deptId || d.nameShort === entry.deptId);
@@ -474,51 +590,94 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
 
-      // Ленивый резолв РЕАЛЬНОГО имени вкладки: только когда есть что писать
-      // (после всех валидаций) — невалидные запросы отклоняются без сетевого вызова.
-      let sheetName: string | null = null;
-
+      // Validate each edit BEFORE revision preflight. An invalid column/header
+      // is a 400-style input failure, not a misleading missing-revision error.
+      // Keep valid cells so a mixed batch can report each outcome accurately.
+      const validChanges: Array<[string, unknown]> = [];
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
-
-        // SECURITY (C2/H3): field обязан быть реальной колонкой — иначе range-injection.
+        let validationError: string | null;
         if (COL_LETTER_INDEX[field] === undefined) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: 'Такого столбца в книге закупок нет — правка отклонена',
-          });
-          continue;
+          validationError = 'Такого столбца в книге закупок нет — правка отклонена';
+        } else {
+          validationError = rowWriteError(entry.rowIndex, dept.nameShort);
+          if (!validationError && FORMULA_COLUMNS.has(field)) {
+            validationError = `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`;
+          }
+        }
+        if (validationError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: validationError });
+        } else {
+          validChanges.push([field, rawValue]);
+        }
+      }
+      if (validChanges.length === 0) continue;
+
+      const expectedRevision = entry.expectedRevision;
+      if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+          process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+        for (const [field] of validChanges) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Обновите реестр: исходная версия строки отсутствует' });
+        }
+        continue;
+      }
+      await withRowWriteLock(`${spreadsheetId}:${entry.rowIndex}`, async () => {
+        let sheetName: string;
+        let originalRow: unknown[];
+        try {
+          sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+          originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
+          }
+          return;
+        }
+        if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
+          }
+          return;
         }
 
-        // Та же граница строки, что и в PUT: строка обязана существовать в листе.
-        const boundsError = rowWriteError(entry.rowIndex, dept.nameShort);
-        if (boundsError) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: boundsError,
-          });
-          continue;
+        let formulas: unknown[];
+        try {
+          formulas = await readCurrentDeptRowFormulas(spreadsheetId, sheetName, entry.rowIndex);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: source formula preflight failed');
+          for (const [field] of validChanges) {
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false, error: 'Формулы исходной строки не прочитаны — запись не выполнялась' });
+          }
+          return;
         }
 
-        // Block formula columns
-        if (FORMULA_COLUMNS.has(field)) {
-          results.push({
-            deptId: entry.deptId,
-            rowIndex: entry.rowIndex,
-            field,
-            success: false,
-            error: `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`,
-          });
+      let writeBlocked = false;
+      const changedIndexes: number[] = [];
+      let confirmedRevision: string | undefined;
+      for (const [field, rawValue] of validChanges) {
+        const sourceError = sourceCellWriteError(originalRow, formulas, field);
+        if (sourceError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: sourceError.error });
           continue;
         }
-
+        if (writeBlocked) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+            error: 'Остальные правки не выполнялись: предыдущая запись не подтверждена. Перечитайте строку.' });
+          continue;
+        }
+        // Field name, sheet-row bounds and formula protection were checked
+        // before revision verification. Never write a field that failed it.
         // Normalize value
         let normalizedValue: unknown = rawValue;
         if (NUMERIC_COLUMNS.has(field)) {
-          const num = typeof rawValue === 'number'
-            ? rawValue
-            : parseFloat(String(rawValue).replace(/\s/g, '').replace(/,/g, '.'));
-          if (isNaN(num) && rawValue !== null && rawValue !== '') {
+          const parsed = parseEditableAmount(rawValue);
+          if (!parsed.ok) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
@@ -528,30 +687,71 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             });
             continue;
           }
-          normalizedValue = isNaN(num) ? null : num;
+          normalizedValue = parsed.value;
         } else if (DATE_COLUMNS.has(field)) {
-          const str = String(rawValue ?? '').trim();
-          if (str && !/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str) && !/^\d{4}-\d{2}-\d{2}/.test(str)) {
+          const date = validEditableDate(rawValue);
+          if (date === null) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+              error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
             });
             continue;
           }
-          normalizedValue = str;
+          normalizedValue = date;
         }
 
         const cellAddress = `${field}${entry.rowIndex}`;
+        const oldValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+        const beforeWrite = [...originalRow];
+        try {
+          db.insert(schema.auditLog).values({
+            action: 'batch_cell_edit_intent', entity: 'row',
+            entityId: `${entry.deptId}:${entry.rowIndex}:${field}`,
+            departmentId: entry.deptId, rowIndex: entry.rowIndex, field,
+            oldValue: String(oldValue ?? ''), newValue: String(normalizedValue ?? ''),
+            details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+            timestamp: now,
+          }).run();
+        } catch (logErr) {
+          app.log.error({ err: logErr }, 'batch-save: audit intent unavailable');
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Журнал изменений недоступен — ячейка не изменялась' });
+          continue;
+        }
 
         try {
-          sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
+          if (expectedRevision) {
+            const intended = [...originalRow];
+            const columnIndex = COL_LETTER_INDEX[field];
+            intended[columnIndex] = normalizedValue;
+            changedIndexes.push(columnIndex);
+            let confirmed: unknown[];
+            try {
+              confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+            } catch (readErr) {
+              app.log.warn({ err: readErr }, 'batch-save: written but source confirmation unavailable');
+              writeBlocked = true;
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+                error: 'Запись отправлена, но источник не подтвердил результат. Перечитайте строку перед повтором.' });
+              continue;
+            }
+            if (!writtenRowMatches(intended, confirmed, changedIndexes)) {
+              writeBlocked = true;
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+                error: 'После записи строка или её значение изменились. Результат не подтверждён — перечитайте реестр.' });
+              continue;
+            }
+            originalRow = [...confirmed];
+            confirmedRevision = rowRevision(confirmed);
+          }
+
           // Та же точечная правка прочитанных значений, что и в одиночном PUT.
-          reflectEditInCache(dept.nameShort, entry.rowIndex, field, normalizedValue);
+          reflectEditInCache(dept.nameShort, entry.rowIndex, field, normalizedValue, expectedRevision ? beforeWrite : undefined);
 
           // Audit log
           try {
@@ -562,11 +762,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               departmentId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
+              oldValue: String(oldValue ?? ''),
               newValue: String(normalizedValue ?? ''),
               details: JSON.stringify({
                 department: entry.deptId,
                 row: entry.rowIndex,
                 field,
+                oldValue,
                 newValue: normalizedValue,
                 updatedRange: writeResult.updatedRange,
                 batchSave: true,
@@ -574,7 +776,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               timestamp: now,
             }).run();
           } catch (logErr) {
-            app.log.warn({ logErr }, 'batch-save: failed to write audit log');
+            app.log.error({ err: logErr }, 'batch-save: source saved but confirmation audit failed');
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false,
+              error: 'Ячейка записана в источник, но подтверждение в журнале не сохранилось — обновите реестр, не повторяйте правку вслепую',
+            });
+            continue;
           }
 
           results.push({
@@ -599,6 +806,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       }
+      if (!writeBlocked && confirmedRevision) {
+        rowRevisions[`${entry.deptId}:${entry.rowIndex}`] = confirmedRevision;
+      }
+      });
     }
 
     const totalChanges = results.length;
@@ -620,6 +831,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       successCount,
       failCount,
       results,
+      rowRevisions,
       timestamp: now,
     });
   });
@@ -628,8 +840,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/rows/subordinates
    * Подведомственные учреждения из реальных данных (столбец C каждого листа).
    */
-  app.get('/api/rows/subordinates', async (_request, reply) => {
+  app.get('/api/rows/subordinates', async (request, reply) => {
     const result: Record<string, string[]> = {};
+    const readDepartments: string[] = [];
 
     for (const dept of DEPARTMENTS) {
       // Каскад чтения — rows-read; недоступный отдел пропускается (в отличие от 503 основных роутов)
@@ -643,6 +856,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
       const rawRows = read.values;
+
+      readDepartments.push(dept.nameShort);
 
       const subs = new Set<string>();
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
@@ -665,7 +880,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    return reply.send(result);
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), readDepartments);
+    if (readDepartments.length === 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги ГРБС не прочитаны. Справочник подведов не обновлён.', coverage,
+    });
+    // Boundary compatibility for already loaded clients; new consumers request the envelope.
+    return reply.send((request.query as Record<string, string>).coverage === '1' ? { subordinates: result, coverage } : result);
   });
 
   /**
@@ -771,161 +991,110 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Sort by count descending
     entries.sort((a, b) => b.count - a.count);
 
-    return reply.send({ subjects: entries, unreadDepartments });
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort),
+      DEPARTMENTS.map(dept => dept.nameShort).filter(name => !unreadDepartments.some(d => d.department === name)));
+    if (coverage.readDepartments.length === 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги ГРБС не прочитаны. Сверка предметов не выполнена.', coverage,
+    });
+    return reply.send({ subjects: entries, unreadDepartments, coverage });
   });
 
-  /**
-   * GET /api/rows/scatter
-   * ЗАКЛЮЧЁННЫЕ контракты всех управлений для scatter plot
-   * (Лимит программы vs Цена контракта).
-   *
-   * Гейт заключения (пп. 38-39 интервью 14.08.2026): точка попадает в облако
-   * только при ФАКТЕ заключения контракта — есть дата заключения (Q) и цена
-   * (Y > 0). До гейта строка с планом и ценой 0 без даты заключения рисовалась
-   * как «экономия 100 %» и раздувала счётчик «подозрительных» (2394 шт. —
-   * следствие того же ложного гейта); незаключённые строки без плановой даты
-   * (не обеспеченные финансированием, кредитная линия УФБП на 32 млн — п.39)
-   * попадали туда же. Экономия существует только у заключённого контракта.
-   *
-   * Query params:
-   *   - type: 'competitive' | 'single' — фильтр по типу закупки
-   *   - activity: 'program' | 'current_program' | 'current_non_program'
-   *   - dept: comma-separated dept IDs (латинский 'uer' или кириллический 'УЭР')
-   */
+  /** Recorded K/Y comparison. Financial meaning is source-defined, not inferred from columns. */
   app.get('/api/rows/scatter', async (request, reply) => {
     const query = request.query as Record<string, string>;
-    const filterType = query.type ?? '';
-    const filterActivity = query.activity ?? '';
-    const filterDepts = query.dept ? query.dept.split(',').map(s => s.trim()) : [];
-
-    // Обе формы ключа ГРБС: store канонизирует выбор в кириллицу (dept-key.ts),
-    // а d.id здесь латинский — матч только по d.id молча обнулял фильтр.
+    if (query.snapshot_id !== undefined && (typeof query.snapshot_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,160}$/.test(query.snapshot_id))) {
+      return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Некорректный идентификатор снимка.' });
+    }
+    const frozen = query.snapshot_id ? getStoredSnapshotById(query.snapshot_id) : null;
+    if (query.snapshot_id && !frozen) return reply.status(404).send({ code: 'SNAPSHOT_NOT_FOUND', message: 'Выбранный снимок больше недоступен. Текущее состояние вместо него не использовано.' });
+    const frozenCoverage = SourceCoverageSchema.safeParse(frozen?.metadata.sourceCoverage);
+    const filterDepts = query.dept?.split(',').map(s => s.trim()).filter(Boolean) ?? [];
     const departments = filterDepts.length > 0
-      ? DEPARTMENTS.filter(d => filterDepts.includes(d.id) || filterDepts.includes(d.nameShort))
-      : DEPARTMENTS;
-
-    /**
-     * Дата в ячейке листа есть (не пусто и не заглушка «Х»/«-»/«н/д»).
-     * Канон плейсхолдеров — FACT_DATE_PLACEHOLDERS (@aemr/shared/fact-date.ts):
-     * тот же список заглушек операторы ставят и в N (дата плана), и в Q (дата
-     * заключения) — шапка книги прямо говорит «в случае отсутствия проставляется Х».
-     */
-    const hasCellDate = (raw: unknown): boolean =>
-      !FACT_DATE_PLACEHOLDERS.has(String(raw ?? '').trim().toLowerCase());
-
-    const allPoints: Array<{
-      id: unknown;
-      department: string;
-      subject: string;
-      planTotal: number;
-      factTotal: number;
-      economyPercent: number;
-      activityType: string;
-      procurementType: string;
-      quarter: unknown;
-    }> = [];
-    // Те же две честности, что и в /rows/subjects: какие книги не прочитаны и
-    // упёрлись ли мы в потолок выборки. Иначе неполное облако точек выглядит
-    // как полное, и «средняя экономия» считается по обрезку молча.
+      ? DEPARTMENTS.filter(d => filterDepts.includes(d.id) || filterDepts.includes(d.nameShort)) : DEPARTMENTS;
+    const year = parseYearFilter(query.year);
+    const months = query.months?.split(',').map(Number) ?? [];
+    const activities = query.activity ? query.activity.split(',').map(parseActivityScope) : ['all' as const];
+    if ((query.year && query.year !== 'all' && (year === undefined || Number(query.year) !== year)) ||
+        months.some(m => !Number.isInteger(m) || m < 1 || m > 12) ||
+        (query.period && !/^(year|q[1-4])$/.test(query.period)) || activities.some(scope => scope === null) ||
+        (query.type && !['competitive', 'single'].includes(query.type)) ||
+        filterDepts.some(key => !departments.some(d => key === d.id || key === d.nameShort))) {
+      return reply.status(400).send({ code: 'INVALID_SCOPE', message: 'Проверьте период, способ и управления в отборе.' });
+    }
+    const asOfInstant = frozen ? new Date(frozen.createdAt) : new Date();
+    if (!Number.isFinite(asOfInstant.getTime())) return reply.status(500).send({
+      code: 'INVALID_SNAPSHOT_TIME', message: 'Момент выбранного снимка не установлен. Исторические показатели не рассчитаны.',
+    });
+    const asOfDay = productCalendarDay(asOfInstant, PRODUCT_UTC_OFFSET_HOURS);
+    const asOf = isoOfDayNumber(asOfDay);
+    const points = [];
     const unreadDepartments: Array<{ department: string; reason: string }> = [];
+    const excluded = { invalidAmount: 0, invalidDate: 0, futureFact: 0, unknownMethod: 0 };
     const POINT_LIMIT = 2500;
-
+    let count = 0, limitTotal = 0, contractTotal = 0, economyTotal = 0;
     for (const dept of departments) {
-      // Каскад чтения — rows-read; недоступный отдел пропускается
-      const read = await readDeptRows(dept);
-      if (!read.ok) {
-        if (read.reason === 'read-error') {
-          app.log.warn({ err: read.error }, `scatter: failed to read spreadsheet for ${dept.nameShort}`);
-        } else {
-          app.log.warn(`scatter: no data source for ${dept.nameShort}`);
+      let values: unknown[][];
+      if (frozen) {
+        const entry = Object.entries(frozen.rowsByDept ?? {}).find(([name]) => findDept(name)?.latinId === dept.id);
+        if (!entry || !frozenCoverage.success || !frozenCoverage.data.readDepartments.includes(dept.nameShort)) {
+          unreadDepartments.push({ department: dept.nameShort, reason: 'Полнота книги в выбранном снимке не подтверждена.' });
+          continue;
         }
-        unreadDepartments.push({
-          department: dept.nameShort,
-          reason: sourceUnavailableMessage(dept.nameShort, read.reason),
-        });
-        continue;
+        values = [[], [], [], ...entry[1]];
+      } else {
+        const read = await readDeptRows(dept);
+        if (!read.ok) {
+          unreadDepartments.push({ department: dept.nameShort, reason: sourceUnavailableMessage(dept.nameShort, read.reason) });
+          continue;
+        }
+        values = read.values;
       }
-      const rawRows = read.values;
-
-      for (let i = DEPT_HEADER_ROWS; i < rawRows.length && allPoints.length < POINT_LIMIT; i++) {
-        const row = rawRows[i];
+      for (let i = DEPT_HEADER_ROWS; i < values.length; i++) {
+        const row = values[i];
         if (!row) continue;
-
-        const subject = String(row[6] ?? '').trim(); // G=subject
-        if (!subject) continue;
-        const subLow = subject.toLowerCase();
-        if (isMetaRow(subLow)) continue;
-
-        const planTotal = parseFloat(String(row[10] ?? '')) || 0; // K=planTotal
-        const factTotal = parseFloat(String(row[24] ?? '')) || 0; // Y=factTotal (цена контракта)
-
-        if (planTotal <= 0) continue; // skip rows without plan limit
-
-        // ── Гейт заключения (пп. 38-39) ──
-        // 1. Нет плановой даты (N) → закупка не обеспечена финансированием —
-        //    ей не место в облаке «лимит vs цена» вовсе (п.39, УФБП).
-        if (!hasCellDate(row[DEPT_COLUMNS.PLAN_DATE])) continue;
-        // 2. Нет даты заключения (Q) → контракта нет → нет ни цены, ни экономии.
-        //    Именно эти строки рисовались как «экономия 100 %» (п.38).
-        if (!hasCellDate(row[DEPT_COLUMNS.FACT_DATE])) continue;
-        // 3. Дата есть, а цена 0 — дефект данных листа (контракт не заключают
-        //    по цене 0), а не экономия 100 %: точку не рисуем.
-        if (factTotal <= 0) continue;
-
-        const procType = String(row[11] ?? '').trim(); // L=method
-        const actType = String(row[5] ?? '').trim();  // F=activityType
-
-        // Apply type filter
-        if (filterType === 'competitive') {
-          const lt = procType.toLowerCase();
-          if (lt.includes('еп') || lt.includes('единствен')) continue;
-        } else if (filterType === 'single') {
-          const lt = procType.toLowerCase();
-          if (!lt.includes('еп') && !lt.includes('единствен')) continue;
-        }
-
-        // Apply activity filter
-        if (filterActivity) {
-          const actMap: Record<string, string[]> = {
-            program: ['программное мероприятие'],
-            current_program: ['текущая деятельность в рамках программного мероприятия', 'текущая деятельность в рамках программ'],
-            current_non_program: ['текущая деятельность вне рамок программного мероприятия', 'текущая деятельность вне программных мероприятий'],
-          };
-          const terms = actMap[filterActivity] ?? [filterActivity];
-          if (!terms.some(t => actType.toLowerCase().includes(t))) continue;
-        }
-
-        // Экономия считается только здесь — ПОСЛЕ гейта заключения: planTotal > 0
-        // и factTotal > 0 гарантированы, «100 %» из цены 0 больше невозможны.
-        const economyPercent = +((1 - factTotal / planTotal) * 100).toFixed(2);
-
-        allPoints.push({
-          id: row[0],
-          // Кириллический канон ('УАГЗО'), НЕ латинский dept.id ('uagzo'):
-          // поле уходит в тултип графика как есть — внутренний латинский ключ
-          // торчал наружу (п.38 интервью 14.08). Переходы по клику не ломаются:
-          // store канонизирует обе формы (dept-key.ts), роуты /api/rows ищут
-          // по d.id ИЛИ d.nameShort.
-          department: dept.nameShort,
-          subject: subject.length > 80 ? subject.slice(0, 80) + '…' : subject,
-          planTotal,
-          factTotal,
-          economyPercent,
-          activityType: actType,
-          procurementType: procType,
-          quarter: row[14], // O=plan quarter
+        const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
+        if (!subject || isMetaRow(subject)) continue;
+        if (!activities.some(scope => scope !== null && matchesActivityScope(scope, row[DEPT_COLUMNS.TYPE]))) continue;
+        if (query.search && !subject.toLowerCase().includes(query.search.toLowerCase())) continue;
+        if (query.deptOnly?.split(',').some(id => id === dept.id || id === dept.nameShort) && !isOrgItself(row[DEPT_COLUMNS.SUBORDINATE])) continue;
+        if (query.subordinate && applySubordinateFilter([{ subordinate: row[DEPT_COLUMNS.SUBORDINATE] }], query.subordinate).length === 0) continue;
+        const planDay = dayNumberOf(row[DEPT_COLUMNS.PLAN_DATE]);
+        const factDay = dayNumberOf(row[DEPT_COLUMNS.FACT_DATE]);
+        if (planDay === null || factDay === null) { excluded.invalidDate++; continue; }
+        const planDate = isoOfDayNumber(planDay);
+        const month = Number(planDate.slice(5, 7)), planYear = Number(planDate.slice(0, 4));
+        const quarter = Math.ceil(month / 3);
+        if (year !== undefined && planYear !== year) continue;
+        if (months.length > 0 ? !months.includes(month) : query.period && query.period !== 'year' && query.period !== `q${quarter}`) continue;
+        if (factDay > asOfDay) { excluded.futureFact++; continue; }
+        const method = normalizeMethod(row[DEPT_COLUMNS.METHOD]);
+        if (!method) { excluded.unknownMethod++; if (query.type) continue; }
+        if ((query.type === 'competitive' && method === 'ЕП') || (query.type === 'single' && method !== 'ЕП')) continue;
+        const planTotal = sheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]);
+        const factTotal = sheetNumber(row[DEPT_COLUMNS.TOTAL_FACT]);
+        if (planTotal === null || factTotal === null || planTotal <= 0 || factTotal <= 0) { excluded.invalidAmount++; continue; }
+        const economy = approvedEconomy(row, asOfDay);
+        count++; limitTotal += planTotal; contractTotal += factTotal; economyTotal += economy;
+        if (points.length < POINT_LIMIT) points.push({
+          id: row[0], rowIndex: i + 1, department: dept.nameShort,
+          subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+          subordinate: String(row[DEPT_COLUMNS.SUBORDINATE] ?? '').trim(),
+          planTotal, factTotal, limitReductionPercent: +((1 - factTotal / planTotal) * 100).toFixed(2),
+          approvedEconomy: economy, activityType: classifyActivity(row[DEPT_COLUMNS.TYPE], row[DEPT_COLUMNS.PROGRAM_NAME]),
+          procurementType: method ?? 'unknown', planDate, factDate: isoOfDayNumber(factDay), planYear, month, quarter,
         });
       }
     }
-
-    return reply.send({
-      points: allPoints,
-      total: allPoints.length,
-      departments: departments.map(d => d.id),
-      unreadDepartments,
-      /** Выборка упёрлась в потолок: показано не всё, среднее считать нельзя. */
-      truncated: allPoints.length >= POINT_LIMIT,
-      pointLimit: POINT_LIMIT,
+    const coverage = departmentCoverage(departments.map(d => d.nameShort),
+      departments.map(d => d.nameShort).filter(name => !unreadDepartments.some(d => d.department === name)));
+    if (coverage.readDepartments.length === 0 && departments.length > 0) return reply.status(503).send({
+      code: 'SERVICE_UNAVAILABLE', message: 'Книги выбранных управлений не прочитаны. Облако закупок не построено.', coverage,
+    });
+    return reply.send({ points, total: count, sourceSnapshotId: frozen?.id ?? null, departments: departments.map(d => d.id), unreadDepartments, coverage,
+      truncated: count > POINT_LIMIT, pointLimit: POINT_LIMIT, excluded, asOf,
+      basis: 'plan_K_vs_recorded_fact_Y', unit: 'thousand_rubles',
+      summary: { count, limitTotal, contractTotal, approvedEconomy: economyTotal,
+        limitReductionPercent: limitTotal > 0 ? (1 - contractTotal / limitTotal) * 100 : null },
     });
   });
 }

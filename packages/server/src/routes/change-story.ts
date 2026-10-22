@@ -1,3 +1,4 @@
+import { readSourceRowObservations } from '../services/source-row-observations.js';
 /**
  * GET /api/change-story — ОДИН журнал изменений на два уровня подробности.
  *
@@ -37,7 +38,7 @@ import {
   type ChangeKind,
   type ChangeStoryInput,
 } from '@aemr/core';
-import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
+import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { readAllBookJournals } from '../services/provenance-journal.js';
@@ -54,7 +55,7 @@ const MAX_LIMIT = 2000;
 /** Роды правок — закрытый словарь; чужое слово в отборе не молчит, а отвергается. */
 const KINDS: readonly ChangeKind[] = [
   'money', 'dates', 'comment', 'method', 'subject', 'flag',
-  'row-added', 'row-vanished', 'row-cleared', 'other',
+  'row-added', 'row-vanished', 'row-identity-candidate', 'row-cleared', 'other',
 ];
 
 /** Значение запроса может прийти строкой или списком — сводим к списку. */
@@ -71,7 +72,7 @@ function asList(raw: unknown): string[] {
  * пересчитывается здесь: два места, читающие снимки своими руками, рано или
  * поздно разойдутся в том, какая пара снимков считается сравнимой.
  */
-function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { beforeAt: string; afterAt: string } | null } {
+function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { baselineId: string; beforeAt: string; afterAt: string; oldestCurrentAt: string } | null; note: string } {
   const { comparison, note } = buildComparison();
   if (comparison === null) {
     return {
@@ -80,10 +81,10 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
         book: 'все книги',
         reason: 'no-previous-snapshot',
         detail:
-          `${note} Пока пары снимков нет, исчезнувшие закупки в этом журнале не появятся: ` +
-          'журнал книги удаление строки не записывает.',
+          `${note} Недельная сверка недоступна. Наблюдения отсутствия позиций между принятыми чтениями показаны отдельно; журнал Google удаление строк не регистрирует.`,
       }],
       comparison: null,
+      note,
     };
   }
 
@@ -106,12 +107,34 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
       vanishedPlanSum: book.vanishedPlanSum,
       vanishedFactSum: book.vanishedFactSum,
       unkeyed: book.unkeyed,
+      ambiguousKeys: book.ambiguousKeys,
+      identityCandidates: book.identityCandidates,
+      contextChanged: book.contextChanged,
       note: book.note,
+    }, {
+      baselineId: comparison.baselineId,
+      controlAt: comparison.beforeAt,
+      observedAt: book.currentAt,
     }));
   }
 
-  const gaps: ChangeGap[] = [];
+  const gaps: ChangeGap[] = comparison.unavailableBooks.map((unread) => ({
+    book: unread.dept,
+    reason: 'source-unavailable',
+    detail: 'Книга «' + unread.dept + '» не сверена с недельным контролем: ' +
+      unread.reason + '. Отсутствие данных не равно отсутствию изменений.',
+  }));
   for (const book of comparison.books) {
+    const duplicates = [...new Set([
+      ...book.ambiguousKeys.before, ...book.ambiguousKeys.after,
+    ])];
+    if (duplicates.length > 0) gaps.push({
+      book: book.dept,
+      reason: 'row-key-ambiguous',
+      count: duplicates.length,
+      detail: 'В книге «' + book.dept + '» неоднозначные № п/п: ' +
+        duplicates.join(', ') + '. Их преемственность без уточнения не утверждается.',
+    });
     if (book.unkeyed.before > 0 || book.unkeyed.after > 0) {
       gaps.push({
         book: book.dept,
@@ -124,7 +147,23 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
     }
   }
 
-  return { entries, gaps, comparison: { beforeAt: comparison.beforeAt, afterAt: comparison.afterAt } };
+  return { entries, gaps, note, comparison: { baselineId: comparison.baselineId, beforeAt: comparison.beforeAt, afterAt: comparison.afterAt, oldestCurrentAt: comparison.oldestCurrentAt } };
+}
+
+/** Окно журнала опирается на подтверждённый контроль, а не календарную попытку среза. */
+export function changeStoryDefaultWindow(
+  comparison: { beforeAt: string } | null,
+  now: Date = new Date(),
+  offsetHours: number = config.weeklySnapshot.utcOffsetHours,
+): { sinceDay: number; sinceMs: number } {
+  if (comparison) {
+    const controlAt = new Date(comparison.beforeAt);
+    return { sinceDay: productCalendarDay(controlAt, offsetHours), sinceMs: controlAt.getTime() };
+  }
+  // Это лишь доступное окно журнала: comparison=null и gaps явно сохраняют
+  // отсутствие контроля, не объявляя окно завершённой недельной сверкой.
+  const sinceDay = liveBaselineDay(now, offsetHours);
+  return { sinceDay, sinceMs: weeklyCutoffMs(sinceDay, offsetHours) };
 }
 
 interface Query {
@@ -139,7 +178,9 @@ interface Query {
 export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: Query }>('/api/change-story', async (request, reply) => {
     // ── Окно ──
+    const vanished = vanishedEntries();
     let sinceDay: number | null;
+    let sinceMs: number;
     if (request.query.since !== undefined) {
       sinceDay = dayNumberOf(request.query.since);
       // Мало проверить формат: Date.UTC переваливает «2026-06-31» в 1 июля,
@@ -152,10 +193,10 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
           code: 'BAD_REQUEST',
         });
       }
+      sinceMs = sinceDay * 86400000;
     } else {
-      sinceDay = floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
+      ({ sinceDay, sinceMs } = changeStoryDefaultWindow(vanished.comparison));
     }
-    const sinceMs = sinceDay * 86400000;
 
     const kinds = asList(request.query.kind);
     const unknownKind = kinds.find((k) => !KINDS.includes(k as ChangeKind));
@@ -181,11 +222,9 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       records: j.records,
     }));
     const story = buildChangeStory(inputs, { sinceMs });
-    const vanished = vanishedEntries();
-
     // Один список: правки книги и пропажи из сравнения снимков. Порядок
     // держит ядро — записи без момента впереди, дальше свежие сверху.
-    const all = [...story.entries, ...vanished.entries].sort((a, b) => {
+    const all = [...story.entries, ...vanished.entries, ...readSourceRowObservations(sinceMs)].sort((a, b) => {
       if (a.atMs === null && b.atMs !== null) return -1;
       if (a.atMs !== null && b.atMs === null) return 1;
       if (a.atMs !== null && b.atMs !== null && a.atMs !== b.atMs) return b.atMs - a.atMs;
@@ -212,10 +251,14 @@ export async function changeStoryRoutes(app: FastifyInstance): Promise<void> {
       // таблицы правок ячеек не создаёт, и журнал книги его не видит.
       deletionsUnobservable: true as const,
       note:
+        (vanished.note ? vanished.note + ' ' : '') +
         'Журнал книги записывает правки ячеек: добавление закупки видно как заполнение ' +
         'пустой строки, очистка — как обнуление её ячеек. Удаление строки журнал не ' +
-        'записывает вовсе — такие пропажи находятся сравнением снимков по № п/п.',
-      /** Пара снимков, по которой найдены пропажи; null — сравнивать не с чем. */
+        'записывает вовсе. Отсутствие прежнего номера, перемена его содержания и ' +
+        'возможная перенумерация проверяются сравнением принятых чтений, а при наличии ' +
+        'недельного контроля — также сверкой с ним. Причина и автор ' +
+        'не выводятся из одного сравнения — для них требуются дополнительные свидетельства.',
+      /** Контрольный снимок и диапазон текущих чтений; null — сверки нет. */
       comparison: vanished.comparison,
       /** Материал чипов отбора — считается по всему окну, а не по показанному. */
       facets: {

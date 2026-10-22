@@ -5,19 +5,27 @@ import json
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from .atomic_snapshot import SourcePayload, capture_atomic_snapshot
+from .department_directory import (
+    APPROVED_PRIMARY_TITLE_ALIASES,
+    DEPARTMENTS,
+    MASTER_SOURCE_PROFILE,
+    MONITORING_SOURCE_SCHEMA,
+    validate_master_source_header,
+)
 from .raw_pipeline import (
     FORMULA_ERRORS,
     RAW_RULES_VERSION,
     RENDERER_VERSION,
     header_hash,
 )
+from .snapshot import canonical_semantic_hash
 
 
 class GoogleReadError(RuntimeError):
@@ -153,10 +161,24 @@ class GoogleReadClient:
         return {'sheets': sorted((s['properties'] for s in data.get('sheets', [])), key=lambda x: x['sheetId']),
                 'named_ranges': sorted(data.get('namedRanges', []), key=lambda x: x['name'])}
 
+    def discussions(self, provider_id):
+        result, token = [], None
+        for _ in range(10):
+            params = {'pageSize': 100, 'includeDeleted': 'false',
+                'fields': 'nextPageToken,comments(id,content,quotedFileContent,createdTime,modifiedTime,deleted,resolved,author(displayName),replies(id,content,action,deleted,createdTime,modifiedTime,author(displayName)))'}
+            if token:
+                params['pageToken'] = token
+            page = self._get('https://www.googleapis.com/drive/v3/files/' + quote(provider_id, safe='') + '/comments', params)
+            result.extend(page.get('comments', []))
+            token = page.get('nextPageToken')
+            if not token:
+                return result
+        raise GoogleReadError('GOOGLE_DISCUSSION_PAGE_LIMIT')
+
     def _values(self,provider_id,title,start,end,columns,render_option):
         a1 = _a1_range(title, start, end, columns)
         data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe='')+'/values/'+quote(a1,safe=''),
-                       {'valueRenderOption':render_option,'dateTimeRenderOption':'SERIAL_NUMBER','majorDimension':'ROWS'})
+                       {'valueRenderOption':render_option,'dateTimeRenderOption':'FORMATTED_STRING','majorDimension':'ROWS'})
         return data.get('values',[])
 
     def batch_values(self, provider_id, title, ranges, columns, render_option):
@@ -164,7 +186,7 @@ class GoogleReadClient:
         data = self._get(
             'https://sheets.googleapis.com/v4/spreadsheets/' + quote(provider_id, safe='') + '/values:batchGet',
             {'ranges': requested, 'valueRenderOption': render_option,
-             'dateTimeRenderOption': 'SERIAL_NUMBER', 'majorDimension': 'ROWS'})
+             'dateTimeRenderOption': 'FORMATTED_STRING', 'majorDimension': 'ROWS'})
         if data.get('spreadsheetId') != provider_id:
             raise GoogleReadError('GOOGLE_BATCH_SOURCE_MISMATCH')
         received = data.get('valueRanges')
@@ -183,6 +205,11 @@ class GoogleReadClient:
         return chunks
 
 
+# Explicit, live-directory-approved title migrations, keyed by immutable book and
+# sheetId. No fuzzy matching, no source identity change and no unknown fallback.
+
+
+
 class GoogleSheetSourceAdapter:
     # Drive versions describe the whole workbook, not individual tabs.
     revision_scope = 'provider'
@@ -197,7 +224,8 @@ class GoogleSheetSourceAdapter:
     def revision_token(self):
         return self.client.revision(self.provider_id)
 
-    def _chunks(self, count, columns, render_option):
+    def _chunks(self, count, columns, render_option, *, title=None):
+        title = title or self.contract['sheet']
         # Bound both ranges and requested cells; keep full allocated-grid coverage.
         chunk_rows = min(self.chunk_rows, max(1, 64000 // columns))
         ranges = [(start, min(start + chunk_rows - 1, count))
@@ -206,28 +234,41 @@ class GoogleSheetSourceAdapter:
         for offset in range(0, len(ranges), batch_size):
             group = ranges[offset:offset + batch_size]
             if hasattr(self.client, 'batch_values'):
-                chunks = self.client.batch_values(self.provider_id, self.contract['sheet'],
+                chunks = self.client.batch_values(self.provider_id, title,
                                                   group, columns, render_option)
                 if len(chunks) != len(group):
                     raise GoogleReadError('GOOGLE_BATCH_RANGE_COUNT_MISMATCH')
             else:
                 read = self.client.formulas if render_option == 'FORMULA' else self.client.values
-                chunks = [read(self.provider_id, self.contract['sheet'], start, end, columns)
+                chunks = [read(self.provider_id, title, start, end, columns)
                           for start, end in group]
             for (start, end), chunk in zip(group, chunks):
                 yield start, end, chunk
 
     def read_payload(self):
         c=self.contract;grid=self.client.grid(self.provider_id,c['sheet_id'])
-        if grid['title']!=c['sheet']:
-            raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
+        live_title = grid['title']
+        if live_title != c['sheet']:
+            reviewed = APPROVED_PRIMARY_TITLE_ALIASES.get(
+                (self.provider_id, c['sheet_id'], c['sheet']))
+            if live_title != reviewed:
+                raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
         count=grid['gridProperties']['rowCount']
-        if grid['gridProperties']['columnCount']<c['columns']:
+        physical_columns=grid['gridProperties']['columnCount']
+        # The reviewed canonical customer directory uses all physical columns
+        # as business/evidence fields, unlike sheets with spare formula columns.
+        # An installed 18/19/32 contract must not silently read a live 34 grid.
+        if ((c['provider_id'], c['sheet_id']) ==
+            (MONITORING_SOURCE_SCHEMA['providerId'],
+             next(r['sheet_id'] for r in MONITORING_SOURCE_SCHEMA['reviews'] if r['sheet'] == 'Справочник заказчиков'))
+            and physical_columns != c['columns']):
+            raise GoogleReadError('MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH')
+        if physical_columns<c['columns']:
             raise GoogleReadError('GOOGLE_SOURCE_COLUMNS_MISSING')
-        full_columns=grid['gridProperties']['columnCount']
+        full_columns=physical_columns
         values=[[] for _ in range(count)]
         extra_values=[[] for _ in range(count)]
-        for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE'):
+        for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE', title=live_title):
             if len(chunk)>end-start+1:
                 raise GoogleReadError('GOOGLE_RANGE_OVERFLOW')
             for offset,row in enumerate(chunk):
@@ -237,13 +278,19 @@ class GoogleSheetSourceAdapter:
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
                 values[start-1+offset]=row[:c['columns']]
                 extra_values[start-1+offset]=row[c['columns']:]
-        metadata={'sheet_title':c['sheet'],'row_count':count,
+        known_master = any((entry['source']['providerId'], entry['source']['sheetId']) ==
+                           (self.provider_id, c['sheet_id']) for entry in DEPARTMENTS)
+        if self.role == 'master' and known_master:
+            if (c['columns'], c['header_rows']) != (MASTER_SOURCE_PROFILE['columns'], MASTER_SOURCE_PROFILE['headerRows']):
+                raise GoogleReadError('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH')
+            validate_master_source_header(values[MASTER_SOURCE_PROFILE['headerRows'] - 1])
+        metadata={'sheet_title':live_title,'row_count':count,
                   'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')}
         # Legacy adapters can still produce diagnostic snapshots; missing evidence cannot pass closure.
         if hasattr(self.client,'formula_context') and hasattr(self.client,'formulas'):
             context=self.client.formula_context(self.provider_id)
             formulas=[]
-            for start, end, chunk in self._chunks(count, full_columns, 'FORMULA'):
+            for start, end, chunk in self._chunks(count, full_columns, 'FORMULA', title=live_title):
                 if len(chunk)>end-start+1 or any(len(row)>full_columns for row in chunk):
                     raise GoogleReadError('GOOGLE_FORMULA_RANGE_OVERFLOW')
                 for offset,row in enumerate(chunk):
@@ -251,6 +298,8 @@ class GoogleSheetSourceAdapter:
                         if isinstance(value,str) and value.startswith('='):
                             formulas.append({'row':start+offset,'column':column,'formula':value})
             metadata['formula_evidence']={**context,'rows':count,'columns':full_columns,'formulas':formulas}
+            if self.role == 'master' and hasattr(self.client, 'discussions'):
+                metadata['formula_evidence']['discussions'] = self.client.discussions(self.provider_id)
             if full_columns>c['columns']:
                 metadata['formula_evidence']['extra_values']=extra_values
         return SourcePayload(self.source_id,self.role,self.provider_id,values,str(c['sheet_id']),
@@ -280,3 +329,79 @@ def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_att
     return {'capture_version':'connector-capture-v1','captured_at':bundle.manifest['captured_at'],
         'acquisition_started_at':now.isoformat(), 'acquisition_completed_at':datetime.now(timezone.utc).isoformat(),
         'report_date':local.strftime('%d.%m.%Y'),'report_year':local.year,'timezone':timezone_name,'sources':sources}
+
+
+def source_semantic_metadata(metadata):
+    """Derived comparison only: frozen raw evidence remains immutable."""
+    result = dict(metadata)
+    evidence = metadata.get('formula_evidence')
+    if not isinstance(evidence, dict) or any(not isinstance(evidence.get(key), list)
+                                           for key in ('sheets', 'named_ranges', 'formulas')):
+        raise GoogleReadError('SOURCE_EQUIVALENCE_FORMULA_EVIDENCE_REQUIRED')
+    semantic = dict(evidence)
+    semantic['sheets'] = sorted(({
+        'sheetId': sheet['sheetId'], 'title': sheet['title'],
+        'gridProperties': {key: sheet.get('gridProperties', {})[key]
+                           for key in ('rowCount', 'columnCount') if key in sheet.get('gridProperties', {})},
+    } for sheet in evidence['sheets']), key=lambda sheet: sheet['sheetId'])
+    semantic['named_ranges'] = sorted(({'name': item['name'], 'range': item['range']}
+                                       for item in evidence['named_ranges']), key=lambda item: item['name'])
+    result['formula_evidence'] = semantic
+    return result
+
+
+def recheck_google_sources(registry, capture, client):
+    """Read actual tokens; drifted providers require a complete stable scoped reread."""
+    contracts = {source['source_id']: source for source in registry['sources']}
+    captured = {source['source_id']: source for source in capture['sources']}
+    if set(contracts) != set(captured):
+        raise GoogleReadError('SOURCE_EQUIVALENCE_SCOPE_MISMATCH')
+    providers = {source['provider_id'] for source in contracts.values()}
+    before = {provider: client.revision(provider) for provider in sorted(providers)}
+    if any(not token for token in before.values()):
+        raise GoogleReadError('ATOMIC_SOURCE_REVISION_UNAVAILABLE')
+    changed = {source_id for source_id, source in captured.items()
+               if before[contracts[source_id]['provider_id']] != source['after']}
+    proofs = {}
+    for source_id in sorted(changed):
+        contract, frozen = contracts[source_id], captured[source_id]
+        for key in ('source_id', 'provider_id', 'role', 'sheet_id', 'columns', 'header_rows', 'grbs'):
+            if contract[key] != frozen[key]:
+                raise GoogleReadError('SOURCE_EQUIVALENCE_SCOPE_MISMATCH')
+        payload = GoogleSheetSourceAdapter(contract, client).read_payload()
+        captured_metadata = {'sheet_title': frozen['sheet'], 'grbs': frozen.get('grbs'),
+            'row_count': frozen['rows'], 'column_count': frozen['columns'],
+            'header_rows': contract['header_rows'], 'units': contract['units'],
+            'capture_method': frozen.get('capture_method', 'connector_bounded_ranges'),
+            'formula_evidence': frozen.get('formula_evidence')}
+        # read_payload already validates the live title against the explicit approved alias.
+        # The frozen outer title is the registered contract title; raw formula context
+        # retains the actual live title and still participates in the semantic comparison.
+        observed_metadata = {**captured_metadata, **payload.metadata, 'sheet_title': frozen['sheet']}
+        expected_values = canonical_semantic_hash(frozen['values'])
+        actual_values = canonical_semantic_hash(payload.semantic_values)
+        expected_metadata = canonical_semantic_hash(source_semantic_metadata(captured_metadata))
+        actual_metadata = canonical_semantic_hash(source_semantic_metadata(observed_metadata))
+        expected_schema = header_hash(frozen['values'], contract['header_rows'],
+                                     volatile_cells=contract.get('volatile_header_cells', ()))
+        if (expected_values != actual_values or expected_metadata != actual_metadata
+                or expected_schema != payload.schema_fingerprint or expected_schema != contract['schema_fingerprint']):
+            raise GoogleReadError('SOURCE_CHANGED_BEFORE_PUBLICATION')
+        proofs[source_id] = {'provider_id': contract['provider_id'], 'sheet_id': str(contract['sheet_id']),
+            'captured_revision': frozen['after'], 'observed_revision_before': before[contract['provider_id']],
+            'captured_values_hash': expected_values, 'observed_values_hash': actual_values,
+            'captured_metadata_hash': expected_metadata, 'observed_metadata_hash': actual_metadata,
+            'captured_content_hash': canonical_semantic_hash({'values': frozen['values'],
+                'formula_evidence': frozen['formula_evidence']}),
+            'observed_content_hash': canonical_semantic_hash({'values': payload.semantic_values,
+                'formula_evidence': payload.metadata['formula_evidence']}),
+            'observed_formula_evidence_hash': canonical_semantic_hash(payload.metadata['formula_evidence']),
+            'schema_fingerprint': payload.schema_fingerprint,
+            'checked_at': datetime.now(UTC).isoformat()}
+    if changed:
+        after = {provider: client.revision(provider) for provider in sorted(providers)}
+        if before != after:
+            raise GoogleReadError('SOURCE_CHANGED_DURING_FREEZE')
+        for source_id, proof in proofs.items():
+            proof['observed_revision_after'] = after[contracts[source_id]['provider_id']]
+    return {source_id: before[contract['provider_id']] for source_id, contract in contracts.items()}, proofs

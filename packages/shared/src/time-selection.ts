@@ -20,6 +20,8 @@ export type Month = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 /** Продуктовый пояс по умолчанию — Камчатка, UTC+12 (DST нет). */
 export const PRODUCT_UTC_OFFSET_HOURS = 12;
+/** Agreed end of Thursday's working day in the product timezone. */
+export const WEEKLY_CUTOFF_HOUR = 18;
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
@@ -34,6 +36,17 @@ const MS_PER_DAY = 86_400_000;
  */
 export function productCalendarDay(instant: Date, utcOffsetHours: number): number {
   return Math.floor((instant.getTime() + utcOffsetHours * MS_PER_HOUR) / MS_PER_DAY);
+}
+
+/** LIVE Monday–Sunday compares with the previous calendar week's Thursday. */
+export function liveBaselineDay(instant: Date, utcOffsetHours = PRODUCT_UTC_OFFSET_HOURS): number {
+  // Previous Thursday is four days before this week's Monday, including Friday.
+  return mondayOfDay(productCalendarDay(instant, utcOffsetHours)) - 4;
+}
+
+/** Absolute capture boundary for a calendar Thursday; never the publication time. */
+export function weeklyCutoffMs(day: number, utcOffsetHours = PRODUCT_UTC_OFFSET_HOURS): number {
+  return day * MS_PER_DAY + (WEEKLY_CUTOFF_HOUR - utcOffsetHours) * MS_PER_HOUR;
 }
 
 /** Сырой выбор пользователя. Хранится в store, сериализуется в URL, парсится сервером. */

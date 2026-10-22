@@ -28,6 +28,7 @@ import {
   fmtShare,
   isGraded,
   type ScorecardGraded,
+  type ScorecardUnassessed,
   type ScorecardRow,
 } from './contract';
 
@@ -53,7 +54,7 @@ function DisciplineBar({ index }: { index: number }) {
 }
 
 /** Признаки, на которые стоит посмотреть. Ноль признаков — прочерк, не «0». */
-function FlagsCell({ entry }: { entry: ScorecardGraded }) {
+function FlagsCell({ entry }: { entry: ScorecardGraded | ScorecardUnassessed }) {
   const { topFlags, anticorruptionFlags } = entry;
   if (topFlags.length === 0) {
     return (
@@ -177,6 +178,15 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
                         <FlagsCell entry={entry} />
                       </td>
                     </>
+                  ) : 'assessmentStatus' in entry ? (
+                    <>
+                      <td colSpan={3} className="px-3 py-2.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        {entry.assessmentReason}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtShare(entry.execPct)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtShare(entry.epShare)}</td>
+                      <td className="px-4 py-2.5 text-xs"><FlagsCell entry={entry} /></td>
+                    </>
                   ) : (
                     // Чисел нет вовсе: грейд без счётной базы — выдумка, а не
                     // строгость. Причина сервера идёт во всю ширину строки.
@@ -191,8 +201,8 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
         </table>
       </div>
       <p className={clsx('px-4 py-2.5 text-[11px] text-zinc-500 dark:text-zinc-400 border-t', RULE_HEAD)}>
-        Порядок строк — по индексу дисциплины возрастанием: наверху то управление,
-        которому внимание нужнее.{' '}
+        Управления без подтверждённой методики оценки перечислены по названию.
+        Фактические показатели не превращаются в рейтинг.{' '}
         <KBTooltip
           whatIs="Столбец «На что посмотреть» показывает до трёх признаков из шести, которые ищет проверка: дробление закупок, торги без снижения цены, цена выше типичной, ЕП свыше разового лимита, годовая доля ЕП, концентрация на одном поставщике."
           pitfalls="Признак — повод посмотреть строку, а не доказанное нарушение. Каждый признак несёт свой текст: наведите на плашку."

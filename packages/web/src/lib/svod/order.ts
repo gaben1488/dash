@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Порядок блоков управлений в таблице «Свода».
  *
@@ -23,24 +24,14 @@ import type { SvodBlock } from '@aemr/shared';
 export type SvodOrder = 'registry' | 'execution' | 'plan' | 'economy';
 
 /** Подписи порядков — единственный дом этих слов. */
-export const SVOD_ORDER_LABEL: Readonly<Record<SvodOrder, string>> = {
-  registry: 'как в реестре',
-  execution: 'по исполнению',
-  plan: 'по лимиту',
-  economy: 'по экономии',
-};
+export const SVOD_ORDER_LABEL: Readonly<Record<SvodOrder, string>> = PRODUCT_COPY["lib/svod/order:SVOD_ORDER_LABEL"];
 
 /**
  * Что означает каждый порядок — для подсказки кнопки. Направление названо
  * словами: «по исполнению» само по себе не говорит, сверху отстающие или
  * передовые, а от этого зависит, как читатель поймёт первую строку.
  */
-export const SVOD_ORDER_HINT: Readonly<Record<SvodOrder, string>> = {
-  registry: 'Порядок справочника управлений — тот же, что в официальном листе.',
-  execution: 'Сверху отстающие: наименьший процент исполнения (столбец G) первым.',
-  plan: 'Сверху крупные: наибольший плановый лимит (столбец K) первым.',
-  economy: 'Сверху наибольшая экономия по итогу управления.',
-};
+export const SVOD_ORDER_HINT: Readonly<Record<SvodOrder, string>> = PRODUCT_COPY["lib/svod/order:SVOD_ORDER_HINT"];
 
 /** Блок управления в том виде, в каком его держит срез вкладки. */
 export interface SvodDeptEntry {

@@ -176,7 +176,9 @@ describe('ставка снижения (канон п.144) — расчётна
   });
 
   it('в положении «живой» число пересчитано тем же основанием, паспорт называет обе суммы', () => {
-    const live = buildIntegralSummary(withOfficial(), { mode: 'live', livePct: 9.79, readAt: '2026-08-18T09:00:00Z' });
+    const current = withOfficial();
+    current.period.live = true;
+    const live = buildIntegralSummary(current, { mode: 'live', livePct: 9.79, readAt: '2026-08-18T09:00:00Z' });
     const card = live.remainder[2];
     // 60 ÷ 8 × 9,79 = 73,425 → «73» по канону целочисленного форматирования.
     expect(card.value).toBe('73');
@@ -194,8 +196,8 @@ describe('ставка снижения (канон п.144) — расчётна
 
   it('живой замер не получен — положение «живой» не выдумывает число: действует норматив', () => {
     const s = buildIntegralSummary(withOfficial(), { mode: 'live', livePct: null, readAt: null });
-    expect(s.remainder[2].value).toBe('60');
-    expect(s.remainder[2].label).toContain('прогноз листа');
+    expect(s.remainder[2].value).toBe('—');
+    expect(s.remainder[2].live).toContain('нет живого коэффициента');
   });
 });
 
@@ -337,4 +339,19 @@ describe('остаток по способам — канон п.26', () => {
     const summary = buildIntegralSummary(report);
     expect(summary.remainderByMethod?.quarter).toBe(report.period.quarter);
   });
+});
+
+
+
+it('changes the actual table forecast on its own base and keeps official savings intact', () => {
+  const report = makeReportFixture();
+  report.period.live = true;
+  report.official = { calcEconomy: { total: 14827.896022080016, fb: 584.6121136000007, kb: 8222.685404480002, mb: 6020.598504000008, row: 32, cell: 'U32' } };
+  const normal = buildIntegralSummary(report, { mode: 'norm', livePct: 10, readAt: null });
+  const live = buildIntegralSummary(report, { mode: 'live', livePct: 10, readAt: null });
+  expect(normal.remainder.find(r => r.metricKey === 'calc_economy_remainder')?.value).toBe(fmtThousands(14827.896022080016));
+  expect(live.remainder.find(r => r.metricKey === 'calc_economy_remainder')?.value).toBe(fmtThousands(18534.87002760002));
+  expect(live.money).toEqual(normal.money);
+  report.period.live = false;
+  expect(buildIntegralSummary(report, { mode: 'live', livePct: 10, readAt: null }).remainder.find(r => r.metricKey === 'calc_economy_remainder')?.value).toBe('—');
 });

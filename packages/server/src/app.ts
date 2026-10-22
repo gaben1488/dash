@@ -38,6 +38,7 @@ import { textHygieneRoutes } from './routes/text-hygiene.js';
 import { eventsRoutes } from './routes/events.js';
 import { commentsRoutes } from './routes/comments.js';
 import { sourceIntegrityRoutes } from './routes/source-integrity.js';
+import { sourceDiagnosticsRoutes } from './routes/source-diagnostics.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
 import { startNightlyIntegritySweep, restoreMetadataWatch } from './services/metadata-watch.js';
@@ -45,17 +46,17 @@ import { connectFormulaSink, disconnectFormulaSink, restoreFormulaVerdicts } fro
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, restoreFormulaDeliveries, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
-import { startDriveWatch } from './services/drive-watch.js';
-import { setChangeAuthorResolver } from './services/live-diff.js';
-import { findChangeAuthor } from './services/changelog-authors.js';
+import { startWebhookChannels, stopWebhookChannels } from './services/webhook-channel.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
+import { registerSnapshotReadState } from './plugins/snapshot-read-state.js';
 import { registerDemoMarker } from './plugins/demo-marker.js';
 import { registerErrorShape, sendNotFound } from './plugins/error-shape.js';
 import { registerHttpCache } from './plugins/http-cache.js';
 import { registerCompression } from './plugins/compression.js';
+import { registerRequestTiming } from './plugins/request-timing.js';
 import {
   installGracefulShutdown,
   registerShutdownGuard,
@@ -174,6 +175,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     crossOriginEmbedderPolicy: false,
   });
 
+  registerSnapshotReadState(app);
   installProcessGuards(app.log);
 
   // Журнал обращений к таблицам-источникам — в журнал приложения.
@@ -187,9 +189,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // рядом с процессными стражами, до регистрации маршрутов: чтения начинаются
   // с первого же запроса.
   setSourceLogger(app.log);
-  // Восстановление до webhook-роутов/cron, без сетевых запросов к Google.
-  // Подключить анализ сразу: уведомление, пришедшее пока грузится первый
-  // снимок, теперь не теряет разбор формул.
+  // Restore independent source evidence before webhook queues and night-cron.
+  // This performs no Google requests and leaves the integrated source-cut
+  // acquisition/persistence barrier unchanged.
   restoreFormulaDeliveries();
   restoreFormulaVerdicts();
   restoreMetadataWatch();
@@ -197,6 +199,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
   // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
   app.addHook('onClose', async () => {
+    shutdownGuards.get(app)?.begin();
+    stopWebhookChannels();
     disconnectFormulaSink();
     setSourceLogger(null);
   });
@@ -225,6 +229,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // разные подписи одного и того же содержимого. Сжатие идёт следом и дописывает
   // к подписи название кодировки — так же, как это делает nginx.
   registerHttpCache(app);
+  registerRequestTiming(app);
   registerCompression(app);
 
   await app.register(dashboardRoutes);
@@ -259,6 +264,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(eventsRoutes);
   await app.register(commentsRoutes);
   await app.register(sourceIntegrityRoutes);
+  await app.register(sourceDiagnosticsRoutes);
 
   // Отладочное чтение книги регистрируется только в явно названной среде
   // разработки (прежде — при любой, кроме production, включая незаданную).
@@ -357,13 +363,12 @@ http://localhost:${actualPort}
 }
 
 export function preloadData(app: FastifyInstance): void {
+  if (shutdownGuards.get(app)?.isClosing()) return;
   // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
   // официальные ячейки читались свежими, а строки брались из кэша от старта
   // (канон п.66: обе стороны сверки — из одного момента).
-  // Подпись автора под живым событием «строка изменилась» — из журнала правок,
-  // уже осевшего в базе. Резолвер задаётся здесь, а не внутри сравнения книг:
-  // модуль сравнения не должен тянуть за собой базу.
-  setChangeAuthorResolver((book, cell) => findChangeAuthor(book, cell));
+  // Read-diffs have an observation time, not an attributed operator action.
+  // Original journal/comment authors remain on their own source evidence.
 
   setSourceRefresher(async () => {
     await refreshAllSources({
@@ -371,6 +376,21 @@ export function preloadData(app: FastifyInstance): void {
       warn: (m) => app.log.warn(m),
     }, 'request');
   });
+
+  // Recover push independently of Google preload. The shared refresh queue
+  // serializes notifications arriving during the initial source read.
+  startWebhookChannels({
+    info: (m) => app.log.info(m),
+    warn: (m) => app.log.warn(m),
+  });
+  try {
+    recoverWebhookQueue({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
+  } catch (err) {
+    app.log.warn(`Очередь уведомлений не поднята: ${(err as Error).message}`);
+  }
 
   void (async () => {
     try {
@@ -386,17 +406,21 @@ export function preloadData(app: FastifyInstance): void {
       app.log.warn('Department spreadsheets unavailable at startup: %s', (err as Error).message);
     }
 
+    if (shutdownGuards.get(app)?.isClosing()) return;
     try {
       app.log.info('Loading SVOD snapshot and pipeline...');
-      const snapshot = await getSnapshot(true);
+      const snapshot = await getSnapshot(false);
       const deltaCount = snapshot.deltas?.length ?? 0;
       const calcCount = Object.keys(snapshot.calculatedMetrics ?? {}).length;
       app.log.info(
         `SVOD loaded: ${Object.keys(snapshot.officialMetrics ?? {}).length} metrics, ${deltaCount} deltas, ${calcCount} calculated, ${snapshot.issues?.length ?? 0} issues`,
       );
     } catch (err) {
-      app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
+      if ((err as { code?: string }).code === 'SNAPSHOT_NOT_READY') app.log.info('Первый срез готовится в фоне');
+      else app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
     }
+
+    if (shutdownGuards.get(app)?.isClosing()) return;
 
     // Самообновление источников включается ПОСЛЕ первой полной загрузки:
     // иначе тик мог бы наложиться на старт и читать книги дважды.
@@ -404,24 +428,5 @@ export function preloadData(app: FastifyInstance): void {
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
-
-    // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
-    // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
-    startDriveWatch({
-      info: (m) => app.log.info(m),
-      warn: (m) => app.log.warn(m),
-    });
-
-    // Очередь уведомлений (проект службы §2.3): недочитанное прежней жизнью
-    // процесса дочитывается, а не ждёт планового опроса.
-    try {
-      recoverWebhookQueue({
-        info: (m) => app.log.info(m),
-        warn: (m) => app.log.warn(m),
-      });
-    } catch (err) {
-      app.log.warn(`Очередь уведомлений не поднята: ${(err as Error).message}`);
-    }
-
   })();
 }

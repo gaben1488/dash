@@ -31,12 +31,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardData } from '@aemr/shared';
 import { api } from '../api';
-import { useStore, type YearFilter } from '../store';
+import { useStore, dashboardRequestVersion, type YearFilter } from '../store';
 import { setOfficialProvenance } from '../lib/provenance-registry';
 import { acknowledgeLiveEvents, getLiveState, useLiveEvents } from './useLiveEvents';
 
 /** Почему тихая подмена сейчас невозможна. `null` — можно. */
-export type SwapBlocker = 'ввод' | 'выделение' | 'диалог' | 'вкладка-скрыта' | 'идёт-загрузка';
+export type SwapBlocker = 'ввод' | 'выделение' | 'диалог' | 'вкладка-скрыта' | 'идёт-загрузка' | 'сервер-считает';
 
 /** Человеческое объяснение помехи — для полосы оповещения. */
 export const BLOCKER_WORDS: Record<SwapBlocker, string> = {
@@ -45,6 +45,7 @@ export const BLOCKER_WORDS: Record<SwapBlocker, string> = {
   'диалог': 'открыто окно',
   'вкладка-скрыта': 'вкладка не на виду',
   'идёт-загрузка': 'уже идёт обновление',
+  'сервер-считает': 'сервер завершает расчёты',
 };
 
 /** Правится ли что-то прямо сейчас: поле ввода в фокусе. */
@@ -94,9 +95,10 @@ function isDemoData(data: DashboardData): boolean {
  * начался обычный запрос. Устаревший ответ не имеет права затирать свежие
  * числа — это то же правило, по которому живёт `fetchDashboard`.
  */
-export function applySnapshotSilently(data: DashboardData, expectedYear: YearFilter): boolean {
+export function applySnapshotSilently(data: DashboardData, expectedYear: YearFilter, expectedRequestVersion?: number): boolean {
   const state = useStore.getState();
   if (state.loading) return false;
+  if (expectedRequestVersion !== undefined && dashboardRequestVersion() !== expectedRequestVersion) return false;
   if (state.year !== expectedYear) return false;
 
   const snapshot = (data as unknown as {
@@ -115,6 +117,7 @@ export function applySnapshotSilently(data: DashboardData, expectedYear: YearFil
     // рисуют заглушки именно по нему, а заглушка уносит и прокрутку, и
     // раскрытые карточки.
   });
+  void useStore.getState().fetchBucketCounts();
   return true;
 }
 
@@ -151,6 +154,10 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
   /** Номер последнего тихого запроса — устаревший ответ выбрасывается. */
   const seq = useRef(0);
   const inFlight = useRef(false);
+  const retries = useRef(0);
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => { retries.current = 0; }, [live.lastEventAt, live.hasNews]);
 
   const pull = useCallback(async (force: boolean) => {
     if (inFlight.current) return;
@@ -173,21 +180,38 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
     inFlight.current = true;
     setUpdating(true);
     const year = useStore.getState().year;
+    const requestVersion = dashboardRequestVersion();
+    const eventReading = getLiveState();
     try {
       // `refresh: false` — сервер уже перечитал источники по уведомлению; звать
       // его перечитывать ещё раз значит платить за ту же правку дважды.
       const data = await api.getDashboard(false, year);
       if (mine !== seq.current) return;
-      if (applySnapshotSilently(data, year)) {
-        acknowledgeLiveEvents();
-        setWaitingBecause(null);
-        setFailed(false);
+      if (applySnapshotSilently(data, year, requestVersion)) {
+        // Ответ покрывает прежнее событие; более новое уведомление не гасим.
+        const readState = data.snapshot.metadata?.readModel?.state;
+        if (getLiveState() !== eventReading) {
+          // A completed build may overtake this older HTTP response. Catch up once.
+          setWaitingBecause('идёт-загрузка');
+        } else if (readState) {
+          setWaitingBecause(readState === 'refreshing' ? 'сервер-считает' : null);
+        } else {
+          acknowledgeLiveEvents();
+          setWaitingBecause(null);
+        }
+        setFailed(data.snapshot.metadata?.readModel?.state === 'stale');
+      } else if (hasPendingNews()) {
+        // Обычное чтение успело завершиться: не теряем отложенную перечитку.
+        setWaitingBecause('идёт-загрузка');
       }
     } catch {
       // Числа на экране остаются прежними — это честнее пустого экрана.
       // Полоса оповещения не гаснет: человек должен знать, что новые данные
       // есть, а показать их не вышло.
-      if (mine === seq.current) setFailed(true);
+      if (mine === seq.current) {
+        setFailed(true);
+        setRetryTick(tick => tick + 1);
+      }
     } finally {
       if (mine === seq.current) {
         inFlight.current = false;
@@ -203,9 +227,19 @@ export function useSeamlessRefresh(enabled = true): SeamlessRefreshState {
     return () => clearTimeout(timer);
   }, [enabled, live.hasNews, live.lastEventAt, pull]);
 
+  // Retry a failed event delivery finitely; silence never starts a refresh loop.
+  useEffect(() => {
+    if (!enabled || !failed || retryTick === 0 || !live.hasNews || retries.current >= 3) return;
+    const timer = setTimeout(() => {
+      retries.current++;
+      void pull(false);
+    }, [1_000, 3_000, 10_000][retries.current]);
+    return () => clearTimeout(timer);
+  }, [enabled, failed, retryTick, live.hasNews, pull]);
+
   // Помеха исчезла — новые числа встают на место сами, без нажатия.
   useEffect(() => {
-    if (!enabled || waitingBecause === null) return;
+    if (!enabled || waitingBecause === null || waitingBecause === 'сервер-считает') return;
     const retry = (): void => {
       if (!hasPendingNews()) {
         setWaitingBecause(null);

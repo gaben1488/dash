@@ -17,7 +17,7 @@ describe('hasNoMeaningfulRows — распознавание битого зер
     ])).toBe(true);
   });
 
-  it('лист не выше шапки — сломан: collectRowsByDept выбросит его целиком', () => {
+  it('одна шапка зеркала не подтверждает полноту primary; primary проверяется отдельно', () => {
     expect(hasNoMeaningfulRows([['ш'], ['а'], ['п']])).toBe(true);
     expect(hasNoMeaningfulRows([])).toBe(true);
   });

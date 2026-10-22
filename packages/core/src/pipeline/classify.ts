@@ -1,4 +1,4 @@
-import { rowNumberKey, toNumber } from '@aemr/shared';
+import { readProcurementSequence, toNumber } from '@aemr/shared';
 import type { ClassifiedRow, RowClassification } from '@aemr/shared';
 
 /**
@@ -33,8 +33,11 @@ function classifyRow(
     };
   }
 
-  // A may contain a composite stable identifier ("173/18"), not an amount.
-  const hasId = isNumeric(cells['A']) || rowNumberKey(cells['A']) !== null || isNumeric(cells['B']);
+  // № п/п в A — адрес закупки, в том числе составной 173/18, а не сумма.
+  // B сохраняет прежний строгий numeric-предикат; денежных правил не меняем.
+  const purchaseId = readProcurementSequence(cells['A']);
+  const hasId = isNumeric(cells['A']) || purchaseId !== null || isNumeric(cells['B']);
+  const compositeId = purchaseId?.includes('/') ?? false;
 
   // Проверяем наличие суммовых столбцов
   const hasAmounts = isNumeric(cells['H']) || isNumeric(cells['I']) ||
@@ -54,7 +57,7 @@ function classifyRow(
   // безусловно).
   const subjectEmpty = String(cells['G'] ?? '').trim().length === 0;
   const procurementMethodEmpty = String(cells['L'] ?? '').trim().length === 0;
-  const looksLikeColumnNumbers = allSmallIntegers && subjectEmpty && procurementMethodEmpty;
+  const looksLikeColumnNumbers = allSmallIntegers && subjectEmpty && procurementMethodEmpty && !compositeId;
 
   // Проверяем текст столбца C (наименование)
   const nameText = String(cells['C'] ?? '').trim().toLowerCase();
@@ -62,7 +65,7 @@ function classifyRow(
   // Проверяем маркеры служебных строк
   const isTotalMarker = nameText.includes('итого') || nameText.includes('всего');
   const isHeaderMarker = nameText.includes('раздел') || nameText.includes('блок') ||
-                         nameText === '' && !hasAmounts;
+                         nameText === '' && !hasAmounts && !compositeId;
   const isSeparator = Object.values(cells).every(v => v === null || v === undefined || v === '');
 
   // Классификация

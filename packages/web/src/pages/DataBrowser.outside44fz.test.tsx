@@ -92,7 +92,7 @@ const ROWS = [
   },
 ];
 
-/** Закупка №1 живёт с физической строки 4, а не в шапке. */
+/** Замечание формульной целостности на первой строке данных (физическая строка 4). */
 const FORMULA_ISSUE = {
   id: 'formula|overwritten|УО|K|1|0',
   checkId: 'formula_overwritten',

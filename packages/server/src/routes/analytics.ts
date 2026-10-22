@@ -1,14 +1,17 @@
+import { LEGAL_RULES_UNVERIFIED, parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
+import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import {
   approvedEconomy,
   buildGRBSProfiles,
   checkEPContractLimits,
   checkAntiDumping,
+  ANTI_DUMPING_UNAVAILABLE,
+  EP_ANNUAL_UNAVAILABLE,
   checkEPShareLimits,
   analyzeEPReasons,
   buildEpJustificationDept,
-  epPlanQuarter,
   type EpJustificationDept,
   benfordAnalysis,
   zScoreAnalysis,
@@ -18,14 +21,13 @@ import {
   GRBS_BASELINES,
   EP_SHARE_BY_ROLE,
   detectAntiCorruption,
-  gradeGRBS,
-  disciplineIndex,
+  standardRowFilter,
   type ComplianceIssue,
   type AntiCorruptionRow,
   type AntiCorruptionResult,
 } from '@aemr/core';
-import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod, CHECK_REGISTRY, TRUST_COMPONENT_CONFIG, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { getDeptSheetValues, getDeptCacheFilledAt } from '../services/snapshot.js';
 
 /**
  * Качество данных управления — доля строк БЕЗ замечаний качества.
@@ -36,20 +38,30 @@ import { getDeptSheetValues } from '../services/snapshot.js';
  * что уже есть в снимке: замечания группы «качество данных» несут адрес
  * управления и номер строки.
  *
- * Строк нет (лист не прочитан) — возвращаем null-эквивалент 1: штрафовать
- * управление за то, что его книга недоступна, значит смешать поломку
- * источника с дисциплиной исполнителя. Это видно отдельным сигналом.
+ * Без счётной базы доля неизвестна: отсутствие строк не доказывает
+ * ни безупречное качество, ни низкое качество данных.
  */
 function dataQualityScore(
-  issues: readonly { departmentId?: string; group?: string; row?: number }[],
+  issues: readonly { departmentId?: string; group?: string; row?: number; status?: string; checkId?: string; category?: string; origin?: string; sheet?: string; cell?: string }[],
   grbsId: string,
   grbsShort: string,
   rowCount: number,
-): number {
-  if (rowCount <= 0) return 1;
+): number | null {
+  if (rowCount <= 0) return null;
   const dirtyRows = new Set<number>();
   for (const issue of issues) {
-    if (issue.group !== 'data_quality') continue;
+    if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
+      || formulaDiagnosticInapplicableReason(issue)) continue;
+    // Регламентные состояния (необеспеченная закупка и закупка в течение года)
+    // не являются дефектами заполнения или дисциплины сотрудника.
+    if (issue.checkId === 'plan_year_missing' || issue.checkId === 'fact_without_date'
+      || issue.category === 'signal:planYearMissing' || issue.category === 'signal:factWithoutDate') continue;
+    const check = issue.checkId ? CHECK_REGISTRY.find(check => check.id === issue.checkId || check.legacyId === issue.checkId) : undefined;
+    const quality = check ? check.trustComponent === 'data_quality'
+      : (TRUST_COMPONENT_CONFIG.data_quality.issueGroups.some(group => group === issue.group)
+        || issue.group === 'data_quality' || issue.category === 'signal:dataQuality'
+        || issue.category === 'signal:dateWithoutFact');
+    if (!quality) continue;
     const dept = issue.departmentId;
     if (dept !== grbsId && dept !== grbsShort) continue;
     // Замечание без номера строки относится к листу целиком: считаем его
@@ -109,14 +121,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-        })).filter((r: any) => r.method === 'ЕП' || r.method === 'ЭА' || r.method === 'ЭК' || r.method === 'ЭЗК');
+        })).filter((r: any) => normalizeMethod(r.method) !== undefined);
 
         // Run checks
-        allIssues.push(...checkEPContractLimits(rowData, dept.id));
+        allIssues.push(...checkEPContractLimits(rowData, dept.id, snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']));
         allIssues.push(...checkAntiDumping(rowData, dept.id));
 
         if (recalc && baseline) {
@@ -136,6 +148,12 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         critical: allIssues.filter(i => i.severity === 'critical').length,
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
+        unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
+          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+            ? [] : [LEGAL_RULES_UNVERIFIED])],
+        thresholdContext: { capturedAt: snapshot.createdAt,
+          contextId: snapshot.metadata.calculationContext?.id ?? null,
+          thresholds: snapshot.metadata.calculationContext?.thresholds ?? null },
       };
     } catch (err) {
       app.log.error({ err }, 'Analytics compliance unavailable');
@@ -150,7 +168,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
    *   • `byDept` — прежняя рубрикация по предмету закупки (analyzeEPReasons,
    *     колонка G): «что покупали у ЕП»;
    *   • `justification` — степени обоснованности по колонке M через словарь
-   *     причин (канон п.98ж): «имел ли заказчик право так закупать». Здесь же
+   *     причин (канон п.98ж): «какое пояснение указал сотрудник». Здесь же
    *     кварталы плана — из них вкладка «Конкуренция» строит динамику
    *     снижения ЕП и особенно НЕобоснованного ЕП.
    *
@@ -172,7 +190,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = body.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
           factTotal: 0,
           economy: 0,
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
@@ -186,8 +204,11 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           body.map((row: any) => ({
             method: row?.[DEPT_COLUMNS.METHOD],
             reason: row?.[DEPT_COLUMNS.EP_REASON],
-            planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-            quarter: epPlanQuarter(row?.[DEPT_COLUMNS.PLAN_QUARTER]),
+            planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+            quarter: (() => {
+              const day = dayNumberOf(row?.[DEPT_COLUMNS.PLAN_DATE]);
+              return day === null ? null : Math.floor(new Date(day * 86_400_000).getUTCMonth() / 3) + 1;
+            })(),
           })),
         );
         rowsScanned += body.length;
@@ -199,7 +220,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           byDept: justificationByDept,
           rowsScanned,
           /** Момент чтения книг (канон п.58): число обязано называть свой срок. */
-          readAt: new Date().toISOString(),
+          readAt: getDeptCacheFilledAt() > 0 ? new Date(getDeptCacheFilledAt()).toISOString() : null,
         },
       };
     } catch (err) {
@@ -221,8 +242,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
@@ -248,14 +269,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  /** GET /api/analytics/scorecard — единая карточка ГРБС: грейд A-B-C-D + дисциплина 0-100 + антикор (Layers A+B+C) */
+  /** GET /api/analytics/scorecard — фактические показатели и доступность оценок. */
   app.get('/api/analytics/scorecard', async (_request, reply) => {
     try {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
       const deptCache = getDeptSheetValues();
+      const decisionIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
       const profiles = buildGRBSProfiles(recalcResults);
-      const c01 = (v: number) => Math.min(1, Math.max(0, v));
       const result: Record<string, unknown> = {};
 
       for (const profile of profiles) {
@@ -263,24 +284,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
-          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
-          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
+          factTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_FACT]) ?? 0),
           economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
 
         const recalc = recalcResults[profile.grbsId] as any;
         const epShareLimit = EP_SHARE_BY_ROLE[profile.role];
-
-        // нарушения 44-ФЗ (для грейда + complianceScore)
-        const violations =
-          checkEPContractLimits(rowData.filter(r => r.method === 'ЕП'), profile.grbsId).length +
-          checkAntiDumping(rowData.filter(r => r.method !== 'ЕП'), profile.grbsId).length;
-
-        // аномалии (Бенфорд по суммам, p<0.05 = значимое отклонение)
-        const amounts = rowData.map(r => r.planTotal).filter(v => v > 0);
-        const benford = amounts.length >= 30 ? benfordAnalysis(amounts) : null;
-        const anomalyCount = benford && benford.pValue < 0.05 ? 1 : 0;
 
         // Layer C — антикор. epTotal — ДЕНЬГИ ЕП (тыс. руб.), не счётчик:
         // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
@@ -308,42 +319,24 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           continue;
         }
 
-        // Layer A — грейд
-        const grade = gradeGRBS({
-          execPct: profile.actualExecQ1,
-          expectedExecPct: profile.expectedExecQ1,
-          anomalyCount,
-          epShare: profile.actualEpShare,
-          epShareLimit,
-          complianceViolations: violations,
-        });
-
-        // Layer B — индекс дисциплины (метрики → 0-1 scores)
-        const discipline = disciplineIndex({
-          execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
-          dynamicsScore: c01(0.6 + profile.execDeviation),
-          epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, rowData.length),
-          anomalyScore: c01(1 - anomalyCount * 0.3),
-          complianceScore: c01(1 - violations * 0.15),
-          anticorruptionPenalty: anticorruption.disciplinaryPenalty,
-        });
-
+        const countedRows = rows.slice(DEPT_HEADER_ROWS).filter(standardRowFilter).length;
         result[profile.grbsId] = {
           grbsShort: profile.grbsShort,
           role: profile.role,
-          grade: grade.grade,
-          gradeScore: grade.score,
-          gradeReasons: grade.reasons,
-          discipline: discipline.index,
-          mode: discipline.mode,
-          dominantFactor: discipline.dominantFactor,
-          narrative: discipline.narrative,
+          assessmentStatus: 'unconfirmed_methodology',
+          assessmentReason: 'Грейд и индекс дисциплины не рассчитываются: ожидания исполнения, роли и веса оценки не имеют подтверждённого основания. Фактические показатели приведены отдельно.',
+          dataQuality: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, countedRows),
           anticorruptionFlags: anticorruption.flags.length,
           topFlags: anticorruption.flags.slice(0, 3),
+          unavailableIndicators: anticorruption.unavailableIndicators,
+          unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
+          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+            ? [] : [LEGAL_RULES_UNVERIFIED])],
+        thresholdContext: { capturedAt: snapshot.createdAt,
+          contextId: snapshot.metadata.calculationContext?.id ?? null,
+          thresholds: snapshot.metadata.calculationContext?.thresholds ?? null },
           execPct: profile.actualExecQ1,
           epShare: profile.actualEpShare,
-          riskLevel: profile.riskLevel,
         };
       }
       return result;
@@ -367,7 +360,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         if (!rows || rows.length === 0) continue;
 
         const amounts = rows.slice(DEPT_HEADER_ROWS)
-          .map((row: any) => parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0)
+          .map((row: any) => (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0))
           .filter((v: number) => v > 0);
 
         benfordResults[dept.id] = benfordAnalysis(amounts);
@@ -447,7 +440,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const rowData = rows.slice(DEPT_HEADER_ROWS)
           .map((row: any) => ({
             subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-            planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
           }))
           .filter((r: any) => r.subject.length > 0);
 
@@ -479,7 +472,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           allRows.push({
             grbsId: dept.id,
             subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-            planTotal: parseFloat(String(row[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            planTotal: (parseSheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
             method,
           });
         }
@@ -513,13 +506,15 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const { REPORT_MAP } = await import('@aemr/shared');
 
       const spreadsheetId = snapshot.spreadsheetId;
+      const activeIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot)
+        .filter(issue => issue.status !== 'false_positive');
       const refs = REPORT_MAP
         .filter((entry: any) => !deptFilter || entry.metricKey.includes(deptFilter))
         .map((entry: any) => {
           const official = snapshot.officialMetrics[entry.metricKey];
           const calculated = snapshot.calculatedMetrics?.[entry.metricKey];
           const delta = snapshot.deltas.find((d: any) => d.metricKey === entry.metricKey);
-          const issues = snapshot.issues.filter((i: any) => i.metricKey === entry.metricKey);
+          const issues = activeIssues.filter(i => i.metricKey === entry.metricKey);
 
           let status: 'ok' | 'warning' | 'error' | 'missing' = 'ok';
           if (!official) status = 'missing';

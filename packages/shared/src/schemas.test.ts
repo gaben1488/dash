@@ -35,11 +35,73 @@ import {
   BudgetLevelSchema,
   MoneyUnitSchema,
   IssueSeveritySchema,
+  IssueSchema,
   TrustGradeSchema,
   DashboardDataSchema,
+  DataSnapshotSchema,
   DepartmentSummarySchema,
+  SelectedReportReleaseStatusSchema,
+  ReportReleaseStatusSchema,
 } from './schemas.js';
 import { z } from 'zod';
+
+describe('operational report observations survive the API boundary', () => {
+  const operations = {
+    checked_at: '2026-10-16T23:03:40+00:00', worker_state: 'idle',
+    running_duration_seconds: null, last_cycle_duration_seconds: 209,
+    last_success_at: '2026-10-16T23:03:13+00:00', last_success_age_seconds: 27,
+    check_stale: false, last_failure_at: '2026-10-15T12:00:00+00:00',
+    last_failure_code: 'SOURCE_CHANGED_BEFORE_PUBLICATION', last_failure_stage: 'publication',
+    failure_resolved: true, publication_cutoff_at: '2026-10-16T12:00:00+00:00',
+  };
+  const contexts = [
+    [ReportReleaseStatusSchema, { latest: null, attempt: null }],
+    [SelectedReportReleaseStatusSchema, { selected: null, attempt: null }],
+  ] as const;
+
+  it('retains actual check age, cycle duration and resolved historical failure in both responses', () => {
+    for (const [schema, payload] of contexts) {
+      expect(schema.parse({ ...payload, operations })).toEqual({ ...payload, operations });
+      expect(schema.parse(payload)).toEqual(payload);
+    }
+  });
+
+  it('rejects impossible durations, timestamps and arbitrary failure text instead of silently dropping them', () => {
+    for (const invalid of [
+      { last_success_age_seconds: -1 }, { last_cycle_duration_seconds: true },
+      { checked_at: 'yesterday' }, { last_failure_code: 'private account: person@example.test' },
+      { worker_state: 'complete' }, { last_failure_stage: 'unreviewed' },
+    ]) {
+      for (const [schema, payload] of contexts) {
+        expect(schema.safeParse({ ...payload, operations: { ...operations, ...invalid } }).success).toBe(false);
+      }
+    }
+  });
+
+  it('preserves missing observations without replacing them with zeros or successful checks', () => {
+    const empty = { ...operations, worker_state: 'unknown', last_cycle_duration_seconds: null,
+      last_success_at: null, last_success_age_seconds: null, check_stale: true,
+      last_failure_at: null, last_failure_code: null, last_failure_stage: null,
+      failure_resolved: false, publication_cutoff_at: null };
+    for (const [schema, payload] of contexts) {
+      expect(schema.parse({ ...payload, operations: empty })).toEqual({ ...payload, operations: empty });
+    }
+  });
+});
+
+describe('Issue API addresses', () => {
+  it('preserves distinct procurement labels through the parsed issue list', () => {
+    const items = ['173', '173/1', '173/18'].map((rowSeq) => ({
+      id: `issue-${rowSeq}`, rowSeq, row: 460,
+      severity: 'warning', origin: 'bi_heuristic', category: 'data', title: 'Проверка',
+      description: 'Адрес закупки', status: 'open', detectedAt: '2026-10-16T00:00:00Z',
+      detectedBy: 'test',
+    }));
+    expect(items.map((item) => IssueSchema.parse(item).rowSeq)).toEqual(['173', '173/1', '173/18']);
+    expect(IssueSchema.parse({ ...items[0], rowSeq: undefined }).rowSeq).toBeUndefined();
+    expect(IssueSchema.safeParse({ ...items[0], rowSeq: 173 }).success).toBe(false);
+  });
+});
 
 // ────────────────────────────────────────────────────────────
 // Primitive enums
@@ -322,4 +384,146 @@ describe('TS inference (compile-time check, runtime is trivial)', () => {
     const card: Card = validKpiCard;
     expect(card.metricKey).toBe('total_exec_count_pct');
   });
+});
+
+
+describe('published Word response: actionable assurance 19/32/34 lineage', () => {
+  const receipt = {
+    release_id: 'REL-' + 'a'.repeat(64),
+    snapshot_id: 'SNP-verified',
+    report_date: '11.10.2026',
+    cutoff_at: '2026-10-11T09:54:00Z',
+    published_at: '2026-10-11T09:54:40Z',
+    model_sha256: 'b'.repeat(64),
+    rules_version: 'rules-test',
+    renderer_version: 'renderer-test',
+    status: 'VERIFIED_WITH_WARNINGS',
+    report_year: 2026,
+    quarter: 4,
+  } as const;
+
+  const common = {
+    fully_automated: false,
+    user_action_count: 0,
+    engine_action_count: 1,
+    active_recommendations: 159,
+    link_status_counts: { CONFIRMED: 90, ORIGIN_UNPROVEN: 69 },
+    action_status_counts: { UNKNOWN: 12 },
+    actions: [],
+    meaning: 'Контроль на исходных данных не означает всеобщую завершённость.',
+  };
+
+  const v2 = {
+    ...common,
+    contract: 'actionable-assurance-v2',
+    nonprocurement_identity_observations: 0,
+    source_observations: [{
+      source_row_key: 'stable-row-reference',
+      events: [{
+        kind: 'NO_FUNDING_REPORTED', target: null, field: 'explanations',
+        column: 'U', quote: 'финансирование отсутствует',
+        source_text: 'финансирование отсутствует',
+        evidence_kind: 'SOURCE_STATEMENT',
+      }],
+    }],
+  };
+
+  it('accepts the exact v2 receipt deployed by the report engine without skipping assurance', () => {
+    const checked = SelectedReportReleaseStatusSchema.safeParse({
+      attempt: null, selected: { ...receipt, automation_assurance: v2 },
+    });
+    expect(checked.success).toBe(true);
+  });
+
+  it('retains explicit same-release evidence references without stripping the selected assurance', () => {
+    const response = SelectedReportReleaseStatusSchema.parse({
+      selected: { ...receipt, automation_assurance: v2 },
+      latest_matching: { ...receipt, automation_assurance_release_id: receipt.release_id },
+      attempt: { status: 'VERIFIED', automation_assurance_release_id: receipt.release_id },
+    });
+    expect(response.selected?.automation_assurance).toEqual(v2);
+    expect(response.latest_matching?.automation_assurance_release_id).toBe(receipt.release_id);
+    expect(response.attempt?.automation_assurance_release_id).toBe(receipt.release_id);
+  });
+
+  it('preserves every repeated-label address in the reviewed v3 receipt without making it an action', () => {
+    const locations = [10, 234].map(row => ({
+      source_id: 'book', sheet: 'ВСЕ', sheet_id: 17, row, column: 'A', a1: `A${row}`,
+      url: null, subject: 'Synthetic subject', business_id: '176',
+    }));
+    const assurance = {
+      ...v2, contract: 'actionable-assurance-v3', engine_action_count: 0,
+      business_id_observations: [{
+        code: 'DUPLICATE_BUSINESS_ID', grbs: 'УО', business_id: '176', locations,
+        user_action_required: false, meaning: 'Repeated labels do not establish duplicated procurements.',
+      }],
+    };
+    const checked = SelectedReportReleaseStatusSchema.parse({
+      attempt: null, selected: { ...receipt, automation_assurance: assurance },
+    });
+    expect(checked.selected?.automation_assurance).toEqual(assurance);
+    for (const malformed of [
+      { ...assurance, business_id_observations: undefined },
+      { ...assurance, business_id_observations: [{ ...assurance.business_id_observations[0], user_action_required: true }] },
+    ]) {
+      expect(SelectedReportReleaseStatusSchema.safeParse({
+        attempt: null, selected: { ...receipt, automation_assurance: malformed },
+      }).success).toBe(false);
+    }
+  });
+
+  it('continues reading historical v1 receipts with the same semantic actions', () => {
+    const checked = SelectedReportReleaseStatusSchema.safeParse({
+      attempt: null, selected: { ...receipt, automation_assurance: {
+        ...common, contract: 'actionable-assurance-v1',
+      } },
+    });
+    expect(checked.success).toBe(true);
+  });
+
+  it('accepts both assurance versions in attempts and validates their counters', () => {
+    for (const assurance of [v2, { ...common, contract: 'actionable-assurance-v1' }]) {
+      const response = {
+        selected: null,
+        attempt: {
+          status: 'VERIFIED_WITH_WARNINGS', attempt_id: 'attempt-schema-test',
+          started_at: receipt.cutoff_at, finished_at: receipt.published_at,
+          automation_assurance: assurance,
+        },
+      };
+      expect(SelectedReportReleaseStatusSchema.safeParse(response).success).toBe(true);
+      for (const change of [{ contract: 'actionable-assurance-v4' }, { user_action_count: -1 }]) {
+        expect(SelectedReportReleaseStatusSchema.safeParse({
+          ...response, attempt: { ...response.attempt, automation_assurance: { ...assurance, ...change } },
+        }).success).toBe(false);
+        expect(SelectedReportReleaseStatusSchema.safeParse({
+          attempt: null, selected: { ...receipt, automation_assurance: { ...assurance, ...change } },
+        }).success).toBe(false);
+      }
+    }
+  });
+
+  it('refuses incomplete v2 evidence and unreviewed future contracts', () => {
+    for (const assurance of [
+      { ...v2, source_observations: undefined },
+      { ...v2, nonprocurement_identity_observations: -1 },
+      { ...v2, contract: 'actionable-assurance-v4' },
+      { ...v2, source_observations: [{ source_row_key: 'row', events: [{ kind: 'FUNDING_REPORTED' }] }] },
+    ]) {
+      expect(SelectedReportReleaseStatusSchema.safeParse({
+        attempt: null, selected: { ...receipt, automation_assurance: assurance },
+      }).success).toBe(false);
+    }
+  });
+});
+
+
+it('preserves captured scope and transient read state at the snapshot boundary without requiring them in legacy payloads', () => {
+  const metadata = { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 };
+  for (const state of ['refreshing', 'stale'] as const) {
+    const wire = { ...metadata, targetYear: 2026, readModel: { state } };
+    expect(DataSnapshotSchema.shape.metadata.parse(wire)).toEqual(wire);
+  }
+  expect(DataSnapshotSchema.shape.metadata.parse(metadata)).toEqual(metadata);
+  expect(DataSnapshotSchema.shape.metadata.safeParse({ ...metadata, readModel: { state: 'complete' } }).success).toBe(false);
 });

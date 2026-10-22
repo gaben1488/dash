@@ -1,0 +1,327 @@
+"""Use a real private catalog; no production data or VPS access."""
+import hashlib
+import importlib.util
+import json
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import textwrap
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+SCRIPT = Path(__file__).resolve().parents[2] / 'deploy' / 'plan-weekly-publications.py'
+
+
+class WeeklyPublicationPlanTests(unittest.TestCase):
+    def load_tool(self):
+        self.assertTrue(SCRIPT.is_file(), 'Missing weekly publication planner')
+        sys.path.insert(0, str(SCRIPT.parents[1] / 'packages/report-engine/src'))
+        spec = importlib.util.spec_from_file_location('weekly_plan', SCRIPT)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        return tool
+
+    def fixture(self, root):
+        published = root / 'published'
+        (published / 'releases').mkdir(parents=True)
+        with sqlite3.connect(published / 'publications.sqlite') as db:
+            db.execute('CREATE TABLE publications (release_id TEXT PRIMARY KEY, report_date TEXT, cutoff_at TEXT, receipt TEXT, files TEXT)')
+        return published
+
+    def add(self, published, n, day, *, archived=False):
+        rid = 'REL-' + f'{n:064x}'
+        folder = published / 'releases' / rid
+        folder.mkdir()
+        (folder / 'data.json').write_bytes(b'x' * 100)
+        receipt = {'release_id': rid, 'report_date': '.'.join(reversed(day.split('-'))),
+                   'cutoff_at': day + 'T08:00:00+00:00', 'snapshot_id': 'SNAP-' + str(n)}
+        if archived:
+            receipt['archive_origin'] = {'source': 'historical'}
+        with sqlite3.connect(published / 'publications.sqlite') as db:
+            db.execute('INSERT INTO publications VALUES (?,?,?,?,?)', (rid, day, receipt['cutoff_at'], json.dumps(receipt), json.dumps({'data.json': hashlib.sha256(b'x' * 100).hexdigest()})))
+        return rid
+
+    def test_only_started_finalization_accepts_exact_surviving_quarantine_subset(self):
+        tool=self.load_tool()
+        spec=importlib.util.spec_from_file_location('backup_inventory',SCRIPT.with_name('stateful_backup.py'))
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        for condition in ('partial','absent','changed','extra','not_finalizing','rollback'):
+            with self.subTest(condition=condition),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);published=self.fixture(root);rid='REL-'+'a'*64
+                work=published/'.retirement';original=work/'original'/rid;original.mkdir(parents=True)
+                (original/'first').write_bytes(b'first');(original/'second').write_bytes(b'second')
+                trusted={'reports/published/releases/'+rid+'/'+name:value
+                         for name,value in module.inventory(original,require_complete=False).items()}
+                (original/'first').unlink()
+                if condition=='absent':(original/'second').unlink();original.rmdir()
+                if condition=='changed':(original/'second').write_bytes(b'changed')
+                if condition=='extra':(original/'unexpected').write_bytes(b'extra')
+                compact=published/'releases'/rid;compact.mkdir();(compact/'retained').write_bytes(b'compact')
+                (work/'journal.json').write_text(json.dumps({'finalizing':condition!='not_finalizing','plan_revision':'f'*64}))
+                store=SimpleNamespace(root=published,releases=published/'releases',
+                                      _retirement_entries=lambda work=work,rid=rid:(work,[{'release_id':rid}]))
+                operation='rollback' if condition=='rollback' else 'recover'
+                with patch.object(tool,'validate_operator_runtime',return_value=SCRIPT.parents[1]), \
+                     patch.object(tool,'_trusted_backup',return_value=(module,trusted)):
+                    arguments={'operation':operation,'candidate':'b'*40,'ci':{},'reader_package':root,
+                               'expected_revision':'f'*64,'backup':root/'backup','store':store}
+                    if condition in {'partial','absent'}:
+                        self.assertEqual(tool.operator_preflight(root,**arguments)['status'],'PREREQUISITES_VERIFIED')
+                    else:
+                        with self.assertRaisesRegex(ValueError,'IMMUTABLE_PUBLICATION_BACKUP_MISMATCH'):
+                            tool.operator_preflight(root,**arguments)
+
+    def test_weekly_control_and_two_latest_are_retained_without_catalog_writes(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            daily = self.add(published, 1, '2026-09-28')
+            thursday = self.add(published, 2, '2026-10-01')
+            friday = self.add(published, 3, '2026-10-02')
+            latest = self.add(published, 4, '2026-10-10')
+            previous = self.add(published, 5, '2026-10-09')
+            before = (published / 'publications.sqlite').read_bytes()
+            result = tool.plan(root)
+            self.assertEqual(result['retire_release_ids'], sorted([daily, thursday]))
+            self.assertEqual(set(result['keep_release_ids']), {friday, latest, previous})
+            self.assertEqual(result['bytes_reclaimable'], 200)
+            self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+            self.assertTrue((published / 'releases' / daily / 'data.json').exists())
+
+    def test_archival_origin_and_status_selected_release_are_protected(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            older = self.add(published, 1, '2026-09-28')
+            archive = self.add(published, 2, '2026-09-29', archived=True)
+            for n in range(3, 8):
+                self.add(published, n, f'2026-10-{n:02d}')
+            (root / 'status.json').write_text(json.dumps({'publication': {'release_id': older}}))
+            result = tool.plan(root)
+            self.assertIn(older, result['keep_release_ids'])
+            self.assertIn(archive, result['keep_release_ids'])
+
+    def test_trusted_backup_omissions_are_retained_instead_of_blocking_all_backed_roots(self):
+        tool=self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);published=self.fixture(root)
+            backed=self.add(published,1,'2026-09-28');unbacked=self.add(published,2,'2026-09-29')
+            for n in range(3,7):self.add(published,n,f'2026-10-{n:02d}')
+            backup=root/'backup';backup.mkdir();archive=backup/'state.tar.gz';archive.write_bytes(b'synthetic private fixture')
+            original=published/'releases'/backed/'data.json';info=original.stat()
+            files={f'reports/published/releases/{backed}/data.json':{'sha256':hashlib.sha256(original.read_bytes()).hexdigest(),
+                   'bytes':info.st_size,'uid':info.st_uid,'gid':info.st_gid,'mode':info.st_mode&0o777}}
+            (backup/'manifest.json').write_text(json.dumps({'format':2,'files':files,'bytes':info.st_size,
+                'archive_bytes':archive.stat().st_size,'archive_sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
+            before=(published/'publications.sqlite').read_bytes()
+            result=tool.plan(root,backup=backup)
+            self.assertEqual(result['retire_release_ids'],[backed])
+            self.assertIn(unbacked,result['keep_release_ids'])
+            self.assertNotEqual(result['catalog_revision'],tool.plan(root)['catalog_revision'])
+            self.assertEqual((published/'publications.sqlite').read_bytes(),before)
+
+    def test_malformed_catalog_or_link_refuses_a_plan(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            rid = self.add(published, 1, '2026-10-01')
+            (published / 'releases' / rid / 'escape').symlink_to(root)
+            with self.assertRaises(ValueError):
+                tool.plan(root)
+
+    def test_operator_requires_ci_and_never_mutates_unfenced_state(self):
+        tool = self.load_tool()
+        self.assertTrue(hasattr(tool, 'operator_preflight'), 'Missing fail-closed operator lifecycle')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            self.add(published, 1, '2026-10-01')
+            before = (published / 'publications.sqlite').read_bytes()
+            for operation in ('apply', 'recover', 'rollback', 'finalize'):
+                with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'EXACT_CANDIDATE_CI_REQUIRED'):
+                    tool.operator_preflight(root, operation=operation, candidate='a'*40,
+                                            ci={}, reader_package=None, expected_revision='', backup=None)
+            self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+            self.assertFalse((published / '.retirement').exists())
+
+    def test_maintenance_source_qualification_uses_actual_same_run_jobs(self):
+        tool=self.load_tool();sha='a'*40
+        ci={'id':42,'head_sha':sha,'name':'CI','status':'completed','conclusion':'failure',
+            'event':'pull_request','path':'.github/workflows/ci.yml','head_repository':{'full_name':'gaben1488/dash'},
+            'source_jobs':[{'run_id':42,'name':name,'status':'completed','conclusion':'success'} for name in (
+                'Lint, TypeScript, Tests, Build, Audit','Report engine, publication and runtime','Production image with report runtime')]}
+        tool._require_candidate_ci(sha,ci)
+        self.assertEqual(ci['conclusion'],'failure','Source qualification does not rewrite overall CI')
+        for failure in ('sha','path','repository','run','failed','pending','missing','duplicate','declared_green'):
+            bad=json.loads(json.dumps(ci))
+            if failure=='sha':bad['head_sha']='b'*40
+            if failure=='path':bad['path']='.github/workflows/other.yml'
+            if failure=='repository':bad['head_repository']['full_name']='other/dash'
+            if failure=='run':bad['source_jobs'][0]['run_id']=43
+            if failure in ('failed','declared_green'):bad['source_jobs'][0]['conclusion']='failure'
+            if failure=='declared_green':bad['conclusion']='success'
+            if failure=='pending':bad['source_jobs'][0]['status']='in_progress'
+            if failure=='missing':bad['source_jobs'].pop()
+            if failure=='duplicate':bad['source_jobs'].append(bad['source_jobs'][0])
+            with self.subTest(failure=failure),self.assertRaisesRegex(ValueError,'EXACT_CANDIDATE_CI_REQUIRED'):
+                tool._require_candidate_ci(sha,bad)
+
+    def test_publication_root_symlink_is_rejected_before_resolution(self):
+        tool = self.load_tool()
+        from procurement_engine.publication_store import PublicationStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual = root / 'actual'
+            actual.mkdir()
+            published = self.fixture(actual)
+            self.add(published, 1, '2026-10-01')
+            (root / 'published').symlink_to(published, target_is_directory=True)
+            before = (published / 'publications.sqlite').read_bytes()
+            for readonly in (True, False):
+                with self.subTest(readonly=readonly), self.assertRaises(ValueError):
+                    PublicationStore(root / 'published', readonly=readonly)
+            with self.assertRaises(ValueError):
+                tool.plan(root)
+            self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+
+    def test_native_planner_rejects_inconsistent_catalog_metadata(self):
+        tool = self.load_tool()
+        mutations = [('release_id', '../escape'), ('receipt_id', 'REL-' + 'f' * 64),
+                     ('report_date', '2026-10-02'), ('cutoff_at', '2026-10-01T09:00:00+00:00'),
+                     ('naive_cutoff', '2026-10-01T08:00:00')]
+        for field, value in mutations:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                published = self.fixture(root)
+                rid = self.add(published, 1, '2026-10-01')
+                with sqlite3.connect(published / 'publications.sqlite') as db:
+                    if field == 'receipt_id':
+                        receipt = json.loads(db.execute('SELECT receipt FROM publications').fetchone()[0])
+                        receipt['release_id'] = value
+                        db.execute('UPDATE publications SET receipt=?', (json.dumps(receipt),))
+                    elif field == 'naive_cutoff':
+                        receipt = json.loads(db.execute('SELECT receipt FROM publications').fetchone()[0])
+                        receipt['cutoff_at'] = value
+                        db.execute('UPDATE publications SET cutoff_at=?,receipt=?', (value, json.dumps(receipt)))
+                    else:
+                        db.execute(f'UPDATE publications SET {field}=?', (value,))
+                before = (published / 'publications.sqlite').read_bytes()
+                with self.assertRaises(ValueError):
+                    tool.plan(root)
+                self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+                self.assertFalse((published / '.retirement').exists())
+                self.assertTrue((published / 'releases' / rid / 'data.json').exists())
+
+    def test_exact_workflow_bootstrap_executes_candidate_and_emits_only_aggregates(self):
+        workflow = SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml'
+        source = workflow.read_text().split("<<'PYPROBE'\n", 1)[1].split('            PYPROBE', 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            rid = self.add(published, 1, '2026-10-01')
+            output = root / 'probe.py'
+            subprocess.run([sys.executable, '-', str(SCRIPT.parents[1] / 'packages/report-engine/src/procurement_engine'), str(SCRIPT), str(output)],
+                           input=textwrap.dedent(source), text=True, check=True, capture_output=True)
+            result = subprocess.run([sys.executable, str(output), '--state', str(root)],
+                                    text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['publication_count'], 1)
+            self.assertNotIn(rid, result.stdout)
+            self.assertNotIn('keep_release_ids', result.stdout)
+            # An installed pre-compaction engine must never supply the reader or
+            # policy. Execute the exact bootstrap with poisoned old modules.
+            poison = ("import sys,types;from pathlib import Path;"
+                      "package=types.ModuleType('procurement_engine');package.__path__=[];"
+                      "old=types.ModuleType('procurement_engine.publication_store');"
+                      "old.PublicationStore=type('OldStore',(),{});"
+                      "sys.modules['procurement_engine']=package;"
+                      "sys.modules[old.__name__]=old;"
+                      "sys.argv=['probe.py','--state'," + repr(str(root)) + "];"
+                      "exec(compile(Path(" + repr(str(output)) + ").read_text(),'<probe>','exec'))")
+            isolated = subprocess.run([sys.executable, '-c', poison], text=True, capture_output=True, check=False)
+            self.assertEqual(isolated.returncode, 0, isolated.stderr)
+            self.assertEqual(json.loads(isolated.stdout)['publication_count'], 1)
+            self.assertNotIn(rid, isolated.stdout)
+
+
+    def test_multiple_releases_of_one_snapshot_do_not_duplicate_identity_defects(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            first = self.add(published, 1, '2026-09-28')
+            second = self.add(published, 2, '2026-09-29')
+            for n in range(3, 6):
+                self.add(published, n, f'2026-10-{n-2:02d}')
+            with sqlite3.connect(published / 'publications.sqlite') as db:
+                receipt = json.loads(db.execute('SELECT receipt FROM publications WHERE release_id=?', (second,)).fetchone()[0])
+                receipt['snapshot_id'] = 'SNAP-1'
+                db.execute('UPDATE publications SET receipt=? WHERE release_id=?', (json.dumps(receipt), second))
+            with sqlite3.connect(root / 'identity.sqlite') as db:
+                db.execute('CREATE TABLE observations (snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+                db.executemany('INSERT INTO observations VALUES (?,?,?)', [('SNAP-1', None, None), ('SNAP-3', 'valid', 'valid')])
+            result = tool.plan(root)
+            self.assertIn(first, result['retire_release_ids'])
+            self.assertIn(second, result['retire_release_ids'])
+            self.assertEqual(result['identity_missing_signatures'], 1)
+
+    def test_absent_identity_observations_cannot_be_reported_ready(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            for n in range(1, 5):
+                self.add(published, n, f'2026-10-{n:02d}')
+            with sqlite3.connect(root / 'identity.sqlite') as db:
+                db.execute('CREATE TABLE observations (snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+            result = tool.plan(root)
+            self.assertFalse(result['identity_ready'])
+            self.assertGreater(result['identity_missing_snapshots'], 0)
+
+    def test_live_wal_databases_do_not_gain_shared_memory_files(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            self.add(published, 1, '2026-10-01')
+            path = published / 'publications.sqlite'
+            writer = sqlite3.connect(path)
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('PRAGMA wal_autocheckpoint=0')
+            receipt = json.loads(writer.execute('SELECT receipt FROM publications').fetchone()[0])
+            receipt['synthetic_wal_revision'] = 2
+            writer.execute('UPDATE publications SET receipt=?', (json.dumps(receipt),))
+            writer.commit()
+            wal = path.with_name(path.name + '-wal')
+            frozen_db, frozen_wal = path.read_bytes(), wal.read_bytes()
+            writer.close()
+            path.write_bytes(frozen_db)
+            wal.write_bytes(frozen_wal)
+            shm = path.with_name(path.name + '-shm')
+            self.assertFalse(shm.exists())
+            tool.plan(root)
+            self.assertFalse(shm.exists(), 'readonly census created production SHM')
+
+    def test_missing_identity_signatures_are_exposed_as_deletion_blocker(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            for n in range(1, 5):
+                self.add(published, n, f'2026-10-{n:02d}')
+            with sqlite3.connect(root / 'identity.sqlite') as db:
+                db.execute('CREATE TABLE observations (snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+                db.execute('INSERT INTO observations VALUES (?,?,?)', ('SNAP-1', None, None))
+            result = tool.plan(root)
+            self.assertGreater(result['identity_missing_signatures'], 0)
+            self.assertFalse(result['identity_ready'])
+
+
+if __name__ == '__main__':
+    unittest.main()

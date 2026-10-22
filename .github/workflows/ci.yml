@@ -2,24 +2,74 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # Validate the actual integration head without merging its code into old main.
+    # The deploy job below remains restricted to an approved main dispatch.
+    branches: [main, master, codex/dash-audit-integrated-20261010, release/dash79-modern-forward-20261022]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, codex/dash-audit-integrated-20261010]
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: "Exact 40-character main SHA to release"
+        type: string
+        required: true
+      backup_root:
+        description: "Absolute private backup directory outside repository and server_data"
+        type: string
+        required: true
+      backup_name:
+        description: "Previously verified immutable backup name in that directory"
+        type: string
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A newer push must not interrupt a running deployment/state migration.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Keep exact-SHA CI running on the integration branch while other fixes
+  # arrive; cancelling every run prevented any candidate from proving itself.
+  # Other PR branches keep fast supersession; no automatic deployment is added.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' && github.ref != 'refs/heads/release/dash79-modern-forward-20261022' }}
 
 jobs:
-  verify:
-    name: Lint, TypeScript, Tests, Build, Audit
+  source-diagnostics-candidate:
+    name: Source diagnostics API/UI contract and KB regressions
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript all workspaces
+        run: pnpm typecheck
+      - name: Source diagnostics API and legacy deep-check
+        run: pnpm --filter @aemr/server exec vitest run src/routes/source-diagnostics.test.ts src/routes/source-integrity.test.ts
+      - name: Source diagnostics UI
+        run: pnpm --filter @aemr/web exec vitest run src/pages/Settings.deep-check.test.tsx
+      - name: Preserve new pipeline check coverage
+        run: pnpm --filter @aemr/core exec vitest run src/pipeline/validate.test.ts
+      - name: Shared KB classifications match calculations
+        run: pnpm --filter @aemr/shared exec vitest run src/metrics/registry.verified-copy.test.ts
+      - name: Tooltip text and details on touch
+        run: pnpm --filter @aemr/web exec vitest run src/pages/kb-additions.test.ts src/components/ui/kb-tooltip.touch.test.tsx src/lib/help/help-content.test.ts
+
+  verify:
+    name: Lint, TypeScript, Tests, Build, Audit
+    runs-on: ubuntu-latest
+    # Full browser proof + TS suite reached build at 14m29s on a8fe0d67.
+    # Keep all checks; leave bounded room for build and dependency audit.
+    timeout-minutes: 20
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -39,7 +89,35 @@ jobs:
         run: pnpm verify:braces-patch
 
       - name: Verify deployment scope (no production writes)
-        run: python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
+        run: python3 -m unittest discover -s .github/ci -p 'test_deploy_scope.py' -v
+
+      - name: Verify stateful backup and scratch restore (synthetic; no VPS)
+        run: python3 -m unittest discover -s .github/ci -p 'test_stateful_backup.py' -v
+      - name: Verify exact-candidate report schema probe (synthetic; no VPS)
+        run: python3 .github/ci/test_report_schema_probe.py
+      - name: Verify exact source-job maintenance admission (synthetic; no VPS)
+        run: python3 .github/ci/test_source_ci_gate.py
+
+      - name: Verify immutable runtime artifact contract (synthetic; no VPS)
+        run: |
+          python3 .github/ci/test_runtime_artifact.py
+          python3 .github/ci/test_runtime_passport.py
+
+      - name: Reuse accepted synthetic browser proof only for identical inputs
+        id: browser-proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/test_browser_boundary_reuse.py
+          if git fetch --quiet origin 2046a1d4e683b41adffb2e2e13f79ee240587c79 &&
+             gh api repos/$GITHUB_REPOSITORY/actions/runs/39355646157 > "$RUNNER_TEMP/browser-proof-run.json" &&
+             gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs/39355646157/jobs?per_page=100' > "$RUNNER_TEMP/browser-proof-jobs.json"; then
+            python3 .github/ci/browser_boundary_reuse.py --candidate "$CANDIDATE" \
+              --run "$RUNNER_TEMP/browser-proof-run.json" --jobs "$RUNNER_TEMP/browser-proof-jobs.json" --output "$GITHUB_OUTPUT"
+          else
+            echo run_browser=true >> "$GITHUB_OUTPUT"
+          fi
 
       - name: ESLint
         run: pnpm lint
@@ -48,7 +126,31 @@ jobs:
         run: pnpm typecheck
 
       - name: Tests
-        run: pnpm -r test
+        run: pnpm -r --workspace-concurrency=1 test
+
+      - name: Synthetic browser acceptance boundaries (no VPS or source data)
+        if: steps.browser-proof.outputs.run_browser != 'false'
+        run: |
+          python3 -m pip install playwright==1.62.0
+          python3 -m playwright install --with-deps chromium webkit
+          node scripts/build-navigation-qa.mjs --out "$RUNNER_TEMP/navigation-qa.html"
+          export DASH_HEADER_QA_HTML="$RUNNER_TEMP/navigation-qa.html"
+          for engine in chromium webkit; do
+            BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_auth_isolation.py
+            if [ "$engine" = webkit ]; then
+              xvfb-run --auto-servernum env BROWSER_ENGINE=webkit BROWSER_HEADED=1 python3 .github/ci/test_browser_header_controls.py -v
+            else
+              BROWSER_ENGINE="$engine" python3 .github/ci/test_browser_header_controls.py -v
+            fi
+          done
+          pnpm --dir packages/web exec vite --host 127.0.0.1 --port 5178 --strictPort > "$RUNNER_TEMP/layout-vite.log" 2>&1 &
+          layout_pid=$!
+          trap 'kill "$layout_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5178/ > /dev/null; then break; fi
+            sleep 1
+          done
+          DASH_LAYOUT_URL=http://127.0.0.1:5178 python3 .github/ci/test_browser_shell_layout.py
 
       - name: Build
         run: pnpm build
@@ -62,29 +164,185 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install native API schema test dependencies
+        run: pnpm install --frozen-lockfile --filter @aemr/server...
       - name: Install report engine
         run: python -m pip install -e 'packages/report-engine[test]'
       - name: Python lint
-        run: python -m ruff check packages/report-engine
+        run: python -m ruff check packages/report-engine deploy/runtime_guard.py deploy/release_recovery.py deploy/release-controller.py deploy/release_trial.py .github/ci/test_runtime_guard.py .github/ci/test_release_recovery.py .github/ci/test_release_controller.py .github/ci/frozen_backup_readback.py .github/ci/test_frozen_backup_readback.py .github/ci/frozen_trial_replay.py .github/ci/test_frozen_trial_replay.py .github/ci/native_status_probe.py .github/ci/test_native_status_probe.py .github/ci/record_rollback_lineage.py .github/ci/test_rollback_lineage.py .github/ci/publication_dedup.py .github/ci/test_publication_dedup.py .github/ci/provenance_api_probe.py .github/ci/test_provenance_api_probe.py .github/ci/native_selection_profile.py .github/ci/test_native_selection_profile.py
+      - name: Synthetic VPS retention and runtime guard regressions
+        run: |
+          python .github/ci/test_report_backup_window.py BackupWindowTests
+          sudo python3 .github/ci/test_report_backup_window.py ReleaseGuardianTests
+          sudo "$(command -v python)" .github/ci/test_worker_recovery.py
+          sudo "$(command -v python)" .github/ci/test_rollback_lineage.py
+          sudo "$(command -v python)" .github/ci/test_publication_dedup.py
+          python .github/ci/test_vps_cache_cleanup.py
+          python .github/ci/test_runtime_state_probe.py
+          python .github/ci/test_runtime_guard.py
+          python .github/ci/test_report_rehearsal_scratch.py
+          python .github/ci/test_frozen_backup_readback.py
+          python .github/ci/test_frozen_trial_replay.py
+          python .github/ci/test_provenance_api_probe.py
+          python .github/ci/test_native_selection_profile.py
+          python .github/ci/test_native_status_probe.py
+          sudo python3 .github/ci/test_release_recovery.py
+          sudo python3 .github/ci/test_release_controller.py
+          python .github/ci/test_weekly_identity_proof.py
+          python .github/ci/test_weekly_publication_plan.py
+      - name: Private installer ownership tests on actual root
+        # Hosted Ubuntu restricts unprivileged user namespaces. These fixtures
+        # rewrite every host path and exercise root ownership without a skip.
+        run: sudo "$(command -v python)" -m pytest packages/report-engine/tests/test_deploy_reports.py -q -k guard_installer_private_policy
       - name: Python tests
-        run: python -m pytest packages/report-engine/tests -q
+        # The five root-only cases just ran above; execute every remaining case.
+        run: python -m pytest packages/report-engine/tests -q -k 'not guard_installer_private_policy'
 
   server-image:
     name: Production image with report runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Match the production Docker engine and image store
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
+        with:
+          version: v29.1.3
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Reuse this run's existing immutable artifact on retry
+        id: runtime_artifact
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 .github/ci/runtime_artifact.py fetch --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --allow-missing \
+            --selection "$RUNNER_TEMP/runtime-selection.json" --metadata "$RUNNER_TEMP/runtime-artifact-metadata.json"
+          reused=$(python3 -c 'import json,sys;print(str(json.load(open(sys.argv[1]))["present"]).lower())' "$RUNNER_TEMP/runtime-selection.json")
+          printf 'reused=%s\n' "$reused" >> "$GITHUB_OUTPUT"
+          if test "$reused" = true; then
+            producer_attempt=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["producer_attempt"])' "$RUNNER_TEMP/runtime-selection.json")
+            python3 .github/ci/runtime_artifact.py verify --root "$RUNNER_TEMP/runtime-candidate" \
+              --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$producer_attempt"
+            for role in server web; do docker load -i "$RUNNER_TEMP/runtime-candidate/$role.tar.gz"; done
+            docker tag "aemr-server:release-$SOURCE_SHA" aemr-server:ci
+            docker image inspect "aemr-server:release-$SOURCE_SHA" "aemr-web:release-$SOURCE_SHA" > "$RUNNER_TEMP/runtime-images.json"
+            python3 .github/ci/runtime_artifact.py loaded --root "$RUNNER_TEMP/runtime-candidate" \
+              --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$producer_attempt" --inspect "$RUNNER_TEMP/runtime-images.json"
+          fi
       - name: Build server and report engine image
-        run: docker build -f deploy/Dockerfile.server -t aemr-server:ci .
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS:$RUNNER_OS" = true:Linux
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -f deploy/Dockerfile.server -t "aemr-server:release-$SOURCE_SHA" -t aemr-server:ci .
+      - name: Build web image once
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -f deploy/Dockerfile.web -t "aemr-web:release-$SOURCE_SHA" .
+      - name: Verify built web HTTP shell and module
+        run: |
+          set -euo pipefail
+          container=$(docker run -d -p 127.0.0.1::80 "aemr-web:release-$SOURCE_SHA")
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          port=$(docker port "$container" 80/tcp | head -1 | cut -d: -f2)
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --max-time 5 "http://127.0.0.1:$port/" > "$RUNNER_TEMP/web-index.html"; then break; fi
+            sleep 1
+          done
+          module=$(python3 - <<'PY'
+          import re,os
+          from pathlib import Path
+          source=(Path(os.environ['RUNNER_TEMP'])/'web-index.html').read_text()
+          match=re.search(r'<script[^>]+src="(/assets/[^"/]+\.js)"',source)
+          assert match and '<div id="root">' in source
+          print(match.group(1))
+          PY
+          )
+          curl --fail --silent --max-time 10 "http://127.0.0.1:$port$module" > "$RUNNER_TEMP/web-module.js"
+          test -s "$RUNNER_TEMP/web-module.js"
+      - name: Verify real container backup producer against strict release reader
+        run: |
+          docker run --rm --network none --read-only --user 0 --memory 256m \
+            --tmpfs /tmp:rw,nosuid,size=2g \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/candidate,readonly" \
+            --entrypoint /opt/report-env/bin/python aemr-server:ci -B \
+            /candidate/.github/ci/test_release_controller.py \
+            ControllerTests.test_real_backup_writer_meets_release_reader_contract_with_container_umask \
+            ControllerTests.test_base_plan_cli_without_guardian_fd_uses_only_readonly_docker_rpc
+      - name: Verify real Node snapshot calculation without blocking HTTP
+        run: |
+          set -euo pipefail
+          # Combined 4000-row calculation + real SQLite persistence: measured
+          # 120344624B DB/WAL peak and 1093164KiB RSS locally. The former 64MiB
+          # scratch was for calculation only; production limits are unchanged.
+          timeout --kill-after=5s 45s docker run --rm --interactive --network none --read-only \
+            --memory 1536m --memory-swap 1536m --cpus 1 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=256m --env NODE_OPTIONS=--max-old-space-size=7168 \
+            --entrypoint node aemr-server:ci --import tsx --input-type=module \
+            < .github/ci/native_snapshot_calculation.mjs
       - name: Verify installed publication reader
         run: |
           docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \
             read-publication --state /tmp/report-state --view status > /tmp/report-reader.json
-          python3 -c 'import json; assert json.load(open("/tmp/report-reader.json")) == {"latest": None, "attempt": None}'
+          python3 - <<'PY'
+          import json
+          value = json.load(open('/tmp/report-reader.json'))
+          assert value['latest'] is None and value['attempt'] is None
+          assert value['operations']['worker_state'] == 'unknown'
+          assert value['operations']['check_stale'] is True
+          PY
+      - name: Seal the tested runtime artifact
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/runtime-candidate"
+          docker image inspect "aemr-server:release-$SOURCE_SHA" "aemr-web:release-$SOURCE_SHA" > "$RUNNER_TEMP/runtime-images.json"
+          docker run --rm --network none --read-only --entrypoint /opt/report-env/bin/python "aemr-server:release-$SOURCE_SHA" -I -c \
+            'import json,platform,subprocess; from procurement_engine.raw_pipeline import RAW_RULES_VERSION,RENDERER_VERSION; print(json.dumps({"node":subprocess.check_output(["node","--version"],text=True).strip(),"python":platform.python_version(),"rules":RAW_RULES_VERSION,"renderer":RENDERER_VERSION}))' > "$RUNNER_TEMP/runtime-versions.json"
+          for role in server web; do
+            docker save "aemr-$role:release-$SOURCE_SHA" | gzip -1 > "$RUNNER_TEMP/runtime-candidate/$role.tar.gz"
+          done
+          python3 .github/ci/runtime_artifact.py create --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --inspect "$RUNNER_TEMP/runtime-images.json" --versions "$RUNNER_TEMP/runtime-versions.json"
+          python3 .github/ci/runtime_artifact.py verify --root "$RUNNER_TEMP/runtime-candidate" \
+            --sha "$SOURCE_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Retain exact checked images for promotion
+        if: steps.runtime_artifact.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/runtime-candidate/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
 
   lint-biome:
     name: Biome lint (advisory)
@@ -132,15 +390,19 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [verify, report-engine, server-image, deploy_scope]
-    # SAFETY STOP (2026-10-22): main is a legacy lineage, not the accepted
-    # integrated runtime in PR #79. A green healthcheck is not a migration
-    # or feature-parity proof. Do not automatically downgrade the VPS from
-    # integrated code or stop its report worker on any main push.
-    # Restore release only through the approved exact-SHA candidate path
-    # with stateful backup, restore/readback and worker continuity checks.
-    if: false
+    # No unattended production writes on a main push. Only a separately
+    # approved, exact-SHA dispatch with a verified backup is eligible.
+    if: >-
+      always() && !cancelled() &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release_sha == github.sha &&
+      needs.verify.result == 'success' &&
+      needs.report-engine.result == 'success' &&
+      needs.server-image.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    environment: production
+    timeout-minutes: 45
     env:
       # Deployment address confirmed by the owner; do not rely on a stale secret.
       VPS_HOST: 193.233.91.162
@@ -148,6 +410,39 @@ jobs:
       group: deploy-vps
       cancel-in-progress: false
     steps:
+      - name: Refuse superseded deployment path
+        run: |
+          # This retained historical implementation predates whole-state recovery.
+          # Only the owner-authorized controlled candidate workflow may write VPS.
+          echo RELEASE_REQUIRES_CONTROLLED_CANDIDATE_WORKFLOW
+          exit 2
+      - name: Validate explicit release intent
+        id: release_inputs
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          BACKUP_ROOT: ${{ inputs.backup_root }}
+          BACKUP_NAME: ${{ inputs.backup_name }}
+        run: |
+          case "$RELEASE_SHA" in
+            *[!0-9a-f]*|'') exit 2 ;;
+          esac
+          test "${#RELEASE_SHA}" -eq 40
+          test "$RELEASE_SHA" = "$GITHUB_SHA"
+          case "$BACKUP_ROOT" in
+            /*) ;;
+            *) exit 2 ;;
+          esac
+          case "$BACKUP_ROOT" in
+            *[!A-Za-z0-9_./-]*) exit 2 ;;
+          esac
+          case "$BACKUP_NAME" in
+            ''|'.'|'..'|*[!A-Za-z0-9_.-]*) exit 2 ;;
+          esac
+          # These values contain only the checked safe alphabet (no quotes,
+          # newlines or shell metacharacters). Publish only sanitized outputs.
+          printf 'backup_root=%s\nbackup_name=%s\n' "$BACKUP_ROOT" "$BACKUP_NAME" >> "$GITHUB_OUTPUT"
+          echo 'Explicit exact-SHA release input validated; production state still untouched.'
+
       - name: Check deployment configuration without exposing credentials
         env:
           PREVIOUS_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -172,97 +467,227 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 18m
-          # drone-ssh script_stop inserts checks even after `else`, so a normal
-          # false `if` condition aborts app_only after healthy deploy. Bash
-          # set -euo pipefail in the script already stops real command failures.
-          script_stop: false
+          command_timeout: 40m
+          script_stop: false            # Bash owns fail-fast; per-line SSH guards bypass EXIT recovery
           script: |
             set -euo pipefail
+            umask 077
             cd /home/aemr/dash
-            # Source inspection and formula-header hotfix may bypass report
-            # migrations. Any unknown file takes the established full deploy gate.
-            git fetch origin
-            release_scope=standard
-            before_sha='${{ github.event.before }}'
-            tested_sha='${{ github.sha }}'
-            if git cat-file -e "$before_sha^{commit}" 2>/dev/null && git cat-file -e "$tested_sha^{commit}" 2>/dev/null; then
-              changed_files=$(git diff --name-only "$before_sha" "$tested_sha")
-              # Unknown changed paths retain the full report-worker release gate.
-              if [ -n "$changed_files" ] && ! printf '%s\n' "$changed_files" | grep -Eqv '^(packages/server/src/routes/source-integrity(\.test)?\.ts|packages/core/src/pipeline/formula-integrity(\.test)?\.ts|packages/web/src/lib/formulas/formula-defects(\.test)?\.ts|packages/web/src/pages/DataBrowser\.outside44fz\.test\.tsx|packages/web/src/api\.ts|packages/web/src/pages/Settings(\.deep-check\.test)?\.tsx|packages/(core|server|shared|web)/package\.json|pnpm-lock\.yaml|\.github/workflows/(source-deep-check|ci)\.yml)$'; then
-                release_scope=app_only
-              fi
-            fi
-            # ONE additive integrity-state release only: require the exact,
-            # reviewed file set, not a reusable wildcard for app.ts or db/schema.
-            # Anything else follows the established full report-worker gate.
-            expected_integrity_files=$(cat <<'INTEGRITY_PATHS'
-            .github/ci/test_source_integrity_release.py
-            .github/workflows/ci.yml
-            deploy/source-integrity-release.py
-            docs/decisions/0012-durable-source-integrity-observations.md
-            packages/server/src/app.ts
-            packages/server/src/db/ddl.ts
-            packages/server/src/db/schema.ts
-            packages/server/src/routes/source-integrity.test.ts
-            packages/server/src/routes/source-integrity.ts
-            packages/server/src/services/formula-sink.ts
-            packages/server/src/services/metadata-watch.ts
-            packages/server/src/services/source-integrity-state.test.ts
-            packages/server/src/services/source-integrity-state.ts
-            packages/server/src/services/source-refresh-formulas.test.ts
-            packages/server/src/services/source-refresh.ts
-            INTEGRITY_PATHS
-            )
-            if [ "${changed_files:-}" = "$expected_integrity_files" ]; then
-              release_scope=integrity_only
-            fi
-            echo "Release scope: $release_scope (unknown paths use full gate)."
             cd deploy
-            previous_worker=
-            if [ "$release_scope" = standard ]; then
-              previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
-            fi
-            integrity_deploy_started=0
-            # Record the pre-release worker only for continuity checks; never
-            # stop/recreate it during this isolated source-state deployment.
-            integrity_worker_before=
-            if [ "$release_scope" = integrity_only ]; then
-              integrity_worker_before=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
-            fi
+            [ ! -L /run/lock/aemr-maintenance.lock ] || { echo AEMR_MAINTENANCE_LOCK_INVALID >&2; exit 1; }
+            exec 9>/run/lock/aemr-maintenance.lock
+            flock -n 9 || { echo AEMR_MAINTENANCE_BUSY >&2; exit 1; }
+            # External programs cannot retain fd9 after the shell owner dies.
+            docker() { command docker "$@" 9>&-; }
+            git() { command git "$@" 9>&-; }
+            python3() { command python3 "$@" 9>&-; }
+            sleep() { command sleep "$@" 9>&-; }
+            df() { command df "$@" 9>&-; }
+            systemctl() { command systemctl "$@" 9>&-; }
+            rm() { command rm "$@" 9>&-; }
+            previous_worker=$(exec 9>&-; docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            original_server=
+            original_quiesced=false
+            runtime_mutation_started=false
+            original_code=
+            original_web_image=
+            report_release_started=false
+            verification_dir=
+            resume_original_api() {
+              docker start "$original_server" >/dev/null || return 1
+              for attempt in $(exec 9>&-; seq 1 60); do
+                if [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = running ] &&
+                   [ "$(exec 9>&-; docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$original_server")" = healthy ]; then
+                  original_quiesced=false
+                  return 0
+                fi
+                sleep 2
+              done
+              echo RELEASE_ORIGINAL_API_NOT_HEALTHY >&2
+              return 1
+            }
             restore_worker_on_failure() {
               result=$?
-              if [ "$result" -ne 0 ] && [ "$integrity_deploy_started" = 1 ]; then
-                echo 'Source-state release failed; restoring previous application images.'
-                sh /home/aemr/dash/deploy/rollback.sh || echo 'Automatic rollback failed — manual attention required.'
+              trap - EXIT
+              if [ "$result" -ne 0 ] && [ "$original_quiesced" = true ] && [ "$runtime_mutation_started" = false ]; then
+                resume_original_api || { echo RELEASE_ORIGINAL_API_RECOVERY_FAILED >&2; result=2; }
               fi
-              if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
-                docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+              if [ "$result" -ne 0 ] && [ "$report_release_started" = true ] && [ -n "$previous_worker" ]; then
+                if ! docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
-                  start report-worker >/dev/null 2>&1 || true
+                  start report-worker >/dev/null 2>&1; then
+                  echo 'REPORT_WORKER_RESTART_COMMAND_FAILED' >&2
+                fi
+                restored_worker=$(exec 9>&-; docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                  --env-file /home/aemr/dash/deploy/.env.production --profile reports \
+                  ps --status running --quiet report-worker 2>/dev/null || true)
+                if [ "$restored_worker" != "$previous_worker" ]; then
+                  echo 'REPORT_WORKER_RESTORE_FAILED: the previous worker is not running.' >&2
+                fi
+              fi
+              if [ -n "$verification_dir" ]; then
+                rm -rf "$verification_dir"
               fi
               exit "$result"
             }
             trap restore_worker_on_failure EXIT
+            trap 'exit 130' HUP INT TERM
+
+            # Backup and scratch restore must succeed BEFORE any production
+            # image, code, source, report state or scheduler is modified.
+            verified_backup_root='${{ steps.release_inputs.outputs.backup_root }}'
+            verified_backup_name='${{ steps.release_inputs.outputs.backup_name }}'
+            test -f "$verified_backup_root/$verified_backup_name/manifest.json"
+            verification_dir=$(exec 9>&-; mktemp -d /tmp/aemr-release-check.XXXXXX)
+            release_sha='${{ github.sha }}'
+            cd ..
+            git fetch --quiet origin "$release_sha"
+            git show "$release_sha:deploy/stateful_backup.py" > "$verification_dir/stateful_backup.py"
+            cd deploy
+            # The earlier backup job MUST have resumed its original API and released
+            # its guardian. This owner validates and quiesces the running API itself.
+            worker=$(exec 9>&-; docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
+            if [ -n "$worker" ]; then
+              worker_state=$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$worker")
+              case "$worker_state" in
+                exited|created) ;;
+                *) echo 'BACKUP_REQUIRES_WORKER_QUIESCENCE' >&2; exit 2 ;;
+              esac
+            fi
+            original_server=$(exec 9>&-; docker compose --env-file .env.production ps --all --quiet server)
+            [[ "$original_server" =~ ^[a-f0-9]{64}$ ]]
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = running ] &&
+            [ "$(exec 9>&-; docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$original_server")" = healthy ] || {
+              echo 'RELEASE_REQUIRES_ORIGINAL_API_HEALTHY' >&2; exit 2;
+            }
+            source_volume=$(exec 9>&-; docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$original_server")
+            case "$source_volume" in ''|*[!a-zA-Z0-9_.-]*) echo BACKUP_SOURCE_VOLUME_NOT_VERIFIED >&2; exit 2 ;; esac
+            server_image=$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_server")
+            [[ "$server_image" =~ ^sha256:[a-f0-9]{64}$ ]]
+            original_code=$(exec 9>&-; git rev-parse HEAD)
+            [[ "$original_code" =~ ^[a-f0-9]{40}$ ]]
+            original_web=$(exec 9>&-; docker compose --env-file .env.production ps --status running --quiet web)
+            [[ "$original_web" =~ ^[a-f0-9]{64}$ ]]
+            original_web_image=$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_web")
+            [[ "$original_web_image" =~ ^sha256:[a-f0-9]{64}$ ]]
+            python3 - "$verified_backup_root/runtime.json" "$original_server" "$worker" "$source_volume" "$server_image" <<'PYRUNTIME'
+            import json,re,sys
+            from pathlib import Path
+            try:
+                x=json.loads(Path(sys.argv[1]).read_text())
+                assert [x[k] for k in ('server','worker','volume','image')] == sys.argv[2:]
+                assert re.fullmatch('[a-f0-9]{40}',x['candidate'])
+            except (OSError,ValueError,KeyError,TypeError,AssertionError):
+                print('RELEASE_BACKUP_RUNTIME_MISMATCH',file=sys.stderr);sys.exit(2)
+            PYRUNTIME
+            release_run='${{ github.run_id }}'
+            release_attempt='${{ github.run_attempt }}'
+            [[ "$release_run" =~ ^[0-9]+$ ]] && [[ "$release_attempt" =~ ^[0-9]+$ ]]
+            checkpoint_name="release-$release_sha-$release_run-$release_attempt"
+            [ ! -e "$verified_backup_root/$checkpoint_name" ] || { echo RELEASE_CHECKPOINT_EXISTS >&2; exit 2; }
+            # Read-only gzip count and scratch filesystem admission, before API stop.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py release-capacity \
+              --source /source --backup-parent /backups --prior-backup "/backups/$verified_backup_name" --scratch-parent /scratch > "$verification_dir/capacity.json"
+            reserve_scratch_arg=$(exec 9>&-; python3 - "$verification_dir/capacity.json" <<'PYCAPACITY'
+            import json,sys
+            x=json.load(open(sys.argv[1]));assert x['state']=='RELEASE_STORAGE_PREFLIGHT'
+            assert x['free_bytes']>=x['required_bytes'] and x['scratch_free_bytes']>=x['scratch_required_bytes']
+            print('--reserve-scratch' if x['shared_filesystem'] else '')
+            PYCAPACITY
+            )
+            # The retained external copy is restored as history, never labelled current.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
+              --backup "/backups/$verified_backup_name" --scratch-parent /scratch > "$verification_dir/prior-restore.json"
+            # Known installed guard is the finite owner-loss recovery path.
+            systemctl is-active --quiet aemr-runtime-guard.timer
+            [ "$(exec 9>&-; systemctl show --property=FragmentPath --value aemr-runtime-guard.service)" = /etc/systemd/system/aemr-runtime-guard.service ]
+            [ "$(exec 9>&-; systemctl show --property=FragmentPath --value aemr-runtime-guard.timer)" = /etc/systemd/system/aemr-runtime-guard.timer ]
+            [ "$(exec 9>&-; systemctl show --property=NeedDaemonReload --value aemr-runtime-guard.timer)" = no ]
+            [ -z "$(exec 9>&-; systemctl show --property=DropInPaths --value aemr-runtime-guard.timer)" ]
+            [ "$(exec 9>&-; systemctl show --property=NeedDaemonReload --value aemr-runtime-guard.service)" = no ]
+            [ -z "$(exec 9>&-; systemctl show --property=DropInPaths --value aemr-runtime-guard.service)" ]
+            git show "$release_sha:deploy/runtime_guard.py" > "$verification_dir/runtime_guard.py"
+            git show "$release_sha:deploy/systemd/aemr-runtime-guard.service" > "$verification_dir/guard.service"
+            git show "$release_sha:deploy/systemd/aemr-runtime-guard.timer" > "$verification_dir/guard.timer"
+            cmp "$verification_dir/runtime_guard.py" /usr/local/libexec/aemr/runtime_guard.py 9>&-
+            cmp "$verification_dir/guard.service" /etc/systemd/system/aemr-runtime-guard.service 9>&-
+            cmp "$verification_dir/guard.timer" /etc/systemd/system/aemr-runtime-guard.timer 9>&-
+            if [ "$(exec 9>&-; id -u)" = 0 ]; then
+              cat /etc/aemr/runtime-policy.json > "$verification_dir/guard-policy.json" 9>&-
+            else
+              sudo -n cat /etc/aemr/runtime-policy.json > "$verification_dir/guard-policy.json" 9>&-
+            fi
+            original_name=$(exec 9>&-; docker inspect --format '{{.Name}}' "$original_server")
+            python3 - "$verification_dir/guard-policy.json" "$original_name" <<'PYGUARD'
+            import json,sys
+            x=json.load(open(sys.argv[1]));assert x['project']=='aemr'
+            assert x['services']['server']['container']==sys.argv[2].removeprefix('/')
+            assert x.get('worker_enabled',False) is False
+            PYGUARD
+            original_quiesced=true
+            docker stop --time 75 "$original_server" >/dev/null
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = exited ] || { echo BACKUP_REQUIRES_SERVER_QUIESCENCE >&2; exit 2; }
+            # Capture all current state, including legitimate startup/WAL/timestamp changes.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py create \
+              --source /source --backup "/backups/$checkpoint_name" --compressed --compression-level 1 $reserve_scratch_arg > "$verification_dir/capture.json"
+            # Only archive container ownership changes; source attributes remain in tar/manifest.
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups" \
+              --entrypoint /opt/report-env/bin/python "$server_image" -B -c \
+              'import os,sys; from pathlib import Path; root=Path("/backups")/sys.argv[1]; [os.chown(p,int(sys.argv[2]),int(sys.argv[3])) for p in [root,*root.iterdir()]]' "$checkpoint_name" "$(exec 9>&-; id -u)" "$(exec 9>&-; id -g)"
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
+              --backup "/backups/$checkpoint_name" --scratch-parent /scratch --source /source > "$verification_dir/current-restore.json"
+            [ "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$original_server")" = exited ]
+            case "$(exec 9>&-; docker inspect --format '{{.State.Status}}' "$worker")" in
+              exited|created) ;;
+              *) echo BACKUP_REQUIRES_WORKER_QUIESCENCE >&2; exit 2 ;;
+            esac
+            python3 - "$verification_dir" "$verified_backup_root" "$checkpoint_name" "$release_sha" "$original_server" "$worker" "$source_volume" "$server_image" "$original_web_image" "$original_code" <<'PYPROOF'
+            import hashlib,json,os,sys
+            from pathlib import Path
+            v,root=map(Path,sys.argv[1:3]);name,sha,server,worker,volume,image,web,code=sys.argv[3:]
+            prior=json.loads((v/'prior-restore.json').read_text());current=json.loads((v/'current-restore.json').read_text())
+            assert prior['state']==current['state']=='VERIFIED_IN_SCRATCH' and current['source_matched'] is True
+            manifest=root/name/'manifest.json'
+            proof={'release_sha':sha,'manifest_sha256':hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                   'checkpoint':name,'prior_restore':prior,'restore':current,
+                   'runtime':{'server':server,'worker':worker,'volume':volume},
+                   'rollback':{'server_image':image,'web_image':web,'code_sha':code}}
+            with (root/f'{name}.receipt.json').open('x') as output:
+                json.dump(proof,output,sort_keys=True);output.flush();os.fsync(output.fileno())
+            PYPROOF
+            echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'
 
             # Storage is a deployment prerequisite, not a post-failure repair.
             # Keep rollback-tagged images and reusable build layers. Removing
             # all build cache on every deploy forces a slow full frontend build.
-            if [ "$release_scope" = standard ]; then
-              docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
-            fi
+            # Never stop the report scheduler or change the report history during
+            # disk/image preparation. Both belong to the separately gated
+            # report release, after stateful backup + restore acceptance.
             docker image prune --force >/dev/null
-            if [ "$release_scope" = standard ] && docker image inspect aemr-server:latest >/dev/null 2>&1; then
-              echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
-              docker compose --env-file .env.production run --rm --no-deps \
-                --entrypoint /opt/report-env/bin/python server -c \
-                'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
-            fi
-            free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            free_kb=$(exec 9>&-; df -Pk / | awk 'NR==2 {print $4}')
             if [ "${free_kb:-0}" -lt 8388608 ]; then
               echo "Less than 8 GiB free; reclaiming unused build cache."
               docker builder prune --all --force >/dev/null
-              free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+              free_kb=$(exec 9>&-; df -Pk / | awk 'NR==2 {print $4}')
             fi
             df -h /
             if [ "${free_kb:-0}" -lt 4194304 ]; then
@@ -271,52 +696,27 @@ jobs:
             fi
             cd ..
 
-            # Do not overwrite the rollback point with a deployment that is
-            # already unhealthy. Preserve the prior :previous images in that case.
-            current_server=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production ps --all --quiet server)
-            current_health=
-            if [ -n "$current_server" ]; then
-              current_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$current_server" 2>/dev/null || true)
-            fi
-            if [ "$current_health" = "healthy" ]; then
-              git rev-parse HEAD > deploy/.last-known-good
-              for img in aemr-server aemr-web; do
-                if docker image inspect "$img:latest" >/dev/null 2>&1; then
-                  docker tag "$img:latest" "$img:previous"
-                fi
-              done
-            else
-              echo "Current server is not healthy; preserving the existing rollback point."
-            fi
-            if [ "$release_scope" = integrity_only ] && [ "$current_health" != "healthy" ]; then
-              echo "Source-state release aborted: no healthy rollback baseline." >&2
-              exit 1
-            fi
-
+            # Healthy pre-stop runtime is the rollback point; stopped health is not evidence.
+            [ "$(exec 9>&-; docker inspect --format '{{.Image}}' "$original_server")" = "$server_image" ]
+            [ "$(exec 9>&-; git rev-parse HEAD)" = "$original_code" ]
+            docker tag "$server_image" aemr-server:previous
+            docker tag "$original_web_image" aemr-web:previous
+            printf '%s\n' "$original_code" > deploy/.last-known-good
             git fetch origin
             git checkout main
             tested_commit='${{ github.sha }}'
             git cat-file -e "$tested_commit^{commit}"
             git reset --hard "$tested_commit"
-            test "$(git rev-parse HEAD)" = "$tested_commit"
+            test "$(exec 9>&-; git rev-parse HEAD)" = "$tested_commit"
             git log --oneline -1
-            if [ "$release_scope" = integrity_only ]; then
-              # The online sqlite3.backup API captures a WAL-consistent database
-              # while the running server and worker keep serving requests.
-              # No unverified cp of a live WAL database, no secret output.
-              docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
-                exec -T -e RELEASE_SHA="$tested_commit" server \
-                /opt/report-env/bin/python - backup < deploy/source-integrity-release.py
-            fi
             cd /home/aemr/dash/deploy
             # Even if COMPOSE_PROFILES=reports is set, preserve the existing
             # worker until its separate preflight can safely replace it.
-            if [ "$release_scope" = integrity_only ]; then
-              integrity_deploy_started=1
-            fi
-            if ! docker compose --env-file .env.production up -d --build server web caddy; then
+            docker compose --env-file .env.production build server web
+            runtime_mutation_started=true
+            if ! docker compose --env-file .env.production up -d --no-build server web caddy; then
               df -h /
-              server_id=$(docker compose --env-file .env.production ps --all --quiet server)
+              server_id=$(exec 9>&-; docker compose --env-file .env.production ps --all --quiet server)
               if [ -n "$server_id" ]; then
                 docker inspect --format 'server_state={{.State.Status}} exit_code={{.State.ExitCode}} oom={{.State.OOMKilled}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server_id" || true
               fi
@@ -332,48 +732,190 @@ jobs:
             echo " — deploy OK"
             # Private inputs and audit output stay in server_data, not Actions logs.
             # Start the scheduler only after a successful service-account release.
-            if [ "$release_scope" = standard ]; then
-              bash enable-reports.sh
-            elif [ "$release_scope" = integrity_only ]; then
-              cd /home/aemr/dash
-              # One explicit source read now, then an actual container restart.
-              # Compare digests of cell-level evidence locally; never print it.
-              docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
-                exec -T server /opt/report-env/bin/python - deep-check < deploy/source-integrity-release.py
-              before_integrity=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
-                exec -T server /opt/report-env/bin/python - fingerprint < deploy/source-integrity-release.py)
-              cd deploy
-              docker compose --env-file .env.production restart server >/dev/null
-              healthy=0
-              for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-                if docker compose --env-file .env.production exec -T server \
-                  curl -fsS -m 10 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
-                  healthy=1
-                  break
-                fi
-                sleep 5
-              done
-              if [ "$healthy" != 1 ]; then
-                echo 'Source-state restart failed health readback.' >&2
-                exit 1
-              fi
-              cd /home/aemr/dash
-              after_integrity=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production \
-                exec -T server /opt/report-env/bin/python - fingerprint < deploy/source-integrity-release.py)
-              if [ "$before_integrity" != "$after_integrity" ]; then
-                echo 'Persistent source integrity evidence changed or disappeared across restart.' >&2
-                exit 1
-              fi
-              if [ -n "$integrity_worker_before" ]; then
-                integrity_worker_after=$(docker compose -f deploy/docker-compose.yml \
-                  --env-file deploy/.env.production --profile reports ps --status running --quiet report-worker)
-                if [ "$integrity_worker_before" != "$integrity_worker_after" ]; then
-                  echo 'Report-worker continuity mismatch; source-only release not accepted.' >&2
-                  exit 1
-                fi
-              fi
-              echo 'SOURCE_STATE_RESTART_READBACK_PASS; report worker not redeployed.'
-            else
-              echo 'Application-only check hotfix deployed; report worker and weekly evidence unchanged.'
-            fi
+            report_release_started=true
+            bash enable-reports.sh
             trap - EXIT
+
+  browser-report-contract:
+    name: Read-only browser Word readiness and Caddy edge diagnosis
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Build the exact candidate browser consumers
+        run: |
+          pnpm install --frozen-lockfile
+          node .github/ci/build_browser_contract.mjs
+      - name: Verify read-only Header probe
+        run: node --test .github/ci/test_header_api_probe.mjs
+      - name: Build autonomous Header review file from exact source (synthetic data only)
+        run: node scripts/build-navigation-qa.mjs
+      - name: Publish downloadable synthetic Header HTML and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: dash-header-${{ github.event.pull_request.head.sha }}
+          path: |
+            packages/web/navigation-qa.html
+            packages/web/navigation-qa.zip
+          if-no-files-found: error
+          retention-days: 3
+      - name: Prepare private exact-candidate scratch directory
+        id: header_scratch
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -eu
+            umask 077
+            mkdir -- "/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Transfer reviewed public probe code (no source data)
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: ".github/ci/header_api_probe.mjs,.github/ci/_browser-contract.br"
+          target: "/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+          strip_components: 2
+      - name: Compare actual production response against browser schema (GET only)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: HEADER_PROBE_SHA256,BROWSER_CONTRACT_SHA256
+          timeout: 60s
+          command_timeout: 4m
+          # Bash owns failure handling: injected per-line stops corrupt Python/JS blocks.
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            probe_dir="/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+            test -d "$probe_dir" && test ! -L "$probe_dir"
+            test "$(stat -c %u "$probe_dir")" = "$(id -u)"
+            test "$(stat -c %a "$probe_dir")" = 700
+            trap 'rm -rf -- "$probe_dir"' EXIT
+            test -f "$probe_dir/header_api_probe.mjs" && test ! -L "$probe_dir/header_api_probe.mjs"
+            test -f "$probe_dir/_browser-contract.br" && test ! -L "$probe_dir/_browser-contract.br"
+            test "$(sha256sum "$probe_dir/header_api_probe.mjs" | cut -d ' ' -f1)" = "$HEADER_PROBE_SHA256"
+            test "$(sha256sum "$probe_dir/_browser-contract.br" | cut -d ' ' -f1)" = "$BROWSER_CONTRACT_SHA256"
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            # Reviewed code + actual current API; only GETs and sanitized proof.
+            cat "$probe_dir/_browser-contract.br" | docker compose --env-file .env.production exec -T -e HEADER_PROBE_CLI=1 server node --input-type=module -e "$(cat "$probe_dir/header_api_probe.mjs")"
+            # CURRENT_SIGNALS_READONLY_BEGIN: GET only; addresses are not purchase identities.
+            docker compose --env-file .env.production exec -T server node --import tsx --input-type=module - <<'JSSIGNALS' 2>/dev/null || echo '{"kind":"current_signals_probe","result":"UNAVAILABLE"}'
+            import * as shared from "@aemr/shared";
+            const unavailable="UNAVAILABLE", selectors=[[419,"416"],[437,"434"],[440,"437"],[452,"449"],[459,"456"],[480,"477"]];
+            const object=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+            const bool=x=>typeof x==="boolean"?x:unavailable;
+            async function get(path){try{const r=await fetch("http://127.0.0.1:3000"+path,{method:"GET",headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(12000)});if(!r.ok)return null;const text=await r.text();const limit=path==="/api/dashboard?year=2026"?20*1024*1024:4000000;return Buffer.byteLength(text,"utf8")<=limit?JSON.parse(text):null;}catch{return null;}}
+            function detail(x,address){return object(x)&&object(x.department)&&x.department.id==="uksimp"&&x.rowIndex===address&&object(x.cells)&&object(x.signals)?x:null;}
+            function record(x,address,expected){x=detail(x,address);const cells=x?.cells, signals=x?.signals;let q=unavailable,ad=unavailable;
+            if(cells&&Object.hasOwn(cells,"Q")){const v=cells.Q;if(v===null||(typeof v==="string"&&!v.trim()))q="MISSING";else if(typeof shared.dayNumberOf==="function"&&Number.isFinite(shared.dayNumberOf(v))&&typeof signals.futureFactDate==="boolean")q=signals.futureFactDate?"FUTURE":"DATED";}
+            if(cells&&Object.hasOwn(cells,"AD")&&typeof shared.economyFlagState==="function"){const v=shared.economyFlagState(cells.AD);if(["approved","declined","undetermined"].includes(v))ad=v;}
+            return {address,A_match_expected:cells&&Object.hasOwn(cells,"A")&&(typeof cells.A==="string"||typeof cells.A==="number")?String(cells.A)===expected:unavailable,Q:q,AD:ad,signals:Object.fromEntries(["economyFlagUndetermined","highEconomy","epFactDeviation","futureFactDate"].map(k=>[k,bool(signals?.[k])]))};}
+            async function main(){const [dashboard,...details]=await Promise.all([get("/api/dashboard?year=2026"),...selectors.map(([address])=>get("/api/rows/uksimp/"+address))]);
+            let list=[],complete=true,total=null;for(let page=1;page<=3;page++){const x=await get("/api/rows/uksimp?limit=1000&page="+page);const p=x?.pagination;if(!object(x)||x.department?.id!=="uksimp"||!Array.isArray(x.rows)||!object(p)||p.page!==page||p.limit!==1000||!Number.isInteger(p.total)||p.total<0||!Number.isInteger(p.totalPages)||p.totalPages<1||p.totalPages>3||(total!==null&&total!==p.total)||x.rows.some(r=>!object(r)||!Number.isInteger(r.rowIndex)||r.rowIndex<1||!(typeof r.id==="string"||typeof r.id==="number"))){complete=false;break;}total=p.total;list.push(...x.rows);if(page===p.totalPages)break;}
+            complete=complete&&list.length===total&&new Set(list.map(r=>r.rowIndex)).size===list.length;
+            const rows=await Promise.all(selectors.map(async([address,expected],i)=>{const current=record(details[i],address,expected);const matches=complete?list.filter(r=>String(r.id)===expected):[];let logical=unavailable;if(matches.length===1){const resolved=matches[0].rowIndex;const d=resolved===address?details[i]:await get("/api/rows/uksimp/"+resolved);const verified=record(d,resolved,expected);if(verified.A_match_expected===true)logical=verified;}return {...current,logical_resolution:logical};}));
+            const snap=dashboard?.snapshot;const safeId=typeof snap?.id==="string"&&/^[A-Za-z0-9_.:-]{1,128}$/.test(snap.id)?snap.id:unavailable;const time=typeof snap?.createdAt==="string"&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(snap.createdAt)?snap.createdAt:unavailable;
+            const registry=Array.isArray(shared.CHECK_REGISTRY)?shared.CHECK_REGISTRY:[];const allowed=new Set(registry.filter(c=>["economyFlagUndetermined","highEconomy","epFactDeviation","futureFactDate"].includes(c.legacyId)||c.legacyId==="status_on_data_rows").map(c=>c.id));
+            const issues=Array.isArray(dashboard?.recentIssues)?dashboard.recentIssues:null;for(const row of rows){row.matching_checks=issues&&allowed.size?issues.filter(i=>object(i)&&(i.departmentId==="uksimp"||i.sheet==="УКСиМП")&&i.row===row.address&&allowed.has(i.checkId)).map(i=>({checkId:i.checkId,severity:["error","warning","info","significant","critical"].includes(i.severity)?i.severity:unavailable,status:["open","acknowledged","in_progress","resolved","wont_fix","false_positive"].includes(i.status)?i.status:unavailable})):unavailable;}
+            console.log(JSON.stringify({kind:"current_signals_probe",scope:"current_addresses_only",snapshotId:safeId,snapshotTime:time,sourceReadAt:unavailable,rows}));}
+            main().catch(()=>console.log(JSON.stringify({kind:"current_signals_probe",result:unavailable})));
+            JSSIGNALS
+            # CURRENT_SIGNALS_READONLY_END
+            # Host capability/space inspection has no writes and prints no mount paths.
+            python3 - <<'PYHOST' 2>/dev/null || echo '{"kind":"release_host_readonly","result":"UNAVAILABLE"}'
+            import json
+            import os
+            import re
+            import subprocess
+            def run(args):
+                try:
+                    return subprocess.run(args, text=True, capture_output=True, timeout=8, check=False)
+                except (OSError, subprocess.TimeoutExpired):
+                    return None
+            def free(path, privileged=False):
+                if not isinstance(path, str) or not os.path.isabs(path):
+                    return "UNAVAILABLE"
+                prefix = ["sudo", "-n"] if privileged else []
+                exists = run(prefix + ["test", "-d", path]) if privileged else None
+                if (privileged and (not exists or exists.returncode != 0)) or (not privileged and not os.path.isdir(path)):
+                    return "UNAVAILABLE"
+                result = run(prefix + ["df", "-B1", "--output=avail", "--", path])
+                lines = result.stdout.splitlines() if result and result.returncode == 0 else []
+                return int(lines[-1].strip()) if len(lines) == 2 and lines[-1].strip().isdigit() else "UNAVAILABLE"
+            mounts = run(["docker", "compose", "--env-file", ".env.production", "ps", "--status", "running", "--quiet", "server"])
+            sources = []
+            if mounts and mounts.returncode == 0 and re.fullmatch(r"[a-f0-9]{12,64}\s*", mounts.stdout):
+                inspected = run(["docker", "inspect", "--format", "{{json .Mounts}}", mounts.stdout.strip()])
+                try:
+                    sources = [m["Source"] for m in json.loads(inspected.stdout) if m.get("Destination") == "/app/packages/server/data" and isinstance(m.get("Source"), str)] if inspected and inspected.returncode == 0 else []
+                except (ValueError, TypeError, KeyError):
+                    sources = []
+            actor = run(["whoami"])
+            username = actor.stdout.strip() if actor and actor.returncode == 0 and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", actor.stdout.strip()) else "UNAVAILABLE"
+            sudo = run(["sudo", "-n", "true"])
+            print(json.dumps({"kind": "release_host_readonly", "actor": username, "uid": os.getuid(), "sudo_noninteractive": sudo.returncode == 0 if sudo else "UNAVAILABLE", "volume_free_bytes": free(sources[0], privileged=bool(sudo and sudo.returncode == 0)) if len(sources) == 1 else "UNAVAILABLE", "private_backup_free_bytes": free("/home/aemr/.dash-private-backups")}))
+            PYHOST
+            # JS uses the Zod schema imported by browser code, but only GETs
+            # an existing release through Fastify, without invoking refresh.
+            docker compose --env-file .env.production exec -T server node --import tsx --input-type=module -e '
+              import { execFileSync } from "node:child_process";
+              import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
+              void(async()=>{
+                // Probe the SAME product-local current date the browser selects,
+                // not status.json: an in-flight RUNNING attempt has no report_date.
+                const now=new Intl.DateTimeFormat("sv-SE",{timeZone:"Asia/Kamchatka",
+                  year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+                const yyyy=now.slice(0,4),mm=now.slice(5,7);
+                const url="http://127.0.0.1:3000/api/report-releases?date="+now+
+                  "&year="+yyyy+"&quarter="+Math.ceil(Number(mm)/3);
+                const resp=await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
+                if(resp.status!==200){console.log(JSON.stringify({kind:"browser_word_status",result:"HTTP_ERROR",status:resp.status}));return;}
+                const parsed=SelectedReportReleaseStatusSchema.safeParse(await resp.json());
+                console.log(JSON.stringify({kind:"browser_word_status",result:parsed.success?"CONTRACT_PASS":"CONTRACT_FAIL",
+                  field_errors:parsed.success?[]:parsed.error.issues.slice(0,8).map(e=>({path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),code:e.code}))
+                }));
+              })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
+            ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); issues=[{"path":"".join(ch for ch in str(entry.get("path","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.")[:90],"code":"".join(ch for ch in str(entry.get("code","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")[:30]} for entry in json.loads(next((ln for ln in out.splitlines() if ln.startswith("{") and "browser_word_status" in ln),"{}")).get("field_errors",[])][:8]; print(json.dumps({"kind":"browser_contract_probe","result":found,"invalid_fields":issues},sort_keys=True))' || echo 'browser_node_probe=FAILED'
+            # The exact browser schema above and header_api_probe validate the full
+            # selected response. The former Python-only shape duplicate truncated
+            # real 9 MiB receipts at 2 MiB and supplied no independent domain proof.
+            # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
+            docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
+              | tail -n 2000 \
+              | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?i)(?:status|status_code)[^0-9]{0,10}([245][0-9][0-9])",l) or re.search(r"\b(200|202|400|401|403|404|429|500|502|503|504)\b",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))' || echo 'edge_log_probe=FAILED'
+
+      - name: Remove owned private probe scratch on failed transfer
+        if: ${{ always() && steps.header_scratch.outcome == 'success' }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -eu
+            probe_dir="/tmp/aemr-header-proof-${{ github.run_id }}-${{ github.run_attempt }}"
+            if test -d "$probe_dir" && test ! -L "$probe_dir" && test "$(stat -c %u "$probe_dir")" = "$(id -u)" && test "$(stat -c %a "$probe_dir")" = 700; then
+              rm -rf -- "$probe_dir"
+            fi

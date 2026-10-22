@@ -1,3 +1,4 @@
+import { parseSheetNumber } from '@aemr/shared';
 /**
  * row-timeline.ts — таймлайн одной строки книги ГРБС по всей истории проекта.
  *
@@ -132,25 +133,9 @@ const DATE_LETTERS = new Set(['N', 'Q']);
 /** Денежные буквы — нормализация числом (пробелы тысяч, запятая-десятичная). */
 const SUM_LETTERS = new Set(['H', 'I', 'J', 'K', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC']);
 
-/**
- * Число из ячейки листа: «1 234,56» операторского формата. Канон совпадает с
- * server/services/rows-dto.toNumber; нечисло → null (не ноль: «пусто» и «0»
- * в диффе денег — разные состояния).
- *
- * Экспортировано как ЕДИНСТВЕННАЯ null-коэрция ядра (чистка 20.08.2026,
- * зона В): к ней сведены прежние копии upcoming.ts («мусор → 0» =
- * `sheetNumber(v) ?? 0`), pipeline/normalize.ts, pipeline/normalizer-rules.ts
- * и pipeline/signals.ts (toNumber = `sheetNumber(v) ?? NaN`). Дом коэрции
- * монорепы — shared/svod-grid (см. страж canon-homes.test.ts); туда эта
- * функция переедет волной В0, когда в доме появится вариант с
- * null-семантикой — дом сейчас отдаёт 0 и на пустоту, и на мусор.
- */
+/** Compatibility export; strict source parsing lives in shared/editable-amount. */
 export function sheetNumber(val: unknown): number | null {
-  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
-  const s = String(val ?? '').trim();
-  if (s === '') return null;
-  const parsed = parseFloat(s.replace(/\s/g, '').replace(/,/g, '.'));
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseSheetNumber(val);
 }
 
 /**

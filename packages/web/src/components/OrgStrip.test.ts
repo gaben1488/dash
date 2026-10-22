@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+import { createElement } from 'react';
+import { render, cleanup } from '@testing-library/react';
+import { SUBORDINATE_REGISTRY } from '@aemr/shared';
 /**
  * Страж-тесты п.51 (интервью 14.08.2026): счётчик подведов Пульта.
  *
@@ -8,8 +12,8 @@
  * «X/x/Х/х», тире, «н/д», пусто — закупка самого управления (isOrgItself).
  */
 import { describe, expect, it } from 'vitest';
-import { deptPositionsCount, isSelfReference } from './OrgStrip';
-import { SUBORDINATES_FALLBACK } from '../store';
+import { OrgStrip, deptPositionsCount, isSelfReference } from './OrgStrip';
+import { SUBORDINATES_FALLBACK, useStore } from '../store';
 
 describe('п.51: счётчик подведов УКСиМП', () => {
   const realSubs = (deptId: string): string[] =>
@@ -34,7 +38,7 @@ describe('п.51: счётчик подведов УКСиМП', () => {
   });
 });
 
-describe('isSelfReference — канон «сама организация» (isOrgItself + категории аппарата)', () => {
+describe('isSelfReference — аппарат vs учреждение и категории строк', () => {
   it('заглушки колонки C = само управление: X/x/Х/х, тире, н/д, пусто', () => {
     for (const v of ['X', 'x', 'Х', 'х', '-', '—', 'н/д', 'нет', '']) {
       expect(isSelfReference(v, 'УКСиМП'), `«${v}» должен быть самоссылкой`).toBe(true);
@@ -47,8 +51,30 @@ describe('isSelfReference — канон «сама организация» (is
     expect(isSelfReference('МКУ "УО"', 'УО')).toBe(true);
   });
 
+  it('категории УО не исчезают как ошибочные «самоссылки»', () => {
+    expect(isSelfReference('Опека', 'УО')).toBe(false);
+    expect(isSelfReference('Администрирование', 'УО')).toBe(false);
+    const subs = (SUBORDINATES_FALLBACK['УО'] ?? []).filter(s => !isSelfReference(s, 'УО'));
+    expect(subs).toHaveLength(46);
+    expect(deptPositionsCount(subs.length)).toBe(47);
+  });
+
   it('реальный подвед и категория «Совместная закупка» самоссылками НЕ являются', () => {
     expect(isSelfReference('МБУ ДО "КДМШ"', 'УКСиМП')).toBe(false);
     expect(isSelfReference('Совместная закупка', 'УКСиМП')).toBe(false);
   });
+});
+
+it('renders curated labels and full source titles, including joint-procurement category', () => {
+ const entries = SUBORDINATE_REGISTRY.filter(e => ['uksimp_ssh_lider', 'uksimp_cat_sovmestnaya'].includes(e.id));
+ expect(entries).toHaveLength(2);
+ useStore.setState({subordinatesMap: {'УКСиМП': entries.map(e => e.canonicalName)}, selectedDepartments: new Set(), selectedSubordinates: new Set(), deptOnlyMode: new Set()});
+ const view = render(createElement(OrgStrip));
+ const html = view.container.innerHTML;
+ for (const entry of entries) {
+  expect(html).toContain(`>${entry.shortName}</button>`);
+  expect(html).toContain(entry.canonicalName.replaceAll('"', '&quot;'));
+ }
+ expect(html).not.toContain('>СЗ(</button>');
+ cleanup();
 });

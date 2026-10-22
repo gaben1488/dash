@@ -24,7 +24,7 @@
  *    поводом выбросить строку.
  */
 
-import { DEPARTMENT_REGISTRY, explainDistortedCode, extractProcedureRefs, parseProcedureRef, type ProcedureFamily } from '@aemr/shared';
+import { MONITORING_DEPARTMENTS, findDept, explainDistortedCode, extractProcedureRefs, parseProcedureRef, type ProcedureFamily } from '@aemr/shared';
 import {
   cellAddress,
   daysBetween,
@@ -49,16 +49,7 @@ export { monitoringNumber } from './cells.js';
  * имён реестра управлений (УАГЗО, УДТХ), и от написаний на своде («УАГЗО
  * АЕМР») — связывать надо явной таблицей, а не подстрокой (спека §1.2).
  */
-export const MONITORING_DEPT_SHEETS: ReadonlyArray<{ sheet: string; dept: string }> = [
-  { sheet: '1. УЭР', dept: 'УЭР' },
-  { sheet: '2. УКСиМП', dept: 'УКСиМП' },
-  { sheet: '3. УИО', dept: 'УИО' },
-  { sheet: '4. УАГиЗО', dept: 'УАГЗО' },
-  { sheet: '5. УДТХиРКИ', dept: 'УДТХ' },
-  { sheet: '6. УД', dept: 'УД' },
-  { sheet: '7. УФБП', dept: 'УФБП' },
-  { sheet: '8. УО', dept: 'УО' },
-];
+export const MONITORING_DEPT_SHEETS: ReadonlyArray<{ sheet: string; dept: string }> = MONITORING_DEPARTMENTS.map(d => ({ sheet: d.monitoring.sheet, dept: d.id }));
 
 /** Лист СВОДНЫЙ книги. */
 export const MONITORING_MASTER_SHEET = 'Рабочий реестр процедур';
@@ -415,20 +406,10 @@ export function monitoringWorkQueue(procedures: readonly MonitoringProcedure[], 
 
 export const MONITORING_MASTER_HEADERS = ['Код процедуры', 'Вид строки', 'Флаг протокола', 'Комментарий', 'Управление', 'Заказчик', 'Наименование объекта закупки', 'НМЦК', 'Дата поступления заявки в уполномоченный орган', 'Дата публикации', 'Дата окончания подачи заявок', 'Дата подведения итогов', 'Цена по итогам', 'ФБ', 'КБ', 'МБ', 'Экономия', 'Победитель', 'ИНН победителя', 'Результат', 'Предок', 'Наследник', 'Стадия', 'Требуемое действие', 'Замечания'] as const;
 
-/** Exact source names verified against the master's E column, not fuzzy aliases. */
-const CANONICAL_DEPTS: Readonly<Record<string, string>> = {
-  ...Object.fromEntries(DEPARTMENT_REGISTRY.flatMap((d) => [[d.id, d.id], [d.fullName, d.id]])),
-  'Управление культуры, спорта и молодежной политики Администрации Елизовского муниципального района, УКС и МП': 'УКСиМП',
-  'УИО Администрации Елизовского МР': 'УИО',
-  'УАГЗО Администрации Елизовского муниципального района': 'УАГЗО',
-  'Управление дорожно-транспортного хозяйства, УДТХ': 'УДТХ',
-  'Управление делами Администрации Елизовского муниципального района': 'УД',
-  'Управление финансово-бюджетной политики (УФБП АЕМР)': 'УФБП',
-  Совместные: 'Совместные',
-};
 export function monitoringDept(raw: unknown): string {
   const text = monitoringText(raw) ?? '';
-  return CANONICAL_DEPTS[text] ?? text;
+  // Исторические названия распознаются проверенным словарём, без нечёткого объединения.
+  return findDept(text)?.id ?? text;
 }
 
 const CANONICAL_STAGES: Readonly<Record<string, ProcedureStage>> = {

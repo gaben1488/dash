@@ -1,5 +1,12 @@
 # История изменений — Фаза C (MVP: snapshot-diff метрик) — Implementation Plan
 
+> **Исторический документ.** Очередь и стадия перенесены в
+> [PLAN](../../PLAN.md#current-execution); текущие предметные дома — в
+> [карте документов](../../../README.md#documentation-map). Слова «единственный»,
+> «главный», «текущий» и приоритеты ниже относятся к дате исходного среза.
+> Требования и основания сохранены; старые статусы не подтверждают сегодняшнюю
+> реализацию и не запускают отдельную очередь или параллельных исполнителей.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 > **Spec:** `docs/superpowers/specs/2026-06-05-change-history-design.md`. Эта фаза = слой 1 (snapshot-diff) + инлайн Δ-бейдж + тумблер «изменения с [дата]». Ноль новых таблиц — данные есть (`snapshots` + `metric_history`).
 

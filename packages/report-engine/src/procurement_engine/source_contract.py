@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+# Compatibility export: this name is part of the legacy public API.
+from .department_directory import APPROVED_PRIMARY_TITLE_ALIASES  # noqa: F401
 from .normalize import clean_text
 
 

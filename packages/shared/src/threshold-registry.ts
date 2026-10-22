@@ -1,3 +1,4 @@
+import { dayNumberOf, isoOfDayNumber } from './parse-sheet-date.js';
 /**
  * threshold-registry.ts — ОДИН ДОМ ПОРОГА (механизм М6, 21.08.2026).
  *
@@ -78,7 +79,18 @@ export type ThresholdDomain =
   | 'observability'
   | 'law';
 
+export interface ThresholdEdition {
+  readonly id: string;
+  readonly validFrom: string;
+  /** Exclusive end; missing means the recorded edition has no known end. */
+  readonly validUntil?: string;
+  readonly value: number;
+  readonly verification: 'verified' | 'unverified';
+  readonly sourceRef: string;
+}
+
 export interface ThresholdEntry {
+  readonly editions?: readonly ThresholdEdition[];
   /** Человеческое имя порога — то, как он называется в разговоре. */
   readonly label: string;
   /** Значение. Берётся из существующей константы там, где она есть. */
@@ -248,19 +260,14 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
   // ══════════════════════════════════════════════════════════════════
 
   'economy.highSharePct': {
-    label: 'Снижение свыше антидемпингового порога',
+    label: 'Снижение от лимита выше внутреннего ориентира',
     value: LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare * 100,
     unit: 'percent',
     domain: 'economy',
-    means: 'Снижение цены на четверть и больше требует антидемпинговых мер и обоснования.',
-    source: 'law44',
-    sourceRef: '44-ФЗ ст.37; LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare',
-    note:
-      'РАСХОЖДЕНИЕ БАЗЫ, названное вслух. Норма считает снижение от НМЦК, а в книгах ГРБС ' +
-      'НМЦК нет — в знаменателе у нас лимит (K). Порог законный, база приближённая, поэтому ' +
-      'подпись на экране говорит «снижение от лимита свыше 25 %», а не «антидемпинг». ' +
-      'Это же число красит плитку «Свыше 25 %», бейдж строки, инлайн-рекомендацию и статус ' +
-      'баннера «Экономии» — осознанный каскад ОДНОГО порога, а не четыре независимых числа.',
+    means: 'Снижение от лимита выше ориентира помогает выбрать позиции для просмотра; нарушения не устанавливает.',
+    source: 'own',
+    sourceRef: 'Внутренний ориентир просмотра экономии',
+    note: 'НАШЕ РЕШЕНИЕ. Сохранён прежний числовой ориентир интерфейса. Лимит K и учтённая AD-экономия не заменяют НМЦК и предложенную цену; антидемпинговые меры этим сравнением не проверяются.',
   },
   'economy.normalMinPct': {
     label: 'Нижняя граница нормальной экономии',
@@ -556,3 +563,59 @@ export function formatThreshold(id: string): string {
   if (entry.unit === 'ratio') return `${(entry.value * 100).toFixed(0)} %`;
   return `${entry.value} ${THRESHOLD_UNIT_LABELS[entry.unit]}`;
 }
+
+
+export interface DatedThreshold {
+  value: number;
+  status: 'verified' | 'internal' | 'unverified';
+  edition: string | null;
+  sourceRef: string | null;
+}
+
+/** Frozen definitions override today's dictionary only when explicitly supplied. */
+export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry): DatedThreshold {
+  const entry = frozen ?? threshold(id);
+  const isoDay = (value: string): number | null => {
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value) ? dayNumberOf(value) : null;
+    return parsed !== null && isoOfDayNumber(parsed) === value ? parsed : null;
+  };
+  const day = isoDay(asOfDay);
+  if (!entry || day === null)
+    throw new Error('INVALID_THRESHOLD_CONTEXT');
+  const editions = entry.editions ?? [];
+  const intervals = editions.map(edition => {
+    const start = isoDay(edition.validFrom);
+    const end = edition.validUntil === undefined ? Infinity : isoDay(edition.validUntil);
+    if (!edition.id || !edition.sourceRef || !Number.isFinite(edition.value)
+      || start === null || end === null || end <= start) throw new Error('INVALID_THRESHOLD_EDITION');
+    return { edition, start, end };
+  });
+  const applicable = intervals.filter(i => i.start <= day && day < i.end);
+  if (applicable.length > 1) throw new Error('AMBIGUOUS_THRESHOLD_EDITION');
+  const selected = applicable[0]?.edition;
+  return {
+    value: selected?.value ?? entry.value,
+    status: selected?.verification === 'verified' ? 'verified'
+      : entry.source === 'own' && editions.length === 0 ? 'internal' : 'unverified',
+    edition: selected?.id ?? null, sourceRef: selected?.sourceRef ?? entry.sourceRef ?? null,
+  };
+}
+
+export function freezeThresholds(asOfDay: string): Record<string, DatedThreshold> {
+  return Object.fromEntries(THRESHOLD_IDS.map(id => [id, thresholdAt(id, asOfDay)]));
+}
+
+
+export const LEGAL_RULES_UNVERIFIED = {
+  ruleCode: 'legal_rule_version',
+  status: 'insufficient_data',
+  reason: 'Не подтверждена действующая на дату среза редакция правовых порогов. Справочные числа не доказывают применимость нормы или нарушение; требуется проверка сопровождением.',
+} as const;
+
+
+/** Legacy internal screening guides, never legal limits or an approved performance grade. */
+export const INTERNAL_EP_SHARE_BY_ROLE = {
+  ОПЕРАЦИОННЫЙ: 0.50,
+  ИНВЕСТИЦИОННЫЙ: 0.30,
+  СМЕШАННЫЙ: 0.40,
+} as const;

@@ -400,17 +400,15 @@ describe('parsePeriodQuery / resolvePeriodParams — чистый разбор',
     expect(r.live).toBe(false);
   });
 
-  it('год плана: строгий разбор для API, мягкий — для фильтров', async () => {
+  it('год плана и фильтр не принимают числовой префикс ошибочного значения', async () => {
     const { parsePlanYear, parseYearFilterParam, isPlanYear } = await import('../services/period-params.js');
     expect(parsePlanYear('2026')).toBe(2026);
     expect(parsePlanYear('2026abc')).toBeNull();
     expect(parsePlanYear('1999')).toBeNull();
     expect(parsePlanYear(undefined)).toBeNull();
-    // Мягкий разбор повторяет поведение действующих копий по роутам: 'all' и
-    // мусор выключают фильтр, а parseInt прощает хвост.
     expect(parseYearFilterParam('all')).toBeUndefined();
-    expect(parseYearFilterParam('2026abc')).toBe(2026);
-    expect(parseYearFilterParam('1999')).toBeUndefined();
+    expect(() => parseYearFilterParam('2026abc')).toThrow('Укажите год');
+    expect(() => parseYearFilterParam('1999')).toThrow('Укажите год');
     expect(isPlanYear(2026)).toBe(true);
     expect(isPlanYear(2026.5)).toBe(false);
   });

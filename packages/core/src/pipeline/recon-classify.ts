@@ -15,7 +15,7 @@ import {
   type ReconRootCause,
   type ReconRootCauseRow,
 } from '@aemr/shared';
-import { isUnknownMethod, standardRowFilter, type RawRow } from './calc-engine.js';
+import { approvedEconomy, isUnknownMethod, standardRowFilter, type RawRow } from './calc-engine.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -27,7 +27,7 @@ const COL = DEPT_COLUMNS;
 const MONEY_EPSILON = 0.01;
 
 /** Мера, в которой считается расхождение: деньги или количество процедур. */
-export type ReconMeasure = 'planMoney' | 'planCount' | 'factMoney' | 'factCount';
+export type ReconMeasure = 'planMoney' | 'planCount' | 'factMoney' | 'factCount' | 'economyMoney';
 
 /**
  * Буква колонки листа по индексу (0 → A, 25 → Z, 26 → AA). Книги ГРБС
@@ -121,8 +121,10 @@ function unreadableNumber(v: unknown): boolean {
 }
 
 /** Вклад строки в меру расхождения: сколько именно она добавляет расчёту. */
-function contributionOf(row: RawRow, measure: ReconMeasure): number {
+function contributionOf(row: RawRow, measure: ReconMeasure, asOfDay?: number): number {
   switch (measure) {
+    case 'economyMoney':
+      return approvedEconomy(row, asOfDay);
     case 'planMoney':
       return rowPlanTotal(row);
     case 'factMoney':
@@ -143,7 +145,9 @@ function toCauseRow(sheet: string, rowIndex: number, measure: ReconMeasure, delt
   return {
     sheet,
     row: sheetRowOf(rowIndex),
-    cell: `${columnLetter(cellColumnFor(measure))}${sheetRowOf(rowIndex)}`,
+    cell: measure === 'economyMoney'
+      ? `Z${sheetRowOf(rowIndex)}:AB${sheetRowOf(rowIndex)}`
+      : `${columnLetter(cellColumnFor(measure))}${sheetRowOf(rowIndex)}`,
     delta,
   };
 }
@@ -193,7 +197,7 @@ export function classifyUnfunded(input: ClassifyInput): ReconRootCause | null {
     if (!standardRowFilter(row)) return;
     if (!planYearEmpty(row)) return;
     if (rowPlanTotal(row) <= 0) return;
-    const delta = contributionOf(row, input.measure);
+    const delta = contributionOf(row, input.measure, input.asOfDay);
     if (delta === 0) return;
     rows.push(toCauseRow(input.sheet, i, input.measure, delta));
   });
@@ -220,10 +224,12 @@ export function classifyFactQuarterMissing(input: ClassifyInput): ReconRootCause
   const rows: ReconRootCauseRow[] = [];
   input.rows.forEach((row, i) => {
     if (!standardRowFilter(row)) return;
+    // Missing year has priority; the same approved economy must not be claimed twice.
+    if (input.measure === 'economyMoney' && planYearEmpty(row)) return;
     if (!hasFactDate(row)) return;
     if (planQuarterValid(row)) return;
     if (!matchesYear(row, input.year)) return;
-    const delta = contributionOf(row, input.measure);
+    const delta = contributionOf(row, input.measure, input.asOfDay);
     if (delta === 0) return;
     rows.push(toCauseRow(input.sheet, i, input.measure, delta));
   });
@@ -252,9 +258,12 @@ export function classifyAfterSlice(input: ClassifyInput): ReconRootCause | null 
   input.rows.forEach((row, i) => {
     if (!standardRowFilter(row)) return;
     if (!hasFactDate(row)) return;
+    if (input.measure === 'economyMoney' && !matchesYear(row, input.year)) return;
     const factDay = dayNumberOfCell(row[COL.FACT_DATE]);
     if (factDay === null || factDay <= input.asOfDay!) return;
-    const delta = contributionOf(row, input.measure);
+    // Official includes these rows, the dated calculation excludes them.
+    const delta = input.measure === 'economyMoney' ? -approvedEconomy(row)
+      : contributionOf(row, input.measure, input.asOfDay);
     if (delta === 0) return;
     rows.push(toCauseRow(input.sheet, i, input.measure, delta));
   });
@@ -286,6 +295,8 @@ export function classifyAfterSlice(input: ClassifyInput): ReconRootCause | null 
  * не применяется — как afterSlice не применяется к плановым.
  */
 export function classifySign(input: ClassifyInput): ReconRootCause | null {
+  // Fact-minus-plan is not an explanation of AD-approved budget economy.
+  if (input.measure === 'economyMoney') return null;
   if (input.measure === 'planCount' || input.measure === 'factCount') return null;
   if (input.delta === undefined || Math.abs(input.delta) <= MONEY_EPSILON) return null;
   const overall = Math.sign(input.delta);
@@ -351,7 +362,7 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
     // сравнение стало вечно ложным и молча выключило бы весь класс.
     const unknown = isUnknownMethod(row[COL.METHOD]);
     if (!unknown && raw !== '') return;
-    const own = contributionOf(row, input.measure);
+    const own = contributionOf(row, input.measure, input.asOfDay);
     // К этой мере строка отношения не имеет (например, факта нет, а мера
     // фактическая) — молчим, чтобы не показывать пустой адрес.
     if (own === 0) return;
@@ -411,6 +422,8 @@ export function classifyCancelled(_input: ClassifyInput): ReconRootCause | null 
  * ровно на столько расходятся два прочтения одной строки.
  */
 export function classifyParsing(input: ClassifyInput): ReconRootCause | null {
+  // K/Y versus their budgets cannot prove a Z+AA+AB discrepancy.
+  if (input.measure === 'economyMoney') return null;
   const factSide = input.measure === 'factMoney' || input.measure === 'factCount';
   const totalColumn = factSide ? COL.TOTAL_FACT : COL.TOTAL_PLAN;
   const isMoney = input.measure === 'planMoney' || input.measure === 'factMoney';
@@ -424,7 +437,7 @@ export function classifyParsing(input: ClassifyInput): ReconRootCause | null {
     const gap = cellNum(raw) - triple;
     const broken = unreadableNumber(raw);
     if (!broken && Math.abs(gap) <= MONEY_EPSILON) return;
-    const delta = isMoney ? gap : contributionOf(row, input.measure);
+    const delta = isMoney ? gap : contributionOf(row, input.measure, input.asOfDay);
     if (delta === 0) return;
     if (broken) unreadable += 1;
     rows.push(toCauseRow(input.sheet, i, input.measure, delta));

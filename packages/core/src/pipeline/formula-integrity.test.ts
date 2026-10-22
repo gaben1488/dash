@@ -55,6 +55,7 @@ const COLUMN_INDEX: Record<string, number> = {
  */
 interface RowSpec {
   seq: string | number;
+  subject?: string;
   /** Подмены формульных ячеек: '' = дыра, число = вбито, строка = формула. */
   cells?: Record<string, unknown>;
 }
@@ -76,7 +77,7 @@ function book(rows: RowSpec[]): { values: unknown[][]; formulas: unknown[][] } {
     const sheetRow = HEADER_ROWS + i + 1;
     const line: unknown[] = new Array(34).fill('');
     line[DEPT_COLUMNS.ID] = spec.seq;
-    line[DEPT_COLUMNS.SUBJECT] = `Закупка ${spec.seq}`;
+    line[DEPT_COLUMNS.SUBJECT] = spec.subject ?? `Закупка ${spec.seq}`;
     values.push(line);
 
     const fline: unknown[] = [];
@@ -102,6 +103,100 @@ function detect(rows: RowSpec[], extra: Partial<FormulaIntegrityInput> = {}) {
 const HEALTHY: RowSpec[] = [
   { seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }, { seq: 5 },
 ];
+
+describe('назначение строки и составные номера', () => {
+  it('СТРАЖ: физическая шапка 1–3 не порождает ошибки и не входит в покрытие', () => {
+    const { values, formulas } = book([...HEALTHY, { seq: '173/1', cells: { K: 42 } }]);
+    for (let sheetRow = 1; sheetRow <= HEADER_ROWS; sheetRow++) {
+      // Нарочно правдоподобный предмет: защита не должна зависеть от надписей
+      // или от того, прочёл ли парсер число столбца как номер закупки.
+      values[sheetRow - 1][DEPT_COLUMNS.ID] = sheetRow;
+      values[sheetRow - 1][DEPT_COLUMNS.SUBJECT] = `Приобретение оборудования ${sheetRow}`;
+      for (const column of FORMULA_COLUMNS) {
+        formulas[sheetRow - 1][COLUMN_INDEX[column]] =
+          sheetRow === 1 ? 27 : sheetRow === 2 ? '' : '=1+1';
+      }
+    }
+    const input = { book: 'УО', values, formulas, startRow: 1 };
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(detectFormulaIntegrity(input, coverage).map((d) => d.cell)).toEqual(['K9']);
+    expect(coverage).toEqual([{
+      sheet: 'УО', component: 'formula_integrity', expected: 66, checked: 66, failed: 1,
+    }]);
+    expect(formulaIntegrityIssues(input, 'uo').map((i) => i.cell)).toEqual(['K9']);
+
+    // Неполный диапазон с началом на физической строке 2: тот же результат.
+    const shifted: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(detectFormulaIntegrity({
+      ...input, values: values.slice(1), formulas: formulas.slice(1), startRow: 2,
+    }, shifted).map((d) => d.cell)).toEqual(['K9']);
+    expect(shifted).toEqual(coverage);
+  });
+
+  it('СТРАЖ: первая строка данных (4) остаётся под полным контролем формул', () => {
+    const defects = detect([
+      { seq: 1, cells: { K: 42 } }, { seq: 2 }, { seq: 3 }, { seq: 4 }, { seq: 5 },
+    ]);
+    expect(defects.map((d) => ({ cell: d.cell, kind: d.kind }))).toEqual([
+      { cell: 'K4', kind: 'formula_overwritten' },
+    ]);
+  });
+
+  it('служебные числа без предмета не являются закупкой даже внутри данных', () => {
+    expect(detect([...HEALTHY, { seq: 6, subject: '', cells: { K: 11, AA: 27 } }])).toEqual([]);
+  });
+
+  it('номер с пустым G, но реальным способом — остаётся в аудите 11 формул', () => {
+    const { values, formulas } = book([
+      ...HEALTHY, { seq: '173/18', subject: '', cells: { K: 100, Y: '' } },
+    ]);
+    // Исполнитель забыл предмет G, но L содержит настоящий способ закупки.
+    values[8][DEPT_COLUMNS.METHOD] = 'ЕП';
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const defects = detectFormulaIntegrity({
+      book: 'УД', values, formulas, startRow: 1,
+    }, coverage);
+    expect(defects.map(d => [d.rowSeq, d.cell, d.kind])).toEqual([
+      ['173/18', 'K9', 'formula_overwritten'],
+      ['173/18', 'Y9', 'formula_hole'],
+    ]);
+    expect(coverage[0]).toMatchObject({ expected: 66, checked: 66, failed: 2 });
+  });
+
+  it('плановые деньги тоже подтверждают закупку при пустом G и L', () => {
+    const { values, formulas } = book([
+      ...HEALTHY, { seq: '24/1', subject: '', cells: { K: 300 } },
+    ]);
+    values[8][DEPT_COLUMNS.MB_PLAN] = 300;
+    const issues = formulaIntegrityIssues({
+      book: 'УД', values, formulas, startRow: 1,
+    }, 'ud');
+    expect(issues.map(issue => issue.cell)).toEqual(['K9']);
+  });
+
+  it('номер колонки и заголовок итога в графе предмета не являются закупкой', () => {
+    expect(detect([...HEALTHY,
+      { seq: 1, subject: '7', cells: { K: 11 } },
+      { seq: 2, subject: 'Итого', cells: { K: 100 } },
+    ])).toEqual([]);
+  });
+
+  it.each(['173/1', '173/18'])('проверяет обязательные формулы закупки № %s', (seq) => {
+    const defects = detect([...HEALTHY, { seq, cells: { K: 100, Y: '' } }]);
+    expect(defects.map(({ column, kind, rowSeq }) => ({ column, kind, rowSeq }))).toEqual([
+      { column: 'K', kind: 'formula_overwritten', rowSeq: seq },
+      { column: 'Y', kind: 'formula_hole', rowSeq: seq },
+    ]);
+  });
+
+  it('служебные формулы не создают эталон для реальных закупок', () => {
+    const defects = detect([
+      { seq: 1, subject: '' }, { seq: 2, subject: '' }, { seq: 3, subject: '' },
+      { seq: 4, cells: { K: 100 } },
+    ]);
+    expect(defects).toEqual([]);
+  });
+});
 
 // ────────────────────────────────────────────────────────────
 // 1. Канон списка граф и паспорта
@@ -225,29 +320,6 @@ describe('формульная целостность — три класса д
 // ────────────────────────────────────────────────────────────
 
 describe('формульная целостность — строки без номера в графе A', () => {
-  it('СТРАЖ: числовая шапка 1–3 не считается дефектом, строка 4+ проверяется', () => {
-    const { values, formulas } = book([
-      ...HEALTHY,
-      { seq: 67, cells: { K: 42 } },
-    ]);
-    for (let sheetRow = 1; sheetRow <= 3; sheetRow++) {
-      values[sheetRow - 1][DEPT_COLUMNS.ID] = sheetRow;
-      for (const column of FORMULA_COLUMNS) {
-        // Все три класса потенциально ложных замечаний присутствуют в шапке.
-        formulas[sheetRow - 1][COLUMN_INDEX[column]] =
-          sheetRow === 1 ? 27 : sheetRow === 2 ? '' : '=1+1';
-      }
-    }
-    const input = { book: 'УО', values, formulas, startRow: 1 };
-    expect(detectFormulaIntegrity(input).map((d) => d.cell)).toEqual(['K9']);
-    expect(formulaIntegrityIssues(input, 'uo').map((i) => i.cell)).toEqual(['K9']);
-
-    // Частичный диапазон начинается с физической строки 2.
-    expect(detectFormulaIntegrity({
-      ...input, values: values.slice(1), formulas: formulas.slice(1), startRow: 2,
-    }).map((d) => d.cell)).toEqual(['K9']);
-  });
-
   it('пустая строка хвоста дырой НЕ считается', () => {
     // Урок дампов 30.08: ручной инструмент насчитал «дыры» на 58 пустых
     // строках хвоста УО, за которыми не стояло ни одного дефекта.
@@ -427,10 +499,11 @@ describe('формульная целостность — подключение
     expect(found[0].departmentId).toBe('uo');
   });
 
-  it('конвейер снимков тоже исключает числовую шапку, как прямой приёмник', () => {
-    const { values, formulas } = book([...HEALTHY, { seq: 67, cells: { K: 42 } }]);
-    for (let i = 0; i < 3; i++) {
+  it('сквозной конвейер снимка никогда не учитывает 1–3 как закупки', () => {
+    const { values, formulas } = book([...HEALTHY, { seq: '173/18', cells: { K: 42 } }]);
+    for (let i = 0; i < HEADER_ROWS; i++) {
       values[i][DEPT_COLUMNS.ID] = i + 1;
+      values[i][DEPT_COLUMNS.SUBJECT] = `Поставка инвентаря ${i + 1}`;
       formulas[i][COLUMN_INDEX.K] = 123;
       formulas[i][COLUMN_INDEX.Y] = '=1+1';
     }
@@ -448,5 +521,27 @@ describe('формульная целостность — подключение
 
   it('без прочитанных формул конвейер не выдумывает дефектов', () => {
     expect(run(false).issues.filter((i) => i.checkId?.startsWith('formula_'))).toEqual([]);
+  });
+});
+
+
+describe('formula execution coverage', () => {
+  it('records checked cells and actual defects from the same scan', () => {
+    const grid = book([...HEALTHY, { seq: 6, cells: { K: 42 } }]);
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', ...grid }, coverage);
+    expect(coverage).toEqual([
+      { sheet: 'УО', component: 'formula_integrity', expected: 66, checked: 66, failed: 1 },
+    ]);
+  });
+  it('does not count unread formulas or an entire unrecognised column as checked', () => {
+    const grid = book(HEALTHY);
+    const unread: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', values: grid.values, formulas: [] }, unread);
+    expect(unread[0]).toMatchObject({ expected: 55, checked: 0, failed: 0 });
+    for (const row of grid.formulas) row[10] = '';
+    const partial: import('@aemr/shared').TrustCheckCoverage[] = [];
+    detectFormulaIntegrity({ book: 'УО', ...grid }, partial);
+    expect(partial[0]).toMatchObject({ expected: 55, checked: 50, failed: 0 });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS, DEPT_HEADER_LABELS, isMetaRow } from './column-map';
+import { DEPT_COLUMNS, DEPT_HEADER_LABELS, isMetaRow, validateMasterSourceHeader } from './column-map';
 
 /**
  * Фикстура: строка 3 (шапка) листа ГРБС — снято с живой книги УЭР 2026-07-29,
@@ -148,4 +148,14 @@ describe('isMetaRow — служебная строка, а не любое уп
     expect(isMetaRow('')).toBe(false);
     expect(isMetaRow('   ')).toBe(false);
   });
+});
+
+
+it('rejects a changed required meaning while allowing optional comment captions', () => {
+  const header = [...SHEET_HEADER_ROW_3];
+  expect(() => validateMasterSourceHeader(header)).not.toThrow();
+  header[DEPT_COLUMNS.COMMENT_UFBP] = 'Рабочее примечание';
+  expect(() => validateMasterSourceHeader(header)).not.toThrow();
+  header[DEPT_COLUMNS.FB_FACT] = 'Иной денежный показатель';
+  expect(() => validateMasterSourceHeader(header)).toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
 });

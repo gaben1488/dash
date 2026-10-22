@@ -105,6 +105,8 @@ def verify_persisted_bundle(directory: str | Path) -> list[str]:
     if manifest.get("snapshot_id") != meta.get("snapshot_id"):
         errors.append("SNAPSHOT_BUNDLE_ID_MISMATCH")
     for item in entries:
+        # Release the previous matrix before allocating the next file/parser result.
+        raw = body = None
         path = root / item["path"]
         if not path.exists():
             errors.append(f"SNAPSHOT_PAYLOAD_MISSING:{item['source_id']}")

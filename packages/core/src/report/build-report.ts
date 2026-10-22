@@ -318,11 +318,15 @@ function svodCellRefs(
 function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: string): ReportSignal[] {
   const own = new Set([key, entry?.id, entry?.latinId].filter((v): v is string => Boolean(v)));
   return issues
-    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId))
+    // False positives remain in case history, not in the list of active report signals.
+    // Resolved/wont-fix cases remain visible with their decision status: closure is not proof
+    // that the underlying source row was corrected.
+    .filter((i) => i.departmentId !== undefined && own.has(i.departmentId) && i.status !== 'false_positive')
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
     .map((i) => ({
       id: i.id,
       severity: i.severity,
+      status: i.status,
       title: i.title,
       description: i.description,
       ...(i.sheet !== undefined ? { sheet: i.sheet } : {}),
@@ -530,7 +534,7 @@ function reasonsOf(rows: RawRow[], year: number): ReasonBreakdown {
   return {
     epReasons: reasonBuckets(epRows, DEPT_COLUMNS.EP_REASON, canonicalizeReasonEp, (c) => {
       const e = EP_REASON_DICT[c as keyof typeof EP_REASON_DICT];
-      return e ? { label: e.label_ru, legitimate: e.is_legitimate } : null;
+      return e ? { label: e.label_ru } : null;
     }),
     deviations: reasonBuckets(inYear, DEPT_COLUMNS.DEVIATION_REASON, canonicalizeDeviation, (c) => {
       const e = DEVIATION_DICT[c as keyof typeof DEVIATION_DICT];
@@ -624,10 +628,10 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         moneyByMethod: methodMoneyOf(g, qGroup),
         live: quarterLive,
         svod: input.svodGrid
-          ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
+          ? svodSplit(input.svodGrid, entry?.id ?? dept, quarter, year)
           : undefined,
         svodCells: input.svodGrid
-          ? svodCellRefs(input.svodGrid, entry?.shortName ?? dept, quarter, year)
+          ? svodCellRefs(input.svodGrid, entry?.id ?? dept, quarter, year)
           : undefined,
       },
       year: {
@@ -656,7 +660,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       ...(() => {
-        const svodYearMoney = svodYearMoneyOf(yearExtras, entry?.shortName ?? dept);
+        const svodYearMoney = svodYearMoneyOf(yearExtras, entry?.id ?? dept);
         return svodYearMoney ? { svodYearMoney } : {};
       })(),
       ...(() => {

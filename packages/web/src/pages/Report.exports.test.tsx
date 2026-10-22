@@ -7,7 +7,7 @@ import { makeReportFixture } from '../lib/report/fixture';
 import { useStore } from '../store';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 
-const backend = vi.hoisted(() => ({ archiveUnavailable: false }));
+const backend = vi.hoisted(() => ({ archiveUnavailable: false, preparing: false }));
 
 vi.mock('../api', async importOriginal => {
   const original = await importOriginal<typeof import('../api')>();
@@ -20,6 +20,7 @@ vi.mock('../api', async importOriginal => {
     }),
     getHistorySnapshots: async () => [],
     getReport: async (year: number, quarter = 3, asOf?: string) => {
+      if (backend.preparing) throw new original.ApiError(503, JSON.stringify({ code: 'SNAPSHOT_NOT_READY' }));
       if (asOf && backend.archiveUnavailable) throw new Error('503 legacy archive unavailable');
       return ({
       ...makeReportFixture(),
@@ -38,6 +39,8 @@ const request = vi.fn();
 let saved: string[];
 beforeEach(() => {
   backend.archiveUnavailable = false;
+  backend.preparing = false;
+  useStore.setState({ reportMode: 'live', reportQuarter: null, reportPinned: null });
   localStorage.clear();
   useStore.setState({ year: 2026, period: 'q3', periodMode: 'explicit', focusedWeekStart: new Date('2026-09-28T00:00:00Z') });
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
@@ -45,7 +48,8 @@ beforeEach(() => {
   request.mockReset();
   request.mockImplementation(async (url: string) => ({ ok: true,
     json: async () => ({ latest: receipt, attempt: null,
-      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null }),
+      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null,
+      latest_matching: url.includes('year=2026&quarter=3') ? receipt : null }),
     blob: async () => new Blob(['docx']),
   }));
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:test', revokeObjectURL: () => {} }));
@@ -53,6 +57,18 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.download); });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it('shows first calculation as preparation without inventing a previous release or server outage', async () => {
+  backend.preparing = true;
+  request.mockImplementation(async () => ({ ok: true, json: async () => ({
+    latest: null, attempt: null, selected: null, latest_matching: null,
+  }) }));
+  render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  const title = await screen.findByText('Данные для отчёта ещё готовятся');
+  expect(title.closest('[role="alert"]')).toBeNull();
+  expect(screen.getByText(/Чтение и расчёт уже запущены/)).toBeTruthy();
+  expect(saved).toEqual([]);
+});
 
 it('keeps three native Word actions on one frozen release instead of the browser renderer', async () => {
   localStorage.setItem('aemr_api_key', 'test-token');
@@ -75,7 +91,7 @@ it('keeps three native Word actions on one frozen release instead of the browser
   await waitFor(() => expect(saved).toHaveLength(3));
   expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/operational.docx`)).toBe(true);
   expect(saved[2]).toContain('Оперативный');
-});
+}, 15_000); // Three full-page export interactions on the CPU-limited integration runner.
 
 it('changing quarter clears the previous download and explains a missing matching bundle', async () => {
   render(<TooltipProvider><ReportPage /></TooltipProvider>);
@@ -94,7 +110,7 @@ it('changing quarter clears the previous download and explains a missing matchin
   { timeout: 10_000 });
   fireEvent.click(main);
   expect(saved).toHaveLength(0);
-});
+}, 30_000); // Two explicit 10 s effect waits must fit inside the outer test deadline.
 
 it('an archive selection never downloads the current release', async () => {
   render(<TooltipProvider><ReportPage /></TooltipProvider>);
@@ -119,7 +135,8 @@ it('prepares and downloads the full frozen archive even when the old dashboard s
           report_year: selected.year, quarter: selected.quarter } }) };
     }
     return { ok: true, json: async () => ({ latest: receipt, attempt: null,
-      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null }),
+      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null,
+      latest_matching: url.includes('year=2026&quarter=3') ? receipt : null }),
       blob: async () => new Blob(['archive docx']) };
   });
   render(<TooltipProvider><ReportPage /></TooltipProvider>);
@@ -132,4 +149,19 @@ it('prepares and downloads the full frozen archive even when the old dashboard s
   fireEvent.click(main);
   await waitFor(() => expect(saved).toHaveLength(1));
   expect(screen.queryByText(/Запустите чтение текущих источников/)).toBeNull();
+});
+
+it('keeps the frozen download after leaving the section and returning', async () => {
+  request.mockImplementation(async (url: string) => ({ ok: true, json: async () => ({ selected: url.endsWith('/status') ? receipt : null, latest_matching: receipt, attempt: null }), blob: async () => new Blob(['docx']) }));
+  const first = render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  const main = await screen.findByRole('button', { name: 'Отчёт в Word' });
+  await waitFor(() => expect(main).toHaveProperty('disabled', false));
+  fireEvent.click(main);
+  await waitFor(() => expect(saved).toHaveLength(1));
+  first.unmount();
+  request.mockClear();
+  render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отчёт в Word' })).toHaveProperty('disabled', false));
+  expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/status`)).toBe(true);
+  expect(screen.getByRole('button', { name: 'Снять фиксацию Word-выпуска' })).toBeTruthy();
 });

@@ -6,13 +6,16 @@
 import {
   buildCellDict,
   isMetaRow,
-  parseSheetDate,
+  dayNumberOf,
+  isoOfDayNumber,
+  parseSheetNumber,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   METHOD_FAMILY_MAP,
   SIGNAL_LABELS,
 } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowState } from '@aemr/core';
+import { rowRevision } from './row-revision.js';
 
 /** Бейдж сигнала (core не экспортирует тип SignalBadge из барреля — деривим). */
 type SignalBadge = ReturnType<typeof getSignalBadges>[number];
@@ -26,26 +29,13 @@ type SignalBadge = ReturnType<typeof getSignalBadges>[number];
  * вводом/сырьём и НЕ читают конвертированное поле — формат листа не меняется.
  */
 export function sheetDateToIso(val: unknown): string | null {
-  // «дд.мм.гггг» — строковыми операциями, без Date: локальная полночь через
-  // toISOString() сдвинула бы день в часовых поясах западнее Гринвича.
-  const ru = String(val ?? '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (ru) return `${ru[3]}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
-  // Serial и ISO parseSheetDate даёт как UTC-полночь → срез ISO-строки безопасен.
-  const d = parseSheetDate(val);
-  return d ? d.toISOString().slice(0, 10) : null;
+  const day = dayNumberOf(val);
+  return day === null ? null : isoOfDayNumber(day);
 }
 
-/**
- * Число из ячейки листа: пробелы-разделители тысяч и запятая-десятичная —
- * реальный формат операторов («1 234,56»). parseFloat рвался на пробеле.
- * Канон совпадает с core/pipeline/signals.toNumber (локальная копия: toNumber
- * из core не экспортирован, тащить весь core ради хелпера — раздувание).
- */
+/** Optional budget components retain their legacy zero default after strict parsing. */
 function toNumber(val: unknown): number {
-  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
-  if (val === null || val === undefined || val === '') return 0;
-  const parsed = parseFloat(String(val).replace(/\s/g, '').replace(/,/g, '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(val) ?? 0;
 }
 
 /**
@@ -85,6 +75,8 @@ const STATE_STATUS_RU: Record<RowState, string> = {
 export interface RowDto {
   /** 1-based номер строки листа: idx=0 после среза шапки → строка 4. */
   rowIndex: number;
+  /** Stable content revision for conflict checks; excludes recalculated formula columns. */
+  rowRevision: string;
   /** A — порядковый номер (сырьё листа). */
   id: unknown;
   /** B — реестровый номер (пустая ячейка → ''). */
@@ -128,6 +120,8 @@ export interface RowDto {
   economyMB: number;
   /** M — правовое основание выбора ЕП (сырой текст оператора). */
   epReason: string;
+  amountBasis: 'position-total';
+  necessityJustification: unknown;
   /** T — официальное отклонение в днях, считает сама книга. */
   deviationDays: number;
   /** AD — признак экономии. */
@@ -155,12 +149,14 @@ export interface RowDto {
  * @param idx  индекс в массиве ПОСЛЕ slice(DEPT_HEADER_ROWS): idx=0 → строка листа 4
  * @param opts deptId — id управления для поля dept
  */
-export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string }): RowDto {
+export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string; today?: Date }): RowDto {
   const cells = buildCellDict(row);
 
-  const signalsObj = detectSignals(cells);
+  const signalsObj = detectSignals(cells, opts.today);
   const state = classifyRowState(signalsObj);
-  const badges = getSignalBadges(signalsObj);
+  const badges = getSignalBadges(signalsObj, { dept: opts.deptId, id: cells.A, subject: cells.G,
+    method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: toNumber(cells.Y), epReason: cells.M, amountBasis: 'position-total' as const, planYear: toNumber(cells.P),
+      necessityJustification: cells.AE, commentGRBS: cells.AF });
   // RowSignals (объект булевых) → массив активных ключей сигналов для фронта
   const signals = Object.entries(signalsObj)
     .filter(([, v]) => v === true)
@@ -175,6 +171,7 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
 
   return {
     rowIndex: idx + DEPT_HEADER_ROWS + 1, // 1-based: срез шапки в 3 строки → idx=0 = строка 4
+    rowRevision: rowRevision(row),
     id: col('ID'),
     // B — наименование управления, а не реестровый номер: канон
     // column-map.ts исправлен по 3 852 живым строкам (номера там нет).
@@ -192,6 +189,8 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
     // (аудит 30.07), а продукт его не показывал — «риск ЕП» считался без
     // взгляда на основание. Сырой текст; кластеризация — этап сигналов.
     epReason: String(col('EP_REASON') ?? ''),
+    amountBasis: 'position-total',
+    necessityJustification: col('JUSTIFICATION') ?? '',
     planDate: sheetDateToIso(col('PLAN_DATE')),
     planDateRaw: col('PLAN_DATE') ?? '',
     planQuarter: col('PLAN_QUARTER') ?? '',

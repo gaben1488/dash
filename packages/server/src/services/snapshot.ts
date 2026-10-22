@@ -1,22 +1,44 @@
-import { MONITORING_DATA_SHEETS, runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
-import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
-import { buildRowDto, isDataRow } from './rows-dto.js';
+import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
+import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
+import { measureReadStage, withoutRequestTiming } from '../plugins/request-timing.js';
+import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
+import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
+import type { DataSnapshot, Issue, SHDYUDeptData } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { db, schema } from '../db/index.js';
+import { recordSnapshotRead, snapshotReadContext } from './snapshot-read-context.js';
+import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
-import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
+import { and, eq, desc, lt, sql, isNull } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
-import { pruneSnapshotsByRetention } from './snapshot-retention.js';
+import { saveSnapshotRowsToDb, saveSnapshotToDb, pruneSnapshotsInDb } from './snapshot-storage.js';
+import { resolve } from 'node:path';
 import type { DeptSheetResult } from './google-sheets.js';
 import { publishLiveEvent } from './event-bus.js';
 import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
+import { setImmediate as yieldToReads } from 'node:timers/promises';
+import { runSnapshotCalculation, runSnapshotStorage, type SnapshotCalculationInput } from './snapshot-calculation.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
-const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number }>();
+const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number; generation: number }>();
+// Three calendar years in the UI plus the all-years view; old scopes remain in SQLite.
+const MAX_CACHED_SNAPSHOT_SCOPES = 4;
+let cacheGeneration = 0;
+
+function readState(snapshot: PipelineSnapshot, state: 'refreshing' | 'stale'): PipelineSnapshot {
+  return { ...snapshot, metadata: { ...snapshot.metadata, readModel: { state } } };
+}
+
+function rememberSnapshot(key: number, snapshot: PipelineSnapshot, timestamp: number): void {
+  cachedSnapshots.delete(key);
+  cachedSnapshots.set(key, { snapshot, timestamp, generation: cacheGeneration });
+  while (cachedSnapshots.size > MAX_CACHED_SNAPSHOT_SCOPES) {
+    cachedSnapshots.delete(cachedSnapshots.keys().next().value!);
+  }
+}
 
 /**
  * In-flight load memo per cache key (targetYear/0). Без него параллельные
@@ -25,6 +47,9 @@ const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp:
  * листов ГРБС + СВОД (B-9).
  */
 const inFlightLoads = new Map<number, Promise<PipelineSnapshot>>();
+// Different years share one CPU/memory budget; queued readers keep their saved scope.
+// ponytail: one materializer per API process; use one bounded worker before multi-process scaling.
+let materializationTail: Promise<void> = Promise.resolve();
 
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
@@ -37,13 +62,14 @@ let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 export function setDeptSheetCache(
   data: Record<string, DeptSheetResult>,
   failedDeptNames: readonly string[] = [],
+  acceptedAt?: string,
 ): void {
   const next = { ...cachedDeptSheetData, ...data };
   for (const name of failedDeptNames) {
     Reflect.deleteProperty(next, name);
   }
   cachedDeptSheetData = next;
-  deptCacheFilledAt = Date.now();
+  deptCacheFilledAt = acceptedAt === undefined ? Date.now() : Date.parse(acceptedAt);
 }
 
 /**
@@ -95,6 +121,28 @@ export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
 }
 
+/** Reflect one confirmed edit without mutating already selected inputs or their read time. */
+export function patchDeptSheetCacheCell(deptName: string, rowIndex: number, column: number, value: unknown): boolean {
+  const source = cachedDeptSheetData[deptName];
+  const row = source?.values[rowIndex - 1];
+  if (!Number.isInteger(rowIndex) || rowIndex < 1 || !Number.isInteger(column) || column < 0 || !row) return false;
+  const values = source.values.slice();
+  values[rowIndex - 1] = row.slice();
+  values[rowIndex - 1][column] = value;
+  const edited = { ...source, values };
+  // A confirmed cell write does not establish a new complete source revision.
+  delete edited.sourceRevision;
+  delete edited.sourceVersion;
+  cachedDeptSheetData = { ...cachedDeptSheetData, [deptName]: edited };
+  if (deptLoadMeta[deptName]) {
+    const meta = { ...deptLoadMeta[deptName] };
+    delete meta.sourceRevision;
+    deptLoadMeta = { ...deptLoadMeta, [deptName]: meta };
+  }
+  invalidateCache();
+  return true;
+}
+
 /**
  * Перечитать источники ПРЯМО СЕЙЧАС — по требованию читателя (кнопка
  * «перечитать» раздела), а не по возрасту кэша. Возвращает true, если
@@ -134,8 +182,8 @@ let cachedSvodGrid: { values: unknown[][]; loadedAt: string } | null = null;
  */
 let svodLoadFailure: { checkedAt: string; error: string } | null = null;
 
-export function setSvodGridCache(values: unknown[][]): void {
-  cachedSvodGrid = { values, loadedAt: new Date().toISOString() };
+export function setSvodGridCache(values: unknown[][], acceptedAt?: string): void {
+  cachedSvodGrid = { values, loadedAt: acceptedAt ?? new Date().toISOString() };
   // Удачное чтение снимает прежний отказ: он больше не описывает состояние.
   svodLoadFailure = null;
 }
@@ -161,8 +209,8 @@ const FORMULA_ERROR_RE = /^#(REF|N\/A|VALUE|NAME|NUM|DIV\/0|NULL|ERROR|GETTING_D
 /**
  * Ответ листа не несёт НИ ОДНОЙ содержательной строки. Два случая, и оба
  * означают «источник сломан», а не «данных нет»:
- *   • строк не больше, чем шапка (DEPT_HEADER_ROWS) — collectRowsByDept такой
- *     лист выбрасывает ЦЕЛИКОМ, и ГРБС молча исчезает из продукта;
+ *   • зеркалу одной шапки недостаточно, чтобы подтвердить полноту master;
+ *     у прочитанного master шапка без позиций, напротив, сохраняет известный ноль;
  *   • все непустые ячейки — ошибки формул (#REF! от упавшего IMPORTRANGE:
  *     зеркало ГРБС в сводной книге отдаёт одну строку-ошибку).
  *
@@ -194,7 +242,16 @@ export interface WeeklyMonitoringEvidenceInput {
  * здесь к тому же id добавляются только недостающие исторические входы.
  * Никакого чтения live-данных внутри функции нет.
  */
-export async function sealWeeklyTableContext(
+export function sealWeeklyTableContext(
+  snapshotId: string,
+  monitoring: WeeklyMonitoringEvidenceInput,
+): Promise<boolean> {
+  const sealing = materializationTail.then(() => sealWeeklyTableContextNow(snapshotId, monitoring));
+  materializationTail = sealing.then(() => undefined, () => undefined);
+  return sealing;
+}
+
+async function sealWeeklyTableContextNow(
   snapshotId: string,
   monitoring: WeeklyMonitoringEvidenceInput,
 ): Promise<boolean> {
@@ -245,15 +302,9 @@ export async function sealWeeklyTableContext(
     // Weekly context — дочернее доказательство того же среза, поэтому меняем
     // только data JSON ровно одной существующей строки. Retention запускается
     // после UPDATE и уже видит признак complete-week.
-    return db.transaction(() => {
-      const updated = db.update(schema.snapshots)
-        .set({ data: JSON.stringify(snapshot) })
-        .where(eq(schema.snapshots.id, snapshotId))
-        .run();
-      if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
-      pruneSnapshotsByRetention();
-      return true;
-    });
+    await yieldToReads();
+    await persistSnapshot(snapshot, 'weekly');
+    return true;
   } catch (error) {
     logSourceProblem('Недельный контекст таблиц не сохранён', {
       snapshotId,
@@ -272,6 +323,7 @@ export function getDeptSheetValues(): Record<string, unknown[][]> {
 }
 
 interface DeptLoadMeta {
+  sourceRevision?: string;
   loadedAt: string;
   rowCount: number;
   sheetName: string;
@@ -348,26 +400,7 @@ export function setSHDYUCache(data: Record<string, SHDYUDeptData>): void {
   cachedSHDYUData = data;
 }
 
-export function attachUnifiedGrid(
-  snapshot: DataSnapshot,
-  sheetRows: Record<string, unknown[][]>,
-  targetYear?: number,
-): void {
-  const deptRowsById: Record<string, unknown[][]> = {};
-  for (const [sheetName, rows] of Object.entries(sheetRows)) {
-    if (sheetName === SVOD_SHEET_NAME) continue;
-    // Канон резолва ГРБС: findDept (принимает id ИЛИ латиницу) → latinId. Не-ГРБС
-    // лист (ШДЮ, служебный) findDept не знает → пропускаем, а НЕ кладём мусорный
-    // lowercase-ключ (свеп консолидации: иначе downstream не сматчит → тихий дроп блока).
-    const dept = findDept(sheetName);
-    if (!dept) continue;
-    deptRowsById[dept.latinId] = rows;
-  }
-
-  const grid = computeUnifiedGrid(deptRowsById, targetYear);
-  snapshot.unifiedGrid = grid;
-  snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
-}
+export { attachUnifiedGrid } from './snapshot-calculation.js';
 
 /**
  * База сравнения замечаний прошлой сборки — по ключу кэша (год или «все
@@ -428,33 +461,77 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
   const ttl = config.cache.ttlSeconds * 1000;
 
   const cached = cachedSnapshots.get(cacheKey);
-  if (!force && cached && (now - cached.timestamp) < ttl) {
-    return cached.snapshot;
+  // A valid calculation belongs to an input generation, not a five-minute TTL.
+  // Source/decision changes explicitly invalidate it. Retrying a failed or
+  // interrupted build still uses TTL; a page visit alone never creates data.
+  const unchanged = !isDemoMode && cached && cached.timestamp > 0
+    && cached.generation === cacheGeneration
+    && !cached.snapshot.metadata.readModel
+    && cached.snapshot.metadata.sourceCoverage?.complete !== false;
+  if (!force && cached && (unchanged || (now - cached.timestamp) < ttl)) {
+    return recordSnapshotRead(cached.snapshot);
   }
 
-  // Дедуп конкурентных загрузок: если для этого cacheKey уже идёт createSnapshot(),
-  // все параллельные caller'ы дожидаются ОДНОГО общего промиса вместо запуска своего
-  // (иначе — TOCTOU-гонка, дублирующая полную перечитку всех листов, B-9).
+  // Reading a page must not await Google, calculations, persistence and pruning.
+  // Keep the last proven scope; its createdAt remains the actual captured time.
+  if (!force && !isDemoMode) {
+    const needsStorageRead = !cached || cached.generation !== cacheGeneration;
+    const previous = needsStorageRead
+      ? loadLatestSavedSnapshot(year) ?? cached?.snapshot
+      : cached.snapshot;
+    if (previous && needsStorageRead) {
+      const receipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId, {
+        ...cachedDeptSheetData, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}),
+      });
+      if (receipt && previous.metadata.sourceReceipt === receipt
+        && previous.metadata.sourceCoverage?.complete === true
+        && !Object.values(deptLoadMeta).some(meta => meta.error) && !svodLoadFailure
+        && currentCalculationContextMatches(previous)) {
+        rememberSnapshot(cacheKey, previous, now);
+        return recordSnapshotRead(previous);
+      }
+      rememberSnapshot(cacheKey, previous, 0);
+    }
+    if (!inFlightLoads.has(cacheKey)) {
+      void withoutRequestTiming(() => snapshotReadContext.exit(() => getSnapshot(true, year))).catch((error: unknown) => {
+        logSourceProblem('Фоновая сборка снимка не завершена', {
+          reason: classifySourceFailure(error instanceof Error ? error.message : String(error)),
+        });
+      });
+    }
+    if (previous) return recordSnapshotRead(readState(previous, 'refreshing'));
+    throw Object.assign(new Error('Срез этого периода ещё готовится. Повторите чтение после обновления.'),
+      { code: 'SNAPSHOT_NOT_READY', statusCode: 503 });
+  }
+
   const inFlight = inFlightLoads.get(cacheKey);
-  if (inFlight) {
-    return inFlight;
-  }
-
+  if (inFlight) return recordSnapshotRead(await inFlight);
+  let generation = cacheGeneration;
+  const build = materializationTail.then(() => {
+    generation = cacheGeneration;
+    return createSnapshot(year);
+  });
+  // Do not retain the large result, or let one failed scope poison the queue.
+  materializationTail = build.then(() => undefined, () => undefined);
   const loadPromise = (async () => {
     try {
-      const snapshot = await createSnapshot(year);
+      const snapshot = await build;
+      // An invalidation while loading cannot become a falsely fresh cache hit.
+      const changedDuringLoad = generation !== cacheGeneration;
+      const result = changedDuringLoad && !snapshot.metadata.readModel
+        ? readState(snapshot, 'refreshing') : snapshot;
       if (!snapshot.id.startsWith('demo-')) {
-        cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
+        // A failed import keeps its explicit stale state for the normal retry interval.
+        rememberSnapshot(cacheKey, result, changedDuringLoad && result.metadata.readModel?.state !== 'stale' ? 0 : Date.now());
       }
-      announceSnapshot(snapshot, year ?? null);
-      return snapshot;
+      announceSnapshot(result, year ?? null);
+      return result;
     } finally {
       inFlightLoads.delete(cacheKey);
     }
   })();
-
   inFlightLoads.set(cacheKey, loadPromise);
-  return loadPromise;
+  return recordSnapshotRead(await loadPromise);
 }
 
 /**
@@ -472,14 +549,13 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
  * запрос. Поэтому на отказе пакета остаётся прежний путь по одному листу:
  * частичный снимок честнее пустого, а имя не прочитанного листа едет в журнал.
  */
-async function readMainBookSheets(): Promise<Record<string, unknown[][]>> {
+async function readMainBookSheets(svod: typeof cachedSvodGrid): Promise<Record<string, unknown[][]>> {
   // Лист СВОД уже прочитан циклом источников — тем же самым вызовом, с теми же
   // настройками (services/source-refresh.ts). Читать его ещё раз значит платить
   // за самый большой лист книги дважды И развести стороны сверки во времени,
   // ровно против канона п.66. Берём из кэша, пока он свеж по тому же сроку,
   // по которому цикл считает книги свежими.
   const maxAgeMs = config.cache.sourceFreshnessSeconds * 1000;
-  const svod = cachedSvodGrid;
   const svodFresh = svod !== null
     && svod.values.length > 0
     && Date.now() - Date.parse(svod.loadedAt) <= maxAgeMs;
@@ -526,6 +602,14 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // Один момент для обеих сторон сверки: официальные ячейки читаются здесь и
     // сейчас, поэтому устаревшие книги обновляются ДО чтения, а не после.
     await ensureSourcesFresh();
+    // Select the source generation before any more I/O. Refresh/edit paths
+    // replace cache entries, so later arrivals cannot change this calculation.
+    const deptSources = cachedDeptSheetData;
+    const inputReceipt = sourceStateReceipt(DEPARTMENT_SPREADSHEETS, config.google.spreadsheetId,
+      { ...deptSources, ...(cachedSvodGrid ? { [SVOD_WATERMARK_KEY]: cachedSvodGrid } : {}) });
+    const svodSource = cachedSvodGrid;
+    let monthlyData = cachedSHDYUData;
+    let monthlyYear = cachedSHDYUOfficialYear;
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulas] = await Promise.all([
       batchGetCells(cellAddresses),
@@ -539,7 +623,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }));
 
     const sheetRows: Record<string, unknown[][]> = {};
-    const sheetsPromise = readMainBookSheets().then((rows) => {
+    const sheetsPromise = readMainBookSheets(svodSource).then((rows) => {
       Object.assign(sheetRows, rows);
     });
 
@@ -548,12 +632,14 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       const sourceLabel = result.sheetName;
       cachedSHDYUCheckedAt = new Date().toISOString();
       if (result.values.length > 0) {
-        const parsed = parseSHDYUSheet(result.values, result.formulas);
+        const parsed = measureReadStage('normalize', () => parseSHDYUSheet(result.values, result.formulas));
+        monthlyData = parsed;
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
         // AO4 (строка 4, колонка AO=41-я) — глобальный год листа (см. getSHDYUOfficialYear).
         const ao4 = Number(result.values[3]?.[40]);
         cachedSHDYUOfficialYear = Number.isInteger(ao4) && ao4 >= 2020 && ao4 <= 2100 ? ao4 : null;
+        monthlyYear = cachedSHDYUOfficialYear;
         cachedSHDYULoadError = null;
         cachedSHDYULoadedAt = cachedSHDYUCheckedAt;
         logSnapshotChange(
@@ -591,7 +677,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // и ломаются («#REF!» у УКСиМП). Прежний порядок был обратным: снимок
     // предпочитал зеркала, а /api/report — книги, и один ряд недель опирался
     // на две популяции строк (УАГЗО +60 млн плана между источниками).
-    // Теперь кэш книги побеждает всегда; зеркало — только когда книги нет.
+    // Кэш master — источник строк; отсутствие master не разрешает непроверенное зеркало.
     // Сломанные зеркала по-прежнему оставляют след: «источник сломан»
     // не должен быть неотличим от «данных нет» (см. hasNoMeaningfulRows).
     const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
@@ -604,9 +690,15 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const sheetFormulas: Record<string, unknown[][]> = {};
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
-    for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
+    for (const dept of DEPARTMENTS) {
+      if (!deptSources[dept.nameShort]?.values.length) Reflect.deleteProperty(sheetRows, dept.nameShort);
+    }
+    for (const [deptName, deptResult] of Object.entries(deptSources)) {
       const mirror = sheetRows[deptName];
-      if (deptResult.values.length === 0) continue;
+      if (deptResult.values.length < DEPT_HEADER_ROWS) {
+        Reflect.deleteProperty(sheetRows, deptName);
+        continue;
+      }
       if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
         brokenMirrors.push({ dept: deptName, got: mirror.length, used: deptResult.values.length });
         logSourceProblem(
@@ -642,7 +734,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       );
     }
 
-    const pipelineInput: PipelineInput = {
+    const pipelineInput: SnapshotCalculationInput = {
       batchGetData,
       sheetRows,
       // Ключ ставится только при непустой карте: пустой объект и отсутствие
@@ -650,15 +742,20 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       // как «формулы читали, и они чисты».
       ...(Object.keys(sheetFormulas).length > 0 ? { sheetFormulas } : {}),
       reportMap: REPORT_MAP,
-      rules: getActiveRules(),
       spreadsheetId: config.google.spreadsheetId,
       targetYear,
       // Год официального листа (Д21): без него сверка вычитала многолетний
       // расчёт из одногодичного официала и звала это расхождением.
-      officialYear: getSHDYUOfficialYear() ?? undefined,
+      officialYear: monthlyYear ?? undefined,
     };
 
-    const snapshot = runPipeline(pipelineInput);
+    pipelineInput.sourceBindings = Object.fromEntries(Object.entries(deptSources).map(([name, reading]) => [name, {
+      providerId: reading.providerId ?? null, sheetName: reading.sheetName,
+      version: reading.sourceVersion ?? null, readAt: reading.readAt ?? null,
+    }]));
+    const snapshot = await runSnapshotCalculation(pipelineInput);
+    snapshot.metadata.sourceReceipt = inputReceipt;
+    snapshot.metadata.sourceCoverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), perimeter.map(dept => dept.dept));
 
     // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
     // сохраняется вместе со снимком и видно в продукте. Без него подстановка
@@ -688,12 +785,12 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       snapshot.issues.push(issue);
     }
 
-    if (cachedSHDYUData) {
-      snapshot.shdyuData = cachedSHDYUData;
+    if (monthlyData) {
+      snapshot.shdyuData = monthlyData;
     }
-
-    attachUnifiedGrid(snapshot, sheetRows, targetYear);
-    await saveSnapshot(snapshot);
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_PERSIST_FAILED');
+    }
 
     return snapshot;
   } catch (error) {
@@ -702,14 +799,14 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // пайплайна после чтения) отдаётся честно: последний сохранённый снимок из SQL,
     // а если истории нет — ошибка пробрасывается, и роуты отвечают 503.
     if (!isDemoMode) {
-      const last = loadLatestSavedSnapshot();
+      const last = loadLatestSavedSnapshot(targetYear);
       if (last) {
         logSourceProblem('Снимок не собран — отдан последний сохранённый из базы', {
           reason: classifySourceFailure((error as Error)?.message ?? String(error)),
           snapshotId: last.id,
           createdAt: last.createdAt,
         });
-        return last;
+        return readState(last, 'stale');
       }
       throw error;
     }
@@ -727,258 +824,90 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
 /**
  * Последний сохранённый настоящий снимок из SQL — фолбэк на сбой источника при
  * настроенных кредах. Просматриваем несколько последних строк: повреждённый
- * data-JSON не должен лишать продукт более старого целого снимка. Снимок может
- * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
- * отличие от демо-генератора.
+ * data-JSON не должен лишать продукт более старого целого снимка. Периметр должен точно
+ * совпадать с запрошенным: чужой год или all-years не являются заменой.
  */
-function loadLatestSavedSnapshot(): PipelineSnapshot | null {
+function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
+    const scopeType = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_type(${schema.snapshots.data}, '$.metadata.targetYear') END`;
+    const scopeValue = sql`CASE WHEN json_valid(${schema.snapshots.data}) THEN json_extract(${schema.snapshots.data}, '$.metadata.targetYear') END`;
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
+      // Scope before limit: retained heads of other years/books are not candidates.
+      .where(and(
+        eq(schema.snapshots.spreadsheetId, config.google.spreadsheetId),
+        eq(scopeType, targetYear === undefined ? 'null' : 'integer'),
+        targetYear === undefined ? isNull(scopeValue) : eq(scopeValue, targetYear),
+      ))
       .orderBy(desc(schema.snapshots.createdAt))
       .limit(5)
-      .all();
-    for (const row of rows) {
-      if (!row.data) continue;
-      try {
-        const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
-      } catch {
-        // Повреждённый data-JSON — пробуем снимок старше.
+      .toSQL();
+    const cursor = measureReadStage('sql', () => db.$client.prepare(rows.sql).iterate(...rows.params));
+    try {
+      for (let next = measureReadStage('sql', () => cursor.next()); !next.done; next = measureReadStage('sql', () => cursor.next())) {
+        const raw = next.value;
+        const row = raw as { data: string | null };
+        if (!row.data) continue;
+        try {
+          const snapshot = measureReadStage('decode', () => JSON.parse(row.data!)) as PipelineSnapshot;
+          if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) {
+            // The current fallback must not revive an obsolete perfect grade.
+            // Reassess its captured evidence without changing data/time or writing
+            // history; getStoredSnapshotById still returns the original record.
+            if (snapshot.trust?.overall != null || snapshot.trust?.grade != null) {
+              return { ...snapshot, trust: computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)),
+                snapshot.issues, snapshot.deltas, snapshot.id, snapshot.trust?.coverage) };
+            }
+            return snapshot;
+          }
+        } catch {
+          // Повреждённый data-JSON — пробуем снимок старше.
+        }
       }
-    }
+    } finally { cursor.return?.(); }
   } catch {
     // БД недоступна — фолбэка нет, вызывающий пробросит исходную ошибку.
   }
   return null;
 }
 
-/**
- * Тип закупки по способу из колонки L. ЕП — единственный поставщик, ЭА/ЭК/ЭЗК —
- * конкурентная процедура (канон семейств METHOD_FAMILY_MAP). Мусор оператора в
- * L типом не притворяется: null честнее догадки, а SQL-фильтр по типу тогда
- * честно не находит такую строку, вместо того чтобы приписать её к семейству.
- */
-function procurementTypeOf(method: string): 'competitive' | 'single_provider' | null {
-  const code = method.trim().toUpperCase();
-  if ((METHOD_FAMILY_MAP.EP as readonly string[]).includes(code)) return 'single_provider';
-  if ((METHOD_FAMILY_MAP.COMPETITIVE as readonly string[]).includes(code)) return 'competitive';
-  return null;
-}
+export { buildProcurementRowValues } from './snapshot-storage.js';
 
-/**
- * Процент экономии одной строки. Нулевого (или нечислового) плана нет как
- * знаменателя — отношение не существует и выдаётся как null, а не как ноль:
- * ноль здесь читался бы «экономии не было», хотя её просто не от чего считать.
- */
-function economyPercentOf(economy: number, plan: number): number | null {
-  if (!Number.isFinite(plan) || plan === 0) return null;
-  return (economy / plan) * 100;
-}
-
-/** Полностью пустая строка листа — добивка диапазона, а не атом. */
-function isBlankRow(row: unknown[]): boolean {
-  return row.every((cell) => String(cell ?? '').trim() === '');
-}
-
-/**
- * Атом-запись `procurement_rows` для каждой строки книг ГРБС снимка.
- *
- * Семантика строки (сигналы, состояние, суммы, способ) берётся из
- * ЕДИНСТВЕННОГО билдера `buildRowDto` — того же, которым живёт реестр
- * `/api/rows`. Вторая семантика атома завела бы расхождение «SQL против
- * реестра» на ровном месте (пирамида §4: одна свёртка — одно место).
- *
- * Служебные строки листа (итоги, разделы, шапки) не выбрасываются, а
- * помечаются состоянием `non-data`: популяция таблицы остаётся точной копией
- * листа, а потребитель отсекает служебное явным условием, а не догадкой о том,
- * какие строки мы по дороге потеряли.
- */
-export function buildProcurementRowValues(
-  snapshot: DataSnapshot,
-): Array<typeof schema.procurementRows.$inferInsert> {
-  const out: Array<typeof schema.procurementRows.$inferInsert> = [];
-  for (const [sheetName, rows] of Object.entries(snapshot.rowsByDept ?? {})) {
-    // Ось ГРБС в SQL — латинский id (как у issues.department_id): один язык
-    // ключа на всю базу. Лист, которого реестр ГРБС не знает, не выдумываем —
-    // кладём имя как есть, чтобы строки не пропали молча.
-    const departmentId = findDept(sheetName)?.latinId ?? sheetName;
-    rows.forEach((row, idx) => {
-      if (!Array.isArray(row) || isBlankRow(row)) return;
-      const dto = buildRowDto(row, idx, { deptId: departmentId });
-      const isData = isDataRow(dto);
-      out.push({
-        snapshotId: snapshot.id,
-        departmentId,
-        // 1-based номер строки листа (шапка в DEPT_HEADER_ROWS строк уже срезана
-        // в rowsByDept) — адрес, по которому правку видно в самой книге.
-        rowIndex: dto.rowIndex,
-        cellsJson: JSON.stringify(buildCellDict(row)),
-        // Активные сигналы строки; ложные не пишем — они восстановимы по канону
-        // сигналов, а в тысячах строк удваивали бы объём ничем.
-        signalsJson: JSON.stringify(dto.signals),
-        rowState: isData ? dto.state : 'non-data',
-        procurementType: isData ? procurementTypeOf(dto.method) : null,
-        subject: String(dto.subject ?? '').trim(),
-        planAmount: dto.planSum,
-        factAmount: dto.factSum,
-        economy: dto.economy,
-        economyPercent: economyPercentOf(dto.economy, dto.planSum),
-        createdAt: snapshot.createdAt,
-      });
-    });
-  }
-  return out;
-}
-
-/**
- * Потолок связываемых параметров одного SQL-запроса. SQLite современных сборок
- * держит 32 766, но исторический предел — 999; считаем по нижнему, чтобы размер
- * пакета не стал сюрпризом на чужой сборке. Число колонок берётся из самой
- * схемы, а не переписывается сюда руками: блок Е п.21 добавит колонки осей, и
- * пакет ужмётся сам, вместо того чтобы разъехаться с таблицей.
- */
-const MAX_BIND_PARAMS = 900;
-const ATOM_ROWS_PER_BATCH = Math.floor(
-  MAX_BIND_PARAMS / Object.keys(getTableColumns(schema.procurementRows)).length,
-);
-
-/**
- * Кладёт строки-атомы снимка в `procurement_rows` — ОДНОЙ транзакцией
- * пакетами: снимок несёт тысячи строк, и построчная вставка вне транзакции
- * означала бы тысячи отдельных фиксаций на диск.
- *
- * Идемпотентна: сначала сносит уже записанные строки этого снимка. Своего
- * бизнес-ключа у атома нет (пирамида §1: строка живёт без идентификатора,
- * только с позицией на листе), поэтому единственный честный способ не удвоить
- * популяцию при повторной записи — переписать её целиком.
- *
- * Возвращает число записанных строк. Снимок без `rowsByDept` (формат до
- * 24.07.2026) даёт 0 и не падает.
- */
 export function saveSnapshotRows(snapshot: DataSnapshot): number {
-  const values = buildProcurementRowValues(snapshot);
-  db.transaction((tx) => {
-    tx.delete(schema.procurementRows)
-      .where(eq(schema.procurementRows.snapshotId, snapshot.id))
-      .run();
-    for (let i = 0; i < values.length; i += ATOM_ROWS_PER_BATCH) {
-      tx.insert(schema.procurementRows).values(values.slice(i, i + ATOM_ROWS_PER_BATCH)).run();
-    }
-  });
-  return values.length;
+  return saveSnapshotRowsToDb(snapshot, db);
 }
 
-/**
- * Сохраняет снимок в БД. Возвращает true, если снимок ЗАПИСАН, и false при
- * сбое: ошибка логируется, но не бросается (сохранение — побочный путь
- * createSnapshot и не должен ронять отдачу данных). Вызыватели, которым важен
- * факт записи (бэкфилл-скрипт: честный счётчик «сохранено N»), обязаны
- * проверять результат; остальные могут игнорировать — поведение additive.
- *
- * БАГ #8 (2026-08-08, docs/superpowers/audits/2026-08-08-bug-hunt-register.md):
- * id замечания намеренно стабилен между прогонами (issue-identity.ts, чтобы
- * статусы не орфанились), а issues.id — PRIMARY KEY БЕЗ snapshot_id в составе
- * (schema.ts). Второй снимок с тем же замечанием раньше падал на UNIQUE
- * ПОСЛЕ того, как snapshots и metric_history уже были записаны вне
- * транзакции — а всё, что шло следом (строки-атомы saveSnapshotRows,
- * ретеншен pruneSnapshotsByRetention), не выполнялось вообще, и внешний catch
- * глушил ошибку молча. Итог в проде: procurement_rows пуст навсегда после
- * первого снимка, ретеншен выключен навсегда, issues не растут. Фикс —
- * вставка issues идемпотентна по id (onConflictDoNothing: совпавший id значит
- * то же замечание, апдейт дублирующей строки бессмыслен — соседний паттерн у
- * routes/changes.ts:110), а вся цепочка snapshots → metric_history → issues →
- * saveSnapshotRows → pruneSnapshotsByRetention — ОДНА better-sqlite3-транзакция:
- * частичная запись теперь невозможна в принципе, либо коммитится всё, либо
- * ничего. Вложенные db.transaction() внутри saveSnapshotRows и
- * pruneSnapshotsByRetention безопасны: better-sqlite3 сам переключается на
- * SAVEPOINT/RELEASE, когда db.inTransaction уже true (node_modules/better-sqlite3/
- * lib/methods/transaction.js) — своей вложенной транзакции достаточно.
- */
+async function persistSnapshot(snapshot: DataSnapshot, operation: 'insert' | 'weekly'): Promise<void> {
+  const today = new Date();
+  if (operation === 'insert' && db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+    .where(eq(schema.snapshots.id, snapshot.id)).get()) throw new Error('SNAPSHOT_ALREADY_EXISTS');
+  if (db.$client.name === ':memory:' || db.$client.name === '') {
+    if (operation === 'weekly') {
+      const updated = db.update(schema.snapshots).set({ data: JSON.stringify(snapshot) })
+        .where(eq(schema.snapshots.id, snapshot.id)).run();
+      if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
+    } else saveSnapshotToDb(snapshot, db, today);
+    await yieldToReads();
+    pruneSnapshotsInDb(db, config.weeklySnapshot.utcOffsetHours, today);
+    return;
+  }
+  try {
+    await runSnapshotStorage({ snapshot, operation, today, path: resolve(db.$client.name),
+      offset: config.weeklySnapshot.utcOffsetHours });
+  } catch (error) {
+    // A lost worker/receipt cannot turn an already committed write into failure.
+    // Exact payload equality also prevents accepting an older row with this ID.
+    const saved = db.select({ data: schema.snapshots.data }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, snapshot.id)).get();
+    if (saved?.data !== JSON.stringify(snapshot)) throw error;
+    logSourceProblem('Снимок записан; фоновое обслуживание не подтверждено', { snapshotId: snapshot.id });
+  }
+}
+
 export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
-    const dataJson = JSON.stringify(snapshot);
-    // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
-    // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
-    const mb = (n: number): string => (n / 1048576).toFixed(2);
-    const atomsBytes = Buffer.byteLength(
-      JSON.stringify({ rowsByDept: snapshot.rowsByDept, svodGrid: snapshot.svodGrid }),
-      'utf8',
-    );
-    logSnapshotChange(
-      `Снимок сохраняется: данные ${mb(Buffer.byteLength(dataJson, 'utf8'))} МБ`
-      + ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ), строк ${snapshot.rowCount},`
-      + ` замечаний ${snapshot.issues.length}`,
-      {
-        snapshotId: snapshot.id,
-        bytes: Buffer.byteLength(dataJson, 'utf8'),
-        atomBytes: atomsBytes,
-        rows: snapshot.rowCount,
-        issues: snapshot.issues.length,
-      },
-    );
-
-    db.transaction((tx) => {
-      tx.insert(schema.snapshots).values({
-        id: snapshot.id,
-        spreadsheetId: snapshot.spreadsheetId,
-        createdAt: snapshot.createdAt,
-        trustOverall: snapshot.trust.overall,
-        trustGrade: snapshot.trust.grade,
-        issueCount: snapshot.issues.length,
-        criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
-        metricsCount: Object.keys(snapshot.officialMetrics).length,
-        rowCount: snapshot.rowCount,
-        readDurationMs: snapshot.metadata.readDurationMs,
-        pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
-        data: dataJson,
-      }).run();
-
-      for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
-        tx.insert(schema.metricHistory).values({
-          snapshotId: snapshot.id,
-          metricKey: key,
-          numericValue: metric.numericValue,
-          displayValue: metric.displayValue,
-          confidence: metric.confidence,
-          origin: metric.origin,
-          createdAt: snapshot.createdAt,
-        }).run();
-      }
-
-      for (const issue of snapshot.issues) {
-        // Совпавший id — то же замечание в новом снимке: перевешиваем ТОЛЬКО
-        // snapshot_id на свежий снимок. Прочие поля не трогаем (статус/комментарий
-        // ставит человек через PUT — затирать их снимком нельзя). Без перевешивания
-        // строка оставалась приписанной к ПЕРВОМУ снимку, ретеншен его прунил и
-        // каскадом удалял живое замечание (страж: snapshot-rows.test.ts, БАГ #8).
-        tx.insert(schema.issues).values({
-          ...issue,
-          snapshotId: snapshot.id,
-        }).onConflictDoUpdate({
-          target: schema.issues.id,
-          set: { snapshotId: snapshot.id },
-        }).run();
-      }
-
-      // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только
-      // JSON-блобом внутри snapshots.data: ни колонки, ни индекса, ни группировки.
-      // Теперь часть единой транзакции снимка (см. БАГ #8 выше) — сбой здесь
-      // откатывает всё, а не оставляет снимок без строк.
-      const savedRows = saveSnapshotRows(snapshot);
-      if (savedRows > 0) {
-        logSnapshotChange(`Строки-атомы снимка записаны: ${savedRows}`, { snapshotId: snapshot.id, rows: savedRows });
-      }
-
-      // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
-      // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
-      // же, а не ручной чисткой раздутой БД. Каскад удаления снимает и
-      // строки-атомы (snapshot-retention.ts: procurement_rows в транзакции).
-      // pruneSnapshotsByRetention сама не бросает (ловит свои ошибки и логирует) —
-      // сбой ретеншена не откатывает уже собранный снимок.
-      pruneSnapshotsByRetention();
-    });
-
+    await yieldToReads();
+    await persistSnapshot(snapshot, 'insert');
     return true;
   } catch (error) {
     logSourceProblem('Снимок не сохранён в базу', {
@@ -987,13 +916,6 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
     return false;
   }
 }
-
-/**
- * Сколько последних снимков просматриваем в поиске строк-атомов. Снимки без
- * rowsByDept (сохранённые до 2026-07-24) пропускаются — лимит не даёт разбору
- * многомегабайтных JSON уйти вглубь истории без шанса на успех.
- */
-const SNAPSHOT_LOOKBACK_LIMIT = 50;
 
 const MS_PER_DAY = 86_400_000;
 const MS_PER_HOUR = 3_600_000;
@@ -1007,6 +929,20 @@ const MS_PER_HOUR = 3_600_000;
 const productDayEndIso = (day: number, utcOffsetHours: number): string =>
   new Date((day + 1) * MS_PER_DAY - utcOffsetHours * MS_PER_HOUR).toISOString();
 
+/** Exact immutable record; never substitute the latest state for a missing ID. */
+export function getStoredSnapshotById(id: string): PipelineSnapshot | null {
+  const row = db.select({ data: schema.snapshots.data }).from(schema.snapshots).where(eq(schema.snapshots.id, id)).get();
+  if (!row?.data) return null;
+  try {
+    const snapshot = JSON.parse(row.data) as PipelineSnapshot;
+    if (snapshot.id !== id || !snapshot.metadata || !snapshot.createdAt) throw new Error('invalid stored snapshot');
+    return snapshot;
+  } catch {
+    throw new Error('STORED_SNAPSHOT_INVALID');
+  }
+}
+
+
 /**
  * Последний снимок, созданный не позже календарного дня `day` (номер суток
  * dayNumberOf) И несущий строки-атомы rowsByDept — источник честного отчёта
@@ -1017,10 +953,11 @@ const productDayEndIso = (day: number, utcOffsetHours: number): string =>
  * Камчатка +12): снимок пятницы продукта 00:30 (= четверг 12:30 UTC) в срез
  * «≤ четверг» НЕ входит — иначе он затенял бы настоящий снимок среза (ревью
  * R2a №4). Строконосность префильтруется в SQL маркером instr — до
- * SNAPSHOT_LOOKBACK_LIMIT многомегабайтных JSON не разбираются зря (№10);
- * разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
+ * SQLite cursor держит в памяти не более одного JSON; число отклонённых
+ * кандидатов не обрезает доступ к пригодному архиву. Разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
  * пустого объекта).
  */
+
 export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   const rows = db.select({ data: schema.snapshots.data })
     .from(schema.snapshots)
@@ -1029,10 +966,10 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
       sql`instr(${schema.snapshots.data}, '"rowsByDept"') > 0`,
     ))
     .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK_LIMIT)
-    .all();
+    .toSQL();
 
-  for (const row of rows) {
+  for (const raw of db.$client.prepare(rows.sql).iterate(...rows.params)) {
+    const row = raw as { data: string | null };
     if (!row.data) continue;
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
@@ -1046,13 +983,26 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   return null;
 }
 
-export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
-  return db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
+/** Упорядоченный SQLite cursor: число отклонённых попыток не ограничивает доноров. */
+export function* iterateWeeklySnapshotHistory(): Generator<{ id: string; createdAt: string }> {
+  const query = db.select({ id: schema.snapshots.id, createdAt: sql<string>`${schema.snapshots.createdAt}`.as('createdAt') })
     .from(schema.snapshots)
     .where(sql`instr(${schema.snapshots.data}, '"weeklyTableContext"') > 0`)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(limit)
-    .all();
+    .orderBy(desc(schema.snapshots.createdAt), desc(schema.snapshots.id))
+    .toSQL();
+  for (const raw of db.$client.prepare(query.sql).iterate(...query.params)) {
+    yield raw as { id: string; createdAt: string };
+  }
+}
+
+/** Совместимый metadata API; проверенные потребители используют cursor до своего result-cap. */
+export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
+  const result: Array<{ id: string; createdAt: string }> = [];
+  for (const row of iterateWeeklySnapshotHistory()) {
+    if (result.length >= limit) break;
+    result.push(row);
+  }
+  return result;
 }
 
 export function getSnapshotHistory(limit = 50): Array<{
@@ -1104,5 +1054,11 @@ export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
 }
 
 export function invalidateCache(): void {
-  cachedSnapshots.clear();
+  cacheGeneration++;
+  for (const entry of cachedSnapshots.values()) entry.timestamp = 0;
+}
+
+/** Dependency identity for derived read models; elapsed time is not a change. */
+export function getSnapshotGeneration(): number {
+  return cacheGeneration;
 }

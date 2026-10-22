@@ -337,14 +337,13 @@ export function digitSignature(value: number): string {
   return digits;
 }
 
-/** Нормализация предмета для группировки однотипных закупок. */
+/** Нормализация ПОЛНОГО предмета. Обрезанный префикс — не идентичность. */
 export function normalizeSubject(subject: string): string {
   return String(subject ?? '')
     .toLowerCase()
     .replace(/[^a-zа-яё0-9\s]/giu, ' ')
     .replace(/\s+/gu, ' ')
-    .trim()
-    .slice(0, 60);
+    .trim();
 }
 
 /** Номер колонки из адреса ячейки: «AC96» → «AC». */

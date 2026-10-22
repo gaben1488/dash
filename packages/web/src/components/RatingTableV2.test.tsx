@@ -1,3 +1,6 @@
+import { aggregateNodeTotals } from '../lib/selectors/totals-aggregation';
+import { countNodeIssues } from '../lib/selectors/issues-filtering';
+import { subordinateNameMatchKey } from '@aemr/shared';
 // @vitest-environment jsdom
 /**
  * Характеризационный замок ПЕРЕД упрощением W1 (SIMPLIFY_REGISTER_2026-06-05):
@@ -6,6 +9,8 @@
  * форму обработчиков (управление узнаётся по переданному коду), и поведение
  * таблицы обязано остаться прежним: раскрытие и складывание строки, переход
  * к управлению по щелчку, переход к реестру строк из раскрытой карточки.
+ * Уточнение владельца18.10: раскрытие состава и выбор управления разделены;
+ * одновременное выполнение этих действий больше не является контрактом.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
@@ -47,7 +52,6 @@ function renderTable() {
     <TooltipProvider delayDuration={0}>
       <RatingTableV2
         departments={DEPTS}
-        showSubordinates
         onDeptClick={onDeptClick}
         onDeptDetail={onDeptDetail}
       />
@@ -56,20 +60,47 @@ function renderTable() {
   return { onDeptClick, onDeptDetail };
 }
 
-/** Кнопка раскрытия строки живёт в ячейке наименования и подписана коротким именем. */
+/** Раскрытие состава отдельно от кнопки выбора управления. */
 function expandButton(nameShort: string): HTMLElement {
-  const found = screen.getAllByRole('button').find(b => b.textContent?.includes(nameShort));
-  if (!found) throw new Error(`Кнопка раскрытия «${nameShort}» не найдена`);
-  return found;
+  return screen.getByRole('button', { name: `Состав управления ${nameShort}` });
 }
 
 afterEach(() => cleanup());
 
+describe('выбор управления отделён от раскрытия состава', () => {
+  it('название выбирает управление, не раскрывая его организации', () => {
+    const { onDeptClick } = renderTable();
+    fireEvent.click(screen.getByRole('button', { name: 'УО' }));
+    expect(onDeptClick).toHaveBeenCalledExactlyOnceWith('УО');
+    expect(screen.queryByText('Школа №1')).toBeNull();
+  });
+
+  it('отдельная кнопка раскрывает состав, не меняя общий отбор', () => {
+    const { onDeptClick } = renderTable();
+    const disclosure = screen.getByRole('button', { name: 'Состав управления УО' });
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Школа №1')).toBeTruthy();
+    expect(onDeptClick).not.toHaveBeenCalled();
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Школа №1')).toBeNull();
+  });
+
+  it('нажатие на числовую ячейку не включает отбор и не раскрывает состав', () => {
+    const { onDeptClick } = renderTable();
+    const row = expandButton('УО').closest('tr')!;
+    fireEvent.click(row.querySelectorAll('td')[2]);
+    expect(onDeptClick).not.toHaveBeenCalled();
+    expect(screen.queryByText('Школа №1')).toBeNull();
+  });
+});
+
 describe('W1 — строка рейтинга: раскрытие и переходы', () => {
-  it('щелчок по управлению раскрывает строку и сообщает код управления', () => {
+  it('раскрытие состава не выбирает управление', () => {
     const { onDeptClick } = renderTable();
     fireEvent.click(expandButton('УО'));
-    expect(onDeptClick).toHaveBeenCalledWith('УО');
+    expect(onDeptClick).not.toHaveBeenCalled();
     expect(screen.getByText('Школа №1')).toBeTruthy();
   });
 
@@ -94,4 +125,20 @@ describe('W1 — строка рейтинга: раскрытие и перех
     fireEvent.click(screen.getByText('Открыть реестр строк'));
     expect(onDeptDetail).toHaveBeenCalledWith('УЭР');
   });
+});
+
+
+it('renders annual source-quarter execution and attributed remarks rather than zero and dash',()=>{
+ const quarters=Object.fromEntries(['q1','q2','q3','q4'].map(k=>[k,{planCount:10,factCount:8,planTotal:100,factTotal:80}]));
+ const n=aggregateNodeTotals({quarters,competitiveCount:20,epCount:20},
+  {periodKey:'year',coveredQuarters:[],fullQuarters:[],partialMonths:[],useMonthLevel:false,hasActiveMonths:false},
+  {showKP:true,showEP:true,activeMonths:new Set(),hasMonthData:false});
+ const counts=countNodeIssues([{departmentId:'uo',subordinateId:'Школа №1',severity:'warning'},{departmentId:'uo',severity:'warning'}],'uo');
+ render(<TooltipProvider><RatingTableV2 departments={[{...DEPTS[0],subordinates:[{
+  name:'Школа №1',execCountPct:n.factCount/n.planCount*100,execAmountPct:n.factTotal/n.planTotal*100,
+  issueCount:counts.subordinates.get(subordinateNameMatchKey('Школа №1'))??0,unattributedIssueCount:counts.unattributed,
+ }]}]} onDeptClick={vi.fn()} onDeptDetail={vi.fn()}/></TooltipProvider>);
+ fireEvent.click(expandButton('УО'));
+ expect(screen.getAllByText('80,0 %').length).toBe(2);
+ expect(screen.getByTitle(/Активных замечаний с привязкой к этой организации: 1.*Ещё 1/).textContent).toBe('1');
 });

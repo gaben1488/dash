@@ -17,6 +17,9 @@ describe('product-dictionary (1.1): ни один сырой ключ не до�
     expect(productLabel('UNMAPPED')).toBe('причина не распознана');
     expect(productLabel('_org_itself')).toBe('Аппарат');
     expect(productLabel('uo')).toBe('УО');
+    expect(productLabel('УФБП')).toBe('УФ');
+    expect(productLabel('УДТХ')).toBe('УДТХиБ');
+    expect(productLabel('УФ')).toBe('УФ');
     expect(productLabel('open')).toBe('Открыто');
   });
 
@@ -25,4 +28,12 @@ describe('product-dictionary (1.1): ни один сырой ключ не до�
     // но это сигнал разработчику дополнить словарь. Проверяем, что не бросает.
     expect(() => productLabel('totally_unknown_key_xyz')).not.toThrow();
   });
+});
+
+
+it('исторические алиасы имеют ту же действующую подпись во всех представлениях', () => {
+  expect(productLabel('УФБР')).toBe('УФ');
+  expect(productLabel('УТХиРКИ')).toBe('УДТХиБ');
+  expect(productLabel(' УФБП   АЕМР ')).toBe('УФ');
+  expect(productLabel('УАГиЗО')).toBe('УАГЗО');
 });

@@ -194,6 +194,13 @@ describe('GET /api/analytics/economic — годовой разрез, зоны 
     return res.json<EconomicResponse>();
   };
 
+  it('empty history never presents current economic figures as a past snapshot', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/economic?years=2026&week=2026-03-16' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('ARCHIVE_SNAPSHOT_NOT_FOUND');
+    expect(res.json()).not.toHaveProperty('district');
+  });
+
   const deptOf = (body: EconomicResponse, short: string): ScopeView => {
     const found = body.departments.find((d) => d.dept === short);
     expect(found, short).toBeDefined();
@@ -208,6 +215,7 @@ describe('GET /api/analytics/economic — годовой разрез, зоны 
     // официальный лист её тоже уже показывает. Появись гейт — навес станет нулём.
     expect(deptOf(body, 'УО').metrics.december_overhang.numerator).toBe(388);
     expect(body.departments.map((d) => d.dept)).toEqual(['УИО', 'УО']);
+    expect(body.notes.some((n) => n.includes('Прочитано книг: 2 из 8'))).toBe(true);
   }, 30_000);
 
   it('декабрьский навес: доля денег с раскрытым отношением и красная зона', async () => {
@@ -424,6 +432,13 @@ describe('GET /api/analytics/economic — срез прошлой недели �
     await app?.close();
     process.env = { ...ORIGINAL_ENV };
     vi.resetModules();
+  });
+
+  it('does not substitute the preceding week for a missing snapshot', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/economic?years=2026&week=2026-03-23' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().requestedDate).toBe('2026-03-26');
+    expect(res.json()).not.toHaveProperty('district');
   });
 
   it('неделя-срез: числа из снимка той недели, история не переписана', async () => {

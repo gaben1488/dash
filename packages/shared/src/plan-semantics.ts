@@ -217,7 +217,7 @@ const DEPT_ORDER = new Map<DepartmentId, number>(
 );
 
 function listDepts(depts: readonly DepartmentId[]): string {
-  return depts.join(', ');
+  return depts.map(dept => findDept(dept)?.shortName ?? dept).join(', ');
 }
 
 /** Пустой периметр — отдельное состояние: подписывать нечего, врать нечем. */

@@ -5,26 +5,26 @@
  * среза». Источник — вкладка «_ChangeLog» каждой книги (журнал Apps Script
  * с автором, временем и адресом); разбор — services/changelog.ts.
  *
- * ?since=YYYY-MM-DD — момент среза; без параметра — последний прошедший
- * четверг (канон недельного среза). Кэш пять минут: журналы суммарно
- * ~37 тыс. строк, дёргать девять книг на каждый рендер страницы незачем.
+ * ?since=YYYY-MM-DD — явная дата; без параметра — четверг предыдущей
+ * календарной недели в 18:00 по Камчатке. Кэш привязан к версиям книг;
+ * пятиминутное окно остаётся только для неизвестных версий.
  *
  * Прочитанное оседает в таблице changelog_entries и оттуда же отдаётся
  * (пирамида, блок Е п.23): память процесса теряла всю историю правок при
  * рестарте, а молчащая книга выглядела как книга без правок.
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, getTableColumns, gte } from 'drizzle-orm';
-import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
+import { createHash } from 'node:crypto';
+import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
+import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
-import { productCalendarDay } from '../services/product-calendar.js';
-import { readChangelogRows } from '../services/changelog-source.js';
+import { readChangelogRows, changelogInputKey } from '../services/changelog-source.js';
 import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null = null;
+let cache: { at: number; key: string | null; records: ChangeRecord[]; failedDepts: string[] } | null = null;
 
 /**
  * Журналы всех книг. Книга, которая НЕ ответила, попадает в failedDepts:
@@ -38,7 +38,8 @@ let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null
  * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
 async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
-  if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
+  const key = changelogInputKey(DEPARTMENT_SPREADSHEETS);
+  if (cache && cache.key === key && (key !== null || Date.now() - cache.at < CACHE_TTL_MS)) {
     // fresh=false: эти записи уже сохранялись при чтении, наполнившем кэш.
     // Гонять транзакцию на 37 тыс. записей ради нулевого прироста на каждый
     // рендер страницы незачем.
@@ -56,19 +57,22 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
     }
   }));
   const records = parts.flat();
-  if (failedDepts.length === 0) cache = { at: Date.now(), records, failedDepts };
+  if (failedDepts.length === 0 && changelogInputKey(DEPARTMENT_SPREADSHEETS) === key) {
+    cache = { at: Date.now(), key, records, failedDepts };
+  }
   return { records, failedDepts, fresh: true };
 }
 
 /**
  * Устойчивый ключ записи журнала. У правки в источнике нет собственного
  * номера, поэтому опознаём её адресом: книга ГРБС + лист + ячейка + отметка
- * времени + автор. Ячейка несёт и строку, и колонку — две правки одной строки
+ * времени + автор + точные значения. Два разных перехода одной ячейки
  * в одну секунду не сливаются в одну запись. Журнал append-only, значит
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`;
+  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
+  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
 }
 
 /**
@@ -92,7 +96,9 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   if (records.length === 0) return 0;
   const recordedAt = now.toISOString();
   const byKey = new Map<string, typeof schema.changelogEntries.$inferInsert>();
+  const legacyKeys = new Map<string, string>();
   for (const r of records) {
+    legacyKeys.set(changeEntryKey(r), `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}`);
     byKey.set(changeEntryKey(r), {
       id: changeEntryKey(r),
       dept: r.dept,
@@ -110,9 +116,20 @@ export function saveChangeLogEntries(records: readonly ChangeRecord[], now: Date
   let written = 0;
   db.transaction((tx) => {
     for (let i = 0; i < values.length; i += ENTRIES_PER_BATCH) {
+      const batch = values.slice(i, i + ENTRIES_PER_BATCH);
+      // Preserve legacy IDs in place. Upgrade must neither duplicate their
+      // identical values nor erase a different transition sharing the old ID.
+      const legacy = new Map(tx.select().from(schema.changelogEntries)
+        .where(inArray(schema.changelogEntries.id, batch.map(v => legacyKeys.get(v.id)!)))
+        .all().map(row => [row.id, row]));
+      const pending = batch.filter(value => {
+        const old = legacy.get(legacyKeys.get(value.id)!);
+        return !old || old.oldValue !== value.oldValue || old.newValue !== value.newValue;
+      });
+      if (pending.length === 0) continue;
       const res = tx
         .insert(schema.changelogEntries)
-        .values(values.slice(i, i + ENTRIES_PER_BATCH))
+        .values(pending)
         .onConflictDoNothing()
         .run();
       written += res.changes;
@@ -188,6 +205,7 @@ function announceDbFailure(error: unknown): void {
 export async function changesRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { since?: string } }>('/api/changes', async (request, reply) => {
     let sinceDay: number | null;
+    let sinceMs: number;
     if (request.query.since !== undefined) {
       sinceDay = dayNumberOf(request.query.since);
       // Формат мало проверить: Date.UTC переваливает «2026-06-31» в 1 июля
@@ -200,14 +218,12 @@ export async function changesRoutes(app: FastifyInstance): Promise<void> {
           code: 'BAD_REQUEST',
         });
       }
+      sinceMs = sinceDay * 86400000;
     } else {
-      // Календарь ПРОДУКТА (+12), не машины: прод живёт в UTC, и в окне
-      // среда 12:00 — четверг 00:00 UTC дефолт уезжал на неделю назад.
-      // Та же ось недели, что у /api/report (currentProductThursday).
-      sinceDay = floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
+      sinceDay = liveBaselineDay(new Date(), config.weeklySnapshot.utcOffsetHours);
+      sinceMs = weeklyCutoffMs(sinceDay, config.weeklySnapshot.utcOffsetHours);
     }
 
-    const sinceMs = sinceDay * 86400000;
     const { records: all, failedDepts, fresh } = await readAllChangeLogs();
 
     // Прочитанное кладём в БД и оттуда же отвечаем. Смысл не в скорости:

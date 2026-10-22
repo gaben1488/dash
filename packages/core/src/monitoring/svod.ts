@@ -1,3 +1,4 @@
+import { MONITORING_DEPARTMENTS } from '@aemr/shared';
 /**
  * svod.ts — лист «СВОДНЫЙ» книги «Ежедневный мониторинг» (спека §1.2, §2.2).
  *
@@ -28,16 +29,7 @@ import { monetaryFactAllowed, type MonitoringProcedure } from './procedures.js';
  * («4. УАГиЗО») и канонического ид продукта («УАГЗО»). Связь только явной
  * таблицей: подстрока здесь врёт (спека §1.2).
  */
-export const MONITORING_SVOD_DEPT_NAMES: ReadonlyArray<{ svodName: string; dept: string }> = [
-  { svodName: 'УЭР АЕМР', dept: 'УЭР' },
-  { svodName: 'УКСиМП АЕМР', dept: 'УКСиМП' },
-  { svodName: 'УИО АЕМР', dept: 'УИО' },
-  { svodName: 'УАГЗО АЕМР', dept: 'УАГЗО' },
-  { svodName: 'УДТХ АЕМР', dept: 'УДТХ' },
-  { svodName: 'УД АЕМР', dept: 'УД' },
-  { svodName: 'УФБП АЕМР', dept: 'УФБП' },
-  { svodName: 'УО АЕМР', dept: 'УО' },
-];
+export const MONITORING_SVOD_DEPT_NAMES: ReadonlyArray<{ svodName: string; dept: string }> = MONITORING_DEPARTMENTS.map(d => ({ svodName: d.monitoring.svodName, dept: d.id }));
 
 /** Колонки свода (0-based). */
 const SVOD_COLUMNS = {

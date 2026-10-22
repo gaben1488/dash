@@ -46,7 +46,7 @@ const story = (over: Partial<ChangeStoryResponse> = {}): ChangeStoryResponse => 
     books: 1, booksNamed: ['УО'], rows: 2, entries: 2,
     byKind: {
       money: 1, dates: 0, comment: 0, method: 0, subject: 0, flag: 0,
-      'row-added': 0, 'row-vanished': 1, 'row-cleared': 0, other: 0,
+      'row-added': 0, 'row-vanished': 1, 'row-identity-candidate': 0, 'row-cleared': 0, other: 0,
     },
     authors: ['ivanova@aemr.ru'],
     firstAt: '2026-08-20T09:00:00', lastAt: '2026-08-20T09:00:00',
@@ -55,7 +55,12 @@ const story = (over: Partial<ChangeStoryResponse> = {}): ChangeStoryResponse => 
   gaps: [],
   deletionsUnobservable: true,
   note: '',
-  comparison: { beforeAt: '2026-08-14T00:00:00Z', afterAt: '2026-08-21T00:00:00Z' },
+  comparison: {
+    baselineId: 'test-weekly-control',
+    beforeAt: '2026-08-14T00:00:00Z',
+    afterAt: '2026-08-21T00:00:00Z',
+    oldestCurrentAt: '2026-08-21T00:00:00Z',
+  },
   facets: { books: [{ book: 'УО', count: 2 }], authors: [{ author: 'ivanova@aemr.ru', count: 1 }] },
   total: 2,
   shown: 2,
@@ -96,14 +101,15 @@ describe('ChangeJournal — подробная глубина', () => {
     render(<ChangeJournal open onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText(/№ п\/п 38/)).toBeTruthy());
     expect(screen.getByText(/ИТОГО 1/)).toBeTruthy();
-    expect(screen.getByText('100 → 120')).toBeTruthy();
+    expect(screen.getByText('100').tagName).toBe('DEL');
+    expect(screen.getByText('120').tagName).toBe('STRONG');
   });
 
-  it('исчезнувшая закупка названа своими словами и с источником', async () => {
+  it('отсутствие прежнего номера описано без выдуманного доказательства удаления', async () => {
     answer.current = story();
     render(<ChangeJournal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText(/Закупка исчезла: Ремонт кровли/)).toBeTruthy());
-    expect(screen.getByText(/из сравнения снимков/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Прежний № не найден: Ремонт кровли; причина не установлена/)).toBeTruthy());
+    expect(screen.getByText(/из сверки текущих книг с недельным контролем/)).toBeTruthy();
   });
 
   it('граница источника произносится всегда: удаление строки журнал не видит', async () => {
@@ -112,16 +118,14 @@ describe('ChangeJournal — подробная глубина', () => {
     await waitFor(() => expect(screen.getByText(/Удаление строки книга не записывает/)).toBeTruthy());
   });
 
-  it('провал ведёт в Реестр книгой и № п/п, а не «примерно туда»', async () => {
+  it('прежний номер ищет похожие закупки, действующий номер открывает точный поиск', async () => {
     answer.current = story();
     const onClose = vi.fn();
     render(<ChangeJournal open onClose={onClose} />);
-    await waitFor(() => expect(screen.getAllByText('в Реестре').length).toBe(2));
-    // Первой в списке стоит исчезнувшая закупка: у неё нет момента, а её
-    // «что» важнее всего остального. Правка с деньгами идёт следом.
-    fireEvent.click(screen.getAllByText('в Реестре')[0]);
-    expect(navigateTo).toHaveBeenCalledWith('data', { department: 'УО', search: '212' });
-    fireEvent.click(screen.getAllByText('в Реестре')[1]);
+    await waitFor(() => expect(screen.getByText('поиск в Реестре')).toBeTruthy());
+    fireEvent.click(screen.getByText('поиск в Реестре'));
+    expect(navigateTo).toHaveBeenCalledWith('data', { department: 'УО', search: 'Ремонт кровли' });
+    fireEvent.click(screen.getByText('в Реестре'));
     expect(navigateTo).toHaveBeenCalledWith('data', { department: 'УО', search: '38' });
     expect(onClose).toHaveBeenCalled();
   });
@@ -158,6 +162,28 @@ describe('ChangeJournal — подробная глубина', () => {
     answer.current = story();
     render(<ChangeJournal open onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText('2 правки в книге УО, затронуто 2 закупки')).toBeTruthy());
-    expect(screen.getByText(/исчезнувших закупок — 1/)).toBeTruthy();
+    expect(screen.getByText(/прежних номеров не найдено — 1/)).toBeTruthy();
   });
 });
+describe('гипотеза смены номера', () => {
+  it('ведёт в Реестр на текущий номер кандидата, сохраняя исходный номер в записи', async () => {
+    answer.current = story({
+      entries: [{
+        ...story().entries[1],
+        id: 'hypothesis',
+        kind: 'row-identity-candidate',
+        rowSeq: '212',
+        relatedRowSeq: '305',
+        before: '212',
+        after: '305',
+      }],
+      total: 1,
+      shown: 1,
+    });
+    render(<ChangeJournal open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/Возможная смена № 212 → № 305/)).toBeTruthy());
+    fireEvent.click(screen.getByText('в Реестре'));
+    expect(navigateTo).toHaveBeenCalledWith('data', { department: 'УО', search: '305' });
+  });
+});
+

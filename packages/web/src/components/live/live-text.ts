@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Фразы прямого эфира — чистая часть, отделённая от разметки.
  *
@@ -50,7 +51,7 @@ export function liveHeadline(books: BookChange[]): string {
   if (books.length === 0) return 'Данные на сервере обновились';
   if (books.length === 1) {
     const b = books[0];
-    return `Книга ${b.book} обновилась`;
+    return `Книга ${productLabel(b.book)} обновилась`;
   }
   return `Обновились ${countWord(books.length, 'книга', 'книги', 'книг')}`;
 }
@@ -66,8 +67,10 @@ export function liveDetail(books: BookChange[], newIssues: number): string {
   const removed = books.reduce((sum, b) => sum + b.removedRows, 0);
 
   if (changed > 0) parts.push(countWord(changed, 'строка', 'строки', 'строк'));
-  if (added > 0) parts.push(`добавлено ${countWord(added, 'строка', 'строки', 'строк')}`);
-  if (removed > 0) parts.push(`убрано ${countWord(removed, 'строка', 'строки', 'строк')}`);
+  // В новой базе счётчики — уникальные № п/п, а не физически вставленные
+  // или удалённые строки листа. Ни вебхук, ни diff не доказывают удаление.
+  if (added > 0) parts.push(`появились новые № п/п: ${added}`);
+  if (removed > 0) parts.push(`прежних № п/п не найдено: ${removed} — требуется сверка`);
   if (newIssues > 0) parts.push(`новых замечаний ${newIssues}`);
 
   return parts.join(', ');

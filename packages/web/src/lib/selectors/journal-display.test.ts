@@ -31,9 +31,10 @@ describe('journalActorLabel (в колонке «Кто» не бывает ла
     expect(journalActorLabel('Pipeline')).toBe('Обновление данных');
   });
 
-  it('пустой автор — это Система, а не пустая клетка', () => {
-    expect(journalActorLabel(null)).toBe('Система');
-    expect(journalActorLabel('')).toBe('Система');
+  it('не приписывает системе действие без установленного автора', () => {
+    expect(journalActorLabel(null)).toBe('Автор не указан');
+    expect(journalActorLabel('')).toBe('Автор не указан');
+    expect(journalActorLabel('System')).toBe('Система');
   });
 
   it('человеческое имя проходит без изменений', () => {

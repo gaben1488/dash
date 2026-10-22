@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,20 @@ def test_verify_rejects_checksummed_json_with_wrong_shape(tmp_path, part, invali
     assert verify_persisted_bundle(tmp_path) == [
         "SNAPSHOT_PAYLOAD_SHAPE_INVALID:UO" if part == "payload" else "SNAPSHOT_BUNDLE_SHAPE_INVALID"
     ]
+
+def test_formula_evidence_is_hashed_payload_not_duplicated_manifest(tmp_path):
+    formulas = {'formulas': [{'row': 4, 'column': 1, 'formula': '=SUM(A1:A3)'}]}
+
+    class FormulaSource(FakeAdapter):
+        def read_payload(self):
+            payload = super().read_payload()
+            return replace(payload, metadata={**payload.metadata, 'formula_evidence': formulas})
+
+    bundle = capture_atomic_snapshot([FormulaSource('UO', [['a'], ['b'], ['c'], [1]])],
+        report_date='2026-10-19', report_year=2026, rules_version='r', renderer_version='x')
+    persist_atomic_bundle(bundle, tmp_path)
+    manifest = json.loads((tmp_path / 'manifest.json').read_text())
+    assert 'formula_evidence' not in manifest['sources'][0]['payload_metadata']
+    payload = json.loads((tmp_path / 'payloads/UO.json').read_text())
+    assert payload['metadata']['formula_evidence'] == formulas
+    assert verify_persisted_bundle(tmp_path) == []

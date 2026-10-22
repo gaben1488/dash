@@ -104,6 +104,17 @@ describe('durable source-integrity state', () => {
     expect(loadFormulaAudits()).toEqual([]);
   });
 
+  it('rejects legacy main formula verdicts after switching to integrated composite identifiers', () => {
+    saveFormulaAudit(
+      { book: 'УО', at: goodAt, cells: 3, handled: true, persisted: true },
+      { book: 'УО', at: goodAt, rowsJudged: 1, defects: [] },
+    );
+    db.update(schema.sourceIntegrityState)
+      .set({ checkerVersion: 'formula-integrity/1' })
+      .where(eq(schema.sourceIntegrityState.id, 'formulas:УО')).run();
+    expect(loadFormulaAudits()).toEqual([]);
+  });
+
   it('fails closed on corrupted payload and old checker version', () => {
     saveFormulaAudit(
       { book: 'УО', at: goodAt, cells: 11, handled: true, persisted: true },

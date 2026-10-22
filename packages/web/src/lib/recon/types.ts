@@ -90,15 +90,15 @@ export interface ReconDeptNode {
 }
 
 /** Оценка метрики-дельты (view-model вкладки «По метрикам»). */
-export type MetricAssessment = 'ok' | 'warning' | 'critical';
+export type MetricAssessment = 'ok' | 'warning' | 'critical' | 'unknown';
 
 /** Строка таблицы «По метрикам» (view-model, строится в metric-rows.ts). */
 export interface MetricReconRow {
   metric: string;
   metricLabel: string;
-  official: number;
-  calculated: number;
-  deltaAbs: number;
-  deltaPct: number;
+  official: number | null;
+  calculated: number | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
   assessment: MetricAssessment;
 }

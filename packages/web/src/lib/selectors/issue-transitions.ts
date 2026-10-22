@@ -1,48 +1,9 @@
-import { ISSUE_STATUS_LABELS } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, ISSUE_STATUS_TRANSITIONS } from '@aemr/shared';
 import type { IssueStatus } from '@aemr/shared';
 
-/**
- * Какие переходы статуса замечания сервер действительно принимает.
- *
- * Зеркало таблицы `STATUS_TRANSITIONS` из `packages/server/src/routes/issues.ts`
- * (жизненный цикл: открыто → принято → в работе → исправлено / не будет
- * исправляться / ложное срабатывание; из трёх конечных статусов есть
- * переоткрытие). Зеркало, а не импорт: пакет web не зависит от server.
- *
- * Зачем это вообще нужно интерфейсу. Страница «Замечания» рисовала кнопку
- * «Исправлено» рядом с открытым замечанием, хотя сервер такой переход
- * отбивает 400-м ответом: минуя «в работе» исправить нельзя. Нажатие уходило
- * в никуда — ответ падал в консоль, экран не менялся, и пользователь видел
- * кнопку, которая «не работает». Кнопка, обещающая недоступное действие, —
- * та же ложь, что число без происхождения, поэтому набор кнопок теперь
- * выводится отсюда, а не пишется руками у разметки.
- *
- * Если серверная таблица изменится, разойдётся ровно одно место — здесь.
- */
-export const ISSUE_STATUS_TRANSITIONS: Readonly<Record<IssueStatus, readonly IssueStatus[]>> = {
-  open: ['acknowledged', 'in_progress', 'wont_fix', 'false_positive'],
-  acknowledged: ['in_progress', 'wont_fix', 'false_positive'],
-  in_progress: ['resolved', 'wont_fix', 'false_positive'],
-  resolved: ['open'],
-  wont_fix: ['open'],
-  false_positive: ['open'],
-};
-
-/** Статусы, в которые можно перевести замечание из текущего. Неизвестный статус → пусто. */
-export function allowedIssueTransitions(status: string): readonly IssueStatus[] {
-  return ISSUE_STATUS_TRANSITIONS[status as IssueStatus] ?? [];
-}
-
-/**
- * Переходы, для которых сервер требует причину (issues.ts:184-188): отказ
- * исправлять и признание срабатывания ложным — решения человека, и они обязаны
- * остаться в истории со словами, а не с отпиской «изменено через интерфейс».
- */
-const REASON_REQUIRED: ReadonlySet<string> = new Set<IssueStatus>(['wont_fix', 'false_positive']);
-
-export function issueTransitionNeedsReason(target: string): boolean {
-  return REASON_REQUIRED.has(target);
-}
+// The UI and status API share the same validated lifecycle. Re-export the names
+// already consumed by screens/tests so existing callers need no migration.
+export { ISSUE_STATUS_TRANSITIONS, allowedIssueTransitions, issueTransitionNeedsReason } from '@aemr/shared';
 
 /**
  * Подпись кнопки перехода — это ровно фраза статуса из словаря продукта.
@@ -80,4 +41,13 @@ export function issueTransitionRefusal(from: string, to: string): string {
   }
   const path = sources.map((s) => `«${issueStatusLabel(s)}»`).join(' или ');
   return `Отметить «${target}» можно только из статуса ${path}, а сейчас замечание в статусе «${issueStatusLabel(from)}».`;
+}
+
+
+/** Сохранённое решение не подменяет повторную проверку первичного источника. */
+export function issueDecisionExplanation(status: string): string {
+  if (status === 'resolved') return 'Исправление заявлено. Замечание осталось в выбранном снимке и учитывается в оценке доверия. Перечитайте источники для проверки результата.';
+  if (status === 'false_positive') return 'Решение «ложное срабатывание» сохранено. Это замечание не снижает оценку доверия; причина и ответственный доступны в истории.';
+  if (status === 'wont_fix') return 'Решение не исправлять сохранено; риск сохраняется и учитывается в оценке доверия. Причина и ответственный доступны в истории.';
+  return 'Пояснение сохраняется в истории, но само по себе не закрывает замечание. После исправления перечитайте источники для повторной проверки.';
 }

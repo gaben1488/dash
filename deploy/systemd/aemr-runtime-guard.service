@@ -1,0 +1,24 @@
+[Unit]
+Description=Recover Dash processes independently of report generation
+Requires=docker.service
+After=docker.service systemd-tmpfiles-setup.service
+ConditionPathExists=/etc/aemr/runtime-policy.json
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/aemr-maintenance.conf
+ExecStart=/usr/bin/python3 -Es /usr/local/libexec/aemr/runtime_guard.py
+TimeoutStartSec=35min
+UMask=0077
+Environment=DOCKER_CONFIG=/etc/aemr/docker
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/aemr /run/lock /var/lib/docker/volumes/aemr_server_data/_data
+BindReadOnlyPaths=/home/aemr/.dash-private-backups
+MemoryMax=128M
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target

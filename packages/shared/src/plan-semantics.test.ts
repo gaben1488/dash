@@ -121,7 +121,8 @@ describe('сводная подпись периметра', () => {
     expect(s.mixed).toBe(false); // одна природа — «не подтверждена», складывать пока нечего с чем
     expect(s.hasUnknown).toBe(true);
     expect(s.unknownNote).toContain('УИО');
-    expect(s.unknownNote).toContain('УФБП');
+    expect(s.unknownNote).toContain('УФ');
+    expect(s.unknownNote).not.toContain('УФБП');
     expect(s.warning).toBeNull();
   });
 

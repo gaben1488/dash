@@ -30,6 +30,13 @@ class ForensicQATests(unittest.TestCase):
         issues=validate_master_values([rawrow("174"),rawrow("174",subject="other")],grbs="УО",source_id="uo",sheet_name="ВСЕ")
         self.assertIn("DUPLICATE_BUSINESS_ID",[x.code for x in issues])
 
+    def test_duplicate_business_label_alone_is_information_not_failed_validation(self):
+        issues = validate_master_values([rawrow('174'), rawrow('174', subject='other')],
+                                        grbs='УО', source_id='uo', sheet_name='ВСЕ')
+        duplicate = next(issue for issue in issues if issue.code == 'DUPLICATE_BUSINESS_ID')
+        self.assertEqual(duplicate.severity, 'INFO')
+        self.assertEqual(duplicate.context['rows'], [4, 5])
+
     def test_monetary_fact_without_completion_date_is_not_treated_as_clean_completion(self):
         issues=validate_master_values([rawrow("15",fact_date="X",fact=(0,0,5.215))],grbs="УО",source_id="uo",sheet_name="ВСЕ")
         self.assertIn("MONETARY_FACT_WITHOUT_COMPLETION_DATE",[x.code for x in issues])

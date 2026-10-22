@@ -1,0 +1,23 @@
+name: Integrated durable source-state release
+
+# Explicit one-off owner request on PR79 integration or PR129 frozen release branch. This workflow
+# delegates to the SAME reviewed stateful controller used by labeled releases;
+# it does not provide an alternate SSH script or bypass backup/recovery checks.
+on:
+  push:
+    branches: [codex/dash-audit-integrated-20261010, release/dash79-modern-forward-20261022]
+    paths:
+      - '.github/ci/integrated-source-state-release-20261022.request'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  candidate:
+    if: >-
+      github.repository == 'gaben1488/dash' &&
+      github.actor == github.repository_owner &&
+      (github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' || github.ref == 'refs/heads/release/dash79-modern-forward-20261022')
+    uses: ./.github/workflows/vps-cache-cleanup.yml
+    secrets: inherit

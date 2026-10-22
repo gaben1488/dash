@@ -10,7 +10,7 @@
  */
 
 import type { QuarterExecutionResult } from '../metrics/quarter-execution.js';
-import type { IssueSeverity, SvodMoneyRow } from '@aemr/shared';
+import type { IssueSeverity, IssueStatus, SvodMoneyRow } from '@aemr/shared';
 
 /** Происхождение числа: пересчёт из атомов или официальный лист СВОД. */
 export type ReportOrigin = 'calc' | 'svod';
@@ -172,6 +172,8 @@ export interface GrbsYearSlice {
 export interface ReportSignal {
   id: string;
   severity: IssueSeverity;
+  /** Status at the report's read time; archived reports keep their frozen status. */
+  status?: IssueStatus;
   title: string;
   /** Полное описание проблемы — текст целиком, обрезать запрещено. */
   description: string;
@@ -314,6 +316,8 @@ export interface ReportPeriod {
    * даты адресуют хранение — снимок недели, — а живую ситуацию видно в эфире).
    */
   asOfDay?: number;
+  /** API context: live responses may also carry an addressing asOfDay. */
+  live?: boolean;
 }
 
 /** Результат buildReport — упорядоченная проекция для страницы «Отчёт». */

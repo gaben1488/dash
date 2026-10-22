@@ -1,0 +1,14 @@
+[Unit]
+Description=Bound intermediate report storage and preserve weekly source cuts
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/etc/aemr/storage-maintenance.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/aemr/storage-maintenance.env
+ExecStart=/usr/bin/flock -n -E 75 /run/lock/aemr-maintenance.lock /usr/bin/docker run --rm --name aemr-storage-maintenance --network none --read-only --no-healthcheck --memory=512m --cpus=0.5 --tmpfs /tmp:size=128m -v aemr_server_data:/app/packages/server/data -v /usr/local/libexec/aemr/storage-budget-20261019:/maintenance:ro --entrypoint /opt/report-env/bin/python ${AEMR_STORAGE_IMAGE} /maintenance/storage-maintenance.py --state /app/packages/server/data/reports --apply
+ExecStartPost=/usr/bin/python3 /usr/local/libexec/aemr/storage-budget-20261019/storage-images.py
+SuccessExitStatus=75
+TimeoutStartSec=20min
+Nice=10

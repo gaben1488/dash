@@ -20,18 +20,18 @@ import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
   SEVERITY_LABELS,
+  ISSUE_STATUS_LABELS,
   SVOD_SHEET_NAME,
   buildSheetUrl,
   SVOD_SPREADSHEET_ID,
   dayNumberOf,
-  isoOfDayNumber,
   getMetricByKey,
   productLabel,
   quarterLabel,
   subordinateKey,
 } from '@aemr/shared';
 import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
-import { api, type ReportResponse } from '../api';
+import { api, ApiError, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
 import { perimeterLabel, type Perimeter } from '../lib/perimeter';
@@ -51,6 +51,7 @@ import {
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
 import { useReportExport } from '../lib/report/use-report-export';
+import { ReportOperationsStatus } from '../lib/report/ReportOperationsStatus';
 import { LifecycleStrip, type OpenLifecycleRows } from '../components/report/LifecycleStrip';
 import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
@@ -64,7 +65,8 @@ import {
   unfundedProof,
 } from '../lib/report/proof';
 import { generateReportText } from '../lib/report/text';
-import { reportRequestParams, type ReportMode } from '../lib/report/request';
+import { reportRequestParams, wordExportContext, type ReportMode } from '../lib/report/request';
+import { productTodayIso } from '../lib/period-coverage';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { bookCellUrl, bookLinkHint, bookRowUrl } from '../lib/report/book-link';
 import { reportPerimeter } from '../lib/report/perimeter';
@@ -122,17 +124,17 @@ function moneyFooter(tile: KpiVM) {
  * Заголовок — причина, описание — что это значит и что делать; технический
  * текст сервера уезжает в мелкую строку подробности, а не подменяет объяснение.
  */
-function errorContent(error: string, mode: ReportMode): { title: string; description: string } {
+function errorContent(error: unknown, mode: ReportMode): { title: string; description: string } {
   if (mode === 'archive') return {
     title: 'Архивные показатели страницы недоступны',
     description: 'Старый снимок страницы не загружен. Проверенный Word-комплект собирается отдельно из полного архива выбранной даты; его состояние показано выше. Текущие данные не заменяют архив.',
   };
-  return error.includes('503')
+  return error instanceof ApiError && error.status === 503 && error.code === 'SNAPSHOT_NOT_READY'
     ? {
-      title: 'Сервер ещё не прочитал книги управлений',
+      title: 'Данные для отчёта ещё готовятся',
       description:
-        'Снимка данных на сервере пока нет, поэтому отчёту не из чего собраться. ' +
-        'Запустите чтение книг на Пульте и вернитесь сюда.',
+        'Для выбранного периода ещё нет готового среза. Чтение и расчёт уже запущены. ' +
+        'Дождитесь завершения и запросите отчёт снова.',
     }
     : {
       title: 'Отчёт не удалось загрузить',
@@ -208,6 +210,11 @@ function SignalRow({ s, dept }: { s: ReportSignal; dept: string }) {
           {SEVERITY_LABELS[s.severity]?.label ?? s.severity}
         </span>
         <span className="text-zinc-700 dark:text-zinc-200">{s.title}</span>
+        {s.status && s.status !== 'open' && (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400" aria-label="Статус решения">
+            {ISSUE_STATUS_LABELS[s.status] ?? productLabel(s.status)}
+          </span>
+        )}
       </div>
       {(s.description || s.sheet || s.cell) && (
         <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">
@@ -683,23 +690,24 @@ export function ReportPage() {
   // Параметры запроса — чистым хелпером: год из контекста ('all' → последний
   // доступный), квартал — кнопки страницы поверх ctx.period, asOf — четверг
   // выбранной недели колеса (кламп к последнему четвергу — внутри хелпера)
-  const [localQuarter, setLocalQuarter] = useState<Quarter | null>(null);
+  const localQuarter = useStore(state => state.reportQuarter);
+  const setLocalQuarter = (quarter: Quarter | null) => useStore.setState({ reportQuarter: quarter });
   // Режим просмотра: эфир по умолчанию (канон 27.07). Переключатель в шапке —
   // единственный способ уйти в архив недели, поэтому состояние живёт здесь,
   // а не выводится из наличия недели в фильтрах (это и путало читателя).
-  const [mode, setMode] = useState<ReportMode>('live');
+  const mode = useStore(state => state.reportMode);
+  const setMode = (value: ReportMode) => useStore.setState({ reportMode: value });
+  const navigationVersion = useStore(state => state.urlNavigationVersion);
   // Колесо недель и переключатель — одно управление, а не два несвязанных.
   // Крутанул неделю — это явное намерение смотреть архив, поэтому режим
   // переключается сам. Без этого колесо в эфире молча ни на что не влияло.
-  const prevWeek = useRef<string | null>(ctx.weekStart);
+  const prevWeek = useRef({ week: ctx.weekStart, navigationVersion });
   useEffect(() => {
-    if (ctx.weekStart !== prevWeek.current) {
-      prevWeek.current = ctx.weekStart;
-      if (ctx.weekStart !== null) setMode('archive');
-    }
-  }, [ctx.weekStart]);
+    if (ctx.weekStart !== prevWeek.current.week && navigationVersion === prevWeek.current.navigationVersion && ctx.weekStart !== null) setMode('archive');
+    prevWeek.current = { week: ctx.weekStart, navigationVersion };
+  }, [ctx.weekStart, navigationVersion]);
   const request = useMemo(
-    () => reportRequestParams(ctx, dayNumberOf(new Date())!, localQuarter ?? undefined, mode),
+    () => reportRequestParams(ctx, dayNumberOf(productTodayIso())!, localQuarter ?? undefined, mode),
     [ctx, localQuarter, mode],
   );
 
@@ -707,7 +715,7 @@ export function ReportPage() {
   // retry — счётчик «Повторить запрос» из пустого состояния ошибки: без него
   // читатель после сбоя мог только перезагрузить страницу целиком.
   const [report, setReport] = useState<ReportResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -715,7 +723,7 @@ export function ReportPage() {
     setError(null);
     api.getReport(request.year, request.quarter, request.asOf)
       .then((r) => { if (!cancelled) setReport(r); })
-      .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e : new Error(String(e))); });
     return () => { cancelled = true; };
   }, [request.year, request.quarter, request.asOf, retry]);
 
@@ -784,19 +792,9 @@ export function ReportPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
   const isLive = report?.period.live ?? false;
-  const exportDate = report ? isoOfDayNumber(report.period.asOfDay) : null;
-  const reportMatchesRequest = report && report.period.year === request.year
-    && (request.quarter === undefined || report.period.quarter === request.quarter)
-    && isLive === (mode === 'live') && (request.asOf === undefined || exportDate === request.asOf);
-  // Frozen Word evidence is independent of the legacy dashboard snapshot.
-  // A failed /api/report must not suppress /report-releases/prepare.
-  const word = useReportExport(mode === 'archive' && request.asOf ? {
-    date: request.asOf, year: request.year,
-    quarter: request.quarter ?? (Math.floor((Number(request.asOf.slice(5, 7)) - 1) / 3) + 1) as Quarter,
-    mode,
-  } : reportMatchesRequest && exportDate ? {
-    date: exportDate, year: request.year, quarter: report.period.quarter, mode,
-  } : null);
+  // Word has its own immutable publication and must not depend on
+  // GET /api/report or a stale cached analytics day.
+  const word = useReportExport(wordExportContext(request, mode, productTodayIso()));
 
   const onCopy = () => {
     if (!report || asOfDate === null) return;
@@ -919,7 +917,7 @@ export function ReportPage() {
                   : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/60',
               )}
             >
-              <span>{vm.dept}</span>
+              <span>{productLabel(vm.dept)}</span>
               <span className={clsx(
                 'tabular-nums font-medium',
                 activeDept === vm.dept ? 'text-amber-900 dark:text-amber-100' : 'text-zinc-800 dark:text-zinc-100',
@@ -1066,7 +1064,9 @@ export function ReportPage() {
           {word.refreshNotice}
         </p>
       )}
+      {word.isPinned && <button type="button" className="text-xs underline" onClick={word.unpin}>Снять фиксацию Word-выпуска</button>}
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
+      <ReportOperationsStatus value={word.operations} apiState={word.apiState} />
       <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
@@ -1185,10 +1185,10 @@ export function ReportPage() {
         // повтор запроса — на месте, дорога к чтению книг — на Пульт.
         <div className="analytics-chart-card">
           <EmptyState
-            tone="problem"
+            tone={error instanceof ApiError && error.status === 503 && error.code === 'SNAPSHOT_NOT_READY' ? 'neutral' : 'problem'}
             title={errorContent(error, mode).title}
             description={errorContent(error, mode).description}
-            detail={error}
+            detail={String(error)}
             action={{ label: 'Запросить отчёт заново', onClick: () => setRetry((r) => r + 1) }}
             secondaryAction={{ label: 'Открыть Пульт', onClick: () => navigateTo('dashboard') }}
           />

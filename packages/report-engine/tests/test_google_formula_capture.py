@@ -1,4 +1,5 @@
-from procurement_engine.google_adapter import GoogleSheetSourceAdapter
+import pytest
+from procurement_engine.google_adapter import GoogleReadError, GoogleSheetSourceAdapter
 from procurement_engine.raw_pipeline import header_hash
 
 
@@ -14,6 +15,19 @@ class Client:
 
     def formulas(self, provider, title, start, end, columns):
         return [['header'], [1, 2, '=SUM(A2:B2)'], []][start - 1:end]
+
+
+def test_source_discussions_are_frozen_with_values_not_left_in_a_separate_cache():
+    class WithDiscussions(Client):
+        def discussions(self, provider):
+            assert provider == 'book'
+            return [{'id': 'thread', 'content': 'Source answer', 'quotedFileContent': {'value': 'Full subject'}}]
+
+    contract = {'source_id': 'master', 'role': 'master', 'provider_id': 'book',
+        'sheet_id': 0, 'sheet': 'Master', 'columns': 3, 'header_rows': 1,
+        'units': 'thousand', 'schema_fingerprint': header_hash([['header']], 1)}
+    payload = GoogleSheetSourceAdapter(contract, WithDiscussions()).read_payload()
+    assert payload.metadata['formula_evidence']['discussions'][0]['id'] == 'thread'
 
 
 def test_adapter_persists_formula_locations_and_context_in_same_payload():
@@ -70,3 +84,100 @@ def test_wider_grid_captures_dependency_values_without_expanding_business_column
     result = audit_formula_dependencies({'sources': [{**contract, 'rows': 3,
         'values': payload.semantic_values, 'formula_evidence': evidence}]})
     assert result['closed'], result['issues']
+
+ 
+@pytest.mark.parametrize('registered_width, physical_width', [
+    (18, 18), (19, 19), (32, 32), (34, 34),
+    (18, 34), (19, 34), (32, 34), (34, 35),
+])
+def test_canonical_directory_exact_physical_width_guards_live_capture(
+        registered_width, physical_width):
+    """Historical frozen schemas stay readable; live width drift cannot hide columns."""
+    class Directory(Client):
+        def grid(self, provider, sheet_id):
+            assert sheet_id == 837564274
+            return {'title': 'Справочник заказчиков',
+                    'gridProperties': {'rowCount': 2, 'columnCount': physical_width}}
+
+        def values(self, provider, title, start, end, columns):
+            assert columns == physical_width
+            return [['Heading'], list(range(physical_width))][start - 1:end]
+
+        def formulas(self, provider, title, start, end, columns):
+            assert columns == physical_width
+            return self.values(provider, title, start, end, columns)
+
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 837564274, 'title': 'Справочник заказчиков'}],
+                    'named_ranges': []}
+
+    contract = {'source_id': 'directory', 'role': 'formula_dependency',
+                'provider_id': '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E',
+                'sheet_id': 837564274, 'sheet': 'Справочник заказчиков',
+                'columns': registered_width, 'header_rows': 1, 'units': 'directory',
+                'schema_fingerprint': header_hash([['Heading']], 1)}
+    adapter = GoogleSheetSourceAdapter(contract, Directory())
+    if registered_width != physical_width:
+        with pytest.raises(GoogleReadError, match='MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH'):
+            adapter.read_payload()
+        return
+    payload = adapter.read_payload()
+    assert len(payload.semantic_values[1]) == registered_width
+    assert payload.metadata['formula_evidence']['columns'] == registered_width
+    assert 'extra_values' not in payload.metadata['formula_evidence']
+
+
+@pytest.mark.parametrize('provider,sheet_id,former,approved', [
+    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП', 'УФ'),
+    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ', 'УДТХиБ'),
+])
+def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
+        provider, sheet_id, former, approved):
+    """Rename only the visible sheet title, never its ID or 34-column payload."""
+    from procurement_engine.department_directory import MASTER_FIELDS
+    headers = [[], [], [field['label'] for field in MASTER_FIELDS.values()]]
+
+    class RenameClient(Client):
+        def __init__(self, title):
+            self.title = title
+            self.calls = []
+
+        def grid(self, provider_id, requested_id):
+            assert provider_id == provider and requested_id == sheet_id
+            return {'title': self.title, 'gridProperties': {'rowCount': 3, 'columnCount': 34}}
+
+        def formula_context(self, provider_id):
+            return {'sheets': [{'sheetId': sheet_id, 'title': self.title}], 'named_ranges': []}
+
+        def values(self, provider_id, title, start, end, columns):
+            self.calls.append(title)
+            assert title == self.title
+            return headers[start - 1:end]
+
+        def formulas(self, provider_id, title, start, end, columns):
+            self.calls.append(title)
+            assert title == self.title
+            return headers[start - 1:end]
+
+    contract = {'source_id': former, 'role': 'master', 'provider_id': provider,
+                'sheet_id': sheet_id, 'sheet': former, 'columns': 34, 'header_rows': 3,
+                'units': 'thousand', 'schema_fingerprint': header_hash(headers, 3)}
+    old = GoogleSheetSourceAdapter(contract, RenameClient(former)).read_payload()
+    client = RenameClient(approved)
+    renamed = GoogleSheetSourceAdapter(contract, client).read_payload()
+    assert renamed.semantic_values == old.semantic_values
+    assert renamed.schema_fingerprint == old.schema_fingerprint
+    assert renamed.metadata['sheet_title'] == approved
+    from procurement_engine.formula_dependencies import audit_formula_dependencies
+    for payload in (old, renamed):
+        captured = {**contract, 'rows': len(payload.semantic_values),
+                    'formula_evidence': payload.metadata['formula_evidence']}
+        assert audit_formula_dependencies({'sources': [captured]})['closed']
+    assert client.calls and set(client.calls) == {approved}
+    for wrong_title in ['UNKNOWN', approved + ' ', 'Все']:
+        with pytest.raises(GoogleReadError, match='GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'):
+            GoogleSheetSourceAdapter(contract, RenameClient(wrong_title)).read_payload()
+    # Name-only similarity is never enough: wrong provider/id must fail closed.
+    wrong = {**contract, 'sheet_id': sheet_id + 1}
+    with pytest.raises(AssertionError):
+        GoogleSheetSourceAdapter(wrong, RenameClient(approved)).read_payload()

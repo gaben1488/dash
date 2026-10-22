@@ -528,3 +528,23 @@ export function extractProcedureNumbers(text: unknown): string[] {
   }
   return [...new Set(found)];
 }
+
+/** These are claims inside note text, never authenticated Google edit metadata. */
+export function classifyCellNote(content: string) {
+  const claims: Array<{ before: string; at: string; actor: string; evidenceKind: 'NOTE_TEXT_CLAIM' }> = [];
+  const residual: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^Было:\s*(.*?)\s*\((\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}),\s*(.*?)\)\s*$/u.exec(line);
+    if (match) {
+      const parts = /^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$/.exec(match[2]!);
+      const [day, month, year, hour, minute] = parts!.slice(1).map(Number);
+      const date = new Date(Date.UTC(year!, month! - 1, day!));
+      if (date.getUTCFullYear() === year && date.getUTCMonth() === month! - 1 && date.getUTCDate() === day && hour! < 24 && minute! < 60) {
+        claims.push({ before: match[1]!, at: match[2]!, actor: match[3]!, evidenceKind: 'NOTE_TEXT_CLAIM' });
+        continue;
+      }
+    }
+    residual.push(line);
+  }
+  return { claims, historyOnly: claims.length > 0 && residual.every(line => line.trim() === ''), discussionText: residual.join('\n') };
+}

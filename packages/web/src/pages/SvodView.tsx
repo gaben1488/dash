@@ -84,11 +84,11 @@ const COL_RULE = `border-l ${RULE_HEAD}`;
 // ── Форматирование ───────────────────────────────────────────────────
 
 const MONEY_DIV: Record<string, number> = { 'тыс': 1, 'млн': 1000, 'млрд': 1_000_000 };
-// Подписи единиц — из канона; «млрд» в UI_LABELS нет, форма собрана по образцу двух выше.
+// Подписи единиц — только из общего справочника.
 const MONEY_LABEL: Record<string, string> = {
   'тыс': UI_LABELS['unit.thousand_rubles'],
   'млн': UI_LABELS['unit.million_rubles'],
-  'млрд': 'млрд руб.',
+  'млрд': UI_LABELS['unit.billion_rubles'],
 };
 
 /** Пустая клетка объясняет себя словами: «—» читателю ничего не говорит. */

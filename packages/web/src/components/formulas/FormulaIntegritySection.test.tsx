@@ -121,6 +121,13 @@ describe('честное молчание: «не читались» вмест�
 describe('перечень ячеек полон и отбирается', () => {
   beforeEach(() => stubIntegrity(READ_TWO_BOOKS));
 
+  it('сохраняет адрес исторической шапки и объясняет, что его не следует исправлять', async () => {
+    render(<FormulaIntegritySection issues={[{ ...ISSUES[0], sheet: 'УЭР', cell: 'AA1', row: 1, rowSeq: '1' }]} />);
+    await screen.findByText(/Историческая диагностика шапки/);
+    expect(screen.getByText('AA1')).toBeTruthy();
+    expect(flat()).toContain('исправлять по этому замечанию не нужно');
+  });
+
   it('строка перечня несёт книгу, ячейку, номер закупки, класс, что стоит и эталон', async () => {
     render(<FormulaIntegritySection issues={ISSUES} />);
     await screen.findByText(/Разобраны формулы/);

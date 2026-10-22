@@ -26,6 +26,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="proc-report")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    check = sub.add_parser("check-publication-readers", help="Read-only rehearsal reader lease prerequisite")
+    check.add_argument("--state", required=True)
+
+    bootstrap = sub.add_parser("initialize-publication-readers", help="Explicit pre-listen reader lease bootstrap")
+    bootstrap.add_argument("--state", required=True)
+
     v = sub.add_parser("validate", help="Run fail-closed snapshot + ledger regression gates")
     v.add_argument("--snapshot", required=True)
     v.add_argument("--ledger", required=True)
@@ -53,10 +59,21 @@ def main(argv=None):
     capture.add_argument("--registry", required=True)
     capture.add_argument("--out", required=True)
     capture.add_argument("--timezone", default="Asia/Kamchatka")
+    capture.add_argument("--dashboard", action="store_true",
+                         help="Validate the shared input and emit its live master projection")
     run = sub.add_parser("run-google", help="Capture, build, verify and attempt an atomic release")
     run.add_argument("--registry", required=True)
     run.add_argument("--ledger", required=True)
     run.add_argument("--state", required=True)
+    enqueue = sub.add_parser("enqueue-report", help="Persist a full-source refresh before acknowledging it")
+    enqueue.add_argument("--registry", required=True)
+    enqueue.add_argument("--ledger", required=True)
+    enqueue.add_argument("--state", required=True)
+    command = sub.add_parser("read-report-command", help="Read a bounded durable command receipt")
+    command.add_argument("--state", required=True)
+    command.add_argument("--attempt-id", required=True)
+    recovery = sub.add_parser("recover-report-commands", help="Recover orphaned commands without capturing sources")
+    recovery.add_argument("--state", required=True)
     bootstrap = sub.add_parser("bootstrap-google", help="Install private runtime inputs using the existing service account")
     bootstrap.add_argument("--inputs", required=True)
     migration = sub.add_parser("migrate-google-schema", help="Apply reviewed private reference header migrations")
@@ -68,14 +85,16 @@ def main(argv=None):
     worker.add_argument("--registry", required=True)
     worker.add_argument("--ledger", required=True)
     worker.add_argument("--state", required=True)
-    worker.add_argument("--interval-seconds", type=int, default=900)
+    worker.add_argument("--interval-seconds", type=int, default=900,
+                        help="Source capture interval; 0 waits for explicit report commands only")
+    worker.add_argument("--queued-only", action="store_true", help="Drain accepted commands without periodic capture")
     prune = sub.add_parser("prune-state", help="Plan or compact old transient attempt payloads")
     prune.add_argument("--state", required=True)
     prune.add_argument("--keep-full", type=int, default=12)
     prune.add_argument("--apply", action="store_true")
     read = sub.add_parser("read-publication", help="Read a committed release without live recalculation")
     read.add_argument("--state", required=True)
-    read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement', 'operational'], required=True)
+    read.add_argument("--view", choices=['status', 'history', 'dashboard', 'main', 'supplement', 'operational'], required=True)
     read.add_argument("--release-id")
     read.add_argument("--report-date")
     read.add_argument("--report-year", type=int)
@@ -91,6 +110,29 @@ def main(argv=None):
         review.add_argument('--' + option, required=True)
 
     args = p.parse_args(argv)
+    if args.cmd == 'check-publication-readers':
+        from .publication_store import PublicationError, PublicationStore
+        try:
+            with PublicationStore(Path(args.state) / 'published', readonly=True).reader_lease():
+                pass
+        except PublicationError as error:
+            code = str(error)
+            dump({'publication_reader_prerequisite': True, 'status': 'BLOCKED',
+                  'error_code': code,
+                  'required_action': ('AUTHORIZED_QUIESCENT_READER_BOOTSTRAP'
+                                      if code == 'PUBLICATION_READER_LEASE_UNINITIALIZED'
+                                      else 'RESOLVE_READER_LEASE_BLOCKER')})
+            return 2
+        dump({'publication_reader_prerequisite': True, 'status': 'PASS'})
+        return 0
+    if args.cmd == 'initialize-publication-readers':
+        from .publication_store import PublicationError, initialize_publication_readers
+        try:
+            initialize_publication_readers(args.state)
+        except PublicationError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == 'run-archive':
         from .archive_runtime import MESSAGES, ArchiveError, ensure_archive_release
         try:
@@ -142,7 +184,8 @@ def main(argv=None):
         return 0 if result.get("status") not in {"FAILED", "PLAN_CHANGED"} else 2
     if args.cmd == "worker":
         from .worker import work
-        return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds)
+        return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds,
+                    queued_only=args.queued_only)
     if args.cmd == "read-publication":
         from .publication_reader import read_publication
         from .publication_store import PublicationError
@@ -155,12 +198,43 @@ def main(argv=None):
             return 4 if str(error) == 'PUBLICATION_NOT_FOUND' else 2
         sys.stdout.buffer.write(result)
         return 0
+    if args.cmd == "enqueue-report":
+        from .runtime import enqueue_report
+        dump(enqueue_report(args.registry, args.ledger, args.state))
+        return 0
+    if args.cmd == "recover-report-commands":
+        from .runtime import recover_report_commands
+        dump(recover_report_commands(args.state))
+        return 0
+    if args.cmd == "read-report-command":
+        from .runtime import read_report_command
+        try:
+            result = read_report_command(args.state, args.attempt_id)
+        except ValueError as error:
+            if str(error) == 'REPORT_COMMAND_NOT_FOUND':
+                print('REPORT_COMMAND_NOT_FOUND', file=sys.stderr)
+                return 4
+            raise
+        dump(result)
+        return 0
     if args.cmd == "run-google":
+        from .deployment_diagnostics import summarize_status
         from .runtime import run_once
         status = run_once(args.registry, args.ledger, args.state)
-        dump(status)
+        summary = summarize_status(status)
+        summary['status'] = summary.pop('last_report_status')
+        if 'attempt_id' in status:
+            summary['attempt_id'] = status['attempt_id']
+        if status.get('publication'):
+            summary['release_id'] = status['publication']['release_id']
+        # Full evidence is already persisted; stdout is a bounded command receipt.
+        dump(summary)
         return 0 if status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'} else 2
     if args.cmd == "capture-google":
+        if args.dashboard:
+            from .shared_input import acquire_dashboard
+            dump(acquire_dashboard(load(args.registry), args.out, timezone_name=args.timezone))
+            return 0
         from .google_adapter import capture_google
         if Path(args.out).exists():
             raise ValueError("CAPTURE_OUTPUT_ALREADY_EXISTS")

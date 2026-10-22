@@ -33,14 +33,13 @@ vi.mock('./snapshot.js', () => ({
 }));
 
 vi.mock('./file-revision.js', () => ({
+  readRevision: vi.fn(async () => null),
   checkFileChanged: vi.fn(async () => 'unknown' as const),
   forgetRevision: vi.fn(),
   lastKnownRevision: vi.fn(() => null),
   seedRevision: vi.fn(),
 }));
 
-// Reading/delivery tests use an in-memory persistence stub; SQLite has its
-// own restart/compatibility regression test.
 vi.mock('./source-integrity-state.js', () => ({
   saveFormulaAudit: vi.fn(),
   loadFormulaAudits: vi.fn(() => []),
@@ -48,6 +47,7 @@ vi.mock('./source-integrity-state.js', () => ({
 
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => new Map(),
   loadWatermarks: vi.fn(() => new Map()),
   saveWatermark: vi.fn(),
   noteHonestGap: vi.fn(() => true),
@@ -55,6 +55,7 @@ vi.mock('./book-watermark.js', () => ({
 
 vi.mock('../config.js', () => ({
   config: {
+    database: { url: ":memory:" },
     google: { spreadsheetId: 'file-svod' },
     cache: { autoRefreshMinutes: 0 },
     weeklySnapshot: { utcOffsetHours: 12 },
@@ -178,12 +179,12 @@ describe('чтение формул в цикле источников', () => {
     expect(formulaDeliveryState().books).toEqual([]);
   });
 
-  it('ошибка Google не оставляет предыдущую успешную доставку последней', async () => {
+  it('ошибка чтения Google не выдаётся за свежую успешную доставку', async () => {
     const { refreshAllSources, setFormulaSink, formulaDeliveryState } =
       await import('./source-refresh.js');
     const { saveFormulaAudit } = await import('./source-integrity-state.js');
     fetchDepartmentSpreadsheets.mockResolvedValueOnce({ data: bookWithFormulas(), errors: {} });
-    setFormulaSink((delivery) => ({
+    setFormulaSink(delivery => ({
       book: delivery.book, at: delivery.at!, rowsJudged: 2, defects: [],
     }));
     await refreshAllSources(log, 'webhook', { withFormulas: true });
@@ -193,7 +194,7 @@ describe('чтение формул в цикле источников', () => {
       data: {}, errors: { 'УО': '403 permission denied' },
     });
     const refresh = await refreshAllSources(log, 'webhook', {
-      withFormulas: true, fresh: true, svod: false,
+      withFormulas: true, fresh: true, svod: false, askDrive: false,
     });
     expect(refresh.formulaBooks).toEqual([]);
     expect(refresh.failed).toEqual(['УО']);
@@ -204,7 +205,7 @@ describe('чтение формул в цикле источников', () => {
     expect(vi.mocked(saveFormulaAudit).mock.lastCall?.[1]).toBeNull();
   });
 
-  it('при запрошенных, но не доставленных формулах фиксирует неуспешную попытку', async () => {
+  it('не сохраняет отсутствие формул как ноль дефектов', async () => {
     fetchDepartmentSpreadsheets.mockResolvedValue({
       data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ', formulasRead: false } },
       errors: {},
@@ -217,12 +218,12 @@ describe('чтение формул в цикле источников', () => {
     ]);
   });
 
-  it('отказ SQLite не подтверждает проверку даже при успешном чтении', async () => {
+  it('SQLite READONLY оставляет видимый отказ даже при успешном чтении Google', async () => {
     const { saveFormulaAudit } = await import('./source-integrity-state.js');
     vi.mocked(saveFormulaAudit).mockImplementationOnce(() => { throw new Error('SQLITE_READONLY'); });
     fetchDepartmentSpreadsheets.mockResolvedValue({ data: bookWithFormulas(), errors: {} });
     const { refreshAllSources, formulaDeliveryState, setFormulaSink } = await import('./source-refresh.js');
-    setFormulaSink((delivery) => ({
+    setFormulaSink(delivery => ({
       book: delivery.book, at: delivery.at!, rowsJudged: 2, defects: [],
     }));
     await refreshAllSources(log, 'webhook', { withFormulas: true });
@@ -241,5 +242,9 @@ describe('чтение формул в цикле источников', () => {
     // Обратный порядок: просьба о формулах уже стояла — обычный вызов её не снимает.
     const kept = widenScopeForTests(wider, { books: ['УД'] });
     expect(kept.withFormulas).toBe(true);
+    const forced = widenScopeForTests(kept, { books: ['УЭР'], askDrive: false });
+    expect(forced.askDrive).toBe(false);
+    const stillForced = widenScopeForTests(forced, { books: ['УФБП'] });
+    expect(stillForced.askDrive).toBe(false);
   });
 });

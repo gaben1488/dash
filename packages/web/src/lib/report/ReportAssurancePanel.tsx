@@ -1,10 +1,29 @@
-import { useId } from 'react';
+import { productLabel } from '@aemr/shared';
+import { useId, useState } from 'react';
 import type { ReportAssurance } from '@aemr/shared';
+
+type Action = ReportAssurance['actions'][number];
+
+function presentationGroups(actions: readonly Action[]) {
+  const groups = new Map<string, { item: Action; count: number }>();
+  for (const item of actions) {
+    const key = item.owner_kind === 'ENGINE'
+      ? JSON.stringify([item.code, item.severity, item.owner, item.title, item.cause,
+        item.report_effect, item.action, item.resolved_when])
+      : item.signal_id;
+    const group = groups.get(key);
+    if (group) group.count++;
+    else groups.set(key, { item, count: 1 });
+  }
+  return [...groups.values()];
+}
 
 /** Technical diagnostics are available, but never dominate the weekly report. */
 export function ReportAssurancePanel({ value, label }: { value: ReportAssurance | null; label: string }) {
   const headingId = useId();
-  if (!value || value.actions.length === 0) return null;
+  const [downloadError, setDownloadError] = useState(false);
+  const resolved = value?.contract === 'actionable-assurance-v4' ? value.resolved_questions : [];
+  if (!value || (value.actions.length === 0 && resolved.length === 0)) return null;
   const hasBusinessAction = value.user_action_count > 0;
   const hasBlocker = value.actions.some(action => action.severity === 'blocks_release');
   const groups = [
@@ -13,6 +32,21 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
     { key: 'ENGINE', title: 'Справка для технического сопровождения',
       count: value.engine_action_count },
   ];
+  const downloadProtocol = () => {
+    let url: string | undefined;
+    try {
+      url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'dash-report-technical-protocol.json';
+      link.click();
+      setDownloadError(false);
+    } catch {
+      setDownloadError(true);
+    } finally {
+      if (url) setTimeout(() => URL.revokeObjectURL(url!), 1000);
+    }
+  };
   return (
     <details className={'rounded-lg border px-3 py-2 text-sm ' + (hasBlocker
       ? 'border-amber-400 bg-amber-50/60 dark:bg-amber-950/20'
@@ -30,26 +64,62 @@ export function ReportAssurancePanel({ value, label }: { value: ReportAssurance 
           Технические замечания не означают, что проверенный Word ошибочен.
           Уточнения исходных данных показаны отдельно от служебной диагностики.
         </p>
+        {resolved.length > 0 && <details className="mt-3 rounded-md border border-zinc-200 p-2 dark:border-zinc-700">
+          <summary className="cursor-pointer font-medium">Ответы уже найдены · {resolved.length}</summary>
+          <p className="mt-2 text-xs">Повторное уточнение не требуется. Дата и основание ответа сохранены;
+            исторический ответ не означает, что рекомендация исполнена сейчас.</p>
+          {resolved.map(item => <details key={item.source_row_key ?? item.recommendation_id} className="mt-2 text-xs">
+            <summary className="cursor-pointer">{item.locations[0]?.subject ?? item.title}</summary>
+            <p className="mt-1">{item.answer}</p><p className="mt-1 text-zinc-500">{item.basis}</p>
+          </details>)}
+        </details>}
         {groups.filter(group => group.count > 0).map(group => (
           <details key={group.key} className="mt-3 rounded-md border border-zinc-200 p-2 dark:border-zinc-700">
             <summary className="cursor-pointer font-medium">
               {group.title} · {group.count}
             </summary>
             <div className="mt-2 space-y-2">
-              {value.actions.filter(item => item.owner_kind === group.key).map(item => (
+              {group.key === 'ENGINE' && <>
+                <p className="text-xs">Повторяющиеся записи объединены по причине, влиянию и действию.
+                  Полные адреса, идентификаторы и исходные пояснения сохранены в протоколе выбранного выпуска.</p>
+                <button type="button" className="text-xs underline" onClick={downloadProtocol}>
+                  Скачать полный технический протокол
+                </button>
+                {downloadError && <div role="alert" className="text-xs">
+                  <p>Не удалось скачать файл. Полный протокол можно выделить и сохранить вручную.</p>
+                  <textarea aria-label="Полный технический протокол" readOnly
+                    value={JSON.stringify(value, null, 2)} className="w-full" rows={8} />
+                </div>}
+              </>}
+              {presentationGroups(value.actions.filter(item => item.owner_kind === group.key)).map(({ item, count }) => (
                 <details key={item.signal_id} className={'rounded-md border-l-2 px-2 py-1 ' + (
                   item.severity === 'blocks_release' ? 'border-amber-500' : 'border-zinc-300 dark:border-zinc-600'
                 )}>
                   <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    {item.title}{item.owner && ' · ' + item.owner}
+                    {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4'
+                      ? 'Сумма без даты завершения: уточнить вид позиции' : item.title}{item.owner && ' · ' + productLabel(item.owner)}
                     {item.severity === 'blocks_release' && ' · требуется для нового выпуска'}
+                    {group.key === 'ENGINE' && <span> · Затронутых записей: {count}</span>}
                   </summary>
                   <div className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                     <p><strong>Что произошло:</strong> {item.cause}</p>
                     <p><strong>На что влияет:</strong> {item.report_effect}</p>
-                    <p><strong>Что сделать:</strong> {item.action}</p>
-                    <p><strong>Когда вопрос будет закрыт:</strong> {item.resolved_when}</p>
-                    {item.locations.map((where, index) => (
+                    {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4' ? <>
+                      <p>Вид позиции по этому сигналу не установлен. Сумма без Q сама по себе не доказывает ошибку сотрудника.</p>
+                      <p><strong>Что сделать:</strong> Уточнить, отражает ли строка один договор или годовую потребность.
+                        Для годовой потребности Q — дата последнего договора, закрывающего весь объём.
+                        До этого обязательства могут накапливаться, а Q оставаться пустой. Для разового договора
+                        сверить дату с подписанным документом. Не подставлять дату и не менять достоверные суммы ради снятия сигнала.</p>
+                      <details>
+                        <summary>Исходное пояснение сохранённого выпуска</summary>
+                        <p>Это исходный текст генератора того выпуска; он сохранён для истории.</p>
+                        <p>{item.title}</p><p>{item.action}</p><p>{item.resolved_when}</p>
+                      </details>
+                    </> : <p><strong>Что сделать:</strong> {item.action}</p>}
+                    <p><strong>Когда вопрос будет закрыт:</strong> {item.code === 'FACT_MONEY_WITHOUT_DATE' && value.contract !== 'actionable-assurance-v4'
+                      ? 'Вид позиции и корректность её сумм и дат подтверждены документами. Для незавершённой годовой потребности отсутствие Q допустимо; заполнение Q не является обязательным способом закрытия вопроса.'
+                      : item.resolved_when}</p>
+                    {(group.key === 'SOURCE_OWNER' ? item.locations : []).map((where, index) => (
                       <p key={where.a1 + '/' + index}>
                         {where.subject && <span>{where.subject}. </span>}
                         {where.url && /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[^/]+\/edit#gid=\d+&range=[A-Z]+\d+$/.test(where.url)

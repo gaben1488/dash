@@ -87,6 +87,7 @@ export type CommentInconsistencyKind =
   | 'promise_after_fact'
   | 'denial_when_signed'
   | 'execution_claim_no_fact'
+  | 'payment_text_conflict'
   | 'missing_procedure_ref'
   | 'ep_reason_on_competitive';
 
@@ -242,6 +243,41 @@ const EXECUTION_MARKERS: ReadonlyArray<{ re: RegExp; label: string }> = [
 /** Обороты со словом «исполнение», не относящиеся к оплате закупки. */
 const EXECUTION_FALSE_FRIENDS =
   /(?:качеств\w*|цель[юя]?|целях|во\s+исполнение|порядк\w*|сроки?)\s+исполнени/iu;
+
+
+/**
+ * Полярность явного утверждения об оплате. По одной фразе нельзя выводить
+ * банковский факт: это лишь материал для сопоставления комментариев.
+ * Смешанная история «не оплачено → оплачено» не является одновременным
+ * противоречием; её должен разбирать временной provenance отдельно.
+ */
+type PaymentTextPolarity = 'paid' | 'unpaid' | 'mixed' | 'unknown';
+const PAYMENT_NEGATIVE_RE =
+  /(?:не\s+(?:(?:был[аио]?|будет)\s+)?оплачен[а-яё]*|неоплачен[а-яё]*|оплата\s+(?:пока\s+|ещ[её]\s+)?не\s+(?:произведен[а-яё]*|проведен[а-яё]*))/giu;
+const PAYMENT_POSITIVE_RE =
+  /(?:оплачен[а-яё]*|оплата\s+(?:произведен[а-яё]*|проведен[а-яё]*))/iu;
+
+function paymentTextPolarity(value: string): PaymentTextPolarity {
+  PAYMENT_NEGATIVE_RE.lastIndex = 0;
+  const negative = PAYMENT_NEGATIVE_RE.test(value);
+  PAYMENT_NEGATIVE_RE.lastIndex = 0;
+  const withoutNegation = value.replace(PAYMENT_NEGATIVE_RE, ' ');
+  const positive = PAYMENT_POSITIVE_RE.test(withoutNegation);
+  if (negative && positive) return 'mixed';
+  if (negative) return 'unpaid';
+  if (positive) return 'paid';
+  return 'unknown';
+}
+
+/** Отрицание непосредственно перед маркером; не считать «не оплачено» оплатой. */
+function isNegatedClaim(text: string, at: number): boolean {
+  PAYMENT_NEGATIVE_RE.lastIndex = 0;
+  for (const m of text.matchAll(PAYMENT_NEGATIVE_RE)) {
+    const from = m.index ?? 0;
+    if (at >= from && at < from + m[0].length) return true;
+  }
+  return /(?:^|[^а-яё])не\s*$/iu.test(text.slice(Math.max(0, at - 24), at));
+}
 
 /** Колонки правил (д)-(ж): те же текстовые поля, что у правила (б). */
 const CLAIM_SCAN_COLUMNS: ReadonlyArray<CommentColumn> = ['U', 'AE', 'AF', 'AG', 'AH'];
@@ -541,8 +577,10 @@ export function detectCommentInconsistencies(
       if (text === null) continue;
       if (EXECUTION_FALSE_FRIENDS.test(text)) continue; // «качество исполнения» и родня
       for (const marker of EXECUTION_MARKERS) {
-        const m = marker.re.exec(text);
-        if (m === null || m.index === undefined) continue;
+        const matches = text.matchAll(new RegExp(marker.re.source, marker.re.flags.includes('g')
+          ? marker.re.flags : marker.re.flags + 'g'));
+        const m = Array.from(matches).find(hit => !isNegatedClaim(text, hit.index));
+        if (m === undefined) continue;
         annotations.push({
           rowKey,
           column,
@@ -550,16 +588,55 @@ export function detectCommentInconsistencies(
           kind: 'execution_claim_no_fact',
           excerpt: excerptAround(text, m.index, m.index + m[0].length),
           mechanism:
-            `Комментарий утверждает «${marker.label}», но фактические суммы строки пусты ` +
-            `(V${ref.sheetRow}–Y${ref.sheetRow}). Деньги либо не внесены в книгу — тогда свод и отчёт ` +
-            `их не видят, либо комментарий опережает события.`,
+            `Комментарий утверждает «${marker.label}», а суммы принятых бюджетных ` +
+            `обязательств (V${ref.sheetRow}–Y${ref.sheetRow}) пусты либо равны нулю. ` +
+            'Возможно, текст относится к другому моменту или в книге не отражён контракт. ' +
+            'Суммы обязательств не доказывают сам факт оплаты.',
           action:
-            `Владельцу книги «${ref.book}»: если оплата прошла — внесите фактические суммы ` +
-            `в V${ref.sheetRow}–Y${ref.sheetRow}; если ещё нет — поправьте комментарий ` +
-            `в ячейке ${column}${ref.sheetRow}.`,
+            `Владельцу книги «${ref.book}»: проверьте ${column}${ref.sheetRow} ` +
+            `по договору и документам исполнения, а V${ref.sheetRow}–Y${ref.sheetRow} ` +
+            'по первичным данным бюджетных обязательств. Не изменяйте суммы ' +
+            'по одному упоминанию оплаты.',
+
         });
         break;
       }
+    }
+  }
+
+
+  // ── Сопоставление текстовых утверждений об оплате внутри одной закупки ──
+  // Разные колонки могут описывать разные моменты времени. Кандидат на
+  // разбирательство НЕ утверждает, что деньги уплачены/не уплачены.
+  // Ни факт договора (Q), ни суммы принятых обязательств (V:Y) не являются
+  // самостоятельным подтверждением платёжного поручения.
+  {
+    const statements = (['AE', 'AF', 'AH'] as const)
+      .map((column) => {
+        const text = textOf(cells, column);
+        return text === null ? null : { column, text, polarity: paymentTextPolarity(text) };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+    const negative = statements.find((s) => s.polarity === 'unpaid');
+    const positive = statements.find((s) => s.polarity === 'paid');
+    if (negative && positive) {
+      annotations.push({
+        rowKey,
+        column: negative.column,
+        cell: `${negative.column}${ref.sheetRow}`,
+        kind: 'payment_text_conflict',
+        excerpt: excerptAround(negative.text, 0, negative.text.length),
+        mechanism:
+          `В ${negative.column}${ref.sheetRow} написано «не оплачено», ` +
+          `а в ${positive.column}${ref.sheetRow} — «оплачено». ` +
+          'Это противоречащие друг другу формулировки, но возможны разные моменты ' +
+          'составления комментариев; факт оплаты не установлен.',
+        action:
+          `Владельцу книги «${ref.book}»: сравните время и историю ` +
+          `${negative.column}${ref.sheetRow} и ${positive.column}${ref.sheetRow} ` +
+          'с платёжным поручением, выпиской и актом. Исправляйте только ' +
+          'доказанно неверное утверждение; автоматически не менять суммы, статус и текст.',
+      });
     }
   }
 

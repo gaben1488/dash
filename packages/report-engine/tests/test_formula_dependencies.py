@@ -101,6 +101,26 @@ def test_reference_to_unknown_sheet_cannot_pass_as_local():
     assert not audit([s])['closed']
 
 
+@pytest.mark.parametrize('provider,sheet_id,former,current', [
+    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП', 'УФ'),
+    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ', 'УДТХиБ'),
+])
+def test_reviewed_title_alias_preserves_formula_closure_only_for_exact_source(provider, sheet_id, former, current):
+    item = source(sheet_id=sheet_id, title=former, formulas=[
+        {'row': 1, 'column': 1, 'formula': f"=SUM('{current}'!B2:C3)"}])
+    item['provider_id'] = provider
+    item['formula_evidence']['sheets'] = [{'sheetId': sheet_id, 'title': current}]
+    item['formula_evidence']['named_ranges'] = []
+    assert audit([item])['closed']
+    for key, value in [('provider_id', 'another-book'), ('sheet_id', sheet_id + 1)]:
+        wrong = deepcopy(item)
+        wrong[key] = value
+        assert not audit([wrong])['closed']
+    wrong = deepcopy(item)
+    wrong['formula_evidence']['sheets'][0]['title'] = current + ' unknown'
+    assert not audit([wrong])['closed']
+
+
 @pytest.mark.parametrize('formula', [
     '=SUM(LET(remote;LAMBDA(x;x);remote(A1));remote(A1))',
     '=MAP(A1:A3;REMOTE)',

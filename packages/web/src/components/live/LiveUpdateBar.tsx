@@ -34,6 +34,8 @@
  * на те случаи, когда полоса показывается.
  */
 import { useEffect, useState } from 'react';
+import type { DataSnapshot } from '@aemr/shared';
+import { formatEventTime } from '../../lib/selectors/event-time';
 import { RefreshCw, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useLiveEvents } from '../../hooks/useLiveEvents';
@@ -87,7 +89,9 @@ export function LiveUpdateBar() {
         <span className="font-medium">{headline}</span>
         {detail && <span className="text-zinc-500 dark:text-zinc-400">: {detail}</span>}
         <span className="block text-[11px] text-zinc-400 dark:text-zinc-500">
-          {because
+          {because === 'сервер-считает'
+            ? 'Свежие расчёты ещё готовятся; появятся автоматически'
+            : because
             ? `Новые числа готовы и ждут — ${BLOCKER_WORDS[because]}`
             : relativeMoment(live.lastEventAt)}
           {!because && origin ? ` · ${originLabel(origin)}` : ''}
@@ -119,6 +123,18 @@ export function LiveUpdateBar() {
       >
         <X size={14} aria-hidden="true" />
       </button>
+    </div>
+  );
+}
+
+/** The captured time belongs to the data, never to the HTTP request. */
+export function SnapshotFreshnessNotice({ snapshot }: { snapshot?: Pick<DataSnapshot, 'createdAt' | 'metadata'> }) {
+  const state = snapshot?.metadata.readModel?.state;
+  if (!state) return null;
+  return (
+    <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-[var(--line-card)] bg-white/60 px-4 py-2 text-sm text-zinc-600 backdrop-blur dark:bg-zinc-900/60 dark:text-zinc-300">
+      <span>Расчёты на {formatEventTime(snapshot?.createdAt)}. </span>
+      <span>{state === 'refreshing' ? 'Обновляем расчёты…' : 'Обновление не завершилось; показан последний пригодный срез.'}</span>
     </div>
   );
 }

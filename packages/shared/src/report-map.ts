@@ -73,9 +73,9 @@ export const SVOD_COLUMNS = {
 export type ColumnLetter = keyof typeof SVOD_COLUMNS;
 
 /** Столбцы, содержащие формулы (ожидаем, что НЕ будут вручную) */
-export const FORMULA_COLUMNS: ColumnLetter[] = [
+export const FORMULA_COLUMNS = [
   'K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC',
-];
+] as const;
 
 /** Столбцы с правилами валидации данных */
 export const RULE_COLUMNS = {
@@ -240,7 +240,8 @@ export const DEPARTMENTS: Department[] = DEPARTMENT_REGISTRY.map((d) => {
   return {
     id: d.latinId,
     name: d.fullName,
-    nameShort: d.shortName,
+    // Legacy source key: display labels are DEPARTMENT_SHORT_NAMES.
+    nameShort: d.id,
     sheetName: d.sheetName,
     svodRange: { startRow: d.svod.kpQ1, endRow: d.svod.kpQ1 + 30 },
     controlCells: {

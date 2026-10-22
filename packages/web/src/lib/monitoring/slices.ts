@@ -1,3 +1,4 @@
+import { MONTHS } from '@aemr/shared';
 /**
  * Разрезы реестра — «смотреть по-разному» (канон п.101а, спека §2.6).
  *
@@ -278,10 +279,7 @@ export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): 
 
 // ── Хлебные крошки ───────────────────────────────────────────────────
 
-const MONTH_NAMES = [
-  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
-  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
-];
+const MONTH_NAMES = MONTHS.map(m => m.full.toLowerCase());
 
 export interface SliceCrumb {
   /** Ключ разреза — по нему крестик его и снимает. */

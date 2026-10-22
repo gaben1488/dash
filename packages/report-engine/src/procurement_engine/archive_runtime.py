@@ -33,7 +33,8 @@ class ArchiveError(ValueError):
 
 MESSAGES = {
     'ARCHIVE_NOT_FOUND': 'За выбранную дату полный архив входных данных не найден. Текущие таблицы не использованы.',
-    'ARCHIVE_INPUT_INCOMPLETE': 'Снимок страницы сохранился, но полного набора входов отчёта в нём нет. Требуется восстановление полного снимка входов генератора; переписывать отчёт вручную не нужно.',
+    'ARCHIVE_INPUT_INCOMPLETE': 'Для выбранного периода сохранены не все обязательные входные данные генератора. Существующий архив не изменён, выпуск не сформирован; недостающий контекст нужно восстанавливать отдельно.',
+    'ARCHIVE_CONTRACT_UNSUPPORTED': 'Целостность архивных файлов проверена, но сохранённый исторический контракт не поддерживается действующим генератором. Требуется проверенный адаптер версии; менять оригинал архива нельзя.',
     'ARCHIVE_CORRUPT': 'Проверка целостности архива не пройдена. Требуется восстановление архивной копии; рабочие таблицы менять не нужно.',
     'ARCHIVE_CHANGED': 'Архив изменился во время обработки. Выпуск отменён; требуется проверка хранения архива.',
     'ARCHIVE_BUILD_FAILED': 'Сборка архивного отчёта не прошла контроль. Это задача сопровождения; последний сохранённый выпуск не заменён.',
@@ -102,8 +103,15 @@ def load_frozen_input(root, *, day, year, quarter):
                 raise ArchiveError('ARCHIVE_INPUT_INCOMPLETE')
             return entries[0]
         registry, ledger = one('rule_contract'), one('historical_ledger')
-        validate_inputs(registry, ledger)
+        # Проверка хешей уже пройдена. Несовместимый контракт — не битые байты:
+        # сохраним исходные версии и не ослабим проверку ради публикации.
+        try:
+            validate_inputs(registry, ledger)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ArchiveError('ARCHIVE_CONTRACT_UNSUPPORTED') from exc
         capture = {key: manifest[key] for key in ('captured_at', 'timezone', 'report_date')}
+        if 'source_revision' in manifest:
+            capture['source_revision'] = manifest['source_revision']
         capture.update(report_year=year, report_scope={'year': year, 'quarter': quarter}, sources=[])
         for payload in payloads:
             meta = payload.get('metadata') or {}
@@ -184,9 +192,11 @@ def _source_for_day(state, day):
             quarter = (int(day[5:7]) - 1) // 3 + 1
             load_frozen_input(weekly, day=day, year=int(day[:4]), quarter=quarter)
             return weekly
-        except (ArchiveError, KeyError, TypeError, ValueError, OSError) as exc:
-            # A named weekly archive is authoritative for that day. Corruption is
-            # never permission to fall through to a later attempt from the same day.
+        except ArchiveError:
+            # Не заменяем «нет данных» и «контракт не поддержан» на «повреждён».
+            # И не подбираем другой архив вместо именованного контроля.
+            raise
+        except (KeyError, TypeError, ValueError, OSError) as exc:
             raise ArchiveError('ARCHIVE_CORRUPT') from exc
 
     candidates = []
@@ -236,6 +246,14 @@ def legacy_coverage(database, day):
 
 
 def ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=None):
+    selection_key(day, year, quarter)
+    root = Path(state_dir) / 'published'
+    with PublicationStore(root, readonly=True).reader_lease(create=True):
+        return _ensure_archive_release(state_dir, day=day, year=year, quarter=quarter,
+                                       legacy_database=legacy_database)
+
+
+def _ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=None):
     """Native API entry: no caller-provided filesystem paths and no Google client."""
     state = Path(state_dir)
     key = selection_key(day, year, quarter)

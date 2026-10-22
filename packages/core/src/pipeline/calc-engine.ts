@@ -1,3 +1,4 @@
+import { METRIC_LABELS } from '@aemr/shared';
 /**
  * CalcEngine — Unified, extensible calculation engine for procurement metrics.
  *
@@ -18,6 +19,7 @@ import {
   PROCUREMENT_METHODS,
   classifyActivity,
   factCountsOn,
+  dayNumberOf,
   toNumber,
   type ProcurementMethodCode,
 } from '@aemr/shared';
@@ -179,6 +181,12 @@ export interface GroupedResults {
   // NOTE: byMonthMethod is stored IN byQuarterMethod (keys "m{N}.{method}") — adapter already reads it
   /** By month × activity (e.g., "m3.program"). */
   byMonthActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** Activity × procurement method with the SAME period as the quarter/month. */
+  byPeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
+  /** Subordinate × period × activity, independent of the overall department. */
+  bySubordinatePeriodActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** Subordinate × period × activity × method for exact multi-filter totals. */
+  bySubordinatePeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
   /**
    * ЧЕСТНАЯ КОРЗИНА ГОДА: строки, не попавшие в годовой срез только потому,
    * что плановый год (P) пуст, — при `emptyYearPolicy: 'bucket'`.
@@ -300,28 +308,17 @@ function defaultQuarterExtractor(row: RawRow): string | null {
 }
 
 function defaultMonthExtractor(row: RawRow): number | null {
-  const dateStr = String(row[COL.PLAN_DATE] ?? '').trim();
-  if (!dateStr) return null;
-  // DD.MM.YYYY or DD/MM/YYYY
-  const dotMatch = dateStr.match(/\d{1,2}[./](\d{1,2})[./]\d{2,4}/);
-  if (dotMatch) {
-    const m = parseInt(dotMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // ISO: YYYY-MM-DD
-  const isoMatch = dateStr.match(/\d{4}-(\d{2})-\d{2}/);
-  if (isoMatch) {
-    const m = parseInt(isoMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // Excel serial date
-  const n = parseFloat(dateStr);
-  if (!isNaN(n) && n > 40000 && n < 60000) {
-    const date = new Date((n - 25569) * 86400000);
-    const m = date.getMonth() + 1;
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  return null;
+  const raw = row[COL.PLAN_DATE];
+  // Historical DD/MM/YYYY strings are allowed only as complete real calendar
+  // dates. All eight currently configured GRBS books predominantly return
+  // numeric Google serials in N; never use local getMonth() for those dates.
+  const value = typeof raw === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw.trim())
+    ? raw.trim().replace(/\//g, '.')
+    : raw;
+  const day = dayNumberOf(value);
+  if (day === null) return null;
+  // The shared calendar day is invariant under the Node/server timezone.
+  return new Date(day * 86400000).getUTCMonth() + 1;
 }
 
 function defaultMethodExtractor(row: RawRow): MethodGroup {
@@ -394,52 +391,52 @@ export function approvedEconomy(row: RawRow, asOfDay?: number): number {
  */
 export const STANDARD_METRICS: MetricDefinition[] = [
   // D: Plan count — count all rows (no extra gate)
-  { key: 'plan_count', label: 'План (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [] },
+  { key: 'plan_count', label: METRIC_LABELS['plan_count'], unit: 'count', source: { aggregation: 'count' }, gates: [] },
   // E: Fact count — count rows with fact date
-  { key: 'fact_count', label: 'Факт (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_count', label: METRIC_LABELS['fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT] },
 
   // Method-specific counts
-  { key: 'competitive_count', label: 'КП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_count', label: 'ЕП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_EP] },
+  { key: 'competitive_count', label: METRIC_LABELS['competitive_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_count', label: METRIC_LABELS['ep_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_METHOD_EP] },
 
   // H-K: Plan sums (лимиты программ) — K with fallback to H+I+J
-  { key: 'plan_fb', label: 'Лимит ФБ', unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_kb', label: 'Лимит КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_mb', label: 'Лимит МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [] },
-  { key: 'plan_total', label: 'Лимит ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [] },
+  { key: 'plan_fb', label: METRIC_LABELS['plan_fb'], unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_kb', label: METRIC_LABELS['plan_kb'], unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_mb', label: METRIC_LABELS['plan_mb'], unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [] },
+  { key: 'plan_total', label: METRIC_LABELS['plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [] },
 
   // Остаток: плановые деньги ЕЩЁ НЕ заключённых процедур. Прямой запрос
   // ГРБС-специалиста (27.07): «сколько в плановых деньгах по оставшимся
   // процедурам с разбивкой по бюджетам». Считается по ПЛАНОВЫМ столбцам с
   // обратным гейтом факта — это не «план минус факт»: факт есть цена
   // контракта, она ниже плана, и разность дала бы экономию, а не остаток.
-  { key: 'pending_count', label: 'Осталось заключить (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_fb', label: 'Остаток ФБ', unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_kb', label: 'Остаток КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_mb', label: 'Остаток МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
-  { key: 'pending_total', label: 'Остаток ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_NO_FACT] },
+  { key: 'pending_count', label: METRIC_LABELS['pending_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_fb', label: METRIC_LABELS['pending_fb'], unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_kb', label: METRIC_LABELS['pending_kb'], unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_mb', label: METRIC_LABELS['pending_mb'], unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_total', label: METRIC_LABELS['pending_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_NO_FACT] },
 
   // L-O: Fact sums (цены контрактов) — gated on fact date, Y with fallback to V+W+X
-  { key: 'fact_fb', label: 'Факт ФБ', unit: 'currency', source: { column: COL.FB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_kb', label: 'Факт КБ', unit: 'currency', source: { column: COL.KB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_mb', label: 'Факт МБ', unit: 'currency', source: { column: COL.MB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
-  { key: 'fact_total', label: 'Факт ИТОГО', unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_fb', label: METRIC_LABELS['fact_fb'], unit: 'currency', source: { column: COL.FB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_kb', label: METRIC_LABELS['fact_kb'], unit: 'currency', source: { column: COL.KB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_mb', label: METRIC_LABELS['fact_mb'], unit: 'currency', source: { column: COL.MB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
+  { key: 'fact_total', label: METRIC_LABELS['fact_total'], unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT] },
 
   // R-U листа СВОД (источник — Z/AA/AB книг ГРБС) под гейтом AD="да" + дата факта.
   // Имя с прилагательным «утверждённая» обязательно: вторая экономия района —
   // «НМЦК минус цена аукциона» книги мониторинга, в рублях, — считается иначе,
   // отбирается иначе и живёт в другой книге (см. economy_total ниже).
-  { key: 'economy_fb', label: 'Утверждённая экономия ФБ', unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_kb', label: 'Утверждённая экономия КБ', unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_mb', label: 'Утверждённая экономия МБ', unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_fb', label: METRIC_LABELS['economy_fb'], unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_kb', label: METRIC_LABELS['economy_kb'], unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_mb', label: METRIC_LABELS['economy_mb'], unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
 
   // Compound-gate counts for G-column СВОД: comp_fact_count = КП with fact, ep_fact_count = ЕП with fact
-  { key: 'comp_fact_count', label: 'Факт КП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_fact_count', label: 'Факт ЕП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
+  { key: 'comp_fact_count', label: METRIC_LABELS['comp_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_fact_count', label: METRIC_LABELS['ep_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
 
   // Method-specific plan totals
-  { key: 'comp_plan_total', label: 'Лимит КП ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_COMPETITIVE] },
-  { key: 'ep_plan_total', label: 'Лимит ЕП ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_EP] },
+  { key: 'comp_plan_total', label: METRIC_LABELS['comp_plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_COMPETITIVE] },
+  { key: 'ep_plan_total', label: METRIC_LABELS['ep_plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_EP] },
 ];
 
 /** Derived metrics computed from accumulated values. */
@@ -457,15 +454,15 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // только знак и подпись; словесная формулировка еженедельного отчёта
   // («Отклонение от плана 2 квартала – 19 процедур», положительный недобор)
   // живёт отдельной величиной в docx-сборщике и от этого ключа не зависит.
-  { key: 'deviation', label: 'Отклонение, единиц', unit: 'count', formula: { op: 'diff', a: 'fact_count', b: 'plan_count' } },
+  { key: 'deviation', label: METRIC_LABELS['deviation'], unit: 'count', formula: { op: 'diff', a: 'fact_count', b: 'plan_count' } },
   // Q листа СВОД: fact_total / plan_total. ОДНА колонка листа — два ключа
   // продукта (execution_pct и savings_pct ниже). Дубль наследственный: оба
   // ключа записаны в персистентных снимках, поэтому не сливаются, но обе
   // карточки БЗ обязаны называть друг друга и колонку Q.
-  { key: 'execution_pct', label: 'Исполнение (сумма), %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  { key: 'execution_pct', label: METRIC_LABELS['execution_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // P листа СВОД: `=O43-K43` — факт минус план, недоосвоение < 0. Тот же знак,
   // что и у счётного deviation выше.
-  { key: 'amount_deviation', label: 'Отклонение, тыс. руб.', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
+  { key: 'amount_deviation', label: METRIC_LABELS['amount_deviation'], unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
   // Та же дробь колонки Q, что и у execution_pct выше, — но под ИМЕНЕМ ЛИСТА.
   // Оба ключа записаны в сохранённых снимках и переименованию не подлежат;
   // разница между ними чисто именная, и обе карточки БЗ это говорят прямо.
@@ -476,7 +473,7 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // «savings_pct = копия execution_pct»: мислейбл снят переименованием
   // 18.08.2026, ложное описание осталось).
   // Имя листа СВОД после переименования владельцем 18.08.2026 (было «Потрачено, %»).
-  { key: 'savings_pct', label: 'Законтрактовано, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  { key: 'savings_pct', label: METRIC_LABELS['savings_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // U: Economy total = economy_fb + economy_kb + economy_mb.
   // «Утверждённая» в имени — не украшение: в районе живут ДВЕ экономии.
   // Эта — утверждённая финансовым органом (флаг AD книг ГРБС), в ТЫСЯЧАХ рублей,
@@ -484,17 +481,17 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // в РУБЛЯХ из книги «Ежедневный мониторинг» (та самая, что стоит в записке
   // руководителю: 293 аукциона, 57 743 709,89 руб.). Числа разные, единицы
   // разные — одним словом называться не должны.
-  { key: 'economy_total', label: 'Утверждённая экономия, ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
+  { key: 'economy_total', label: METRIC_LABELS['economy_total'], unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
   // Total procedures and EP share
-  { key: 'total_procedures', label: 'Всего процедур', unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
-  { key: 'ep_share_pct', label: 'Доля ЕП %', unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
+  { key: 'total_procedures', label: METRIC_LABELS['total_procedures'], unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
+  { key: 'ep_share_pct', label: METRIC_LABELS['ep_share_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
 
   // Execution % by count: fact_count / plan_count (all methods)
-  { key: 'exec_count_pct', label: '% исполнения (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'fact_count', denominator: 'plan_count' } },
+  { key: 'exec_count_pct', label: METRIC_LABELS['exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_count', denominator: 'plan_count' } },
   // G-column СВОД: comp_fact_count / competitive_count — ГЛАВНЫЙ ПОКАЗАТЕЛЬ РУКОВОДСТВА
-  { key: 'comp_exec_count_pct', label: '% исполнения КП (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'comp_fact_count', denominator: 'competitive_count' } },
+  { key: 'comp_exec_count_pct', label: METRIC_LABELS['comp_exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'comp_fact_count', denominator: 'competitive_count' } },
   // EP execution by count
-  { key: 'ep_exec_count_pct', label: '% исполнения ЕП (кол-во)', unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_count', denominator: 'ep_count' } },
+  { key: 'ep_exec_count_pct', label: METRIC_LABELS['ep_exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_count', denominator: 'ep_count' } },
 ];
 
 // ── CalcEngine ───────────────────────────────────────────────────────
@@ -588,6 +585,9 @@ export class CalcEngine {
       bySubordinateActivity: new Map(),
       byActivityMethod: new Map(),
       byMonthActivity: new Map(),
+      byPeriodActivityMethod: new Map(),
+      bySubordinatePeriodActivity: new Map(),
+      bySubordinatePeriodActivityMethod: new Map(),
       noYear: new Map(),
       unknownMethodRows: [],
       rowCount: 0,
@@ -686,6 +686,22 @@ export class CalcEngine {
           // By quarter × activity
           const qaKey = `${quarter}.${activity}`;
           this.accumulateInGroup(result.byQuarterActivity, qaKey, m.key, val, i);
+          // Year is the sum of plan-qualified quarters, not all rows without a quarter.
+          this.accumulateInGroup(result.byQuarterActivity, `year.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.${quarter}.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.year.${activity}`, m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `${quarter}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `year.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.${quarter}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.year.${activity}.${method}`, m.key, val, i);
+          }
         } else if (hasFact) {
           // Orphan: has fact but no plan quarter → tracked separately for year total derivation
           this.accumulateInGroup(result.byQuarter, '_orphan', m.key, val, i);
@@ -699,9 +715,6 @@ export class CalcEngine {
           this.accumulateInGroup(result.byYearQuarter, `${yearBucket}._orphan`, m.key, val, i);
         }
 
-        // By year × activity (always accumulate for year-level activity breakdown)
-        this.accumulateInGroup(result.byQuarterActivity, `year.${activity}`, m.key, val, i);
-
         // By month
         if (month) {
           this.accumulateInMonthGroup(result.byMonth, month, m.key, val, i);
@@ -712,6 +725,14 @@ export class CalcEngine {
           }
           // By month × activity
           this.accumulateInGroup(result.byMonthActivity, `m${month}.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.m${month}.${activity}`, m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `m${month}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.m${month}.${activity}.${method}`, m.key, val, i);
+          }
         }
 
         // By method
@@ -789,6 +810,9 @@ export class CalcEngine {
     for (const group of result.bySubordinateActivity.values()) this.computeDerived(group);
     for (const group of result.byActivityMethod.values()) this.computeDerived(group);
     for (const group of result.byMonthActivity.values()) this.computeDerived(group);
+    for (const group of result.byPeriodActivityMethod.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivity.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivityMethod.values()) this.computeDerived(group);
 
     return result;
   }
@@ -847,8 +871,7 @@ export class CalcEngine {
 
   private computeDerived(metrics: Map<string, AccumulatedValue>): void {
     for (const d of this.derived) {
-      const val = evaluateDerivedFormula(d, (key) => metrics.get(key)?.value ?? 0);
-      metrics.set(d.key, { value: val, contributingRows: [] });
+      metrics.set(d.key, evaluateDerivedMetric(d, metrics));
     }
   }
 }
@@ -859,6 +882,46 @@ export class CalcEngine {
  * (слитых) числителя/знаменателя, никогда не агрегируются сами (§3.2
  * пирамиды агрегации).
  */
+/** Dependencies come from the executable registry, including intermediate totals. */
+export function metricDependencies(d: DerivedMetricDefinition): string[] {
+  const f = d.formula;
+  switch (f.op) {
+    case 'ratio': case 'pct': return [f.numerator, f.denominator];
+    case 'diff': return [f.a, f.b];
+    case 'sum': return f.operands;
+  }
+}
+
+function evaluateDerivedMetric(
+  d: DerivedMetricDefinition,
+  metrics: Map<string, AccumulatedValue>,
+): AccumulatedValue {
+  return {
+    value: evaluateDerivedFormula(d, (key) => metrics.get(key)?.value ?? 0),
+    contributingRows: [...new Set(metricDependencies(d)
+      .flatMap(key => metrics.get(key)?.contributingRows ?? []))].sort((a, b) => a - b),
+  };
+}
+
+/** Explain an already computed value; never rerun a formula or read live sources. */
+export function explainMetric(key: string, metrics: Map<string, AccumulatedValue>) {
+  const definition = STANDARD_METRICS.find(d => d.key === key)
+    ?? STANDARD_DERIVED.find(d => d.key === key);
+  if (!definition) return null;
+  const dependencies = 'formula' in definition ? metricDependencies(definition) : [];
+  const valueOf = (metricKey: string) => metrics.get(metricKey)?.value
+    ?? (STANDARD_METRICS.some(metric => metric.key === metricKey) ? 0 : null);
+  return {
+    definition,
+    value: valueOf(key),
+    contributingRows: metrics.get(key)?.contributingRows ?? [],
+    operands: dependencies.map(dependency => ({
+      key: dependency, value: valueOf(dependency),
+      contributingRows: metrics.get(dependency)?.contributingRows ?? [],
+    })),
+  };
+}
+
 function evaluateDerivedFormula(
   d: DerivedMetricDefinition,
   get: (key: string) => number,
@@ -1155,8 +1218,7 @@ export function sliceResults(
 
   // Производные — заново по слитым базам (единый вычислитель с compute()).
   for (const d of STANDARD_DERIVED) {
-    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
-    result.set(d.key, { value: val, contributingRows: [] });
+    result.set(d.key, evaluateDerivedMetric(d, result));
   }
 
   return result;
@@ -1216,8 +1278,7 @@ export function slicePeriods(
   }
 
   for (const d of STANDARD_DERIVED) {
-    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
-    result.set(d.key, { value: val, contributingRows: [] });
+    result.set(d.key, evaluateDerivedMetric(d, result));
   }
 
   return result;

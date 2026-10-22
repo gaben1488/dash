@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { DEPT_HEADER_ROWS } from '@aemr/shared';
-import { diffBook, isSilent, setChangeAuthorResolver, MAX_ROW_EVENTS } from './live-diff.js';
+import { diffBook, isSilent, MAX_ROW_EVENTS } from './live-diff.js';
 
 /**
  * Страж сравнения двух чтений книги — материала живых событий.
@@ -16,11 +16,23 @@ function sheet(...dataRows: unknown[][]) {
   return { values: [...header, ...dataRows] };
 }
 
-afterEach(() => {
-  setChangeAuthorResolver(null);
-});
-
 describe('сравнение двух чтений книги', () => {
+  it('не объявляет датную строку и Google serial разными событиями; настоящая смена дня остаётся', () => {
+    const before = ['23/1', '', '', '', '', '', 'Предмет', '', '', '', 100, 'ЕП', '', '24.02.2026', '', '', '24.02.2026'];
+    const after = [...before];
+    after[13] = 46077; after[16] = 46077;
+    expect(isSilent(diffBook('УД', sheet(before), sheet(after)))).toBe(true);
+    after[13] = 46078;
+    expect(diffBook('УД', sheet(before), sheet(after)).rows).toMatchObject([{ column: 'N', after: '46078' }]);
+    expect(before[0]).toBe('23/1');
+  });
+  it('полные значения эфира не обрезаются до одинаковых 60 символов', () => {
+    const prefix = 'Описание '.repeat(15);
+    const diff = diffBook('УО', sheet(['155', '', '', '', '', '', 'Предмет', '', '', '', '', '', prefix + 'А']),
+      sheet(['155', '', '', '', '', '', 'Предмет', '', '', '', '', '', prefix + 'Б']));
+    expect(diff.rows[0].before).toBe(prefix + 'А');
+    expect(diff.rows[0].after).toBe(prefix + 'Б');
+  });
   it('первое чтение не объявляет изменением весь лист — тишина на старте', () => {
     const diff = diffBook('УО', null, sheet(['1', 'УО АЕМР'], ['2', 'УО АЕМР']));
 
@@ -101,34 +113,62 @@ describe('сравнение двух чтений книги', () => {
     expect(isSilent(diffBook('УО', before, after))).toBe(true);
   });
 
-  it('автор подставляется из журнала по адресу ячейки', () => {
-    setChangeAuthorResolver((book, cell) => (book === 'УО' && cell === 'L4' ? 'ivanova@example.ru' : undefined));
-
+  it('адрес и совпавший переход старого журнала не доказывают автора свежего наблюдения', () => {
     const diff = diffBook(
       'УО',
       sheet(['155', '', '', '', '', '', '', '', '', '', '', 'ЕП']),
       sheet(['155', '', '', '', '', '', '', '', '', '', '', 'ЭА']),
     );
 
-    expect(diff.rows[0].author).toBe('ivanova@example.ru');
+    expect(diff.rows[0].author).toBeUndefined();
   });
 
   it('журнал молчит — поле автора пустое, никого не назначаем', () => {
-    setChangeAuthorResolver(() => undefined);
-
     const diff = diffBook('УО', sheet(['155', 'было']), sheet(['155', 'стало']));
 
     expect(diff.rows[0].author).toBeUndefined();
   });
 
-  it('падение журнала не отнимает само событие о правке', () => {
-    setChangeAuthorResolver(() => {
-      throw new Error('база недоступна');
-    });
+});
 
-    const diff = diffBook('УО', sheet(['155', 'было']), sheet(['155', 'стало']));
 
-    expect(diff.rows).toHaveLength(1);
-    expect(diff.rows[0].author).toBeUndefined();
+describe('идентичность при очистке и сдвиге', () => {
+  it('очистка и уплотнение: одна пропажа, ноль ложных правок сохранившихся номеров', () => {
+    const first = ['173/1', 'УО', '', '', '', '', 'Первый'];
+    const second = ['173/18', 'УО', '', '', '', '', 'Второй'];
+    const third = ['177/13', 'УО', '', '', '', '', 'Третий'];
+    const before = sheet(first, second, third, []);
+    for (const after of [sheet(first, [], third, []), sheet(first, third, [], [])]) {
+      const diff = diffBook('УО', before, after);
+      expect(diff.removedRows).toBe(1);
+      expect(diff.addedRows).toBe(0);
+      expect(diff.changedRows).toBe(0);
+      expect(diff.rows).toEqual([]);
+    }
   });
+  it('настоящая правка после сдвига сохраняет номер и новый физический адрес', () => {
+    const before = sheet(['1', 'Первый'], ['2', 'Второй'], ['3', 'Третий']);
+    const diff = diffBook('УО', before, sheet(['1', 'Первый'], ['3', 'Исправлен'], []));
+    expect(diff.removedRows).toBe(1);
+    expect(diff.changedRows).toBe(1);
+    expect(diff.rows[0]).toMatchObject({ rowSeq: '3', sheetRow: 5, column: 'B', before: 'Третий', after: 'Исправлен' });
+  });
+  it('смена номера не объявляется изменением чужого номера', () => {
+    const diff = diffBook('УО', sheet(['173/1', 'Один']), sheet(['173/18', 'Один']));
+    expect(diff.removedRows).toBe(1);
+    expect(diff.addedRows).toBe(1);
+    expect(diff.changedRows).toBe(0);
+    expect(diff.rows).toEqual([]);
+  });
+});
+
+it('повторный или переиспользованный номер не связывает закупки автоматически', () => {
+  const old = ['173/1', 'УО', 'Школа', '', '', '', 'Ремонт кровли'];
+  const reused = ['173/1', 'УО', 'Школа', '', '', '', 'Молоко'];
+  expect(diffBook('УО', sheet(old), sheet(reused)).rows).toEqual([]);
+  expect(diffBook('УО', sheet(old, old), sheet(old)).rows).toEqual([]);
+});
+it('сдвиг адреса не приписывает прежнего автора ячейки другой закупке', () => {
+  const diff = diffBook('УО', sheet(['1', 'Первый'], ['2', 'Второй']), sheet(['2', 'Исправлено'], []));
+  expect(diff.rows[0]?.author).toBeUndefined();
 });

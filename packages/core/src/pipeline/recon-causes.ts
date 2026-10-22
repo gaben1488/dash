@@ -77,6 +77,9 @@ export function buildRootCauses(input: BuildCausesInput): ReconLineRootCause[] {
     if (!cause) continue;
     out.push({
       ...cause,
+      explanation: input.measure === 'economyMoney'
+        ? `${cause.explanation} Вклад экономии: Z+AA+AB только при AD=«да» и учитываемой дате факта; знак сохранён.`
+        : cause.explanation,
       id: causeId(cause.class, input.sheet, input.metric),
       affects: [],
     });

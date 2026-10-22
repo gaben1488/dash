@@ -70,6 +70,7 @@ migrate_memory.py
 # закупок (учреждение, предмет, суммы, даты, способ) — то же, что в открытом
 # по ссылке СВОДе; ни ключей, ни учётных записей, ни персональных данных.
 !packages/core/src/report/__fixtures__/*.json
+!packages/report-engine/src/procurement_engine/customer_aliases.json
 
 # Old code references
 old/
@@ -104,7 +105,14 @@ packages/server/repair-basis.mjs
 scripts/out-zarya/
 
 # Python package build and test products
+!deploy/runtime-policy.json
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .venv/
+
+# Ephemeral reviewed browser contract transported by read-only CI
+.github/ci/_browser-contract.br
+
+# Shared canonical department data, also packaged by the report engine.
+!packages/report-engine/src/procurement_engine/department_directory.json

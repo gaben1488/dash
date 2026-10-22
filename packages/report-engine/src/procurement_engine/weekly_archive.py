@@ -217,7 +217,11 @@ def recover_weekly_archives(state_dir):
             day = parse_date(status.get('report_date'))
             if not day or date.fromisoformat(day).weekday() != 3 or not status.get('snapshot_id'):
                 continue
-            candidates.append((day, status.get('finished_at') or '', path.parent.name, status))
+            # Retained audit/assurance payloads can be large; sealing needs only these references.
+            candidate = {key: status.get(key) for key in ('attempt_id', 'report_date', 'snapshot_id')}
+            if isinstance(status.get('publication'), dict):
+                candidate['publication'] = {'release_id': status['publication'].get('release_id')}
+            candidates.append((day, status.get('finished_at') or '', path.parent.name, candidate))
         except (OSError, ValueError, TypeError):
             continue
     results = []

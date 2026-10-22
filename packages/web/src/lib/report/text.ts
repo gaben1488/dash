@@ -41,7 +41,7 @@ export function generateReportText(report: Report, asOfDate: string): string {
 
   for (const block of grbsBlocks) {
     const vm = buildGrbsSection(block);
-    lines.push('', `${vm.dept} — ${vm.deptLabel}`);
+    lines.push('', `${productLabel(vm.dept)} — ${vm.deptLabel}`);
     lines.push(`${q} квартал: ${vm.executionCaption} (${vm.executionPct}). ${vm.pendingLabel}.`);
     const [kp, ep] = vm.methodRows;
     lines.push(

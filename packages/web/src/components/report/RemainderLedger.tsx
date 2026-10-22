@@ -75,7 +75,7 @@ export function RemainderLedger({ rows, diff, byMethod = null }: RemainderLedger
             <span className="ml-1 text-[10px] font-normal text-zinc-400 dark:text-zinc-500">тыс. ₽</span>
           </div>
           <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-            <BudgetTriple fb={r.budget.fb} kb={r.budget.kb} mb={r.budget.mb} metricPrefix={r.budgetPrefix} />
+            {r.value !== '—' && <BudgetTriple fb={r.budget.fb} kb={r.budget.kb} mb={r.budget.mb} metricPrefix={r.budgetPrefix} />}
           </div>
           <div className="flex items-center justify-start gap-2 sm:justify-end">
             {r.cell && (

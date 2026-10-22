@@ -29,6 +29,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm fetch --frozen-lockfile
 
 COPY packages/shared packages/shared
+# One department directory is consumed by TypeScript and the Python engine.
+COPY packages/report-engine/src/procurement_engine/department_directory.json packages/report-engine/src/procurement_engine/department_directory.json
 COPY packages/core   packages/core
 COPY packages/web    packages/web
 

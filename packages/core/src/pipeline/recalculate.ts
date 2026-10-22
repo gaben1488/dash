@@ -8,6 +8,7 @@
  * getMonthFromDate (used by unified-svod.ts) remain.
  */
 
+import { dayNumberOf, isoOfDayNumber } from '@aemr/shared';
 import type { NoYearRemainder } from './calc-engine.js';
 
 // ── Interfaces ────────────────────────────────────────────────────
@@ -77,6 +78,8 @@ export interface ActivityMetrics {
   economyTotal: number;
   /** `null` = плана нет (см. QuarterMetrics.executionPct). */
   execCountPct: number | null;
+  /** Actual procurement-method breakdown. Missing in legacy snapshots; never guess. */
+  byMethod?: { competitive: QuarterMetrics['competitive']; ep: QuarterMetrics['ep'] };
 }
 
 /** Activity-type breakdown: program / current_program / current_non_program */
@@ -137,6 +140,8 @@ export interface SubordinateMetrics {
   byMethod: { competitive: SubPeriodMetrics; ep: SubPeriodMetrics };
   /** By activity type */
   byActivity: { program: SubPeriodMetrics; current_program: SubPeriodMetrics; current_non_program: SubPeriodMetrics };
+  /** True per-period/activity/method aggregates for selected subordinate filters. */
+  activityByPeriod?: Record<string, ActivityBreakdown>;
 }
 
 export interface RecalculatedMetrics {
@@ -233,30 +238,8 @@ export interface RecalculatedMetrics {
  * Handles: Date objects, "DD.MM.YYYY" strings, ISO strings, Excel serial numbers.
  */
 export function getMonthFromDate(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  if (v instanceof Date) {
-    const m = v.getMonth() + 1;
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  const s = String(v).trim();
-  // DD.MM.YYYY or DD/MM/YYYY
-  const dotMatch = s.match(/^\d{1,2}[./](\d{1,2})[./]\d{2,4}$/);
-  if (dotMatch) {
-    const m = parseInt(dotMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // ISO: YYYY-MM-DD
-  const isoMatch = s.match(/^\d{4}-(\d{2})/);
-  if (isoMatch) {
-    const m = parseInt(isoMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // Excel serial date (number > 40000)
-  const n = parseFloat(s);
-  if (!isNaN(n) && n > 40000 && n < 60000) {
-    const date = new Date((n - 25569) * 86400000);
-    const m = date.getMonth() + 1;
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  return null;
+  // Retain the explicit DD/MM/YYYY legacy spelling, with full calendar validation.
+  const value = typeof v === 'string' ? v.trim().replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, '$1.$2.$3') : v;
+  const day = dayNumberOf(value);
+  return day === null ? null : Number(isoOfDayNumber(day).slice(5, 7));
 }

@@ -131,7 +131,9 @@ describe('GET /api/workload', () => {
       PRODUCT_TZ_OFFSET_HOURS: '12',
     };
 
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4, sheetName: 'ВСЕ' },
+      УИО: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 2, sheetName: 'УИО' } });
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       // УЭР: 4 закупки на 2 учреждения, журнал прочитан → книга измерима.
@@ -246,10 +248,16 @@ describe('GET /api/workload', () => {
     expect(joined).toContain('Журнал не прочитан');
   });
 
-  it('второй запрос отдаётся из окна кэша — журналы книг не читаются заново', async () => {
+  it('повторяет недоступные журналы, сохраняя уже прочитанный журнал УЭР', async () => {
+    const { getSheetDataFromSpreadsheet } = await import('../services/google-sheets.js');
+    const reader = vi.mocked(getSheetDataFromSpreadsheet);
+    const before = reader.mock.calls.length;
+    const successfulReads = reader.mock.calls.filter(([id]) => id === h.UER_ID).length;
     const again = await app.inject({ method: 'GET', url: '/api/workload' });
     expect(again.statusCode).toBe(200);
-    expect(again.json<WorkloadDto>().asOf).toBe(body.asOf);
+    expect(reader.mock.calls.length).toBeGreaterThan(before);
+    expect(reader.mock.calls.filter(([id]) => id === h.UER_ID)).toHaveLength(successfulReads);
+    expect(again.json<WorkloadDto>().books).toEqual(body.books);
   });
 
   it('маршрут прикрыт порогом частоты: он читает журналы всех книг', () => {

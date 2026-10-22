@@ -14,12 +14,118 @@
  *   • гейт страницей: ось, не входящая в PAGE_FILTERS вкладки, жетоном не
  *     показывается — угол не обещает отбора, которого расчёт не ведёт.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { ALL_DEPT_IDS } from '@aemr/shared';
 import { SelectionTokens } from './SelectionTokens';
 import { getActiveFilterCount, isWeekShifted, useStore, type Page } from '../store';
+vi.stubGlobal('ResizeObserver',class {observe() {} unobserve() {} disconnect() {}});
+
+describe('compact filter instrument',()=>{
+ it('names the selected department visibly inside the filter list',()=>{
+  resetState();useStore.getState().toggleDepartment('УО');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  const entry=view.getByRole('button',{name:/Выбраны организации: УО\./});
+  expect(entry.textContent).toContain('УО');
+ });
+ it('shows every selected organization while counting them as one filter axis',()=>{
+  resetState();useStore.getState().toggleDepartment('УО');useStore.getState().toggleDepartment('УЭР');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  const entry=view.getByRole('button',{name:/Выбраны организации:/});
+  expect(entry.textContent).toContain('УО');expect(entry.textContent).toContain('УЭР');
+  fireEvent.click(entry);
+  expect(useStore.getState().selectedDepartments.size).toBe(0);
+ });
+ it('keeps view reset undo available while the user reads unchanged filters',()=>{
+  vi.useFakeTimers();
+  try {
+   resetState();useStore.getState().setMoneyUnit('млн');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:/Фильтры линейки: 1/}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   act(()=>vi.advanceTimersByTime(60_000));
+   fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+   expect(useStore.getState().moneyUnit).toBe('млн');
+  } finally {vi.useRealTimers();}
+ });
+ it('opens the real filter list and restores a reset without changing data',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const beforeData=useStore.getState().dashboardData;
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  expect(view.getByRole('button',{name:/Способ закупки/})).toBeTruthy();
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  expect(useStore.getState().selectedMethods.size).toBe(0);
+  fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+  expect(useStore.getState().selectedMethods.has('single')).toBe(true);
+  expect(useStore.getState().dashboardData).toBe(beforeData);
+ });
+ it('does not undo over a newer filter edit',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  act(()=>useStore.getState().toggleBudget('fb'));
+  const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+  expect(undo.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(undo);expect(useStore.getState().selectedMethods.size).toBe(0);
+  expect(useStore.getState().selectedBudgets.has('fb')).toBe(true);
+ });
+ it('checks the store again even before the new edit has rerendered',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+  act(()=>{useStore.getState().toggleBudget('fb');fireEvent.click(undo);});
+  expect(useStore.getState().selectedMethods.size).toBe(0);
+  expect(useStore.getState().selectedBudgets.has('fb')).toBe(true);
+ });
+ it('keeps undo usable when a delayed browser clock advances',()=>{
+  vi.useFakeTimers();
+  try {
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   vi.setSystemTime(Date.now()+6001);
+   fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+   expect(useStore.getState().selectedMethods.has('single')).toBe(true);
+  } finally {vi.useRealTimers();}
+ });
+ it('lets touch users dismiss reset undo without restoring filters',()=>{
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   fireEvent.click(view.getByRole('button',{name:'Закрыть отмену сброса фильтров'}));
+   expect(view.queryByRole('button',{name:/Вернуть фильтры/})).toBeNull();
+   expect(useStore.getState().selectedMethods.size).toBe(0);
+ });
+ it('does not restore a reset from another page',()=>{
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   act(()=>useStore.setState({page:'monitoring'}));
+   const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+   expect(undo.hasAttribute('disabled')).toBe(true);
+   fireEvent.click(undo);
+   expect(useStore.getState().selectedMethods.size).toBe(0);
+ });
+ it('dismisses reset undo with Escape',()=>{
+   resetState();useStore.getState().setMoneyUnit('млн');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   fireEvent.keyDown(document,{key:'Escape'});
+   expect(view.queryByRole('button',{name:/Вернуть фильтры/})).toBeNull();
+   expect(useStore.getState().moneyUnit).toBe('тыс');
+ });
+});
 
 /** Умолчание продукта на заданной вкладке. */
 function resetState(page: Page = 'data'): void {

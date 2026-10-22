@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Таблица реестра — форма листа книги колонка в колонку (спека §2.1).
  *
@@ -337,7 +338,7 @@ export function RegistryTable({
     { key: 'savingsFb', label: 'ФБ', group: 'savings', right: true, cell: p => fmtRub(p.savingsFb) },
     { key: 'winner', label: 'Победитель', cell: p => <>{p.winnerName ?? p.outcome ?? '—'}{p.winnerInn && <p className="mt-1 font-mono text-xs">{p.winnerInn}</p>}</> },
     { key: 'stage', label: 'Стадия', cell: stageCell },
-    { key: 'dept', label: 'Управление', cell: p => p.dept },
+    { key: 'dept', label: 'Управление', cell: p => productLabel(p.dept) },
     { key: 'protocol', label: 'Протокол', cell: p => p.protocolFlag || '—' },
     { key: 'comment', label: 'Комментарий', cell: p => p.comment || '—' },
     { key: 'result', label: 'Результат', cell: p => p.result || 'Не внесён' },

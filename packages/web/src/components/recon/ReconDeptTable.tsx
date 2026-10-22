@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Таблица сверки «По управлениям» (год-уровень): бейджи-саммари, таблица,
 //    раскрывающаяся диагностика со ссылками на ячейки СВОД ТД-ПМ.
 //    Извлечено move-only из pages/Recon.tsx (разрез E11-4). Store не читает.
@@ -121,7 +122,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                 <th scope="col" className="px-4 py-3 text-right" title="Факт года по листу СВОД ТД-ПМ, тыс. ₽">Факт, официально</th>
                 <th scope="col" className="px-4 py-3 text-right" title="Факт года по пересчёту строк, тыс. ₽">Факт, пересчёт</th>
                 <th scope="col" className="px-4 py-3 text-right">Расхождение по факту</th>
-                <th scope="col" className="px-4 py-3 text-center" title="Чья сторона вероятнее ошиблась">Кто вероятнее ошибся</th>
+                <th scope="col" className="px-4 py-3 text-center" title="Причина требует независимого доказательства">Причина</th>
                 <th scope="col" className="px-4 py-3 text-center">Вердикт</th>
               </tr>
             </thead>
@@ -150,7 +151,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                           className="flex items-center gap-2 text-left rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
                           <Building2 size={14} className="text-zinc-400" aria-hidden="true" />
-                          <span className="font-semibold text-zinc-700 dark:text-zinc-200">{row.department}</span>
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-200">{productLabel(row.department)}</span>
                           {isExpanded
                             ? <ChevronUp size={12} className="text-zinc-400" aria-hidden="true" />
                             : <ChevronDown size={12} className="text-zinc-400" aria-hidden="true" />}
@@ -311,7 +312,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                 {row.assessment.kind === 'ok'
                                   ? 'Числа сходятся. Дополнительных действий не требуется.'
                                   : row.assessment.kind === 'warning'
-                                  ? 'Проверьте состав строк: часть закупок могла не опознаться по способу или попасть в соседний период. Обычная причина — незаполненный способ закупки и сроки без года.'
+                                  ? 'Проверьте наличие обоих слоёв, совпадение состава строк, периода, единиц и правил. Причину устанавливают по исходным данным, а не по размеру разницы.'
                                   : row.assessment.kind === 'high'
                                   ? `Разбирайте по порядку: откройте официальную ячейку${cells ? ` ${cells.planTotal}` : ''} и проверьте, тот ли диапазон строк она суммирует; затем проверьте сами строки — заполнен ли способ закупки, проставлены ли сроки, нет ли задвоенных строк.`
                                   : 'Сравнивать не с чем: одна из сторон пуста. Проверьте, что прочитаны обе книги — и лист СВОД, и лист управления.'}

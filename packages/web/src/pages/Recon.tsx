@@ -20,7 +20,7 @@ import { AlertTriangle, GitCompare, RefreshCw } from 'lucide-react';
 import { quarterLabel } from '@aemr/shared';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import type { ReconCell, ReconMetricDelta, ReconMonthlyData, ReconMonthlyRow, ReconSummaryData } from '../lib/recon/types';
-import { buildMetricRows, countMetricAssessments, filterActiveMetricRows } from '../lib/recon/metric-rows';
+import { buildMetricRows, countMetricAssessments, filterActiveMetricRows, filterMetricPeriod } from '../lib/recon/metric-rows';
 import { countReconKinds, filterReconRowsByDepartments } from '../lib/recon/dept-rows';
 import { ReconHeader, type ReconView } from '../components/recon/ReconHeader';
 import { ReconDeptTable } from '../components/recon/ReconDeptTable';
@@ -159,12 +159,7 @@ export function ReconPage() {
   // метрикам» показывает тот же срез, что и весь остальной экран.
   const periodKey = fd.periodKey;
   const allDeltas: ReconMetricDelta[] = fd.deltas;
-  const deltas: ReconMetricDelta[] = periodKey !== 'year'
-    ? allDeltas.filter((d: ReconMetricDelta) => {
-        const key = d.metricKey ?? '';
-        return key.includes(`.${periodKey}.`) || key.includes('.year.');
-      })
-    : allDeltas;
+  const deltas = filterMetricPeriod(allDeltas, periodKey);
 
   const metricRows = buildMetricRows(deltas);
   const activeMetricRows = filterActiveMetricRows(metricRows, selectedDepartments);
@@ -285,6 +280,8 @@ export function ReconPage() {
       {view === 'metrics' && !reconLoading && !reconError && !nothingLoaded && (
         hasMetricData ? (
           <ReconMetricTable
+            snapshotId={dashboardData?.snapshot?.id}
+            year={year}
             rows={activeMetricRows}
             deltas={deltas}
             counts={metricCounts}

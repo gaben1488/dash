@@ -1,9 +1,13 @@
+import { PRODUCT_COPY } from '@aemr/shared';
+import { subordinateNameMatchKey, type TrustScore } from '@aemr/shared';
+import { countNodeIssues } from '../lib/selectors/issues-filtering';
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, type Page, type PeriodScope } from '../store';
 import { api } from '../api';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
 import { periodDataLabel } from '../lib/period-label';
+import { fmtReadAt } from '../lib/monitoring/format';
 import { useMultiDimMetrics } from '../hooks/useMultiDimMetrics';
 import { HeroKPICard, DeptBreakdown, BudgetBreakdown, TrustComponents } from '../components/HeroKPICard';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
@@ -14,6 +18,7 @@ import { KBTooltip } from '../components/ui/kb-tooltip';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { PlanSemanticsNote } from '../components/PlanSemanticsNote';
 import { AlertTriangle, Info } from 'lucide-react';
+import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
 import {
   Cell, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   ComposedChart, Line, CartesianGrid,
@@ -85,8 +90,8 @@ function pointsWord(n: number): string {
  * на дно там, где работы просто не планировалось, а направление динамики
  * считалось бы по выдуманной точке.
  */
-function quarterPct(fact: number, plan: number): number | null {
-  return plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+function quarterPct(fact: number | null | undefined, plan: number | null | undefined): number | null {
+  return fact != null && plan != null && plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
 }
 
 /**
@@ -322,6 +327,7 @@ export function Dashboard() {
 
     return mdm.departments.map((dm) => {
       const d = dm.raw;
+      const issueCounts = countNodeIssues(fd.issues, dm.deptId);
       // Кривая по кварталам. Само число берём то же, что считает слой метрик, —
       // пересчитывать его здесь значит завести второй источник правды. Меняется
       // только одно: квартал без плана даёт `null`, а не ноль, потому что
@@ -332,12 +338,12 @@ export function Dashboard() {
       let fbExecPct: number | null = null;
       const q = d.quarters?.[periodKey];
       if (q) {
-        fbExecPct = quarterPct(q.factFB ?? 0, q.planFB ?? 0);
+        fbExecPct = quarterPct(q.factFB, q.planFB);
       }
 
       // Аппарат управления идёт первой строкой, дальше — подведомственные.
-      // Замечания по организациям отдельно не считаются: проверки работают по
-      // книге управления целиком, поэтому здесь честный `null`, а не ноль.
+      // Row checks already carry the canonical C-column organization identity.
+      // Book-level checks stay in the department total, never in every child.
       const subs: DeptRowV2['subordinates'] = [];
 
       // Слой метрик отдаёт ноль там, где делить не на что. Для строки таблицы
@@ -348,7 +354,8 @@ export function Dashboard() {
         isSelf,
         execAmountPct: m.planTotal > 0 ? m.executionPct : null,
         execCountPct: m.planCount > 0 ? m.execCountPct : null,
-        issueCount: null,
+        issueCount: issueCounts.subordinates.get(subordinateNameMatchKey(isSelf ? '_org_itself' : name)) ?? 0,
+        unattributedIssueCount: issueCounts.unattributed,
       });
 
       if (dm.orgSelf) subs.push(subRow(ORG_ITSELF_LABEL, dm.orgSelf.metrics, true));
@@ -376,8 +383,8 @@ export function Dashboard() {
         execCountPct: hasCountPlan ? dm.total.execCountPct : null,
         fbExecPct,
         trustScore: d.trustScore ?? null,
-        issueCount: d.issueCount ?? 0,
-        criticalIssueCount: d.criticalIssueCount ?? 0,
+        issueCount: issueCounts.total,
+        criticalIssueCount: issueCounts.critical,
         sparkData: spark.some(v => v != null) ? spark : undefined,
         deltaQuarter: comparable && dm.delta ? +dm.delta.execPctChange.toFixed(1) : null,
         // Список отдаём всегда: пустой массив означает «подведов нет», а
@@ -386,7 +393,7 @@ export function Dashboard() {
         subordinates: subs,
       };
     });
-  }, [mdm.departments, periodKey]);
+  }, [mdm.departments, periodKey, fd.issues]);
 
 
   if (loading && !dashboardData) {
@@ -464,6 +471,12 @@ export function Dashboard() {
       {/* Активные фильтры: раньше компонент существовал, но не был отрисован —
           выбранные управления/способ/период молча резали все числа страницы. */}
       <FilterBreadcrumb />
+      {!fd.activityMethodCoverage && (
+        <div role="alert" className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-transparent rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <Info size={16} aria-hidden="true" />
+          <span>В сохранённом снимке нет полного подтверждённого разреза «вид деятельности × способ закупки» для выбранных фильтров. Часть чисел плана, факта и распределения КП/ЕП не подтверждена. Обновите данные из книг управлений.</span>
+        </div>
+      )}
 
       {/* Полоса замечаний ПЕРЕЕХАЛА в раздел «Сигналы проверок» (канон п.132):
           на одном экране она стояла третьим домом одного факта — рядом с
@@ -576,7 +589,6 @@ export function Dashboard() {
         })()}
         <RatingTableV2
           departments={ratingDepts}
-          showSubordinates={selectedDepartments.size > 0}
           onDeptClick={(deptId) => {
             // Идентификатор строки латинский, а фильтр в состоянии хранится по
             // краткому русскому имени — переводим здесь, иначе фильтр не сойдётся.
@@ -716,15 +728,17 @@ export function Dashboard() {
                     // тёмный текст на тёмной подложке (жалоба п.24-25 интервью)
                     <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-transparent rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100 mb-1">{d.name}</p>
-                      {d.pct != null
-                        ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
-                        : <p className="text-zinc-400">По сумме: плана за период нет</p>}
-                      {d.execCountPct != null
+                      {d.scopeComplete === false
+                        ? <p className="text-amber-700 dark:text-amber-300">Разрез по способу не подтверждён: данные старого снимка неполные</p>
+                        : d.pct != null
+                          ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
+                          : <p className="text-zinc-400">По сумме: плана за период нет</p>}
+                      {d.scopeComplete !== false && (d.execCountPct != null
                         ? <p>По количеству: <strong>{formatPercent(d.execCountPct)}</strong></p>
-                        : <p className="text-zinc-400">По количеству: плана за период нет</p>}
-                      <p>План: {formatMoney(d.planTotal)}</p>
-                      <p>Факт: {formatMoney(d.factTotal)}</p>
-                      <p>Конкурентных: {d.kpCount}; у единственного поставщика: {d.epCount}</p>
+                        : <p className="text-zinc-400">По количеству: плана за период нет</p>)}
+                      <p>План: {d.planTotal == null ? 'не подтверждён' : formatMoney(d.planTotal)}</p>
+                      <p>Факт: {d.factTotal == null ? 'не подтверждён' : formatMoney(d.factTotal)}</p>
+                      <p>Конкурентных: {d.kpCount == null ? 'нет подтверждения' : d.kpCount}; у единственного поставщика: {d.epCount == null ? 'нет подтверждения' : d.epCount}</p>
                     </div>
                   );
                 }}
@@ -860,7 +874,9 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       let pc = 0, fc = 0;
       for (const d of fd.depts) {
         const q = d.quarters?.[qk];
-        if (q) { pc += q.planCount ?? 0; fc += q.factCount ?? 0; }
+        if (!q || q.planCount == null || q.factCount == null) return null;
+        pc += q.planCount;
+        fc += q.factCount;
       }
       return quarterPct(fc, pc);
     });
@@ -868,7 +884,9 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       let pt = 0, ft = 0;
       for (const d of fd.depts) {
         const q = d.quarters?.[qk];
-        if (q) { pt += q.planTotal ?? 0; ft += q.factTotal ?? 0; }
+        if (!q || q.planTotal == null || q.factTotal == null) return null;
+        pt += q.planTotal;
+        ft += q.factTotal;
       }
       return quarterPct(ft, pt);
     });
@@ -987,10 +1005,7 @@ const BREAKDOWN_UNITS: Record<string, string> = {
 };
 
 /** Чем подписать пустую строку разбивки — по причине пустоты, а не «нет данных». */
-const BREAKDOWN_EMPTY_LABELS: Record<string, string> = {
-  critical_issues: 'не посчитано',
-  trust_binary: 'не оценено',
-};
+const BREAKDOWN_EMPTY_LABELS: Record<string, string> = PRODUCT_COPY["pages/Dashboard:BREAKDOWN_EMPTY_LABELS"];
 
 function KPIExpandPanel({
   kpi,
@@ -1006,7 +1021,7 @@ function KPIExpandPanel({
   kpi: HeroKPI;
   depts: any[];
   periodKey: string;
-  trust: any;
+  trust: TrustScore | null;
   formatMoney: (v: number) => string;
   toggleDepartment: (id: string) => void;
   navigateTo: (page: Page, params?: any) => void;
@@ -1024,16 +1039,26 @@ function KPIExpandPanel({
     let secondaryValue: number | null | undefined;
     let colorClass: string | undefined;
     let secondaryColor: string | undefined;
+    let emptyReason: string | undefined;
+    let secondaryEmptyReason: string | undefined;
 
     if (kpi.metricKey === 'exec_count_pct') {
-      // Главное измерение — исполнение по количеству процедур
-      value = quarterPct(q?.factCount ?? 0, q?.planCount ?? 0);
+      // Only the selected period can answer; a missing fact is not observed zero.
+      const pc = q?.planCount;
+      const fc = q?.factCount;
+      value = quarterPct(fc, pc);
+      if (value == null) {
+        emptyReason = pc == null ? 'план не прочитан' : pc <= 0 ? 'нет плана' : 'факт не прочитан';
+      }
       colorClass = value != null ? getThresholdColor('dept_exec_count_pct', value) : undefined;
       // Дополнительное измерение — исполнение по сумме
       if (isDualExecution) {
-        const pt = q?.planTotal ?? d.planTotal ?? 0;
-        const ft = q?.factTotal ?? d.factTotal ?? 0;
+        const pt = q?.planTotal;
+        const ft = q?.factTotal;
         secondaryValue = quarterPct(ft, pt);
+        if (secondaryValue == null) {
+          secondaryEmptyReason = pt == null ? 'план не прочитан' : pt <= 0 ? 'нет плана' : 'факт не прочитан';
+        }
         secondaryColor = secondaryValue != null ? getThresholdColor('dept_exec_amount_pct', secondaryValue) : undefined;
       }
     } else if (kpi.metricKey === 'critical_issues') {
@@ -1046,9 +1071,12 @@ function KPIExpandPanel({
       // плитке (getFilteredEconomyTotal). Прежде здесь стояла своя формула
       // (план − факт) / план: она считает недоисполнение, а не экономию, из-за
       // чего плитка и её собственный разворот показывали разные числа.
-      const pt = q?.planTotal ?? d.planTotal ?? 0;
-      const economy = q?.economyTotal ?? d.economyTotal ?? 0;
+      const pt = q?.planTotal;
+      const economy = q?.economyTotal;
       value = quarterPct(economy, pt);
+      if (value == null) {
+        emptyReason = pt == null ? 'план не прочитан' : pt <= 0 ? 'нет плана' : 'экономия не подтверждена';
+      }
     } else {
       value = d.trustScore ?? null;
       colorClass = value != null ? getThresholdColor('dept_trust', value) : undefined;
@@ -1059,11 +1087,13 @@ function KPIExpandPanel({
       id: deptId,
       // Ключ управления переводится словарём продукта: латинский слуг в
       // подписи недопустим, а «?» ничего не объясняет.
-      name: d.department?.nameShort ?? (deptId ? productLabel(deptId) : 'Управление не указано'),
+      name: deptId ? productLabel(deptId) : 'Управление не указано',
       value,
       secondaryValue,
       color: colorClass,
       secondaryColor,
+      emptyReason,
+      secondaryEmptyReason,
     };
   });
 
@@ -1188,12 +1218,15 @@ function KPIExpandPanel({
       {showTrust && (trust ? (
         <TrustComponents
           components={[
-            { label: 'Качество данных', score: trust.dataQuality ?? trust.data_quality ?? 0, weight: '30 %', metricKey: 'trust_data_quality', componentId: 'data_quality' },
-            { label: 'Целостность формул', score: trust.formulaIntegrity ?? trust.formula_integrity ?? 0, weight: '25 %', metricKey: 'trust_formula_integrity', componentId: 'formula_integrity' },
-            { label: 'Соответствие правилам', score: trust.ruleCompliance ?? trust.rule_compliance ?? 0, weight: '20 %', metricKey: 'trust_rule_compliance', componentId: 'rule_compliance' },
-            { label: 'Согласованность сопоставлений', score: trust.mappingConsistency ?? trust.mapping_consistency ?? 0, weight: '15 %', metricKey: 'trust_mapping_consistency', componentId: 'mapping_consistency' },
-            { label: 'Операционные риски', score: trust.operationalRisk ?? trust.operational_risk ?? 0, weight: '10 %', metricKey: 'trust_operational_risk', componentId: 'operational_risk' },
-          ]}
+            { label: 'Качество данных', metricKey: 'trust_data_quality', componentId: 'data_quality' },
+            { label: 'Целостность формул', metricKey: 'trust_formula_integrity', componentId: 'formula_integrity' },
+            { label: 'Соответствие правилам', metricKey: 'trust_rule_compliance', componentId: 'rule_compliance' },
+            { label: 'Согласованность сопоставлений', metricKey: 'trust_mapping_consistency', componentId: 'mapping_consistency' },
+            { label: 'Операционные риски', metricKey: 'trust_operational_risk', componentId: 'operational_risk' },
+          ].flatMap(definition => {
+            const component = trust.components.find(c => c.name === definition.componentId);
+            return component ? [{ ...definition, score: component.score, weight: `${component.weight} %` }] : [];
+          })}
           // Дверь к строкам-основаниям: слагаемое ведёт в «Контроль» с отбором
           // тех проверок, из которых оно сложено (поле trustComponent реестра
           // проверок). Без двери балл нельзя проверить — карточка остаётся
@@ -1321,6 +1354,13 @@ function formulaSpotTone(cells: number | null): string {
   return 'border-emerald-500/20 bg-emerald-500/8';
 }
 
+/** Состояние корзины: инициативы входят в число строк, не прибавляются к нему. */
+export function fundingStageLine(bucket: (YearlongBucket & { initiativeRows?: number }) | null): { text: string; hasRows: boolean } | null {
+  if (bucket === null) return null;
+  const initiative = bucket.initiativeRows === undefined ? '' : `; из них инициативных — ${bucket.initiativeRows}`;
+  return { text: `Не обеспечено финансированием — ${bucket.rows} ${pluralRu(bucket.rows, 'строка', 'строки', 'строк')}${initiative}. Состояние потребностей, не ошибка сотрудника.`, hasRows: bucket.rows > 0 };
+}
+
 function BlindSpotsWidget({
   issues,
   signalCounts: apiSignalCounts,
@@ -1360,17 +1400,11 @@ function BlindSpotsWidget({
   // Счёт строк стадии «в течение года» — из данных, не из замечаний
   // (канон §18 п.1). Ошибка сети оставляет null: пятно не рисуется,
   // отсутствие счёта не выдаётся за ноль строк.
-  const [yearlongBucket, setYearlongBucket] = useState<YearlongBucket | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.getRegistryBuckets()
-      .then((b) => {
-        if (alive) setYearlongBucket({ rows: b.yearlong.rows, planSum: b.yearlong.planSum });
-      })
-      .catch(() => { /* счёта нет — стадия честно молчит, а не показывает ноль */ });
-    return () => { alive = false; };
-  }, []);
-  const stage = yearlongStageLine(yearlongBucket);
+  const issueReadAt = useStore(s => s.dashboardData?.lastRefreshed ?? null);
+  // Общий принятый ответ: навигация читает числа из того же объекта.
+  const buckets = useStore(s => s.bucketCounts?.reading ?? null);
+  const stage = yearlongStageLine(buckets?.yearlong ?? null);
+  const fundingStage = fundingStageLine(buckets?.unfunded ?? null);
 
   // Целостность формул книг: счёт ячеек трёх классов считается ИЗ ЗАМЕЧАНИЙ
   // (те же данные, что у остальных плиток), а состояние чтения формул —
@@ -1436,7 +1470,7 @@ function BlindSpotsWidget({
     // Вводная 06.08: сверка лимита — строки без года плана невидимы для формул
     // официального листа СВОД.
     {
-      label: DASHBOARD_REPORT_KB_ADDITIONS.signal_plan_year_missing.label,
+      label: 'Активные замечания по финансированию',
       signal: 'planYearMissing',
       search: 'без года плана',
       color: 'orange',
@@ -1608,6 +1642,14 @@ function BlindSpotsWidget({
             </KBTooltip>
           );
         })}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-zinc-500/15 px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-300">
+        <p>{fundingStage?.text ?? 'Счёт состояния финансирования недоступен — отсутствие данных не означает ноль строк.'}</p>
+        {buckets && <p className="mt-1">Все управления · все строки доступного источника · {buckets.source === 'live' ? 'чтение книг' : 'сохранённый снимок'} · {fmtReadAt(buckets.asOf)}</p>}
+        <SourceCoverageNotice coverage={buckets?.coverage} />
+        <p className="mt-1">Активные замечания по финансированию в выбранных управлениях (период в шапке не применяется): {issueReadAt ? (signalCounts.planYearMissing ?? 0) : 'счёт недоступен'}. Снимок замечаний: {issueReadAt ? fmtReadAt(issueReadAt) : 'время не установлено'}. Это отдельный счёт проверок; инициативы и сохранённые решения меняют его состав. Разные моменты чтения нельзя сравнивать как одну контрольную пару.</p>
+        {fundingStage?.hasRows && <button type="button" className="mt-1 underline focus-visible:ring-2" onClick={() => useStore.getState().navigateTo('unfunded')}>Открыть «Не обеспеченные»</button>}
       </div>
 
       {/* Полоса стадии «в течение года» (канон §18 п.1): не плитка дефекта,

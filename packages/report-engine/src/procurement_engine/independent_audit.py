@@ -38,7 +38,7 @@ def recount(capture):
             **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount',
                 'monetary_fact_amount','confirmed_saving_amount','partial_fact_without_completion_amount',
                 *(prefix+'_'+budget+'_amount' for prefix in ('plan','fact','remain') for budget in ('fb','kb','mb')))}}
-    periods=('year','q1','q2','q3','q4')
+    periods=('year','q1','q2','q3','q4',*(f'm{month}' for month in range(1,13)))
     kinds=('competitive','single_supplier')
     result={k:{s:empty() for s in periods} for k in kinds}
     grouped={source['grbs']:{k:{s:empty() for s in periods} for k in kinds}
@@ -64,7 +64,7 @@ def recount(capture):
             if plan_year!=year:continue
             try:plan_q=int(float(text(cell(14)).replace(',','.')))
             except ValueError:plan_q=None
-            for scope in ['year']+([f'q{plan_q}'] if plan_q in (1,2,3,4) else []):
+            for scope in ['year', f'm{int(plan_date[5:7])}']+([f'q{plan_q}'] if plan_q in (1,2,3,4) else []):
                 population[kind][scope].append(locator)
                 for b in (result[kind][scope],grouped[source['grbs']][kind][scope]):
                     b['plan_count']+=1;b['plan_amount']+=plan
@@ -152,10 +152,23 @@ def audit_model(capture,model):
                               want,ratio=field=='contracted_share_pct')
     check('grbs_metrics.coverage',set(model.get('grbs_metrics') or {}),set(grouped))
     check('grbs_order.coverage',sorted(model.get('grbs_order') or []),sorted(grouped))
+    monthly = model.get('monthly') or []
+    month_keys = [(row.get('grbs'), row.get('method'), row.get('month')) for row in monthly]
+    expected_keys = [(grbs, method_, month) for grbs in grouped
+                     for method_ in ('ЭА', 'ЕП') for month in range(1,13)]
+    check('monthly.coverage', sorted(month_keys, key=str), sorted(expected_keys, key=str))
+    months = dict(zip(month_keys, monthly, strict=True))
     for grbs,kinds in grouped.items():
         for kind,scopes in kinds.items():
             legacy='comp' if kind=='competitive' else 'ep'
             for scope,block in scopes.items():
+                if scope.startswith('m'):
+                    actual = months.get((grbs, 'ЭА' if kind == 'competitive' else 'ЕП', int(scope[1:])), {})
+                    path = f'monthly.{grbs}.{legacy}.{scope}'
+                    content_check(path, actual, block)
+                    trace_check(path, actual, [key for key in populations[kind][scope]
+                                             if evidence[key]['grbs'] == grbs])
+                    continue
                 actual=((model.get('grbs_metrics',{}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
                 display_check(f'grbs_metrics.{grbs}.{legacy}.{scope}',actual,block,display_fields)
                 section=(((content.get('by_grbs') or {}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
@@ -165,6 +178,8 @@ def audit_model(capture,model):
     for kind,scopes in expected.items():
         legacy='comp' if kind=='competitive' else 'ep'
         for scope,block in scopes.items():
+            if scope.startswith('m'):
+                continue
             if scope!='quarter':
                 actual=((model.get('global_quarters') or {}).get(legacy) or {}).get(scope) or {}
                 display_check(f'global_quarters.{legacy}.{scope}',actual,block,display_fields)
@@ -197,5 +212,5 @@ def audit_model(capture,model):
     check('calendar_fact.recorded_position_count',calendar.get('recorded_position_count'),len(events))
     check('calendar_fact.amount_thousand',calendar.get('amount_thousand'),float(event_amount))
     decimal_check('calendar_fact.amount_thousand_decimal',calendar.get('amount_thousand_decimal'),event_amount)
-    return {'pass':not failures,'implementation':'raw-cells Fraction recount v1.5',
+    return {'pass':not failures,'implementation':'raw-cells Fraction recount v1.6',
             'scope':'master recorded facts; no procedure overlay','checks':checks,'failures':failures}

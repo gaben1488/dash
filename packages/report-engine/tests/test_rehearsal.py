@@ -152,17 +152,25 @@ def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot
     registry, ledger = inputs(tmp_path)
     state = tmp_path / 'state'
     client = ChangedProgram()
-    run_once(registry, ledger, state, client=client)
+    first = run_once(registry, ledger, state, client=client)
     client.program = 'Changed program'
     result = run_once(registry, ledger, state, client=client)
     assert result['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    original = json.loads((state / 'attempts' / first['attempt_id'] / 'bundle/report_model.json').read_text())
+    current = json.loads((state / 'attempts' / result['attempt_id'] / 'bundle/report_model.json').read_text())
+    original_row = original['identity_observations']['rows'][0]
+    current_row = current['identity_observations']['rows'][0]
+    assert current_row['procurement_uid'] != original_row['procurement_uid']
+    assert current_row['status'] == 'CURRENT_IDENTITY_ESTABLISHED'
+    assert current_row['evidence']['historical_uid_recovered'] is False
     before = business_files(state)
     if upgrade:
         from procurement_engine import raw_pipeline
 
         monkeypatch.setattr(raw_pipeline, 'RAW_RULES_VERSION', raw_pipeline.RAW_RULES_VERSION + '+synthetic-upgrade')
     coverage = rehearse_latest(state, coverage=True)
-    assert coverage['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    # A new current identity is valid; no historical continuation was claimed.
+    assert coverage['identity_chain_break_counts'] == {}
     assert business_files(state) == before
 
 
@@ -205,9 +213,10 @@ def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
     assert business_files(state) == before
 
 
-def test_missing_publication_is_not_a_successful_rehearsal(tmp_path):
-    with pytest.raises(ValueError, match='PUBLICATION_NOT_FOUND'):
-        rehearse_latest(tmp_path)
+def test_first_start_does_not_claim_successful_historical_rehearsal(tmp_path):
+    assert rehearse_latest(tmp_path) == {
+        'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0,
+    }
 
 
 def test_corrupt_saved_doc_is_rejected_before_replay(tmp_path):
@@ -220,12 +229,14 @@ def test_corrupt_saved_doc_is_rejected_before_replay(tmp_path):
 
 def test_rehearsal_cli_sanitizes_private_failure(tmp_path, capsys):
     from procurement_engine.rehearsal import main
+    # Orphaned publication evidence is a real failure, unlike an empty first start.
+    (tmp_path / 'private-name' / 'published' / 'releases' / 'orphan').mkdir(parents=True)
     assert main(['--state', str(tmp_path / 'private-name')]) == 2
     output = capsys.readouterr().out
     result = json.loads(output)
     assert result['replay_status'] == 'FAIL'
     assert result['error_code'] == 'PUBLICATION_NOT_FOUND'
-    assert result['error_type'] == 'ValueError'
+    assert result['error_type'] == 'PublicationError'
     assert result['internal_code'] == 'PUBLICATION_NOT_FOUND'
     assert 'private-name' not in output
 
@@ -408,13 +419,54 @@ def test_weekly_only_cli_reports_archive_error_without_candidate_replay(monkeypa
     assert 'candidate' not in json.dumps(result).lower()
 
 
-def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
+def test_weekly_only_cli_accepts_clean_start_without_claiming_replay(tmp_path, capsys):
     from procurement_engine import rehearsal
 
-    monkeypatch.setattr(rehearsal, 'rehearse_weekly', lambda _state: None)
-    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result['replay_status'] == 'FAIL'
+    assert result == {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+    (tmp_path / 'archives').mkdir()
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 0
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_weekly_only_does_not_mistake_unreadable_state_for_clean_start(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    assert rehearsal.main(['--state', str(tmp_path / 'absent'), '--weekly-only']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
+    (tmp_path / 'archives').write_text('not a directory')
+    assert rehearsal.main(['--state', str(tmp_path), '--weekly-only']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
+
+
+@pytest.mark.parametrize('option', ['--published-summary', '--coverage-summary', None])
+@pytest.mark.parametrize('initialized', [False, True])
+def test_no_publication_yet_is_not_a_failed_or_verified_replay(tmp_path, capsys, option, initialized):
+    from procurement_engine import rehearsal
+    from procurement_engine.publication_store import PublicationStore
+
+    if initialized:
+        PublicationStore(tmp_path / 'published')
+    args = ['--state', str(tmp_path)] + ([option] if option else [])
+    assert rehearsal.main(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    key = 'published_evidence_read' if option == '--published-summary' else 'replay_status'
+    assert result == {key: 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
+
+
+@pytest.mark.parametrize('broken', ['database', 'orphan'])
+def test_broken_publication_state_is_not_clean_start(tmp_path, capsys, broken):
+    from procurement_engine import rehearsal
+
+    published = tmp_path / 'published'
+    published.mkdir()
+    if broken == 'database':
+        (published / 'publications.sqlite').write_text('broken SQLite')
+    else:
+        (published / 'releases' / 'REL-orphan').mkdir(parents=True)
+    assert rehearsal.main(['--state', str(tmp_path), '--coverage-summary']) == 2
+    assert json.loads(capsys.readouterr().out)['replay_status'] == 'FAIL'
 
 
 def test_rehearsal_os_errors_disclose_only_safe_errno_not_private_path(monkeypatch, capsys):
@@ -432,3 +484,80 @@ def test_rehearsal_os_errors_disclose_only_safe_errno_not_private_path(monkeypat
     assert result['os_error_code'] == 'ENOSPC'
     assert 'private' not in json.dumps(result)
     assert 'secret' not in json.dumps(result)
+
+
+def test_invalid_reference_proof_requires_literal_errors_in_the_complete_audit():
+    from copy import deepcopy
+
+    from procurement_engine.rehearsal import _invalid_reference_proof
+    from test_formula_dependencies import source
+
+    original = source(sid='PRIVATE_SOURCE', formulas=[
+        {'row': row, 'column': 1, 'formula': '=#REF!'} for row in (1, 2, 3)])
+    capture = {'sources': [original], 'archive_origin': {'snapshot_id': 'PRIVATE_SNAPSHOT'}}
+    proof = _invalid_reference_proof(capture, {'private/path': 'a' * 64})
+    assert proof['invalid_reference_count'] == 3
+    assert 'PRIVATE' not in json.dumps(proof) and 'private/path' not in json.dumps(proof)
+    moved = deepcopy(capture)
+    moved['sources'][0]['formula_evidence']['formulas'][0]['column'] = 2
+    assert _invalid_reference_proof(moved, {'private/path': 'a' * 64})['dependency_issue_sha256'] != proof['dependency_issue_sha256']
+    assert _invalid_reference_proof(capture, {'private/path': 'b' * 64})['archive_sha256'] != proof['archive_sha256']
+    for formula in ('=Support!A1', '=CUSTOM_REMOTE(A1)', '=REF!A1'):
+        different = deepcopy(capture)
+        different['sources'][0]['formula_evidence']['formulas'][0]['formula'] = formula
+        assert _invalid_reference_proof(different, {}) is None
+
+
+def test_weekly_refusal_proves_frozen_input_without_changing_it_or_authorizing_a_publication(tmp_path, monkeypatch, capsys):
+    import test_weekly_archive as weekly
+    from procurement_engine import rehearsal
+    from procurement_engine.weekly_archive import seal_weekly_archive
+
+    original = weekly.FormulaGoogle.formulas
+    def broken(self, provider, title, start, end, columns):
+        if provider == 'master-0':
+            return [['=#REF!'] if row <= 3 else [] for row in range(start, end + 1)]
+        return original(self, provider, title, start, end, columns)
+    monkeypatch.setattr(weekly.FormulaGoogle, 'formulas', broken)
+    state, status = weekly.complete_attempt(tmp_path)
+    seal_weekly_archive(state, status)
+    before = business_files(state)
+    assert rehearsal.main(['--state', str(state), '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['blocker_codes'] == ['UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN']
+    assert result['frozen_refusal']['invalid_reference_count'] == 3
+    assert business_files(state) == before
+    assert not (state / 'published/releases').exists()
+
+
+@pytest.mark.parametrize('valid_hash', [False, True])
+def test_refusal_cli_does_not_publish_arbitrary_exception_attributes(monkeypatch, capsys, valid_hash):
+    from procurement_engine import rehearsal
+    from procurement_engine.archive_runtime import ArchiveError
+
+    error = ArchiveError('ARCHIVE_BUILD_FAILED')
+    error.blockers = [{'code': 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN'}]
+    error.frozen_refusal = {'contract': 'frozen-invalid-reference-proof-v1',
+        'invalid_reference_count': 3, 'archive_sha256': 'a' * 64 if valid_hash else 'PRIVATE_SENTINEL',
+        'snapshot_sha256': 'b' * 64, 'dependency_issue_sha256': 'c' * 64,
+        'private_note': 'PRIVATE_SENTINEL'}
+    def fail(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', fail)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    text = capsys.readouterr().out
+    assert 'PRIVATE_SENTINEL' not in text and 'private_note' not in text
+    assert ('frozen_refusal' in json.loads(text)) is valid_hash
+
+
+def test_quoted_sheet_title_containing_ref_error_does_not_prove_an_unrelated_missing_reference():
+    from procurement_engine.rehearsal import _invalid_reference_proof
+    from test_formula_dependencies import source
+
+    first = source(formulas=[{'row': 1, 'column': 1, 'formula': "=IFERROR(REF!A1;'#REF!'!A1)"}])
+    second = source('captured-title', 2, '#REF!')
+    for item in (first, second):
+        item['formula_evidence']['sheets'].append({'sheetId': 2, 'title': '#REF!'})
+    capture = {'sources': [first, second], 'archive_origin': {'snapshot_id': 'SNP-synthetic'}}
+    assert _invalid_reference_proof(capture, {}) is None

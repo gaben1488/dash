@@ -253,20 +253,35 @@ export interface Issue {
 
 /** Компонент скоринга доверия */
 export interface TrustComponent {
+  checks?: TrustCheckCounts;
   name: string;
   label: string;
   weight: number;
-  score: number;
+  /** null means insufficient evidence, never a successful check. */
+  score: number | null;
   issues: number;
   criticalIssues: number;
   details: string;
 }
 
+/** Actual check executions, recorded with the source snapshot. */
+export interface TrustCheckCounts {
+  expected: number;
+  checked: number;
+  failed: number;
+}
+
+export interface TrustCheckCoverage extends TrustCheckCounts {
+  sheet: string;
+  component: 'formula_integrity' | 'rule_compliance';
+}
+
 /** Общая оценка доверия */
 export interface TrustScore {
-  overall: number;
+  coverage?: TrustCheckCoverage[];
+  overall: number | null;
   components: TrustComponent[];
-  grade: TrustGrade;
+  grade: TrustGrade | null;
   computedAt: string;
   basedOnSnapshot: string;
 }
@@ -331,6 +346,8 @@ export interface ReportMapEntry {
   period: PeriodScope;
   valueType: ValueType;
   sourceUnit: UnitType;
+  /** Numeric Sheets percent cells are fractions; other source profiles explicitly opt into points. */
+  percentEncoding?: import('./editable-amount.js').PercentEncoding;
   displayUnit: UnitType;
   sourceSheet: string;
   sourceCell: string;
@@ -400,11 +417,14 @@ export interface RuleCheckContext {
   sheet: string;
   classification: RowClassification;
   allRows?: ClassifiedRow[];
+  /** Snapshot/run clock; a direct historical rule check must supply it explicitly. */
+  asOf?: Date;
 }
 
 /** Результат проверки одного правила на одной строке */
 export interface RuleCheckResult {
-  passed: boolean;
+  /** null: the rule could not establish a result from the available inputs. */
+  passed: boolean | null;
   message?: string;
   cell?: string;
   actual?: unknown;
@@ -455,6 +475,18 @@ export interface WeeklyTableContext {
   monitoring: WeeklyMonitoringTableEvidence;
 }
 
+export interface CalculationContext {
+  contract: 'aemr-calculation-context-v1';
+  id: string;
+  sources: { content: string; profiles: string };
+  semantics: string;
+  thresholds: Record<string, import('./threshold-registry.js').DatedThreshold>;
+  calendar: { asOf: string; productDay: number; utcOffsetHours: number; weeklyCutoffHour: number };
+  scope: { targetYear: number | null; officialYear: number | null };
+  decisions: 'not-applied';
+  access: 'full-dataset';
+}
+
 export interface DataSnapshot {
   id: string;
   spreadsheetId: string;
@@ -500,6 +532,15 @@ export interface DataSnapshot {
     cellsRead: number;
     readDurationMs: number;
     pipelineDurationMs: number;
+    timings?: Record<string, number>;
+    /** Явный год среза: null = все годы; отсутствие = старый снимок без доказанного scope. */
+    targetYear?: number | null;
+    /** HTTP-only read state; original captured time and stored evidence stay unchanged. */
+    readModel?: { state: 'refreshing' | 'stale' };
+    calculationContext?: CalculationContext;
+    sourceReceipt?: string | null;
+    decisionView?: { basedOnContext: string | null; revision: string };
+    sourceCoverage?: import('./source-coverage.js').SourceCoverage;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */
     perSheetRowCount?: Record<string, number>;
   };
@@ -514,11 +555,13 @@ export interface DashboardPeriodSummary {
   kpFactCount: number | null;
   kpPlan: number | null;
   kpFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   kpPercent: number | null;
   epCount: number | null;
   epFactCount: number | null;
   epPlan: number | null;
   epFact: number | null;
+  /** Concluded / planned positions, fraction (1 = 100%); null without a denominator. */
   epPercent: number | null;
   fbPlan: number | null;
   kbPlan: number | null;
@@ -550,6 +593,8 @@ export interface DashboardData {
   departmentSummaries: DepartmentSummary[];
   summaryByPeriod: Record<string, DashboardPeriodSummary>;
   recentIssues: Issue[];
+  /** Compact HTTP opt-in: the complete collection is present once in snapshot.issues. */
+  recentIssuesRef?: 'snapshot.issues';
   signalCounts: Record<string, number>;
   issueSummary: DashboardIssueSummary;
   trust: TrustScore;
@@ -591,7 +636,7 @@ export interface DepartmentSummary {
   soleCount?: number | null;
   issueCount: number;
   criticalIssueCount: number;
-  trustScore: number;
+  trustScore: number | null;
   trustComponents?: TrustComponent[];
   status: 'normal' | 'warning' | 'critical';
   quarters?: Record<string, Record<string, unknown>>;
@@ -670,4 +715,23 @@ export interface AppConfig {
      */
     utcOffsetHours: number;
   };
+}
+
+/** K/Y comparison of live master rows; independent of NMCK and approved AD economy. */
+export interface LimitComparisonPoint {
+  id: unknown; rowIndex: number; department: string; subject: string; subordinate: string;
+  planTotal: number; factTotal: number; limitReductionPercent: number; approvedEconomy: number;
+  activityType: string | null; procurementType: string;
+  planDate: string; factDate: string; planYear: number; month: number; quarter: number;
+}
+export interface LimitComparisonResponse {
+  sourceSnapshotId?: string | null;
+  points: LimitComparisonPoint[]; total: number; departments: string[];
+  unreadDepartments: Array<{ department: string; reason: string }>;
+  coverage: import('./source-coverage.js').SourceCoverage;
+  truncated: boolean; pointLimit: number; asOf: string;
+  // Legacy keys remain readable; their names do not establish LBO/NMCK/contract semantics.
+  basis: 'plan_K_vs_recorded_fact_Y' | 'plan_limit_K_vs_contract_Y'; unit: 'thousand_rubles';
+  excluded: { invalidAmount: number; invalidDate: number; futureFact: number; unknownMethod: number };
+  summary: { count: number; limitTotal: number; contractTotal: number; approvedEconomy: number; limitReductionPercent: number | null };
 }

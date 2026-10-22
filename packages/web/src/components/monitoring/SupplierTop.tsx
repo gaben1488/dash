@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Поставщики-победители: топ по деньгам и по числу побед, концентрация рынка
  * и доля тех, кто выиграл единственный раз (спека §3.3).
@@ -182,7 +183,7 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
                         <div className="text-xs text-zinc-500 dark:text-zinc-400">
                           {r.depts.length === 1
                             ? `лист управления: ${r.depts[0]}`
-                            : `листы ${fmtCount(r.depts.length)} управлений: ${r.depts.join('; ')}`}
+                            : `листы ${fmtCount(r.depts.length)} управлений: ${r.depts.map(productLabel).join('; ')}`}
                         </div>
                       )}
                     </td>

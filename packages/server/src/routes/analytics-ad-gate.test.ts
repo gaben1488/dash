@@ -26,15 +26,15 @@ vi.mock('../services/google-sheets.js', () => ({
 }));
 
 /**
- * Строка конкурентной закупки с экономией 50 % от плана: без гейта это
- * гарантированный вердикт «высокая экономия» (порог 25 %).
+ * Строка с экономией 50 % от плана, но без НМЦК и предложенной цены.
+ * Ни флаг AD, ни дата заключения не добавляют отсутствующие данные.
  */
-function rowWithEconomy(flag: string, factDate: string): unknown[] {
+function rowWithEconomy(flag: string, factDate: string, method = 'ЭА'): unknown[] {
   const row = Array<unknown>(34).fill('');
   row[DEPT_COLUMNS.ID] = 1;
   row[DEPT_COLUMNS.SUBJECT] = 'Ремонт кровли';
   row[DEPT_COLUMNS.TOTAL_PLAN] = 100;
-  row[DEPT_COLUMNS.METHOD] = 'ЭА';
+  row[DEPT_COLUMNS.METHOD] = method;
   row[DEPT_COLUMNS.FACT_DATE] = factDate;
   row[DEPT_COLUMNS.TOTAL_FACT] = 50;
   row[DEPT_COLUMNS.ECONOMY_FB] = 50;
@@ -48,7 +48,19 @@ let setDeptSheetCache: typeof import('../services/snapshot.js')['setDeptSheetCac
 async function antiDumpingIssues(): Promise<Array<{ ruleCode: string; rowIndex?: number }>> {
   const res = await app.inject({ method: 'GET', url: '/api/analytics/compliance' });
   expect(res.statusCode).toBe(200);
-  const body = res.json<{ issues: Array<{ ruleCode: string; rowIndex?: number }> }>();
+  const body = res.json<{
+    issues: Array<{ ruleCode: string; rowIndex?: number }>;
+    unavailableChecks: Array<{ ruleCode: string; status: string; reason: string }>;
+  }>();
+  expect(body.unavailableChecks).toContainEqual({
+    ruleCode: 'anti_dumping',
+    status: 'insufficient_data',
+    reason: expect.stringContaining('НМЦК'),
+  });
+  expect(body.unavailableChecks).toContainEqual({
+    ruleCode: 'legal_rule_version', status: 'insufficient_data',
+    reason: expect.stringContaining('редакция'),
+  });
   return body.issues.filter((i) => i.ruleCode === 'anti_dumping');
 }
 
@@ -79,7 +91,7 @@ afterAll(async () => {
   vi.resetModules();
 });
 
-describe('GET /api/analytics/compliance — антидемпинг считает только утверждённую экономию', () => {
+describe('GET /api/analytics/compliance — экономия не доказывает антидемпинг', () => {
   it('экономия не утверждена (флаг «нет») → вердикта нет', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('нет', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     expect(await antiDumpingIssues()).toEqual([]);
@@ -90,10 +102,45 @@ describe('GET /api/analytics/compliance — антидемпинг считае�
     expect(await antiDumpingIssues()).toEqual([]);
   }, 30_000);
 
-  it('экономия утверждена и контракт заключён → вердикт с адресом строки', async () => {
+  it('конкурентный алиас «ЭА (МЭП)» не восполняет отсутствующую НМЦК', async () => {
+    setDeptSheetCache({ 'УО': { values: [[], [], [],
+      rowWithEconomy('да', '15.03.2026', 'ЭА (МЭП)')], formulas: [], sheetName: 'ВСЕ' } });
+    const issues = await antiDumpingIssues();
+    expect(issues).toHaveLength(0);
+  }, 30_000);
+
+  it('утверждённая экономия и заключённый контракт не доказывают антидемпинг', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('да', '15.03.2026')], formulas: [], sheetName: 'ВСЕ' } });
     const issues = await antiDumpingIssues();
-    expect(issues.length).toBe(1);
-    expect(issues[0]?.rowIndex).toBe(4);
+    expect(issues).toHaveLength(0);
   }, 30_000);
 });
+
+it.each(['нет', 'да'])('does not infer competition or initial price from economy flag %s', async flag => {
+  setDeptSheetCache({ 'УО': { values: [[], [], [], ...Array.from({ length: 6 }, () => rowWithEconomy(flag, '15.03.2026'))], formulas: [], sheetName: 'ВСЕ' } });
+  const response = await app.inject({ method: 'GET', url: '/api/analytics/anticorruption' });
+  expect(response.statusCode).toBe(200);
+  const result = response.json().uo;
+  expect(result).toBeDefined();
+  expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
+  expect(result.disciplinaryPenalty).toBe(0);
+  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+}, 30_000);
+
+
+it('EP analysis uses the source date, not stale quarter formulas or request time', async () => {
+  const source = rowWithEconomy('нет', '', 'ЕП');
+  source[DEPT_COLUMNS.PLAN_DATE] = '15.04.2026';
+  source[DEPT_COLUMNS.PLAN_QUARTER] = 1;
+  const undated = [...source];
+  undated[DEPT_COLUMNS.PLAN_DATE] = '';
+  setDeptSheetCache({ 'УО': { values: [[], [], [], source, undated], formulas: [], sheetName: 'ВСЕ' } });
+  const first = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
+  expect(first.byDept.uo.quarters.q1.ep.rows).toBe(0);
+  expect(first.byDept.uo.quarters.q2.ep.rows).toBe(1);
+  expect(first.byDept.uo.noQuarter.rows).toBe(1);
+  const { getDeptCacheFilledAt } = await import('../services/snapshot.js');
+  expect(first.readAt).toBe(new Date(getDeptCacheFilledAt()).toISOString());
+  const second = (await app.inject({ method: 'GET', url: '/api/analytics/ep-reasons' })).json().justification;
+  expect(second).toEqual(first);
+}, 30_000);

@@ -13,7 +13,7 @@ import {
 } from './economy-flag.js';
 import { SIGNAL_LABELS } from './product-dictionary.js';
 
-const base = { planTotal: 1000, factTotal: 800, adCell: '', isEp: false };
+const base = { planTotal: 1000, factTotal: 800, adCell: '', isEp: false, completed: true };
 
 describe('графа «Статус» (AD) — решение органа', () => {
   it('«да» и «нет» — это решения, всё остальное решением не является', () => {
@@ -102,4 +102,39 @@ describe('слова канона — один дом', () => {
       expect(text).not.toMatch(/[a-z]+[A-Z][a-zA-Z]*/);
     }
   });
+});
+
+
+it('остаток годовой потребности без даты последнего контракта не является экономией', () => {
+  const result = economyFlagVerdict({ ...base, completed: false });
+  expect(result.matches).toBe(false);
+  expect(result.economy).toBe(0);
+});
+
+describe('economy mark applies only after the last contract date has arrived', () => {
+  it('does not infer completion from a future date or an unknown snapshot clock', () => {
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: 21000 }).matches).toBe(false);
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: null }).matches).toBe(false);
+    expect(economyFlagVerdict({ ...base, completionDay: 21001, asOfDay: NaN }).matches).toBe(false);
+  });
+  it('preserves completed historical positions and the exact-day boundary', () => {
+    expect(economyFlagVerdict({ ...base, completionDay: 21000, asOfDay: 21000 }).matches).toBe(true);
+    expect(economyFlagVerdict({ ...base, completionDay: 20999, asOfDay: 21000 }).matches).toBe(true);
+    expect(economyFlagVerdict({ ...base, adCell: 'да', completionDay: 21001, asOfDay: 21000 }).state).toBe('approved');
+  });
+});
+
+ describe('future position decision preparation', () => {
+  it('reminds without declaring available economy before Q arrives', () => {
+    const v = economyFlagVerdict({ ...base, completionDay: 200, asOfDay: 100, methodKnown: true, declaredFactTotal:800 });
+    expect(v).toMatchObject({ upcoming: true, matches: false, economy: 0, sharePct: 0 });
+  });
+  it.each([{ adCell: 'да' }, { adCell: 'нет' }, { completionDay: null },
+    { factTotal: 1000, declaredFactTotal:1000 }, { monopoly: true }, { methodKnown: false }, { asOfDay: null }])('does not request preparation for %j', override => {
+    expect(economyFlagVerdict({ ...base, completionDay: 200, asOfDay: 100, methodKnown: true, declaredFactTotal:800, ...override }).upcoming).toBe(false);
+  });
+});
+
+it('does not infer preparation from legacy fallback totals without declared Y evidence', () => {
+  expect(economyFlagVerdict({...base,completionDay:200,asOfDay:100,methodKnown:true}).upcoming).toBe(false);
 });

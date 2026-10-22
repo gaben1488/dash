@@ -40,6 +40,16 @@ describe('canonicalizeReasonEp — границы', () => {
     expect(cluster(null)).toBe('EMPTY');
   });
 
+  it.each([
+    'не является монополистом', 'не монополист', 'не является естественным монополистом',
+    'монополистом не является', 'естественными монополистами не являются',
+    'субъектом естественной монополии не является',
+  ])('negated monopoly is not an exemption: %s', reason => {
+    expect(cluster(reason)).toBe('UNMAPPED');
+  });
+  it('the end of another word is not the negation particle', () => {
+    expect(cluster('Поставщик вполне монополист')).toBe('EP_MONOPOLIST');
+  });
   it('монополист распознаётся', () => {
     expect(cluster('услуги монополиста')).toBe('EP_MONOPOLIST');
   });
@@ -160,4 +170,14 @@ describe('canonicalizeReasonEp — EP_LOWEST_PRICE: падежное оконч�
       + 'Нецелесообразно проводить конкурентую процедуру, поскольку при обосновании НМЦК будет выше, чем при закупке у ЕП',
     )).toBe('EP_NOT_WORTHWHILE');
   });
+});
+
+
+it.each([
+  ['Закупка оборудования у местных производителей', 'EP_LOCAL_PROD'],
+  ['Услуги оказываются официальным представителем', 'EP_OFFICIAL_DEALER'],
+  ['Срочность проведения ремонта', 'EP_URGENCY'],
+  ['Подрядчики в ораниченом количестве по оказанию услуги', 'EP_LIMITED_MARKET'],
+])('recognises observed wording without inventing a legal verdict: %s', (text, cluster) => {
+  expect(canonicalizeReasonEp(text).cluster).toBe(cluster);
 });

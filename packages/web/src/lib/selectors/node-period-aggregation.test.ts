@@ -54,6 +54,21 @@ describe('aggregateNodeTotals — период применяется к узл�
     expect(r.periodApplied).toBe(true);
   });
 
+  it('год подведа без year-блока складывает четыре квартала, включая количества', () => {
+    const r = aggregateNodeTotals(node, resolution('year'), BOTH);
+    expect(r.planCount).toBe(28);
+    expect(r.factCount).toBe(12);
+    expect(r.planTotal).toBe(2900);
+    expect(r.factTotal).toBe(1000);
+    expect(r.periodApplied).toBe(true);
+  });
+
+  it('годовой срез не подмешивает беспериодные суммы узла в квартальную базу', () => {
+    const r = aggregateNodeTotals({ ...node, planTotal: 9999, factTotal: 9999 }, resolution('year'), BOTH);
+    expect(r.factCount).toBe(12);
+    expect(r.factTotal).toBe(1000);
+  });
+
   it('разные кварталы дают разные числа (иначе период не применяется)', () => {
     const q1 = aggregateNodeTotals(node, resolution('q1'), BOTH);
     const q3 = aggregateNodeTotals(node, resolution('q3'), BOTH);
@@ -184,5 +199,16 @@ describe('_subFiltered: период применяется, депт-поля �
     expect(r.kp).toBe(6);
     expect(r.ep).toBe(3);
     expect(r.planCount).toBe(9); // 4 + 5 из квартальных сумм подведов
+  });
+});
+
+
+describe('annual subordinate DTO compatibility', () => {
+  it('retains annual KP/EP when historical quarter DTOs have only combined counts', () => {
+    const quarters = Object.fromEntries(['q1','q2','q3','q4'].map(k=>[k,{planCount:10,factCount:8,planTotal:100,factTotal:80}]));
+    const r=aggregateNodeTotals({quarters,competitiveCount:12,epCount:28},resolution('year'),BOTH);
+    expect(r.factCount).toBe(32);
+    expect(r.kp).toBe(12);
+    expect(r.ep).toBe(28);
   });
 });

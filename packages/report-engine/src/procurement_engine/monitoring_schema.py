@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from .department_directory import MONITORING_SOURCE_SCHEMA
 from .google_adapter import GoogleReadClient, GoogleReadError
 from .raw_pipeline import header_hash
 from .runtime import _write
@@ -11,141 +12,11 @@ from .runtime_inputs import validate_inputs
 from .semantic_headers import _headers, semantic_header_hash
 from .snapshot import canonical_semantic_hash
 
-REVIEW = 'canonical-monitoring-v3-2026-10-08'
-REASON = 'Reviewed canonical monitoring migration: physical sources retained, current queue mapped, legacy controls retired; variable summary cells are data, not schema.'
-SUPPLIER_SOURCE = {
-    'sheet_id': 110002, 'sheet': '_Поставщики', 'role': 'formula_dependency',
-    'columns': 6, 'header_rows': 1, 'units': 'directory', 'grbs': None,
-    'schema_fingerprint': '0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c',
-    'semantic_header_fingerprint': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
-}
-RECORDED_REVIEWS_V3 = [{'old_sheet': 'Процедуры в работе',
-  'sheet': 'Процедуры в работе',
-  'role': 'procedure_lifecycle',
-  'old_columns': 13,
-  'columns': 24,
-  'old_header_rows': 2,
-  'header_rows': 2,
-  'old_fingerprint': '44b89bedff9ced887103666dfa1eab3b88062b597e688cb988ef6e9f722df51f',
-  'fingerprint': '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe',
-  'previous_semantic': '2819165c346113d933bf44f4a08cc70b6270c181d59a4f9663805d475ca5694c',
-  'semantic': '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf',
-  'volatile_cells': [[1, 1], [1, 15]],
-  'previous_geometry': [[23, 2, 'ee62039702fe893fdb9a04a39851708fb4d60842e160d1c3bb3cd5ed1d492e2a']],
-  'previous_semantics': ['8a9bd23bb83d1020fd9f1de53e384e2bfd90a2e3a205cd9ea56581c3eda0f50d'],
-  'previous_titles': ['Процедуры в работе']},
- {'old_sheet': 'Архив успешно завершенных процедур с фильтрацией',
-  'sheet': 'Архив завершённых процедур по ГРБС',
-  'role': 'procedure_lifecycle',
-  'old_columns': 20,
-  'columns': 20,
-  'old_header_rows': 3,
-  'header_rows': 3,
-  'old_fingerprint': 'a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404',
-  'fingerprint': 'd913069152442a501a2d4b1677f25f5d4c1dd1ab0dda53ccdeb21fd922afdebc',
-  'previous_semantic': '9a8466b2e995bea8a687ab4e7a24226489cf3a23a50bbe257cab584801df7a0d',
-  'semantic': '0bff84cc375425b514f0c4654050c90e48c9448e2aca3e2842f99e54dc7a8f27',
-  'volatile_cells': [[1, 2], [1, 5], [2, 2], [2, 4], [2, 6], [2, 8], [2, 10]],
-  'previous_geometry': [[20, 3, 'a8da37938076609f7ba026533759645dd59382523281962480f62e1c0e6e9404']],
-  'previous_semantics': ['50b949b6b61a70e17826110c242884017395c0541dfd93244e10c621712c6d5e'],
-  'previous_titles': ['Процедуры по управлениям']},
- {'old_sheet': 'Архив не завершившихся процедур, их судьба',
-  'sheet': 'Архив не завершившихся процедур, их судьба',
-  'role': 'procedure_lifecycle',
-  'old_columns': 17,
-  'columns': 17,
-  'old_header_rows': 1,
-  'header_rows': 1,
-  'old_fingerprint': '437921160613f1304093beda28bd9d8078c8e767f0f432bc85c7f0890c95935e',
-  'fingerprint': '98e774e3f09e725cd7f267cab3b5414d151f8c946e673f65a1abf69784683e3c',
-  'previous_semantic': '06581bfd10dfa5c0283cd61fc98d50a78391846d7cbf727327f5acb72f4b2125',
-  'semantic': '6199aff3bbaac8f94b1f14b9977c6dffc427cfdd24c18fbdf3edbc947dea09c8',
-  'volatile_cells': [[1, 14], [1, 15]],
-  'previous_geometry': [[17, 1, '2cd65b82d05685147ebdc23bdf6204fb091c5dc5b00e6095d5db2b7bbc10178b']],
-  'previous_semantics': ['85ccf99fc7e76557f8422632fd06e358be5d5c847b1afa30f8c55714a5f12806'],
-  'previous_titles': ['Архив не завершившихся процедур, их судьба']},
- {'old_sheet': 'Сводный аналитический лист',
-  'sheet': 'Сводный аналитический лист',
-  'role': 'formula_dependency',
-  'old_columns': 18,
-  'columns': 18,
-  'old_header_rows': 2,
-  'header_rows': 2,
-  'old_fingerprint': '278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa',
-  'fingerprint': 'fa79208276a2921c0e3f703f6e83f22cd6ed2b9e63099a7a76b07aa8df22168a',
-  'previous_semantic': 'f35ee3c75cc256be856eb662c574ceebb507c9f5bfa10d27446d775d13673f02',
-  'semantic': '6647e3d8ba74b0b5698fa39474ff686b454e73902737bc089b6e3a4df13b23df',
-  'volatile_cells': [[1, 2], [1, 3]],
-  'previous_geometry': [[18, 2, '278c3d862c8b240f430dafb47302f4dbaf2cec8401e95ac31daeb88bb8313afa']],
-  'previous_semantics': ['03c976a9bfef88531193d6f8586abcf5c532e9cfcc79ece91b2acd69f3a2e7a9'],
-  'previous_titles': ['Сводный аналитический лист']},
- {'old_sheet': 'Справочник заказчиков',
-  'sheet': 'Справочник заказчиков',
-  'role': 'formula_dependency',
-  'old_columns': 18,
-  'columns': 19,
-  'old_header_rows': 1,
-  'header_rows': 1,
-  'old_fingerprint': '33c63a8f5a1b2bd6fb5bd4d49a325bdd04c174f53859c29a3373fa991f941b50',
-  'fingerprint': '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042',
-  'previous_semantic': '594117f4a78542aaee93605b400d737e6b08692748aee1faf5df20359cc66ea5',
-  'semantic': 'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1',
-  'volatile_cells': [],
-  'optional': True,
-  'previous_geometry': [[18, 1, '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3']],
-  'previous_semantics': ['be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe']},
- {'old_sheet': '_Проверки',
-  'sheet': '_Проверки',
-  'role': 'historical_control_dependency',
-  'old_columns': 26,
-  'columns': 8,
-  'old_header_rows': 2,
-  'header_rows': 2,
-  'old_fingerprint': '21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b',
-  'fingerprint': '21ffaafbb326f1f425dca7a25585a9cf5b757bfd4f043aa13e0dd40d9e2b1e6b',
-  'previous_semantic': 'c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2',
-  'semantic': 'c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2',
-  'volatile_cells': [[1, 2], [1, 4], [1, 8]],
-  'optional': True,
-  'sealed_baseline': True},
- {'old_sheet': 'Лист Совместных закупок',
-  'sheet': 'Лист Совместных закупок',
-  'role': 'procedure_lifecycle',
-  'sheet_id': 2526402,
-  'old_columns': 20,
-  'columns': 20,
-  'old_header_rows': 1,
-  'header_rows': 1,
-  'old_fingerprint': '49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377',
-  'fingerprint': 'afef389d5963824b4b2c570923ec5edfecf88a89dd1ea78e0d92077c87d45d13',
-  'previous_semantic': '1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1',
-  'semantic': '4badb510776e3b751b1fc93911457967a7e01de872cdcf5487e2b54032e69f2f',
-  'volatile_cells': [[1, 19]]},
- {'old_sheet': '_Поставщики',
-  'sheet': '_Поставщики',
-  'role': 'formula_dependency',
-  'sheet_id': 110002,
-  'old_columns': 6,
-  'columns': 6,
-  'old_header_rows': 1,
-  'header_rows': 1,
-  'old_fingerprint': '78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5',
-  'fingerprint': '0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c',
-  'previous_semantic': '530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10',
-  'semantic': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
-  'volatile_cells': [],
-  'optional': True}]
-# Preserve the exact historical review recorded on production. Later caption
-# transitions cannot invalidate an unrelated private migration's predecessor proof.
-REVIEWS = deepcopy(RECORDED_REVIEWS_V3)
-REVIEWS[0].update(
-    sheet_id=2526400,
-    fingerprint='d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb',
-    semantic='cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61',
-    previous_geometry=[*REVIEWS[0]['previous_geometry'],
-        [24, 2, '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe']],
-    previous_semantics=[*REVIEWS[0]['previous_semantics'],
-        '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf'])
+REVIEW = MONITORING_SOURCE_SCHEMA['review']
+REASON = MONITORING_SOURCE_SCHEMA['reason']
+SUPPLIER_SOURCE = deepcopy(MONITORING_SOURCE_SCHEMA['supplierSource'])
+RECORDED_REVIEWS_V3 = deepcopy(MONITORING_SOURCE_SCHEMA['recordedV3'])
+REVIEWS = deepcopy(MONITORING_SOURCE_SCHEMA['reviews'])
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,
@@ -169,6 +40,16 @@ RETIRED = [('_Связи процедур',
 
 
 def _sealed_headers(state):
+    from .publication_store import PublicationStore
+    lease_root = Path(state) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased__sealed_headers(state)
+
+
+def _leased__sealed_headers(state):
     from .publication_store import PublicationStore
     from .readonly_catalog import copied_catalog
 
@@ -207,6 +88,11 @@ def review_registry(original, sealed, client):
             raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         prior = sealed.get(source['source_id'])
         accepted_semantic = {patch['previous_semantic'], patch['semantic'], *patch.get('previous_semantics', [])}
+        # A registry with an invented semantic fingerprint must not be
+        # repaired implicitly merely because the live sheet looks familiar.
+        if (patch['sheet'] == 'Справочник заказчиков'
+                and source.get('semantic_header_fingerprint') not in accepted_semantic | {None}):
+            raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         if patch.get('sealed_baseline') and prior and tuple(prior[0].get(k) for k in ('columns', 'header_rows', 'schema_fingerprint')) == old_geometry:
             accepted_semantic.add(prior[1])
         if prior and (any(prior[0].get(k) != source.get(k) for k in ('provider_id', 'sheet_id', 'role', 'grbs'))
@@ -223,7 +109,7 @@ def review_registry(original, sealed, client):
         updated = {**source, 'sheet': patch['sheet'], 'columns': patch['columns'],
             'header_rows': patch['header_rows'], 'schema_fingerprint': patch['fingerprint'],
             'semantic_header_fingerprint': patch['semantic'],
-            'previous_semantic_header_fingerprint': prior[1] if prior and prior[1] != patch['semantic'] else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']), 'schema_change_reason': REASON}
+            'previous_semantic_header_fingerprint': prior[1] if prior and prior[1] != patch['semantic'] else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']), 'schema_change_reason': patch.get('reason', REASON)}
         if patch['volatile_cells']:
             updated['volatile_header_cells'] = patch['volatile_cells']
         if source != updated:

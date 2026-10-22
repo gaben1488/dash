@@ -43,6 +43,7 @@ import {
   INTEGRITY_KB,
   addressText,
   fmtTys,
+  uniqueOperationalAbsences,
   type IntegrityBookDto,
   type VanishedBookDto,
 } from './contract';
@@ -186,7 +187,11 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
 }
 
 /** Пропажи и переезды строк одной книги между двумя снимками. */
-function VanishedCard({ book }: { book: VanishedBookDto }) {
+function VanishedCard({ book, afterLabel = 'сейчас' }: { book: VanishedBookDto; afterLabel?: string }) {
+  const likelyOld = new Set(book.identityCandidates.map((c) => c.beforeRowSeq));
+  const unexplained = book.vanished.filter((v) => !likelyOld.has(v.rowSeq));
+  const ambiguous = [...new Set([...book.ambiguousKeys.before, ...book.ambiguousKeys.after])];
+
   return (
     <div className="border-b border-[var(--line-soft)] py-[var(--space-3)] last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -194,37 +199,73 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
           {book.deptName}
         </span>
         <span className="tabular-nums ds-text-xs text-[var(--ink-muted)]">
-          {book.vanished.length === 0
-            ? 'пропаж нет'
-            : `${book.vanished.length} ${pluralRu(book.vanished.length, 'закупка исчезла', 'закупки исчезли', 'закупок исчезло')} · ${fmtTys(book.vanishedPlanSum)} плана`}
+          {unexplained.length === 0 && book.identityCandidates.length === 0
+            ? (book.contextChanged.length > 0
+              ? book.contextChanged.length + ' изменений контекста при прежнем №'
+              : 'отсутствующих прежних номеров нет')
+            : `${unexplained.length} ${pluralRu(unexplained.length, 'номер без соответствия', 'номера без соответствия', 'номеров без соответствия')}` +
+              ` · ${book.identityCandidates.length} возможных смен №`}
         </span>
       </div>
-      {book.vanished.length > 0 && (
+      {unexplained.length > 0 && (
         <ul className="mt-1 space-y-0.5">
-          {book.vanished.map((v) => (
+          {unexplained.map((v) => (
             <li key={v.rowSeq} className="ds-text-xs text-[var(--ink-muted)]">
               <span className="font-mono ds-text-3xs">
-                № {v.rowSeq} · была строкой {v.wasAtSheetRow}
+                Прежний № {v.rowSeq} · была строка {v.wasAtSheetRow}
               </span>
               {v.subject ? ` — ${v.subject}` : ' — предмет не заполнен'}
               {v.subordinate ? ` · ${v.subordinate}` : ''}
               {v.planSum !== null && (
-                <span className="tabular-nums text-[var(--ink-faint)]"> · {fmtTys(v.planSum)}</span>
+                <span className="tabular-nums text-[var(--ink-faint)]"> · {fmtTys(v.planSum)} плана по прежней записи</span>
               )}
+              {' · причина не установлена'}
             </li>
           ))}
         </ul>
       )}
+      {book.identityCandidates.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {book.identityCandidates.map((candidate) => (
+            <li key={candidate.beforeRowSeq + ':' + candidate.afterRowSeq}
+                className="ds-text-xs text-[var(--ink-muted)]">
+              <span className="font-medium text-[var(--ink)]">
+                Возможная смена № {candidate.beforeRowSeq} → № {candidate.afterRowSeq}
+              </span>
+              {' · '}{candidate.subject} · {candidate.subordinate}
+              {' · совпадают предмет, учреждение, план и способ. Это гипотеза; требуется проверка.'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {book.contextChanged.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {book.contextChanged.map((item) => (
+            <li key={item.rowSeq} className="ds-text-xs text-[var(--ink-muted)]">
+              <span className="font-medium text-[var(--ink)]">
+                № {item.rowSeq}: изменились предмет или учреждение
+              </span>
+              {' · было: '}{item.beforeSubject}{item.beforeSubordinate ? ' · ' + item.beforeSubordinate : ''}
+              {' → стало: '}{item.afterSubject}{item.afterSubordinate ? ' · ' + item.afterSubordinate : ''}
+              {' · причина неизвестна; не считать автоматически той же или другой закупкой.'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ambiguous.length > 0 && (
+        <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+          Повторяющиеся № п/п: {ambiguous.join(', ')}. Их преемственность не установлена.
+        </p>
+      )}
       {book.moved.length > 0 && (
         <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
-          Переехали на другие строки листа: {book.moved.length}. Это не пропажа — закупка на
-          месте, сместился номер строки; ссылаться нужно на «№ п/п».
+          Сместились по листу без изменения №: {book.moved.length}. Это не пропажа.
         </p>
       )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
-          Строк без «№ п/п»: было {book.unkeyed.before}, стало {book.unkeyed.after} — их судьбу
-          сравнение проследить не может.
+          Строк без «№ п/п»: в контроле {book.unkeyed.before}, {afterLabel} {book.unkeyed.after} — их
+          преемственность не подтверждена.
         </p>
       )}
     </div>
@@ -245,6 +286,19 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const unavailableBooks = useMemo(
+    () => filterByDeptScope(data?.comparison?.unavailableBooks ?? [], deptScope, (b) => b.dept),
+    [data, deptScope],
+  );
+  const weeklyBooks = useMemo(
+    () => filterByDeptScope(data?.weeklyComparison?.books ?? [], deptScope, (b) => b.dept),
+    [data, deptScope],
+  );
+  const operationalEntries = filterByDeptScope(data?.operational?.entries ?? [], deptScope, entry => entry.dept);
+  const operationalUnavailable = filterByDeptScope(
+    data?.operational?.unavailableBooks ?? [], deptScope, item => item.dept);
+  const operationalView = uniqueOperationalAbsences(
+    operationalEntries, [...vanishedBooks, ...weeklyBooks]);
 
   /**
    * Разбивки по подведам здесь нет — и это ответ, а не пропуск: нумерация и
@@ -278,8 +332,8 @@ export function IntegritySection() {
           </KBTooltip>
           <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
             Можно ли сослаться на строку, видит ли человек в графе срока дату и не пропала ли
-            закупка между чтениями. Пропуск номера — след удалённой строки, а не ошибка
-            нумерации: журнал книги удаление не записывает.
+            закупка между чтениями. Пропуск номера требует проверки, но сам по себе не доказывает удаление:
+            журнал книги удаление строки не записывает.
           </p>
         </div>
         {data && (
@@ -375,15 +429,23 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Сравнение двух сохранённых чтений: {fmtMoment(data.comparison.beforeAt)} против{' '}
-                    {fmtMoment(data.comparison.afterAt)}. Строки сопоставляются по «№ п/п», а не
-                    по номеру строки листа: строки двигаются от вставок и сортировок, номер
-                    закупки живёт вместе с ней.
+                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
+                    {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
+                    удаление закупки; возможна перенумерация.
                   </p>
+                  {unavailableBooks.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Не удалось сверить: {unavailableBooks.map((b) => b.dept + ' — ' + b.reason).join('; ')}.
+                      По этим книгам не утверждаем, что пропаж нет.
+                    </p>
+                  )}
                   {vanishedBooks.length === 0 ? (
                     <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
-                      Все закупки прежнего чтения на месте. Строки без «№ п/п» в сравнение не
-                      входят — их судьбу проследить нечем.
+                      {unavailableBooks.length === 0
+                        ? 'По сопоставленным книгам отсутствующих прежних номеров не найдено.'
+                        : 'По доступным книгам отсутствующих прежних номеров не найдено; проверка неполная.'}
+                      {' '}Строки без «№ п/п» не позволяют установить преемственность.
                     </p>
                   ) : (
                     <ul className="mt-1">
@@ -391,6 +453,97 @@ export function IntegritySection() {
                     </ul>
                   )}
                 </>
+              )}
+              <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
+                <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                  Независимая сверка двух недельных контролей
+                </h4>
+                {data.weeklyComparison == null ? (
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--data-warn)]">
+                    {data.weeklyComparisonNote ?? 'Недельная сверка недоступна в этой версии API.'}
+                  </p>
+                ) : (
+                  <>
+                    <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                      Полные срезы: {fmtMoment(data.weeklyComparison.beforeAt)} →{' '}
+                      {fmtMoment(data.weeklyComparison.afterAt)}. Сравнение по книге и № п/п
+                      независимо от промежуточных вебхуков и изменений положения строк.
+                      Отсутствие прежнего номера — кандидат для проверки, не доказанное удаление.
+                    </p>
+                    {data.weeklyComparisonNote && (
+                      <p className="ds-prose mt-1 ds-text-xs text-[var(--data-warn)]">
+                        {data.weeklyComparisonNote}
+                      </p>
+                    )}
+                    {weeklyBooks.length === 0 ? (
+                      <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
+                        В сопоставленных недельных контролях по выбранным управлениям
+                        отсутствующих прежних номеров и неоднозначных связей не найдено.
+                      </p>
+                    ) : (
+                      <ul className="mt-1">
+                        {weeklyBooks.map((book) => (
+                          <VanishedCard key={book.dept} book={book} afterLabel="в следующем срезе" />
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
+              {data.operational && (
+                <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
+                  <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                    Оперативные наблюдения между недельными срезами
+                  </h4>
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                    Записаны с {fmtMoment(data.operational.since)}. Сопоставлены с последним
+                    принятым чтением без нового обращения к Google. Отсутствие прежнего
+                    номера не доказывает удаления закупки.
+                  </p>
+                  {data.operational.error && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      {data.operational.error}. Отсутствие пропаж не подтверждено.
+                    </p>
+                  )}
+                  {operationalUnavailable.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Не проверено: {operationalUnavailable
+                        .map(item => item.dept + ' — ' + item.reason).join('; ')}.
+                      Не считаем эти книги чистыми.
+                    </p>
+                  )}
+                  {operationalView.only.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {operationalView.only.map(entry => (
+                        <li key={entry.dept + ':' + entry.rowSeq}
+                            className="ds-text-xs text-[var(--ink-muted)]">
+                          <span className="font-mono ds-text-3xs">
+                            {entry.dept} · прежний № {entry.rowSeq}
+                            {entry.wasAtSheetRow !== null ? ' · была строка ' + entry.wasAtSheetRow : ''}
+                          </span>
+                          {entry.subject ? ' — ' + entry.subject : ''}
+                          {' · наблюдалось '}{fmtMoment(entry.observedAt)}
+                          {' · причина не установлена'}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {operationalView.corroboratedCount > 0 && (
+                    <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
+                      С недельной сверкой совпало {operationalView.corroboratedCount} наблюдений.
+                      Повторно не считаем.
+                    </p>
+                  )}
+                  {operationalView.only.length === 0 &&
+                    operationalView.corroboratedCount === 0 &&
+                    operationalUnavailable.length === 0 &&
+                    !data.operational.error && (
+                      <p className="mt-1 ds-text-xs text-[var(--ink-faint)]">
+                        Записанных кандидатов за это окно нет. Это не подтверждение отсутствия
+                        изменений в исходных книгах.
+                      </p>
+                    )}
+                </div>
               )}
             </div>
           </Card>

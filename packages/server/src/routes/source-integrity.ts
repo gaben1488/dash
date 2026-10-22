@@ -48,7 +48,7 @@ interface DeepSourceCheckBook {
   problems: string[];
 }
 
-interface DeepSourceCheck {
+export interface DeepSourceCheck {
   complete: boolean;
   at: string;
   expectedBooks: number;
@@ -61,9 +61,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
   app.get('/api/sources/integrity', async () => {
     const formulas = formulaDeliveryState();
     const metadata = metadataWatchState();
-    const readBooks = new Set(formulas.books
-      .filter((b) => b.formulasRead !== false)
-      .map((b) => b.book));
+    const readBooks = new Set(formulas.books.filter(b => b.formulasRead !== false).map((b) => b.book));
 
     return {
       at: new Date().toISOString(),
@@ -82,9 +80,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
         verdicts: formulaVerdicts().map((v) => ({
           book: v.book,
           at: v.at,
-          // Свежесть заключения подтверждается только совпадением времени
-          // ПОСЛЕДНЕЙ доставки с временем разобранного и сохранённого вердикта.
-          matchesLatestDelivery: formulas.books.some((b) => b.book === v.book
+          matchesLatestDelivery: formulas.books.some(b => b.book === v.book
             && b.handled && b.persisted !== false && b.at === v.at),
           rowsJudged: v.rowsJudged,
           defects: v.defects.length,
@@ -100,8 +96,8 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           })),
         })),
         /**
-         * Книги, по которым последняя попытка не подтверждает чтения формул.
-         * Ошибки Google и непрочитанные источники не считаются проверенными.
+         * Книги, по которым последнее наблюдение не подтверждает чтения.
+         * Отказ Google не должен выглядеть как проверка формул.
          */
         notRead: Object.keys(DEPARTMENT_SPREADSHEETS)
           .filter((book) => !readBooks.has(book))
@@ -110,8 +106,6 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       metadata: {
         canonSyncedAt: metadata.canonSyncedAt,
         books: metadata.books,
-        // Older confirmed observations remain accessible after a failed poll,
-        // but are never substituted for the latest attempt.
         lastConfirmed: metadata.lastConfirmed,
         notWatched: metadata.notWatched,
       },
@@ -125,7 +119,11 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
    * Проверяем фактическую доставку ЭТОГО запуска, а не старые удачные
    * записи в памяти: иначе неответившая книга выглядит как «замечаний нет».
    */
-  app.post('/api/sources/integrity/check', async () => {
+  app.post('/api/sources/integrity/check', async () => performDeepSourceCheck(app));
+}
+
+/** Reuse the exact durable-backed deep inspection in all diagnostic routes. */
+export async function performDeepSourceCheck(app: FastifyInstance): Promise<DeepSourceCheck> {
     if (!deepCheckInFlight) {
       deepCheckInFlight = (async (): Promise<DeepSourceCheck> => {
         const log = {
@@ -146,8 +144,9 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
           const delivery = deliveries.books.find((item) => item.book === book && item.at === refresh.at);
           const verdict = verdicts.find((item) => item.book === book && item.at === refresh.at);
           const metadataRead = metadata?.read === true && metadata.persisted !== false;
-          const formulasRead = refresh.loaded.includes(book) && delivery !== undefined;
-          const analyzed = formulasRead && delivery?.handled === true && delivery.persisted !== false
+          const formulasRead = refresh.loaded.includes(book) && delivery !== undefined
+            && delivery.formulasRead !== false;
+          const analyzed = formulasRead && delivery.handled && delivery.persisted !== false
             && verdict !== undefined;
           const problems: string[] = [];
           if (!metadataRead) problems.push(metadata?.persisted === false
@@ -177,6 +176,5 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       })().finally(() => { deepCheckInFlight = null; });
     }
     return deepCheckInFlight;
-  });
 
 }

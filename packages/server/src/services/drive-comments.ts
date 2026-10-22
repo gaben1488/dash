@@ -28,6 +28,9 @@ import { config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { watchedBooks } from './webhook-channel.js';
 import { pruneProcessedNotifications } from './webhook-queue.js';
+import { readNativeCommentWitnesses, type NativeCommentApi } from './native-comment-read.js';
+import { archiveLegacyComment, storeCommentWitness, storeWitnessReading } from './comment-witness-store.js';
+import { parseDriveCommentWitness } from './google-comment-witnesses.js';
 
 /** Комментарий, как его отдаёт перечень Диска (нужные нам поля). */
 export interface DriveCommentItem {
@@ -41,6 +44,8 @@ export interface DriveCommentItem {
   resolved: boolean;
   deleted: boolean;
   replies: number;
+  /** Original Drive thread, including posts and opaque anchor; no guessed cell. */
+  raw?: unknown;
 }
 
 /** Одна страница перечня. */
@@ -77,7 +82,7 @@ function googleCommentApi(): CommentApi | null {
         includeDeleted: true,
         pageToken: pageToken ?? undefined,
         fields:
-          'nextPageToken,comments(id,author/displayName,content,quotedFileContent/value,createdTime,modifiedTime,resolved,deleted,replies/id)',
+          'nextPageToken,comments(id,author(displayName,permissionId),content,anchor,quotedFileContent/value,createdTime,modifiedTime,resolved,deleted,replies(id,content,author(displayName,permissionId),createdTime,modifiedTime,deleted,action))',
       });
       const items = (res.data.comments ?? []).map((c): DriveCommentItem => ({
         id: c.id ?? '',
@@ -89,6 +94,7 @@ function googleCommentApi(): CommentApi | null {
         resolved: c.resolved ?? false,
         deleted: c.deleted ?? false,
         replies: c.replies?.length ?? 0,
+        raw: c,
       }));
       return { items, nextPageToken: res.data.nextPageToken ?? null };
     },
@@ -112,6 +118,7 @@ export interface BookCommentsResult {
   open: number;
   resolvedCount: number;
   deletedCount: number;
+  native?: { threads: string; notes: string; persisted: boolean };
 }
 
 function toMs(iso: string | null): number | null {
@@ -173,10 +180,14 @@ export async function refreshBookComments(
       recordedAt,
     };
     try {
+      const previous = db.select().from(schema.driveComments).where(eq(schema.driveComments.id, values.id)).get();
+      if (previous) archiveLegacyComment(book, previous);
       db.insert(schema.driveComments)
         .values(values)
         .onConflictDoUpdate({ target: schema.driveComments.id, set: values })
         .run();
+      const witness = item.raw ? parseDriveCommentWitness(item.raw, fileId, recordedAt) : null;
+      if (witness) storeCommentWitness(book, witness);
     } catch {
       persistFailed += 1;
     }
@@ -208,13 +219,28 @@ export async function refreshCommentsForBooks(
   books: readonly string[] | 'all',
   log?: CommentsLog,
   api: CommentApi | null = googleCommentApi(),
+  nativeApi?: NativeCommentApi | null,
 ): Promise<BookCommentsResult[]> {
   const watched = watchedBooks();
   const targets = books === 'all' ? watched : watched.filter((w) => books.includes(w.book));
   const results = await Promise.all(
     targets.map(async ({ book, fileId }) => {
       try {
-        return await refreshBookComments(book, fileId, api);
+        const [result, native] = await Promise.all([
+          refreshBookComments(book, fileId, api).catch((err: unknown): BookCommentsResult => {
+            log?.warn(`Комментарии книги «${book}» не прочитаны: ${(err as Error).message}`);
+            return { book, read: false, skippedBecause: err instanceof Error ? err.message : 'Перечень Drive недоступен.', persisted: false,
+              total: 0, open: 0, resolvedCount: 0, deletedCount: 0 };
+          }),
+          readNativeCommentWitnesses(book, fileId, nativeApi),
+        ]);
+        let persisted = true;
+        try {
+          const readAt = new Date().toISOString();
+          storeWitnessReading(book, fileId, 'threads', native.threads, readAt);
+          storeWitnessReading(book, fileId, 'notes', native.notes, readAt);
+        } catch { persisted = false; }
+        return { ...result, native: { threads: native.threads.status, notes: native.notes.status, persisted } };
       } catch (err) {
         log?.warn(`Комментарии книги «${book}» не прочитаны: ${(err as Error).message}`);
         return {

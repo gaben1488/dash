@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import clsx from 'clsx';
 import { AlertTriangle, AlertCircle, Info, XCircle } from 'lucide-react';
 
@@ -23,14 +24,7 @@ const SEVERITY_CONFIG = {
   info: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Информация' },
 } as const;
 
-export const ORIGIN_LABELS: Record<string, string> = {
-  spreadsheet_rule: 'Правило таблицы',
-  bi_heuristic: 'Аналитика',
-  delta_mismatch: 'Расхождение',
-  mapping_error: 'Привязка',
-  runtime_error: 'Ошибка системы',
-  language_defect: 'Язык',
-};
+export const ORIGIN_LABELS: Record<string, string> = PRODUCT_COPY["components/IssueList:ORIGIN_LABELS"];
 
 export function IssueList({ issues, maxItems, onItemClick }: {
   issues: Issue[];

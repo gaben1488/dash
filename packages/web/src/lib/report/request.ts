@@ -21,6 +21,31 @@ export interface ReportRequest {
 /** Режим просмотра отчёта: числа на сейчас либо снимок недели. */
 export type ReportMode = 'live' | 'archive';
 
+export interface WordExportContext {
+  date: string;
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+  mode: ReportMode;
+}
+
+/**
+ * A frozen Word publication has its own server-side source and is accessible
+ * even when the live analytics endpoint fails. Always choose the product-local
+ * calendar day (Kamchatka); only archive mode uses the sealed weekly asOf.
+ */
+export function wordExportContext(
+  request: ReportRequest,
+  mode: ReportMode,
+  productToday: string,
+): WordExportContext | null {
+  const date = mode === 'archive' ? request.asOf : productToday;
+  if (!date) return null;
+  const month = Number(date.slice(5, 7));
+  const quarter = request.quarter ?? (Math.ceil(month / 3) as 1 | 2 | 3 | 4);
+  return { date, year: request.year, quarter, mode };
+}
+
+
 export function reportRequestParams(
   ctx: FilterContext,
   todayDay: number,

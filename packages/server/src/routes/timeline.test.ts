@@ -51,6 +51,10 @@ describe('/api/timeline/*', () => {
 
   beforeAll(async () => {
     vi.resetModules();
+    // В тестах дата фиксирована: CI может пересечь полночь по Камчатке.
+    // Замораживаем Date, но не таймеры Fastify или БД.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T10:00:00.000Z'));
     process.env = {
       ...ORIGINAL_ENV,
       NODE_ENV: 'test',
@@ -64,7 +68,8 @@ describe('/api/timeline/*', () => {
     asOfDay = productCalendarDay(new Date(), 12);
 
     // Живой кэш книги УЭР: шапка 3 строки, данные со строки 4.
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4, sheetName: 'ВСЕ' } });
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       'УЭР': {
@@ -150,6 +155,7 @@ describe('/api/timeline/*', () => {
   afterAll(async () => {
     await app?.close();
     process.env = { ...ORIGINAL_ENV };
+    vi.useRealTimers();
     vi.resetModules();
   });
 
@@ -226,6 +232,43 @@ describe('/api/timeline/*', () => {
       expect((await app.inject({ method: 'GET', url: '/api/timeline/НЕТУ/4' })).statusCode).toBe(404);
       expect((await app.inject({ method: 'GET', url: '/api/timeline/УЭР/2' })).statusCode).toBe(400);
       expect((await app.inject({ method: 'GET', url: '/api/timeline/УЭР/9999' })).statusCode).toBe(404);
+    });
+  });
+
+  describe('контроль преемственности в таймлайне физической строки', () => {
+    it('при отсутствии контрольной пары предупреждает, а не подтверждает идентичность', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/timeline/УЭР/4' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().coverage.identityWarning).toContain('строки листа');
+    });
+
+    it('связывает возможную перенумерацию из общего сравнения с таймлайном строки', async () => {
+      const { timelineIdentityWarning } = await import('./timeline.js');
+      const comparison = {
+        baselineId: 'control',
+        beforeAt: '2026-10-08T06:00:00.000Z',
+        oldestCurrentAt: '2026-10-11T07:00:00.000Z',
+        afterAt: '2026-10-11T08:00:00.000Z',
+        unavailableBooks: [],
+        vanishedTotal: 0,
+        vanishedPlanSum: 0,
+        books: [{
+          dept: 'УЭР', deptName: 'УЭР', currentAt: '2026-10-11T08:00:00.000Z',
+          vanished: [], appeared: 0, vanishedPlanSum: 0, vanishedFactSum: 0,
+          moved: [], contextChanged: [], unkeyed: { before: 0, after: 0 },
+          ambiguousKeys: { before: [], after: [] }, note: '',
+          identityCandidates: [{
+            beforeRowSeq: '1', afterRowSeq: '7',
+            beforeSheetRow: 4, afterSheetRow: 9,
+            subject: 'Ремонт', subordinate: 'Школа', planSum: 100,
+            evidence: 'subject+subordinate+plan+method' as const,
+            status: 'needs-review' as const,
+          }],
+        }],
+      };
+      expect(timelineIdentityWarning(comparison, 'УЭР', 9, '7'))
+        .toContain('Возможная смена № 1 → № 7');
+      expect(timelineIdentityWarning(comparison, 'УО', 9, '7')).toBeNull();
     });
   });
 

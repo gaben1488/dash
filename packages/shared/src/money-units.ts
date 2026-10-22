@@ -46,6 +46,18 @@ export type Rub = number & { readonly [MONEY_UNIT]: 'руб.' };
 
 /** Сколько рублей в одной тысяче. Множитель перевода живёт здесь и только здесь. */
 export const RUB_PER_THOUSAND = 1000;
+const MONEY_SCALES = { rubles: 1, thousand_rubles: RUB_PER_THOUSAND, million_rubles: RUB_PER_THOUSAND * RUB_PER_THOUSAND } as const;
+export type SourceMoneyUnit = keyof typeof MONEY_SCALES;
+
+export function isMoneyUnit(unit: unknown): unit is SourceMoneyUnit {
+  return typeof unit === 'string' && Object.hasOwn(MONEY_SCALES, unit);
+}
+
+/** Explicit conversion at a source/display boundary; invalid/overflow is never a monetary zero. */
+export function convertMoney(value: number, from: SourceMoneyUnit, to: SourceMoneyUnit): number | null {
+  const converted = value * (MONEY_SCALES[from] / MONEY_SCALES[to]);
+  return Number.isFinite(converted) ? converted : null;
+}
 
 /**
  * Объявить голое число тысячами рублей.

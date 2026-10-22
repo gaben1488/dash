@@ -30,9 +30,11 @@ vi.mock('../services/google-sheets.js', () => ({
   fetchSHDYUSheet: vi.fn(async () => { throw new Error('net off'); }),
 }));
 
-/** Канон справочника подведов и живой вариант с «№3» без пробела (кейс УО). */
-const ZHAR_CANON = 'МБДОУ ДС № 3 «Жар-Птица»';
-const ZHAR_VARIANT = 'МБДОУ ДС №3 «Жар-Птица»';
+/** Синтетический кейс настоящей опечатки «Жар-птиица» на основе нового имени R/E (10.10.2026).
+ * Историческая подпись «МБДОУ ДС № 3 «Жар-Птица»» не должна превращаться
+ * в опечатку и автоматически переписываться без контекста снимка. */
+const ZHAR_CANON = 'МБДОУ "Детский сад № 3 "Жар-птица"';
+const ZHAR_VARIANT = 'МБДОУ "Детский сад №3 "Жар-птиица"';
 
 /** Строка листа ГРБС: 34 колонки, ключевые ячейки по канону DEPT_COLUMNS. */
 function sheetRow(
@@ -40,6 +42,7 @@ function sheetRow(
   subordinate: string,
   subject: string,
   epReason = '',
+  finalComment = '',
 ): unknown[] {
   const r: unknown[] = new Array(34).fill('');
   r[0] = id;            // A — № п/п
@@ -48,6 +51,15 @@ function sheetRow(
   r[10] = 100;          // K — план
   r[11] = 'ЕП';         // L — способ
   r[12] = epReason;     // M — основание выбора ЕП
+  r[31] = finalComment; // AF — фактический комментарий / ход исполнения
+  if (id === '3') {
+    r[3] = 'ифраструктура культуры';
+    r[4] = 'Проведение меропиятий';
+    r[20] = 'доовор заключен';
+    r[30] = 'страхование ответсвенности';
+    r[32] = 'учбная литература';
+    r[33] = 'центализованной закупки';
+  }
   r[16] = 'Х';          // Q — факта нет
   return r;
 }
@@ -109,7 +121,8 @@ describe('GET /api/text-hygiene', () => {
       LOG_LEVEL: 'silent',
     };
 
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4, sheetName: 'ВСЕ' }, УИО: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 1, sheetName: 'УИО' } });
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       // УЭР: три рода дефектов + опечатка в M. Строки листа: шапка 3 → данные с 4-й.
@@ -120,7 +133,8 @@ describe('GET /api/text-hygiene', () => {
           // Чистые имена — ДОСЛОВНО из справочника: близкое-но-не-точное имя
           // само стало бы находкой registry_mismatch и зашумило бы счётчики.
           sheetRow('2', ZHAR_CANON, 'Поставка  канцелярии'),                 // G5: двойной пробел
-          sheetRow('3', ZHAR_CANON, 'Ремонт кровли', 'закупка катриджей у единственного поставщика'), // M6: опечатка
+          sheetRow('3', ZHAR_CANON, 'Покупка хор. Товаров', 'закупка катриджей у единственного поставщика',
+            'Кемонт картриджей в связи со сменой наименования'), // M6 + AF6: опечатка и защищённое слово
           sheetRow('4', 'Х', 'x'),                                           // маркеры отсутствия — молчание
         ],
         formulas: [],
@@ -194,6 +208,31 @@ describe('GET /api/text-hygiene', () => {
     expect(typo!.context).toContain('катриджей');
     expect(typo!.fix).toContain('картриджей');
     expect(body.totals.languageFindings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('находит «хор. товаров» как «хоз. товаров» даже при коротком сокращении', () => {
+    const found = body.language.find(item => item.cell === 'G6' && item.word === 'хор.');
+    expect(found).toBeDefined();
+    expect(found?.suggestion).toBe('хоз.');
+    expect(found?.fix).toBe('Покупка хоз. Товаров');
+  });
+
+  it('AF тоже проходит проверенную орфографию, но «сменой» не заменяется на «сметной»', () => {
+    const af = body.language.find(item => item.dept === 'УЭР' && item.cell === 'AF6' && item.word === 'Кемонт');
+    expect(af).toBeDefined();
+    expect(af?.col).toBe('AF');
+    expect(af?.suggestion).toBe('Ремонт');
+    expect(af?.fix).toContain('Ремонт картриджей в связи со сменой наименования');
+    expect(af?.fix).not.toContain('сметной');
+    expect(body.language.some(item => item.col === 'AF' && item.word === 'сменой')).toBe(false);
+  });
+
+  it('проверяет D/E/U/AE/AG/AH без повторного счёта C/G', () => {
+    for (const col of ['D', 'E', 'U', 'AE', 'AG', 'AH']) {
+      expect(body.language.some(item => item.cell === `${col}6`)).toBe(true);
+    }
+    expect(body.notes.join(' ')).toContain('A:AH');
+    expect(body.notes.join(' ')).toContain('Зеркала, технические листы и история');
   });
 
   it('маркеры отсутствия «X/х» дефектом не считаются (канон п.62)', () => {
@@ -284,6 +323,8 @@ describe('GET /api/text-hygiene', () => {
     // адрес обязан рождаться от номера строки листа на момент чтения.
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
+    const { setDeptLoadMeta } = await import('../services/snapshot.js');
+    setDeptLoadMeta({ УКСиМП: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 171, sheetName: 'ВСЕ' } });
     const filler = Array.from({ length: 170 }, (_, i) => sheetRow(String(i + 1), 'Х', 'Поставка воды'));
     setDeptSheetCache({
       'УКСиМП': {
@@ -324,3 +365,5 @@ describe('GET /api/text-hygiene', () => {
     expect(refused).toBe(true);
   });
 });
+
+// Публичный API: поля вне прежних G/M/AF не теряются, адреса сохраняются.

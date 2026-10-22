@@ -1,12 +1,7 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 import type { RegistryProcedure } from './contract';
 
-export const MONEY_CATEGORY_LABELS = {
-  realized: 'Учтённые результаты',
-  work: 'В работе и ожидании даты',
-  unrealized: 'Не состоялись и отменены',
-  reissued: 'Переоформлены · история',
-  unknown: 'Стадия требует уточнения',
-} as const;
+export const MONEY_CATEGORY_LABELS = PRODUCT_COPY["lib/monitoring/money-flow:MONEY_CATEGORY_LABELS"];
 export type MoneyCategory = keyof typeof MONEY_CATEGORY_LABELS;
 
 /** Accounting category does not change the source stage or the daily work queue. */

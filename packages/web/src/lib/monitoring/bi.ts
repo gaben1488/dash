@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * bi.ts — разрезы витрины «Аналитика мониторинга», отвечающие на три вопроса
  * руководителя: ГДЕ ДЕНЬГИ, ГДЕ РИСК, ГДЕ ЗАТЫК.
@@ -202,11 +203,7 @@ export interface ProcedureRef {
   readonly rub: number | null;
 }
 
-const BUDGET_LABELS: Record<BudgetLevelKey, { short: string; label: string }> = {
-  mb: { short: 'МБ', label: 'местный бюджет' },
-  kb: { short: 'КБ', label: 'краевой бюджет' },
-  fb: { short: 'ФБ', label: 'федеральный бюджет' },
-};
+const BUDGET_LABELS: Record<BudgetLevelKey, { short: string; label: string }> = PRODUCT_COPY["lib/monitoring/bi:BUDGET_LABELS"];
 
 /**
  * Чей рубль сэкономлен. Колонки L/M/N книги — разбивка ЭКОНОМИИ, а не

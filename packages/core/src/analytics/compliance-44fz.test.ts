@@ -15,6 +15,8 @@ describe('compliance-44fz — нормализация способа (алиа�
     const issues = checkEPContractLimits([row({ method: 'Ед. поставщик', planTotal: 50_000_000 })], 'УО');
     expect(issues).toHaveLength(1);
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
+    expect(issues[0].severity).toBe('info');
+    expect(issues[0].description).toContain('превышение цены договора не доказано');
   });
 
   it('checkEPContractLimits — канонический ЕП по-прежнему ловится (без регресса)', () => {
@@ -31,10 +33,10 @@ describe('compliance-44fz — нормализация способа (алиа�
     expect(analyzeEPReasons(rows).total).toBe(3);
   });
 
-  it('checkAntiDumping исключает ЕП-алиас (антидемпинг только для конкурентных)', () => {
+  it('экономия и план не доказывают антидемпинг при любом способе', () => {
     const epAlias = checkAntiDumping([row({ method: 'Ед. поставщик', planTotal: 1_000_000, economy: 500_000 })], 'УО');
     expect(epAlias).toHaveLength(0); // ЕП-алиас исключён из антидемпинга
     const comp = checkAntiDumping([row({ method: 'ЭА', planTotal: 1_000_000, economy: 500_000 })], 'УО');
-    expect(comp).toHaveLength(1); // конкурентная с экономией >25% — флаг
+    expect(comp).toHaveLength(0); // НМЦК и предложенная цена отсутствуют
   });
 });

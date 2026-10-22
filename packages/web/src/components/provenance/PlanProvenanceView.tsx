@@ -86,6 +86,18 @@ function EventNode({ item }: { item: ProvenanceEventView }) {
           <span className="ml-1.5 text-red-600 dark:text-red-400">правка уже после заключения</span>
         )}
       </div>
+      {item.sources.length > 0 && (
+        <ul aria-label="Исходные записи журнала" className="text-[10px] text-zinc-500 dark:text-zinc-400">
+          {item.sources.map((source, index) => <li key={`${source.label}|${index}`}>
+            {source.href
+              ? <a href={source.href} title={source.meta} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-6 items-center underline">{source.label}</a>
+              : <span title={source.meta}>{source.label}</span>}
+          </li>)}
+        </ul>
+      )}
+      {item.witnessCount > 1 && (
+        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Эквивалентных свидетельств: {item.witnessCount}; это не число финансовых переходов.</p>
+      )}
     </li>
   );
 }
