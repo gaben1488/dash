@@ -2456,3 +2456,23 @@ describe('слепота 9: пустой способ закупки (L)', () =>
     expect(checkBook('method_validation', bookRow({ L: 'Х' })).passed).toBe(false);
   });
 });
+
+describe('hotfix: subject G is mandatory as soon as a procurement has an ID', () => {
+  it('flags missing G on a future plan with composite ID, before any sums', () => {
+    const cells = makeCells({
+      A: '12/1', D: '', G: '', K: null, H: null, I: null, J: null,
+      N: '31.12.2026', Q: 'Х',
+    });
+    const signals = detectSignals(cells, REF_DATE);
+    expect(signals.dataQuality).toBe(true);
+    expect(signals.overdue).toBe(false);
+  });
+
+  it('does not report a mere empty unnumbered draft as a missing-subject procurement', () => {
+    const cells = makeCells({
+      A: '', D: '', G: '', K: null, H: null, I: null, J: null,
+      N: '31.12.2026', Q: 'Х',
+    });
+    expect(detectSignals(cells, REF_DATE).dataQuality).toBe(false);
+  });
+});
