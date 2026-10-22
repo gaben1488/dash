@@ -242,21 +242,15 @@ function serviceCF(sheetId) {
   ];
 }
 
-/** Эталонные формулы листа GOOGLE_ФОРМУЛЫ (реконструкция взамен #REF!-битых;
- * контрольная дата — Settings!$B$6, актуальная раскладка). */
-const GOOGLE_FORMULAS_CANON = [
-  ['K', '=ARRAYFORMULA(IF(A4:A="";"";H4:H+I4:I+J4:J))'],
-  ['O', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));"^(X|Х)$");"X";ROUNDUP(MONTH(N4:N)/3;0))))'],
-  ['P', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));"^(X|Х)$");"X";YEAR(N4:N))))'],
-  ['R', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");"X";ROUNDUP(MONTH(Q4:Q)/3;0))))'],
-  ['S', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");"X";YEAR(Q4:Q))))'],
-  ['T', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");IF(N4:N>Settings!$B$6;"Срок не наступил";"Срок нарушен");Q4:Q-N4:N)))'],
-  ['Y', '=ARRAYFORMULA(IF(A4:A="";"";V4:V+W4:W+X4:X))'],
-  ['Z', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;H4:H-V4:V)))'],
-  ['AA', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;I4:I-W4:W)))'],
-  ['AB', '=ARRAYFORMULA(IF(A4:A="";"";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));"^(X|Х)$");0;J4:J-X4:X)))'],
-  ['AC', '=ARRAYFORMULA(IF(A4:A="";"";Z4:Z+AA4:AA+AB4:AB))'],
-];
+/** Formula definitions belong to the single reviewed master source profile.
+ * Existing etalon-sync callers keep their exported [column, expression] array.
+ * No independent duplicate of the 11 expressions is maintained here.
+ */
+const { masterProfile } = require('../../packages/report-engine/src/procurement_engine/department_directory.json');
+const GOOGLE_FORMULAS_CANON = Object.values(masterProfile.fields)
+  .filter(field => typeof field.formula === 'string')
+  .sort((a, b) => a.index - b.index)
+  .map(field => [field.column, field.formula]);
 
 module.exports = { C, goldenCF, goldenProtections, goldenValidation, FORMAT_POLICY, rng,
   BANDING, BODY_COLUMN_CANON, serviceCF, GOOGLE_FORMULAS_CANON };
