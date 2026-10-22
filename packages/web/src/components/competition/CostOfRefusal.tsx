@@ -10,7 +10,8 @@ import { useStore } from '../../store';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
-import { buildDrill, type DrillFilters } from '../../lib/drill';
+import type { DrillFilters } from '../../lib/drill';
+import { scatterPointDrill } from '../../lib/scatter-point-drill';
 import { useScopedQuery } from '../../hooks/useScopedQuery';
 import { scatterScope } from '../../lib/scatter-scope';
 import type { LimitComparisonPoint as ScatterPoint } from '@aemr/shared';
@@ -39,16 +40,7 @@ function RowLink({ point, onNavigate }: {
   point: ScatterPoint;
   onNavigate: (page: 'data', filters: DrillFilters) => void;
 }) {
-  const quarter = point.quarter;
-  const target = buildDrill(
-    {
-      dept: point.department,
-      ...(quarter !== null ? { quarter } : {}),
-      method: 'КП',
-      search: point.subject,
-    },
-    'data',
-  );
+  const target = scatterPointDrill(point);
   const hint = target.warning === ''
     ? `${target.summary}. ${point.subject}`
     : `${target.summary}. ${target.warning}`;
@@ -135,8 +127,8 @@ export function CostOfRefusal({ epPlan, epHasData }: {
     <CompetitionCard
       // Заголовок-существительное и ровно тот, каким метрика названа в базе
       // знаний («Цена отказа от конкурса»): одно имя у числа на всех экранах.
-      title="Цена отказа от конкурса"
-      subtitle="Условная оценка по разнице плана и отражённого факта конкурентных позиций. Смысл K и Y определяется источником. Эти колонки не устанавливают НМЦК или ЛБО автоматически; результат не доказывает потери от выбора ЕП."
+      title="Цена отказа от конкурса — условный сценарий"
+      subtitle="Только арифметическое сопоставление плана K и отражённого факта Y. Эти суммы сами по себе не устанавливают НМЦК, ЛБО, экономию или потерю бюджета. Сравниваемые предметы ЕП и торгов не доказаны сопоставимыми."
       icon={Scale}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.refusal_cost}
@@ -213,14 +205,14 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                 теме её отделяет янтарная подложка, а не обводка (п.129). */}
             <div className="rounded-lg border border-amber-200/70 dark:border-transparent bg-amber-50/50 dark:bg-amber-400/[0.07] px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-amber-700/80 dark:text-amber-400/80">
-                Цена отказа от конкурса
+                Условный перенос разницы на план ЕП
               </p>
               <p className="text-lg font-semibold tabular-nums text-amber-700 dark:text-amber-400 mt-0.5">
                 {refusalCost !== null ? `≈ ${formatMoney(refusalCost)}` : '—'}
               </p>
               <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70 mt-0.5">
                 {refusalCost !== null
-                  ? 'оценка, не обещание — методика ниже'
+                  ? 'чисто сценарная арифметика, не сумма потерь или экономии'
                   : epHasData ? 'состав источников неполон — оценка не рассчитана' : 'без объёма ЕП оценка не считается'}
               </p>
             </div>
@@ -229,9 +221,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
           {/* Методика — прямо на карточке (канон п. 53: карточка диагноста). */}
           <p className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400 mt-3">
             Методика: взвешенная разница = 1 − Σ факт Y / Σ план K по конкурентным
-            позициям с отражённым фактом в выбранном периметре ({rows.length} {procWord(rows.length)};
+            позициям с отражённым фактом в выбранном периметре ({resp?.total ?? rows.length} {procWord(resp?.total ?? rows.length)};
             план {formatMoney(stats.sumPlan)}, факт {formatMoney(stats.sumFact)}).
-            Сценарная оценка = плановый объём ЕП × это снижение. Это условный перенос разницы плана и факта на объём ЕП, без доказанной причинной связи. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
+            Сценарная оценка = плановый объём ЕП × эта разница. Сравнимость предметов, цен, объёма и допзатрат не установлена, так что число не является бюджетной потерей, прогнозом или обещанной экономией. Подтверждённая экономия определяется отдельно по AD и Z+AA+AB.
           </p>
 
           <div className="mt-3 flex items-center gap-3 flex-wrap">
