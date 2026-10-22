@@ -14,7 +14,7 @@ const [firstBook, firstBookId] = Object.entries(DEPARTMENT_SPREADSHEETS)[0];
 const [secondBook, secondBookId] = Object.entries(DEPARTMENT_SPREADSHEETS)[1];
 
 describe('цель одного уведомления', () => {
-  it('книга ГРБС — только эта книга, без СВОДа и мониторинга', () => {
+  it('книга ГРБС — сама книга и производный СВОД, без семи чужих книг и мониторинга', () => {
     expect(planForFile(firstBookId)).toEqual({
       books: [firstBook],
       svod: false,
