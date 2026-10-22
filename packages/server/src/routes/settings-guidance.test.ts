@@ -155,14 +155,18 @@ describe('C06.03 edited explanations /api/settings/guidance', () => {
     expect((await app.inject({ method: 'GET', url: '/api/settings/guidance' })).statusCode).toBe(200);
   });
 
-  it('does not expose a corrupt persisted revision as a current catalog', async () => {
-    sqlite.prepare('UPDATE domain_guidance_edits SET revision=0 WHERE key=?').run(key);
+  it('does not expose a corrupt persisted timestamp as a current catalog', async () => {
+    // The DB correctly rejects revision=0 at write time. Corrupt a value
+    // permitted by SQLite but invalid for the shared read contract instead.
+    sqlite.prepare('UPDATE domain_guidance_edits SET updated_at=? WHERE key=?')
+      .run('invalid-timestamp', key);
     try {
       const res = await app.inject({ method: 'GET', url: '/api/settings/guidance' });
       expect(res.statusCode).toBe(503);
       expect(res.json().error).toContain('недоступен');
     } finally {
-      sqlite.prepare('UPDATE domain_guidance_edits SET revision=2 WHERE key=?').run(key);
+      sqlite.prepare('UPDATE domain_guidance_edits SET updated_at=? WHERE key=?')
+        .run('2026-10-22T10:00:00.000Z', key);
     }
     expect((await app.inject({ method: 'GET', url: '/api/settings/guidance' })).statusCode).toBe(200);
   });
