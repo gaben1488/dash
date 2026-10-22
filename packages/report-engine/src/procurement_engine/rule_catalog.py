@@ -19,7 +19,7 @@ class RuleCatalog:
     so production, QA and projection code cannot silently drift by copying predicates.
     """
 
-    version: str = "procurement-rules-v1.1.0"
+    version: str = "procurement-rules-v1.1.1"
     competitive_exact: frozenset[str] = frozenset({"ЭА", "ЭК", "ЭЗК", "ЭП", "ЭАС"})
 
     # Procedure-binding thresholds are part of the versioned rule contract.
