@@ -30,7 +30,7 @@ function check(id: string, cells: Record<string, unknown>): RuleCheckResult {
 
 describe('неполные исходные значения не доказывают правильность арифметики', () => {
   it.each([
-    ['budget_sum_plan', { K: 100, H: 100, I: 0 }],
+    ['budget_sum_plan', { K: 100, H: 100, I: 0, J: '#REF!' }],
     ['budget_sum_fact', { O: 100, L: 100, M: '#REF!', N: 0 }],
     ['execution_percentage', { D: 10, G: 0 }],
     ['deviation_calc', { D: 10, F: -10 }],
@@ -173,4 +173,69 @@ describe('§22 п.3 — допуск сверки итогов равен 5 ру
       expect(check(id, cells).passed).toBe(false);
     });
   }
+});
+
+describe('integrated hotfix: sums follow Google ROUND without hiding missing inputs', () => {
+  const examples: Array<{ id: string; total: string; parts: string[] }> = [
+    { id: 'budget_sum_plan', total: 'K', parts: ['H', 'I', 'J'] },
+    { id: 'dept_fact_sum', total: 'Y', parts: ['V', 'W', 'X'] },
+    { id: 'dept_economy_sum', total: 'AC', parts: ['Z', 'AA', 'AB'] },
+    { id: 'budget_sum_fact', total: 'O', parts: ['L', 'M', 'N'] },
+  ];
+
+  for (const { id, total, parts } of examples) {
+    const input = (sum: unknown, x: unknown, y: unknown = 0, z: unknown = 0) => ({
+      A: '12/1', [total]: sum, [parts[0]]: x, [parts[1]]: y, [parts[2]]: z,
+    });
+
+    it(`${id}: 4.9 rub is within rounding, exact 5 rub is not`, () => {
+      expect(check(id, input(100.0049, 100)).passed).toBe(true);
+      expect(check(id, input(100.005, 100)).passed).toBe(false);
+      expect(check(id, input(99.995, 100)).passed).toBe(false);
+    });
+
+    it(`${id}: blank SUM component counts as zero, not unverified`, () => {
+      expect(check(id, input(100, 100, '')).passed).toBe(true);
+      expect(check(id, input(130, 100, '')).passed).toBe(false);
+    });
+
+    it(`${id}: missing or malformed total is UNKNOWN, not falsely passed`, () => {
+      for (const sum of [undefined, null, '', 'text']) {
+        const result = check(id, input(sum, 100));
+        expect(result.passed).toBeNull();
+      }
+    });
+
+    it(`${id}: malformed nonempty component is UNKNOWN, not silently zero`, () => {
+      expect(check(id, input(100, '12abc', 0)).passed).toBeNull();
+    });
+  }
+});
+
+describe('integrated hotfix: composite IDs are distinct in the rule book', () => {
+  const makeRows = (ids: string[]) => ids.map((id, i) => ({
+    sheet: 'ВСЕ', rowIndex: i + 4, classification: 'procurement' as const,
+    classificationConfidence: 1, classificationReasons: [], cells: {
+      A: id, G: 'Предмет', K: 100, L: 'ЕП',
+    },
+  }));
+
+  it('does not merge numeric 12 with composite 12/1', () => {
+    const allRows = makeRows(['12', '12/1', '12/2']);
+    const result = rule('row_numbering').check({
+      cells: allRows[0].cells, rowIndex: 4,
+      sheet: 'ВСЕ', classification: 'procurement', allRows,
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it('still reports two identical 12/1 IDs as a genuine duplicate', () => {
+    const allRows = makeRows(['12', '12/1', '12/1']);
+    const result = rule('row_numbering').check({
+      cells: allRows[0].cells, rowIndex: 4,
+      sheet: 'ВСЕ', classification: 'procurement', allRows,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.message).toContain('12/1');
+  });
 });
