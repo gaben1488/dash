@@ -101,6 +101,91 @@ describe('представление снимка для HTTP Dashboard', () => 
     }
   });
 
+  it('C04.01 keeps the API year and all quarters on the same calculated master version as the generator', async () => {
+    const previous = fixture.snapshot;
+    const base = Object.values(previous.officialMetrics)[0]!;
+    const materialize = (entries: Record<string, number>) =>
+      Object.fromEntries(Object.entries(entries).map(([metricKey, numericValue]) =>
+        [metricKey, { ...base, metricKey, numericValue, value: numericValue, origin: 'calculated' as const }]));
+    fixture.snapshot = {
+      ...previous,
+      // Different official numbers must remain available for reconciliation,
+      // but must never become the master-derived summary's values.
+      officialMetrics: {
+        ...previous.officialMetrics,
+        'competitive.q1.count': { ...base, metricKey: 'competitive.q1.count', numericValue: 999, value: 999 },
+        'competitive.year.count': { ...base, metricKey: 'competitive.year.count', numericValue: 888, value: 888 },
+        'grbs.uo.kp.year.total_plan': { ...base, metricKey: 'grbs.uo.kp.year.total_plan', numericValue: 777, value: 777 },
+      },
+      calculatedMetrics: materialize({
+        'competitive.q1.count': 3, 'competitive.q1.fact_count': 2,
+        'competitive.q1.total_plan': 120, 'competitive.q1.total_fact': 80,
+        'competitive.q1.percent': 2 / 3,
+        'sole.q1.count': 1, 'sole.q1.fact_count': 0,
+        'sole.q1.total_plan': 40, 'sole.q1.total_fact': 0,
+        'competitive.year.count': 8, 'competitive.year.fact_count': 4,
+        'competitive.year.total_plan': 300, 'competitive.year.total_fact': 200,
+        'competitive.year.percent': 0.5,
+        'sole.year.count': 2, 'sole.year.fact_count': 1,
+        'sole.year.total_plan': 70, 'sole.year.total_fact': 30,
+        'sole.year.percent': 0.5,
+        'grbs.uo.year.plan_total': 370, 'grbs.uo.year.fact_total': 230,
+        'grbs.uo.year.economy_total': -5, 'grbs.uo.year.exec_count_pct': 0.5,
+        'grbs.uo.kp.year.count': 8, 'grbs.uo.ep.year.count': 2,
+      }),
+    };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      expect(data.summaryByPeriod.q1).toMatchObject({
+        kpCount: 3, kpFactCount: 2, kpPlan: 120, kpFact: 80,
+        kpPercent: 2 / 3, epCount: 1, epFactCount: 0, source: 'calculated',
+      });
+      expect(data.summaryByPeriod.year).toMatchObject({
+        kpCount: 8, kpFactCount: 4, kpPlan: 300, kpFact: 200,
+        kpPercent: 0.5, epCount: 2, epFactCount: 1, source: 'calculated',
+      });
+      expect(['q1', 'q2', 'q3', 'q4', 'year'].map(p => data.summaryByPeriod[p].source))
+        .toEqual(Array(5).fill('calculated'));
+      expect(data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo'))
+        .toMatchObject({
+          planTotal: 370, factTotal: 230, economyTotal: -5,
+          competitiveCount: 8, soleCount: 2, executionPercent: 50,
+        });
+      expect(data.snapshot.officialMetrics['competitive.q1.count'].numericValue).toBe(999);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
+
+  it('C04.01 does not replace absent calculated master values with stale SVOD numbers', async () => {
+    const previous = fixture.snapshot;
+    const base = Object.values(previous.officialMetrics)[0]!;
+    fixture.snapshot = {
+      ...previous,
+      calculatedMetrics: {},
+      officialMetrics: {
+        ...previous.officialMetrics,
+        'competitive.year.count': { ...base, metricKey: 'competitive.year.count', value: 888, numericValue: 888 },
+        'grbs.uo.kp.year.total_plan': { ...base, metricKey: 'grbs.uo.kp.year.total_plan', value: 777, numericValue: 777 },
+      },
+    };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      expect(data.summaryByPeriod.year.kpCount).toBeNull();
+      expect(data.summaryByPeriod.year.source).toBe('calculated');
+      const uo = data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo');
+      expect(uo.planTotal).toBeNull();
+      expect(uo.competitiveCount).toBeNull();
+      expect(data.snapshot.officialMetrics['competitive.year.count'].numericValue).toBe(888);
+    } finally {
+      fixture.snapshot = previous;
+    }
+  });
+
   it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {
     const response = await app.inject('/api/dashboard?year=2026');
     expect(response.statusCode).toBe(200);
