@@ -3306,3 +3306,34 @@ jobs:
               if (currentNumbering.length > 0) process.exitCode = 2;
             })().catch(err => { console.error(String(err.message || err).slice(0,160)); process.exitCode = 1; });
             NODE
+
+  ud-code-regression:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+      github.actor == github.repository_owner &&
+      github.repository == 'gaben1488/dash'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    concurrency:
+      group: ud-numbering-regression-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Assert current code (not legacy main) and test both numbering consumers
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          pnpm --filter @aemr/shared exec vitest run src/sequence-integrity.test.ts
+          pnpm --filter @aemr/core exec vitest run src/pipeline/row-numbering.test.ts src/pipeline/classify.test.ts
+          pnpm -F @aemr/core exec tsc --noEmit
