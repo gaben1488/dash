@@ -858,8 +858,8 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       nullReason: NO_PLAN_REASON,
     });
     const amountRatio = ratio({
-      numerator: fd.totalFact,
-      denominator: fd.totalPlan,
+      numerator: fd.budgetCoverageComplete ? fd.totalFact : null,
+      denominator: fd.budgetCoverageComplete ? fd.totalPlan : null,
       unit: 'тыс.руб',
       perimeter,
       provenance: tileProvenance(
@@ -944,8 +944,8 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
   //    исчезала, и ряд показателей менял состав без единого слова.
   {
     const economyFigure = toPercent(ratio({
-      numerator: getFilteredEconomyTotal(fd),
-      denominator: fd.totalPlan,
+      numerator: fd.budgetCoverageComplete ? getFilteredEconomyTotal(fd) : null,
+      denominator: fd.budgetCoverageComplete ? fd.totalPlan : null,
       unit: 'тыс.руб',
       perimeter,
       provenance: tileProvenance(

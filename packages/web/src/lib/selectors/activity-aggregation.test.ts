@@ -51,6 +51,17 @@ describe('разрез деятельности × способа закупки
       planCount: 3, factCount: 2, complete: true,
     });
   });
+  it('C05.02 declares an unread selected budget component incomplete despite known totals', () => {
+    const partial = structuredClone(dept);
+    partial.byActivity.q1.program.byMethod.ep.planFB = null;
+    const result = recalcTotalsByActivity([partial], {
+      actKeys: ['program'], periodKeys: ['q1'],
+      budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
+      showKP: false, showEP: true,
+    });
+    expect(result.complete).toBe(false);
+  });
+
   it('выбор только ЕП исключает конкурентные деньги и позиции', () => {
     const result = recalcTotalsByActivity([dept], {
       actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,

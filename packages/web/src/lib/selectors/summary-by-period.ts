@@ -30,9 +30,15 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
           periodKeys: [pk], showKP, showEP,
         })
       : null;
-    const verified = !selected || selected.complete;
     const kp = selected ? selected.entries.filter(e => e.method === 'competitive') : [];
     const ep = selected ? selected.entries.filter(e => e.method === 'ep') : [];
+    const budgetFor = (entry: (typeof kp)[number]) => budgetPlanFact({
+      ...entry.value, planTotal: entry.value.planSum, factTotal: entry.value.factSum,
+    });
+    const kpBudget = kp.map(budgetFor);
+    const epBudget = ep.map(budgetFor);
+    const verified = (!selected || selected.complete) &&
+      [...kpBudget, ...epBudget].every(projected => projected.complete);
     // Under a proven complete activity/method projection, no entries of a
     // selected group can legitimately mean zero. Under an unproven projection
     // it is NOT proof of zero; no percentage or money may be published.
@@ -45,20 +51,12 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
       ? {
           kpCount: sumSelected(kp.map(e => e.value.plan)),
           kpFactCount: sumSelected(kp.map(e => e.value.fact)),
-          kpPlan: sumSelected(kp.map(e => budgetPlanFact({
-            ...e.value, planTotal: e.value.planSum, factTotal: e.value.factSum,
-          }).plan)),
-          kpFact: sumSelected(kp.map(e => budgetPlanFact({
-            ...e.value, planTotal: e.value.planSum, factTotal: e.value.factSum,
-          }).fact)),
+          kpPlan: sumSelected(kpBudget.map(e => e.complete ? e.plan : null)),
+          kpFact: sumSelected(kpBudget.map(e => e.complete ? e.fact : null)),
           epCount: sumSelected(ep.map(e => e.value.plan)),
           epFactCount: sumSelected(ep.map(e => e.value.fact)),
-          epPlan: sumSelected(ep.map(e => budgetPlanFact({
-            ...e.value, planTotal: e.value.planSum, factTotal: e.value.factSum,
-          }).plan)),
-          epFact: sumSelected(ep.map(e => budgetPlanFact({
-            ...e.value, planTotal: e.value.planSum, factTotal: e.value.factSum,
-          }).fact)),
+          epPlan: sumSelected(epBudget.map(e => e.complete ? e.plan : null)),
+          epFact: sumSelected(epBudget.map(e => e.complete ? e.fact : null)),
           ...Object.fromEntries(moneyKeys.map(key => [
             key,
             sumSelected(selected.entries.map(e => observedNumber(e.value[key]))),

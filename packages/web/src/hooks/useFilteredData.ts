@@ -147,6 +147,7 @@ export function computeFilteredData(input: FilterInputs) {
 
   const methodRestricted = showKP !== showEP;
   let activityMethodCoverage = true;
+  let budgetCoverageComplete = true;
   if (isActivityFiltered || methodRestricted) {
     const activityTotals = recalcTotalsByActivity(depts, {
       actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
@@ -154,6 +155,7 @@ export function computeFilteredData(input: FilterInputs) {
       budgetPlanFact, showKP, showEP,
     });
     activityMethodCoverage = activityTotals.complete;
+    budgetCoverageComplete = activityTotals.complete;
     // Never label an unverifiable historical method slice as exact. Keep
     // separately known whole/method totals and tell the user provenance lacks.
     if (activityTotals.complete || isActivityFiltered) {
@@ -170,10 +172,13 @@ export function computeFilteredData(input: FilterInputs) {
     }
   }
   if (isBudgetFiltered && !isActivityFiltered && !methodRestricted) {
-    ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
+    const projectedBudget = recalcTotalsByBudget(depts, {
       budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
       resolution, hasMonthData,
-    }));
+    });
+    totalPlan = projectedBudget.totalPlan;
+    totalFact = projectedBudget.totalFact;
+    budgetCoverageComplete = projectedBudget.complete;
   }
 
   // ── Бар-чарт исполнения per-департамент ──
@@ -294,6 +299,7 @@ export function computeFilteredData(input: FilterInputs) {
     totalPlanCount,
     totalFactCount,
     activityMethodCoverage,
+    budgetCoverageComplete,
     criticalIssues,
     warningIssues,
     periodKey,

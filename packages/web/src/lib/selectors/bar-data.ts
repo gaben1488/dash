@@ -39,6 +39,7 @@ export function buildBarData(depts: any[], opts: {
     // это различие держал с самого начала, денежный процент — нет
     // (реестр расхождений §2 «Ноль вместо „нет базы“»).
     let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
+    let sourceComplete = true;
     let execCountPct: number | null;
 
     // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
@@ -87,6 +88,7 @@ export function buildBarData(depts: any[], opts: {
       // budgetPlanFact без фильтра вернёт planTotal/factTotal, с фильтром —
       // сумму выбранных бюджетов из периодной разбивки узла.
       const bf = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
+      if (!bf.complete || (!n.periodApplied && periodKey !== 'year')) sourceComplete = false;
       plan = bf.plan; fact = bf.fact;
       pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? null);
       execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
@@ -95,12 +97,15 @@ export function buildBarData(depts: any[], opts: {
       let dPC = 0, dFC = 0;
       for (const monthNum of activeMonths) {
         const m = d.months?.[monthNum];
-        if (!m) continue;
+        if (!m) { sourceComplete = false; continue; }
+        if (observedNumber(m.planCount) === null || observedNumber(m.factCount) === null) sourceComplete = false;
         dPC += m.planCount ?? 0; dFC += m.factCount ?? 0;
         if (isBudgetFiltered) {
           const bf = budgetPlanFact(m);
+          if (!bf.complete) sourceComplete = false;
           plan += bf.plan; fact += bf.fact;
         } else {
+          if (observedNumber(m.planTotal) === null || observedNumber(m.factTotal) === null) sourceComplete = false;
           plan += m.planTotal ?? 0;
           fact += m.factTotal ?? 0;
         }
@@ -119,8 +124,10 @@ export function buildBarData(depts: any[], opts: {
         const combinedPlan = observedNumber(q?.planTotal);
         const combinedFact = observedNumber(q?.factTotal);
         const budgetProjection = isBudgetFiltered && q ? budgetPlanFact(q) : null;
-        const selectedPlan = budgetProjection ? observedNumber(budgetProjection.plan) : combinedPlan;
-        const selectedFact = budgetProjection ? observedNumber(budgetProjection.fact) : combinedFact;
+        const selectedPlan = budgetProjection
+          ? (budgetProjection.complete ? observedNumber(budgetProjection.plan) : null) : combinedPlan;
+        const selectedFact = budgetProjection
+          ? (budgetProjection.complete ? observedNumber(budgetProjection.fact) : null) : combinedFact;
         return {
           name: d.department?.nameShort ?? d.department?.id ?? '?',
           nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
@@ -144,12 +151,16 @@ export function buildBarData(depts: any[], opts: {
       execCountPct = q?.execCountPct ?? null;
       if (isBudgetFiltered) {
         const bf = budgetPlanFact(q ?? d);
+        if (!bf.complete) sourceComplete = false;
         plan = bf.plan; fact = bf.fact;
         pct = percentOf(fact, plan);
       } else {
-        plan = q?.planTotal ?? d.planTotal ?? 0;
-        fact = q?.factTotal ?? d.factTotal ?? 0;
-        pct = percentOf(fact, plan);
+        const annualPlan = observedNumber(q?.planTotal ?? d.planTotal);
+        const annualFact = observedNumber(q?.factTotal ?? d.factTotal);
+        if (annualPlan === null || annualFact === null) sourceComplete = false;
+        plan = annualPlan ?? 0;
+        fact = annualFact ?? 0;
+        pct = percentOf(annualFact, annualPlan);
       }
     }
 
@@ -157,9 +168,9 @@ export function buildBarData(depts: any[], opts: {
       name: d.department?.nameShort ?? d.department?.id ?? '?',
       nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
       id: d.department?.id,
-      pct,
-      planTotal: plan,
-      factTotal: fact,
+      pct: sourceComplete ? pct : null,
+      planTotal: sourceComplete ? plan : null,
+      factTotal: sourceComplete ? fact : null,
       kpCount: showKP ? kp : 0,
       epCount: showEP ? ep : 0,
       execCountPct,

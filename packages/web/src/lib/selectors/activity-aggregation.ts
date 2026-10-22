@@ -1,4 +1,4 @@
-import type { BudgetPlanFactFn } from './budget-filter';
+import type { BudgetPlanFactFn, PlanFact } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 
 /**
@@ -140,7 +140,7 @@ export function selectActivityMethods(depts: any[], opts: {
 export function methodPlanFact(
   value: MethodActivityValue,
   budgetPlanFact: BudgetPlanFactFn,
-): { plan: number; fact: number } {
+): PlanFact {
   return budgetPlanFact({ ...value, planTotal: value.planSum, factTotal: value.factSum });
 }
 
@@ -159,8 +159,10 @@ export function recalcTotalsByActivity(depts: any[], opts: {
   const selected = selectActivityMethods(depts, opts);
   let totalPlan = 0, totalFact = 0, totalKP = 0, totalEP = 0;
   let planCount = 0, factCount = 0;
+  let budgetComplete = true;
   for (const { method, value } of selected.entries) {
     const money = methodPlanFact(value, opts.budgetPlanFact);
+    if (!money.complete) budgetComplete = false;
     totalPlan += money.plan;
     totalFact += money.fact;
     planCount += value.plan;
@@ -182,6 +184,7 @@ export function recalcTotalsByActivity(depts: any[], opts: {
           const activity = period[ak];
           if (!activity || activity.byMethod) continue;
           const money = opts.budgetPlanFact(activity);
+          if (!money.complete) budgetComplete = false;
           totalPlan += money.plan;
           totalFact += money.fact;
           planCount += activity.planCount ?? 0;
@@ -190,7 +193,7 @@ export function recalcTotalsByActivity(depts: any[], opts: {
       }
     }
   }
-  return { totalPlan, totalFact, totalKP, totalEP, planCount, factCount, complete: selected.complete };
+  return { totalPlan, totalFact, totalKP, totalEP, planCount, factCount, complete: selected.complete && budgetComplete };
 }
 
 /** Exact roll-up of selected subordinates; never copy full-department data. */
