@@ -470,7 +470,13 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 1",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_PLAN",
+          "KB_PLAN",
+          "MB_PLAN"
+        ]
       },
       "METHOD": {
         "index": 11,
@@ -514,7 +520,11 @@
         "unit": "none",
         "headerProbe": "квартал (план)",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ]
       },
       "PLAN_YEAR": {
         "index": 15,
@@ -525,7 +535,11 @@
         "unit": "none",
         "headerProbe": "год (план)",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ]
       },
       "FACT_DATE": {
         "index": 16,
@@ -547,7 +561,11 @@
         "unit": "none",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ]
       },
       "FACT_YEAR": {
         "index": 18,
@@ -558,7 +576,11 @@
         "unit": "none",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ]
       },
       "DEVIATION_DAYS": {
         "index": 19,
@@ -569,7 +591,15 @@
         "unit": "day",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE",
+          "FACT_DATE"
+        ],
+        "externalReferences": [
+          "Settings!B6"
+        ]
       },
       "DEVIATION_REASON": {
         "index": 20,
@@ -624,7 +654,13 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 2",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_FACT",
+          "KB_FACT",
+          "MB_FACT"
+        ]
       },
       "ECONOMY_FB": {
         "index": 25,
@@ -635,7 +671,13 @@
         "unit": "thousandRub",
         "headerProbe": "ФБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "FB_PLAN",
+          "FB_FACT"
+        ]
       },
       "ECONOMY_KB": {
         "index": 26,
@@ -646,7 +688,13 @@
         "unit": "thousandRub",
         "headerProbe": "КБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "KB_PLAN",
+          "KB_FACT"
+        ]
       },
       "ECONOMY_MB": {
         "index": 27,
@@ -657,7 +705,13 @@
         "unit": "thousandRub",
         "headerProbe": "МБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "MB_PLAN",
+          "MB_FACT"
+        ]
       },
       "ECONOMY_TOTAL": {
         "index": 28,
@@ -668,7 +722,13 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "ECONOMY_FB",
+          "ECONOMY_KB",
+          "ECONOMY_MB"
+        ]
       },
       "FLAG": {
         "index": 29,
