@@ -22,6 +22,8 @@ import {
   getSvodLoadFailure,
 } from './snapshot.js';
 import { sheetFingerprint } from './sheet-fingerprint.js';
+import type { BookFormulaVerdict } from './formula-sink.js';
+import { loadFormulaAudits, saveFormulaAudit } from './source-integrity-state.js';
 import { checkFileChanged, forgetRevision, lastKnownRevision, seedRevision } from './file-revision.js';
 import {
   SVOD_WATERMARK_KEY,
@@ -140,6 +142,8 @@ export function resetSourcePrints(): void {
  */
 export interface FormulaDelivery {
   book: string;
+  /** Общий момент текущего чтения — сверяется с сохранённым вердиктом. */
+  at?: string;
   values: unknown[][];
   formulas: unknown[][];
   startRow: number;
@@ -159,15 +163,17 @@ export interface FormulaDeliveryNote {
   cells: number;
   /** Принял ли разбор эту посылку (розетка занята и не отказала). */
   handled: boolean;
+  /** Зафиксирован ли этот исход на диске; false запрещает подтверждать проверку. */
+  persisted?: boolean;
   /** Почему не принял, если не принял. */
   failedBecause?: string;
 }
 
-let formulaSink: ((delivery: FormulaDelivery) => void) | null = null;
+let formulaSink: ((delivery: FormulaDelivery) => BookFormulaVerdict | void) | null = null;
 const formulaNotes = new Map<string, FormulaDeliveryNote>();
 
 /** Подключить слой разбора формул. `null` — отключить (стражи, выключение). */
-export function setFormulaSink(sink: ((delivery: FormulaDelivery) => void) | null): void {
+export function setFormulaSink(sink: ((delivery: FormulaDelivery) => BookFormulaVerdict | void) | null): void {
   formulaSink = sink;
 }
 
@@ -184,6 +190,14 @@ export function formulaDeliveryState(): {
     sinkConnected: formulaSink !== null,
     books: [...formulaNotes.values()].sort((a, b) => a.book.localeCompare(b.book, 'ru')),
   };
+}
+
+/** Поднять последнюю попытку для каждой книги без обращения к Google. */
+export function restoreFormulaDeliveries(): void {
+  formulaNotes.clear();
+  for (const entry of loadFormulaAudits()) {
+    formulaNotes.set(entry.delivery.book, entry.delivery);
+  }
 }
 
 /** Только для стражей: забыть следы доставок. */
@@ -219,15 +233,17 @@ function deliverFormulas(
       cells: countFormulaCells(result.formulas),
       handled: false,
     };
+    let verdict: BookFormulaVerdict | null = null;
     if (formulaSink) {
       try {
-        formulaSink({
+        verdict = formulaSink({
           book,
+          at,
           values: result.values,
           formulas: result.formulas,
           startRow: result.startRow ?? 1,
           formulasRead: true,
-        });
+        }) ?? null;
         note.handled = true;
       } catch (err) {
         note.failedBecause = (err as Error).message;
@@ -235,6 +251,17 @@ function deliverFormulas(
       }
     } else {
       note.failedBecause = 'разбор формул не подключён';
+    }
+    // Попытка и вердикт пишутся ОДНОЙ записью: рестарт никогда не должен
+    // соединять сегодняшнюю доставку с вчерашним «дефектов нет».
+    try {
+      saveFormulaAudit(note, verdict);
+      note.persisted = true;
+    } catch (err) {
+      note.persisted = false;
+      note.failedBecause = [note.failedBecause, `результат не сохранён: ${(err as Error).message}`]
+        .filter(Boolean).join('; ');
+      log?.warn(`Состояние проверки формул книги «${book}» не сохранено: ${(err as Error).message}`);
     }
     formulaNotes.set(book, note);
   }
