@@ -1,4 +1,4 @@
-import { CalcEngine, explainMetric, standardRowFilter } from '../pipeline/calc-engine.js';
+import { CalcEngine, combineMetricSlices, explainMetric, standardRowFilter } from '../pipeline/calc-engine.js';
 import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, executableFormula, type DataSnapshot } from '@aemr/shared';
 import { byPeriod } from './published-projection.js';
 
@@ -15,12 +15,30 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   const context = snapshot.metadata.calculationContext;
   const asOf = new Date(snapshot.createdAt);
   if (!Number.isFinite(asOf.getTime())) return { status: 'unavailable', reason: 'SNAPSHOT_TIME_UNKNOWN' } as const;
-  const addresses = sources.flatMap(([sheet, rows]) => rows.map((_, index) => ({ sheet, row: index + DEPT_HEADER_ROWS + 1 })));
-  const grouped = new CalcEngine().compute(sources.flatMap(([, rows]) => rows), standardRowFilter, 0,
-    snapshot.metadata.targetYear ?? undefined,
-    { asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS) });
-  // The published projection and evidence use one period/method selector.
-  const values = byPeriod(grouped, period, method ?? undefined);
+  // Keep each source sheet's own row index. Concatenating multiple books and
+  // applying the row classifier only once loses the original coordinates and
+  // can make the same row number point to another department's evidence.
+  const sheetCalculations = sources.map(([sheet, rows]) => ({
+    sheet,
+    rows,
+    grouped: new CalcEngine().compute(rows, standardRowFilter, 0,
+      snapshot.metadata.targetYear ?? undefined,
+      { asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS) }),
+  }));
+  const selected = sheetCalculations.map(({ sheet, rows, grouped }) => ({
+    sheet,
+    rows,
+    values: byPeriod(grouped, period, method ?? undefined),
+  }));
+  const offsets: Array<{ sheet: string; start: number; end: number }> = [];
+  let total = 0;
+  for (const item of selected) {
+    offsets.push({ sheet: item.sheet, start: total, end: total + item.rows.length });
+    total += item.rows.length;
+  }
+  const values = combineMetricSlices(selected.map((item, i) => ({
+    values: item.values, rowOffset: offsets[i]!.start,
+  })));
   const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
@@ -29,7 +47,11 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   if (savedValue === undefined || savedValue !== explanation.value) {
     return { status: 'unavailable', reason: 'SAVED_RESULT_NOT_REPRODUCED' } as const;
   }
-  const sourceAddress = (index: number) => addresses[index]!;
+  const sourceAddress = (index: number) => {
+    const source = offsets.find(item => index >= item.start && index < item.end);
+    if (!source) throw new Error('SOURCE_ROW_INDEX_OUT_OF_RANGE');
+    return { sheet: source.sheet, row: index - source.start + DEPT_HEADER_ROWS + 1 };
+  };
   return {
     status: 'available', evidenceKind: 'reproduced_from_retained_rows',
     snapshotId: snapshot.id, asOf: snapshot.createdAt,
