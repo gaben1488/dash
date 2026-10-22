@@ -105,12 +105,12 @@ function Section({ icon, num, title, children, className }: {
   return (
     <div className={cn('', className)}>
       <div className="flex items-center gap-1.5 mb-0.5">
-        <span className="text-[9px] font-bold text-zinc-500">{num}</span>
-        <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-0.5">
+        <span className="sr-only">{num}</span>
+        <span className="text-[11px] font-semibold text-zinc-300 flex items-center gap-1">
           {icon}{title}
         </span>
       </div>
-      <div className="text-[11px] leading-relaxed text-zinc-200 pl-3">
+      <div className="text-xs leading-relaxed text-zinc-200 pl-3">
         {children}
       </div>
     </div>
@@ -219,7 +219,7 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
     <div className="space-y-2">
       {/* Always visible: ①⑤⑦ */}
       {entry.whatIs && (
-        <p className="text-[11px] leading-relaxed text-zinc-100 font-medium">{entry.whatIs}</p>
+        <p className="text-[12px] leading-relaxed text-zinc-100">{entry.whatIs}</p>
       )}
       {/* Expand toggle */}
       {hasExpandable && (
@@ -227,7 +227,7 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
           <button
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); setExpanded(!expanded); }}
             className={cn(
-              'w-full flex items-center justify-center gap-1 py-1 rounded-lg text-[9px] font-medium transition-all',
+              'w-full flex items-center justify-center gap-1 min-h-8 py-1.5 rounded-lg text-[11px] font-medium transition-all',
               expanded
                 ? 'text-zinc-400 bg-white/5'
                 : 'text-blue-300 bg-blue-500/10 hover:bg-blue-500/15',
@@ -365,10 +365,10 @@ function ProvenanceBlock({ sources }: { sources: ProvenanceSource[] }) {
 /** Классы панели подсказки — общие для hover- и тап-режима.
  *  Ширина упирается в экран: на 360px панель не вылезает за края. */
 const KB_PANEL_CLASS = cn(
-  'z-[100] w-[min(320px,calc(100vw-32px))] max-h-[60vh] overflow-y-auto rounded-2xl px-4 py-3',
-  'bg-zinc-900/95 backdrop-blur-xl',
-  'border border-white/[0.08]',
-  'shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)]',
+  'z-[100] w-[min(360px,calc(100vw-32px))] max-h-[min(72vh,520px)] overflow-y-auto rounded-xl px-4 py-3.5',
+  'bg-zinc-900 text-zinc-100',
+  'border border-zinc-700/70',
+  'shadow-xl',
   'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150',
   'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-100',
 );
@@ -426,14 +426,14 @@ export function KBTooltip({
       {entry.description && (
         <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-white/[0.06]">
           <BookOpen size={10} className="text-blue-400/70 shrink-0" />
-          <span className="text-xs font-semibold text-zinc-100 leading-snug">{entry.description}</span>
+          <span className="text-[13px] font-semibold text-zinc-100 leading-snug">{entry.description}</span>
         </div>
       )}
       <FullKBContent entry={entry} />
       {(provenance.length > 0 || lineage !== null) && (
         <details className="mt-2 border-t border-white/[0.08] pt-2">
           <summary className="cursor-pointer select-none text-[11px] font-medium text-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">
-            Источники и происхождение
+            Источник числа и методика
           </summary>
           {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
           {metric && lineage !== null && <MetricProvenance metricKey={metric} tone="dark" />}
