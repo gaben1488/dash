@@ -27,7 +27,7 @@ beforeAll(async () => {
     officialMetrics: { 'fixture.plan': metric }, calculatedMetrics: { 'fixture.calculated': { ...metric, origin: 'calculated' } },
     deltas: [], issues, trust: computeTrustScore(new Map(), issues, [], 'payload-snapshot'), rowCount: 1,
     metadata: { sheetsRead: ['СВОД ТД-ПМ'], cellsRead: 34, readDurationMs: 1, pipelineDurationMs: 1,
-      targetYear: 2026, sourceCoverage: { complete: true } },
+      targetYear: 2026, sourceCoverage: { expectedDepartments: ['УО'], readDepartments: ['УО'], unreadDepartments: [], complete: true } },
     datasetAnalyses: { uksimp: { marker: 'Используется экраном аналитики' } },
     ...Object.fromEntries(internalFields.map(key => [key, { privateHistory: 'Синтетическая строка'.repeat(10_000) }])) };
   saved = JSON.stringify(fixture.snapshot);
@@ -342,7 +342,8 @@ describe('представление снимка для HTTP Dashboard', () => 
       expect(pending.statusCode).toBe(503);
       expect(pending.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
       fixture.snapshot = { ...previous, metadata: {
-        ...previous.metadata, sourceCoverage: { complete: false },
+        ...previous.metadata, sourceCoverage: { expectedDepartments: ['УО'], readDepartments: [],
+          unreadDepartments: [{ department: 'УО', reason: 'Не прочитано' }], complete: false },
       } } as DataSnapshot;
       const incomplete = await app.inject('/api/dashboard?year=2026&identity=1');
       expect(incomplete.statusCode).toBe(503);
