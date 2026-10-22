@@ -39,7 +39,7 @@ import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
 import { ratio, toPercent, type FigureProvenance } from '../lib/figure';
 import { officialProvenanceFor } from '../lib/provenance-registry';
-import { productLabel, quarterLabel } from '@aemr/shared';
+import { productLabel, quarterLabel, completeSum, observedNumber, percentOf } from '@aemr/shared';
 import {
   collectFormulaDefects,
   countFormulaDefects,
@@ -91,7 +91,7 @@ function pointsWord(n: number): string {
  * считалось бы по выдуманной точке.
  */
 function quarterPct(fact: number | null | undefined, plan: number | null | undefined): number | null {
-  return fact != null && plan != null && plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+  return percentOf(fact, plan);
 }
 
 /**
@@ -235,15 +235,15 @@ export function Dashboard() {
     const sbp = fd.summaryByPeriod;
     return QUARTER_KEYS.map((qk, i) => {
       const q = sbp[qk];
-      const kpPlan = q?.kpPlan ?? 0;
-      const epPlan = q?.epPlan ?? 0;
-      const kpFact = q?.kpFact ?? 0;
-      const epFact = q?.epFact ?? 0;
+      const kpPlan = observedNumber(q?.kpPlan);
+      const epPlan = observedNumber(q?.epPlan);
+      const kpFact = observedNumber(q?.kpFact);
+      const epFact = observedNumber(q?.epFact);
       return {
         name: QUARTER_LABELS[i],
         quarterKey: qk,
-        plan: kpPlan + epPlan,
-        fact: kpFact + epFact,
+        plan: completeSum([kpPlan, epPlan]),
+        fact: completeSum([kpFact, epFact]),
         kpPlan, epPlan, kpFact, epFact,
       };
     });
@@ -265,8 +265,12 @@ export function Dashboard() {
    * что нарисованы, — ничего не додумывается.
    */
   const planFactAssertion = useMemo(() => {
-    const withPlan = planFactData.filter(d => d.plan > 0);
-    if (withPlan.length === 0) return 'Плановых сумм за выбранный период в книгах нет.';
+    if (planFactData.some(d => d.plan === null || d.fact === null)) {
+      return 'Часть квартальных сумм не прочитана. Сравнение не считается полным до восстановления источника.';
+    }
+    const withPlan = planFactData.filter((d): d is typeof d & { plan: number; fact: number } =>
+      d.plan !== null && d.fact !== null && d.plan > 0);
+    if (withPlan.length === 0) return 'Подтверждённый квартальный план равен нулю — сравнивать не с чем.';
     const worst = withPlan.reduce((a, b) => (b.plan - b.fact > a.plan - a.fact ? b : a));
     const gap = worst.plan - worst.fact;
     if (gap <= 0) return 'Во всех кварталах с планом факт вышел не ниже плана.';
@@ -280,7 +284,12 @@ export function Dashboard() {
    */
   const execAssertion = useMemo(() => {
     const rows = (barData ?? []).filter((d: any) => typeof d.pct === 'number' && (d.planTotal ?? 0) > 0);
-    if (rows.length === 0) return 'За выбранный период плановых сумм у управлений нет — сравнивать нечего.';
+    if (rows.length === 0) return fd.depts.some(d => {
+      const q = d.quarters?.[periodKey];
+      return !q || q.planTotal == null || (q.planTotal > 0 && q.factTotal == null);
+    })
+      ? 'Не все плановые и фактические суммы управлений прочитаны — рейтинг исполнения не рассчитан.'
+      : 'Подтверждённый план управлений равен нулю — сравнивать нечего.';
     if (rows.length === 1) {
       const only = rows[0];
       return `В расчёте одно управление — ${only.name}: исполнено ${formatPercent(only.pct)} плановой суммы.`;
@@ -289,7 +298,7 @@ export function Dashboard() {
     const worst = rows.reduce((a: any, b: any) => (b.pct < a.pct ? b : a));
     const spread = +(best.pct - worst.pct).toFixed(1);
     return `Разрыв между управлениями — ${formatMetricValue(spread)} ${pointsWord(spread)}: ${best.name} впереди (${formatPercent(best.pct)}), ${worst.name} позади (${formatPercent(worst.pct)}).`;
-  }, [barData]);
+  }, [barData, fd.depts, periodKey]);
 
   // ── Ключевые показатели ──
   const heroKpis = useMemo(() => buildHeroKPIs(fd, perimeter), [fd, perimeter]);
@@ -600,7 +609,7 @@ export function Dashboard() {
       </section>
 
       {/* 6. План против факта по кварталам */}
-      {planFactData.some(d => d.plan > 0 || d.fact > 0) ? (
+      {planFactData.some(d => (d.plan !== null && d.plan > 0) || (d.fact !== null && d.fact > 0)) ? (
         <section className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}>
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <KBTooltip metric="plan_fact_quarterly">
@@ -634,13 +643,13 @@ export function Dashboard() {
                   return (
                     <div style={tooltipStyle} className="rounded-lg p-2.5 shadow-lg text-xs">
                       <p className="font-semibold mb-1">{label}</p>
-                      <p>План конкурентных: <strong>{formatMoney(d.kpPlan)}</strong></p>
-                      <p>План у единственного поставщика: <strong>{formatMoney(d.epPlan)}</strong></p>
+                      <p>План конкурентных: <strong>{d.kpPlan === null ? 'не прочитан' : formatMoney(d.kpPlan)}</strong></p>
+                      <p>План у единственного поставщика: <strong>{d.epPlan === null ? 'не прочитан' : formatMoney(d.epPlan)}</strong></p>
                       {/* Черта перед итогом — линейка внутри подсказки, а не
                           обводка поверхности: цвет берём из словаря зоны, чтобы
                           в тёмной теме она была тише текста (канон п.129). */}
-                      <p className={`border-t ${RULE_HEAD} mt-1 pt-1`}>План всего: <strong>{formatMoney(d.plan)}</strong></p>
-                      <p className="mt-1">Факт: <strong>{formatMoney(d.fact)}</strong></p>
+                      <p className={`border-t ${RULE_HEAD} mt-1 pt-1`}>План всего: <strong>{d.plan === null ? 'не прочитан' : formatMoney(d.plan)}</strong></p>
+                      <p className="mt-1">Факт: <strong>{d.fact === null ? 'не прочитан' : formatMoney(d.fact)}</strong></p>
                     </div>
                   );
                 } : undefined}
@@ -675,12 +684,12 @@ export function Dashboard() {
               было невозможно, а с клавиатуры — недостижимо вовсе. */}
           <div className="flex items-center gap-2 flex-wrap mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
             <span>Разобрать квартал в Аналитике:</span>
-            {planFactData.filter(d => d.plan > 0 || d.fact > 0).map(d => (
+            {planFactData.filter(d => (d.plan !== null && d.plan > 0) || (d.fact !== null && d.fact > 0)).map(d => (
               <button
                 key={d.quarterKey}
                 type="button"
                 onClick={() => goToQuarter(d.quarterKey)}
-                title={`Открыть Аналитику за ${d.name}: план ${formatMoney(d.plan)}, факт ${formatMoney(d.fact)}`}
+                title={`Открыть Аналитику за ${d.name}: план ${d.plan === null ? 'не прочитан' : formatMoney(d.plan)}, факт ${d.fact === null ? 'не прочитан' : formatMoney(d.fact)}`}
                 className="px-2 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
               >
                 {d.name}
@@ -694,8 +703,9 @@ export function Dashboard() {
             План против факта по кварталам
           </h3>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            За выбранный период и набор фильтров ни плановых, ни фактических сумм в книгах нет —
-            строить сравнение не из чего. Снимите часть фильтров или выберите другой период.
+            {planFactData.some(d => d.plan === null || d.fact === null)
+              ? 'Часть квартальных сумм не прочитана. Отсутствие показателя не доказывает отсутствие плана или факта.'
+              : 'Подтверждённые квартальные плановые и фактические суммы равны нулю — строить сравнение не из чего.'}
           </p>
         </section>
       )}
@@ -905,7 +915,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       figure: countFigure,
       // `value`/`unit` остаются для кривой, дельты и подписи точек
       // («1 кв: 62,0 %») — печатает число только `figure`.
-      value: countPct ?? 0,
+      value: countPct,
       unit: '%',
       status: execStatus,
       trend: countPct == null ? undefined : trendOfKnown(countSpark),
@@ -949,7 +959,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
       metricKey: 'economy_rate',
       label: 'Экономия',
       figure: economyFigure,
-      value: economyFigure.value ?? 0,
+      value: economyFigure.value,
       unit: '%',
       status: economyFigure.value != null && economyFigure.value > 25 ? 'warning' : 'normal',
     });
@@ -1127,15 +1137,9 @@ function KPIExpandPanel({
 
   // Разбивка по уровням бюджета — для исполнения и экономии
   const showBudget = ['exec_count_pct', 'economy_rate'].includes(kpi.metricKey);
-  let fbTotal = 0, kbTotal = 0, mbTotal = 0;
-  if (showBudget) {
-    for (const d of depts) {
-      const q = d.quarters?.[periodKey];
-      fbTotal += q?.planFB ?? 0;
-      kbTotal += q?.planKB ?? 0;
-      mbTotal += q?.planMB ?? 0;
-    }
-  }
+  const fbTotal = showBudget ? completeSum(depts.map(d => d.quarters?.[periodKey]?.planFB)) : null;
+  const kbTotal = showBudget ? completeSum(depts.map(d => d.quarters?.[periodKey]?.planKB)) : null;
+  const mbTotal = showBudget ? completeSum(depts.map(d => d.quarters?.[periodKey]?.planMB)) : null;
 
   // Слагаемые доверия
   const showTrust = kpi.metricKey === 'trust_binary';
@@ -1204,12 +1208,13 @@ function KPIExpandPanel({
 
       {/* Разбивка по уровням бюджета */}
       {showBudget && (
-        (fbTotal + kbTotal + mbTotal) > 0
+        fbTotal !== null && kbTotal !== null && mbTotal !== null && (fbTotal + kbTotal + mbTotal) > 0
           ? <BudgetBreakdown fb={fbTotal} kb={kbTotal} mb={mbTotal} formatter={formatMoney} />
           : (
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-              Разбивка по уровням бюджета за период не заполнена: в книгах управлений
-              федеральные, краевые и муниципальные суммы плана пусты.
+              {fbTotal === null || kbTotal === null || mbTotal === null
+                ? 'Не все суммы бюджетов за период прочитаны. Разбивка не рассчитана; пропуск не равен нулю.'
+                : 'Подтверждённый план по уровням бюджета равен нулю — доли не определены.'}
             </p>
           )
       )}
