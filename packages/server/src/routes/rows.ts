@@ -2,8 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
   departmentCoverage,
-  SourceCoverageSchema,
-  findDept,
   COL_LETTER_INDEX,
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
@@ -14,15 +12,14 @@ import {
   isMetaRow,
   isOrgItself,
   toNumber as sheetNumber,
-  classifyActivity,
 } from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow, readCurrentDeptRowFormulas } from '../services/google-sheets.js';
 import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
 import { withRowWriteLock } from '../services/row-write-lock.js';
-import { getDeptSheetValues, getDeptSheetCache, getStoredSnapshotById, patchDeptSheetCacheCell } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptSheetCache, patchDeptSheetCacheCell } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
-import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization, approvedEconomy } from '@aemr/core';
+import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
 import { readDeptRows } from '../services/rows-read.js';
 import { scatterRoutes } from './scatter.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
