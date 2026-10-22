@@ -105,6 +105,34 @@ const HEALTHY: RowSpec[] = [
 ];
 
 describe('назначение строки и составные номера', () => {
+  it('СТРАЖ: физическая шапка 1–3 не порождает ошибки и не входит в покрытие', () => {
+    const { values, formulas } = book([...HEALTHY, { seq: '173/1', cells: { K: 42 } }]);
+    for (let sheetRow = 1; sheetRow <= HEADER_ROWS; sheetRow++) {
+      // Нарочно правдоподобный предмет: защита не должна зависеть от надписей
+      // или от того, прочёл ли парсер число столбца как номер закупки.
+      values[sheetRow - 1][DEPT_COLUMNS.ID] = sheetRow;
+      values[sheetRow - 1][DEPT_COLUMNS.SUBJECT] = `Приобретение оборудования ${sheetRow}`;
+      for (const column of FORMULA_COLUMNS) {
+        formulas[sheetRow - 1][COLUMN_INDEX[column]] =
+          sheetRow === 1 ? 27 : sheetRow === 2 ? '' : '=1+1';
+      }
+    }
+    const input = { book: 'УО', values, formulas, startRow: 1 };
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(detectFormulaIntegrity(input, coverage).map((d) => d.cell)).toEqual(['K9']);
+    expect(coverage).toEqual([{
+      sheet: 'УО', component: 'formula_integrity', expected: 66, checked: 66, failed: 1,
+    }]);
+    expect(formulaIntegrityIssues(input, 'uo').map((i) => i.cell)).toEqual(['K9']);
+
+    // Неполный диапазон с началом на физической строке 2: тот же результат.
+    const shifted: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(detectFormulaIntegrity({
+      ...input, values: values.slice(1), formulas: formulas.slice(1), startRow: 2,
+    }, shifted).map((d) => d.cell)).toEqual(['K9']);
+    expect(shifted).toEqual(coverage);
+  });
+
   it('служебные числа без предмета не являются закупкой даже внутри данных', () => {
     expect(detect([...HEALTHY, { seq: 6, subject: '', cells: { K: 11, AA: 27 } }])).toEqual([]);
   });
@@ -432,6 +460,26 @@ describe('формульная целостность — подключение
     expect(found).toHaveLength(1);
     expect(found[0].cell).toBe('K9');
     expect(found[0].departmentId).toBe('uo');
+  });
+
+  it('сквозной конвейер снимка никогда не учитывает 1–3 как закупки', () => {
+    const { values, formulas } = book([...HEALTHY, { seq: '173/18', cells: { K: 42 } }]);
+    for (let i = 0; i < HEADER_ROWS; i++) {
+      values[i][DEPT_COLUMNS.ID] = i + 1;
+      values[i][DEPT_COLUMNS.SUBJECT] = `Поставка инвентаря ${i + 1}`;
+      formulas[i][COLUMN_INDEX.K] = 123;
+      formulas[i][COLUMN_INDEX.Y] = '=1+1';
+    }
+    const result = runPipeline({
+      batchGetData: [],
+      sheetRows: { 'УО': values },
+      sheetFormulas: { 'УО': formulas },
+      reportMap: [],
+      rules: [],
+      spreadsheetId: 'test',
+    });
+    expect(result.issues.filter((i) => i.checkId?.startsWith('formula_')).map((i) => i.cell))
+      .toEqual(['K9']);
   });
 
   it('без прочитанных формул конвейер не выдумывает дефектов', () => {

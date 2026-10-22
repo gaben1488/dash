@@ -210,6 +210,23 @@ describe('сбор дефектов и счёт из данных', () => {
     expect(index.get(formulaRowKey('УО', '1894'))).toBeUndefined();
   });
 
+  it('исторические формулы строк 1–3 не считаются нарушениями, но их происхождение сохраняется', () => {
+    const issues = [
+      { ...ISSUES[0], id: 'head1', row: 1, cell: 'K1', rowSeq: '1' },
+      { ...ISSUES[0], id: 'head2', row: 2, cell: 'AA2', rowSeq: '2' },
+      { ...ISSUES[0], id: 'head3', row: 3, cell: 'Y3', rowSeq: '3' },
+      { ...ISSUES[0], id: 'live4', row: 4, cell: 'K4', rowSeq: '1' },
+    ];
+    const defects = collectFormulaDefects(issues);
+    expect(defects.map((d) => d.id)).toEqual(['head1', 'head2', 'head3', 'live4']);
+    expect(defects.slice(0, 3).every((d) => d.inapplicableReason?.includes('шапки'))).toBe(true);
+    expect(countFormulaDefects(defects).total).toBe(1);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '1'))?.map((d) => d.id))
+      .toEqual(['live4']);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '2'))).toBeUndefined();
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '3'))).toBeUndefined();
+  });
+
   it('историческое замечание шапки не прикрепляется к настоящей закупке №1', () => {
     const defects = collectFormulaDefects([
       { ...ISSUES[0], id: 'header', cell: 'AA1', row: 1, rowSeq: '1' },
