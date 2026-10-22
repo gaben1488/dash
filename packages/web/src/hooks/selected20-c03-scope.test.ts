@@ -84,6 +84,20 @@ describe('C03.01 — shared organization/search/subordinate perimeter', () => {
     expect(fd.summaryByPeriod.q1.kpCount).toBe(0);
   });
 
+  it('missing activity breakdown is unknown rather than zero', () => {
+    const input = fixture();
+    input.selectedActivities = new Set(['program']);
+    input.dashboardData.departmentSummaries[0].byActivity = {
+      q1: { program: { planCount: 3, planTotal: 100 } },
+    };
+    const fd = computeFilteredData(input);
+    expect(fd.summaryByPeriod.q1).toMatchObject({
+      source: 'unverified_activity_method',
+      kpCount: null, epCount: null,
+      fbPlan: null, fbFact: null,
+    });
+  });
+
   it('legacy subordinate keeps known budget money but does not inherit parent method counts', () => {
     const fd = computeFilteredData({
       ...fixture(), selectedSubordinates: new Set(['Школа № 1']),
