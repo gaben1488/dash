@@ -334,26 +334,38 @@ describe('перечитка источников одним циклом', () =
     expect(fetchDepartmentSpreadsheets).toHaveBeenCalledTimes(2);
   });
 
-  it('упавшая книга удаляется из кэша, а не остаётся под видом свежей', async () => {
+  it('a failed book leaves the full accepted base intact and does not commit successful-looking partial deltas', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'cycle', { askDrive: false });
+    const base = cachedBooks;
+    const priorMarks = saveWatermark.mock.calls.length;
+    vi.clearAllMocks();
     fetchDepartmentSpreadsheets.mockResolvedValueOnce({
-      data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' } },
+      data: { 'УО': { values: [['changed']], formulas: [], sheetName: 'ВСЕ' } },
       errors: { 'УКСиМП': 'таймаут' },
     });
-    const { refreshAllSources } = await import('./source-refresh.js');
-    const r = await refreshAllSources(log);
+    const r = await refreshAllSources(log, 'webhook', { books: ['УКСиМП', 'УО'], svod: false, askDrive: false });
 
+    expect(r.loaded).toEqual([]);
     expect(r.failed).toEqual(['УКСиМП']);
     expect(r.retryableFailures).toEqual(['УКСиМП']);
-    expect(setDeptSheetCache).toHaveBeenCalledWith(expect.anything(), ['УКСиМП']);
+    expect(r.changedBooks).toEqual([]);
+    expect(cachedBooks).toBe(base);
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(saveWatermark).not.toHaveBeenCalled();
+    expect(invalidateCache).toHaveBeenCalledOnce();
+    expect(priorMarks).toBeGreaterThan(0);
   });
 
-  it('недоступный лист СВОД не валит цикл: книги всё равно обновлены', async () => {
+  it('a failed SVOD does not commit newly read masters as a complete bundle', async () => {
     getSheetData.mockRejectedValueOnce(new Error('403'));
     const { refreshAllSources } = await import('./source-refresh.js');
     const r = await refreshAllSources(log);
 
     expect(r.svodOk).toBe(false);
-    expect(r.loaded.length).toBe(2);
+    expect(r.loaded).toEqual([]);
+    expect(setDeptSheetCache).not.toHaveBeenCalled();
+    expect(saveWatermark).not.toHaveBeenCalled();
     expect(log.warn).toHaveBeenCalled();
   });
 
