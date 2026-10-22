@@ -9,6 +9,7 @@
  */
 import { DEPT_HEADER_ROWS } from './column-map.js';
 import { findDept } from './department-registry.js';
+import { isCurrentSignal, isNonPunitiveSignal } from './signal-passport.js';
 import { FORMULA_COLUMNS } from './report-map.js';
 
 /** Совместимость старых снимков: ошибка распознавания шапки не является риском закупки. */
@@ -32,7 +33,7 @@ export function formulaDiagnosticInapplicableReason(issue: {
 export function isTrustIssueApplicable(issue: Parameters<typeof formulaDiagnosticInapplicableReason>[0] & {
   status?: unknown;
 }): boolean {
-  return issue.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(issue);
+  return isCurrentSignal(issue) && !isNonPunitiveSignal(issue) && !formulaDiagnosticInapplicableReason(issue);
 }
 
 export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
