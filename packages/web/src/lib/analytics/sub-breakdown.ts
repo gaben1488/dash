@@ -13,7 +13,7 @@
  * и карточка пишет словами, что строк нет (PRODUCT.md, «честная пустота»).
  */
 
-import { completeSum } from '../source-availability';
+import { completeSum } from '@aemr/shared';
 
 /** Метрики организации из снимка; поля приходят по проводу как есть. */
 export interface SubordinateMetricsLike {

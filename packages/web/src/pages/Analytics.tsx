@@ -38,7 +38,7 @@ import {
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
-import { completeAverage, completeSum, cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf } from '../lib/source-availability';
+import { completeAverage, completeSum, cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf } from '@aemr/shared';
 import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 

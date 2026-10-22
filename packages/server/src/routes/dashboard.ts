@@ -5,7 +5,7 @@ import { getSheetData } from '../services/google-sheets.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, observedNumber, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 import { parseYearFilterParam } from '../services/period-params.js';
@@ -154,7 +154,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // Prefer calc-engine year-filtered totals (they respect targetYear).
       // Official SVOD is never substituted into the calculated result.
       const prefix = `grbs.${dept.id}`;
-      const calcGet = (key: string): number | null => calc[key]?.numericValue ?? null;
+      const calcGet = (key: string): number | null => observedNumber(calc[key]?.numericValue);
 
       // C04.01: one accepted master dataset feeds Dash and Word. Official
       // SVOD cells are comparison evidence, never a replacement for a missing

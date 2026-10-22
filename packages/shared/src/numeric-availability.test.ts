@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   completeAverage, completeSum, confirmedEmptyCounts,
   cumulativePercentOfYear, materializedCategoryAmount, observedNumber, percentOf,
-} from './source-availability';
+} from './numeric-availability';
 
 describe('C05.02: source completeness is not a fabricated zero', () => {
   it('distinguishes a measured zero, unread value and invalid number', () => {

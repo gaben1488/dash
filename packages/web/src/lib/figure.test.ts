@@ -137,6 +137,22 @@ describe('RatioFigure / toPercent — проценты никогда не ус�
     expect(Math.round(averaged * 10) / 10).not.toBe(2);
   });
 
+  it('не суммирует неполные слагаемые как подтверждённый итог', () => {
+    const partial = sumRatios([rat(1, 10), rat(Number.NaN, 20)], rat(0, 0));
+    expect(partial.numerator).toBeNull();
+    expect(partial.denominator).toBe(30);
+    expect(toPercent(partial).value).toBeNull();
+    expect(formatFigure(toPercent(partial))).toBe('числитель не прочитан');
+  });
+
+  it('отдельно объясняет непрочитанный знаменатель и сохраняет настоящий 0%', () => {
+    const base = { unit: 'шт' as const, perimeter: DEFAULT_PERIMETER, provenance: ENGINE };
+    expect(toPercent(ratio({ ...base, numerator: 0, denominator: 10 })).value).toBe(0);
+    const unread = toPercent(ratio({ ...base, numerator: 0, denominator: null }));
+    expect(unread.value).toBeNull();
+    expect(formatFigure(unread)).toBe('знаменатель не прочитан');
+  });
+
   it('пустой список долей — доля без базы, а не ноль процентов', () => {
     expect(toPercent(sumRatios([], rat(0, 0))).value).toBeNull();
   });

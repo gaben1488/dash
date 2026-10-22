@@ -1,5 +1,5 @@
 import type { SvodRow } from '@aemr/shared';
-import { confirmedEmptyCounts, observedNumber } from '../source-availability';
+import { confirmedEmptyCounts, observedNumber } from '@aemr/shared';
 
 type Counts = Pick<SvodRow, 'planCount' | 'factCount'>;
 
