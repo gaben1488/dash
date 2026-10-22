@@ -99,6 +99,8 @@ class RuntimePassportTests(unittest.TestCase):
             ('controller', 'release-controller.py'), ('recovery', 'release_recovery.py'),
             ('trial', 'release_trial.py'), ('source_gate', 'source_ci_gate.py'))}
         fingerprints.update(runtime_guard='0' * 64, runtime_policy='0' * 64)
+        self.ops.update({'runtime_guard.py': fingerprints['runtime_guard'],
+                         'runtime-policy.json': fingerprints['runtime_policy']})
         self.component = {
             'mode': 'web', 'backend_sha': 'b' * 40,
             'stage_sha256': hashlib.sha256(json.dumps(
