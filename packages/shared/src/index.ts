@@ -176,6 +176,7 @@ export * from './source-coverage.js';
 
 export * from './metrics/types.js';
 export * from './metrics/registry.js';
+export * from './metrics/published-key-contract.js';
 export * from './metrics/kb-uplift.js';
 
 export { summarizeCheckCoverage } from './check-coverage.js';
