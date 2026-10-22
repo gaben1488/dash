@@ -11,7 +11,10 @@ describe('management signals require relevant evidence', () => {
   });
   it('unconfirmed screening flags do not penalize discipline', () => {
     const result = detectAntiCorruption('D', { rows: rows(0).map(row => ({ ...row, method: 'ЕП', planTotal: 700 })) });
-    expect(result.flags.length).toBeGreaterThan(0);
+    expect(result.flags).toEqual([]);
+    expect(result.unavailableIndicators).toEqual(expect.arrayContaining([
+      expect.objectContaining({ indicator: 'ep_over_limit' }),
+    ]));
     expect(result.disciplinaryPenalty).toBe(0);
   });
 });
