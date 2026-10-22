@@ -26,7 +26,8 @@ beforeAll(async () => {
   fixture.snapshot = { id: 'payload-snapshot', spreadsheetId: 'fixture-book', createdAt: metric.readAt,
     officialMetrics: { 'fixture.plan': metric }, calculatedMetrics: { 'fixture.calculated': { ...metric, origin: 'calculated' } },
     deltas: [], issues, trust: computeTrustScore(new Map(), issues, [], 'payload-snapshot'), rowCount: 1,
-    metadata: { sheetsRead: ['СВОД ТД-ПМ'], cellsRead: 34, readDurationMs: 1, pipelineDurationMs: 1, targetYear: 2026 },
+    metadata: { sheetsRead: ['СВОД ТД-ПМ'], cellsRead: 34, readDurationMs: 1, pipelineDurationMs: 1, targetYear: 2026,
+      sourceCoverage: { expectedDepartments: ['УКСиМП'], readDepartments: ['УКСиМП'], unreadDepartments: [], complete: true } },
     datasetAnalyses: { uksimp: { marker: 'Используется экраном аналитики' } },
     ...Object.fromEntries(internalFields.map(key => [key, { privateHistory: 'Синтетическая строка'.repeat(10_000) }])) };
   saved = JSON.stringify(fixture.snapshot);
@@ -345,6 +346,12 @@ describe('представление снимка для HTTP Dashboard', () => 
       const incomplete = await app.inject('/api/dashboard?year=2026&identity=1');
       expect(incomplete.statusCode).toBe(503);
       expect(incomplete.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
+      fixture.snapshot = { ...previous, metadata: {
+        ...previous.metadata, sourceCoverage: undefined,
+      } } as DataSnapshot;
+      const unknown = await app.inject('/api/dashboard?year=2026&identity=1');
+      expect(unknown.statusCode).toBe(503);
+      expect(unknown.json().code).toBe('SNAPSHOT_IDENTITY_NOT_READY');
     } finally {
       fixture.snapshot = previous;
     }

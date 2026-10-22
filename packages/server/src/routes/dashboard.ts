@@ -123,7 +123,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       }
       // Readiness is part of the passport: an obsolete or incomplete materialization
       // may be displayed with a warning, but cannot be attested as installed evidence.
-      if (snapshot.metadata.readModel || snapshot.metadata.sourceCoverage?.complete === false) {
+      if (snapshot.metadata.readModel || snapshot.metadata.sourceCoverage?.complete !== true) {
         return reply.status(503).send({ code: 'SNAPSHOT_IDENTITY_NOT_READY' });
       }
       reply.header('Cache-Control', 'private, no-store');
