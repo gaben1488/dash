@@ -765,7 +765,17 @@ function loadLatestSavedSnapshot(): PipelineSnapshot | null {
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-')) {
+          const integrity = inspectArchivedCalculationEvidence(snapshot);
+          if (integrity.status === 'invalid') {
+            logSourceProblem('Сохранённый снимок отклонён: паспорт расчёта не совпал', {
+              snapshotId: snapshot.id,
+              mismatches: integrity.mismatches,
+            });
+            continue;
+          }
+          return snapshot;
+        }
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
       }
@@ -1067,6 +1077,14 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
     try {
       const snapshot = JSON.parse(row.data) as PipelineSnapshot;
       if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
+        const integrity = inspectArchivedCalculationEvidence(snapshot);
+        if (integrity.status === 'invalid') {
+          logSourceProblem('Исторический снимок отклонён: паспорт расчёта не совпал', {
+            snapshotId: snapshot.id,
+            mismatches: integrity.mismatches,
+          });
+          continue;
+        }
         return snapshot;
       }
     } catch {
