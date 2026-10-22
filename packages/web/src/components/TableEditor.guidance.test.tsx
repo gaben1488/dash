@@ -4,6 +4,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { epReasonEditorGuidance } from '@aemr/shared';
 import { TableEditor, type ColumnConfig } from './TableEditor';
 
+class TestResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal('ResizeObserver', TestResizeObserver);
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('C06.03 full source-M editing via the existing TableEditor', () => {
