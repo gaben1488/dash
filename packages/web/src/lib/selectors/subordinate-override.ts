@@ -124,8 +124,22 @@ export function applySubordinateFilter(
       }
     }
 
+    // Parent year counts must not survive a subordinate selection. A complete
+    // quarter ledger allows us to rebuild the same year as the source reader.
+    // Otherwise the count is unknown: carrying the parent's count is a leak.
+    const completeYearCounts = matchedSubs.every((ms: any) =>
+      ['q1', 'q2', 'q3', 'q4'].every(qk =>
+        Number.isFinite(ms.quarters?.[qk]?.planCount) &&
+        Number.isFinite(ms.quarters?.[qk]?.factCount)));
+    const scopedYearPlanCount = completeYearCounts
+      ? ['q1', 'q2', 'q3', 'q4'].reduce((n, key) => n + quarters[key].planCount, 0) : undefined;
+    const scopedYearFactCount = completeYearCounts
+      ? ['q1', 'q2', 'q3', 'q4'].reduce((n, key) => n + quarters[key].factCount, 0) : undefined;
+
     return {
       ...d,
+      planCount: scopedYearPlanCount,
+      factCount: scopedYearFactCount,
       planTotal: subPlan,
       factTotal: subFact,
       executionPercent: subExecPct,
