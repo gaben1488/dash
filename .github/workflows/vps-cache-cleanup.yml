@@ -2686,6 +2686,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
+          # The owner-request gate compares HEAD^ to HEAD. The default shallow
+          # checkout has no parent and previously failed before VPS preflight.
+          fetch-depth: 2
       - name: Admit exact current candidate before any maintenance
         run: |
           set -euo pipefail
