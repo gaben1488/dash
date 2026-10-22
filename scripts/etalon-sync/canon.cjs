@@ -175,7 +175,18 @@ function goldenValidation(grbsValue) {
   // появляется ТОЛЬКО через страницу настроек; ручной ввод мимо списка отклоняется.
   const fromRange = (r) => ({ condition: { type: 'ONE_OF_RANGE', values: [{ userEnteredValue: r }] }, strict: true, showCustomUi: true });
   return {
-    A: { condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] }, strict: true, showCustomUi: false },
+    // IDs in A are addresses, not quantities: both 12 and 12/1 are valid.
+    // TEXT formatting prevents Google from converting 12/1 into a date;
+    // validation is non-coercive and applies only to input, never rewrites IDs.
+    A: {
+      condition: {
+        type: 'CUSTOM_FORMULA',
+        values: [{ userEnteredValue: '=OR($A4="";REGEXMATCH(TO_TEXT($A4);"^[1-9][0-9]*(/[1-9][0-9]*)?$"))' }],
+      },
+      strict: true,
+      showCustomUi: false,
+      inputMessage: 'Укажите положительный целый № или составной № вида 12/1. Не дату.',
+    },
     B: grbsValue ? listOf([grbsValue], true) : null,
     C: fromRange("='_Настройки'!$H$2:$H"),
     D: fromRange("='_Настройки'!$I$2:$I"),
