@@ -1,6 +1,0 @@
-{
-  "purpose": "P0-119-read-only-installed-runtime-observation",
-  "approved_parent": "6df168f69ef9e5b87cea27fd5ec2613ebe9d57b3",
-  "write_production": false,
-  "write_google_sheets": false
-}
