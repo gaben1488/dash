@@ -175,6 +175,8 @@ export interface GroupedResults {
   byQuarterActivity: Map<string, Map<string, AccumulatedValue>>;
   /** By subordinate × activity (e.g., "МКУ ЦЭР.program"). */
   bySubordinateActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** All-period subordinate × activity × method; includes rows without plan quarter. */
+  bySubordinateActivityMethod: Map<string, Map<string, AccumulatedValue>>;
   /** By activity × method (e.g., "program.competitive"). */
   byActivityMethod: Map<string, Map<string, AccumulatedValue>>;
   /** By month × method (e.g., "m3.competitive"). Already in byQuarterMethod (key "m3.competitive"). */
@@ -583,6 +585,7 @@ export class CalcEngine {
       byActivity: new Map(),
       byQuarterActivity: new Map(),
       bySubordinateActivity: new Map(),
+      bySubordinateActivityMethod: new Map(),
       byActivityMethod: new Map(),
       byMonthActivity: new Map(),
       byPeriodActivityMethod: new Map(),
@@ -703,8 +706,23 @@ export class CalcEngine {
               `${subordinate}.year.${activity}.${method}`, m.key, val, i);
           }
         } else if (hasFact) {
-          // Orphan: has fact but no plan quarter → tracked separately for year total derivation
+          // An explicit orphan quarter must be filterable by the SAME axes as
+          // ordinary quarters. "year" still excludes this diagnostic bucket.
           this.accumulateInGroup(result.byQuarter, '_orphan', m.key, val, i);
+          this.accumulateInGroup(result.byQuarterActivity,
+            `_orphan.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinateQuarter,
+            `${subordinate}._orphan`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}._orphan.${activity}`, m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byQuarterMethod,
+              `_orphan.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `_orphan.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}._orphan.${activity}.${method}`, m.key, val, i);
+          }
         }
 
         // Год-квалифицированные карты (Фаза 2): те же ключи кварталов и
@@ -758,6 +776,10 @@ export class CalcEngine {
 
         // By subordinate × activity
         this.accumulateInGroup(result.bySubordinateActivity, `${subordinate}.${activity}`, m.key, val, i);
+        if (method) {
+          this.accumulateInGroup(result.bySubordinateActivityMethod,
+            `${subordinate}.${activity}.${method}`, m.key, val, i);
+        }
 
         // By activity × method
         if (method) {
@@ -808,6 +830,7 @@ export class CalcEngine {
     for (const group of result.byActivity.values()) this.computeDerived(group);
     for (const group of result.byQuarterActivity.values()) this.computeDerived(group);
     for (const group of result.bySubordinateActivity.values()) this.computeDerived(group);
+    for (const group of result.bySubordinateActivityMethod.values()) this.computeDerived(group);
     for (const group of result.byActivityMethod.values()) this.computeDerived(group);
     for (const group of result.byMonthActivity.values()) this.computeDerived(group);
     for (const group of result.byPeriodActivityMethod.values()) this.computeDerived(group);
@@ -1139,35 +1162,32 @@ export function sliceResults(
   grouped: GroupedResults,
   filter: SliceFilter,
 ): Map<string, AccumulatedValue> {
-  const hasQ = !!(filter.quarters && filter.quarters.length > 0);
-  const hasM = !!(filter.months && filter.months.length > 0);
-  const hasMeth = !!(filter.methods && filter.methods.length > 0);
-  const hasSub = !!(filter.subordinates && filter.subordinates.length > 0);
-  const hasAct = !!(filter.activities && filter.activities.length > 0);
+  // Duplicate filter tokens must not duplicate money, counts or provenance.
+  const quarters = [...new Set(filter.quarters ?? [])];
+  const months = [...new Set(filter.months ?? [])];
+  const methods = [...new Set(filter.methods ?? [])];
+  const subordinates = [...new Set(filter.subordinates ?? [])];
+  const activities = [...new Set(filter.activities ?? [])];
+  const hasQ = quarters.length > 0;
+  const hasM = months.length > 0;
+  const hasMeth = methods.length > 0;
+  const hasSub = subordinates.length > 0;
+  const hasAct = activities.length > 0;
 
   // No filter → total
   if (!hasQ && !hasM && !hasMeth && !hasSub && !hasAct) {
     return grouped.total;
   }
 
-  // Харденинг Фазы 0: сочетание осей, для которого нет карты пересечения,
-  // — честная ошибка, а НЕ молчаливый сброс «лишних» фильтров (раньше
-  // {quarters, subordinates} тихо возвращал весь квартал по всем подведам).
-  const SUPPORTED: ReadonlySet<string> = new Set([
-    'quarters', 'months', 'methods', 'subordinates', 'activities',
-    'quarters+methods', 'quarters+activities',
-  ]);
-  const dims = [
-    hasQ && 'quarters', hasMeth && 'methods', hasAct && 'activities',
-    hasM && 'months', hasSub && 'subordinates',
-  ].filter((d): d is string => Boolean(d));
-  const combo = dims.join('+');
-  if (!SUPPORTED.has(combo)) {
-    throw new Error(
-      `sliceResults: неподдерживаемое сочетание осей (${combo}) — карты пересечения нет. ` +
-      'Поддержано: одна ось, quarters+methods, quarters+activities.',
-    );
-  }
+  // A quarter and any of its months overlap; callers must resolve the
+  // selection into disjoint quarters/months before aggregation.
+  if (hasQ && hasM) throw new Error('sliceResults: quarters+months require disjoint period resolution');
+  if (quarters.some(q => !['q1', 'q2', 'q3', 'q4', '_orphan'].includes(q)))
+    throw new Error('sliceResults: invalid quarter key');
+  if (months.some(m => !Number.isInteger(m) || m < 1 || m > 12))
+    throw new Error('sliceResults: invalid month');
+  if (methods.some(m => m !== 'competitive' && m !== 'ep'))
+    throw new Error('sliceResults: invalid method group');
 
   const result = new Map<string, AccumulatedValue>();
 
@@ -1190,30 +1210,65 @@ export function sliceResults(
     }
   }
 
-  if (hasQ && hasMeth) {
-    // Cross-dimension: quarter × method
-    for (const q of filter.quarters!) {
-      for (const m of filter.methods!) {
-        merge(grouped.byQuarterMethod.get(`${q}.${m}`));
-      }
+  /** Read only maps populated in the single CalcEngine pass. No row replay,
+   * guessed intersections or extra query of the underlying Sheets. */
+  function mergeIntersection(
+    groups: Map<string, Map<string, AccumulatedValue>>,
+    ...axes: string[][]
+  ): void {
+    let keys = [''];
+    for (const axis of axes) {
+      keys = keys.flatMap(prefix => axis.map(value =>
+        prefix ? `${prefix}.${value}` : value));
     }
-  } else if (hasQ && hasAct) {
-    // Cross-dimension: quarter × activity
-    for (const q of filter.quarters!) {
-      for (const a of filter.activities!) {
-        merge(grouped.byQuarterActivity.get(`${q}.${a}`));
-      }
+    for (const key of keys) merge(groups.get(key));
+  }
+
+  if (hasQ || hasM) {
+    const periods = hasQ ? quarters : months.map(month => `m${month}`);
+    if (hasSub && hasAct && hasMeth) {
+      mergeIntersection(grouped.bySubordinatePeriodActivityMethod,
+        subordinates, periods, activities, methods);
+    } else if (hasSub && hasMeth) {
+      // All activity groups, INCLUDING 'unknown', partition the source rows.
+      mergeIntersection(grouped.bySubordinatePeriodActivityMethod,
+        subordinates, periods, [...grouped.byActivity.keys()], methods);
+    } else if (hasSub && hasAct) {
+      mergeIntersection(grouped.bySubordinatePeriodActivity,
+        subordinates, periods, activities);
+    } else if (hasMeth && hasAct) {
+      mergeIntersection(grouped.byPeriodActivityMethod, periods, activities, methods);
+    } else if (hasSub) {
+      mergeIntersection(hasQ ? grouped.bySubordinateQuarter : grouped.bySubordinateMonth,
+        subordinates, periods);
+    } else if (hasMeth) {
+      mergeIntersection(grouped.byQuarterMethod, periods, methods);
+    } else if (hasAct) {
+      mergeIntersection(hasQ ? grouped.byQuarterActivity : grouped.byMonthActivity,
+        periods, activities);
+    } else if (hasQ) {
+      for (const quarter of quarters) merge(grouped.byQuarter.get(quarter));
+    } else {
+      for (const month of months) merge(grouped.byMonth.get(month));
     }
-  } else if (hasQ) {
-    for (const q of filter.quarters!) merge(grouped.byQuarter.get(q));
-  } else if (hasM) {
-    for (const m of filter.months!) merge(grouped.byMonth.get(m));
-  } else if (hasMeth) {
-    for (const m of filter.methods!) merge(grouped.byMethod.get(m));
+  } else if (hasSub && hasAct && hasMeth) {
+    // Older serialized results cannot claim exact coverage they never stored.
+    if (!grouped.bySubordinateActivityMethod)
+      throw new Error('sliceResults: subordinate/activity/method intersection unavailable');
+    mergeIntersection(grouped.bySubordinateActivityMethod,
+      subordinates, activities, methods);
+  } else if (hasSub && hasMeth) {
+    mergeIntersection(grouped.bySubordinateMethod, subordinates, methods);
+  } else if (hasSub && hasAct) {
+    mergeIntersection(grouped.bySubordinateActivity, subordinates, activities);
+  } else if (hasMeth && hasAct) {
+    mergeIntersection(grouped.byActivityMethod, activities, methods);
   } else if (hasSub) {
-    for (const s of filter.subordinates!) merge(grouped.bySubordinate.get(s));
+    for (const subordinate of subordinates) merge(grouped.bySubordinate.get(subordinate));
+  } else if (hasMeth) {
+    for (const method of methods) merge(grouped.byMethod.get(method));
   } else if (hasAct) {
-    for (const a of filter.activities!) merge(grouped.byActivity.get(a));
+    for (const activity of activities) merge(grouped.byActivity.get(activity));
   }
 
   // Производные — заново по слитым базам (единый вычислитель с compute()).
