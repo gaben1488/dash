@@ -720,15 +720,23 @@ const deptEconomySumConsistency: ValidationRule = {
 const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
   'procurement',
   'procurement_derived',
-  'service',
 ]);
 
 function isNumberedRow(row: ClassifiedRow): boolean {
+  // Формулы в пустом хвосте часто возвращают нули. Они классифицируются как
+  // 'service', но без предмета/способа/ненулевых денег это НЕ закупки.
+  if (row.classification === 'header'
+    || row.classification === 'summary'
+    || row.classification === 'separator') return false;
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
-  // проверку всего листа — поэтому header из страховки исключён.
-  if (row.classification === 'header') return false;
-  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+
+  const meaningful = (col: string): boolean => {
+    const value = String(row.cells[col] ?? '').trim();
+    return value !== '' && !/^(?:х|x|[-—–])$/i.test(value);
+  };
+  if (meaningful('G') || meaningful('L')) return true;
+  return ['H', 'I', 'J', 'K', 'V', 'W', 'X', 'Y']
+    .some(col => (toNumber(row.cells[col]) ?? 0) !== 0);
 }
 
 /**
@@ -787,10 +795,13 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      // Колонка A — адрес, не деньги. toNumber('173/18') дал бы 173.
+      // Только самостоятельное число может сводиться к целому; слеш и
+      // суффикс составного номера сохраняем и сравниваем точно.
+      const n = /^\d+(?:[.,]\d+)?$/.test(raw) ? Number(raw.replace(',', '.')) : null;
+      const intNo = n !== null && Number.isSafeInteger(n) ? n : null;
       if (intNo !== null) ints.add(intNo);
-      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
+      // «531» и 531 равны; «173», «173/1», «173/18» — разные номера.
       const key = intNo !== null ? String(intNo) : raw;
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
