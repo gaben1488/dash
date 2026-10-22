@@ -36,8 +36,9 @@
  */
 import type { FastifyInstance } from 'fastify';
 import {
-  liveBaselineDay,
+  DAYS_PER_WEEK,
   isoOfDayNumber,
+  weeklyCutoffMs,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -295,10 +296,20 @@ interface WeeklySnapshotRef {
 }
 
 /**
- * LIVE-база — завершённый четверговый срез предыдущей календарной недели.
- * Новый четверговый выпуск становится базой только в следующий понедельник.
- * Пропуск нужной недели не заменяется старым или суточным снимком.
+ * Последний календарный четверг, в который уже наступило 18:00 Камчатки.
+ * До вечернего контроля текущего четверга базой остаётся предыдущий.
+ * После 18:00 новая база допустима только при реальном завершённом срезе:
+ * пропуск не подменяем более старой неделей или суточным снимком.
  */
+export function latestDueThursdayDay(nowMs: number, utcOffsetHours: number): number {
+  const day = productCalendarDay(new Date(nowMs), utcOffsetHours);
+  const weekday = ((day % DAYS_PER_WEEK) + DAYS_PER_WEEK) % DAYS_PER_WEEK;
+  let controlDay = day - weekday;
+  if (nowMs < weeklyCutoffMs(controlDay, utcOffsetHours)) controlDay -= DAYS_PER_WEEK;
+  return controlDay;
+}
+
+/** Отбор только завершённых вечерних четверговых контрольных срезов. */
 export function pickLatestControlSnapshot(
   sealed: readonly WeeklySnapshotRef[],
   nowMs: number,
@@ -306,11 +317,12 @@ export function pickLatestControlSnapshot(
 ): WeeklySnapshotRef | null {
   let latest: WeeklySnapshotRef | null = null;
   let latestAt = -Infinity;
-  const baselineDay = liveBaselineDay(new Date(nowMs), utcOffsetHours);
+  const baselineDay = latestDueThursdayDay(nowMs, utcOffsetHours);
   for (const snap of sealed) {
     const at = Date.parse(snap.createdAt);
     if (!Number.isFinite(at) || at > nowMs) continue;
-    if (productCalendarDay(new Date(at), utcOffsetHours) !== baselineDay) continue;
+    if (productCalendarDay(new Date(at), utcOffsetHours) !== baselineDay ||
+        at < weeklyCutoffMs(baselineDay, utcOffsetHours)) continue;
     if (at > latestAt) {
       latest = snap;
       latestAt = at;
@@ -321,8 +333,8 @@ export function pickLatestControlSnapshot(
 
 /**
  * Недельная страховка: только ДВА СМЕЖНЫХ завершённых четверга Камчатки.
- * Последний неполный четверг не становится эталоном до следующего понедельника.
- * Чтения между четвергами и более старые недели пару не подменяют.
+ * Сегодняшний четверг становится опорой только после 18:00 и полного seal.
+ * Чтения до 18:00, между четвергами и более старые недели пару не подменяют.
  * Проходим только метаданные; дорогая проверка атомов выполняется после отбора.
  */
 export function pickAdjacentWeeklySnapshots(
@@ -330,7 +342,7 @@ export function pickAdjacentWeeklySnapshots(
   nowMs: number,
   utcOffsetHours: number,
 ): [WeeklySnapshotRef, WeeklySnapshotRef] | null {
-  const afterDay = liveBaselineDay(new Date(nowMs), utcOffsetHours);
+  const afterDay = latestDueThursdayDay(nowMs, utcOffsetHours);
   const beforeDay = afterDay - 7;
   let before: WeeklySnapshotRef | null = null;
   let after: WeeklySnapshotRef | null = null;
@@ -338,6 +350,7 @@ export function pickAdjacentWeeklySnapshots(
     const ms = Date.parse(candidate.createdAt);
     if (!Number.isFinite(ms) || ms > nowMs) continue;
     const day = productCalendarDay(new Date(ms), utcOffsetHours);
+    if (ms < weeklyCutoffMs(day, utcOffsetHours)) continue;
     if (day === beforeDay && (!before || ms > Date.parse(before.createdAt))) before = candidate;
     if (day === afterDay && (!after || ms > Date.parse(after.createdAt))) after = candidate;
   }
@@ -432,7 +445,7 @@ function presentDiff(dept: DepartmentEntry, diff: RowDiff, currentAt: string): V
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
 /**
  * Одна общая истина для /api/integrity и /api/change-story.
- * База — четверг предыдущей календарной недели. После — последнее ДОСТОВЕРНОЕ чтение
+ * База — последний завершённый четверг после 18:00 Камчатки. После — последнее ДОСТОВЕРНОЕ чтение
  * живых ведомственных книг из общего кэша, с собственной меткой каждой книги.
  * Источники не пересобираются в SQL-снимок ради сравнения; никаких записей.
  */
@@ -454,7 +467,9 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     note: lastError
       ? 'Недельный контроль не пригоден для достоверной сверки: ' + lastError +
         '. Ни одна доступная контрольная попытка не подтверждена; отсутствие сравнения не доказывает отсутствие пропаж.'
-      : 'Нет подтверждённого среза четверга предыдущей календарной недели. Сравнивать текущее состояние с другой неделей или суточным чтением вместо него нельзя.',
+      : 'Нет подтверждённого вечернего среза за четверг ' +
+        isoOfDayNumber(latestDueThursdayDay(now, config.weeklySnapshot.utcOffsetHours)) +
+        '. Сравнивать текущие книги с другой неделей или суточным чтением вместо него нельзя.',
   };
   const baselineNote = skippedControls > 0
     ? 'Пропущено неполных или несовместимых контрольных попыток: ' + skippedControls +
@@ -550,7 +565,7 @@ export function buildWeeklyComparison(now: number = Date.now()): {
   note: string;
 } {
   const offset = config.weeklySnapshot.utcOffsetHours;
-  const endDay = liveBaselineDay(new Date(now), offset);
+  const endDay = latestDueThursdayDay(now, offset);
   const beginDay = endDay - 7;
   const pair = pickAdjacentWeeklySnapshots(iterateWeeklySnapshotHistory(), now, offset);
   const window = isoOfDayNumber(beginDay) + ' → ' + isoOfDayNumber(endDay);
@@ -796,8 +811,8 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
     const now = Date.now();
     if (!fresh && cached && now - cached.at < CACHE_TTL_MS &&
-        liveBaselineDay(new Date(cached.at), config.weeklySnapshot.utcOffsetHours) ===
-          liveBaselineDay(new Date(now), config.weeklySnapshot.utcOffsetHours) &&
+        latestDueThursdayDay(cached.at, config.weeklySnapshot.utcOffsetHours) ===
+          latestDueThursdayDay(now, config.weeklySnapshot.utcOffsetHours) &&
         cached.sourceAt === getDeptCacheFilledAt()) {
       return reply.send(cached.response);
     }
