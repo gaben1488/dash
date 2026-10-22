@@ -12,6 +12,10 @@
  * Один год без месяца и дня не является датой события.
  * Serial-конверсия совпадает с recalculate.ts / calc-engine.ts (n-25569)*86400000.
  */
+// Same anchored ISO grammar for a Date object and a calendar-day number:
+// arbitrary suffixes and textual notes are not dates.
+const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)$/;
+
 /** Reject impossible calendar days rather than relying on Date rollover. */
 function validCalendarDate(year: number, month: number, day: number): boolean {
   if (!Number.isInteger(year) || year < 1 || year > 9999 ||
@@ -47,7 +51,7 @@ export function parseSheetDate(val: unknown): Date | null {
   }
 
   // ISO yyyy-mm-dd or full ISO timestamp, with real calendar day validation.
-  const isoDay = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  const isoDay = s.match(ISO_DAY_PATTERN);
   if (!isoDay) return null;
   if (isoDay && !validCalendarDate(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]))) return null;
   const iso = new Date(s);
@@ -107,7 +111,7 @@ export function dayNumberOf(val: unknown): number | null {
   }
 
   // ISO «YYYY-MM-DD» или «YYYY-MM-DDTHH:mm:ss…» — компоненты даты из строки
-  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  const isoMatch = s.match(ISO_DAY_PATTERN);
   if (isoMatch) {
     const [, yyyy, mm, dd] = isoMatch;
     if (!validCalendarDate(Number(yyyy), Number(mm), Number(dd))) return null;
