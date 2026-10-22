@@ -284,7 +284,9 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     });
   }
 
-  const { comparison, note: comparisonNote } = buildComparison(now);
+  const { comparison, note: comparisonNote } = buildComparison(now, {
+    sheetValues, loadMeta,
+  });
   const { weeklyComparison, note: weeklyComparisonNote } = buildWeeklyComparison(now);
   const baselineMs = comparison ? Date.parse(comparison.beforeAt) : NaN;
   const sinceMs = Number.isFinite(baselineMs) ? baselineMs : now - 14 * 86_400_000;
@@ -295,7 +297,7 @@ export function buildIntegrityResponse(now: number = Date.now()): IntegrityRespo
     operational = {
       ...operational,
       ...selectActiveSourceAbsences(
-        readSourceRowObservations(sinceMs), sheetValues, getDeptLoadMeta(), now,
+        readSourceRowObservations(sinceMs), sheetValues, loadMeta, now,
         Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
       ),
     };

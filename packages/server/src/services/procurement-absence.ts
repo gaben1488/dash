@@ -351,7 +351,13 @@ export function compareCurrentToThursday(
  * живых ведомственных книг из общего кэша, с собственной меткой каждой книги.
  * Источники не пересобираются в SQL-снимок ради сравнения; никаких записей.
  */
-export function buildComparison(now: number = Date.now()): { comparison: CurrentComparison | null; note: string } {
+export function buildComparison(
+  now: number = Date.now(),
+  source?: {
+    sheetValues: Readonly<Record<string, readonly unknown[][]>>;
+    loadMeta: Readonly<Record<string, CurrentReadMeta>>;
+  },
+): { comparison: CurrentComparison | null; note: string } {
   const selected = verifiedThursday(liveBaselineDay(new Date(now), config.weeklySnapshot.utcOffsetHours),
     now, config.weeklySnapshot.utcOffsetHours);
   const baseline = selected.ref;
@@ -367,7 +373,8 @@ export function buildComparison(now: number = Date.now()): { comparison: Current
       '. Использован последний подтверждённый контроль.'
     : '';
   const compared = compareCurrentToThursday(
-    baseline, selected.rows, getDeptSheetValues(), getDeptLoadMeta(), now,
+    baseline, selected.rows, source?.sheetValues ?? getDeptSheetValues(),
+    source?.loadMeta ?? getDeptLoadMeta(), now,
     Math.max(config.cache.sourceFreshnessSeconds * 1000, 3_600_000),
   );
   return {

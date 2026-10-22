@@ -166,6 +166,20 @@ describe('контрольная сверка с действующими кни
     expect(integrity.verifiedBaselineRows(ref).error).toBeNull();
   });
 
+  it('контракт ответа использует один принятый текущий источник для целостности и сравнения', () => {
+    const sourceRows = Object.fromEntries(departmentNames.map(name => [name, sheet('10')]));
+    const sourceMeta = Object.fromEntries(departmentNames.map(name => [
+      name, { loadedAt: CURRENT_AT, sheetName: 'ВСЕ', rowCount: 4 },
+    ]));
+    // Existing global cache deliberately differs (УО now has #15).
+    const captured = integrity.buildComparison(NOW, {
+      sheetValues: sourceRows, loadMeta: sourceMeta,
+    });
+    expect(captured.comparison?.baselineId).toBe('control-latest');
+    expect(captured.comparison?.vanishedTotal).toBe(0);
+    expect(captured.comparison?.unavailableBooks).toEqual([]);
+  });
+
   it('сопоставляет текущее чтение с последним sealed-контролем, не с вчерашним SQL-снимком', () => {
     const { comparison, note } = integrity.buildComparison(NOW);
     expect(note).toBe('');
