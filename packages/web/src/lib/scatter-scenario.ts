@@ -12,9 +12,11 @@ export function conditionalEpProjection(input: {
   dashboardLoading: boolean;
   yearMatches: boolean;
   activityAligned: boolean;
+  budgetAligned: boolean;
+  searchAligned: boolean;
 }): number | null {
-  const { scatter, epPlan, epHasData, dashboardLoading, yearMatches, activityAligned } = input;
-  if (!scatter || dashboardLoading || !yearMatches || !activityAligned || !epHasData
+  const { scatter, epPlan, epHasData, dashboardLoading, yearMatches, activityAligned, budgetAligned, searchAligned } = input;
+  if (!scatter || dashboardLoading || !yearMatches || !activityAligned || !budgetAligned || !searchAligned || !epHasData
     || !scatter.coverage.complete || scatter.summary.count === 0
     || !Number.isFinite(epPlan) || epPlan <= 0) return null;
   const ratio = scatter.summary.limitReductionPercent;
