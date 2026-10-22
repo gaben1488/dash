@@ -50,6 +50,7 @@
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { CHANGELOG_SHEET_NAME, readChangelogReading, resetChangelogSource, changelogInputKey } from './changelog-source.js';
+import { decodeSourceJournal } from './journal-source-format.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
 export { CHANGELOG_SHEET_NAME };
@@ -79,67 +80,26 @@ export interface BookJournal {
   error?: string;
 }
 
-/** Похоже ли значение на адрес ячейки книги («H28», «AC177»). */
-function looksLikeCell(value: unknown): boolean {
-  return /^[A-Z]{1,2}\d+$/i.test(String(value ?? '').trim());
-}
-
 /**
- * Разбирает сырые строки листа «_ChangeLog» в записи ядра.
- *
- * Ничего не отбрасывает по содержимому значений: решать, читается ли время и
- * есть ли изменение суммы, — дело ядра provenance. Здесь отсекается только то,
- * что вообще не является записью правки (шапка листа, пустые строки): у них ни
- * в первой, ни во второй ячейке нет адреса.
+ * Provenance is a projection of the SAME decoded events as /api/changes.
+ * Unlike the public change list, keep all raw values and the original row
+ * key; a six-column legacy event has NO procurement row key.
  */
 export function parseProvenanceJournal(rows: readonly unknown[][], reading?: { spreadsheetId: string; at: number }): {
   records: JournalRecord[];
   rowKeyless: number;
 } {
-  const records: JournalRecord[] = [];
-  let rowKeyless = 0;
-
-  for (const [index, row] of rows.entries()) {
-    if (!Array.isArray(row) || row.length < 5) continue;
-    const source = reading ? { spreadsheetId: reading.spreadsheetId, journalSheet: CHANGELOG_SHEET_NAME,
-      journalRow: index + 1, readAt: reading.at } : undefined;
-
-    // Схема 8 колонок: адрес во второй ячейке, ключ строки — в четвёртой.
-    if (looksLikeCell(row[1])) {
-      records.push({
-        ...(source ? { source } : {}),
-        sheet: row[0],
-        cell: row[1],
-        column: row[2],
-        row: row[3],
-        was: row[4],
-        became: row[5],
-        at: row[6],
-        author: row[7],
-      });
-      continue;
-    }
-
-    // Схема УАГЗО, 6 колонок: адрес в первой ячейке, поля «Строка» нет вовсе.
-    if (looksLikeCell(row[0])) {
-      rowKeyless += 1;
-      records.push({
-        ...(source ? { source } : {}),
-        sheet: '',
-        cell: row[0],
-        column: '',
-        // Пустой ключ намеренно: ядро посчитает запись в unparsedRowKeys, а не
-        // припишет её закупке, которая сегодня стоит на этом месте листа.
-        row: '',
-        was: row[1],
-        became: row[2],
-        at: row[3],
-        author: row[4],
-      });
-    }
-  }
-
-  return { records, rowKeyless };
+  const decoded = decodeSourceJournal(rows);
+  return {
+    rowKeyless: decoded.rowKeyless,
+    records: decoded.cells.map(cell => ({
+      ...(reading ? { source: { spreadsheetId: reading.spreadsheetId,
+        journalSheet: CHANGELOG_SHEET_NAME, journalRow: cell.journalRow,
+        readAt: reading.at } } : {}),
+      sheet: cell.sheet, cell: cell.cell, column: cell.column, row: cell.rowKey,
+      was: cell.was, became: cell.became, at: cell.at, author: cell.author,
+    })),
+  };
 }
 
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
