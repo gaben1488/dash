@@ -71,12 +71,13 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): BookFormulaVer
   const skip = Math.max(0, FIRST_DATA_ROW - delivery.startRow);
   const values = (delivery.values ?? []).slice(skip) as string[][];
   const formulas = (delivery.formulas ?? []).slice(skip) as string[][];
+  const coverage: TrustCheckCoverage[] = [];
   const defects = detectFormulaIntegrity({
     values,
     formulas,
     startRow: Math.max(delivery.startRow, FIRST_DATA_ROW),
     book: delivery.book,
-  });
+  }, coverage);
   let rowsJudged = 0;
   for (const row of values) {
     if (formulaIntegrityRowNumber(row ?? []) !== null) rowsJudged++;
