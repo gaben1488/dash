@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEPT_COLUMNS as C, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
+import { DEPT_COLUMNS as C, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, type NormalizedMetric } from '@aemr/shared';
 import { CalcEngine, combineMetricSlices, standardRowFilter } from '../pipeline/calc-engine.js';
 import { runPipeline } from '../pipeline/orchestrator.js';
 import { projectDepartmentMetrics, projectDistrictMetrics } from './published-projection.js';
@@ -34,7 +34,7 @@ function setup() {
     { departmentId: 'uo', grouped: engine.compute(books.УО, standardRowFilter, 3, 2026, { asOfDay: day }), rowOffset: 0 },
     { departmentId: 'uer', grouped: engine.compute(books.УЭР, standardRowFilter, 3, 2026, { asOfDay: day }), rowOffset: books.УО.length },
   ];
-  const fresh = new Map();
+  const fresh = new Map<string, NormalizedMetric>();
   for (const d of departments) projectDepartmentMetrics(fresh, d, asOf.toISOString());
   projectDistrictMetrics(fresh, departments, asOf.toISOString());
   return { books, departments, fresh };
@@ -53,6 +53,7 @@ describe('one product metric projection over the executable CalcEngine', () => {
     for (const key of nextKeys) {
       const newValue = fresh.get(key)?.numericValue;
       const oldValue = old.calculatedMetrics[key]?.numericValue;
+      if (typeof newValue !== 'number' || typeof oldValue !== 'number') throw new Error(`MISSING_METRIC:${key}`);
       expect(newValue, key).toBeCloseTo(oldValue, 8);
     }
   });
