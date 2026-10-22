@@ -1,4 +1,4 @@
-import { toNumber } from '@aemr/shared';
+import { readProcurementSequence, toNumber } from '@aemr/shared';
 import type { ClassifiedRow, RowClassification } from '@aemr/shared';
 
 /**
@@ -33,8 +33,9 @@ function classifyRow(
     };
   }
 
-  // Проверяем наличие числового идентификатора (столбец A или B)
-  const hasId = isNumeric(cells['A']) || isNumeric(cells['B']);
+  // № п/п в A — адрес закупки, в том числе составной 173/18, а не сумма.
+  // B сохраняет прежний строгий numeric-предикат; денежных правил не меняем.
+  const hasId = isNumeric(cells['A']) || readProcurementSequence(cells['A']) !== null || isNumeric(cells['B']);
 
   // Проверяем наличие суммовых столбцов
   const hasAmounts = isNumeric(cells['H']) || isNumeric(cells['I']) ||
