@@ -27,6 +27,9 @@ export function checkedGuidanceResponse(data: EditorialGuidanceResponse): Editor
         item.section !== origin.section || typeof item.text !== 'string' ||
         item.text.trim() === '' || !Number.isSafeInteger(item.revision) || item.revision < 0 ||
         typeof item.overridden !== 'boolean' ||
+        (!item.overridden && item.text !== item.defaultText) ||
+        (item.overridden && item.revision < 1) ||
+        (item.revision > 0 && item.updatedAt === null) ||
         (item.updatedAt !== null && typeof item.updatedAt !== 'string')) {
       throw new Error('Редакция справочника несовместима с текущей версией приложения');
     }
@@ -39,6 +42,7 @@ export function RuleReference() {
   const [entries, setEntries] = useState<EditorialGuidanceEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [exportError, setExportError] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -55,6 +59,20 @@ export function RuleReference() {
     });
     return () => { mounted = false; };
   }, []);
+
+  async function reloadEditorialCatalog() {
+    if (reloading || saving) return;
+    setReloading(true); setLoadError(null);
+    try {
+      const refreshed = checkedGuidanceResponse(await api.getEditorialGuidance());
+      setEntries(refreshed); setEditing(null); setSaveMessage(null);
+    } catch (err) {
+      // Not even the previous response may be advertised as the latest revision.
+      setEntries(null); setLoadError(humanizeRequestError(err));
+    } finally {
+      setReloading(false);
+    }
+  }
 
   const overlays = useMemo(() => Object.fromEntries(
     (entries ?? []).filter(entry => entry.overridden).map(entry => [entry.key, entry.text]),
@@ -113,8 +131,10 @@ export function RuleReference() {
     </p>}
     {!loadError && !entries && <p role="status" className="mt-2 text-sm">Читаем сохранённую редакцию справочника…</p>}
     <div className="flex flex-wrap gap-4 py-3 text-sm">
-      <button type="button" className="underline disabled:opacity-40" disabled={!entries} onClick={markdown}>{COPY.markdown}</button>
-      <button type="button" className="underline disabled:opacity-40" disabled={!entries || pending}
+      <button type="button" className="underline disabled:opacity-40" disabled={reloading || saving}
+        onClick={() => void reloadEditorialCatalog()}>{reloading ? 'Читаем редакцию…' : 'Перечитать справочник'}</button>
+      <button type="button" className="underline disabled:opacity-40" disabled={!entries || reloading} onClick={markdown}>{COPY.markdown}</button>
+      <button type="button" className="underline disabled:opacity-40" disabled={!entries || pending || reloading}
         onClick={() => void word()}>{pending ? COPY.pending : COPY.docx}</button>
     </div>
     {exportError && <p role="alert" className="text-sm text-red-700">{COPY.failure}</p>}
