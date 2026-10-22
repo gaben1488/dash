@@ -17,6 +17,7 @@
 import type { ReportMapEntry, Department } from './types.js';
 import { SVOD_SHEET_NAME } from './constants.js';
 import { toNumber } from './rule-book.js';
+import { MASTER_SOURCE_PROFILE } from './column-map.js';
 import {
   DEPARTMENT_REGISTRY,
   ALL_LATIN_IDS,
@@ -72,10 +73,11 @@ export const SVOD_COLUMNS = {
 
 export type ColumnLetter = keyof typeof SVOD_COLUMNS;
 
-/** Столбцы, содержащие формулы (ожидаем, что НЕ будут вручную) */
-export const FORMULA_COLUMNS = [
-  'K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC',
-] as const;
+/** Формульные колонки ГРБС берутся из единого профиля, не из второго списка. */
+export const FORMULA_COLUMNS: readonly ColumnLetter[] = Object.values(MASTER_SOURCE_PROFILE.fields)
+  .filter(field => 'formula' in field)
+  .sort((a, b) => a.index - b.index)
+  .map(field => field.column as ColumnLetter);
 
 /** Столбцы с правилами валидации данных */
 export const RULE_COLUMNS = {

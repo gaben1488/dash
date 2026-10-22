@@ -12,6 +12,8 @@ import { findDept } from './department-registry.js';
  */
 export const MASTER_SOURCE_PROFILE = directory.masterProfile;
 export const MONITORING_SOURCE_SCHEMA = directory.monitoringSchema;
+/** Canonical groups used by formula reads, metadata checks and etalon-sync. */
+export const MASTER_FORMULA_COLUMN_GROUPS = MASTER_SOURCE_PROFILE.formulaColumnGroups;
 export const DEPT_COLUMNS = Object.fromEntries(
   Object.entries(MASTER_SOURCE_PROFILE.fields).map(([key, field]) => [key, field.index]),
 ) as { readonly [K in keyof typeof directory.masterProfile.fields]: number };
@@ -132,7 +134,17 @@ function normHeader(value: unknown): string {
  */
 const HEADER_ANCHORS = Object.values(MASTER_SOURCE_PROFILE.fields)
   .filter((field): field is typeof field & { headerProbe: string } => field.requiredMeaning && field.headerProbe !== null)
-  .map(field => ({ index: field.index, probe: field.headerProbe, aliases: field.headerAliases as string[] }));
+  .map(field => ({ index: field.index, probe: field.headerProbe, aliases: field.headerAliases as string[],
+    anchored: normHeader(field.label) === normHeader(field.headerProbe),
+  }));
+
+/** One semantic matcher for strict admission and non-blocking geometry hints. */
+function matchesMasterHeaderAnchor(value: string, anchor: (typeof HEADER_ANCHORS)[number]): boolean {
+  return [anchor.probe, ...anchor.aliases].some(probe => {
+    const expected = normHeader(probe);
+    return anchor.anchored ? value.startsWith(expected) : value.includes(expected);
+  });
+}
 
 /**
  * Проверка якорей шапки книги ГРБС (реестр багов 09.07.2026, п.11
@@ -160,8 +172,7 @@ export function checkDeptHeaderGeometry(rows: unknown[][]): HeaderGeometryMismat
   const normalized = header.map(normHeader);
   const mismatches: HeaderGeometryMismatch[] = [];
   for (const anchor of HEADER_ANCHORS) {
-    const probe = normHeader(anchor.probe);
-    const at = normalized.findIndex(cell => [probe, ...anchor.aliases.map(normHeader)].some(p => cell.includes(p)));
+    const at = normalized.findIndex(cell => matchesMasterHeaderAnchor(cell, anchor));
     if (at === -1 || at === anchor.index) continue;
     mismatches.push({
       column: INDEX_TO_LETTER[anchor.index] ?? String(anchor.index),
@@ -204,7 +215,9 @@ export function isMetaRow(text: string): boolean {
 export function validateMasterSourceHeader(header: readonly unknown[]): void {
   const normalized = header.map(normHeader);
   for (const anchor of HEADER_ANCHORS) {
-    if (![anchor.probe, ...anchor.aliases].some(probe => normalized[anchor.index]?.includes(normHeader(probe))))
+    const actual = normalized[anchor.index] ?? '';
+    if (!matchesMasterHeaderAnchor(actual, anchor)) {
       throw new Error(`MASTER_SOURCE_REQUIRED_MEANING_CHANGED:${INDEX_TO_LETTER[anchor.index]}`);
+    }
   }
 }
