@@ -51,6 +51,48 @@ describe('parseChangeLog', () => {
   });
 });
 
+
+describe('live _ChangeLog timestamp and cell variants', () => {
+  it('keeps two date-only changes of one cell as separate source events', () => {
+    const rows = [
+      ['Лист', 'Ячейка', 'Столбец', 'Строка', 'Было', 'Стало', 'Время', 'Автор'],
+      ['ВСЕ', 'L178', '12', '177', 'ЕП', 'ЭА', '22.10.2026', 'operator'],
+      ['ВСЕ', 'L178', '12', '177', 'ЭА', 'ЕП', '22.10.2026', 'operator'],
+    ];
+    const found = parseChangeLog(rows, 'УО');
+    expect(found).toHaveLength(2);
+    expect(found.map((r) => [r.timePrecision, r.sourceRow])).toEqual([['day', 2], ['day', 3]]);
+    expect(found[0].atMs).toBe(Date.UTC(2026, 9, 22));
+    expect(found[1].oldValue).toBe('ЭА');
+  });
+
+  it('recognizes single-digit hours and comma-delimited timestamps', () => {
+    const rows = [
+      ['ВСЕ', 'K113', '11', '2156', '', '684', '08.04.2026 9:09:54', 'operator'],
+      ['ВСЕ', 'K113', '11', '2156', '684', '685', '10.09.2026, 17:21:15', 'operator'],
+    ];
+    const found = parseChangeLog(rows, 'УО');
+    expect(found).toHaveLength(2);
+    expect(found[0].atMs).toBe(Date.UTC(2026, 3, 8, 9, 9, 54));
+    expect(found[1].atMs).toBe(Date.UTC(2026, 8, 10, 17, 21, 15));
+    expect(found.every((r) => r.timePrecision === undefined)).toBe(true);
+  });
+
+  it('reads prefixed six-column addresses without inventing row keys', () => {
+    const [r] = parseChangeLog([
+      ['УАГЗО!B48', 'old', 'new', '06.04.2026 12:58:16', 'operator', 'sent'],
+    ], 'УАГЗО');
+    expect(r).toMatchObject({ sheet: 'УАГЗО', cell: 'B48', oldValue: 'old', newValue: 'new' });
+  });
+
+  it('rejects impossible dates and does not invent per-cell edits for range events', () => {
+    expect(parseChangeLog([
+      ['ВСЕ', 'K113', '11', '2156', '', '684', '31.02.2026', 'operator'],
+      ['Контроль', 'A1:C12', '(пакет)', '', '', '36 cells', '10.09.2026, 17:21:15', 'script'],
+    ], 'УО')).toEqual([]);
+  });
+});
+
 describe('changesSince', () => {
   it('фильтрует по моменту среза и сортирует свежие сверху', () => {
     const mk = (atMs: number) => ({
