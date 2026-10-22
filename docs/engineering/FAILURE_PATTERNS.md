@@ -44,7 +44,7 @@
 
 ### F10 — устаревший успех маскирует новую ошибку
 **Свидетельство:** `docs/decisions/0012-durable-source-integrity-observations.md` (**proposed**, не подтверждать внедрение).
-**Механизм:** процесс перезапускается и теряет интегритет-проверку или показывает старый PASS вместо нового отказа. **Правило-кандидат:** отделять последнюю попытку от последнего доказанного состояния с собственными timestamp и ошибками persistence; mismatch книги/schema = invalid. **Гейт после принятия ADR:** restart, failed attempt, corrupt JSON, SQLite failure, spreadsheet ID swap, webhook readback. Не считать этот тест уже пройденным.
+**Механизм:** процесс перезапускается и теряет интегритет-проверку или показывает старый PASS вместо нового отказа; либо неполное webhook-чтение тихо перезаписывает полный baseline. **Правило-кандидат:** отделять последнюю попытку от последнего доказанного состояния с собственными timestamp и ошибками persistence; mismatch книги/schema = invalid, `sourceCoverage<100%` не подтверждает состояние. Сбой оставляет прежнюю полную базу, watermark и release неизменными. **Гейт после принятия ADR и контракта baseline:** restart, failed attempt, corrupt JSON, SQLite failure, spreadsheet ID swap, 7/8 источников, webhook replay/readback. Не считать этот тест уже пройденным.
 
 ### F11 — отсутствующий сравнительный срез превращается в ноль
 **Свидетельство:** `docs/decisions/0009-original-week-files-and-versioned-actions.md`, `docs/decisions/0010-canonical-weekly-report-archive.md`, `docs/superpowers/specs/2026-08-07-time-axis-map.md`.

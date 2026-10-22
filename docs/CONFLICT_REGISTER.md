@@ -19,6 +19,9 @@
 | KC-13 | Различное оформление UI (светлая vs тёмная по умолчанию), частично забракованные макеты | обе темы поддерживать, default = отдельное продуктово/UX решение | browser QA и решение владельца |
 | KC-14 | Исторические спецификации имеют массу «готовых» чекбоксов без current-head evidence | Не импортировать статус в STATUS автоматически | отдельный commit/snapshot + test/readback |
 | KC-15 | Новые `.agents` / `.claude` docs могут вызвать deploy по `.github/ci/deploy_scope.py` | Не коммитить полный candidate package напрямую | scope test exact-head и отдельно одобренный безопасный PR |
+| KC-16 | Требуется complete baseline → webhook → diff, но закрытый PR #150 легко принять за внедрение; Google webhook не выдаёт достоверный A1-diff | Отделить новый нормативный контракт от runtime: полный validated baseline, read только затронутой книги, atomic commit, старое полное состояние при ошибке | exact-head negative fault-injection, sourceCoverage, receipt, replay/restart, VPS readback; PR #150 закрыт без merge |
+| KC-17 | Укороченный агентный пакет потерял разрешённое в прежнем `CLAUDE.md` исключение для обезличенных регрессионных `week-*.json` | Восстановить **узкое** утверждённое 29.07.2026 исключение, не отменяя запрет приватных исходников и прочих отчётов | проверка путей фикстур, состава/секретов, тест приватности и cross-agent compliance |
+| KC-18 | `docs/STATUS.md` из предыдущего кандидата утверждал «PR не создавался» после открытия PR #145 | Уточнить `asOf`, `draft-PR-not-merged` и различие статусов PR/CI/production; автоматизировать проверку статуса перед публикацией | Git API свежий status + head/base SHA, проверка owner review без автоматического merge |
 
 ## Алгоритм обработки нового противоречия
 
