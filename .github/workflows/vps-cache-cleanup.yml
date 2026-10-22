@@ -3244,9 +3244,18 @@ jobs:
             (async () => {
               const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(15000)});
               if (!health.ok) throw new Error('INSTALLED_RUNTIME_NOT_HEALTHY');
-              // Previous accepted forced read already built the latest snapshot.
-              // Diagnose that same persisted source state without re-reading Google.
-              const ud = { rowCount: 240 };
+              // Verify the deployed runtime against a current complete source read.
+              // Never claim a fresh UD receipt from a literal row count or a cached snapshot.
+              const refresh = await read('POST', '/api/refresh?formulas=true');
+              const departments = (refresh.sources || []).filter(item => item.type === 'department');
+              if (refresh.success !== true || departments.length !== 8 ||
+                  departments.some(item => item.loaded !== true)) {
+                throw new Error('SOURCE_REFRESH_INCOMPLETE');
+              }
+              const ud = departments.find(item => item.name === 'УД');
+              if (!ud || !Number.isSafeInteger(ud.rowCount) || ud.rowCount < 4) {
+                throw new Error('UD_SOURCE_UNAVAILABLE');
+              }
               const dashboard = await read('GET', '/api/dashboard?compact=1');
               const snapshot = dashboard.snapshot;
               if (!snapshot || !Array.isArray(snapshot.issues)) throw new Error('NO_CURRENT_SNAPSHOT_ISSUES');
