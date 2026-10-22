@@ -379,6 +379,17 @@ class ControllerTests(TrialTests):
         self.assertFalse(self.fixture.pending.exists())
         self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
 
+    def test_web_tool_replacement_after_stage_blocks_before_any_runtime_change(self):
+        self.web_stage()
+        # Stage captured the real root-owned tool digest. A subsequent replacement
+        # must invalidate web-only admission without stopping API or the worker.
+        self.fixture.tool.write_text('changed tool after staging')
+        with self.assertRaisesRegex(self.fixture.module.RecoveryError, 'RELEASE_WEB_COMPATIBILITY_CHANGED'):
+            self.controller.deploy_web()
+        self.assertFalse(self.fixture.pending.exists())
+        self.assertFalse(any(call[0] in {'compose', 'stop', 'start', 'rm'} for call in self.fixture.calls))
+        self.assertEqual(self.fixture.backup_tool.inventory(self.fixture.source), self.fixture.expected)
+
     def test_changed_backend_environment_selects_full_release_despite_ui_source_diff(self):
         self.web_stage()
         config = self.compose_sources[str(self.controller_module.REVIEWED_COMPOSE)]
