@@ -171,7 +171,7 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/aemr/dash
-            # Only this exact source inspection UI/API release may bypass report
+            # Source inspection and formula-header hotfix may bypass report
             # migrations. Any unknown file takes the established full deploy gate.
             git fetch origin
             release_scope=standard
@@ -180,7 +180,7 @@ jobs:
             if git cat-file -e "$before_sha^{commit}" 2>/dev/null && git cat-file -e "$tested_sha^{commit}" 2>/dev/null; then
               changed_files=$(git diff --name-only "$before_sha" "$tested_sha")
               # Unknown changed paths retain the full report-worker release gate.
-              if [ -n "$changed_files" ] && ! printf '%s\n' "$changed_files" | grep -Eqv '^(packages/server/src/routes/source-integrity(\.test)?\.ts|packages/web/src/api\.ts|packages/web/src/pages/Settings(\.deep-check\.test)?\.tsx|packages/(core|server|shared|web)/package\.json|pnpm-lock\.yaml|\.github/workflows/(source-deep-check|ci)\.yml)$'; then
+              if [ -n "$changed_files" ] && ! printf '%s\n' "$changed_files" | grep -Eqv '^(packages/server/src/routes/source-integrity(\.test)?\.ts|packages/core/src/pipeline/formula-integrity(\.test)?\.ts|packages/web/src/lib/formulas/formula-defects(\.test)?\.ts|packages/web/src/api\.ts|packages/web/src/pages/Settings(\.deep-check\.test)?\.tsx|packages/(core|server|shared|web)/package\.json|pnpm-lock\.yaml|\.github/workflows/(source-deep-check|ci)\.yml)$'; then
                 release_scope=app_only
               fi
             fi
@@ -275,6 +275,6 @@ jobs:
             if [ "$release_scope" = standard ]; then
               bash enable-reports.sh
             else
-              echo 'Source inspection UI/API deployed; report worker and weekly evidence unchanged.'
+              echo 'Application-only check hotfix deployed; report worker and weekly evidence unchanged.'
             fi
             trap - EXIT
