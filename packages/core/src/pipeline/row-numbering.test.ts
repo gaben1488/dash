@@ -92,6 +92,13 @@ describe('row_numbering — составные номера и хвост фор
     expect(issue.description).toContain('4, 5');
   });
 
+  it('в записи №173/18 пробелы вокруг дробной черты не создают два разных адреса', () => {
+    const [issue] = run([procRow(4, '173 / 18'), procRow(5, '173/18')]);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain('4, 5');
+  });
+
   it('нулевые результаты формул без предмета и способа не требуют №', () => {
     const blankTail = procRow(5, '', {
       classification: 'service',

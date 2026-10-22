@@ -9,6 +9,12 @@ describe('procurement source address', () => {
       .toEqual(['94', '94', '94', '94']);
   });
 
+  it('normalizes spaces at composite separators without dropping significant zero prefixes', () => {
+    expect(['173 / 18', ' 173/ 18 ', '173 /18', '00173 / 18'].map(readProcurementSequence))
+      .toEqual(['173/18', '173/18', '173/18', '00173/18']);
+    expect(readProcurementSequence('173 18')).toBeNull();
+  });
+
   it('does not invent an address from an invalid value', () => {
     for (const value of [null, undefined, '', 0, -1, 1.5, Infinity, {}, 'без номера',
       '0', '000/1', '173//1', '173/1/']) {

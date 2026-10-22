@@ -84,7 +84,7 @@ export function readProcurementSequence(value: unknown): string | null {
   }
   if (typeof value !== 'string') return null;
   const text = value.trim();
-  const label = text.match(/^(\d+)[.,]0+$/)?.[1] ?? text;
+  // The A-column identity preserves leading zeros but normalizes optional\n  // whitespace around composite separators (173 / 18 = 173/18).\n  const label = (text.match(/^(\d+)[.,]0+$/)?.[1] ?? text).replace(/\s*\/\s*/g, '/');
   if (!/^\d+(?:\/\d+)*$/.test(label) || !/[1-9]/.test(label.split('/')[0])) return null;
   return label;
 }
