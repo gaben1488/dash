@@ -1304,7 +1304,7 @@ export function Analytics() {
                               {sub.executionPct.toFixed(0)}%
                             </span>
                           ) : (
-                            <span className="text-[10px] text-[var(--ink-faint)]" title={sub.planTotal === 0 ? 'За период нет плана' : sub.planTotal === null ? 'План не прочитан' : 'Факт или процент исполнения не подтверждён'}
+                            <span className="text-[10px] text-[var(--ink-faint)]" title={sub.planTotal === 0 ? 'За период нет плана' : sub.planTotal === null ? 'План не прочитан' : 'Факт или процент исполнения не подтверждён'}>
                               {sub.planTotal === 0 ? 'нет плана' : sub.planTotal === null ? 'план не прочитан' : 'не оценено'}
                             </span>
                           )}
