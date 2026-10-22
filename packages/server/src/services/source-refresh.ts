@@ -476,7 +476,10 @@ async function gateByRevision(
   const cached = getDeptSheetCache();
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
     const fileId = sourceBooks[book];
-    if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length) {
+    if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length
+        // A saved Google revision only attests the configured file. Reusing a
+        // grid captured from a previous binding would silently resurrect it.
+        || (cached[book]?.providerId !== undefined && cached[book]?.providerId !== fileId)) {
       books.push(book);
       return;
     }
