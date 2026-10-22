@@ -240,6 +240,8 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
 
   const valRanges = valuesResponse.data.valueRanges ?? [];
   const fmtRanges = formulasResponse.data.valueRanges ?? [];
+  if (valRanges.length !== sheetNames.length || fmtRanges.length !== sheetNames.length)
+    throw new Error('SHEETS_RANGE_RESPONSE_INCOMPLETE');
 
   const sheets: Record<string, SheetData> = {};
 
@@ -338,6 +340,11 @@ valueRenderOption: 'FORMULA' | 'UNFORMATTED_VALUE' = 'UNFORMATTED_VALUE',
   );
 
   const ranges = response.data.valueRanges ?? [];
+  // Sheets returns a ValueRange for every requested range, even when its
+  // values array is omitted because all cells are blank. A missing ValueRange
+  // is not a valid empty sheet: do not silently fill it with [].
+  if (ranges.length !== sheetNames.length)
+    throw new Error('SHEETS_RANGE_RESPONSE_INCOMPLETE');
   const out: Record<string, unknown[][]> = {};
   for (let i = 0; i < sheetNames.length; i++) {
     out[sheetNames[i]] = (ranges[i]?.values as unknown[][] | undefined) ?? [];
@@ -366,7 +373,10 @@ export async function batchGetCells(
     (r) => (r.data.valueRanges ?? []).length,
   );
 
-  return (response.data.valueRanges ?? []).map((vr, i) => ({
+  const received = response.data.valueRanges ?? [];
+  if (received.length !== ranges.length)
+    throw new Error('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+  return received.map((vr, i) => ({
     range: vr.range ?? ranges[i],
     values: (vr.values as unknown[][]) ?? [[]],
   }));
@@ -392,7 +402,10 @@ export async function batchGetFormulas(
     (r) => (r.data.valueRanges ?? []).length,
   );
 
-  return (response.data.valueRanges ?? []).map((vr, i) => ({
+  const received = response.data.valueRanges ?? [];
+  if (received.length !== ranges.length)
+    throw new Error('SHEETS_RANGE_RESPONSE_INCOMPLETE');
+  return received.map((vr, i) => ({
     range: vr.range ?? ranges[i],
     formulas: (vr.values as unknown[][]) ?? [[]],
   }));
