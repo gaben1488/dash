@@ -398,12 +398,12 @@ describe('один предметный путь: четверговый кон�
   });
 
   it('две записи-алиаса, неполная матрица и устаревшее чтение дают UNKNOWN, а не ноль', () => {
-    const cases = [
+    const cases: Array<[Record<string, unknown[][]>, Record<string, { loadedAt: string; rowCount?: number; error?: string }>]> = [
       [{ УО: present, uo: present }, meta],
       [{ УО: present }, { УО: { loadedAt: readAt, rowCount: 5 } }],
       [{ УО: present }, { УО: { loadedAt: '2026-10-20T09:00:00.000Z', rowCount: 4 } }],
       [{ УО: [...HEADER] }, { УО: { loadedAt: readAt, rowCount: 3 } }],
-    ] as const;
+    ];
     for (const [values, metadata] of cases) {
       const { comparison, note } = compare(values, metadata);
       expect(comparison).toBeNull();
