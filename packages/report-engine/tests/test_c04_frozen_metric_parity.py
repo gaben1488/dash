@@ -11,7 +11,7 @@ import pytest
 from docx import Document
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
-from procurement_engine.raw_pipeline import build_from_capture
+from procurement_engine.raw_pipeline import build_from_capture, captured_source_revision
 from test_forensic_qa import rawrow
 from test_recorded_release import CompleteGoogle
 from test_runtime import inputs
@@ -54,6 +54,8 @@ def frozen_case(tmp_path):
         source["rows"] = len(source["values"])
         source["formula_evidence"]["rows"] = source["rows"]
 
+    # Pin the same complete capture that the live source coordinator seals.
+    capture["source_revision"] = captured_source_revision(capture)
     root = tmp_path / "bundle"
     build_from_capture(capture, registry, [], root, identity_store=IdentityStore(tmp_path / "identity.sqlite"))
     return root, {
@@ -75,6 +77,21 @@ def test_c04_eight_masters_two_methods_five_scopes_and_pinned_word(frozen_case):
     assert evidence["validated_word_documents"] == 2
     assert evidence["mismatch_count"] == 0
     assert evidence["as_of"] == "2026-09-30"
+
+
+def test_c04_report_dashboard_inherits_frozen_revision_and_rejects_tampering(frozen_case, tmp_path):
+    root, paths = frozen_case
+    manifest = json.loads((root / "snapshot_bundle/manifest.json").read_text())
+    report_model = json.loads(paths["report_model"].read_text())
+    dashboard = json.loads(paths["dashboard"].read_text())
+    assert manifest["source_revision"] == report_model["snapshot"]["source_revision"]
+    assert dashboard["source_revision"] == manifest["source_revision"]
+
+    dashboard["source_revision"] = "SRC-" + "0" * 64
+    altered = tmp_path / "altered-revision-dashboard.json"
+    altered.write_text(json.dumps(dashboard))
+    with pytest.raises(ValueError, match="ARTIFACT_SOURCE_REVISION_MISMATCH"):
+        PROBE.compare(root / "snapshot_bundle", REPO, **{**paths, "dashboard": altered})
 
 
 def test_c04_dashboard_snapshot_drift_blocks_acceptance(frozen_case, tmp_path):
@@ -107,10 +124,16 @@ def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_
     dashboard_file = tmp_path / "false-dashboard.json"
     model_file.write_text(json.dumps(changed_model))
     dashboard_file.write_text(json.dumps(changed_dashboard))
-    with pytest.raises(ValueError, match="ARTIFACT_DOCUMENT_PLAN_MISMATCH"):
-        PROBE.compare(root / "snapshot_bundle", REPO, **{
-            **paths, "report_model": model_file, "dashboard": dashboard_file,
-        })
+    # A disagreement with the frozen source is a rejected MISMATCH result
+    # (the CLI exits 2), even when model and dashboard agree with each other.
+    # It need not be a document-plan exception: that would misstate the gate.
+    result = PROBE.compare(root / "snapshot_bundle", REPO, **{
+        **paths, "report_model": model_file, "dashboard": dashboard_file,
+    })
+    assert result["state"] == "MISMATCH"
+    assert result["mismatch_count"] >= 2
+    assert any(item["scope"] == "headline" and item["metric"] == "plan_count"
+               for item in result["mismatches"])
 
 
 def test_c04_model_must_match_exact_frozen_source(frozen_case, tmp_path):

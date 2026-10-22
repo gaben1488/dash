@@ -60,5 +60,9 @@ def validate_master_source_header(header) -> None:
         index = field['index']
         actual = _alias_key(str(header[index])) if index < len(header) else ''
         probes = [field['headerProbe'], *field['headerAliases']]
-        if not any(_alias_key(probe) in actual for probe in probes if probe):
+        anchored = _alias_key(field['label']) == _alias_key(field['headerProbe'])
+        if not any(
+            actual.startswith(_alias_key(probe)) if anchored else _alias_key(probe) in actual
+            for probe in probes if probe
+        ):
             raise ValueError('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:' + field['column'])

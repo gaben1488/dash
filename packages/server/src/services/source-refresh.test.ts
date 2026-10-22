@@ -61,12 +61,13 @@ vi.mock('./file-revision.js', () => ({
 // проверяет services/book-watermark.test.ts, а посев после «рестарта» —
 // отдельный страж ниже (через подмену loadWatermarks).
 const loadWatermarks = vi.fn(() => new Map<string, { fingerprint: string; parsedAt: string; driveVersion: string | null; driveModifiedTime: string | null }>());
+const loadAcceptedReadings = vi.fn(() => new Map<string, { fileId: string; values: unknown[][] }>());
 const saveWatermark = vi.fn((...args: unknown[]) => { void args; });
 const noteHonestGap = vi.fn((...args: unknown[]) => { void args; return true; });
 
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
-  loadAcceptedReadings: () => new Map(),
+  loadAcceptedReadings: () => loadAcceptedReadings(),
   loadWatermarks: (...a: unknown[]) => loadWatermarks(...(a as [])),
   saveWatermark: (...a: unknown[]) => saveWatermark(...(a as [])),
   noteHonestGap: (...a: unknown[]) => noteHonestGap(...(a as [])),
@@ -98,6 +99,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  loadAcceptedReadings.mockImplementation(() => new Map());
+  loadWatermarks.mockImplementation(() => new Map());
   readRevision.mockImplementation(async () => lastKnownRevision());
   lastKnownRevision.mockReturnValue(null);
   cachedBooks = {};
@@ -628,4 +631,57 @@ it('accepts the complete capture after its internal revision retry without compa
       [book, { values: [[book]], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '8' }])), errors: {} };
   }, log);
   expect(result.failed).toEqual([]);
+});
+
+describe('R05.01 source-profile restoration through the existing refresh cache', () => {
+  it('does not trust an old checksum alone when the saved master header changed meaning', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const { MASTER_SOURCE_PROFILE } = await import('@aemr/shared');
+    resetSourcePrints();
+    const badHeader = Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label);
+    badHeader[21] = 'Цена договора вместо ФБ 2';
+    const staleValues = [[], [], badHeader, ['1', '', '', '', '', '', 'Предмет']];
+    loadAcceptedReadings.mockReturnValue(new Map([
+      ['УО', { fileId: DEPARTMENT_SPREADSHEETS['УО'], values: staleValues }],
+    ]));
+    loadWatermarks.mockReturnValue(new Map([
+      ['УО', { fingerprint: 'saved', parsedAt: '2026-10-20T00:00:00Z',
+        driveVersion: '7', driveModifiedTime: null }],
+    ]));
+    checkFileChanged.mockResolvedValue('same');
+    fetchDepartmentSpreadsheets.mockResolvedValue({ data: {}, errors: { 'УО': 'SOURCE_SCHEMA_MISMATCH' } });
+    try {
+      const result = await refreshAllSources(log, 'request', { books: ['УО'], svod: false });
+      expect(result.failed).toContain('УО');
+      expect(fetchDepartmentSpreadsheets).toHaveBeenCalledOnce();
+      expect(cachedBooks['УО']).toBeUndefined();
+    } finally {
+      resetSourcePrints();
+    }
+  });
+
+  it('reuses a valid saved master without a redundant Sheets read when its revision is unchanged', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const { MASTER_SOURCE_PROFILE } = await import('@aemr/shared');
+    resetSourcePrints();
+    const validValues = [[], [], Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label)];
+    loadAcceptedReadings.mockReturnValue(new Map([
+      ['УО', { fileId: DEPARTMENT_SPREADSHEETS['УО'], values: validValues }],
+    ]));
+    loadWatermarks.mockReturnValue(new Map([
+      ['УО', { fingerprint: 'saved', parsedAt: '2026-10-20T00:00:00Z',
+        driveVersion: '7', driveModifiedTime: null }],
+    ]));
+    checkFileChanged.mockResolvedValue('same');
+    try {
+      const result = await refreshAllSources(log, 'request', { books: ['УО'], svod: false });
+      expect(result.skipped).toContain('УО');
+      expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+      expect(cachedBooks['УО']?.values).toEqual(validValues);
+    } finally {
+      resetSourcePrints();
+    }
+  });
 });

@@ -5,7 +5,7 @@ from copy import deepcopy
 
 def _base_envelope(report_model: dict, view: str) -> dict:
     snapshot = report_model.get("snapshot") or {}
-    return {
+    out = {
         "view": view,
         "snapshot_id": snapshot.get("snapshot_id"),
         "report_date": snapshot.get("report_date"),
@@ -14,6 +14,9 @@ def _base_envelope(report_model: dict, view: str) -> dict:
         "renderer_version": snapshot.get("renderer_version"),
         "report_model_version": (report_model.get("contract") or {}).get("report_model_version"),
     }
+    if "source_revision" in snapshot:
+        out["source_revision"] = snapshot["source_revision"]
+    return out
 
 
 def project_dashboard(report_model: dict) -> dict:
@@ -81,7 +84,10 @@ def project_management_view(report_model: dict) -> dict:
 def assert_projection_parity(report_model: dict, *projections: dict) -> None:
     expected = (report_model.get("snapshot") or {}).get("snapshot_id")
     headline = report_model.get("headline")
+    source_revision = (report_model.get("snapshot") or {}).get("source_revision")
     for p in projections:
+        if p.get("source_revision") != source_revision:
+            raise ValueError("PROJECTION_SOURCE_REVISION_MISMATCH")
         if p.get("snapshot_id") != expected:
             raise ValueError("PROJECTION_SNAPSHOT_MISMATCH")
         if p.get("headline") != headline:

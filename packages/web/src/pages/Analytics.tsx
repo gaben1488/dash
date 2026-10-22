@@ -3,7 +3,7 @@ import { PRODUCT_COPY } from '@aemr/shared';
 import { PERIOD_LABELS } from '@aemr/shared';
 import { useScopedQuery } from '../hooks/useScopedQuery';
 import { scatterScope } from '../lib/scatter-scope';
-import { scatterPointDrill } from '../lib/scatter-point-drill';
+import { scatterClickDrill } from '../lib/scatter-point-drill';
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { SourceCoverageNotice } from '../components/SourceCoverageNotice';
@@ -1315,9 +1315,11 @@ export function Analytics() {
       )}
 
       {/* Recorded plan/fact comparison; financial semantics come from the source. */}
-      <AnalyticsCard title={limitReduction !== null ? `Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%` : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
+      <AnalyticsCard title={limitReduction !== null
+        ? `${scatterCoverage?.complete ? '' : 'Частичный охват: '}Взвешенная разница плана и факта ${limitReduction.toFixed(1)}%`
+        : 'План и отражённый факт по позициям'} icon={TrendingUp} source="calculated">
         <SourceCoverageNotice coverage={scatterCoverage} />
-        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают арифметическую разницу, без правовой оценки. Нажатие на точку переносит период, управление, учреждение, способ и предмет в Реестр.</p>
+        <p className="text-xs text-[var(--ink-muted)]">Сравнение K и Y. Смысл этих сумм определяется источником; колонки сами по себе не устанавливают НМЦК или ЛБО. Подтверждённая экономия — отдельный показатель по AD и Z+AA+AB. Диапазоны описывают арифметическую разницу, без правовой оценки. Нажатие на точку переносит год, месяц, управление, учреждение, вид деятельности, способ и предмет в отбор Реестра. При одинаковых реквизитах могут остаться несколько строк: это не уникальная адресная ссылка.</p>
         {(scatterQuery.data?.excluded.unknownMethod ?? 0) > 0 && (
           <p className="text-xs text-[var(--ink-muted)]">
             {scatterQuery.data?.excluded.unknownMethod} позиций имеют неподтверждённый способ закупки. В конкурсной выборке они исключены; в общем облаке не считаются доказанными торгами.
@@ -1399,14 +1401,14 @@ export function Analytics() {
                       );
                     }}
                   />
-                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
+                  <Scatter name="Разница 5–15%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 5 && d.limitReductionPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: unknown) => { const target = scatterClickDrill(d); if (target) navigateTo('data', target.filters); }} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
-                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
+                  <Scatter name="Разница менее 5%" data={scatterData.filter((d: any) => d.limitReductionPercent >= 0 && d.limitReductionPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: unknown) => { const target = scatterClickDrill(d); if (target) navigateTo('data', target.filters); }} cursor="pointer" />
                   {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
                       высокую экономию» — из тона претензии в информационный. */}
-                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
-                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
-                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', scatterPointDrill(d).filters)} cursor="pointer" />
+                  <Scatter name="Разница свыше 25%" data={scatterData.filter((d: any) => d.limitReductionPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: unknown) => { const target = scatterClickDrill(d); if (target) navigateTo('data', target.filters); }} cursor="pointer" />
+                  <Scatter name="Факт выше плана (меньше 0%)" data={scatterData.filter((d: any) => d.limitReductionPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: unknown) => { const target = scatterClickDrill(d); if (target) navigateTo('data', target.filters); }} cursor="pointer" />
+                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.limitReductionPercent > 15 && d.limitReductionPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: unknown) => { const target = scatterClickDrill(d); if (target) navigateTo('data', target.filters); }} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>

@@ -350,6 +350,24 @@
     "role": "master",
     "headerRows": 3,
     "columns": 34,
+    "formulaColumnGroups": [
+      {
+        "from": "K",
+        "to": "K"
+      },
+      {
+        "from": "O",
+        "to": "P"
+      },
+      {
+        "from": "R",
+        "to": "T"
+      },
+      {
+        "from": "Y",
+        "to": "AC"
+      }
+    ],
     "fields": {
       "ID": {
         "index": 0,
@@ -470,7 +488,14 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 1",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_PLAN",
+          "KB_PLAN",
+          "MB_PLAN"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";H4:H+I4:I+J4:J))"
       },
       "METHOD": {
         "index": 11,
@@ -514,7 +539,12 @@
         "unit": "none",
         "headerProbe": "квартал (план)",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));\"^(X|Х)$\");\"X\";ROUNDUP(MONTH(N4:N)/3;0))))"
       },
       "PLAN_YEAR": {
         "index": 15,
@@ -525,7 +555,12 @@
         "unit": "none",
         "headerProbe": "год (план)",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(N4:N)));\"^(X|Х)$\");\"X\";YEAR(N4:N))))"
       },
       "FACT_DATE": {
         "index": 16,
@@ -547,7 +582,12 @@
         "unit": "none",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");\"X\";ROUNDUP(MONTH(Q4:Q)/3;0))))"
       },
       "FACT_YEAR": {
         "index": 18,
@@ -558,7 +598,12 @@
         "unit": "none",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");\"X\";YEAR(Q4:Q))))"
       },
       "DEVIATION_DAYS": {
         "index": 19,
@@ -569,7 +614,16 @@
         "unit": "day",
         "headerProbe": null,
         "headerAliases": [],
-        "requiredMeaning": false
+        "requiredMeaning": false,
+        "dependsOn": [
+          "ID",
+          "PLAN_DATE",
+          "FACT_DATE"
+        ],
+        "externalReferences": [
+          "Settings!B6"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");IF(N4:N>Settings!$B$6;\"Срок не наступил\";\"Срок нарушен\");Q4:Q-N4:N)))"
       },
       "DEVIATION_REASON": {
         "index": 20,
@@ -624,7 +678,14 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 2",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FB_FACT",
+          "KB_FACT",
+          "MB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";V4:V+W4:W+X4:X))"
       },
       "ECONOMY_FB": {
         "index": 25,
@@ -635,7 +696,14 @@
         "unit": "thousandRub",
         "headerProbe": "ФБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "FB_PLAN",
+          "FB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;H4:H-V4:V)))"
       },
       "ECONOMY_KB": {
         "index": 26,
@@ -646,7 +714,14 @@
         "unit": "thousandRub",
         "headerProbe": "КБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "KB_PLAN",
+          "KB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;I4:I-W4:W)))"
       },
       "ECONOMY_MB": {
         "index": 27,
@@ -657,7 +732,14 @@
         "unit": "thousandRub",
         "headerProbe": "МБ 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "FACT_DATE",
+          "MB_PLAN",
+          "MB_FACT"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";IF(REGEXMATCH(UPPER(TRIM(TO_TEXT(Q4:Q)));\"^(X|Х)$\");0;J4:J-X4:X)))"
       },
       "ECONOMY_TOTAL": {
         "index": 28,
@@ -668,7 +750,14 @@
         "unit": "thousandRub",
         "headerProbe": "ИТОГО 3",
         "headerAliases": [],
-        "requiredMeaning": true
+        "requiredMeaning": true,
+        "dependsOn": [
+          "ID",
+          "ECONOMY_FB",
+          "ECONOMY_KB",
+          "ECONOMY_MB"
+        ],
+        "formula": "=ARRAYFORMULA(IF(A4:A=\"\";\"\";Z4:Z+AA4:AA+AB4:AB))"
       },
       "FLAG": {
         "index": 29,

@@ -14,6 +14,7 @@
  */
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE } from '@aemr/shared';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
@@ -44,7 +45,7 @@ function sheetValues(): unknown[][] {
   return [
     Array.from({ length: 34 }, (_, c) => `шапка ${c}`),
     Array.from({ length: 34 }, (_, c) => `шапка ${c}`),
-    Array.from({ length: 34 }, (_, c) => `шапка ${c}`),
+    Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label),
     Array.from({ length: 34 }, (_, c) => (c === 0 ? 1 : 'значение')),
     Array.from({ length: 34 }, (_, c) => (c === 0 ? 2 : 'значение')),
   ];
@@ -71,6 +72,10 @@ beforeEach(async () => {
   valuesGet.mockReset();
   valuesBatchGet.mockReset();
   gridGet.mockReset();
+  const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+  gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+    sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 34 },
+  } }] } });
   valuesGet.mockResolvedValue({ data: { values: sheetValues() } });
   valuesBatchGet.mockResolvedValue({ data: { valueRanges: formulaRanges() } });
   await import('./google-sheets.js');
@@ -178,5 +183,160 @@ describe('чтение формульных колонок', () => {
     // Срок увеличен осознанно: `canon.cjs` тянет `lib.cjs`, а тот — настоящий
     // клиент googleapis (несколько секунд на загрузку). Платить эти секунды
     // дешевле, чем держать в сервере копию канона без сверки с оригиналом.
+  }, 30_000);
+});
+
+describe('R05.01 — реестр профилей охраняет каждый принятый источник', () => {
+  it('изменённый обязательный смысл останавливает чтение до формул и до другой вкладки', async () => {
+    const rows = sheetValues();
+    rows[2][21] = 'Цена договора вместо ФБ 2';
+    valuesGet.mockResolvedValue({ data: { values: rows } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УО', 'file-uo', { withFormulas: true }))
+      .rejects.toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:V');
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+    expect(valuesBatchGet).not.toHaveBeenCalled();
+    expect(gridGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('короткая шапка не становится готовой книгой', async () => {
+    valuesGet.mockResolvedValue({ data: { values: [['название'], [], ['частичная шапка'], ['строка']] } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:A');
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('изменение необязательной подписи допустимо только в её поле', async () => {
+    const rows = sheetValues();
+    rows[2][33] = 'Комментарий по новой редакции';
+    valuesGet.mockResolvedValue({ data: { values: rows } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УО', 'file-uo')).resolves.toMatchObject({
+      sheetName: 'ВСЕ', formulasRead: false,
+    });
+  });
+
+  it('одинаковая шапка другой вкладки не подменяет закреплённый sheetId', async () => {
+    const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+    gridGet.mockResolvedValue({ data: { sheets: [
+      { properties: { sheetId: 123, title: 'ВСЕ', gridProperties: { columnCount: 34 } } },
+      { properties: { sheetId: master.source.sheetId, title: 'УО', gridProperties: { columnCount: 34 } } },
+    ] } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+    expect(valuesGet).not.toHaveBeenCalled();
+  });
+
+  it('отсутствующий закреплённый sheetId и сокращённая геометрия блокируют приём', async () => {
+    const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+    const { readDeptSheet } = await import('./google-sheets.js');
+    gridGet.mockResolvedValueOnce({ data: { sheets: [] } });
+    await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_SHEET_ID_CHANGED');
+    gridGet.mockResolvedValueOnce({ data: { sheets: [{ properties: {
+      sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 32 },
+    } }] } });
+    await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_PROFILE_GEOMETRY_MISMATCH');
+  });
+
+  it('разрешённое переименование вкладки УФБП→УФ сохраняет identity', async () => {
+    const dept = DEPARTMENT_REGISTRY.find(item => item.id === 'УФБП')!;
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: dept.source.sheetId, title: 'УФ', gridProperties: { columnCount: 34 },
+    } }] } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УФБП', 'file-ufbp')).resolves.toMatchObject({
+      sheetName: 'УФ', formulasRead: false,
+    });
+    expect(valuesGet).toHaveBeenCalledTimes(1);
+    expect(String(valuesGet.mock.calls[0][0].range)).toContain("'УФ'!");
+  });
+
+  it('похожее, но не утверждённое имя мастер-вкладки нельзя использовать', async () => {
+    const dept = DEPARTMENT_REGISTRY.find(item => item.id === 'УО')!;
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: dept.source.sheetId, title: 'Все', gridProperties: { columnCount: 34 },
+    } }] } });
+    const { readDeptSheet } = await import('./google-sheets.js');
+    await expect(readDeptSheet('УО', 'file-uo')).rejects.toThrow('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+    expect(valuesGet).not.toHaveBeenCalled();
+  });
+});
+
+describe('R05.01 — one resolver for reads, writes and metadata', () => {
+  it('the same reviewed gid and title admit read/write, without a stale cache', async () => {
+    const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+    const { resolveDeptSheetName, readDeptSheet } = await import('./google-sheets.js');
+    expect(await resolveDeptSheetName('УО', 'file-uo')).toBe('ВСЕ');
+    expect((await readDeptSheet('УО', 'file-uo')).sheetName).toBe('ВСЕ');
+    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+      sheetId: master.source.sheetId + 1, title: 'ВСЕ',
+      gridProperties: { columnCount: 34 },
+    } }] } });
+    await expect(resolveDeptSheetName('УО', 'file-uo'))
+      .rejects.toThrow('MASTER_SOURCE_SHEET_ID_CHANGED');
+  });
+
+  it('a missing metadata response never authorizes a write to the default name', async () => {
+    gridGet.mockRejectedValueOnce(Object.assign(new Error('Metadata access denied'), { status: 403 }));
+    const { resolveDeptSheetName } = await import('./google-sheets.js');
+    await expect(resolveDeptSheetName('УО', 'file-uo')).rejects.toThrow('Metadata access denied');
+  });
+});
+
+describe('R05.01 — source profile is the single implementation across consumers', () => {
+  it('one object reference supplies read ranges and metadata protected groups', async () => {
+    const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
+    const { METADATA_CANON } = await import('./metadata-canon.js');
+    expect(FORMULA_COLUMN_GROUPS).toBe(MASTER_SOURCE_PROFILE.formulaColumnGroups);
+    expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
+    expect(FORMULA_COLUMNS).toEqual(
+      Object.values(MASTER_SOURCE_PROFILE.fields)
+        .filter(field => 'formula' in field).map(field => field.column),
+    );
+    expect(FORMULA_COLUMN_GROUPS).toEqual([
+      { from: 'K', to: 'K' }, { from: 'O', to: 'P' },
+      { from: 'R', to: 'T' }, { from: 'Y', to: 'AC' },
+    ]);
+  });
+});
+
+describe('R05.01 — source-profile contract is the single reviewed graph', () => {
+  it('all eight masters have unique source identities and the same role/profile', () => {
+    expect(DEPARTMENT_REGISTRY).toHaveLength(8);
+    expect(new Set(DEPARTMENT_REGISTRY.map(dept => dept.source.providerId)).size).toBe(8);
+    expect(new Set(DEPARTMENT_REGISTRY.map(dept => dept.source.sourceId)).size).toBe(8);
+    for (const dept of DEPARTMENT_REGISTRY) {
+      expect(dept.source.sheetId).toBeGreaterThan(0);
+      expect(dept.source.role).toBe('master');
+      expect(dept.source.profile).toBe(MASTER_SOURCE_PROFILE.id);
+      expect(dept.source.access).toBe('read');
+    }
+    const columns = Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.index).sort((a, b) => a - b);
+    expect(columns).toEqual(Array.from({ length: 34 }, (_, i) => i));
+  });
+
+  it('golden formula dependency graph matches field-level source metadata', () => {
+    const require_ = createRequire(import.meta.url);
+    const canon = require_('../../../../scripts/etalon-sync/canon.cjs') as {
+      GOOGLE_FORMULAS_CANON: Array<[string, string]>;
+    };
+    const entries = Object.entries(MASTER_SOURCE_PROFILE.fields);
+    const byColumn = new Map(entries.map(([key, field]) => [field.column, key]));
+    expect(canon.GOOGLE_FORMULAS_CANON).toHaveLength(11);
+    for (const [column, formula] of canon.GOOGLE_FORMULAS_CANON) {
+      const entry = entries.find(([, field]) => field.column === column);
+      expect(entry).toBeDefined();
+      const [, rawField] = entry!;
+      const field = rawField as unknown as { dependsOn?: string[]; externalReferences?: string[] };
+      const expectedNames = [...new Set(
+        [...formula.matchAll(/\b([A-Z]{1,2})4:[A-Z]{1,2}\b/g)]
+          .map(match => byColumn.get(match[1]))
+          .filter((name): name is string => name !== undefined),
+      )].sort();
+      expect([...(field.dependsOn ?? [])].sort()).toEqual(expectedNames);
+      expect(field.externalReferences ?? []).toEqual(
+        formula.includes('Settings!$B$6') ? ['Settings!B6'] : [],
+      );
+    }
   }, 30_000);
 });

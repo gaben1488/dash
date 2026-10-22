@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LimitComparisonPoint } from '@aemr/shared';
 import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
-import { scatterPointDrill } from './scatter-point-drill';
+import { scatterClickDrill, scatterPointDrill } from './scatter-point-drill';
 
 const makePoint = (overrides: Partial<LimitComparisonPoint> = {}): LimitComparisonPoint => ({
   id: '173/18', rowIndex: 71, department: 'УЭР',
@@ -27,7 +27,7 @@ describe('C04.03: scatter point → same source row context', () => {
 
   it('does not turn an unknown method into a competitive procedure', () => {
     const target = scatterPointDrill(makePoint({ procurementType: 'unknown' }));
-    expect(target.filters).not.toHaveProperty('procurement');
+    expect(target.filters.procurement).toBe('all'); // Clear prior stale competitive selection
     expect(target.filters.months).toEqual([2]);
     expect(target.filters.activity).toBe('current_non_program');
   });
@@ -38,5 +38,13 @@ describe('C04.03: scatter point → same source row context', () => {
 
   it('uses the canonical org-itself sentinel for rows without a subordinate', () => {
     expect(scatterPointDrill(makePoint({ subordinate: '' })).filters.subordinate).toBe(ORG_ITSELF_SENTINEL);
+  });
+
+  it('accepts both Recharts shape payloads and plain API points, but never an incomplete event', () => {
+    const point = makePoint();
+    expect(scatterClickDrill(point)?.filters).toEqual(scatterPointDrill(point).filters);
+    expect(scatterClickDrill({ payload: point })?.filters).toEqual(scatterPointDrill(point).filters);
+    expect(scatterClickDrill({ department: 'УЭР' })).toBeNull();
+    expect(scatterClickDrill(null)).toBeNull();
   });
 });

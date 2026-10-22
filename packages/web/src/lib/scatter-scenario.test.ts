@@ -20,6 +20,7 @@ const base = {
   scatter: sample, epPlan: 10000, epHasData: true,
   dashboardLoading: false, yearMatches: true, activityAligned: true,
   budgetAligned: true, searchAligned: true, institutionAligned: true,
+  methodAligned: true,
 };
 
 describe('C04.03 arithmetic scenario (never approved AD economy)', () => {
@@ -35,6 +36,7 @@ describe('C04.03 arithmetic scenario (never approved AD economy)', () => {
     expect(conditionalEpProjection({ ...base, budgetAligned: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, searchAligned: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, institutionAligned: false })).toBeNull();
+    expect(conditionalEpProjection({ ...base, methodAligned: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, yearMatches: false })).toBeNull();
     expect(conditionalEpProjection({ ...base, dashboardLoading: true })).toBeNull();
     expect(conditionalEpProjection({ ...base, epHasData: false })).toBeNull();

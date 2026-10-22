@@ -42,9 +42,10 @@ function RowLink({ point, onNavigate }: {
   onNavigate: (page: 'data', filters: DrillFilters) => void;
 }) {
   const target = scatterPointDrill(point);
-  const hint = target.warning === ''
+  const hint = (target.warning === ''
     ? `${target.summary}. ${point.subject}`
-    : `${target.summary}. ${target.warning}`;
+    : `${target.summary}. ${target.warning}`)
+    + ' Это отбор Реестра, а не уникальная ссылка на физическую строку.';
   return (
     <button
       type="button"
@@ -71,6 +72,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const selectedSubordinates = useStore((s) => s.selectedSubordinates);
   const selectedBudgets = useStore((s) => s.selectedBudgets);
+  const selectedMethods = useStore((s) => s.selectedMethods);
   const navigateTo = useStore((s) => s.navigateTo);
   const snapshotId = useStore(s => s.dashboardData?.snapshot.id);
   const dashboardLoading = useStore(s => s.loading);
@@ -101,12 +103,16 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   const stats = { sumPlan: resp?.summary.limitTotal ?? 0, sumFact: resp?.summary.contractTotal ?? 0,
     reductionPct: resp?.summary.limitReductionPercent ?? null };
   const activityAligned = selectedActivities.size === 0 && (!activityFilter || activityFilter === 'all');
+  const methodAligned = selectedMethods.size === 0
+    || (selectedMethods.has('single') && selectedMethods.has('competitive'));
   const refusalCost = conditionalEpProjection({
-    scatter: resp, epPlan, epHasData, dashboardLoading,
+    scatter: resp, epPlan, epHasData,
+    dashboardLoading: dashboardLoading || loading || Boolean(error),
     yearMatches: year === dataYear,
     activityAligned, budgetAligned: selectedBudgets.size === 0,
     searchAligned: !searchQuery?.trim(),
     institutionAligned: selectedSubordinates.size === 0 && deptOnlyMode.size === 0,
+    methodAligned,
   });
 
   const sortedRows = useMemo(
@@ -133,6 +139,17 @@ export function CostOfRefusal({ epPlan, epHasData }: {
     caveats.push('Сценарная сумма не рассчитывается: план ЕП и конкурентную выборку нельзя подтвердить в одинаковом разрезе деятельности, бюджета, поиска или учреждения. Снимите несовместимые фильтры, если нужен общий арифметический сценарий.');
   }
   if (year !== dataYear) caveats.push('Сценарная сумма не рассчитывается при выборе другого года или всех лет: план ЕП относится к году загруженного среза.');
+  if (!methodAligned) caveats.push('Сценарная сумма не рассчитывается при выборе только одного способа закупки: план ЕП и конкурентная выборка больше не описывают один отбор.');
+  const scenarioUnavailable = !epHasData
+    ? 'без подтверждённого объёма ЕП оценка не считается'
+    : !resp?.coverage.complete
+      ? 'состав источников неполон — оценка не рассчитана'
+      : !resp.summary.count
+        ? 'нет сопоставимых конкурентных позиций'
+        : !methodAligned || !activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()
+          || selectedSubordinates.size > 0 || deptOnlyMode.size > 0 || year !== dataYear
+          ? 'несовместимый периметр — см. ограничения выше'
+          : 'расчёт ещё не готов';
 
   const detailId = 'cost-of-refusal-rows';
 
@@ -226,7 +243,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
               <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70 mt-0.5">
                 {refusalCost !== null
                   ? 'чисто сценарная арифметика, не сумма потерь или экономии'
-                  : epHasData ? 'состав источников неполон — оценка не рассчитана' : 'без объёма ЕП оценка не считается'}
+                  : scenarioUnavailable}
               </p>
             </div>
           </div>

@@ -11,19 +11,21 @@
  *      сроку каждое превратили бы двадцать секунд в минуту на одно управление.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEPARTMENT_REGISTRY } from '@aemr/shared';
 
 // Срок читается при загрузке модуля — переменная ставится до импорта.
 process.env.AEMR_SHEETS_TIMEOUT_MS = '200';
 
 const valuesGet = vi.fn();
 const valuesBatchGet = vi.fn();
+const gridGet = vi.fn();
 
 vi.mock('googleapis', () => ({
   google: {
     sheets: vi.fn(() => ({
       spreadsheets: {
         values: { get: valuesGet, batchGet: valuesBatchGet, update: vi.fn() },
-        get: vi.fn(),
+        get: gridGet,
       },
     })),
     // Настоящая функция, а не стрелочная: getSheetsApi вызывает её через new.
@@ -39,6 +41,11 @@ function neverResolves(): Promise<never> {
 beforeEach(() => {
   valuesGet.mockReset();
   valuesBatchGet.mockReset();
+  gridGet.mockReset();
+  const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+  gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+    sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 34 },
+  } }] } });
 });
 
 afterEach(() => {
