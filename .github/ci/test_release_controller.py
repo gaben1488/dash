@@ -397,6 +397,8 @@ class ControllerTests(TrialTests):
             'recovery': Path(self.fixture.module.__file__),
             'trial': Path(self.module.__file__),
             'source_gate': Path(self.module.SOURCE_GATE),
+            'runtime_guard': Path(self.controller_module.__file__).with_name('runtime_guard.py'),
+            'runtime_policy': self.runtime_policy,
         }
         for name, path in installed.items():
             with self.subTest(changed_tool=name):
@@ -547,8 +549,13 @@ const payload=JSON.stringify({latest:null,attempt:null});return {statusCode:200,
                            (reviewed / 'reviewed-Caddyfile', 'new private Caddy')):
             path.write_text(body)
             path.chmod(0o600)
+        self.fixture.trusted_source('deploy/runtime_guard.py')
+        self.runtime_policy = self.fixture.private / 'runtime-policy.json'
+        self.runtime_policy.write_text('{"worker_enabled":true}')
+        self.runtime_policy.chmod(0o600)
         for name, value in {'OPERATOR': self.operator, 'REVIEWED_COMPOSE': reviewed / 'reviewed-docker-compose.yml',
-                            'REVIEWED_CADDY': reviewed / 'reviewed-Caddyfile'}.items():
+                            'REVIEWED_CADDY': reviewed / 'reviewed-Caddyfile',
+                            'RUNTIME_POLICY': self.runtime_policy}.items():
             patcher = patch.object(self.controller_module, name, value, create=True)
             patcher.start()
             self.addCleanup(patcher.stop)
