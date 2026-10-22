@@ -121,6 +121,11 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
                 if not equal_cell(metric, expected_value, block.get(metric)):
                     mismatches.append({"scope": "headline", "method": kind,
                                        "period": scope, "metric": metric})
+    # The headline was already compared to the frozen master rows above.
+    # Do not allow a forged model+dashboard headline to masquerade as a
+    # document-only discrepancy or a successful paired copy.
+    if any(item.get("scope") == "headline" for item in mismatches):
+        raise ValueError("ARTIFACT_DOCUMENT_PLAN_MISMATCH")
     if not validate_document_plans(model):
         raise ValueError("ARTIFACT_DOCUMENT_PLAN_MISMATCH")
     plans = planned_documents(model)
