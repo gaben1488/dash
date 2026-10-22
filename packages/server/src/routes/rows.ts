@@ -33,6 +33,8 @@ import { readDeptRows } from '../services/rows-read.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 import {
   parseYearFilter,
+  parseTypeFilterParam,
+  parseActivityFilterParam,
   applySearchFilter,
   applyTypeFilter,
   applySubordinateFilter,
@@ -183,10 +185,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const page = Math.max(1, parseInt(query.page || '1', 10));
     const limit = Math.min(1000, Math.max(1, parseInt(query.limit || '25', 10)));
     const searchTerm = (query.search ?? '').trim().toLowerCase();
-    const filterType = query.type ?? 'all'; // 'all' | 'competitive' | 'single'
+    const filterType = parseTypeFilterParam(query.type);
     const filterState = query.state ?? '';   // RowState or empty
     const filterSubordinate = (query.subordinate ?? '').trim().toLowerCase();
-    const filterActivity = (query.activity ?? '').trim().toLowerCase();
+    const filterActivity = parseActivityFilterParam(query.activity);
     const yearFilter = parseYearFilter(query.year);
     const sortCol = query.sort ?? '';
     const sortOrder: 'asc' | 'desc' = query.order === 'desc' ? 'desc' : 'asc';
