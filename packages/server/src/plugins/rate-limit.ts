@@ -64,6 +64,16 @@ export const HEAVY_ROUTE_RULES: readonly HeavyRouteRule[] = [
     why: 'каждая перечитка поднимает все книги управлений и пересчитывает отчёт целиком',
   },
   {
+    // The unified button and legacy deep inspection both do forced Google
+    // formula and metadata reads. Generic 240/min POST limits are unsafe here.
+    methods: ['POST'],
+    path: /^\/api\/sources\/(?:diagnostics\/run|integrity\/check)$/,
+    limit: 4,
+    windowMs: MINUTE_MS,
+    subject: 'Углублённая диагностика книг',
+    why: 'чтение формул и настроек проходит по всем книгам',
+  },
+  {
     methods: ['POST'],
     path: /^\/api\/sources\/validate-all$/,
     limit: 4,
