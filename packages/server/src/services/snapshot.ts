@@ -632,7 +632,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       const sourceLabel = result.sheetName;
       cachedSHDYUCheckedAt = new Date().toISOString();
       if (result.values.length > 0) {
-        const parsed = parseSHDYUSheet(result.values, result.formulas);
+        const parsed = measureReadStage('normalize', () => parseSHDYUSheet(result.values, result.formulas));
         monthlyData = parsed;
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
