@@ -133,7 +133,13 @@ def seal(artifact, metadata, stage, accepted, containers, ops, observed, compone
                 })
         actual[role] = {'image_id': row['Image'], 'container_id': row['Id'],
                         'started_at': state['StartedAt'], 'restarts': row['RestartCount']}
-    expected_ops = {Path(name).name: digest for name, digest in artifact['source_files'].items() if name.startswith(('deploy/', '.github/'))}
+    expected_ops = {Path(name).name: digest for name, digest in artifact['source_files'].items()
+                    if name.startswith(('deploy/', '.github/'))}
+    if web_only:
+        # Independently re-read the installed guard/policy after promotion;
+        # the stage-time fingerprints alone cannot prove later continuity.
+        expected_ops.update({'runtime_guard.py': component['tools_sha256']['runtime_guard'],
+                             'runtime-policy.json': component['tools_sha256']['runtime_policy']})
     require(ops == expected_ops)
     versions = observed['runtime_versions']
     require(isinstance(versions, dict) and set(versions) == set(artifact['versions'])
