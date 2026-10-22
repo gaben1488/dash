@@ -67,7 +67,9 @@ function runResult(complete: boolean) {
         results: [row('УО', 1), row('УИО', 0)] },
       metrics: { state: 'not_run', reason: 'Не запускалось' },
       crossbook: { state: 'not_run', reason: 'Не запускалось' },
-      text: { state: 'not_run', reason: 'Не запускалось' },
+      text: { state: 'complete', startedAt: at, completedAt: at,
+        reason: null, error: null, rowsSource: 'live', asOf: at,
+        booksChecked: 2, silentBooks: [], findings: 1, rowsChecked: 2, cellsChecked: 12 },
       history: { state: 'not_run', reason: 'Не запускалось' },
     },
   };
@@ -110,7 +112,8 @@ describe('Система: единый запуск проверок источ�
     expect(oldValidateAll).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('run-1234');
     expect(document.body.textContent).toContain('Замечаний: 1');
-    expect(document.body.textContent).toContain('Метрики, межкнижная сверка, тексты');
+    expect(document.body.textContent).toContain('Метрики, межкнижная сверка и сравнение истории');
+    expect(document.body.textContent).toContain('проверено 12 ячеек, находок 1');
     expect(document.body.textContent).toContain('2 из 2 книг');
     fireEvent.click(screen.getByText('Результат по каждой книге'));
     expect(document.body.textContent).toContain('УО:');
