@@ -95,7 +95,10 @@ def test_c04_report_dashboard_inherits_frozen_revision_and_rejects_tampering(fro
 
 
 def test_c04_historical_projection_preserves_original_artifact_shape():
-    from procurement_engine.projections import assert_projection_parity, project_dashboard
+    from procurement_engine.projections import (
+        assert_projection_parity,
+        project_dashboard,
+    )
 
     # Historical reports can already have source_revision in the immutable
     # ReportModel while their stored dashboard.json predates this field.
