@@ -12,6 +12,7 @@ import {
   isOrgItself,
   subordinateNameMatchKey,
   matchesActivityScope,
+  parseActivityScope,
 } from '@aemr/shared';
 
 /** Минимальная форма строки, которую режут фильтры (RowDto ей удовлетворяет). */
@@ -48,6 +49,27 @@ const METHODS_BY_TYPE_FILTER: Record<string, readonly string[]> = {
   single: METHOD_FAMILY_MAP.EP,
   'ЕП': METHOD_FAMILY_MAP.EP,
 };
+
+/**
+ * Route boundary validation. Explicit invalid scope must NEVER widen a query
+ * to all rows. Keep legacy aliases that existed in the previous GET contract.
+ */
+function invalidAxis(axis: string): never {
+  throw Object.assign(new Error(`Недопустимый фильтр ${axis}.`),
+    { statusCode: 400, code: 'INVALID_SCOPE' });
+}
+export function parseTypeFilterParam(raw: unknown): string {
+  if (raw === undefined || raw === null || raw === '' || raw === 'all') return 'all';
+  if (typeof raw !== 'string' || !Object.hasOwn(METHODS_BY_TYPE_FILTER, raw)) return invalidAxis('type');
+  return raw;
+}
+export function parseActivityFilterParam(raw: unknown): string {
+  if (raw === undefined || raw === null || raw === '') return '';
+  const activity = parseActivityScope(raw);
+  if (activity === null) return invalidAxis('activity');
+  if (activity === 'all') return '';
+  return activity === 'pm' ? 'program' : 'current_non_program';
+}
 
 /** Тип закупки по колонке L = METHOD: ЭА/ЭК/ЭЗК = КП (competitive); ЕП = single. */
 export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: string): T[] {
