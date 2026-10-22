@@ -1,23 +1,13 @@
 import { CalcEngine, explainMetric, sliceResults, standardRowFilter } from '../pipeline/calc-engine.js';
-import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, type DataSnapshot } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, type DataSnapshot } from '@aemr/shared';
 
-// Names in the published Svod contract; formulas remain owned by CalcEngine.
-const ALIASES: Record<string, string> = {
-  count: 'plan_count', fact: 'fact_count', percent: 'exec_count_pct',
-  total_plan: 'plan_total', total_fact: 'fact_total', amount_dev: 'amount_deviation',
-  fb_plan: 'plan_fb', kb_plan: 'plan_kb', mb_plan: 'plan_mb',
-  fb_fact: 'fact_fb', kb_fact: 'fact_kb', mb_fact: 'fact_mb',
-};
-
-/** Requested drill-down uses the retained snapshot only, never a new Sheets read. */
+/** Recompute solely to verify evidence for immutable historical snapshots. */
 export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
-  const match = /^grbs\.([^.]+)\.(?:(kp|ep)\.)?(q[1-4]|m(?:[1-9]|1[0-2])|year)\.([a-z_]+)$/.exec(key);
-  const summary = /^(competitive|sole)\.(q[1-4]|m(?:[1-9]|1[0-2])|year)\.([a-z_]+)$/.exec(key);
-  if (!match && !summary) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
-  const department = match?.[1];
-  const method = match?.[2] ?? (summary ? summary[1] === 'competitive' ? 'kp' : 'ep' : undefined);
-  const period = (match?.[3] ?? summary?.[2])!;
-  const name = (match?.[4] ?? summary?.[3])!;
+  const address = resolvePublishedMetricKey(key);
+  if (!address) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
+  const department = address.departmentId ?? undefined;
+  const method = address.method;
+  const period = address.period;
   const sources = Object.entries(snapshot.rowsByDept ?? {})
     .filter(([sheet]) => department ? findDept(sheet)?.latinId === department : !!findDept(sheet));
   if (sources.length === 0) return { status: 'unavailable', reason: 'SOURCE_ROWS_NOT_RETAINED' } as const;
@@ -32,9 +22,9 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   const values = sliceResults(grouped, {
     ...(period.startsWith('m') && !method ? { months: [Number(period.slice(1))] }
       : { quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period] }),
-    ...(method ? { methods: [method === 'kp' ? 'competitive' : 'ep'] } : {}),
+    ...(method ? { methods: [method] } : {}),
   });
-  const explanation = explainMetric(ALIASES[name!] ?? name!, values);
+  const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
   // Historical snapshots may use another rule version. Never attach new evidence
@@ -53,7 +43,7 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
       scope: {
         sourceSheets: sources.map(([sheet]) => sheet),
         department: department ?? null,
-        method: method === 'kp' ? 'competitive' : method === 'ep' ? 'ep' : null,
+        method,
         period, year: snapshot.metadata.targetYear ?? null,
       },
       dependencies: explanation.operands.map(operand => operand.key),
