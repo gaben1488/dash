@@ -176,6 +176,10 @@ export function ChangeJournal({ open, onClose, style }: { open: boolean; onClose
                 {captureCounts.invalid} с нечитаемым временем,
                 {captureCounts.bulk} пакетных/неячеечных операций.
                 Доставка изменений Apps Script/API не подтверждается самим журналом.
+                {(response?.cutoffDayUnknown ?? 0) > 0 && (
+                  <> {response?.cutoffDayUnknown} записей относятся к дню
+                  контрольного среза, но не имеют времени для сравнения с 18:00.</>
+                )}
               </p>
             )}
             <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
