@@ -11,7 +11,11 @@ vi.mock('./services/source-refresh.js', async original => ({ ...await original<t
   refreshAllSources: startup.refresh, startSourceAutoRefresh: vi.fn() }));
 vi.mock('./services/snapshot.js', async original => ({ ...await original<typeof import('./services/snapshot.js')>(),
   getSnapshot: startup.snapshot }));
-vi.mock('./services/formula-sink.js', () => ({ connectFormulaSink: watch.formulas }));
+vi.mock('./services/formula-sink.js', () => ({
+  restoreFormulaVerdicts: vi.fn(),
+  connectFormulaSink: watch.formulas,
+  disconnectFormulaSink: vi.fn(),
+}));
 vi.mock('./routes/webhook.js', async original => ({ ...await original<typeof import('./routes/webhook.js')>(), recoverWebhookQueue: watch.recover }));
 const { createApp, preloadData } = await import('./app.js');
 const app = await createApp({ logger: false });
@@ -27,16 +31,19 @@ it('поднимает push и очередь до завершения Google �
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   startup.refresh.mockImplementationOnce(async () => { await gate; return { loaded: [], failed: [] }; });
+  // Formula sink is connected while createApp registers readers, BEFORE
+  // preloadData starts channels. It must not reconnect for the same app.
+  const formulasBefore = watch.formulas.mock.calls.length;
   const closed = await createApp({ logger: false });
+  expect(watch.formulas).toHaveBeenCalledTimes(formulasBefore + 1);
   const calls = watch.start.mock.calls.length;
   const recoveries = watch.recover.mock.calls.length;
-  const formulas = watch.formulas.mock.calls.length;
   const snapshots = startup.snapshot.mock.calls.length;
   preloadData(closed);
   try {
     expect(watch.start).toHaveBeenCalledTimes(calls + 1);
     expect(watch.recover).toHaveBeenCalledTimes(recoveries + 1);
-    expect(watch.formulas).toHaveBeenCalledTimes(formulas + 1);
+    expect(watch.formulas).toHaveBeenCalledTimes(formulasBefore + 1);
     expect(watch.formulas.mock.invocationCallOrder.at(-1)).toBeLessThan(watch.start.mock.invocationCallOrder.at(-1)!);
   } finally {
     await closed.close();

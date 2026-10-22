@@ -696,6 +696,17 @@ def test_approved_primary_alias_remains_equivalent_on_workbook_only_drift(tmp_pa
     (provider, sheet_id, registered_title), live_title = alias
     data = json.loads(registry.read_text())
     data['sources'][0].update(provider_id=provider, sheet_id=sheet_id, sheet=registered_title)
+    # A reviewed primary workbook has a real A:AH header. Previously this
+    # synthetic fixture supplied only "Synthetic header" at A3; the strict
+    # source reader correctly rejected it as a changed meaning in column A.
+    # Preserve the guard; give this renamed *primary* the canonical header.
+    from procurement_engine.department_directory import MASTER_FIELDS
+    reviewed_header = [''] * 34
+    for field in MASTER_FIELDS.values():
+        reviewed_header[field['index']] = field['label']
+    data['sources'][0]['schema_fingerprint'] = header_hash(
+        [[], [], reviewed_header], 3,
+    )
     class AliasGoogle(Google):
         changed = False
         def revision(self, book):
@@ -710,6 +721,10 @@ def test_approved_primary_alias_remains_equivalent_on_workbook_only_drift(tmp_pa
             return {'sheets': [{'sheetId': sheet_id if book == provider else 0,
                                **self.grid(book, sheet_id if book == provider else 0),
                                'hidden': self.changed}], 'named_ranges': []}
+        def values(self, book, title, start, end, columns):
+            if book == provider:
+                return [[], [], reviewed_header][start - 1:end]
+            return super().values(book, title, start, end, columns)
         def formulas(self, *args): return self.values(*args)
     client = AliasGoogle()
     capture = capture_google(data, client)

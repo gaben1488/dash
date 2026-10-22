@@ -63,7 +63,7 @@ function queryKey(query: ChangeStoryQuery): string {
  */
 export function useChangeStory(query: ChangeStoryQuery, enabled = true): UseChangeStoryResult {
   const live = useLiveEvents(enabled);
-  const structuralAt = live.books.filter(book => book.removedRows > 0)
+  const structuralAt = (live.books ?? []).filter(book => book.removedRows > 0)
     .map(book => book.at).sort().at(-1) ?? null;
   const [response, setResponse] = useState<ChangeStoryResponse | null>(null);
   const [loading, setLoading] = useState(false);

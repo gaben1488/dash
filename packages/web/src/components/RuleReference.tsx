@@ -21,7 +21,7 @@ export function RuleReference() {
       await downloadDocx(buildDocument(blocks, COPY.title), 'pravila-dash.docx');
     } catch { setError(true); } finally { setPending(false); }
   }
-  return <details className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
+  return <details className="rounded-xl border border-[var(--line-card)] p-4">
     <summary className="cursor-pointer text-sm font-semibold">{COPY.title}</summary>
     <div className="flex flex-wrap gap-4 py-3 text-sm">
       <button type="button" className="underline" onClick={markdown}>{COPY.markdown}</button>

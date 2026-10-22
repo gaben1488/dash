@@ -22,6 +22,23 @@ import type { DepartmentSummary } from '@aemr/shared';
 
 const ORIGINAL_ENV = { ...process.env };
 
+/** Check the HTTP period DTO against the real pipeline result, not the
+ * fallback demo snapshot (a credential-free test must not silently invent rows).
+ */
+const fixture = vi.hoisted(() => ({
+  snapshot: null as import('@aemr/core').PipelineSnapshot | null,
+}));
+vi.mock('../services/snapshot.js', () => ({
+  getSnapshot: async () => {
+    if (!fixture.snapshot) throw new Error('SYNTHETIC_PIPELINE_NOT_PREPARED');
+    return fixture.snapshot;
+  },
+  getDeptSheetCache: () => ({}),
+  getDeptLoadMeta: () => ({}),
+  invalidateCache: vi.fn(),
+  setSvodGridCache: vi.fn(),
+}));
+
 // Сети в тесте нет: чтения официальных ячеек и листов возвращают пусто, и
 // снимок собирается ровно из подложенного кэша книги ГРБС.
 vi.mock('../services/google-sheets.js', () => ({
@@ -66,8 +83,8 @@ const HEADERS = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34)
 
 const UO_ROWS = [
   ...HEADERS,
-  makeRow({ id: 'uo-1', quarter: 1, planDate: '15.01.2026', plan: 100, factDate: '10.03.2026', fact: 90 }),
-  makeRow({ id: 'uo-2', quarter: 2, planDate: '20.04.2026', plan: 200 }),
+  makeRow({ id: '1', quarter: 1, planDate: '15.01.2026', plan: 100, factDate: '10.03.2026', fact: 90 }),
+  makeRow({ id: '2', quarter: 2, planDate: '20.04.2026', plan: 200 }),
 ];
 
 interface DashboardResponse {
@@ -89,12 +106,21 @@ describe('GET /api/dashboard — блок периода у ГРБС', () => {
   beforeAll(async () => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
-    setDeptSheetCache({ УО: { values: UO_ROWS, formulas: [], sheetName: 'ВСЕ' } });
+    const { runPipeline } = await import('@aemr/core');
+    const { REPORT_MAP, getActiveRules } = await import('@aemr/shared');
+    fixture.snapshot = runPipeline({
+      batchGetData: [],
+      sheetRows: { УО: UO_ROWS },
+      reportMap: REPORT_MAP,
+      rules: getActiveRules(),
+      spreadsheetId: 'offline-fixture',
+      targetYear: 2026,
+    });
     app = await buildApp();
     const res = await app.inject({ method: 'GET', url: '/api/dashboard?year=2026' });
     expect(res.statusCode).toBe(200);
     const body = res.json<DashboardResponse>();
+    expect(fixture.snapshot?.id).not.toMatch(/^demo-/);
     const found = body.departmentSummaries.find(d => d.department.id === 'uo');
     expect(found).toBeDefined();
     uo = found!;

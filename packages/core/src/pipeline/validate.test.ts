@@ -90,13 +90,14 @@ describe('СВОД — границы разных схем на одном ли
 describe('validateData — basic', () => {
   it('reports nonnumeric inputs as unverified without calling them a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    // Recognized СВОД primary header must be present for arithmetic to run.
-    // The latest integrated base explicitly gates mixed-layout blocks by this header.
-    const header = makeRow({ rowIndex: 3, classification: 'header',
-      cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
-    const rows = [header, ...[5, 6].map(rowIndex => makeRow({
-      rowIndex, cells: { A: 'УО', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100 },
-    }))];
+    // Verify unparseable money in an actual department procurement row.
+    // SVOD has a separate multi-layout gate tested above; this isolates the
+    // numeric-input failure contract without inventing a SVOD block.
+    const rows = [5, 6].map(rowIndex => makeRow({
+      sheet: 'УД', rowIndex, cells: {
+        A: '173/18', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100,
+      },
+    }));
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
@@ -625,5 +626,41 @@ describe('validation execution coverage', () => {
     expect(coverage).toEqual([
       { sheet: 'УО', component: 'rule_compliance', expected: 4, checked: 2, failed: 1 },
     ]);
+  });
+});
+
+describe('СВОД — физический периметр Dash до строки 278', () => {
+  it('оба вида правил применяются к 278, не к экспериментальным 279 и 284', () => {
+    const bad = { A: 'УД', H: 1, I: 2, J: 3, K: 100, L: 2, M: 3, N: 4, O: 100 };
+    const rows = [278, 279, 284].map(rowIndex => makeRow({ rowIndex, cells: bad }));
+    const rules = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact'].includes(r.id));
+    const issues = validateData(EMPTY_METRICS, rows, rules, REPORT_MAP);
+    expect(issues.filter(i => ['budget_sum_plan', 'budget_sum_fact'].includes(i.category)).map(i => i.row))
+      .toEqual([278, 278]);
+  });
+
+  it('исключает 279+ из контекста всех правил, включая scope both', () => {
+    const seen: number[][] = [];
+    const rules = [
+      makeRule({ id: 'svod_context', scope: 'svod', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
+        return { passed: true };
+      }}),
+      makeRule({ id: 'both_context', scope: 'both', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
+        return { passed: true };
+      }}),
+    ];
+    const rows = [278, 279, 324].map(rowIndex => makeRow({ rowIndex }));
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP)).toEqual([]);
+    expect(seen).toEqual([[278], [278]]);
+  });
+
+  it('не урезает строки книг ГРБС после 278', () => {
+    const rows = [makeRow({ sheet: 'УО', rowIndex: 284 })];
+    const issues = validateData(EMPTY_METRICS, rows,
+      [makeFailingRule({ id: 'department_tail', scope: 'both' })], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].row).toBe(284);
   });
 });
