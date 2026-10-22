@@ -53,6 +53,59 @@ export interface ProcurementGuidanceEntry {
   defaultText: string;
 }
 
+/**
+ * Versioned presentation catalog consumed by Settings, Registry and exports.
+ * Explanatory edits never become source observations or executable rules.
+ */
+export const PROCUREMENT_GUIDANCE_VERSION = 'C06.03-editorial-v1' as const;
+
+export interface SavedProcurementGuidanceEntry extends ProcurementGuidanceEntry {
+  text: string;
+  overridden: boolean;
+  revision: number;
+  updatedAt: string | null;
+}
+export interface SavedProcurementGuidance {
+  version: typeof PROCUREMENT_GUIDANCE_VERSION;
+  calculationRulesChanged: false;
+  entries: SavedProcurementGuidanceEntry[];
+}
+
+/** One fail-closed reader contract for every consumer of saved editorial text. */
+export function checkedProcurementGuidanceResponse(value: unknown): SavedProcurementGuidanceEntry[] {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Сервер не подтвердил полную редакцию справочника');
+  }
+  const data = value as Partial<SavedProcurementGuidance>;
+  const baseline = procurementEditableGuidance();
+  if (data.version !== PROCUREMENT_GUIDANCE_VERSION || data.calculationRulesChanged !== false ||
+      !Array.isArray(data.entries) || data.entries.length !== baseline.length) {
+    throw new Error('Сервер не подтвердил полную редакцию справочника');
+  }
+  const expected = new Map(baseline.map(entry => [entry.key, entry]));
+  const seen = new Set<string>();
+  for (const raw of data.entries) {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('Редакция справочника несовместима с текущей версией приложения');
+    }
+    const entry = raw as SavedProcurementGuidanceEntry;
+    const original = expected.get(entry.key);
+    if (!original || seen.has(entry.key) || entry.section !== original.section ||
+        entry.defaultText !== original.defaultText || typeof entry.text !== 'string' ||
+        !entry.text.trim() || typeof entry.overridden !== 'boolean' ||
+        !Number.isSafeInteger(entry.revision) || entry.revision < 0 ||
+        (!entry.overridden && entry.text !== original.defaultText) ||
+        (entry.overridden && (entry.revision < 1 || entry.text === original.defaultText)) ||
+        (entry.revision === 0 && entry.updatedAt !== null) ||
+        (entry.revision > 0 && (typeof entry.updatedAt !== 'string' ||
+          !Number.isFinite(Date.parse(entry.updatedAt))))) {
+      throw new Error('Редакция справочника несовместима с текущей версией приложения');
+    }
+    seen.add(entry.key);
+  }
+  return data.entries;
+}
+
 export function procurementEditableGuidance(): ProcurementGuidanceEntry[] {
   return [
     ...Object.entries(FIELD_GUIDANCE).map(([key, defaultText]) => ({
