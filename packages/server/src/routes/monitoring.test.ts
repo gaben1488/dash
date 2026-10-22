@@ -78,6 +78,9 @@ describe('мониторинг нового рабочего реестра', ()
     expect(b.work.closed[0].procedure.code).toBe('ЭА100-26');
     expect(b.signals.map((s: { kind: string }) => s.kind)).not.toContain('monitoring_no_successor');
     expect(b.signals.find((s: { kind: string }) => s.kind === 'monitoring_source_warning').addresses[0].address).toBe(`${MASTER}!N3`);
+    expect(b.signals.length).toBeGreaterThan(0);
+    expect(b.signals.every((s: { caseReview?: { status?: string } }) => s.caseReview?.status === 'not_linked')).toBe(true);
+    expect(b.signals[0].caseReview.explanation).toMatch(/Чужое решение не снимает сигнал/);
   });
   it('свод сравнивает те же корзины, переоформленные деньги не считает повторно', async () => {
     const b = (await app.inject({ method: 'GET', url: '/api/monitoring' })).json();

@@ -32,7 +32,7 @@ async function save() {
 }
 describe('Issues shared decision refresh', () => {
   it('shows the saved decision, explanation and separate comments without treating the responsible person as author', async () => {
-    vi.spyOn(api, 'getIssueHistory').mockResolvedValue({ issueId: 'case-1', history: [
+    vi.spyOn(api, 'getIssueDetail').mockResolvedValue({ issue: { id: 'case-1', status: 'false_positive' }, history: [
       { eventId: 'issue-history:1', issueId: 'case-1', type: 'status_change', source: 'dash_decision',
         at: '2026-10-16T01:00:00Z', from: 'open', to: 'false_positive', author: null,
         reason: 'Меры проверены', justification: 'Обеспечение включено в контракт',

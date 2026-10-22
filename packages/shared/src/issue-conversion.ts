@@ -9,6 +9,7 @@
  */
 import { DEPT_HEADER_ROWS } from './column-map.js';
 import { findDept } from './department-registry.js';
+import { isCurrentSignal, isNonPunitiveSignal } from './signal-passport.js';
 import { FORMULA_COLUMNS } from './report-map.js';
 
 /** Совместимость старых снимков: ошибка распознавания шапки не является риском закупки. */
@@ -32,7 +33,18 @@ export function formulaDiagnosticInapplicableReason(issue: {
 export function isTrustIssueApplicable(issue: Parameters<typeof formulaDiagnosticInapplicableReason>[0] & {
   status?: unknown;
 }): boolean {
-  return issue.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(issue);
+  return isCurrentSignal(issue) && !isNonPunitiveSignal(issue) && !formulaDiagnosticInapplicableReason(issue);
+}
+
+/** One cross-consumer rule for ACTIVE departmental risk, not the audit journal.
+ * A diagnostic failure is a system-coverage problem (handled by Trust as
+ * unknown), never an employee's actionable/disciplinary finding.
+ */
+export function isDepartmentRiskIssue(issue: Parameters<typeof isTrustIssueApplicable>[0] & {
+  origin?: unknown; category?: unknown;
+}): boolean {
+  return isTrustIssueApplicable(issue) && issue.origin !== 'runtime_error'
+    && issue.category !== 'signal_detection_failed';
 }
 
 export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {

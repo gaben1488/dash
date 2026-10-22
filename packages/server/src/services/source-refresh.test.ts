@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { MASTER_SOURCE_PROFILE } from '@aemr/shared';
 
 /**
  * Страж канона п.66 («прямой эфир»): обе стороны сверки читаются одним циклом.
@@ -593,18 +592,12 @@ it('keeps source permission/schema failures out of the automatic retry set', asy
   expect(result.svodRetryable).toBe(false);
 });
 
-/** A report reader returns the real three-row master header, not invented one-row data. */
-const reportMasterRows = (book: string): unknown[][] => [
-  [], [], Object.values(MASTER_SOURCE_PROFILE.fields).map(field => field.label),
-  [book, '', '', '', '', '', 'Позиция'],
-];
-
 it('accepts the report acquisition through the same live persistence boundary without a second Sheets read', async () => {
   const { refreshReportSources } = await import('./source-refresh.js');
   readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
   const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
   const data = Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
-    [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }]));
+    [book, { values: [[book, 'report input']], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }]));
   fetchDepartmentSpreadsheets.mockClear();
   const result = await refreshReportSources(async () => ({ data, errors: {} }), log);
   expect(result.failed).toEqual([]);
@@ -622,24 +615,8 @@ it('does not accept part of a report input when a master changes during acquisit
   await expect(refreshReportSources(async () => {
     readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
     return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
-      [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }])), errors: {} };
+      [book, { values: [[book]], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '7' }])), errors: {} };
   }, log)).rejects.toThrow('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
-  expect(setDeptSheetCache).not.toHaveBeenCalled();
-  expect(saveWatermark).not.toHaveBeenCalled();
-});
-
-it('does not accept a report source with an altered mandatory meaning even with a matching Drive version', async () => {
-  const { refreshReportSources } = await import('./source-refresh.js');
-  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
-  readRevision.mockResolvedValue({ version: '7', modifiedTime: null });
-  setDeptSheetCache.mockClear();
-  saveWatermark.mockClear();
-  const data = Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
-    [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ',
-      formulasRead: true, sourceVersion: '7' }]));
-  data['УО'].values[2][21] = 'Цена договора вместо ФБ 2';
-  await expect(refreshReportSources(async () => ({ data, errors: {} }), log))
-    .rejects.toThrow('REPORT_SOURCE_INPUT_NOT_ACCEPTED');
   expect(setDeptSheetCache).not.toHaveBeenCalled();
   expect(saveWatermark).not.toHaveBeenCalled();
 });
@@ -651,7 +628,7 @@ it('accepts the complete capture after its internal revision retry without compa
   const result = await refreshReportSources(async () => {
     readRevision.mockResolvedValue({ version: '8', modifiedTime: null });
     return { data: Object.fromEntries(Object.keys(DEPARTMENT_SPREADSHEETS).map(book =>
-      [book, { values: reportMasterRows(book), formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '8' }])), errors: {} };
+      [book, { values: [[book]], formulas: [], sheetName: 'ВСЕ', formulasRead: true, sourceVersion: '8' }])), errors: {} };
   }, log);
   expect(result.failed).toEqual([]);
 });

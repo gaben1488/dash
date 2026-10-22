@@ -1,6 +1,6 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
-export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable } from './issue-conversion.js';
+export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable, isDepartmentRiskIssue } from './issue-conversion.js';
 // Canonical case state transitions for API and UI; never maintain mirrored tables.
 export * from './issue-status-transitions.js';
 
@@ -172,6 +172,7 @@ export * from './threshold-registry.js';
 // именами колонок. Модуль писался агентом, который погиб на середине;
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
+export * from './signal-passport.js';
 export * from './source-coverage.js';
 
 export * from './metrics/types.js';

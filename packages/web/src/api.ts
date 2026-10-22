@@ -1,4 +1,4 @@
-import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun, SignalAnswer } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -364,6 +364,25 @@ export const api = {
 
   getIssueHistory: (id: string) =>
     fetchParsed(`/issues/${encodeURIComponent(id)}/history`, IssueHistoryResponseSchema),
+
+  /** The detail already contains saved decisions and captured source evidence. */
+  getIssueDetail: async (id: string) => {
+    const result = await fetchJSON<{
+      issue?: { id?: string; status?: string };
+      history: unknown;
+      sourceEvidence?: {
+        source: 'sealed_snapshot';
+        snapshotId: string;
+        capturedAt: string;
+        status: 'row_identity_verified' | 'identity_not_verified';
+        explanation: string;
+        answer: SignalAnswer;
+      };
+    } | null>(`/issues/${encodeURIComponent(id)}`);
+    if (result?.issue?.id !== id) throw new Error('Не удалось подтвердить карточку замечания.');
+    const history = IssueHistoryResponseSchema.parse({ issueId: id, history: result.history }).history;
+    return { ...result, history };
+  },
 
   // Trust
   getTrust: () =>

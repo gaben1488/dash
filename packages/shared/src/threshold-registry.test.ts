@@ -221,7 +221,10 @@ describe('dated threshold evidence', () => {
       expect(captured).toMatchObject({ unit: 'ratio', status: 'internal', value: INTERNAL_EP_SHARE_BY_ROLE[role] });
       expect(capturedThresholdValue(captured, 'ratio')).toBe(INTERNAL_EP_SHARE_BY_ROLE[role]);
       expect(capturedThresholdValue(captured, 'percent')).toBeNull();
-      const { unit: _removedUnit, ...legacy } = captured!;
+      // Legacy payloads may lack a unit. Exercise that runtime shape without
+      // inventing an explicit `undefined` field rejected by exactOptionalPropertyTypes.
+      const legacy = { ...captured! };
+      Reflect.deleteProperty(legacy, 'unit');
       expect(capturedThresholdValue(legacy, 'ratio')).toBeNull();
     }
     expect(legalThresholdsVerifiedForContext(Object.fromEntries(thresholdsByDomain('law').map(id => [id, {

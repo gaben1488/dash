@@ -109,7 +109,11 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
     notes are presentation-only and publication history excludes diagnostic snapshots.
     """
     from .context import NarrativeNote, validate_narrative_notes
-    from .narrative import build_generic_narrative, build_smart_narrative
+    from .narrative import (
+        build_generic_narrative,
+        build_smart_narrative,
+        is_current_issue,
+    )
     from .publication_history import select_previous_official
     from .traceability import metric_trace
 
@@ -214,7 +218,7 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
     diff_counts = Counter(str(x.get("event_type") or "UNKNOWN") for x in model.get("diff") or [])
     serious_issues = [
         dict(x) for x in model.get("issues") or []
-        if str(x.get("severity") or "").upper() in {"ERROR", "BLOCKER", "HIGH"}
+        if is_current_issue(x) and str(x.get("severity") or "").upper() in {"ERROR", "BLOCKER", "HIGH"}
     ]
     compliance_counts = Counter()
     execution_counts = Counter()

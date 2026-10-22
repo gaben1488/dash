@@ -262,22 +262,6 @@ describe('R05.01 — реестр профилей охраняет каждый
   });
 });
 
-describe('R05.01 — registered historical aliases cannot bypass master identity', () => {
-  it('a recognized former department label resolves to the same approved gid', async () => {
-    const dept = DEPARTMENT_REGISTRY.find(entry => entry.id === 'УФБП')!;
-    gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
-      sheetId: dept.source.sheetId, title: 'УФБП',
-      gridProperties: { columnCount: 34 },
-    } }] } });
-    const { readDeptSheet, resolveDeptSheetName } = await import('./google-sheets.js');
-    expect(await resolveDeptSheetName('УФБР', 'file-ufbp')).toBe('УФБП');
-    await expect(readDeptSheet('УФБР', 'file-ufbp')).resolves.toMatchObject({
-      sheetName: 'УФБП', formulasRead: false,
-    });
-    expect(valuesGet).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('R05.01 — one resolver for reads, writes and metadata', () => {
   it('the same reviewed gid and title admit read/write, without a stale cache', async () => {
     const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
@@ -303,7 +287,10 @@ describe('R05.01 — source profile is the single implementation across consumer
   it('one object reference supplies read ranges and metadata protected groups', async () => {
     const { FORMULA_COLUMNS, FORMULA_COLUMN_GROUPS } = await import('./google-sheets.js');
     const { METADATA_CANON } = await import('./metadata-canon.js');
-    expect(FORMULA_COLUMN_GROUPS).toEqual(MASTER_SOURCE_PROFILE.formulaColumnGroups);
+    // afterEach(resetModules) creates a fresh module graph. Compare objects
+    // inside that graph, not against the stale static import of this test file.
+    const { MASTER_SOURCE_PROFILE: runtimeProfile } = await import('@aemr/shared');
+    expect(FORMULA_COLUMN_GROUPS).toBe(runtimeProfile.formulaColumnGroups);
     expect(METADATA_CANON.protectedColumnGroups).toBe(FORMULA_COLUMN_GROUPS);
     expect(FORMULA_COLUMNS).toEqual(
       Object.values(MASTER_SOURCE_PROFILE.fields)

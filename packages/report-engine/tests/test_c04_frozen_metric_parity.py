@@ -144,13 +144,10 @@ def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_
     dashboard_file = tmp_path / "false-dashboard.json"
     model_file.write_text(json.dumps(changed_model))
     dashboard_file.write_text(json.dumps(changed_dashboard))
-    evidence = PROBE.compare(root / "snapshot_bundle", REPO, **{
-        **paths, "report_model": model_file, "dashboard": dashboard_file,
-    })
-    assert evidence["state"] == "MISMATCH"
-    assert evidence["mismatch_count"] > 0
-    assert any(item["scope"] == "headline" and item["metric"] == "plan_count"
-               for item in evidence["mismatches"])
+    with pytest.raises(ValueError, match="ARTIFACT_DOCUMENT_PLAN_MISMATCH"):
+        PROBE.compare(root / "snapshot_bundle", REPO, **{
+            **paths, "report_model": model_file, "dashboard": dashboard_file,
+        })
 
 
 def test_c04_model_must_match_exact_frozen_source(frozen_case, tmp_path):

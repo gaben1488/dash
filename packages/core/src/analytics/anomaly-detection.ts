@@ -891,10 +891,12 @@ export function detectThresholdHugging(
         subordinate,
         rows: inCorridor.length,
         smallSample: inReference.length < ANOMALY_LIMITS.thresholdMinRows,
-        note:
-          inReference.length < ANOMALY_LIMITS.thresholdMinRows
-            ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво. Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужны подтверждённые условия и документы.'
-            : 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
+        // Even with a tiny reference sample, the material limitation of the
+        // input (annual planned K rather than a contract price) still applies.
+        note: (inReference.length < ANOMALY_LIMITS.thresholdMinRows
+          ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво. '
+          : '')
+          + 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
         members: inCorridor.map(r => addressOf(r, `K${r.sheetRow}`)),
       });
     }

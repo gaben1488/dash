@@ -5,7 +5,7 @@ import { getSheetData } from '../services/google-sheets.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, isDepartmentRiskIssue } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 import { parseYearFilterParam } from '../services/period-params.js';
@@ -115,7 +115,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       if (!metric) continue;
 
       const delta = snapshot.deltas?.find((d: DeltaResult) => d.metricKey === entry.metricKey);
-      const issues = snapshot.issues?.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.metricKey === entry.metricKey) ?? [];
+      const issues = snapshot.issues?.filter((i: Issue) => isDepartmentRiskIssue(i) && i.metricKey === entry.metricKey) ?? [];
       const hasCritical = issues.some((i: Issue) => i.severity === 'critical');
       const hasWarning = issues.some((i: Issue) => i.severity === 'warning' || i.severity === 'significant');
 
@@ -141,7 +141,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const deptSignalCounts: Record<string, Record<string, number>> = {};
     for (const iss of (snapshot.issues ?? [])) {
       const i = iss as Issue;
-      if (i.status === 'false_positive' || formulaDiagnosticInapplicableReason(i) || !i.departmentId || !i.signal) continue;
+      if (!isDepartmentRiskIssue(i) || !i.departmentId || !i.signal) continue;
       if (!deptSignalCounts[i.departmentId]) deptSignalCounts[i.departmentId] = {};
       deptSignalCounts[i.departmentId][i.signal] = (deptSignalCounts[i.departmentId][i.signal] ?? 0) + 1;
     }
@@ -169,7 +169,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const moneyRatio = calcGet(`${prefix}.year.execution_pct`);
       const executionPct = moneyRatio == null ? null : +(moneyRatio * 100).toFixed(1);
 
-      const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
+      const activeDeptIssues = deptIssues.filter((i: Issue) => isDepartmentRiskIssue(i));
       const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
 
       // Per-department trust score via computeTrustScore
@@ -285,7 +285,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     for (const iss of allIssues) {
       const i = iss as Issue;
       // Historical summaries remain complete; BlindSpots count active signals only.
-      if (i.signal && i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i)) {
+      if (i.signal && isDepartmentRiskIssue(i)) {
         signalCounts[i.signal] = (signalCounts[i.signal] || 0) + 1;
         issueSummary.signalCounts[i.signal] = (issueSummary.signalCounts[i.signal] || 0) + 1;
       }

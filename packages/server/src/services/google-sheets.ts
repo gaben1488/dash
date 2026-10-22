@@ -2,8 +2,8 @@ import { google, type sheets_v4 } from 'googleapis';
 import { config } from '../config.js';
 import {
   ALL_SHEETS,
+  DEPARTMENT_REGISTRY,
   DEPT_HEADER_ROWS,
-  findDept,
   MASTER_FORMULA_COLUMN_GROUPS,
   MASTER_SOURCE_PROFILE,
   SHDYU_MONTHLY_SHEET_NAME,
@@ -815,7 +815,7 @@ const resolvedSheetNameCache = new Map<string, string>();
  * configured master must be found by its reviewed stable sheetId (gid).
  */
 export async function resolveDeptSheetName(deptName: string, ssId: string): Promise<string> {
-  const department = findDept(deptName);
+  const department = DEPARTMENT_REGISTRY.find(d => d.id === deptName || d.shortName === deptName);
   if (department && (department.source.role !== MASTER_SOURCE_PROFILE.role
       || department.source.profile !== MASTER_SOURCE_PROFILE.id)) {
     throw new Error('MASTER_SOURCE_PROFILE_BINDING_INVALID');
@@ -912,7 +912,7 @@ export async function readDeptSheet(
   ssId: string,
   options: DeptReadOptions = {},
 ): Promise<DeptSheetResult> {
-  const department = findDept(deptName);
+  const department = DEPARTMENT_REGISTRY.find(d => d.id === deptName || d.shortName === deptName);
 
   if (department) {
     // Resolve the reviewed gid BEFORE reading any values. The write path and
