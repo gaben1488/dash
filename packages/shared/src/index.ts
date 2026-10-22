@@ -4,6 +4,9 @@ export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable } from './i
 // Canonical case state transitions for API and UI; never maintain mirrored tables.
 export * from './issue-status-transitions.js';
 
+// C05.02 single numeric-observation policy for core, API and every UI consumer.
+export * from './numeric-availability.js';
+
 // Re-export schemas (zod schemas for runtime validation, API contracts, drizzle-lite)
 export * from './schemas.js';
 
