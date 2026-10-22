@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 from docx import Document
-
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
 from procurement_engine.raw_pipeline import build_from_capture
