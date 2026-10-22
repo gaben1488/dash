@@ -191,10 +191,9 @@ function LegacyContent({ entry }: { entry: KBEntry }) {
     { label: 'Пороги', value: entry.thresholds },
     { label: 'Закон', value: entry.law },
   ].filter(r => r.value);
-  if (rows.length === 0 && !entry.description) return null;
+  if (rows.length === 0) return null;
   return (
     <div className="space-y-1">
-      {entry.description && <p className="text-[11px] text-zinc-300 leading-snug mb-1.5">{entry.description}</p>}
       {rows.map(({ label, value }) => (
         <div key={label} className="flex gap-2 text-[10px] leading-tight">
           <span className="text-zinc-500 shrink-0 w-14 font-medium">{label}:</span>
@@ -211,6 +210,7 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
   const hasFullContent = entry.whatIs || entry.thresholdsFull || entry.example;
   const hasExpandable = entry.howCalc || entry.dataSource || entry.engine
     || entry.lawFull || entry.pitfalls || entry.actions || entry.divergence
+    || entry.scopeMoment || entry.thresholdsFull || entry.example
     || (entry.related && entry.related.length > 0);
 
   if (!hasFullContent) return <LegacyContent entry={entry} />;
@@ -221,27 +221,6 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
       {entry.whatIs && (
         <p className="text-[11px] leading-relaxed text-zinc-100 font-medium">{entry.whatIs}</p>
       )}
-      {/* ⑪ Скоуп и момент стоит сразу под механизмом и ДО порога: читатель,
-          открывший объяснение, уже не видит плашку периметра на плитке, и без
-          этой строки не знает, за что число (спека карточки 2.0, п.③). */}
-      {entry.scopeMoment && (
-        <Section icon={<Database size={8} />} num="⑪" title="Скоуп и момент">
-          <p className="text-zinc-300 text-[10px]">{entry.scopeMoment}</p>
-        </Section>
-      )}
-      {entry.thresholdsFull && (
-        <Section icon={<BarChart3 size={8} />} num="⑤" title="Пороги">
-          <ThresholdLine text={entry.thresholdsFull} />
-        </Section>
-      )}
-      {entry.example && (
-        <Section icon={<Lightbulb size={8} />} num="⑦" title="Пример">
-          <div className="bg-white/5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 font-mono leading-relaxed">
-            {entry.example}
-          </div>
-        </Section>
-      )}
-
       {/* Expand toggle */}
       {hasExpandable && (
         <>
@@ -260,6 +239,23 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
 
           {expanded && (
             <div className="space-y-2 pt-1 border-t border-white/5">
+              {entry.scopeMoment && (
+                <Section icon={<Database size={8} />} num="⑪" title="Периметр и момент">
+                  <p className="text-zinc-300 text-[10px]">{entry.scopeMoment}</p>
+                </Section>
+              )}
+              {entry.thresholdsFull && (
+                <Section icon={<BarChart3 size={8} />} num="⑤" title="Пороги">
+                  <ThresholdLine text={entry.thresholdsFull} />
+                </Section>
+              )}
+              {entry.example && (
+                <Section icon={<Lightbulb size={8} />} num="⑦" title="Пример">
+                  <div className="bg-white/5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 leading-relaxed">
+                    {entry.example}
+                  </div>
+                </Section>
+              )}
               {entry.howCalc && (
                 <Section icon={<Cpu size={8} />} num="②" title="Как считается">
                   <p className="text-zinc-300 text-[10px]">{entry.howCalc}</p>
@@ -417,7 +413,10 @@ export function KBTooltip({
 
   const coarsePointer = useCoarsePointer();
 
-  const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v))
+  // A bare title is not evidence of a completed knowledge-base record.
+  // Do not show an empty dark popup when the entry only has its label.
+  const hasContent = Object.entries(entry).some(([key, value]) =>
+    key !== 'description' && (Array.isArray(value) ? value.length > 0 : Boolean(value)))
     || provenance.length > 0
     || lineage !== null;
   if (!hasContent) return <>{children}</>;
@@ -427,14 +426,19 @@ export function KBTooltip({
       {entry.description && (
         <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-white/[0.06]">
           <BookOpen size={10} className="text-blue-400/70 shrink-0" />
-          <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider">{entry.description}</span>
+          <span className="text-xs font-semibold text-zinc-100 leading-snug">{entry.description}</span>
         </div>
       )}
       <FullKBContent entry={entry} />
-      {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
-      {/* Нижний ярус — родословная показателя. Панель подсказки всегда тёмная,
-          поэтому тон 'dark': светлые классы темы здесь не сработают. */}
-      {metric && <MetricProvenance metricKey={metric} tone="dark" />}
+      {(provenance.length > 0 || lineage !== null) && (
+        <details className="mt-2 border-t border-white/[0.08] pt-2">
+          <summary className="cursor-pointer select-none text-[11px] font-medium text-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">
+            Источники и происхождение
+          </summary>
+          {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
+          {metric && lineage !== null && <MetricProvenance metricKey={metric} tone="dark" />}
+        </details>
+      )}
     </>
   );
 
