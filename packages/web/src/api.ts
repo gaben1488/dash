@@ -413,6 +413,28 @@ export const api = {
    * молчание за «ноль дефектов». Поле `notRead` и признак `handled` —
    * ровно те данные, которыми пятно говорит правду.
    */
+  /**
+   * On-demand complete read of procurement source values, formula columns and
+   * spreadsheet metadata. No separate weekly historical snapshot is created.
+   */
+  checkSourceIntegrityDeep: () =>
+    fetchJSON<{
+      complete: boolean;
+      at: string;
+      expectedBooks: number;
+      changedValueBooks: string[];
+      books: Array<{
+        book: string;
+        metadataRead: boolean;
+        metadataRemarks: number | null;
+        formulasRead: boolean;
+        analyzed: boolean;
+        formulaCells: number | null;
+        rowsJudged: number | null;
+        formulaDefects: number | null;
+        problems: string[];
+      }>;
+    }>('/sources/integrity/check', { method: 'POST' }),
   getSourceIntegrity: () =>
     fetchJSON<{
       at: string;
