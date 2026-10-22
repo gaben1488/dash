@@ -549,7 +549,7 @@ describe('validateData — operational СВОД perimeter', () => {
       id: 'svod_context_boundary',
       scope: 'svod',
       check: ctx => {
-        seen.push(ctx.allRows.map(row => row.rowIndex));
+        seen.push((ctx.allRows ?? []).map(row => row.rowIndex));
         return { passed: true };
       },
     });
