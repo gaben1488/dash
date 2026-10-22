@@ -45,7 +45,7 @@ import { readDeptRows } from '../services/dept-rows.js';
 import { getMonitoringBook } from '../services/monitoring.js';
 import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
-import { buildComparison, type IntegrityResponse } from './integrity.js';
+import { buildComparison, type CurrentComparison } from '../services/procurement-absence.js';
 
 /** «Сегодня» календаря продукта (Камчатка +12), как у /api/report и /api/changes. */
 const productToday = (): number =>
@@ -65,7 +65,7 @@ const MAX_UPCOMING_DAYS = 366;
  * положительное доказательство идентичности за все исторические периоды.
  */
 export function timelineIdentityWarning(
-  comparison: IntegrityResponse['comparison'],
+  comparison: CurrentComparison | null,
   deptId: string,
   sheetRow: number,
   rowSeq: string,
