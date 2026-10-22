@@ -123,6 +123,13 @@ describe('classifyRows — procurement detection', () => {
     expect(row.classification).toBe('procurement_derived');
   });
 
+  it('classifies a spaced composite ID in column A as a purchase without parsing it as money', () => {
+    const row = classifySingle(5, makeCells({
+      A: '173 / 18', C: 'Х', G: 'Ремонт оборудования', L: 'ЭА', K: 100,
+    }));
+    expect(row.classification).toBe('procurement');
+  });
+
   it('does not treat a malformed composite label as a valid procurement ID', () => {
     const row = classifySingle(5, makeCells({
       A: '173//18', C: 'Х', G: 'Поставка материалов', L: 'ЕП', K: 100,

@@ -142,6 +142,16 @@ describe('целостность нумерации рабочего листа'
     expect(r.gapCount).toBe(0);
   });
 
+  it('normalizes spaced composite IDs in the independent sequence-integrity path', () => {
+    const report = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173 / 18' }),
+      row({ sheetRow: 5, rowSeq: '173/18' }),
+      row({ sheetRow: 6, rowSeq: '00173/18' }),
+    ]);
+    expect(report.duplicates.map(({ rowSeq, sheetRows }) => ({ rowSeq, sheetRows })))
+      .toEqual([{ rowSeq: '173/18', sheetRows: [4, 5] }]);
+  });
+
   it('пустой лист не ломает проверку', () => {
     const r = checkSequenceIntegrity([]);
     expect(r).toMatchObject({ rows: 0, countable: 0, gapCount: 0, range: null, coveragePct: null });
