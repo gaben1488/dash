@@ -92,18 +92,18 @@ const ROWS = [
   },
 ];
 
-/** Замечание формульной целостности на первой строке — как его рождает ядро. */
+/** Закупка №1 живёт с физической строки 4, а не в шапке. */
 const FORMULA_ISSUE = {
   id: 'formula|overwritten|УО|K|1|0',
   checkId: 'formula_overwritten',
   sheet: 'УО',
   departmentId: 'uo',
-  cell: 'K1',
-  row: 1,
+  cell: 'K4',
+  row: 4,
   rowSeq: '1',
   description:
-    'УО, ячейка K1 (закупка № 1): вместо формулы стоит «229,4». '
-    + 'Эталон графы: =SUM(H#:J#); целая формула — в строке 2.',
+    'УО, ячейка K4 (закупка № 1): вместо формулы стоит «229,4». '
+    + 'Эталон графы: =SUM(H#:J#); целая формула — в строке 5.',
 };
 
 function stubFetch() {
@@ -198,13 +198,13 @@ describe('жетон дефекта формулы на строке Реест�
   it('строка с дефектом несёт признак с адресом ячейки', async () => {
     renderPage();
     await screen.findByText('Ремонт кровли');
-    expect(screen.getByText('формула: K1')).toBeTruthy();
+    expect(screen.getByText('формула: K4')).toBeTruthy();
   });
 
   it('подсказка жетона называет класс из реестра проверок, что стоит и эталон', async () => {
     renderPage();
     await screen.findByText('Ремонт кровли');
-    const hint = screen.getByText('формула: K1').getAttribute('title') ?? '';
+    const hint = screen.getByText('формула: K4').getAttribute('title') ?? '';
     expect(hint).toContain(getCheckById('formula_overwritten')!.name);
     expect(hint).toContain('229,4');
     expect(hint).toContain('=SUM(H#:J#)');

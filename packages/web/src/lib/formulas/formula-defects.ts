@@ -24,7 +24,7 @@
  * принял, продукт обязан говорить «не смотрели», а не «чисто»: за это отвечает
  * `formulaIntegritySpot`, и молчание он отличает от нуля.
  */
-import { getCheckById } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, getCheckById } from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { toCanonicalDeptId } from '../dept-key';
 
@@ -173,13 +173,20 @@ export function collectFormulaDefects(
     const kind = checkId as FormulaDefectCheckId;
     const description = textOrEmpty(issue.description);
     const rowRaw = Number(issue.row);
+    const cell = textOrEmpty(issue.cell);
+    // Старые снимки могли сохранить ложные замечания числовой шапки.
+    // Исключаем их из экранов и счёта без перезаписи архивных данных.
+    const cellMatch = /^[A-Z]{1,3}([1-9][0-9]*)$/i.exec(cell);
+    const cellRow = cellMatch ? Number(cellMatch[1]) : null;
+    if ((Number.isInteger(rowRaw) && rowRaw > 0 && rowRaw <= DEPT_HEADER_ROWS)
+      || (cellRow !== null && cellRow <= DEPT_HEADER_ROWS)) continue;
     out.push({
       id: textOrEmpty(issue.id),
       checkId: kind,
       className: formulaDefectName(kind),
       book: textOrEmpty(issue.sheet),
       departmentId: textOrEmpty(issue.departmentId),
-      cell: textOrEmpty(issue.cell),
+      cell,
       row: Number.isFinite(rowRaw) && rowRaw > 0 ? rowRaw : null,
       rowSeq: textOrEmpty(issue.rowSeq),
       actual: parseActual(description, kind),

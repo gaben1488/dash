@@ -173,6 +173,18 @@ const ISSUES = [
 ];
 
 describe('сбор дефектов и счёт из данных', () => {
+  it('СТРАЖ: сохранённые ложные замечания строк 1–3 не попадают в счёт', () => {
+    const headerIssues = [
+      { ...ISSUES[0], id: 'header1', row: 1, cell: 'K1' },
+      { ...ISSUES[0], id: 'header2', row: 2, cell: 'AA2' },
+      { ...ISSUES[1], id: 'header3', row: 3, cell: 'Y3' },
+      { ...ISSUES[1], id: 'old-header-no-row', row: null, cell: 'O2' },
+    ];
+    const defects = collectFormulaDefects([...headerIssues, ...ISSUES]);
+    expect(defects.map((d) => d.id)).toEqual(['f1', 'f2']);
+    expect(countFormulaDefects(defects).total).toBe(2);
+  });
+
   it('чужие замечания отсеиваются, свои опознаются по идентификатору паспорта', () => {
     expect(isFormulaDefectIssue(ISSUES[0]!)).toBe(true);
     expect(isFormulaDefectIssue(ISSUES[2]!)).toBe(false);
