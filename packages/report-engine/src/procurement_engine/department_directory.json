@@ -1263,40 +1263,20 @@
         "old_sheet": "Справочник заказчиков",
         "sheet": "Справочник заказчиков",
         "role": "formula_dependency",
-        "old_columns": 18,
+        "old_columns": 34,
         "columns": 34,
         "old_header_rows": 1,
         "header_rows": 1,
-        "old_fingerprint": "33c63a8f5a1b2bd6fb5bd4d49a325bdd04c174f53859c29a3373fa991f941b50",
+        "old_fingerprint": "7c36865897a22ee4566007606c59ff0b674e6ba9255ce3052c69899597ffe3bb",
         "fingerprint": "7c36865897a22ee4566007606c59ff0b674e6ba9255ce3052c69899597ffe3bb",
-        "previous_semantic": "594117f4a78542aaee93605b400d737e6b08692748aee1faf5df20359cc66ea5",
+        "previous_semantic": "3221dea64b4fb0dfdba08cf9cb8909ffe5af3d535d4aabac380d4bed12ce9bfd",
         "semantic": "3221dea64b4fb0dfdba08cf9cb8909ffe5af3d535d4aabac380d4bed12ce9bfd",
         "volatile_cells": [],
         "optional": true,
-        "previous_geometry": [
-          [
-            18,
-            1,
-            "04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3"
-          ],
-          [
-            19,
-            1,
-            "994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042"
-          ],
-          [
-            32,
-            1,
-            "1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064"
-          ]
-        ],
-        "previous_semantics": [
-          "be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe",
-          "c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1",
-          "a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b"
-        ],
+        "previous_geometry": [],
+        "previous_semantics": [],
         "sheet_id": 837564274,
-        "reason": "Reviewed 2026-10-10: 13 ZMO evidence columns and 2 working-name columns appended after the unchanged 19-column customer directory; original identities and historical evidence remain intact."
+        "reason": "Decision 2026-10-23: only the current 34-column A:AH customer directory can be read as a live source. Old 18/19/32 formats are archival evidence (recordedV3/sealed releases), not supported adapters, migration inputs, or release blockers."
       },
       {
         "old_sheet": "_Проверки",

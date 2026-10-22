@@ -95,9 +95,9 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
     from procurement_engine import monitoring_schema as module
 
     headers = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())
-    specs = [('directory', 'Справочник заказчиков', 837564274, 18,
-              '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3',
-              'be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe'),
+    current_directory = next(p for p in module.REVIEWS if p['sheet'] == 'Справочник заказчиков')
+    specs = [('directory', 'Справочник заказчиков', 837564274, 34,
+              current_directory['fingerprint'], current_directory['semantic']),
              ('joint', 'Лист Совместных закупок', 2526402, 20,
               '49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377',
               '1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1'),
@@ -154,44 +154,52 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
         assert reviewed['sources'][-1]['sheet'] == '_Проверки'
 
 
-def test_customer_directory_34_col_extension_preserves_19_and_32_predecessors():
-    """Two observed additive transitions are pinned; unknown drift is rejected."""
+def test_customer_directory_active_34_schema_and_recorded_history():
+    """Old fingerprints are evidence, not alternative current-source profiles."""
     from procurement_engine import monitoring_schema as module
 
-    previous = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())['directory']
-    assert len(previous) == 1 and len(previous[0]) == 19
-    current = [previous[0] + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION]
+    original = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())['directory']
+    assert len(original) == 1 and len(original[0]) == 19
+    current = [original[0] + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION]
     patch = next(p for p in module.REVIEWS if p['sheet'] == 'Справочник заказчиков')
     assert patch['sheet_id'] == 837564274
-    assert patch['columns'] == 34
+    assert (patch['old_columns'], patch['columns']) == (34, 34)
+    assert patch['old_fingerprint'] == patch['fingerprint']
+    assert patch['previous_semantic'] == patch['semantic']
+    assert patch['previous_geometry'] == []
+    assert patch['previous_semantics'] == []
     assert len(current[0]) == 34
     assert header_hash(current, 1) == patch['fingerprint']
     assert semantic_header_hash(current, 1, 34) == patch['semantic']
-    assert (19, 1, header_hash(previous, 1)) in [tuple(g) for g in patch['previous_geometry']]
-    assert semantic_header_hash(previous, 1, 19) in patch['previous_semantics']
-    intermediate = [previous[0] + ZMO_DIRECTORY_EXTENSION]
-    assert (32, 1, header_hash(intermediate, 1)) in [tuple(g) for g in patch['previous_geometry']]
-    assert semantic_header_hash(intermediate, 1, 32) in patch['previous_semantics']
-    # The last working-name label is also part of the mandatory source contract.
+    history = next(p for p in module.RECORDED_REVIEWS_V3 if p['sheet'] == 'Справочник заказчиков')
+    assert history['columns'] == 19  # Recorded for audit, not for live admission.
     current[0][-1] += ' (other interpretation)'
     assert header_hash(current, 1) != patch['fingerprint']
 
 
 @pytest.mark.parametrize('generation', ['recorded_18', 'earlier_18', '19', '32', '34'])
-def test_customer_directory_every_recorded_generation_upgrades_without_rewriting_history(
+def test_customer_directory_rejects_obsolete_schemas_without_rewriting_history(
         monkeypatch, generation):
-    """All sealed ancestors retain their identity and exact provenance on 34-column upgrade."""
+    """Existing 18/19/32 snapshots are not migrated implicitly to the live registry."""
     from procurement_engine import monitoring_schema as module
 
     patch = next(p for p in module.REVIEWS if p['sheet'] == 'Справочник заказчиков')
+    history = next(p for p in module.RECORDED_REVIEWS_V3 if p['sheet'] == 'Справочник заказчиков')
     monkeypatch.setattr(module, 'REVIEWS', [patch])
     monkeypatch.setattr(module, 'RETIRED', [])
+    base = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json')
+                      .read_text())['directory'][0]
+    intermediate = base + ZMO_DIRECTORY_EXTENSION
+    current = base + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION
     versions = {
-        'recorded_18': ((patch['old_columns'], patch['old_header_rows'],
-                         patch['old_fingerprint']), patch['previous_semantic']),
-        'earlier_18': (tuple(patch['previous_geometry'][0]), patch['previous_semantics'][0]),
-        '19': (tuple(patch['previous_geometry'][-2]), patch['previous_semantics'][-2]),
-        '32': (tuple(patch['previous_geometry'][-1]), patch['previous_semantics'][-1]),
+        'recorded_18': ((history['old_columns'], history['old_header_rows'],
+                         history['old_fingerprint']), history['previous_semantic']),
+        'earlier_18': (tuple(history['previous_geometry'][0]),
+                       history['previous_semantics'][0]),
+        '19': ((history['columns'], history['header_rows'], history['fingerprint']),
+               history['semantic']),
+        '32': ((32, 1, header_hash([intermediate], 1)),
+               semantic_header_hash([intermediate], 1, 32)),
         '34': ((patch['columns'], patch['header_rows'], patch['fingerprint']), patch['semantic']),
     }
     (width, rows, raw), semantic = versions[generation]
@@ -207,9 +215,6 @@ def test_customer_directory_every_recorded_generation_upgrades_without_rewriting
         source,
     ]}
     sealed = {'directory': (deepcopy(source), semantic)}
-    headers = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json')
-                         .read_text())['directory']
-    live = [headers[0] + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION]
 
     class Client:
         def revision(self, provider):
@@ -221,7 +226,13 @@ def test_customer_directory_every_recorded_generation_upgrades_without_rewriting
 
         def values(self, provider, title, start, end, columns):
             assert columns == 34
-            return deepcopy(live)
+            return [current[:]]
+
+    if generation != '34':
+        with pytest.raises(ValueError, match='MONITORING_SCHEMA_BASE_MISMATCH'):
+            review_registry(original, sealed, Client())
+        assert original['sources'][1] == source
+        return
 
     reviewed, changes = review_registry(original, sealed, Client())
     assert changes == 1
@@ -230,15 +241,12 @@ def test_customer_directory_every_recorded_generation_upgrades_without_rewriting
     assert reviewed['sources'][1]['schema_fingerprint'] == patch['fingerprint']
     assert reviewed['sources'][1]['semantic_header_fingerprint'] == patch['semantic']
     assert reviewed['sources'][1]['additional_provenance'] == source['additional_provenance']
-    assert reviewed['sources'][1]['previous_semantic_header_fingerprint'] == (
-        semantic if semantic != patch['semantic'] else patch['previous_semantic'])
     assert review_registry(reviewed, sealed, Client())[1] == 0
-
     tampered = deepcopy(original)
     tampered['sources'][1]['semantic_header_fingerprint'] = '0' * 64
     with pytest.raises(ValueError, match='MONITORING_SCHEMA_BASE_MISMATCH'):
         review_registry(tampered, sealed, Client())
-    assert tampered['sources'][1]['columns'] == width
+    assert tampered['sources'][1]['columns'] == 34
 
 
 def test_customer_directory_34_column_registry_rejects_changed_extra_header(monkeypatch):
@@ -253,14 +261,15 @@ def test_customer_directory_34_column_registry_rejects_changed_extra_header(monk
     source = {'source_id': 'customer-dir', 'provider_id': 'private-monitoring',
               'sheet_id': 837564274, 'sheet': 'Справочник заказчиков',
               'role': 'formula_dependency', 'grbs': None, 'units': 'directory',
-              'columns': 19, 'header_rows': 1,
-              'schema_fingerprint': header_hash(old, 1)}
+              'columns': 34, 'header_rows': 1,
+              'schema_fingerprint': header_hash(current, 1),
+              'semantic_header_fingerprint': semantic_header_hash(current, 1, 34)}
     original = {'sources': [
         {'source_id': 'master', 'provider_id': 'private-monitoring',
          'sheet': 'Рабочий реестр процедур', 'sheet_id': 2526300},
         source,
     ]}
-    sealed = {'customer-dir': (deepcopy(source), semantic_header_hash(old, 1, 19))}
+    sealed = {'customer-dir': (deepcopy(source), semantic_header_hash(current, 1, 34))}
 
     class Client:
         def revision(self, provider):

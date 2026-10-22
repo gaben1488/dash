@@ -83,11 +83,18 @@ def review_registry(original, sealed, client):
             raise ValueError('MONITORING_SCHEMA_IDENTITY_MISMATCH')
         old_geometry = (patch['old_columns'], patch['old_header_rows'], patch['old_fingerprint'])
         new_geometry = (patch['columns'], patch['header_rows'], patch['fingerprint'])
-        accepted_geometry = {old_geometry, new_geometry, *[tuple(g) for g in patch.get('previous_geometry', [])]}
+        # Old customer-directory generations are archival evidence, never live contracts.
+        accepted_geometry = (
+            {new_geometry} if patch['sheet'] == 'Справочник заказчиков'
+            else {old_geometry, new_geometry, *[tuple(g) for g in patch.get('previous_geometry', [])]}
+        )
         if (source['columns'], source['header_rows'], source['schema_fingerprint']) not in accepted_geometry:
             raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         prior = sealed.get(source['source_id'])
-        accepted_semantic = {patch['previous_semantic'], patch['semantic'], *patch.get('previous_semantics', [])}
+        accepted_semantic = (
+            {patch['semantic']} if patch['sheet'] == 'Справочник заказчиков'
+            else {patch['previous_semantic'], patch['semantic'], *patch.get('previous_semantics', [])}
+        )
         # A registry with an invented semantic fingerprint must not be
         # repaired implicitly merely because the live sheet looks familiar.
         if (patch['sheet'] == 'Справочник заказчиков'

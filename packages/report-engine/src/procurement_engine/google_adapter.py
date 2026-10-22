@@ -255,13 +255,15 @@ class GoogleSheetSourceAdapter:
                 raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
         count=grid['gridProperties']['rowCount']
         physical_columns=grid['gridProperties']['columnCount']
-        # The reviewed canonical customer directory uses all physical columns
-        # as business/evidence fields, unlike sheets with spare formula columns.
-        # An installed 18/19/32 contract must not silently read a live 34 grid.
+        # Unlike sheets with spare formula columns, the customer directory
+        # requires the single reviewed A:AH profile on both registry and grid.
+        # Old 18/19/32 widths fail even if the two old widths are equal.
+        directory = next(r for r in MONITORING_SOURCE_SCHEMA['reviews']
+                         if r['sheet'] == 'Справочник заказчиков')
         if ((c['provider_id'], c['sheet_id']) ==
-            (MONITORING_SOURCE_SCHEMA['providerId'],
-             next(r['sheet_id'] for r in MONITORING_SOURCE_SCHEMA['reviews'] if r['sheet'] == 'Справочник заказчиков'))
-            and physical_columns != c['columns']):
+                (MONITORING_SOURCE_SCHEMA['providerId'], directory['sheet_id'])
+                and (c['columns'] != directory['columns']
+                     or physical_columns != directory['columns'])):
             raise GoogleReadError('MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH')
         if physical_columns<c['columns']:
             raise GoogleReadError('GOOGLE_SOURCE_COLUMNS_MISSING')

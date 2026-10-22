@@ -87,12 +87,12 @@ def test_wider_grid_captures_dependency_values_without_expanding_business_column
 
  
 @pytest.mark.parametrize('registered_width, physical_width', [
-    (18, 18), (19, 19), (32, 32), (34, 34),
-    (18, 34), (19, 34), (32, 34), (34, 35),
+    (34, 34), (18, 18), (19, 19), (32, 32),
+    (18, 34), (19, 34), (32, 34), (34, 35), (34, 33),
 ])
 def test_canonical_directory_exact_physical_width_guards_live_capture(
         registered_width, physical_width):
-    """Historical frozen schemas stay readable; live width drift cannot hide columns."""
+    """Only the A:AH directory is live; old equal-width registry/grid pairs must fail."""
     class Directory(Client):
         def grid(self, provider, sheet_id):
             assert sheet_id == 837564274
@@ -117,7 +117,7 @@ def test_canonical_directory_exact_physical_width_guards_live_capture(
                 'columns': registered_width, 'header_rows': 1, 'units': 'directory',
                 'schema_fingerprint': header_hash([['Heading']], 1)}
     adapter = GoogleSheetSourceAdapter(contract, Directory())
-    if registered_width != physical_width:
+    if registered_width != 34 or physical_width != 34:
         with pytest.raises(GoogleReadError, match='MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH'):
             adapter.read_payload()
         return
