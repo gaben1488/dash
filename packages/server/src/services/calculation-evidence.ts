@@ -56,7 +56,14 @@ function canonical(value: unknown): unknown {
 }
 
 export function calculationSha256(value: unknown): string {
-  const json = JSON.stringify(canonical(value));
+  // The existing snapshot is stored through JSON.stringify. Normalize through
+  // that exact representation first: undefined properties disappear, Date
+  // becomes ISO, and non-finite numbers become null. Otherwise a snapshot
+  // could fail its own readback hash immediately after a successful save.
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error('CALCULATION_HASH_INPUT_NOT_SERIALIZABLE');
+  const normalized = JSON.parse(serialized) as unknown;
+  const json = JSON.stringify(canonical(normalized));
   return createHash('sha256').update(json).digest('hex');
 }
 
