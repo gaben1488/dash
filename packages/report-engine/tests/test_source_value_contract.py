@@ -55,8 +55,8 @@ def test_report_metric_projection_has_explicit_money_scale_and_percentage_points
     result = metric_block([row], report_year=2026, as_of='2026-10-22')
     assert result['plan_count'] == result['fact_count'] == 1
     assert result['money_unit'] == 'тыс. руб.'
-    assert Decimal(result['exact_decimal']['plan_amount']) == Decimal('20000')
-    assert Decimal(result['exact_decimal']['confirmed_saving_amount']) == Decimal('-20')
+    assert Decimal(result['exact_decimal']['plan_amount']) == Decimal(20000)
+    assert Decimal(result['exact_decimal']['confirmed_saving_amount']) == Decimal(-20)
     assert result['contracted_share_pct'] == pytest.approx(6.1728)  # percent points, not a fraction
     assert result['execution_pct'] == 100
 
