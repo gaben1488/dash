@@ -2,7 +2,7 @@
 /** C06.03: do not silently export defaults as the saved revision. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { procurementEditableGuidance } from '@aemr/shared';
+import { procurementEditableGuidance, type SavedProcurementGuidanceEntry } from '@aemr/shared';
 import { RuleReference, checkedGuidanceResponse } from './RuleReference';
 
 const getEditorialGuidance = vi.fn();
@@ -15,14 +15,14 @@ vi.mock('../api', () => ({
   humanizeRequestError: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-const entries = () => procurementEditableGuidance().map(item => ({
+const entries = (): SavedProcurementGuidanceEntry[] => procurementEditableGuidance().map(item => ({
   ...item,
   text: item.defaultText,
   overridden: false,
   revision: 0,
   updatedAt: null,
 }));
-const response = (list: ReturnType<typeof entries>) => ({
+const response = (list: SavedProcurementGuidanceEntry[]) => ({
   version: 'C06.03-editorial-v1' as const,
   calculationRulesChanged: false as const,
   entries: list,
