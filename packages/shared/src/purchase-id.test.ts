@@ -6,7 +6,7 @@ describe('procurement IDs — textual identity is not a number', () => {
     expect(isPurchaseId(12)).toBe(true);
     expect(isPurchaseId('12')).toBe(true);
     expect(isPurchaseId('12/1')).toBe(true);
-    expect(isPurchaseId('12/01')).toBe(true);
+    expect(isPurchaseId('12/01')).toBe(false); // not accepted for new entry by live УД validation
     expect(isCompositePurchaseId('12/1')).toBe(true);
     expect(isCompositePurchaseId('12')).toBe(false);
   });
