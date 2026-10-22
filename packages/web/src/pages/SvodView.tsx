@@ -205,12 +205,26 @@ const BUDGET_PHRASE: Record<BudgetKey, string> = {
 // ── Главный компонент ────────────────────────────────────────────────
 
 export function SvodView() {
-  const {
-    moneyUnit, year, period, activeMonths, monthsByYear, periodMode,
-    selectedDepartments, selectedMethods, selectedBudgets, selectedActivities, selectedSubordinates,
-    searchQuery, setYear, navigateTo,
-    toggleActivity, clearActivities, clearAllPeriods, toggleMonthInYear, toggleQuarterInYear,
-  } = useStore();
+  // A large tabular view must not re-render on unrelated source/worker UI state.
+  const moneyUnit = useStore(s => s.moneyUnit);
+  const year = useStore(s => s.year);
+  const period = useStore(s => s.period);
+  const activeMonths = useStore(s => s.activeMonths);
+  const monthsByYear = useStore(s => s.monthsByYear);
+  const periodMode = useStore(s => s.periodMode);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const selectedMethods = useStore(s => s.selectedMethods);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const searchQuery = useStore(s => s.searchQuery);
+  const setYear = useStore(s => s.setYear);
+  const navigateTo = useStore(s => s.navigateTo);
+  const toggleActivity = useStore(s => s.toggleActivity);
+  const clearActivities = useStore(s => s.clearActivities);
+  const clearAllPeriods = useStore(s => s.clearAllPeriods);
+  const toggleMonthInYear = useStore(s => s.toggleMonthInYear);
+  const toggleQuarterInYear = useStore(s => s.toggleQuarterInYear);
 
   // Показ бюджетов в столбцах — это раскладка таблицы, а не фильтр данных,
   // поэтому единственное состояние, которое честно остаётся локальным.

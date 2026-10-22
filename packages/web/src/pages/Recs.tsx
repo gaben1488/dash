@@ -77,7 +77,7 @@ interface Recommendation {
 }
 
 export function RecsPage() {
-  const { dashboardData } = useStore();
+  const dashboardData = useStore(s => s.dashboardData);
   const fd = useFilteredData();
   const [openDepts, setOpenDepts] = useState<Set<string>>(new Set());
 

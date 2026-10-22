@@ -209,7 +209,10 @@ function gaugeStroke(score: number): string {
 // ────────────────────────────────────────────────────────────
 
 export function TrustPage() {
-  const { dashboardData, navigateTo, refresh, loading } = useStore();
+  const dashboardData = useStore(s => s.dashboardData);
+  const navigateTo = useStore(s => s.navigateTo);
+  const refresh = useStore(s => s.refresh);
+  const loading = useStore(s => s.loading);
   const fd = useFilteredData();
   const [expandedComponent, setExpandedComponent] = useState<string | null>(null);
 

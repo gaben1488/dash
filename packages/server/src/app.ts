@@ -229,8 +229,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // разные подписи одного и того же содержимого. Сжатие идёт следом и дописывает
   // к подписи название кодировки — так же, как это делает nginx.
   registerHttpCache(app);
-  registerRequestTiming(app);
   registerCompression(app);
+  // Last onSend: the measured app window includes compression; otherwise
+  // Server-Timing misattributes compressed megabyte responses to network/proxy.
+  registerRequestTiming(app);
 
   await app.register(dashboardRoutes);
   await app.register(metricsRoutes);

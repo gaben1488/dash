@@ -130,8 +130,23 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 /* ── App ───────────────────────────────────────────────── */
 
+/** These data-dependent notices update independently of the application
+ * shell, so an accepted SSE refresh does not remount/rerender the active page. */
+function SnapshotNotices() {
+  const snapshot = useStore(s => s.dashboardData?.snapshot);
+  return (
+    <>
+      <SnapshotFreshnessNotice snapshot={snapshot} />
+      <SourceCoverageNotice coverage={snapshot?.metadata.sourceCoverage} />
+    </>
+  );
+}
+
 export function App() {
-  const { page, year, dashboardData, fetchDashboard, fetchSubordinates } = useStore();
+  const page = useStore(s => s.page);
+  const year = useStore(s => s.year);
+  const fetchDashboard = useStore(s => s.fetchDashboard);
+  const fetchSubordinates = useStore(s => s.fetchSubordinates);
   useThemeInit();
   useUrlSync();
 
@@ -213,8 +228,7 @@ export function App() {
                 распирала строку и не выдавливала полосу организаций за край. */}
             <main id="main-content" tabIndex={-1} data-page={page} style={pageDawnStyle(page)} className="page-context flex-1 min-h-0 min-w-0 overflow-auto">
               <div className="max-w-[1400px] mx-auto p-6">
-                {page !== 'report' && <SnapshotFreshnessNotice snapshot={dashboardData?.snapshot} />}
-                {page !== 'report' && <SourceCoverageNotice coverage={dashboardData?.snapshot.metadata.sourceCoverage} />}
+                {page !== 'report' && <SnapshotNotices />}
                 <ErrorBoundary resetKey={page} scope="раздел">
                   {/* Пока файл раздела едет по сети, на его месте стоит скелет
                       той же формы — экран не прыгает, когда раздел появился. */}

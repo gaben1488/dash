@@ -93,9 +93,19 @@ function EconomyNotice({ icon, title, body, detail, tone = 'neutral' }: {
 }
 
 export function EconomyPage() {
-  const { formatMoney, toggleDepartment, toggleSubordinate, navigateTo,
-    selectedBudgets, selectedMethods, selectedActivities, deptOnlyMode, selectedDepartments,
-    loading, error, dashboardData } = useStore();
+  const formatMoney = useStore(s => s.formatMoney);
+  useStore(s => s.moneyUnit); // formatMoney reads the current unit through get().
+  const toggleDepartment = useStore(s => s.toggleDepartment);
+  const toggleSubordinate = useStore(s => s.toggleSubordinate);
+  const navigateTo = useStore(s => s.navigateTo);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const selectedMethods = useStore(s => s.selectedMethods);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const deptOnlyMode = useStore(s => s.deptOnlyMode);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const loading = useStore(s => s.loading);
+  const error = useStore(s => s.error);
+  const dashboardData = useStore(s => s.dashboardData);
   const fd = useFilteredData();
   const summaries = fd.depts as DepartmentSummary[];
 

@@ -77,3 +77,19 @@ it('excludes independent background source refresh from foreground HTTP stage du
   expect(String(result.headers['server-timing'])).not.toContain('google;dur=');
   await app.close();
 });
+
+it('does not report a fictitious zero serialization for a buffered Word response', async () => {
+  const app = Fastify(); registerRequestTiming(app);
+  app.get('/word', async (request, reply) => {
+    const content = await requestStage(request, 'reader', async () => Buffer.from('PK\x03\x04fixture'));
+    return reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document').send(content);
+  });
+  const result = await app.inject('/word');
+  expect(result.statusCode).toBe(200);
+  const timing = String(result.headers['server-timing']);
+  expect(timing).toContain('app;dur=');
+  expect(timing).toContain('reader;dur=');
+  expect(timing).not.toContain('serialize;dur=');
+  expect(result.headers['x-request-id']).toMatch(/^req-/);
+  await app.close();
+});

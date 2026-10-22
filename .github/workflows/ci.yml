@@ -93,6 +93,39 @@ jobs:
 
       - name: Verify stateful backup and scratch restore (synthetic; no VPS)
         run: python3 -m unittest discover -s .github/ci -p 'test_stateful_backup.py' -v
+      - name: Verify read-only C05.11 paired latency and payload evidence (synthetic; no VPS)
+        run: python3 .github/ci/test_paired_read_timing.py
+      - name: Verify C05.11 response, compression and analytics consumers (synthetic; no VPS)
+        run: |
+          pnpm --filter @aemr/server exec vitest run \
+            src/plugins/request-timing.test.ts \
+            src/plugins/compression.test.ts \
+            src/plugins/http-cache.test.ts \
+            src/routes/analytics-data-quality.test.ts \
+            src/routes/dashboard-payload.test.ts
+      - name: Verify C05.11 browser render isolation and existing money/filter scenarios
+        run: |
+          pnpm --filter @aemr/web exec vitest run \
+            src/App.subscription.test.tsx \
+            src/components/OrgStrip.subscription.test.tsx \
+            src/components/Header.subscription.test.tsx \
+            src/components/Header.navigation.test.tsx \
+            src/components/Header.quarters.test.tsx \
+            src/components/Header.stavka.test.tsx \
+            src/pages/Quality.subscription.test.tsx \
+            src/hooks/useFilteredData.loading-cache.test.tsx \
+            src/pages/Dashboard.trust.test.tsx \
+            src/pages/Dashboard.spots.test.ts \
+            src/pages/Economy.reminder.test.tsx \
+            src/pages/DataBrowser.subs.test.tsx \
+            src/pages/DataBrowser.outside44fz.test.tsx \
+            src/pages/Issues.persistence.test.tsx \
+            src/pages/Trust.test.tsx \
+            src/lib/unified-svod-view.test.ts
+      - name: Verify C05.11 changed TS packages without masking the unrelated shared test fixture
+        run: |
+          pnpm --filter @aemr/server typecheck
+          pnpm --filter @aemr/web typecheck
       - name: Verify exact-candidate report schema probe (synthetic; no VPS)
         run: python3 .github/ci/test_report_schema_probe.py
       - name: Verify exact source-job maintenance admission (synthetic; no VPS)

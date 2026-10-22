@@ -25,6 +25,7 @@
 import { promisify } from 'node:util';
 import { brotliCompress, constants as zlibConstants, gzip } from 'node:zlib';
 import type { FastifyInstance } from 'fastify';
+import { requestStage } from './request-timing.js';
 
 const gzipAsync = promisify(gzip);
 const brotliAsync = promisify(brotliCompress);
@@ -120,7 +121,8 @@ export function registerCompression(app: FastifyInstance, options: CompressionOp
 
     let compressed: Buffer;
     try {
-      compressed = await compressPayload(body, encoding);
+      // Final Server-Timing stage includes the actual asynchronous compression cost.
+      compressed = await requestStage(request, 'compress', () => compressPayload(body, encoding));
     } catch (err) {
       // Отказ свёртки — не отказ страницы: отдаём как было.
       request.log.warn({ err }, 'Сжатие ответа не выполнено — отдаём тело без сжатия');

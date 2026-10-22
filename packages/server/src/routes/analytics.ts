@@ -40,35 +40,59 @@ import { getDeptSheetValues, getDeptCacheFilledAt } from '../services/snapshot.j
  * Без счётной базы доля неизвестна: отсутствие строк не доказывает
  * ни безупречное качество, ни низкое качество данных.
  */
-function dataQualityScore(
-  issues: readonly { departmentId?: string; group?: string; row?: number; status?: string; checkId?: string; category?: string; origin?: string; sheet?: string; cell?: string }[],
+type QualityIssue = {
+  departmentId?: string; group?: string; row?: number; status?: string; checkId?: string;
+  category?: string; origin?: string; sheet?: string; cell?: string;
+};
+
+// The first matching canonical/legacy rule wins, exactly as CHECK_REGISTRY.find did.
+// Index once at module load, never for each issue of each department.
+const qualityRuleById = new Map<string, boolean>();
+for (const check of CHECK_REGISTRY) {
+  for (const name of [check.id, check.legacyId]) {
+    if (name && !qualityRuleById.has(name)) qualityRuleById.set(name, check.trustComponent === 'data_quality');
+  }
+}
+const qualityGroups = new Set<string>(TRUST_COMPONENT_CONFIG.data_quality.issueGroups);
+
+/** One pass over this request's persisted decisions; no caches across snapshots or access scopes. */
+export function indexDataQualityRows(issues: readonly QualityIssue[]): ReadonlyMap<string, ReadonlySet<number>> {
+  const byDept = new Map<string, Set<number>>();
+  for (const issue of issues) {
+    if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
+      || formulaDiagnosticInapplicableReason(issue)) continue;
+    // Regulatory states are not evidence of bad data quality.
+    if (issue.checkId === 'plan_year_missing' || issue.checkId === 'fact_without_date'
+      || issue.category === 'signal:planYearMissing' || issue.category === 'signal:factWithoutDate') continue;
+    const ruleQuality = issue.checkId ? qualityRuleById.get(issue.checkId) : undefined;
+    const quality = ruleQuality === undefined
+      ? ((issue.group !== undefined && qualityGroups.has(issue.group))
+        || issue.group === 'data_quality' || issue.category === 'signal:dataQuality'
+        || issue.category === 'signal:dateWithoutFact')
+      : ruleQuality;
+    if (!quality || !issue.departmentId) continue;
+    let rows = byDept.get(issue.departmentId);
+    if (!rows) { rows = new Set<number>(); byDept.set(issue.departmentId, rows); }
+    rows.add(issue.row ?? -1);
+  }
+  return byDept;
+}
+
+/** An issue may use either the latin id or the original Cyrillic department key. */
+export function dataQualityScore(
+  rowsByDept: ReadonlyMap<string, ReadonlySet<number>>,
   grbsId: string,
   grbsShort: string,
   rowCount: number,
 ): number | null {
   if (rowCount <= 0) return null;
-  const dirtyRows = new Set<number>();
-  for (const issue of issues) {
-    if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
-      || formulaDiagnosticInapplicableReason(issue)) continue;
-    // Регламентные состояния (необеспеченная закупка и закупка в течение года)
-    // не являются дефектами заполнения или дисциплины сотрудника.
-    if (issue.checkId === 'plan_year_missing' || issue.checkId === 'fact_without_date'
-      || issue.category === 'signal:planYearMissing' || issue.category === 'signal:factWithoutDate') continue;
-    const check = issue.checkId ? CHECK_REGISTRY.find(check => check.id === issue.checkId || check.legacyId === issue.checkId) : undefined;
-    const quality = check ? check.trustComponent === 'data_quality'
-      : (TRUST_COMPONENT_CONFIG.data_quality.issueGroups.some(group => group === issue.group)
-        || issue.group === 'data_quality' || issue.category === 'signal:dataQuality'
-        || issue.category === 'signal:dateWithoutFact');
-    if (!quality) continue;
-    const dept = issue.departmentId;
-    if (dept !== grbsId && dept !== grbsShort) continue;
-    // Замечание без номера строки относится к листу целиком: считаем его
-    // одной проблемной строкой, а не игнорируем — иначе лист с одним
-    // общим дефектом выглядел бы безупречным.
-    dirtyRows.add(issue.row ?? -1);
+  const primary = rowsByDept.get(grbsId);
+  const alternate = rowsByDept.get(grbsShort);
+  let dirty = primary?.size ?? 0;
+  if (alternate && alternate !== primary) {
+    for (const row of alternate) if (!primary?.has(row)) dirty++;
   }
-  return Math.min(1, Math.max(0, 1 - dirtyRows.size / rowCount));
+  return Math.min(1, Math.max(0, 1 - dirty / rowCount));
 }
 
 /**
@@ -278,6 +302,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const recalcResults = snapshot.recalcResults ?? {};
       const deptCache = getDeptSheetValues();
       const decisionIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
+      const qualityRows = indexDataQualityRows(decisionIssues);
       const profiles = buildGRBSProfiles(recalcResults);
       const result: Record<string, unknown> = {};
 
@@ -328,7 +353,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           role: profile.role,
           assessmentStatus: 'unconfirmed_methodology',
           assessmentReason: 'Грейд и индекс дисциплины не рассчитываются: ожидания исполнения, роли и веса оценки не имеют подтверждённого основания. Фактические показатели приведены отдельно.',
-          dataQuality: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, countedRows),
+          dataQuality: dataQualityScore(qualityRows, profile.grbsId, profile.grbsShort, countedRows),
           anticorruptionFlags: anticorruption.flags.length,
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,

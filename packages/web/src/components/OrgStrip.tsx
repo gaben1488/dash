@@ -77,19 +77,17 @@ const COLLAPSE_THRESHOLD = 5;
 const COLLAPSED_SHOW = 4;
 
 export function OrgStrip() {
-  const {
-    subordinatesMap,
-    subordinatesCoverage,
-    subordinatesError,
-    selectedDepartments,
-    toggleDepartment,
-    selectAllDepartments,
-    selectedSubordinates,
-    toggleSubordinate,
-    deptOnlyMode,
-    setDeptOnly,
-    clearDeptOnly,
-  } = useStore();
+  const subordinatesMap = useStore(s => s.subordinatesMap);
+  const subordinatesCoverage = useStore(s => s.subordinatesCoverage);
+  const subordinatesError = useStore(s => s.subordinatesError);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const toggleDepartment = useStore(s => s.toggleDepartment);
+  const selectAllDepartments = useStore(s => s.selectAllDepartments);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const toggleSubordinate = useStore(s => s.toggleSubordinate);
+  const deptOnlyMode = useStore(s => s.deptOnlyMode);
+  const setDeptOnly = useStore(s => s.setDeptOnly);
+  const clearDeptOnly = useStore(s => s.clearDeptOnly);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = useCallback((deptId: string) => {

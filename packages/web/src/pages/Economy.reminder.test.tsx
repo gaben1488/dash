@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Issue } from '@aemr/shared';
 import { EconomyPage } from './Economy';
 import { useStore } from '../store';
@@ -96,4 +96,20 @@ it.each(['resolved', 'false_positive', 'wont_fix'] as const)('does not present %
 it('discloses that preparation cases are from the reading, not the financial period or method slice', () => {
   render(<TooltipProvider><EconomyPage /></TooltipProvider>);
   expect(screen.getByText('Открытые позиции выбранного чтения. Учитываются управление, учреждение, направление и поиск; период, способ закупки и бюджет этот список не ограничивают.')).toBeTruthy();
+});
+
+
+it('updates money formatting when moneyUnit changes without needing unrelated store updates', () => {
+  const previousUnit = useStore.getState().moneyUnit;
+  act(() => useStore.setState({ moneyUnit: 'тыс' }));
+  try {
+    render(<TooltipProvider><EconomyPage /></TooltipProvider>);
+    const before = screen.getByText(/экономии.*•/).textContent;
+    act(() => useStore.setState({ moneyUnit: 'млн' }));
+    const after = screen.getByText(/экономии.*•/).textContent;
+    expect(after).not.toBe(before);
+    expect(after).toContain('млн');
+  } finally {
+    act(() => useStore.setState({ moneyUnit: previousUnit }));
+  }
 });

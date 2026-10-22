@@ -104,6 +104,11 @@ export function registerHttpCache(app: FastifyInstance, options: HttpCacheOption
     if (!path.startsWith('/api/')) return payload;
     if (NEVER_CACHED.test(path)) return payload;
     if (alreadyTagged(reply)) return payload;
+    // Report artifacts, private commands and other no-store responses must never
+    // become reusable representations, even when a caller supplies If-None-Match.
+    // Hashing their potentially large bodies would only consume CPU and memory.
+    if (String(reply.getHeader('cache-control') ?? '').split(',')
+      .some(directive => directive.trim().toLowerCase() === 'no-store')) return payload;
 
     const size = Buffer.byteLength(payload as string | Buffer);
     if (size < minBytes) return payload;

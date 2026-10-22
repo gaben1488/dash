@@ -91,7 +91,14 @@ function EmptyView({ title, reason, hint }: { title: string; reason: string; hin
 }
 
 export function ReconPage() {
-  const { formatMoney, year, dashboardData, selectedDepartments, navigateTo, refresh, loading } = useStore();
+  const formatMoney = useStore(s => s.formatMoney);
+  useStore(s => s.moneyUnit); // preserve money-format rerenders.
+  const year = useStore(s => s.year);
+  const dashboardData = useStore(s => s.dashboardData);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const navigateTo = useStore(s => s.navigateTo);
+  const refresh = useStore(s => s.refresh);
+  const loading = useStore(s => s.loading);
   const fd = useFilteredData();
   const [reconData, setReconData] = useState<ReconSummaryData | null>(null);
   const [reconLoading, setReconLoading] = useState(false);

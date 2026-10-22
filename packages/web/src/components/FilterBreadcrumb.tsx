@@ -14,14 +14,24 @@ import clsx from 'clsx';
  * variant="inline" — bare chips only, for embedding in the header bar
  */
 export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'inline' } = {}) {
-  const {
-    selectedDepartments, selectedSubordinates, activeMonths,
-    selectedMethods, selectedActivities, selectedBudgets,
-    periodMode, monthsByYear, period, searchQuery,
-    selectAllDepartments, clearSubordinates, clearAllPeriods,
-    clearMethods, clearActivities, clearBudgets, setSearchQuery,
-    resetAllFilters,
-  } = useStore();
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const activeMonths = useStore(s => s.activeMonths);
+  const selectedMethods = useStore(s => s.selectedMethods);
+  const selectedActivities = useStore(s => s.selectedActivities);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const periodMode = useStore(s => s.periodMode);
+  const monthsByYear = useStore(s => s.monthsByYear);
+  const period = useStore(s => s.period);
+  const searchQuery = useStore(s => s.searchQuery);
+  const selectAllDepartments = useStore(s => s.selectAllDepartments);
+  const clearSubordinates = useStore(s => s.clearSubordinates);
+  const clearAllPeriods = useStore(s => s.clearAllPeriods);
+  const clearMethods = useStore(s => s.clearMethods);
+  const clearActivities = useStore(s => s.clearActivities);
+  const clearBudgets = useStore(s => s.clearBudgets);
+  const setSearchQuery = useStore(s => s.setSearchQuery);
+  const resetAllFilters = useStore(s => s.resetAllFilters);
 
   const hasDept = selectedDepartments.size > 0;
   const hasSub = selectedSubordinates.size > 0;

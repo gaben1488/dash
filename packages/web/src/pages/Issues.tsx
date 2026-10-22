@@ -263,7 +263,9 @@ function IssueTimeline({ issueId }: { issueId: string }) {
 }
 
 export function IssuesPage() {
-  const { dashboardData, navigateTo, searchQuery } = useStore();
+  const dashboardData = useStore(s => s.dashboardData);
+  const navigateTo = useStore(s => s.navigateTo);
+  const searchQuery = useStore(s => s.searchQuery);
   const fd = useFilteredData();
 
   const [search, setSearch] = useState(searchQuery);

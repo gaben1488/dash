@@ -2,9 +2,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-type Stage = 'reader' | 'model' | 'contract' | 'sql' | 'decode' | 'google' | 'normalize';
+type Stage = 'reader' | 'model' | 'contract' | 'sql' | 'decode' | 'google' | 'normalize' | 'compress';
 interface Window {
   start: number; startedAt: string; serialization?: number;
+  sentAt?: number; bufferedPayloadBytes?: number | null;
   stages: Partial<Record<Stage, number>>; cpu: NodeJS.CpuUsage;
 }
 const windows = new WeakMap<FastifyRequest, Window>();
@@ -82,9 +83,19 @@ export function registerRequestTiming(app: FastifyInstance): void {
     reply.header('X-Request-Id', request.id);
     if (window) {
       const now = performance.now();
+      window.sentAt = now;
+      // Size as observed by this Fastify hook (not a Caddy/network byte count).
+      window.bufferedPayloadBytes = Buffer.isBuffer(payload) ? payload.byteLength
+        : typeof payload === 'string' ? Buffer.byteLength(payload) : null;
       const stages = Object.entries(window.stages).map(([name, ms]) => `${name};dur=${ms!.toFixed(2)}`);
+      // onSend runs *after* compression. Do not attribute the already-measured
+      // compression interval to serialize as well; both remain inclusive of their
+      // own hooks, while the overall app duration encloses both stages.
+      // Buffers/streams skip preSerialization and must not claim serialize=0.
+      const serialization = window.serialization === undefined ? []
+        : [`serialize;dur=${Math.max(0, now - window.serialization - (window.stages.compress ?? 0)).toFixed(2)}`];
       reply.header('Server-Timing', [`app;dur=${(now - window.start).toFixed(2)}`,
-        `serialize;dur=${window.serialization === undefined ? '0' : (now - window.serialization).toFixed(2)}`, ...stages,
+        ...serialization, ...stages,
         `loop;dur=${loopDelay(window.start, now).eventLoopProcessMaxDelayMs.toFixed(2)}`].join(', '));
     }
     return payload;
@@ -93,9 +104,13 @@ export function registerRequestTiming(app: FastifyInstance): void {
     const window = windows.get(request);
     if (!window) return;
     const cpu = process.cpuUsage(window.cpu);
+    const completedAt = performance.now();
     request.log.info({ kind: 'request_window', requestId: request.id, route: request.routeOptions.url, status: reply.statusCode,
       startedAt: window.startedAt, endedAt: new Date().toISOString(),
-      elapsedMs: performance.now() - window.start, stagesMs: window.stages,
+      elapsedMs: completedAt - window.start, stagesMs: window.stages,
+      // Inclusive send/compression/backpressure interval; not exclusive proxy latency.
+      responseWriteMs: window.sentAt === undefined ? null : Math.max(0, completedAt - window.sentAt),
+      bufferedPayloadBytes: window.bufferedPayloadBytes ?? null,
       ...loopDelay(window.start, performance.now()),
       processCpuMs: (cpu.user + cpu.system) / 1000, inclusiveNonAdditive: true }, 'Request timing');
     windows.delete(request);

@@ -373,7 +373,20 @@ const BUCKET_META: Record<RegistryBucket, {
 };
 
 export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
-  const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets, navigateTo, dashboardData } = useStore();
+  const formatMoney = useStore(s => s.formatMoney);
+  const moneyUnit = useStore(s => s.moneyUnit);
+  const selectedDepartments = useStore(s => s.selectedDepartments);
+  const selectedSubordinates = useStore(s => s.selectedSubordinates);
+  const activityFilter = useStore(s => s.activityFilter);
+  const procurementFilter = useStore(s => s.procurementFilter);
+  const period = useStore(s => s.period);
+  const activeMonths = useStore(s => s.activeMonths);
+  const searchQuery = useStore(s => s.searchQuery);
+  const subordinatesMap = useStore(s => s.subordinatesMap);
+  const year = useStore(s => s.year);
+  const selectedBudgets = useStore(s => s.selectedBudgets);
+  const navigateTo = useStore(s => s.navigateTo);
+  const dashboardData = useStore(s => s.dashboardData);
   // Вид реестра (сортировка, размер страницы, режим) переживает перезагрузку:
   // читается один раз при первом кадре, дальше живёт в состоянии.
   const storedPrefs = useMemo(
