@@ -1,0 +1,569 @@
+/* Integration only: the material and drum rules live in original.css. */
+:root {
+  --крем: #e5d3a9;
+  --крем-глубь: #c6ad76;
+  --бронза: #9d8150;
+  --лазурь-глубь: #297be5;
+  --bg: var(--surface-page);
+  --surface: var(--surface-card);
+  --surface-2: var(--sloy-plitka);
+  --surface-3: var(--sloy-gnezdo);
+  --text: var(--ink-strong);
+  --muted: var(--ink-muted);
+  --line: var(--line-soft);
+}
+:root[data-theme='light'] {
+  --bg: var(--surface-page);
+  --surface: var(--surface-card);
+  --surface-2: var(--sloy-plitka);
+  --surface-3: var(--sloy-gnezdo);
+  --text: var(--ink-strong);
+  --muted: var(--ink-muted);
+  --line: var(--line-soft);
+}
+.source-shell svg {
+  width: 10px;
+  height: 10px;
+}
+.source-shell .shield-svg {
+  width: 34px;
+  height: 34px;
+}
+.source-shell .shield-znak svg {
+  width: 12px;
+  height: 12px;
+}
+.source-shell .кнопка-темы svg {
+  width: 15px;
+  height: 15px;
+}
+.source-shell.верх {
+  grid-template-columns: 38px minmax(480px, auto) minmax(306px, auto) 66px minmax(155px, 1fr) 40px;
+  padding: 10px 16px 8px;
+  gap: 8px;
+  z-index: 10;
+}
+.source-shell .верх-навигация {
+  position: relative;
+  padding-right: 18px;
+}
+.source-shell .баран-навигации {
+  width: 100%;
+  --navig-rh: 26px;
+}
+.source-shell .vkladki-gruppa {
+  width: max-content;
+  max-width: none;
+}
+.source-shell .vkladka {
+  flex: none;
+}
+.source-shell .vkladki-imya-gruppy {
+  min-width: 60px;
+  font-size: 10px;
+}
+.source-shell .vkladka-telo {
+  padding-inline: 5px;
+  flex: none;
+  max-width: none;
+}
+.source-shell .vkladka-telo::before {
+  width: 5px;
+  height: 5px;
+}
+.source-shell .navig-okno {
+  height: 78px;
+}
+.source-shell .navigation-keys {
+  position: absolute;
+  right: 0;
+  inset-block: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.navigation-keys button {
+  width: 17px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-muted);
+  padding: 0;
+}
+.source-shell .baraban,
+.source-shell .baraban-gody {
+  width: 100%;
+}
+.source-shell .baraban-gody {
+  justify-content: center;
+}
+.source-shell .god-ryad {
+  gap: 2px;
+}
+.source-shell .god {
+  width: 30px;
+}
+.source-shell .mesyats {
+  min-width: 19px;
+  padding: 0 2px;
+}
+.source-shell .kvartal {
+  padding: 1px;
+}
+.source-shell .baraban-sbros {
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+}
+.source-shell .kvartal-yarlyk {
+  display: none;
+}
+.source-shell .no-demo-period:not(:has(input:checked)) {
+  opacity: 0.6;
+}
+.source-shell .baraban-nedeli {
+  width: 66px;
+}
+.source-shell .nedelya-mesyats {
+  display: none;
+}
+.source-shell .source-live {
+  width: 100%;
+  padding: 7px 6px;
+  min-width: 0;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+}
+.source-shell .source-live .lv-state {
+  display: none;
+}
+.source-shell .source-live .lv-tape {
+  flex: 1;
+  min-width: 0;
+  height: 54px;
+}
+.source-shell .source-live .lv-row {
+  white-space: nowrap;
+  gap: 5px;
+  font-size: 10px;
+}
+.source-shell .source-live .lv-row .t {
+  font-size: 9px;
+}
+.source-shell .source-live .lv-row .w {
+  white-space: nowrap;
+  font-size: 10px;
+}
+.source-shell .source-live .lv-row .b {
+  font-size: 10px;
+}
+.source-shell .верх-угол {
+  align-items: center;
+  gap: 7px;
+}
+.source-shell .прибор {
+  gap: 4px;
+  padding: 4px 5px;
+  color: #1b170f;
+}
+.source-shell .прибор.тихий {
+  padding: 3px;
+}
+.source-shell .сетка-б {
+  grid-template-columns: repeat(3, 4px);
+  grid-auto-rows: 4px;
+  gap: 2px;
+}
+.source-shell .счёт {
+  font-size: 11px;
+}
+.source-shell .верх-разрезы {
+  gap: 8px 16px;
+  grid-column: 1/-1;
+  grid-row: 2;
+  align-items: center;
+}
+.source-demo-label {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+.source-workspace {
+  display: grid;
+  grid-template-columns: 166px minmax(0, 1fr);
+  gap: 20px;
+  padding: 20px 16px 0;
+  align-items: start;
+}
+.source-workspace > main {
+  min-width: 0;
+  padding: 0;
+}
+.source-organizations {
+  position: sticky;
+  top: 155px;
+  padding: 6px 7px 10px;
+  background: var(--surface-card);
+  border-radius: 12px;
+  box-shadow: var(--e1);
+}
+.organizations-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  padding: 6px 6px 10px;
+  color: var(--ink-muted);
+}
+.organizations-top strong {
+  font-weight: 500;
+}
+.organizations-top button {
+  font-size: 10px;
+  color: var(--ink);
+}
+.source-organizations .upravlenie {
+  margin: 4px 0;
+  opacity: 1;
+}
+.source-organizations .upravlenie-plashka {
+  position: relative;
+  min-height: 37px;
+  border-radius: 7px;
+}
+.source-organizations .upravlenie-imya {
+  font-size: 12px;
+}
+.source-organizations .upravlenie-schet {
+  margin-left: auto;
+  font-size: 10px;
+}
+.source-organizations .podvedy {
+  display: grid;
+  padding: 5px 5px 10px;
+}
+.source-organizations .podved {
+  font-size: 11px;
+  white-space: normal;
+  line-height: 1.4;
+  min-height: 29px;
+}
+.source-organizations > p {
+  font-size: 10px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  padding: 10px 6px 0;
+}
+.organizations-all {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 12px 6px 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.source-workspace .page-heading {
+  margin-bottom: 18px;
+}
+.source-workspace h1 {
+  font-size: 25px;
+}
+.source-workspace .page-heading p {
+  font-size: 12px;
+  margin-top: 5px;
+}
+.source-workspace .breadcrumb {
+  margin-bottom: 6px;
+}
+.source-workspace .table-tools {
+  padding: 12px;
+}
+.source-workspace .work-surface {
+  border-color: transparent;
+  box-shadow: var(--e1);
+}
+.source-workspace .registry td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.source-workspace .work-layout.detail-open {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+.source-workspace .detail-pane {
+  top: 150px;
+}
+.source-workspace .detail-open .registry th:nth-child(4),
+.source-workspace .detail-open .registry td:nth-child(4) {
+  display: none;
+}
+.source-workspace .detail-title h2 {
+  font-size: 21px;
+}
+.source-workspace .table-foot {
+  flex-wrap: wrap;
+}
+@media (max-width: 1279px) {
+  .source-shell.верх {
+    grid-template-columns: 38px minmax(480px, 1fr) minmax(290px, 1fr) 66px 40px;
+    position: static;
+  }
+  .source-shell .верх-эфир {
+    grid-column: 2/4;
+    grid-row: 2;
+  }
+  .source-shell .source-live {
+    min-height: 42px;
+  }
+  .source-shell .source-live .lv-tape {
+    height: 48px;
+  }
+  .source-shell .верх-угол {
+    grid-column: 5;
+    grid-row: 1;
+  }
+  .source-shell .верх-недели {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  .source-shell .верх-разрезы {
+    grid-row: 3;
+  }
+  .source-organizations {
+    top: 15px;
+  }
+  .source-workspace .detail-pane {
+    top: 15px;
+  }
+}
+@media (max-width: 1000px) {
+  .source-shell.верх {
+    grid-template-columns: 34px minmax(0, 1fr) 40px;
+  }
+  .source-shell .верх-навигация {
+    grid-column: 2;
+  }
+  .source-shell .верх-угол {
+    grid-column: 3;
+  }
+  .source-shell .верх-период {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .source-shell .верх-недели {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .source-shell .верх-эфир {
+    display: none;
+  }
+  .source-shell .верх-разрезы {
+    grid-row: 3;
+  }
+  .source-shell .mesyats {
+    min-width: 19px;
+  }
+  .source-workspace {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 14px;
+  }
+  .source-workspace .work-layout.detail-open {
+    display: block;
+  }
+  .source-workspace .detail-pane {
+    position: fixed;
+    inset: 12px 12px 12px auto;
+    width: 390px;
+    z-index: 30;
+  }
+}
+@media (max-width: 680px) {
+  .source-shell.верх {
+    padding: 9px 10px;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 8px;
+  }
+  .source-shell .верх-щит {
+    display: none;
+  }
+  .source-shell .верх-навигация {
+    grid-column: 1/-1;
+    grid-row: 1;
+  }
+  .source-shell .верх-период {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .source-shell .верх-недели {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .source-shell .верх-угол {
+    grid-column: 2;
+    grid-row: 3;
+    flex-direction: row;
+    gap: 1px;
+  }
+  .source-shell .верх-разрезы {
+    grid-column: 1;
+    grid-row: 3;
+    gap: 7px;
+  }
+  .source-shell .разрез-имя {
+    display: none;
+  }
+  .source-shell .разрез-кн {
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+  .source-demo-label {
+    margin-left: 0;
+    width: 100%;
+    font-size: 9px;
+  }
+  .source-shell .vkladki-imya-gruppy {
+    min-width: 43px;
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+  .source-shell .vkladki-telo {
+    gap: 2px;
+  }
+  .source-shell .vkladka-telo {
+    font-size: 10px;
+    padding-inline: 4px;
+    gap: 3px;
+  }
+  .source-shell .vkladka-telo svg,
+  .source-shell .vkladka-telo::before {
+    display: none;
+  }
+  .source-shell .vkladki-stroka--verh .vkladka-telo,
+  .source-shell .vkladki-stroka--niz .vkladka-telo {
+    font-size: 9px;
+  }
+  .source-shell .vkladki-stroka--verh .vkladki-imya-gruppy,
+  .source-shell .vkladki-stroka--niz .vkladki-imya-gruppy {
+    font-size: 8px;
+  }
+  .source-shell .god {
+    width: 27px;
+    font-size: 10px;
+  }
+  .source-shell .mesyats {
+    min-width: 17px;
+    font-size: 9px;
+    padding: 0 1px;
+  }
+  .source-shell .baraban-nedeli {
+    width: 40px;
+    padding-inline: 2px;
+  }
+  .source-shell .nedelya-nomer {
+    display: none;
+  }
+  .source-shell .nedelya-dni {
+    font-size: 10px;
+  }
+  .source-workspace {
+    display: block;
+    padding: 15px 10px;
+  }
+  .source-organizations {
+    position: static;
+    display: flex;
+    overflow-x: auto;
+    gap: 5px;
+    padding: 5px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+  }
+  .source-organizations .organizations-top {
+    display: none;
+  }
+  .source-organizations .upravlenie {
+    min-width: 66px;
+    margin: 0;
+  }
+  .source-organizations .upravlenie-plashka {
+    min-height: 34px;
+    padding: 4px 5px;
+  }
+  .source-organizations .upravlenie-imya {
+    font-size: 10px;
+  }
+  .source-organizations .podvedy,
+  .source-organizations > p {
+    display: none;
+  }
+  .organizations-all {
+    min-width: 115px;
+    white-space: nowrap;
+    padding: 7px;
+  }
+  .source-workspace .detail-pane {
+    inset: 8px;
+    width: auto;
+  }
+  .source-workspace .page-heading h1 {
+    font-size: 23px;
+  }
+  .source-workspace .page-heading p {
+    font-size: 10px;
+  }
+  .source-workspace .heading-actions {
+    align-self: center;
+  }
+  .source-workspace .registry .subject {
+    min-width: 135px;
+  }
+  .source-workspace .registry td {
+    padding: 11px 7px;
+  }
+  .source-workspace .registry th {
+    padding-inline: 7px;
+  }
+  .source-workspace .detail-open .registry th:nth-child(4),
+  .source-workspace .detail-open .registry td:nth-child(4) {
+    display: none;
+  }
+}
+.source-org-heading {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.source-org-heading .upravlenie-plashka {
+  flex: 1;
+  width: auto;
+}
+.org-unfold {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  color: var(--ink-muted);
+}
+.org-unfold[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.source-workspace {
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+.source-workspace > main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+@media (max-width: 1000px) {
+  .source-workspace {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+}

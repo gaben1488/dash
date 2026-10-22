@@ -1,0 +1,35 @@
+name: Dash consolidated preview checks
+
+on:
+  push:
+    paths:
+      - 'docs/superpowers/mockups/dash-consolidated/**'
+      - '.github/workflows/dash-preview-checks.yml'
+  pull_request:
+    paths:
+      - 'docs/superpowers/mockups/dash-consolidated/**'
+      - '.github/workflows/dash-preview-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: docs/superpowers/mockups/dash-consolidated
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'docs/superpowers/mockups/dash-consolidated/package-lock.json'
+      - name: Install isolated preview dependencies
+        run: npm ci
+      - name: Build standalone preview and Sites bundle
+        run: npm run standalone
+      - name: Run preview contract, palette and worker tests
+        run: npm test

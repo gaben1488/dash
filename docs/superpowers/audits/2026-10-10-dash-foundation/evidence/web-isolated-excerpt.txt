@@ -1,0 +1,13 @@
+ FAIL  src/pages/Report.exports.test.tsx > keeps three native Word actions on one frozen release instead of the browser renderer
+Error: Test timed out in 5000ms.
+ FAIL  src/pages/Report.exports.test.tsx > changing quarter clears the previous download and explains a missing matching bundle
+Error: Test timed out in 5000ms.
+ FAIL  src/pages/Report.exports.test.tsx > an archive selection never downloads the current release
+AssertionError: expected <button disabled …(3)>…(1)</button> to have property "disabled" with value false
+ FAIL  src/pages/Report.exports.test.tsx > prepares and downloads the full frozen archive even when the old dashboard snapshot is unavailable
+AssertionError: expected <button disabled …(3)>…(1)</button> to have property "disabled" with value false
+ FAIL  src/components/monitoring/RegistryTable.test.tsx > порция ограничивает только показ и позволяет открыть последнюю процедуру отбора
+Error: Test timed out in 5000ms.
+ Test Files  2 failed | 1 passed (3)
+      Tests  5 failed | 20 passed (25)
+   Duration  91.90s (transform 12.29s, setup 0ms, import 22.63s, tests 45.83s, environment 18.95s)

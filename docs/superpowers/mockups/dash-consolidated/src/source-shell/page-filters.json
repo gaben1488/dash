@@ -1,0 +1,128 @@
+{
+  "dashboard": [
+    "period",
+    "currency",
+    "procurement",
+    "activity",
+    "budget",
+    "department",
+    "subordinate"
+  ],
+  "report": [
+    "period",
+    "department",
+    "subordinate"
+  ],
+  "svod": [
+    "currency",
+    "procurement",
+    "budget",
+    "department",
+    "subordinate"
+  ],
+  "data": [
+    "period",
+    "currency",
+    "procurement",
+    "activity",
+    "budget",
+    "department",
+    "subordinate",
+    "search"
+  ],
+  "unfunded": [
+    "period",
+    "currency",
+    "procurement",
+    "activity",
+    "budget",
+    "department",
+    "subordinate",
+    "search"
+  ],
+  "yearlong": [
+    "period",
+    "currency",
+    "activity",
+    "budget",
+    "department",
+    "subordinate",
+    "search"
+  ],
+  "monitoring": [
+    "department"
+  ],
+  "economy": [
+    "period",
+    "currency",
+    "procurement",
+    "activity",
+    "budget",
+    "department",
+    "subordinate"
+  ],
+  "competition": [
+    "period",
+    "currency",
+    "department",
+    "subordinate"
+  ],
+  "discipline": [
+    "period",
+    "currency",
+    "department"
+  ],
+  "analytics": [
+    "period",
+    "currency",
+    "procurement",
+    "activity",
+    "budget",
+    "department",
+    "subordinate"
+  ],
+  "quality": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate"
+  ],
+  "recon": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate"
+  ],
+  "trust": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate"
+  ],
+  "issues": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate",
+    "search"
+  ],
+  "recs": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate"
+  ],
+  "journal": [
+    "period",
+    "procurement",
+    "activity",
+    "department",
+    "subordinate"
+  ],
+  "settings": []
+}
