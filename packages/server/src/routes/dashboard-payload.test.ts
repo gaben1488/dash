@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
+import { registerRequestTiming } from '../plugins/request-timing.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DashboardDataSchema, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
+import { DashboardDataSchema, REPORT_MAP, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore } from '@aemr/core';
 const fixture = vi.hoisted(() => ({ snapshot: {} as DataSnapshot, failure: null as unknown }));
 vi.mock('../config.js', () => ({ config: { database: { url: ':memory:' } }, DEPARTMENT_SPREADSHEETS: {} }));
@@ -15,6 +16,7 @@ let schema: typeof import('../db/index.js')['schema'];
 const internalFields = ['rowsByDept', 'recalcResults', 'shdyuData', 'unifiedGrid',
   'unifiedReconciliation', 'svodGrid', 'weeklyTableContext'] as const;
 beforeAll(async () => {
+  registerRequestTiming(app);
   ({ db, schema } = await import('../db/index.js'));
   const metric: NormalizedMetric = { metricKey: 'fixture.plan', value: 100, numericValue: 100,
     displayValue: '100', origin: 'official', period: 'annual', unit: 'thousand_rubles',
@@ -37,6 +39,14 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); });
 describe('представление снимка для HTTP Dashboard', () => {
+  it('attributes persisted decision reads to reader/SQL, separate from model time', async () => {
+    const response = await app.inject('/api/dashboard?year=2026');
+    expect(response.statusCode).toBe(200);
+    const timing = String(response.headers['server-timing']);
+    expect(timing).toContain('model;dur=');
+    expect(timing).toContain('reader;dur=');
+    expect(timing).toContain('sql;dur=');
+  });
   it.each(['/api/dashboard', '/api/trust/uo', '/api/svod/unified', '/api/reconciliation/quarterly'])('preserves first-start readiness on %s without disguising a source failure', async url => {
     try {
       fixture.failure = Object.assign(new Error('private source'), { code: 'SNAPSHOT_NOT_READY' });
@@ -185,6 +195,34 @@ describe('представление снимка для HTTP Dashboard', () => 
     } finally {
       fixture.snapshot = previous;
     }
+  });
+
+  it('keeps first metric delta, false-positive exclusion and GRBS counts with indexed issues', async () => {
+    const previous = fixture.snapshot;
+    const baseline = previous.issues[0]!;
+    const metricKey = REPORT_MAP[0]!.metricKey;
+    const baseMetric = Object.values(previous.officialMetrics)[0]!;
+    const positive = { ...baseline, id: 'indexed-uo-open', metricKey,
+      departmentId: 'uo', status: 'open' as const, severity: 'warning' as const };
+    const ignored = { ...positive, id: 'indexed-uo-ignored', severity: 'critical' as const,
+      status: 'false_positive' as const };
+    const first = { metricKey, label: 'synthetic', officialValue: 100,
+      calculatedValue: 40, delta: -60, deltaPercent: -60, withinTolerance: false, explanation: '' };
+    fixture.snapshot = { ...previous, officialMetrics: { ...previous.officialMetrics,
+      [metricKey]: { ...baseMetric, metricKey } }, issues: [baseline, positive, ignored], deltas: [
+      first, { ...first, calculatedValue: 99, delta: -1 },
+    ] };
+    try {
+      const response = await app.inject('/api/dashboard?year=2026');
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      const card = data.kpiCards.find((item: { metricKey: string }) => item.metricKey === metricKey);
+      expect(card).toMatchObject({ status: 'warning', delta: { calculatedValue: '40' } });
+      const uo = data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo');
+      expect(uo.issueCount).toBe(2);
+      expect(uo.signalCounts).toEqual({ dataQuality: 1 });
+      expect(data.issueSummary.total).toBe(3);
+    } finally { fixture.snapshot = previous; }
   });
 
   it('does not publish perfect trust from valid numbers without proof of check coverage', async () => {

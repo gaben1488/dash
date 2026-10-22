@@ -2,7 +2,8 @@ import { calculationDigest } from './snapshot-calculation-context.js';
 import type { Issue, DataSnapshot } from '@aemr/shared';
 import { computeTrustScore, issueIdentity, ruleIssueIdentityParts } from '@aemr/core';
 import { buildCellDict, DEPT_HEADER_ROWS, classifySheet } from '@aemr/shared';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { measureReadStage } from '../plugins/request-timing.js';
 import { db, schema } from '../db/index.js';
 
 /**
@@ -15,7 +16,7 @@ import { db, schema } from '../db/index.js';
  */
 export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot): Issue[] {
   if (issues.length === 0) return issues;
-  const rows = db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all();
+  const rows = measureReadStage('sql', () => db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all());
   if (rows.length === 0) return issues;
   const statusById = new Map(rows.map((r) => [r.id, r.status]));
   const resolveAnchor = createRuleRowAnchorResolver();
@@ -30,32 +31,37 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
     return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
   });
   if (!snapshot?.rowsByDept) return current;
-  const decisionIds = new Set(db.select({ id: schema.issueHistory.issueId }).from(schema.issueHistory).all().map(r => r.id));
-  for (const event of db.select({ id: schema.auditLog.entityId }).from(schema.auditLog).where(eq(schema.auditLog.action, 'issue_comment')).all()) if (event.id) decisionIds.add(event.id);
-  const saved = db.select().from(schema.issues).all().filter(r => decisionIds.has(r.id) || r.status !== 'open' || !!r.comment?.trim());
+  const decisionIds = new Set(measureReadStage('sql', () =>
+    db.select({ id: schema.issueHistory.issueId }).from(schema.issueHistory).all()).map(r => r.id));
+  for (const event of measureReadStage('sql', () => db.select({ id: schema.auditLog.entityId })
+    .from(schema.auditLog).where(eq(schema.auditLog.action, 'issue_comment')).all())) if (event.id) decisionIds.add(event.id);
+  const saved = measureReadStage('sql', () => db.select().from(schema.issues).all())
+    .filter(r => decisionIds.has(r.id) || r.status !== 'open' || !!r.comment?.trim());
   for (const savedIssue of saved) decisionIds.add(savedIssue.id);
-  const cases: SavedRuleDecision[] = [];
-  for (const savedIssue of saved) {
-    // Pipeline diagnostics/signals cannot enter the rule-only rebind below.
-    // Missing or unknown producer metadata still requires the full legacy proof.
-    if (issues.some(issue => issue.id === savedIssue.id) || !savedIssue.snapshotId
-      || savedIssue.detectedBy?.startsWith('pipeline:')) continue;
-    // The pre-fix hash omitted organization C. Latest snapshotId alone could
-    // therefore attach an old decision to a later organization using that hash.
-    // Check every available version of this case, one JSON blob at a time.
-    const versions = db.select({ id: schema.snapshots.id }).from(schema.snapshots)
-      .where(sql`instr(${schema.snapshots.data}, ${JSON.stringify(savedIssue.id)}) > 0`).all();
-    const provenVersions: SavedRuleDecision[] = [];
-    let unreadable = false;
-    for (const version of versions) {
-      const stored = db.select({ data: schema.snapshots.data }).from(schema.snapshots).where(eq(schema.snapshots.id, version.id)).get();
-      if (!stored?.data) { unreadable = true; break; }
-      try {
-        const historical = JSON.parse(stored.data) as DataSnapshot;
-        if (historical.issues?.some(issue => issue.id === savedIssue.id)) provenVersions.push({ id: savedIssue.id, status: savedIssue.status, snapshot: historical });
-      } catch { unreadable = true; break; }
-    }
-    if (!unreadable) cases.push(...provenVersions);
+  // Set lookup prevents quadratic repeated scans through current signal cards.
+  const currentIds = new Set(issues.map(issue => issue.id));
+  const candidates = saved.filter(savedIssue =>
+    !currentIds.has(savedIssue.id) && !!savedIssue.snapshotId
+    && !savedIssue.detectedBy?.startsWith('pipeline:'));
+
+  // Historical evidence must be reconsidered when a user changes a decision
+  // or when immutable snapshots are added. Never cache an old verdict in RAM.
+  // The single cursor preserves every historical version, including conflicting
+  // or unreadable witnesses, without an SQLite full scan per saved issue.
+  let cases: SavedRuleDecision[] = [];
+  if (candidates.length > 0) {
+    const query = db.select({ data: schema.snapshots.data }).from(schema.snapshots).toSQL();
+    const rows = db.$client.prepare(query.sql).iterate(...query.params) as IterableIterator<{ data: string | null }>;
+    // Time actual SQLite cursor stepping independently from JSON decoding.
+    // A prepared statement by itself does not read its historical payloads.
+    const measuredRows = function* (): Generator<{ data: string | null }> {
+      for (;;) {
+        const step = measureReadStage('sql', () => rows.next());
+        if (step.done) return;
+        yield step.value;
+      }
+    };
+    cases = collectHistoricalRuleDecisions(candidates, measuredRows());
   }
   // An explicit decision on the new ID wins; an undecided new open row does not
   // erase the previously saved case simply because the pipeline saved it first.
@@ -75,6 +81,50 @@ export function withPersistedDecisions<T extends DataSnapshot>(snapshot: T): T {
 
 type IdentitySnapshot = Pick<DataSnapshot, 'issues' | 'rowsByDept'>;
 type SavedRuleDecision = { id: string; status: string; snapshot: IdentitySnapshot };
+
+/**
+ * A single streaming history read for all candidate decisions. Quoted JSON
+ * tokens reproduce the old SQLite instr(data, JSON.stringify(id)) shortlist;
+ * every matched version still needs an exact issue ID and row-anchor proof.
+ * A malformed matching version poisons only that saved case (fail closed).
+ * No historical content is rewritten and no result is memoized across reads.
+ */
+export function collectHistoricalRuleDecisions(
+  candidates: ReadonlyArray<{ id: string; status: string }>,
+  records: Iterable<{ data: string | null }>,
+): SavedRuleDecision[] {
+  if (candidates.length === 0) return [];
+  const byToken = new Map(candidates.map(candidate => [JSON.stringify(candidate.id), candidate] as const));
+  const escapePattern = (token: string): string =>
+    [...token].map(char => '\\.^$*+?()[]{}|'.includes(char) ? '\\' + char : char).join('');
+  const matcher = new RegExp([...byToken.keys()].map(escapePattern).join('|'), 'g');
+  const versions: SavedRuleDecision[] = [];
+  const unreadable = new Set<string>();
+
+  for (const { data } of records) {
+    if (!data) continue; // NULL is not a historical match in the old SQL.
+    matcher.lastIndex = 0;
+    const tokens = new Set<string>();
+    for (const match of data.matchAll(matcher)) tokens.add(match[0]);
+    if (tokens.size === 0) continue; // most old snapshots are irrelevant.
+
+    try {
+      const historical = measureReadStage('decode', () => JSON.parse(data) as IdentitySnapshot);
+      // Malformed issue lists or issue entries are not successful evidence.
+      // Undefined issues are legitimate unrelated legacy snapshot metadata.
+      const ids = new Set(historical.issues?.map(issue => issue.id) ?? []);
+      for (const token of tokens) {
+        const candidate = byToken.get(token)!;
+        if (ids.has(candidate.id)) versions.push({
+          id: candidate.id, status: candidate.status, snapshot: historical,
+        });
+      }
+    } catch {
+      for (const token of tokens) unreadable.add(byToken.get(token)!.id);
+    }
+  }
+  return versions.filter(saved => !unreadable.has(saved.id));
+}
 
 /** Request-local exact indices; status views share source arrays. Nothing is
  * retained across requests, source changes, or historical snapshot versions. */
