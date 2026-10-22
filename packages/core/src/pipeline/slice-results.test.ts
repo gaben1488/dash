@@ -187,6 +187,60 @@ describe('sliceResults — C03.01: exact multi-axis scope', () => {
     expect(absent.get('execution_pct')?.value).toBeNull();
     expect(absent.get('plan_count')?.value ?? 0).toBe(0);
   });
+  it('independent row oracle: the full period × subordinate × activity × method matrix reconciles', () => {
+    // Expected values are handwritten from seven raw atoms, not built from
+    // CalcEngine group maps. The matrix detects accidental broadening.
+    const atoms = [
+      { sub: 'МБУ Альфа', q: 'q1', month: 1, act: 'program', method: 'competitive', plan: 100, fb: 70, kb: 30, fact: 50, economy: 12 },
+      { sub: 'МБУ Альфа', q: 'q1', month: 2, act: 'program', method: 'ep', plan: 40, fb: 40, kb: 0, fact: 0, economy: 0 },
+      { sub: 'МБУ Бета', q: 'q1', month: 3, act: 'current_non_program', method: 'competitive', plan: 250, fb: 250, kb: 0, fact: 125, economy: -5 },
+      { sub: 'МБУ Альфа', q: 'q2', month: 4, act: 'program', method: 'competitive', plan: 150, fb: 150, kb: 0, fact: 75, economy: 0 },
+      { sub: 'МБУ Альфа', q: 'q2', month: 4, act: 'current_non_program', method: 'ep', plan: 75, fb: 75, kb: 0, fact: 37.5, economy: 0 },
+      { sub: 'МБУ Альфа', q: '_orphan', month: 4, act: 'program', method: 'ep', plan: 15, fb: 15, kb: 0, fact: 7.5, economy: 3 },
+      { sub: 'МБУ Альфа', q: 'q1', month: 3, act: 'unknown', method: 'competitive', plan: 20, fb: 20, kb: 0, fact: 0, economy: 0 },
+    ];
+    const periods: Array<{ quarters?: string[]; months?: number[] }> = [
+      {}, { quarters: ['q1'] }, { quarters: ['q2'] },
+      { quarters: ['_orphan'] }, { months: [4] },
+    ];
+    const subChoices: Array<string[] | undefined> = [undefined, ['МБУ Альфа'], ['МБУ Бета']];
+    const actChoices: Array<string[] | undefined> = [undefined, ['program'], ['current_non_program'], ['unknown']];
+    const methodChoices: Array<string[] | undefined> = [undefined, ['competitive'], ['ep']];
+    for (const period of periods) for (const subordinates of subChoices)
+      for (const activities of actChoices) for (const methods of methodChoices) {
+        const filter = { ...period, subordinates, activities, methods };
+        const label = JSON.stringify(filter);
+        const selected = atoms.flatMap((atom, index) => {
+          const keep = (!period.quarters || period.quarters.includes(atom.q))
+            && (!period.months || period.months.includes(atom.month))
+            && (!subordinates || subordinates.includes(atom.sub))
+            && (!activities || activities.includes(atom.act))
+            && (!methods || methods.includes(atom.method));
+          return keep ? [{ ...atom, index }] : [];
+        });
+        const sum = (key: 'plan' | 'fb' | 'kb' | 'fact' | 'economy') =>
+          selected.reduce((total, atom) => total + atom[key], 0);
+        const actual = sliceResults(g, filter);
+        const expectedPlan = sum('plan');
+        const expectedFact = sum('fact');
+        expect(actual.get('plan_count')?.value ?? 0, label).toBe(selected.length);
+        expect(actual.get('fact_count')?.value ?? 0, label)
+          .toBe(selected.filter(atom => atom.fact > 0).length);
+        expect(actual.get('plan_total')?.value ?? 0, label).toBeCloseTo(expectedPlan, 8);
+        expect(actual.get('fact_total')?.value ?? 0, label).toBeCloseTo(expectedFact, 8);
+        expect(actual.get('plan_fb')?.value ?? 0, label).toBeCloseTo(sum('fb'), 8);
+        expect(actual.get('plan_kb')?.value ?? 0, label).toBeCloseTo(sum('kb'), 8);
+        expect(actual.get('economy_fb')?.value ?? 0, label).toBeCloseTo(sum('economy'), 8);
+        expect([...(actual.get('plan_count')?.contributingRows ?? [])].sort((a, b) => a - b), label)
+          .toEqual(selected.map(atom => atom.index));
+        if (expectedPlan > 0) {
+          expect(actual.get('execution_pct')?.value, label)
+            .toBeCloseTo(expectedFact / expectedPlan, 8);
+        } else {
+          expect(actual.get('execution_pct')?.value, label).toBeNull();
+        }
+      }
+  });
 });
 describe('sliceResults — судьба _orphan при мультивыборе', () => {
   it('4 квартала БЕЗ корзины — орфанный факт теряется (задокументированное поведение)', () => {
