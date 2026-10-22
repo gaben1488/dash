@@ -31,11 +31,8 @@ describe('parseSheetDate — единый парсер даты из ячейк�
     expect(parseSheetDate(undefined)).toBeNull();
   });
 
-  it('число вне serial-диапазона (год 2026) НЕ трактуется как serial', () => {
-    // 2026 < 40000 → не serial; new Date('2026') = год 2026 (не serial-конверсия)
-    const d = parseSheetDate('2026');
-    expect(d).not.toBeNull();
-    expect(d!.getUTCFullYear()).toBe(2026);
+  it('year-only text is not quietly treated as 1 January', () => {
+    expect(parseSheetDate('2026')).toBeNull();
   });
 
   it('мусор → null', () => {
@@ -111,5 +108,29 @@ describe('недельная арифметика (день 0 эпохи — ч�
   it('isoOfDayNumber: обратен dayNumberOf для ISO-дат', () => {
     expect(isoOfDayNumber(dayNumberOf('2026-07-23')!)).toBe('2026-07-23');
     expect(isoOfDayNumber(0)).toBe('1970-01-01');
+  });
+});
+
+describe('strict calendar dates — no silent rollover or serial time shift', () => {
+  it('rejects impossible dates in both Russian and ISO forms', () => {
+    for (const invalid of [
+      '31.02.2026', '29.02.2025', '31.04.2026',
+      '2026-02-31', '2026-02-31T10:00:00Z', '2025-02-29',
+      '2026', 'not a date',
+    ]) {
+      expect(parseSheetDate(invalid), invalid).toBeNull();
+      expect(dayNumberOf(invalid), invalid).toBeNull();
+    }
+  });
+
+  it('accepts a real leap day without changing its date', () => {
+    const day = dayNumberOf('29.02.2024');
+    expect(day).toBe(dayNumberOf('2024-02-29'));
+    expect(parseSheetDate('29.02.2024')?.getDate()).toBe(29);
+  });
+
+  it('does not roll fractional serials to the following day', () => {
+    expect(dayNumberOf(46023.75)).toBe(dayNumberOf(46023));
+    expect(dayNumberOf('46023.99')).toBe(dayNumberOf('01.01.2026'));
   });
 });
