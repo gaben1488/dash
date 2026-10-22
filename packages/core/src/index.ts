@@ -187,7 +187,7 @@ export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/sna
 
 // Timeline — таймлайн строки по всей истории проекта (канон п.75в) +
 // «закупки, близкие к реализации» (п.75б) + срезы архивных недель
-export { buildRowTimeline } from './timeline/row-timeline.js';
+export { buildRowTimeline, sheetNumber } from './timeline/row-timeline.js';
 export type {
   RowTimeline, TimelineEvent, TimelineEventKind, TimelineSource,
   RowTimelineInput, RowObservation, JournalCellChange,
