@@ -186,8 +186,14 @@ export function computeFilteredData(input: FilterInputs) {
   });
 
   // ── summaryByPeriod: пересчёт, когда фильтры сузили датасет ──
-  const needsSummaryRecalc = (hasDeptFilter && depts.length > 0 && depts.length < allDepts.length)
-    || selectedMethods.size > 0 || isActivityFiltered || selectedBudgets.size > 0;
+  // The server-wide summary is valid only without a row-selection scope.
+  // A stale organization, subordinate or search selector can yield NO rows;
+  // reusing the district summary in that state leaks unrelated figures.
+  // Dept-only is currently a display marker, not proven org-self row scope;
+  // it must not be treated as an additional mathematical filter.
+  const needsSummaryRecalc = hasDeptFilter || hasSubFilter
+    || normalizedSearch.length > 0 || selectedMethods.size > 0
+    || isActivityFiltered || selectedBudgets.size > 0;
   let summaryByPeriod = needsSummaryRecalc
     ? recalcSummaryByPeriod(depts, { isActivityFiltered, actKeys, budgetPlanFact, showKP, showEP })
     : rawSummaryByPeriod;
