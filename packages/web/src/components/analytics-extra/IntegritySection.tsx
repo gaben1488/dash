@@ -186,7 +186,7 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
 }
 
 /** Пропажи и переезды строк одной книги между двумя снимками. */
-function VanishedCard({ book }: { book: VanishedBookDto }) {
+function VanishedCard({ book, afterLabel = 'сейчас' }: { book: VanishedBookDto; afterLabel?: string }) {
   const likelyOld = new Set(book.identityCandidates.map((c) => c.beforeRowSeq));
   const unexplained = book.vanished.filter((v) => !likelyOld.has(v.rowSeq));
   const ambiguous = [...new Set([...book.ambiguousKeys.before, ...book.ambiguousKeys.after])];
@@ -263,7 +263,7 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
       )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
-          Строк без «№ п/п»: в контроле {book.unkeyed.before}, сейчас {book.unkeyed.after} — их
+          Строк без «№ п/п»: в контроле {book.unkeyed.before}, {afterLabel} {book.unkeyed.after} — их
           преемственность не подтверждена.
         </p>
       )}
@@ -287,6 +287,10 @@ export function IntegritySection() {
   );
   const unavailableBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.unavailableBooks ?? [], deptScope, (b) => b.dept),
+    [data, deptScope],
+  );
+  const weeklyBooks = useMemo(
+    () => filterByDeptScope(data?.weeklyComparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
 
@@ -322,8 +326,8 @@ export function IntegritySection() {
           </KBTooltip>
           <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
             Можно ли сослаться на строку, видит ли человек в графе срока дату и не пропала ли
-            закупка между чтениями. Пропуск номера — след удалённой строки, а не ошибка
-            нумерации: журнал книги удаление не записывает.
+            закупка между чтениями. Пропуск номера — повод для проверки, но не доказательство удаления.
+            Сама нумерация: журнал книги удаление не записывает.
           </p>
         </div>
         {data && (
@@ -444,6 +448,42 @@ export function IntegritySection() {
                   )}
                 </>
               )}
+              <div className="mt-4 border-t border-[var(--line-soft)] pt-3">
+                <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
+                  Независимая сверка двух недельных контролей
+                </h4>
+                {data.weeklyComparison === null ? (
+                  <p className="ds-prose mt-1 ds-text-xs text-[var(--data-warn)]">
+                    {data.weeklyComparisonNote}
+                  </p>
+                ) : (
+                  <>
+                    <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                      Полные срезы: {fmtMoment(data.weeklyComparison.beforeAt)} →{' '}
+                      {fmtMoment(data.weeklyComparison.afterAt)}. Сравнение по книге и № п/п
+                      независимо от промежуточных вебхуков и изменений положения строк.
+                      Отсутствие прежнего номера — кандидат для проверки, не доказанное удаление.
+                    </p>
+                    {data.weeklyComparisonNote && (
+                      <p className="ds-prose mt-1 ds-text-xs text-[var(--data-warn)]">
+                        {data.weeklyComparisonNote}
+                      </p>
+                    )}
+                    {weeklyBooks.length === 0 ? (
+                      <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
+                        В сопоставленных недельных контролях по выбранным управлениям
+                        отсутствующих прежних номеров и неоднозначных связей не найдено.
+                      </p>
+                    ) : (
+                      <ul className="mt-1">
+                        {weeklyBooks.map((book) => (
+                          <VanishedCard key={book.dept} book={book} afterLabel="в следующем срезе" />
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </Card>
 
