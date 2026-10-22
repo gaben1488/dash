@@ -1,4 +1,5 @@
 import type { ClassifiedRow, ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
+import { purchaseIdText } from './purchase-id.js';
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
 import {
   ECONOMY_FLAG_BOOK_WORDS,
@@ -38,9 +39,12 @@ export function toNumber(val: unknown): number | null {
   if (val === null || val === undefined || val === '') return null;
   if (typeof val === 'number' && !isNaN(val)) return val;
   if (typeof val === 'string') {
-    const cleaned = val.replace(/\s/g, '').replace(/,/g, '.');
-    const n = parseFloat(cleaned);
-    if (!isNaN(n)) return n;
+    const cleaned = val.replace(/\s/g, '').replace(',', '.');
+    // The whole text must be a number. parseFloat('12abc') === 12 previously
+    // let malformed monetary inputs pass silently and even parsed '12/1' as 12.
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(cleaned)) return null;
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return n;
   }
   return null;
 }
@@ -123,6 +127,61 @@ function diffToRubText(diffThousandRub: number): string {
   return (diffThousandRub * 1000).toFixed(2);
 }
 
+/**
+ * Google Sheets ROUND(diff;2) in thousand-ruble units. Exactly 0.005
+ * thousand = 5 rubles is ALREADY a discrepancy (rounds to 0.01), not
+ * an allowed difference. Round the absolute value to mirror Sheets'
+ * away-from-zero tie behaviour for positive and negative differences.
+ * Tiny binary arithmetic noise near the tie must not reverse the verdict.
+ */
+function bookSumDiffers(diffThousandRub: number): boolean {
+  return Math.round(Math.abs(diffThousandRub) * 100 + 1e-9) > 0;
+}
+
+type BookSumInspection =
+  | { kind: 'skip' }
+  | { kind: 'unverified'; reason: string; actual: unknown }
+  | { kind: 'checked'; total: number; expectedSum: number; diff: number };
+
+/**
+ * A blank component is zero under Sheets SUM(...), not a reason to skip
+ * comparison. Invalid nonblank components and missing/non-numeric totals
+ * must never be reported as successful verification.
+ */
+function inspectBookSum(
+  ctx: RuleCheckContext,
+  totalColumn: string,
+  parts: readonly string[],
+): BookSumInspection {
+  const cells = ctx.cells;
+  const hasMoney = [totalColumn, ...parts].some(col => hasData(cells[col]));
+  if (!hasMoney && (!hasRowNumber(cells) || ctx.sheet === 'СВОД ТД-ПМ')) return { kind: 'skip' };
+
+  const total = toNumber(cells[totalColumn]);
+  if (total === null) {
+    return {
+      kind: 'unverified',
+      reason: `Итог ${totalColumn}${ctx.rowIndex} пуст или не является числом — сверка суммы НЕ выполнена.`,
+      actual: cells[totalColumn] ?? null,
+    };
+  }
+  let expectedSum = 0;
+  for (const col of parts) {
+    const raw = cells[col];
+    if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+    const amount = toNumber(raw);
+    if (amount === null) {
+      return {
+        kind: 'unverified',
+        reason: `Компонент ${col}${ctx.rowIndex} заполнен не числом — сверка ${totalColumn}${ctx.rowIndex} НЕ выполнена.`,
+        actual: raw,
+      };
+    }
+    expectedSum += amount;
+  }
+  return { kind: 'checked', total, expectedSum, diff: Math.abs(total - expectedSum) };
+}
+
 // ============================================================
 // ПРАВИЛО 1: Консистентность сумм бюджета
 // K = H + I + J (план), O = L + M + N (факт)
@@ -138,21 +197,19 @@ const budgetSumConsistencyPlan: ValidationRule = {
   scope: 'both',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['K']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['H', 'I', 'J']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'K', ['H', 'I', 'J']);
+    if (inspection.kind === 'skip') return { passed: true };
+    if (inspection.kind === 'unverified') {
+      return {
+        passed: false,
+        message: inspection.reason,
+        cell: `K${ctx.rowIndex}`,
+        actual: inspection.actual,
+        expected: 'числовой итог и корректные компоненты',
+      };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
@@ -179,21 +236,19 @@ const budgetSumConsistencyFact: ValidationRule = {
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['O']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['L', 'M', 'N']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'O', ['L', 'M', 'N']);
+    if (inspection.kind === 'skip') return { passed: true };
+    if (inspection.kind === 'unverified') {
+      return {
+        passed: false,
+        message: inspection.reason,
+        cell: `O${ctx.rowIndex}`,
+        actual: inspection.actual,
+        expected: 'числовой итог и корректные компоненты',
+      };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
@@ -627,21 +682,19 @@ const deptFactSumConsistency: ValidationRule = {
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['Y']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['V', 'W', 'X']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'Y', ['V', 'W', 'X']);
+    if (inspection.kind === 'skip') return { passed: true };
+    if (inspection.kind === 'unverified') {
+      return {
+        passed: false,
+        message: inspection.reason,
+        cell: `Y${ctx.rowIndex}`,
+        actual: inspection.actual,
+        expected: 'числовой итог и корректные компоненты',
+      };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
@@ -672,21 +725,19 @@ const deptEconomySumConsistency: ValidationRule = {
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['AC']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['Z', 'AA', 'AB']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'AC', ['Z', 'AA', 'AB']);
+    if (inspection.kind === 'skip') return { passed: true };
+    if (inspection.kind === 'unverified') {
+      return {
+        passed: false,
+        message: inspection.reason,
+        cell: `AC${ctx.rowIndex}`,
+        actual: inspection.actual,
+        expected: 'числовой итог и корректные компоненты',
+      };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
@@ -787,11 +838,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
-      if (intNo !== null) ints.add(intNo);
-      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
-      const key = intNo !== null ? String(intNo) : raw;
+      // The address is text, never parseFloat: 12/1 is NOT 12.
+      // Whole positive integers alone participate in gap statistics;
+      // composite IDs remain independent and must not invent duplicates.
+      const intNo = /^\d+$/.test(raw) ? Number(raw) : null;
+      if (intNo !== null && Number.isSafeInteger(intNo) && intNo > 0) ints.add(intNo);
+      const key = raw;
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
       else byNo.set(key, [r.rowIndex]);
@@ -993,7 +1045,7 @@ const textHygiene: ValidationRule = {
  * Тот же предикат, которым гейтит себя каждый контрольный условный формат.
  */
 function hasRowNumber(cells: Record<string, unknown>): boolean {
-  return String(cells['A'] ?? '').trim() !== '';
+  return purchaseIdText(cells['A']) !== null;
 }
 
 /**
