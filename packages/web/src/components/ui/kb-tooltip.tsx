@@ -213,7 +213,19 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
     || entry.scopeMoment || entry.thresholdsFull || entry.example
     || (entry.related && entry.related.length > 0);
 
-  if (!hasFullContent) return <LegacyContent entry={entry} />;
+  if (!hasFullContent) {
+    // Some legacy KB cards have a reliable source or calculation but not the
+    // 10-section narrative. Show that known fact; do not render a blank shell.
+    const fallback = entry.howCalc ?? entry.dataSource ?? entry.scopeMoment
+      ?? entry.divergence ?? entry.actions ?? entry.pitfalls ?? entry.engine
+      ?? entry.lawFull;
+    return (
+      <div className="space-y-2">
+        {fallback && <p className="text-xs leading-relaxed text-zinc-200">{fallback}</p>}
+        <LegacyContent entry={entry} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -416,7 +428,8 @@ export function KBTooltip({
   // A bare title is not evidence of a completed knowledge-base record.
   // Do not show an empty dark popup when the entry only has its label.
   const hasContent = Object.entries(entry).some(([key, value]) =>
-    key !== 'description' && (Array.isArray(value) ? value.length > 0 : Boolean(value)))
+    key !== 'description' && key !== 'related'
+      && (Array.isArray(value) ? value.length > 0 : Boolean(value)))
     || provenance.length > 0
     || lineage !== null;
   if (!hasContent) return <>{children}</>;
