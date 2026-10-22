@@ -57,3 +57,7 @@ jobs:
         run: pnpm --filter @aemr/shared exec vitest run src/text-language.test.ts src/text-hygiene.test.ts
       - name: Text-hygiene API corrections
         run: pnpm --filter @aemr/server exec vitest run src/routes/text-hygiene.test.ts
+      - name: Server dashboard and decision regressions
+        run: pnpm --filter @aemr/server exec vitest run src/routes/dashboard-refresh.test.ts src/routes/dashboard-payload.test.ts src/routes/dashboard-period-block.test.ts src/services/issue-decisions.test.ts
+      - name: Web event and theme regressions
+        run: pnpm --filter @aemr/web exec vitest run src/hooks/useChangeStory.test.tsx src/lib/surface-borders.test.ts
