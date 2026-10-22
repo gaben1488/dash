@@ -891,10 +891,12 @@ export function detectThresholdHugging(
         subordinate,
         rows: inCorridor.length,
         smallSample: inReference.length < ANOMALY_LIMITS.thresholdMinRows,
-        note:
+        note: [
           inReference.length < ANOMALY_LIMITS.thresholdMinRows
             ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво.'
-            : 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
+            : null,
+          'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
+        ].filter(Boolean).join(' '),
         members: inCorridor.map(r => addressOf(r, `K${r.sheetRow}`)),
       });
     }
