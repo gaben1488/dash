@@ -2,9 +2,15 @@ import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DashboardDataSchema, type DataSnapshot, type NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore } from '@aemr/core';
-const fixture = vi.hoisted(() => ({ snapshot: {} as DataSnapshot, failure: null as unknown }));
+const fixture = vi.hoisted(() => ({
+  snapshot: {} as DataSnapshot, failure: null as unknown, snapshotArgs: [] as unknown[],
+}));
 vi.mock('../config.js', () => ({ config: { database: { url: ':memory:' } }, DEPARTMENT_SPREADSHEETS: {} }));
-vi.mock('../services/snapshot.js', () => ({ getSnapshot: async () => { if (fixture.failure) throw fixture.failure; return fixture.snapshot; },
+vi.mock('../services/snapshot.js', () => ({ getSnapshot: async (...args: unknown[]) => {
+  fixture.snapshotArgs = args;
+  if (fixture.failure) throw fixture.failure;
+  return fixture.snapshot;
+},
   getDeptSheetCache: () => ({}), getDeptLoadMeta: () => ({}), invalidateCache: vi.fn(), setSvodGridCache: vi.fn() }));
 vi.mock('../services/google-sheets.js', () => ({ getSheetData: vi.fn() }));
 vi.mock('../services/source-refresh.js', () => ({ refreshAllSources: vi.fn() }));
@@ -308,6 +314,7 @@ describe('представление снимка для HTTP Dashboard', () => 
 
   it('gives release readback the exact active snapshot identity without a second source or full DTO', async () => {
     const response = await app.inject('/api/dashboard?year=2026&identity=1');
+    expect(fixture.snapshotArgs).toEqual([false, 2026, true]);
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.json()).toEqual({ snapshot: { id: fixture.snapshot.id, createdAt: fixture.snapshot.createdAt } });

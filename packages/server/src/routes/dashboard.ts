@@ -103,7 +103,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const targetYear = parseYearFilterParam(query.year);
     let snapshot;
     try {
-      snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear));
+      snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear, query.identity === '1'));
     } catch (err) {
       app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
       return reply.status(503).send(snapshotUnavailable(err));

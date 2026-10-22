@@ -39,6 +39,16 @@ async function seed() {
   return { source, db, schema, saved, raw, reject, resolve };
 }
 
+it('passive passport read rejects an unproved saved model without starting a refresh', async () => {
+  const { source, db, schema, raw } = fixture;
+  const rejected = await source.getSnapshot(false, 2026, true)
+    .then(() => 'UNEXPECTED_SUCCESS', (error: { code?: string }) => error.code);
+  expect(rejected).toBe('SNAPSHOT_NOT_READY');
+  await new Promise(resolve => setImmediate(resolve));
+  expect(google.read).not.toHaveBeenCalled();
+  expect(db.select().from(schema.snapshots).all().map(row => row.data)).toEqual(raw);
+});
+
 it('returns the same-scope persisted model while one slow background import serves all readers', async () => {
   const { source, db, schema, saved, raw, reject } = fixture;
   const scan = vi.spyOn(db.$client, 'prepare');
