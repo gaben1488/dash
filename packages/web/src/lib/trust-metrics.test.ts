@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DepartmentSummary, TrustScore } from '@aemr/shared';
-import { buildTrustViewModel } from './trust-metrics';
+import { buildTrustViewModel, withCurrentFormulaAssessment, currentFormulaScope, type LiveFormulaAssessment } from './trust-metrics';
 
 const baseTrust: TrustScore = {
   overall: 70,
