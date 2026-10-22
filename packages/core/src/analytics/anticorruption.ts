@@ -16,6 +16,7 @@
  */
 
 import { LAW_44FZ, classifyEPReason } from './compliance-44fz.js';
+import { normalizeMethod, type DatedThreshold } from '@aemr/shared';
 
 export type AntiCorruptionIndicator =
   | 'splitting'
@@ -55,6 +56,8 @@ export interface AntiCorruptionInput {
   totalPlan?: number;
   /** Порог доли ЕП для роли ГРБС (по умолчанию 0.5). */
   epShareLimit?: number;
+  /** Frozen source-law reference for the same capture; no implicit current-day lookup. */
+  epSingleThreshold?: DatedThreshold;
 }
 
 export interface AntiCorruptionResult {
@@ -137,21 +140,20 @@ export function detectSplitting(rows: AntiCorruptionRow[]): AntiCorruptionFlag[]
   return flags;
 }
 
-/**
- * #8 ЕП сверх предельного размера одного контракта (600К) — антикор-рамка.
- * r.planTotal уже в тыс. руб. — деление на 1000 в сообщении убрано (bug-hunt
- * 2026-08-08, БАГ #1): второе деление превращало «601 тыс.» в «1 тыс.».
- */
-export function detectEpOverLimit(rows: AntiCorruptionRow[]): AntiCorruptionFlag[] {
+/** #8 Retained legacy indicator ID; a PLAN POSITION is never an individual contract. */
+export function detectEpOverLimit(rows: AntiCorruptionRow[], captured?: DatedThreshold): AntiCorruptionFlag[] {
+  const limit = captured?.value ?? LAW_44FZ.epSingleContractLimit;
+  if (!Number.isFinite(limit) || limit <= 0) return [];
   const flags: AntiCorruptionFlag[] = [];
   for (const r of rows) {
-    if (r.method !== 'ЕП') continue;
-    if (r.planTotal > LAW_44FZ.epSingleContractLimit) {
+    if (normalizeMethod(r.method) !== 'ЕП' || !Number.isFinite(r.planTotal)) continue;
+    if (r.planTotal > limit) {
       flags.push({
         indicator: 'ep_over_limit',
-        severity: 'high',
+        severity: 'low',
         rowIndex: r.rowIndex,
-        message: `ЕП ${r.planTotal.toFixed(0)} тыс ₽ > предельных 600 тыс (строка ${r.rowIndex}) — требует проверки основания`,
+        message: `Плановая сумма позиции ЕП ${r.planTotal.toFixed(1)} тыс. ₽ выше справочного разового ориентира ${limit.toFixed(0)} тыс. ₽ (строка ${r.rowIndex}). Цены и основания отдельных договоров не установлены; превышение нормы не доказано.` +
+          (captured?.status === 'verified' ? ' Редакция числового порога подтверждена, применимость основания — нет.' : ' Редакция числового порога для даты среза не подтверждена.'),
       });
     }
   }
@@ -165,8 +167,8 @@ export function detectAnnualEpShare(epTotal: number, totalPlan: number, limit: n
   if (share > limit) {
     return [{
       indicator: 'ep_annual_share',
-      severity: 'medium',
-      message: `Годовая доля ЕП ${(share * 100).toFixed(0)}% > порога ${(limit * 100).toFixed(0)}% — концентрация на неконкурентных закупках, требует проверки`,
+      severity: 'low',
+      message: `Годовая доля ЕП ${(share * 100).toFixed(0)}% выше неподтверждённого внутреннего ориентира ${(limit * 100).toFixed(0)}%; это информационный сигнал, а не правовой предел или нарушение.`,
     }];
   }
   return [];
@@ -204,10 +206,10 @@ export function detectSupplierConcentration(rows: AntiCorruptionRow[]): AntiCorr
  * Оркестратор: все индикаторы по одному ГРБС → флаги + штраф дисциплины.
  */
 export function detectAntiCorruption(grbsId: string, input: AntiCorruptionInput): AntiCorruptionResult {
-  const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5 } = input;
+  const { rows, epTotal = 0, totalPlan = 0, epShareLimit = 0.5, epSingleThreshold } = input;
   const flags: AntiCorruptionFlag[] = [
     ...detectSplitting(rows),
-    ...detectEpOverLimit(rows),
+    ...detectEpOverLimit(rows, epSingleThreshold),
     ...detectAnnualEpShare(epTotal, totalPlan, epShareLimit),
     ...detectSupplierConcentration(rows),
   ];

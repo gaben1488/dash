@@ -1,4 +1,4 @@
-import { LEGAL_RULES_UNVERIFIED, parseSheetNumber, dayNumberOf } from '@aemr/shared';
+import { LEGAL_RULES_UNVERIFIED, legalThresholdsVerifiedForContext, parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
@@ -149,7 +149,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         warnings: allIssues.filter(i => i.severity === 'warning').length,
         issues: allIssues,
         unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
@@ -260,6 +260,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
       }
       return result;
@@ -300,6 +301,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
+          epSingleThreshold: snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract'],
         });
 
         // Волна 0: профиль честно отдаёт null, когда счётной базы нет
@@ -330,7 +332,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           topFlags: anticorruption.flags.slice(0, 3),
           unavailableIndicators: anticorruption.unavailableIndicators,
           unavailableChecks: [ANTI_DUMPING_UNAVAILABLE, EP_ANNUAL_UNAVAILABLE,
-          ...(snapshot.metadata.calculationContext?.thresholds['law.epSmallSingleContract']?.status === 'verified'
+          ...(legalThresholdsVerifiedForContext(snapshot.metadata.calculationContext?.thresholds)
             ? [] : [LEGAL_RULES_UNVERIFIED])],
         thresholdContext: { capturedAt: snapshot.createdAt,
           contextId: snapshot.metadata.calculationContext?.id ?? null,
