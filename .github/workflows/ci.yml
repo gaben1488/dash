@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, codex/dash79-evidence-consolidation-20261022]
-  pull_request:
     branches: [main, master]
+  pull_request:
+    branches: [main, master, codex/dash-audit-integrated-20261010]
   workflow_dispatch:
     inputs:
       release_sha:
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   source-diagnostics-candidate:
-    name: Exact Dash79 source diagnostics typecheck and API/UI regression
+    name: Source diagnostics API/UI contract and KB regressions
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
