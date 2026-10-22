@@ -1,0 +1,84 @@
+name: C08.14 isolated database engine pilot
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/db-pilot/**'
+      - 'docs/decisions/0013-sqlite-postgres-pilot.md'
+      - '.github/workflows/db-engine-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c08-14-db-pilot
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Synthetic parity, latency, concurrency and restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bench_c08_14
+          POSTGRES_USER: pilot
+          POSTGRES_PASSWORD: pilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pilot -d bench_c08_14"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: bench_c08_14
+      PGUSER: pilot
+      PGPASSWORD: pilot
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated pilot driver and PostgreSQL restore utilities
+        run: |
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+          if ! command -v pg_dump >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Isolated safety and parity tests
+        run: python -m unittest discover -v -s scripts/db-pilot -p 'test_*.py'
+      - name: SQLite WAL pilot
+        run: |
+          mkdir -p pilot-results
+          python scripts/db-pilot/compare.py --engine sqlite --snapshots 17 --issues 3000 --queue 300 --payload-kib 1024 --requests 80 --readers 8 --reads-per-reader 30 --writes 60 --output pilot-results/sqlite.json
+      - name: PostgreSQL 16 pilot with separate logical backup and restore
+        run: |
+          python scripts/db-pilot/compare.py --engine postgres --snapshots 17 --issues 3000 --queue 300 --payload-kib 1024 --requests 80 --readers 8 --reads-per-reader 30 --writes 60 --output pilot-results/postgres.json
+      - name: Reject unpaired inputs, failed restore or concurrency errors
+        run: |
+          python scripts/db-pilot/decision.py pilot-results/sqlite.json pilot-results/postgres.json --output pilot-results/comparison.json
+          python - <<'PY'
+          import json
+          with open('pilot-results/comparison.json', encoding='utf-8') as stream:
+              item=json.load(stream)
+          print('gate:', item['gate'])
+          for engine, measurement in item['measurements'].items():
+              print(engine, 'p95_ms=', measurement['p95_ms'], 'concurrent_p95_ms=', measurement['concurrent_read_p95_ms'], 'storage_bytes=', measurement['storage_bytes'], 'backup_bytes=', measurement['backup_bytes'])
+          print('production_approved:',item['production_approved'])
+          PY
+      - name: Retain aggregate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c08-14-synthetic-db-pilot
+          path: pilot-results/*.json
+          retention-days: 14
+          if-no-files-found: warn
