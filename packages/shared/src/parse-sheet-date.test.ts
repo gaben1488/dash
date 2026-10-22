@@ -117,6 +117,8 @@ describe('strict calendar dates — no silent rollover or serial time shift', ()
       '31.02.2026', '29.02.2025', '31.04.2026',
       '2026-02-31', '2026-02-31T10:00:00Z', '2025-02-29',
       '2026', 'not a date',
+      '2026-02-28 comment', '2026-02-28T25:61:00Z',
+      '2026-02-28T12:00:00Zjunk',
     ]) {
       expect(parseSheetDate(invalid), invalid).toBeNull();
       expect(dayNumberOf(invalid), invalid).toBeNull();
