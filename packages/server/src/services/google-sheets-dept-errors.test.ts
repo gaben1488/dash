@@ -13,15 +13,17 @@
  * dashboard.ts:471-474).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEPARTMENT_REGISTRY } from '@aemr/shared';
 
 const valuesGet = vi.fn();
+const gridGet = vi.fn();
 
 vi.mock('googleapis', () => ({
   google: {
     sheets: vi.fn(() => ({
       spreadsheets: {
         values: { get: valuesGet, batchGet: vi.fn(), update: vi.fn() },
-        get: vi.fn(),
+        get: gridGet,
       },
     })),
     // Must be a real `function`, not an arrow function: getSheetsApi() calls
@@ -34,6 +36,11 @@ vi.mock('googleapis', () => ({
 
 beforeEach(() => {
   valuesGet.mockReset();
+  gridGet.mockReset();
+  const master = DEPARTMENT_REGISTRY.find(dept => dept.id === 'УО')!;
+  gridGet.mockResolvedValue({ data: { sheets: [{ properties: {
+    sheetId: master.source.sheetId, title: 'ВСЕ', gridProperties: { columnCount: 34 },
+  } }] } });
 });
 
 afterEach(() => {
@@ -58,9 +65,8 @@ describe('fetchDepartmentSpreadsheets — per-candidate error handling', () => {
     valuesGet.mockRejectedValue(quotaError);
     const { fetchDepartmentSpreadsheets } = await import('./google-sheets.js');
 
-    // 'УО' normally probes 3 sheet-name candidates (ВСЕ, Все, УО, per
-    // departmentSheetNameCandidates). A 429 on the very first attempt must
-    // not be swallowed and silently retried as if it were a missing sheet.
+    // The reviewed UO master is resolved by gid, and 429 on its values read
+    // must not be downgraded to a missing-title lookup.
     const { errors } = await fetchDepartmentSpreadsheets({ УО: 'ss-id' });
 
     const rangesTried = valuesGet.mock.calls.map((call) => String((call[0] as { range: string }).range));
