@@ -219,11 +219,21 @@ describe('POST /api/refresh — полный цикл', () => {
 });
 
 describe('POST /api/refresh?quick=true', () => {
-  it('быстрый путь книги не трогает — только лист СВОД и снимок', async () => {
-    const res = await refresh('?quick=true');
-    expect(res.statusCode).toBe(200);
-    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
-    expect(getSheetData).toHaveBeenCalledTimes(1);
+  it('economical refresh keeps the full base: cold reads bootstrap all sources and SVOD together', async () => {
+    const sources = await import('../services/source-refresh.js');
+    const cycle = vi.spyOn(sources, 'refreshAllSources');
+    try {
+      const res = await refresh('?quick=true');
+      expect(res.statusCode, res.body).toBe(200);
+      expect(cycle).toHaveBeenCalledWith(expect.anything(), 'request',
+        { fresh: true, withFormulas: true });
+      // No previous known Drive revision in this fixture: the cost of
+      // establishing a complete initial base is legitimate, not an omitted read.
+      expect(fetchDepartmentSpreadsheets).toHaveBeenCalledTimes(1);
+      expect(getSheetData).toHaveBeenCalledTimes(1);
+    } finally {
+      cycle.mockRestore();
+    }
   });
 });
 
