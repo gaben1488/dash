@@ -153,6 +153,9 @@ export const SCHEMA_DDL = `
     old_value TEXT,
     new_value TEXT,
     at_ms INTEGER NOT NULL,
+    time_precision TEXT NOT NULL DEFAULT 'unknown',
+    source_time_raw TEXT,
+    source_journal_row INTEGER,
     author TEXT,
     recorded_at TEXT NOT NULL
   );
@@ -288,6 +291,9 @@ export const SCHEMA_DDL = `
  * отказа («duplicate column name») — см. `db/index.ts`.
  */
 export const COLUMN_MIGRATIONS: readonly string[] = [
+  `ALTER TABLE changelog_entries ADD COLUMN time_precision TEXT NOT NULL DEFAULT 'unknown'`,
+  `ALTER TABLE changelog_entries ADD COLUMN source_time_raw TEXT`,
+  `ALTER TABLE changelog_entries ADD COLUMN source_journal_row INTEGER`,
   `ALTER TABLE book_watermarks ADD COLUMN source_file_id TEXT`,
   `ALTER TABLE book_watermarks ADD COLUMN reading_json TEXT`,
   `ALTER TABLE audit_log ADD COLUMN entity TEXT`,
