@@ -84,7 +84,7 @@ export function signalPassportForIssue(issue: Case): SignalPassport {
   const rule = Object.prototype.hasOwnProperty.call(SIGNAL_ANSWER_RULES, id)
     ? SIGNAL_ANSWER_RULES[id] : undefined;
   const match = typeof issue.cell === 'string' ? /^([A-Z]{1,3})\d+$/i.exec(issue.cell) : null;
-  const columns:readonly string[] = rule?.evidence ?? (match ? [match[1].toUpperCase()] : []);
+  const columns:readonly string[] = rule?.evidence ?? (match?.[1] ? [match[1].toUpperCase()] : []);
   const special = Object.prototype.hasOwnProperty.call(SPECIAL, id) ? SPECIAL[id] : undefined;
   const status = issue.status ?? 'unknown';
   const address = typeof issue.sheet === 'string' && issue.sheet.trim()

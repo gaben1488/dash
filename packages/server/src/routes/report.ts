@@ -137,16 +137,17 @@ async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; extras: SvodShee
   }
 }
 
-/** Current signals use persisted case decisions; archived snapshots retain their own past statuses. */
-async function readIssues(year: number): Promise<Issue[]> {
+/** Null means signals were NOT checked; an empty verified array means zero cases. */
+async function readIssues(year: number): Promise<Issue[] | null> {
   let snapshot;
   try {
     snapshot = await getSnapshot(false, year);
   } catch {
-    // Preserve the existing missing-source policy, but never swallow a decision-DB failure.
-    return [];
+    return null;
   }
-  return snapshot.id.startsWith('demo-') ? [] : overlayPersistedStatus(snapshot.issues ?? [], snapshot);
+  if (snapshot.id.startsWith('demo-')) return null;
+  // Keep decision readback outside catch: DB failure must not look like zero signals.
+  return overlayPersistedStatus(snapshot.issues ?? [], snapshot);
 }
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
@@ -222,7 +223,10 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
         readSvodGrid(),
         Promise.all(years.map(async (y) => [y, await readIssues(y)] as const)),
       ]);
-      issuesByYear = new Map(issueEntries);
+      for (const [readYear, found] of issueEntries) {
+        if (found === null) sourceNotes.push(`Сигналы за ${readYear} год не проверены: достоверный снимок недоступен. Это не означает, что замечаний нет.`);
+      }
+      issuesByYear = new Map(issueEntries.map(([readYear, found]) => [readYear, found ?? []]));
       input = {
         rowsByDept,
         ...(svodRead ? { svodGrid: svodRead.grid, svodExtras: svodRead.extras } : {}),

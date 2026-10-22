@@ -1,4 +1,4 @@
-import { PRODUCT_COPY } from '@aemr/shared';
+import { PRODUCT_COPY, signalPassportForIssue } from '@aemr/shared';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { IssueHistoryEvent } from '@aemr/shared';
@@ -842,6 +842,24 @@ export function IssuesPage() {
                         {iss.recommendation && (
                           <p className="text-xs text-blue-600 dark:text-blue-400 mb-2">Рекомендация проверки: {iss.recommendation}</p>
                         )}
+                        {iss.checkId && (() => {
+                          const passport = signalPassportForIssue({
+                            checkId: iss.checkId, status: iss.status, departmentId: iss.dept,
+                            sheet: iss.sheet, cell: iss.cell, row: iss.row, rowSeq: iss.rowSeq,
+                          });
+                          return (
+                            <div className="mb-3 space-y-1 text-[11px] text-zinc-600 dark:text-zinc-300" aria-label="Паспорт проверки">
+                              <p>Применимость: {passport.applicability}</p>
+                              <p>Свидетельство: {passport.evidence.readableFromIssue
+                                ? passport.evidence.address + '; графы ' + passport.evidence.columns.join(', ')
+                                : 'проверенная исходная строка не установлена'}</p>
+                              <p>Адресат: {passport.addressee}</p>
+                              <p>Действие: {passport.action}</p>
+                              <p>Решение: {passport.closure}</p>
+                              <p>{passport.qualification}</p>
+                            </div>
+                          );
+                        })()}
                         <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
                           {iss.cell && <span>Ячейка: <strong className="text-zinc-700 dark:text-zinc-200 font-mono">{deptLabel(iss.dept)}!{iss.cell}</strong></span>}
                           {iss.row && <span>Строка книги: <strong className="text-zinc-700 dark:text-zinc-200">{iss.row}</strong></span>}
