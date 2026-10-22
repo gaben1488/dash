@@ -42,6 +42,14 @@ describe('журнал _ChangeLog как дополнительное, не ед
     expect(result.matchesCurrent).toBe(1);
   });
 
+  it('совпадающий № при сменившемся предмете не подтверждает ту же закупку', () => {
+    const result = correlateChangelogWithCurrent('УД', [
+      entry({ row: '№ 173/18 · Совсем другой предмет' }),
+    ], reading(row('173/18', 'ЭА')), CONTROL, CURRENT, LIVE_READ);
+    expect(result.matchesCurrent).toBe(0);
+    expect(result.examples[0]?.status).toBe('context-unverified');
+  });
+
   it('шестиколоночная запись без ключа не приписывается строке по адресу', () => {
     const result = correlateChangelogWithCurrent('УАГЗО', [entry({
       sheet: '', row: '', cell: 'L4',
