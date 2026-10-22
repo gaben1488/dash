@@ -321,7 +321,7 @@ class ReleaseController:
         recovery.atomic_json(recovery.RUNTIME_DIR / 'component.json',
                              {'mode': 'web' if backend_sha else 'full', 'backend_sha': backend_sha,
                               'stage_sha256': recovery.digest(encode(stage)),
-                               'tools_sha256': self._web_toolchain()})
+                              'tools_sha256': self._web_toolchain()})
         return {'state': 'RELEASE_CONFIGURATION_STAGED'}
 
     def deploy_web(self):
