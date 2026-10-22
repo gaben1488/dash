@@ -1,5 +1,6 @@
 import { CalcEngine, explainMetric, sliceResults, standardRowFilter } from '@aemr/core';
 import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, type DataSnapshot } from '@aemr/shared';
+import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
 
 // Names in the published Svod contract; formulas remain owned by CalcEngine.
 const ALIASES: Record<string, string> = {
@@ -21,6 +22,16 @@ export function metricExplanation(snapshot: DataSnapshot, key: string) {
   const sources = Object.entries(snapshot.rowsByDept ?? {})
     .filter(([sheet]) => department ? findDept(sheet)?.latinId === department : !!findDept(sheet));
   if (sources.length === 0) return { status: 'unavailable', reason: 'SOURCE_ROWS_NOT_RETAINED' } as const;
+  // A coincidentally equal old number is NOT proof that the current rules
+  // explain it. For versioned snapshots, refuse evidence from changed code,
+  // source profiles or dated thresholds. Keep the saved value untouched.
+  const context = snapshot.metadata.calculationContext;
+  if (context && !currentCalculationContextMatches(snapshot)) {
+    return { status: 'unavailable', reason: 'CALCULATION_CONTEXT_CHANGED' } as const;
+  }
+  if (context && context.scope.targetYear !== (snapshot.metadata.targetYear ?? null)) {
+    return { status: 'unavailable', reason: 'CALCULATION_SCOPE_CHANGED' } as const;
+  }
   const asOf = new Date(snapshot.createdAt);
   if (!Number.isFinite(asOf.getTime())) return { status: 'unavailable', reason: 'SNAPSHOT_TIME_UNKNOWN' } as const;
   const addresses = sources.flatMap(([sheet, rows]) => rows.map((_, index) => ({ sheet, row: index + DEPT_HEADER_ROWS + 1 })));
@@ -47,6 +58,24 @@ export function metricExplanation(snapshot: DataSnapshot, key: string) {
     snapshotId: snapshot.id, asOf: snapshot.createdAt,
     period, year: snapshot.metadata.targetYear ?? null, department: department ?? null,
     definition: explanation.definition, value: savedValue,
+    resultContext: {
+      grain: 'department_sheet_row',
+      scope: {
+        sourceSheets: sources.map(([sheet]) => sheet),
+        department: department ?? null,
+        method: method === 'kp' ? 'competitive' : method === 'ep' ? 'ep' : null,
+        period, year: snapshot.metadata.targetYear ?? null,
+      },
+      dependencies: explanation.operands.map(operand => operand.key),
+      version: {
+        snapshotId: snapshot.id,
+        calculationContextId: context?.id ?? null,
+        semanticsHash: context?.semantics ?? null,
+        sourceContentHash: context?.sources.content ?? null,
+        sourceProfilesHash: context?.sources.profiles ?? null,
+        status: context ? 'captured' : 'legacy_without_context',
+      },
+    },
     rows: explanation.contributingRows.map(address),
     operands: explanation.operands.map(operand => {
       const definition = explainMetric(operand.key, values)?.definition;
