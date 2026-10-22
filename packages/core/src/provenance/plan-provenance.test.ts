@@ -812,3 +812,21 @@ describe('planColumnLabel — подписи вместо букв', () => {
     expect(planColumnLabel('K')).toBe('план ИТОГО');
   });
 });
+
+describe('source timestamp strictness shared by Dash journal and provenance', () => {
+  it('accepts comma and unpadded time from the real _ChangeLog', () => {
+    expect(parseJournalInstant('10.09.2026, 17:21:15')?.at).toBe('2026-09-10T17:21:15');
+    expect(parseJournalInstant('08.04.2026 9:09:54')?.at).toBe('2026-04-08T09:09:54');
+    expect(parseJournalInstant('22.10.2026')?.at).toBe('2026-10-22T00:00:00');
+  });
+
+  it('rejects impossible or half-matching calendar values instead of silently rolling over', () => {
+    for (const value of [
+      '31.02.2026', '32.01.2026', '29.02.2025', '2026-02-30',
+      '2026-10-22garbage', '08.04.2026 25:00:00',
+      '08.04.2026 9:70:00', '2026-10-22T16:00:00bad',
+    ]) {
+      expect(parseJournalInstant(value)).toBeNull();
+    }
+  });
+});
