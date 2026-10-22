@@ -95,7 +95,7 @@ def test_release_identity_reads_only_published_evidence_and_not_live_attempt(tmp
     assert len(light) < 1024
     assert sorted(checked) == ['main_report.docx', 'management_report.docx', 'operational_report.docx']
     assert live_status.exists()
-    assert not (state / 'status.json').read_bytes() == b''
+    assert (state / 'status.json').read_bytes() != b''
 
     with pytest.raises(PublicationError, match='PUBLICATION_CONTEXT_INVALID'):
         read_publication(state, 'identity', first['release_id'])

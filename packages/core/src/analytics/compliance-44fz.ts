@@ -168,7 +168,7 @@ export function checkEPShareLimits(
         ruleCode: 'ep_share_role',
         severity: 'info',
         title: `Доля ЕП ${(epShareByCount * 100).toFixed(1)}% выше неподтверждённого внутреннего ориентира`,
-        description: `Для роли ${role} в прежнем генераторе задан ориентир ${(roleLimit * 100).toFixed(0)}%. Его основание не подтверждено; это не правовая норма и не доказательство нарушения.`,
+        description: `Для роли ${_role} в прежнем генераторе задан ориентир ${(roleLimit * 100).toFixed(0)}%. Его основание не подтверждено; это не правовая норма и не доказательство нарушения.`,
         article: 'Внутренний ориентир; источник не подтверждён',
         threshold: roleLimit,
         actualValue: epShareByCount,
