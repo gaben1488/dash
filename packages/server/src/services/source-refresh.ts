@@ -314,6 +314,9 @@ function publishBookChanges(
       removedRows: diff.removedRows,
       rowsTotal: diff.rowsTotal,
       origin,
+      ...(diff.missingCandidates.length > 0 ? { missingCandidates: diff.missingCandidates.length } : {}),
+      ...(diff.identityAdded > 0 ? { identityAdded: diff.identityAdded } : {}),
+      ...(diff.ambiguousKeys.length > 0 ? { ambiguousKeys: diff.ambiguousKeys.length } : {}),
     });
     for (const row of diff.rows) publishLiveEvent(row);
   }

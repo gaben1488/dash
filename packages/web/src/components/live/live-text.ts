@@ -64,10 +64,12 @@ export function liveDetail(books: BookChange[], newIssues: number): string {
   const changed = books.reduce((sum, b) => sum + b.changedRows, 0);
   const added = books.reduce((sum, b) => sum + b.addedRows, 0);
   const removed = books.reduce((sum, b) => sum + b.removedRows, 0);
+  const missingCandidates = books.reduce((sum, b) => sum + (b.missingCandidates ?? 0), 0);
 
   if (changed > 0) parts.push(countWord(changed, 'строка', 'строки', 'строк'));
   if (added > 0) parts.push(`добавлено ${countWord(added, 'строка', 'строки', 'строк')}`);
   if (removed > 0) parts.push(`убрано ${countWord(removed, 'строка', 'строки', 'строк')}`);
+  if (missingCandidates > 0) parts.push(`возможных пропаж закупок: ${missingCandidates} — требуется сверка`);
   if (newIssues > 0) parts.push(`новых замечаний ${newIssues}`);
 
   return parts.join(', ');

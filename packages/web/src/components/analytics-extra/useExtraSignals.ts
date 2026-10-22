@@ -62,5 +62,21 @@ export function useAnomalies(enabled = true): UseRemoteResult<AnomaliesResponse>
 
 /** Целостность книг — раздел «Контроль». */
 export function useIntegrity(enabled = true): UseRemoteResult<IntegrityResponse> {
-  return useRemote<IntegrityResponse>('/integrity', enabled);
+  const result = useRemote<IntegrityResponse>('/integrity', enabled);
+  // Только открытый раздел реагирует на события; одна серия вебхуков —
+  // одно чтение локального API, без повторных обращений к Google.
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onBookUpdate = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(result.reload, 600);
+    };
+    window.addEventListener('department-books-updated', onBookUpdate);
+    return () => {
+      window.removeEventListener('department-books-updated', onBookUpdate);
+      if (timer) clearTimeout(timer);
+    };
+  }, [enabled, result.reload]);
+  return result;
 }

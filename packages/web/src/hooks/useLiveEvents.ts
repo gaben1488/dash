@@ -35,6 +35,10 @@ export interface BookChange {
   addedRows: number;
   removedRows: number;
   rowsTotal: number;
+  /** Подозрения по № п/п, не подтверждённые удаления. */
+  missingCandidates?: number;
+  identityAdded?: number;
+  ambiguousKeys?: number;
   origin: RefreshOrigin;
   /** Момент последнего события по этой книге (ISO). */
   at: string;
@@ -179,6 +183,9 @@ export function reduceLive(prev: LiveState, event: ServerEvent, now = Date.now()
           addedRows: (previous?.addedRows ?? 0) + Number(event.addedRows ?? 0),
           removedRows: (previous?.removedRows ?? 0) + Number(event.removedRows ?? 0),
           rowsTotal: Number(event.rowsTotal ?? 0),
+          missingCandidates: (previous?.missingCandidates ?? 0) + Number(event.missingCandidates ?? 0),
+          identityAdded: (previous?.identityAdded ?? 0) + Number(event.identityAdded ?? 0),
+          ambiguousKeys: (previous?.ambiguousKeys ?? 0) + Number(event.ambiguousKeys ?? 0),
           origin: (event.origin as RefreshOrigin) ?? 'cycle',
           at,
         },
@@ -263,6 +270,9 @@ export function ingestLiveEvent(event: Record<string, unknown>): void {
   if (next !== state) {
     state = next;
     for (const listener of [...listeners]) listener();
+  }
+  if (event.kind === 'book-updated' && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('department-books-updated'));
   }
   if (event.kind === 'monitoring-updated') {
     useStore.getState().invalidateLiveStavka();
