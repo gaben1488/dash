@@ -3129,7 +3129,7 @@ jobs:
           PY
           python3 .github/ci/runtime_passport.py --artifact "$RUNNER_TEMP/release/runtime-candidate/manifest.json" \
             --metadata "$RUNNER_TEMP/release/runtime-artifact-metadata.json" --stage "$RUNNER_TEMP/release/stage.json" \
-            --accepted "$RUNNER_TEMP/release/accepted.json" --containers "$RUNNER_TEMP/release/installed-containers.json" \
+            --component "$RUNNER_TEMP/release/component.json" --accepted "$RUNNER_TEMP/release/accepted.json" --containers "$RUNNER_TEMP/release/installed-containers.json" \
             --ops "$RUNNER_TEMP/release/installed-ops.json" --observed "$RUNNER_TEMP/release/installed-observed.json" \
             > "$RUNNER_TEMP/release/installed-passport.json"
           remote "sudo -n python3 -IB -c 'import json,sys;sys.path.insert(0,\"/usr/local/libexec/aemr\");import release_recovery as r;body=sys.stdin.buffer.read(65537);assert len(body)<=65536;r.atomic_json(r.RUNTIME_DIR/\"installed-passport.json\",json.loads(body))'" \
