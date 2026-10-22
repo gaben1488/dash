@@ -14,9 +14,10 @@ export function conditionalEpProjection(input: {
   activityAligned: boolean;
   budgetAligned: boolean;
   searchAligned: boolean;
+  institutionAligned: boolean;
 }): number | null {
-  const { scatter, epPlan, epHasData, dashboardLoading, yearMatches, activityAligned, budgetAligned, searchAligned } = input;
-  if (!scatter || dashboardLoading || !yearMatches || !activityAligned || !budgetAligned || !searchAligned || !epHasData
+  const { scatter, epPlan, epHasData, dashboardLoading, yearMatches, activityAligned, budgetAligned, searchAligned, institutionAligned } = input;
+  if (!scatter || dashboardLoading || !yearMatches || !activityAligned || !budgetAligned || !searchAligned || !institutionAligned || !epHasData
     || !scatter.coverage.complete || scatter.summary.count === 0
     || !Number.isFinite(epPlan) || epPlan <= 0) return null;
   const ratio = scatter.summary.limitReductionPercent;
