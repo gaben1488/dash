@@ -130,6 +130,8 @@ describe('боевые пороги', () => {
     const covered = [
       ['POST', '/api/refresh'],
       ['POST', '/api/sources/validate-all'],
+      ['POST', '/api/sources/diagnostics/run'],
+      ['POST', '/api/sources/integrity/check'],
       ['POST', '/api/sources/%D0%A3%D0%9E/validate'],
       ['GET', '/api/changes'],
       ['GET', '/api/provenance/health'],
