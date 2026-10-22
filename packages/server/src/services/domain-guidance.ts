@@ -7,8 +7,8 @@
  * SQL and audit are deliberately in one place, never in a screen or rule.
  */
 import {
-  PROCUREMENT_GUIDANCE_VERSION, procurementEditableGuidance,
-  type SavedProcurementGuidance,
+  PROCUREMENT_GUIDANCE_VERSION, checkedProcurementGuidanceResponse,
+  procurementEditableGuidance, type SavedProcurementGuidance,
 } from '@aemr/shared';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
@@ -21,10 +21,13 @@ export function knownDomainGuidanceKey(key: string): boolean {
 }
 
 export function readDomainGuidance(): SavedProcurementGuidance {
-  const saved = new Map(
-    db.select().from(schema.domainGuidanceEdits).all().map(item => [item.key, item]),
-  );
-  return {
+  const revisions = db.select().from(schema.domainGuidanceEdits).all();
+  // A removed/renamed catalog key with saved human work must not disappear
+  // silently during a dictionary/code upgrade. Require a migration decision.
+  const orphan = revisions.find(item => !byKey.has(item.key));
+  if (orphan) throw new Error('Unmigrated saved guidance key');
+  const saved = new Map(revisions.map(item => [item.key, item]));
+  const response: SavedProcurementGuidance = {
     version: PROCUREMENT_GUIDANCE_VERSION,
     calculationRulesChanged: false,
     entries: originals.map(item => {
@@ -38,6 +41,10 @@ export function readDomainGuidance(): SavedProcurementGuidance {
       };
     }),
   };
+  // The API is not allowed to call a corrupted or partial stored catalog
+  // authoritative just because a frontend would detect it later.
+  checkedProcurementGuidanceResponse(response);
+  return response;
 }
 
 /**
