@@ -102,8 +102,12 @@ def review_registry(original, sealed, client):
             raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         if patch.get('sealed_baseline') and prior and tuple(prior[0].get(k) for k in ('columns', 'header_rows', 'schema_fingerprint')) == old_geometry:
             accepted_semantic.add(prior[1])
-        if prior and (any(prior[0].get(k) != source.get(k) for k in ('provider_id', 'sheet_id', 'role', 'grbs'))
-            or prior[1] not in accepted_semantic):
+        # Archived 18/19/32 directory headers do not gate the current live
+        # contract. An existing sealed identity mismatch still fails closed.
+        if prior and (
+            any(prior[0].get(k) != source.get(k) for k in ('provider_id', 'sheet_id', 'role', 'grbs'))
+            or (patch['sheet'] != 'Справочник заказчиков' and prior[1] not in accepted_semantic)
+        ):
             raise ValueError('MONITORING_SCHEMA_SEALED_BASE_MISMATCH')
         grid = client.grid(provider, source['sheet_id'])
         if grid['title'] != patch['sheet'] or grid['gridProperties']['columnCount'] != patch['columns']:
@@ -113,10 +117,19 @@ def review_registry(original, sealed, client):
             or semantic_header_hash(rows, patch['header_rows'], patch['columns'],
                 volatile_cells=patch['volatile_cells']) != patch['semantic']):
             raise ValueError('MONITORING_SCHEMA_LIVE_HEADER_MISMATCH')
+        # Never copy a frozen header's semantic fingerprint into a current
+        # directory registry; preserve existing historical provenance instead.
+        previous_semantic = (
+            source.get('previous_semantic_header_fingerprint', patch['semantic'])
+            if patch['sheet'] == 'Справочник заказчиков'
+            else (prior[1] if prior and prior[1] != patch['semantic']
+                  else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']))
+        )
         updated = {**source, 'sheet': patch['sheet'], 'columns': patch['columns'],
             'header_rows': patch['header_rows'], 'schema_fingerprint': patch['fingerprint'],
             'semantic_header_fingerprint': patch['semantic'],
-            'previous_semantic_header_fingerprint': prior[1] if prior and prior[1] != patch['semantic'] else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']), 'schema_change_reason': patch.get('reason', REASON)}
+            'previous_semantic_header_fingerprint': previous_semantic,
+            'schema_change_reason': patch.get('reason', REASON)}
         if patch['volatile_cells']:
             updated['volatile_header_cells'] = patch['volatile_cells']
         if source != updated:
