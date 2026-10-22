@@ -90,7 +90,11 @@ describe('СВОД — границы разных схем на одном ли
 describe('validateData — basic', () => {
   it('reports incomplete arithmetic once per rule without alleging a financial mismatch', () => {
     const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
-    const rows = [5, 6].map(rowIndex => makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, K: 100 } }));
+    // A real СВОД validation scope begins with its recognized primary header.
+    // Without that evidence the engine intentionally skips arithmetic, rather
+    // than inventing a financial mismatch for an unidentified sheet layout.
+    const rows = [primaryHeader, ...[5, 6].map(rowIndex =>
+      makeRow({ rowIndex, cells: { A: 'УО', H: 100, I: 0, K: 100 } }))];
     const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });

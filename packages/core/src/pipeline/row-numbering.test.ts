@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
 import { RULE_BOOK, CHECK_REGISTRY } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ReportMapEntry } from '@aemr/shared';
 import { validateData } from './validate.js';
+import { classifyRows } from './classify.js';
+import { checkSequenceIntegrity } from '@aemr/shared';
 
 const EMPTY_METRICS = new Map<string, NormalizedMetric>();
 const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
@@ -106,6 +108,53 @@ describe('row_numbering — составные номера и хвост фор
     const [issue] = run([procRow(4, 1), actual]);
     expect(issue.description).toContain('без номера');
     expect(issue.description).toContain('5');
+  });
+});
+
+
+describe('row_numbering — live collision families observed on UD master', () => {
+  // Synthetic rows with real numbering shapes, no private procurement subjects or money.
+  // The installed runtime falsely merged each composite into its base, despite
+  // 237/237 unique displayed ordinals on ВСЕ and 0 repeats (2026-10-22).
+  const independentLabels = [
+    '23', '23/1', '23/2', '23/6',
+    '24', '24/1', '24/2', '24/8',
+    '33', '33/1',
+    '121', '121/1',
+    '157', '157/1',
+    '158', '158/1',
+    '162', '162/1', '162/2', '162/4',
+    '173', '173/1', '173/3', '173/5', '173/10', '173/18', '173/20', '173/27',
+    '177', '177/13',
+    '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213',
+  ];
+
+  const rows = () => classifyRows('УД', independentLabels.map((a, index) => ({
+    rowIndex: index + 4,
+    cells: { A: a, C: 'Х', G: 'Учебная проверочная позиция', K: 100, L: 'ЕП' },
+  })));
+
+  it('does not misclassify any composite as a service row', () => {
+    expect(rows().every(r => r.classification === 'procurement')).toBe(true);
+  });
+
+  it('one canonical dataset produces no false duplicate in either check path', () => {
+    expect(run(rows())).toHaveLength(0);
+    const report = checkSequenceIntegrity(independentLabels.map((rowSeq, i) => ({
+      rowSeq, sheetRow: i + 4, countable: true,
+    })));
+    expect(report.duplicates).toEqual([]);
+    expect(report.countableWithoutSeq).toBe(0);
+  });
+
+  it('still detects a genuine repeated full composite ID without broadening to its base', () => {
+    const index = independentLabels.length + 4;
+    const repeated = procRow(index, '173/18');
+    const [issue] = run([...rows(), repeated]);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain(String(index));
+    expect(issue.description).not.toContain('№ 173 —');
   });
 });
 

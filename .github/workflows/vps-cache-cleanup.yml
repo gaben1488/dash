@@ -1,6 +1,9 @@
 name: Owner-authorized VPS maintenance
 
 on:
+  # Main-branch owner-only bridge calls this reviewed integrated release workflow.
+  # The existing event/sender/PR/exact-SHA/CI gates inside jobs are unchanged.
+  workflow_call:
   pull_request:
     branches: [main]
     types: [labeled]
@@ -8,6 +11,7 @@ on:
     branches: [codex/dash-audit-integrated-20261010]
     paths:
       - '.github/ci/ud-source-refresh-20261022.request'
+      - '.github/ci/integrated-source-state-release-20261022.request'
 
 permissions:
   contents: read
@@ -1348,9 +1352,12 @@ jobs:
                 repo=Path('/home/aemr/dash')
                 def public_source(name,sha=candidate):
                     return subprocess.check_output(['runuser','-u','aemr','--','git','-C',str(repo),'show',sha+':'+name],text=True,timeout=20)
-                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts','packages/shared/src/source-coverage.ts')
+                names=('packages/shared/src/schemas.ts','packages/shared/src/department-registry.ts',
+                       'packages/shared/src/source-coverage.ts',
+                       'packages/report-engine/src/procurement_engine/department_directory.json')
                 assert all(public_source(name)==public_source(name,plan['release_sha']) for name in names)
-                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),'coverage':public_source(names[2])})
+                payload=json.dumps({'schemas':public_source(names[0]),'registry':public_source(names[1]),
+                                    'coverage':public_source(names[2]),'directory':public_source(names[3])})
                 program=public_source('.github/ci/report-schema-probe.cjs')
                 program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
                 schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
@@ -2650,19 +2657,27 @@ jobs:
                 raise SystemExit('HOST_RESERVE_REJECTED') from None
             PYRESERVE
   controlled-candidate-release:
+    # Owner label unchanged. The one-off push request comes from the same owner
+    # and passes every original exact-SHA CI/stateful backup/recovery gate.
     if: >-
-      github.event.label.name == 'maintenance: controlled-candidate-release' &&
-      github.event.sender.login == github.repository_owner &&
-      github.event.pull_request.number == 79 &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'codex/dash-audit-integrated-20261010'
+      (github.event_name == 'pull_request' &&
+       github.event.label.name == 'maintenance: controlled-candidate-release' &&
+       github.event.sender.login == github.repository_owner &&
+       github.event.pull_request.number == 79 &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'codex/dash-audit-integrated-20261010') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+       github.actor == github.repository_owner &&
+       github.repository == 'gaben1488/dash' &&
+       github.workflow == 'Integrated durable source-state release')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     env:
-      RECOVERY_SHA: ${{ github.event.pull_request.head.sha }}
+      RECOVERY_SHA: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       RECOVERY_RUN: ${{ github.run_id }}
       VPS_USER: ${{ secrets.DEPLOY_USER }}
       VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -2670,7 +2685,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ (github.event_name == 'push' && github.sha) || github.event.pull_request.head.sha }}
       - name: Admit exact current candidate before any maintenance
         run: |
           set -euo pipefail
@@ -2679,6 +2694,12 @@ jobs:
           [[ "$RECOVERY_RUN" =~ ^[0-9]+$ ]]
           [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"
+          if test "$GITHUB_EVENT_NAME" = push; then
+            request=.github/ci/integrated-source-state-release-20261022.request
+            test "$(git diff --name-only HEAD^ HEAD)" = "$request"
+            python3 -c 'import json,sys; expected={"purpose":"integrated-durable-source-state-production-release","approved_parent":sys.argv[2],"preserve_current_sources":True,"write_google_sheets":False}; assert json.load(open(sys.argv[1],encoding="utf-8"))==expected' "$request" "$(git rev-parse HEAD^)"
+            echo OWNER_RELEASE_REQUEST_VERIFIED
+          fi
           mkdir -m 700 "$RUNNER_TEMP/release"
           printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/release/key"
           ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/release/known_hosts" 2>/dev/null
@@ -2702,8 +2723,13 @@ jobs:
           }
           SH
           ready=false
-          for attempt in $(seq 1 30); do
-            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request" \
+          # Match the event actually generated for this exact candidate.
+          # A push-release must not wait for a pull_request run that cannot
+          # exist for its SHA; every required CI job remains mandatory.
+          ci_event=pull_request
+          if test "$GITHUB_EVENT_NAME" = push; then ci_event=push; fi
+          for attempt in $(seq 1 90); do
+            ci_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=$ci_event" \
               --jq '.workflow_runs | map(select(.name == "CI")) | first | .id // empty')
             if test -n "$ci_run"; then
               gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" > "$RUNNER_TEMP/release/run.json"
@@ -2713,7 +2739,7 @@ jobs:
           from pathlib import Path
           p=Path(os.environ['RUNNER_TEMP'])/'release'
           r=json.loads((p/'run.json').read_text());j=json.loads((p/'jobs.json').read_text())['jobs']
-          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository')},
+          value={'run':{k:r[k] for k in ('head_sha','name','event','path','head_repository','head_branch','actor')},
                  'jobs':[{k:x[k] for k in ('name','status','conclusion')} for x in j]}
           (p/'source-ci.json').write_text(json.dumps(value))
           PY
@@ -3175,7 +3201,9 @@ jobs:
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
        github.actor == github.repository_owner &&
-       github.repository == 'gaben1488/dash')
+       github.repository == 'gaben1488/dash' &&
+       (contains(github.event.head_commit.modified, '.github/ci/ud-source-refresh-20261022.request') ||
+        contains(github.event.head_commit.added, '.github/ci/ud-source-refresh-20261022.request')))
     runs-on: ubuntu-latest
     timeout-minutes: 16
     concurrency:
@@ -3196,6 +3224,12 @@ jobs:
             cd /home/aemr/dash/deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            image_sha=$(docker inspect --format '{{.Image}}' "$server")
+            image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_sha" 2>/dev/null || true)
+            checkout_rev=$(git -C /home/aemr/dash rev-parse HEAD 2>/dev/null || true)
+            latest_sha=$(docker image inspect --format '{{.Id}}' aemr-server:latest 2>/dev/null || true)
+            previous_sha=$(docker image inspect --format '{{.Id}}' aemr-server:previous 2>/dev/null || true)
+            echo "UD_DEPLOY_LINEAGE server_image=$image_sha revision_label=$image_revision checkout=$checkout_rev latest_image=$latest_sha previous_image=$previous_sha"
             docker compose --env-file .env.production exec -T server node - <<'NODE'
             const base = 'http://127.0.0.1:3000';
             const key = process.env.AEMR_API_KEY;
@@ -3209,13 +3243,18 @@ jobs:
             (async () => {
               const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(15000)});
               if (!health.ok) throw new Error('INSTALLED_RUNTIME_NOT_HEALTHY');
+              // Verify the deployed runtime against a current complete source read.
+              // Never claim a fresh UD receipt from a literal row count or a cached snapshot.
               const refresh = await read('POST', '/api/refresh?formulas=true');
-              const departments = (refresh.sources || []).filter(s => s.type === 'department');
-              if (!refresh.success || departments.length !== 8 || departments.some(s => !s.loaded)) {
+              const departments = (refresh.sources || []).filter(item => item.type === 'department');
+              if (refresh.success !== true || departments.length !== 8 ||
+                  departments.some(item => item.loaded !== true)) {
                 throw new Error('SOURCE_REFRESH_INCOMPLETE');
               }
-              const ud = departments.find(s => s.name === 'УД');
-              if (!ud || !ud.rowCount) throw new Error('UD_SOURCE_UNAVAILABLE');
+              const ud = departments.find(item => item.name === 'УД');
+              if (!ud || !Number.isSafeInteger(ud.rowCount) || ud.rowCount < 4) {
+                throw new Error('UD_SOURCE_UNAVAILABLE');
+              }
               const dashboard = await read('GET', '/api/dashboard?compact=1');
               const snapshot = dashboard.snapshot;
               if (!snapshot || !Array.isArray(snapshot.issues)) throw new Error('NO_CURRENT_SNAPSHOT_ISSUES');
@@ -3224,6 +3263,48 @@ jobs:
                 (issue.departmentId === 'ud' || issue.sheet === 'УД') &&
                 issue.status !== 'false_positive' && issue.status !== 'resolved'
               );
+              // Inspect exactly the same department through the running registry
+              // API, output only column-A labels and row positions.
+              const liveRowsResponse = await read('GET', '/api/rows/ud?page=1&limit=500');
+              const seenRows = (liveRowsResponse.rows || [])
+                .map(entry => ({ row: entry.rowIndex, id: String(entry.id ?? '').trim() }))
+                .filter(entry => entry.id !== '');
+              const byId = new Map();
+              for (const entry of seenRows) byId.set(entry.id, [...(byId.get(entry.id) || []), entry.row]);
+              const sampleRows = new Set([11, 28, 54, 57, 68, 73, 74, 79, 84, 103, 123, 166, 175, 184, 192, 194, 205, 208, 228, 233, 235, 240]);
+              const sourceFile = require('node:fs').readFileSync('/app/packages/shared/src/rule-book.ts','utf8');
+              const installedRuleSha256 = require('node:crypto').createHash('sha256').update(sourceFile).digest('hex');
+              console.log('UD_RUNTIME_IDS=' + JSON.stringify({
+                rowsRead: seenRows.length,
+                sourceFileHash: installedRuleSha256,
+                strictSequenceCompare: sourceFile.includes("const parsed = /^\\d+$/.test(raw)"),
+                unsafeToNumber: sourceFile.includes("const n = toNumber(raw)"),
+                examples: seenRows.filter(item => sampleRows.has(item.row)),
+                compositeCount: seenRows.filter(item => item.id.includes('/')).length,
+                exactDupes: [...byId].filter(item => item[1].length > 1)
+              }));
+              // Only numbering labels and positions may enter a public CI log;
+              // no subjects, amounts, free text, or authentication metadata.
+              const diagnostics = currentNumbering.map(issue => {
+                const description = String(issue.description ?? '');
+                const duplicates = [...description.matchAll(/№\s*(\d+(?:\/\d+)?)\s*[—-]\s*строки листа\s*([\d,\s]+)/g)]
+                  .map(match => ({ label: match[1], rows: match[2].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) }));
+                const missing = description.match(/без номера счётные строки листа\s*([\d,\s]+)/);
+                return {
+                  sheet: issue.sheet ?? null,
+                  departmentId: issue.departmentId ?? null,
+                  row: issue.row ?? null,
+                  duplicates,
+                  missing: missing ? missing[1].split(',').map(x => Number(x.trim())).filter(Number.isSafeInteger) : [],
+                  containsRepeats: description.includes('повторяются'),
+                  containsMissing: description.includes('без номера'),
+                  kind: issue.category ?? issue.checkId ?? null,
+                  issueCount: currentNumbering.length,
+                  descriptionLength: description.length,
+                  severity: issue.severity ?? null
+                };
+              });
+              console.log('UD_NUMBERING_DIAGNOSTIC=' + JSON.stringify(diagnostics));
               console.log(JSON.stringify({
                 result: currentNumbering.length === 0 ? 'UD_NUMBERING_PASS' : 'UD_NUMBERING_FAIL',
                 source: 'УД',
@@ -3238,3 +3319,34 @@ jobs:
               if (currentNumbering.length > 0) process.exitCode = 2;
             })().catch(err => { console.error(String(err.message || err).slice(0,160)); process.exitCode = 1; });
             NODE
+
+  ud-code-regression:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/codex/dash-audit-integrated-20261010' &&
+      github.actor == github.repository_owner &&
+      github.repository == 'gaben1488/dash'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    concurrency:
+      group: ud-numbering-regression-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Assert current code (not legacy main) and test both numbering consumers
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          pnpm --filter @aemr/shared exec vitest run src/sequence-integrity.test.ts
+          pnpm --filter @aemr/core exec vitest run src/pipeline/row-numbering.test.ts src/pipeline/classify.test.ts
+          pnpm -F @aemr/core exec tsc --noEmit

@@ -8,8 +8,17 @@ REQUIRED = {'Lint, TypeScript, Tests, Build, Audit',
 
 
 def source_ci_passed(run, jobs, sha):
+    # Historical PR admission is unchanged. The sole new production path is an
+    # owner-initiated push on the reviewed PR79 integration branch, admitted
+    # only against the exact tested SHA and the same three mandatory jobs.
+    owner_integrated_push = (
+        run.get('event') == 'push'
+        and run.get('head_branch') == 'codex/dash-audit-integrated-20261010'
+        and (run.get('actor') or {}).get('login') == 'gaben1488'
+    )
     if (not re.fullmatch('[a-f0-9]{40}', sha) or run.get('head_sha') != sha
-            or run.get('name') != 'CI' or run.get('event') != 'pull_request'
+            or run.get('name') != 'CI'
+            or not (run.get('event') == 'pull_request' or owner_integrated_push)
             or run.get('path') != '.github/workflows/ci.yml'
             or (run.get('head_repository') or {}).get('full_name') != 'gaben1488/dash'):
         return False

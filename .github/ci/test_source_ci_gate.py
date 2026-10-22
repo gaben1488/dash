@@ -32,6 +32,22 @@ class SourceGateTests(unittest.TestCase):
             self.assertFalse(self.module.source_ci_passed(self.run, changed, self.sha))
         self.assertFalse(self.module.source_ci_passed(self.run, [*self.jobs, self.jobs[0]], self.sha))
 
+    def test_only_exact_owner_push_on_integration_branch_may_supply_source_proof(self):
+        run = {**self.run, 'event': 'push',
+               'head_branch': 'codex/dash-audit-integrated-20261010',
+               'actor': {'login': 'gaben1488'}}
+        self.assertTrue(self.module.source_ci_passed(run, self.jobs, self.sha))
+        for changes in (
+            {'head_branch': 'main'},
+            {'head_branch': 'another-feature'},
+            {'actor': {'login': 'another-user'}},
+            {'actor': None},
+            {'head_sha': 'b' * 40},
+            {'head_repository': {'full_name': 'another/repo'}},
+            {'path': '.github/workflows/unknown.yml'},
+        ):
+            self.assertFalse(self.module.source_ci_passed({**run, **changes}, self.jobs, self.sha))
+
     def test_other_sha_repository_or_workflow_never_admits(self):
         for field, value in (('head_sha', 'b' * 40), ('name', 'Other'), ('event', 'push'),
                              ('path', '.github/workflows/other.yml'),

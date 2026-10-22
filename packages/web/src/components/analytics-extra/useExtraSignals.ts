@@ -24,22 +24,46 @@ export interface UseRemoteResult<T> {
   reload: () => void;
 }
 
-function useRemote<T>(path: string, enabled: boolean, rereadSourceOnReload = false): UseRemoteResult<T> {
+function useRemote<T>(
+  path: string,
+  enabled: boolean,
+  rereadSourceOnReload = false,
+  softRefreshEvent?: string,
+): UseRemoteResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  // Manual refresh may read Google; SSE revalidation MUST only read local API.
+  const [request, setRequest] = useState({ version: 0, forceSource: false });
+  const reload = useCallback(() => setRequest((r) => ({
+    version: r.version + 1, forceSource: true,
+  })), []);
 
-  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  useEffect(() => {
+    if (!enabled || !softRefreshEvent || typeof window === 'undefined') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onChange = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        setRequest((r) => ({ version: r.version + 1, forceSource: false }));
+      }, 600);
+    };
+    window.addEventListener(softRefreshEvent, onChange);
+    return () => {
+      window.removeEventListener(softRefreshEvent, onChange);
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [enabled, softRefreshEvent]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-
-    // Ручное «перечитать» означает реальное чтение Google, а не новый GET из кэша.
-    const requestPath = rereadSourceOnReload && attempt > 0 ? `${path}?refresh=true` : path;
+    // Только явная кнопка перечитывает Google; сигнал после webhook — дешёвый
+    // GET локальной версии с TTL/source watermark, без дополнительного Google I/O.
+    const requestPath = rereadSourceOnReload && request.forceSource ? `${path}?refresh=true` : path;
     fetchJSON<T>(requestPath)
       .then((response) => {
         if (!cancelled) setData(response);
@@ -52,7 +76,7 @@ function useRemote<T>(path: string, enabled: boolean, rereadSourceOnReload = fal
       });
 
     return () => { cancelled = true; };
-  }, [path, enabled, attempt, rereadSourceOnReload]);
+  }, [path, enabled, request.version, request.forceSource, rereadSourceOnReload]);
 
   return { data, loading, error, reload };
 }
@@ -64,5 +88,5 @@ export function useAnomalies(enabled = true): UseRemoteResult<AnomaliesResponse>
 
 /** Целостность книг — раздел «Контроль». */
 export function useIntegrity(enabled = true): UseRemoteResult<IntegrityResponse> {
-  return useRemote<IntegrityResponse>('/integrity', enabled, true);
+  return useRemote<IntegrityResponse>('/integrity', enabled, true, 'department-books-updated');
 }
