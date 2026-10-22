@@ -326,8 +326,8 @@ export function IntegritySection() {
           </KBTooltip>
           <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
             Можно ли сослаться на строку, видит ли человек в графе срока дату и не пропала ли
-            закупка между чтениями. Пропуск номера — повод для проверки, но не доказательство удаления.
-            Сама нумерация: журнал книги удаление не записывает.
+            закупка между чтениями. Пропуск номера требует проверки, но сам по себе не доказывает удаление:
+            журнал книги удаление строки не записывает.
           </p>
         </div>
         {data && (
@@ -452,9 +452,9 @@ export function IntegritySection() {
                 <h4 className="ds-text-sm font-[var(--weight-medium)] text-[var(--ink-strong)]">
                   Независимая сверка двух недельных контролей
                 </h4>
-                {data.weeklyComparison === null ? (
+                {data.weeklyComparison == null ? (
                   <p className="ds-prose mt-1 ds-text-xs text-[var(--data-warn)]">
-                    {data.weeklyComparisonNote}
+                    {data.weeklyComparisonNote ?? 'Недельная сверка недоступна в этой версии API.'}
                   </p>
                 ) : (
                   <>
