@@ -141,7 +141,8 @@ export function cycleCoversFile(fileId: string | null, cycle: CycleTargetsView):
   if (cycle.full) return true;
   const plan = planForFile(fileId);
   if (plan.full) return false; // неопознанный файл требует полной перечитки
-  if (plan.books.length > 0) return plan.books.every((b) => cycle.books.includes(b));
+  if (plan.books.length > 0) return plan.books.every((b) => cycle.books.includes(b))
+    && (!plan.svod || cycle.svod);
   if (plan.svod) return cycle.svod;
   return true; // цели нет — читать нечего
 }
@@ -150,7 +151,8 @@ export function cycleCoversFile(fileId: string | null, cycle: CycleTargetsView):
  * Судьба записей после цикла чтения источников.
  *
  * Судятся ТОЛЬКО записи, чью цель покрывал план ЭТОГО цикла: запись книги,
- * которую цикл не читал, остаётся невыполненной с нетронутым счётом попыток —
+ * которую цикл не читал (включая её обязательный производный СВОД),
+ * остаётся невыполненной с нетронутым счётом попыток —
  * её дочитает свой цикл или повтор. Из покрытых запись выполнена, когда цель
  * прочитана: книга ГРБС — не в списке упавших; лист СВОД — прочитан;
  * неопознанный файл (полная перечитка) — ни одна книга не упала и лист СВОД
@@ -177,7 +179,8 @@ export function settleAfterRefresh(
     }
     let ok: boolean;
     if (plan.full) ok = failed.size === 0 && outcome.svodOk;
-    else if (plan.books.length > 0) ok = plan.books.every((b) => !failed.has(b));
+    else if (plan.books.length > 0) ok = plan.books.every((b) => !failed.has(b))
+      && (!plan.svod || outcome.svodOk);
     else if (plan.svod) ok = outcome.svodOk;
     else ok = true; // цели нет — читать нечего, запись закрыта честно
     (ok ? done : kept).push(entry.id);
