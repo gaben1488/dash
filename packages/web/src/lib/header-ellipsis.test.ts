@@ -80,8 +80,13 @@ describe('§16.1 — многоточие в зоне шапки/навигац�
     }
   });
 
-  it('вылеченные подписи несут перенос, а не просто голый обрез', () => {
-    for (const cls of ['.np-label', '.sel-chip-label', '.ob-chip', '.ob-dept-name']) {
+  it('жетоны и организации переносят подписи; барабан прокручивает целые кнопки', () => {
+    // The original cylinder keeps route names whole. Letter wrapping was the
+    // reported regression; real viewport/focus bounds are checked in Chromium.
+    expect(bodiesOf('.np-label')).toMatch(/white-space\s*:\s*nowrap/);
+    expect(bodiesOf('.np-label')).not.toMatch(/overflow-wrap\s*:\s*anywhere/);
+    expect(bodiesOf('.np-group-btns')).toMatch(/overflow-x\s*:\s*auto/);
+    for (const cls of ['.sel-chip-label', '.ob-chip', '.ob-dept-name']) {
       expect(bodiesOf(cls), `${cls} обязан переносить текст (overflow-wrap)`)
         .toMatch(/overflow-wrap\s*:\s*anywhere/);
     }

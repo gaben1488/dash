@@ -7,26 +7,14 @@
  * Зависимости: DEPT_COLUMNS + общий аксессор ячейки (utils/row-cells).
  * Обратной зависимости на dataset-signals нет — цикл невозможен.
  */
-import { DEPT_COLUMNS, isReadableDeptRow, parseSheetDate } from '@aemr/shared';
+import { DEPT_COLUMNS, isReadableDeptRow, parseSheetDate, parseSheetNumber, dayNumberOf, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, SEASONAL_PATTERNS, SEASONAL_PARAMETERS, SEASONAL_RULES, SEASONAL_SCREENING_NOTE, seasonalDeadlineLabel, type SeasonalRuleId } from '@aemr/shared';
 import { strFromRow } from '../utils/row-cells.js';
 
 // ────────────────────────────────────────────────────────────
 // 11. Seasonal Anomaly Detection
 // ────────────────────────────────────────────────────────────
 
-/** Regex patterns for seasonal signal detection */
-const SEASONAL_RE = {
-  repair: /ремонт|модерниз|реконструк/i,
-  school: /школ|образов|детс|гимназ|лицей/i,
-  food: /питан|пищ|обед|завтрак|столов/i,
-  road: /дорог|асфальт|покрыт|тротуар|благоуст/i,
-  fuel: /топлив|угл[яеьюи]|мазут|дизельн|ГСМ|котельн.*снабж/i,
-  boiler: /котельн|отоплен|теплоснабж/i,
-  // signed-паттерн (/подписан|заключен|исполнен/) СНЯТ 14.08.2026 — канон
-  // п.27 интервью: статус «заключено» выводится только из структурной даты
-  // факта (Q), свободный текст U машинно не интерпретируется (тот же класс,
-  // что баг #16 охоты: «не заключен» матчился как «заключен»).
-} as const;
+const SEASONAL_RE = SEASONAL_PATTERNS;
 
 /**
  * Parse a DD.MM.YYYY date string (or Date object) from a row cell.
@@ -39,18 +27,14 @@ function parseDateFromCell(val: unknown): Date | null {
 }
 
 /** Seasonal anomaly type identifiers */
-export type SeasonalAnomalyType =
-  | 'SCHOOL_REPAIR_OUTSIDE_HOLIDAYS'
-  | 'LATE_SCHOOL_FOOD_CONTRACT'
-  | 'WINTER_ROAD_WORK'
-  | 'LATE_FUEL_PROCUREMENT'
-  | 'BOILER_REPAIR_HEATING_SEASON'
-  | 'Q4_SPENDING_SPIKE'
-  | 'DECEMBER_RUSH_CONTRACT';
+export type SeasonalAnomalyType = SeasonalRuleId;
 
 /** Seasonal anomaly detected at dataset level */
 export interface SeasonalAnomaly {
   type: SeasonalAnomalyType;
+  assessment?: 'screening';
+  nextAction?: string;
+  limitation?: string;
   severity: 'critical' | 'high' | 'medium';
   /** Index in the rows array (-1 for aggregate signals like Q4_SPENDING_SPIKE) */
   rowIndex: number;
@@ -68,6 +52,7 @@ export function detectSeasonalAnomalies(
   referenceDate?: Date,
 ): SeasonalAnomaly[] {
   const now = referenceDate ?? new Date();
+  const nowDay = productCalendarDay(now, PRODUCT_UTC_OFFSET_HOURS);
   const results: SeasonalAnomaly[] = [];
 
   // Per-row counters for Q4_SPENDING_SPIKE
@@ -81,10 +66,14 @@ export function detectSeasonalAnomalies(
     if (!isReadableDeptRow(row)) continue;
 
     const subordinate = strFromRow(row, DEPT_COLUMNS.SUBORDINATE);
-    const description = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME); // D=3 «графа программы» (ист. имя description)
-    const subprogram = strFromRow(row, DEPT_COLUMNS.SUBPROGRAM);    // E=4 подпрограмма
+    const description = strFromRow(row, DEPT_COLUMNS.SUBJECT); // Subject G, never program D.
+    const subprogram = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME) + ' ' + strFromRow(row, DEPT_COLUMNS.SUBPROGRAM);
     const status = strFromRow(row, DEPT_COLUMNS.DEVIATION_REASON);
-    const factDate = parseDateFromCell(row[DEPT_COLUMNS.FACT_DATE]);
+    const sourceFactDate = parseDateFromCell(row[DEPT_COLUMNS.FACT_DATE]);
+    const factDay = dayNumberOf(sourceFactDate);
+    const factDate = factDay !== null && factDay <= nowDay ? sourceFactDate : null;
+    const hasMoney = [DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT, DEPT_COLUMNS.MB_FACT, DEPT_COLUMNS.TOTAL_FACT]
+      .some(index => { const value = parseSheetNumber(row[index]); return value !== null && value !== 0; });
     const planDate = parseDateFromCell(row[DEPT_COLUMNS.PLAN_DATE]);
 
     // Track Q4 stats
@@ -105,7 +94,7 @@ export function detectSeasonalAnomalies(
     ) {
       const month = factDate.getMonth(); // 0=Jan..11=Dec
       // School year = September(8) through May(4)
-      if (month >= 8 || month <= 4) {
+      if (SEASONAL_PARAMETERS.schoolYearMonths.some(value => value === month + 1)) {
         results.push({
           type: 'SCHOOL_REPAIR_OUTSIDE_HOLIDAYS',
           severity: 'critical',
@@ -123,18 +112,18 @@ export function detectSeasonalAnomalies(
     if (
       SEASONAL_RE.food.test(description) &&
       SEASONAL_RE.school.test(contextAll) &&
-      !factDate
+      !sourceFactDate && !hasMoney && planDate && dayNumberOf(planDate)! <= nowDay
     ) {
       // Determine procurement year from plan date or reference date
       const procYear = planDate ? planDate.getFullYear() : now.getFullYear();
-      const deadline = new Date(procYear, 7, 15); // August 15
-      if (now > deadline) {
+      const deadline = new Date(procYear, SEASONAL_PARAMETERS.foodDeadline.month - 1, SEASONAL_PARAMETERS.foodDeadline.day); // August 15
+      if (nowDay > dayNumberOf(deadline)!) {
         results.push({
           type: 'LATE_SCHOOL_FOOD_CONTRACT',
           severity: 'high',
           rowIndex: i,
           deptId,
-          description: `Контракт на школьное питание не заключён после 15.08.${procYear}`,
+          description: `Школьное питание: нет подтверждённого завершения позиции после внутренней даты просмотра ${seasonalDeadlineLabel('food', procYear)}`,
           details: { subordinate, description, status, deadline: deadline.toISOString() },
         });
       }
@@ -143,7 +132,7 @@ export function detectSeasonalAnomalies(
     // 3. WINTER_ROAD_WORK — дорожные работы зимой
     if (SEASONAL_RE.road.test(description) && factDate) {
       const month = factDate.getMonth(); // Dec=11, Jan=0, Feb=1, Mar=2
-      if (month === 11 || month <= 2) {
+      if (SEASONAL_PARAMETERS.winterRoadMonths.some(value => value === month + 1)) {
         results.push({
           type: 'WINTER_ROAD_WORK',
           severity: 'critical',
@@ -159,17 +148,17 @@ export function detectSeasonalAnomalies(
     // «Не закуплено» = нет даты факта Q (канон п.27, см. п.2 выше).
     if (
       SEASONAL_RE.fuel.test(description) &&
-      !factDate
+      !sourceFactDate && !hasMoney && planDate && dayNumberOf(planDate)! <= nowDay
     ) {
       const procYear = planDate ? planDate.getFullYear() : now.getFullYear();
-      const deadline = new Date(procYear, 8, 1); // September 1
-      if (now > deadline) {
+      const deadline = new Date(procYear, SEASONAL_PARAMETERS.fuelDeadline.month - 1, SEASONAL_PARAMETERS.fuelDeadline.day); // September 1
+      if (nowDay > dayNumberOf(deadline)!) {
         results.push({
           type: 'LATE_FUEL_PROCUREMENT',
           severity: 'critical',
           rowIndex: i,
           deptId,
-          description: `Топливо/ГСМ не закуплено к началу отопительного сезона (01.09.${procYear})`,
+          description: `Топливо/ГСМ: нет подтверждённого завершения позиции после внутренней даты просмотра ${seasonalDeadlineLabel('fuel', procYear)}`,
           details: { description, status, deadline: deadline.toISOString() },
         });
       }
@@ -182,7 +171,7 @@ export function detectSeasonalAnomalies(
       factDate
     ) {
       const month = factDate.getMonth(); // Oct=9..Apr=3
-      if (month >= 9 || month <= 3) {
+      if (SEASONAL_PARAMETERS.heatingMonths.some(value => value === month + 1)) {
         results.push({
           type: 'BOILER_REPAIR_HEATING_SEASON',
           severity: 'high',
@@ -204,13 +193,13 @@ export function detectSeasonalAnomalies(
     ) {
       const diffMs = factDate.getTime() - planDate.getTime();
       const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      if (diffDays >= 0 && diffDays < 15) {
+      if (diffDays >= 0 && diffDays < SEASONAL_PARAMETERS.shortDecemberDays) {
         results.push({
           type: 'DECEMBER_RUSH_CONTRACT',
           severity: 'medium',
           rowIndex: i,
           deptId,
-          description: `Контракт заключён за ${diffDays} дн. в декабре (план→факт < 15 дн.)`,
+          description: `Контракт заключён за ${diffDays} дн. в декабре (план→факт < ${SEASONAL_PARAMETERS.shortDecemberDays} дн.)`,
           details: {
             description,
             planDate: planDate.toISOString(),
@@ -225,17 +214,18 @@ export function detectSeasonalAnomalies(
   // 6. Q4_SPENDING_SPIKE — аномальная концентрация в 4 кв
   if (totalFactRows > 0) {
     const q4Share = q4FactRows / totalFactRows;
-    if (q4Share > 0.40) {
+    if (q4Share > SEASONAL_PARAMETERS.fourthQuarterShare) {
       results.push({
         type: 'Q4_SPENDING_SPIKE',
         severity: 'high',
         rowIndex: -1,
         deptId,
-        description: `${Math.round(q4Share * 100)}% контрактов заключены в IV квартале (порог 40%)`,
+        description: `${Math.round(q4Share * 100)}% контрактов заключены в IV квартале (внутренний ориентир ${Math.round(SEASONAL_PARAMETERS.fourthQuarterShare * 100)}%)`,
         details: { q4FactRows, totalFactRows, q4Share: Math.round(q4Share * 100) / 100 },
       });
     }
   }
 
-  return results;
+  return results.map(result => ({ ...result, assessment: 'screening' as const,
+    nextAction: SEASONAL_RULES[result.type].action, limitation: SEASONAL_SCREENING_NOTE }));
 }

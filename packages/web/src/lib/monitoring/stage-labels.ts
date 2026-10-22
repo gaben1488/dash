@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Подписи стадий процедуры и тон их бейджей.
  *
@@ -26,15 +27,7 @@ export const STAGE_ORDER: readonly string[] = [
   'unknown',
 ];
 
-const STAGE_LABELS: Readonly<Record<string, string>> = {
-  application: 'Заявка в уполномоченном органе',
-  published: 'Объявлена, итога нет',
-  bidding: 'Итог не внесён',
-  awarded: 'Состоялась',
-  no_result: 'Без результата',
-  reissued: 'Переоформлена',
-  unknown: 'Проверить стадию',
-};
+const STAGE_LABELS: Readonly<Record<string, string>> = PRODUCT_COPY["lib/monitoring/stage-labels:STAGE_LABELS"];
 
 /** Короткая подпись для узких мест — кнопок разрезов и бейджа в таблице. */
 const STAGE_SHORT: Readonly<Record<string, string>> = {
@@ -116,13 +109,7 @@ export function stagesPresent(stages: Iterable<string>): string[] {
  * электронному аукциону и по единственному поставщику — разные явления, и
  * складывать их в один средний процент бессмысленно.
  */
-const METHOD_LABELS: Readonly<Record<string, string>> = {
-  ЭА: 'электронный аукцион',
-  ЭК: 'электронный конкурс',
-  ЭАС: 'совместный электронный аукцион',
-  ЭЗК: 'запрос котировок в электронной форме',
-  ЭЕП: 'закупка у единственного поставщика',
-};
+const METHOD_LABELS: Readonly<Record<string, string>> = PRODUCT_COPY["lib/monitoring/stage-labels:METHOD_LABELS"];
 
 export function methodLabel(method: string | null): string {
   if (method === null) return 'способ не определён: код процедуры не разобран';

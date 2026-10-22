@@ -133,3 +133,17 @@ describe('CHECK_REGISTRY — канон интервью 14.08.2026', () => {
     }
   });
 });
+
+
+it('годовая разница ЕП не требует подгонять достоверный план под обязательства', () => {
+  const rule = CHECK_REGISTRY.find(x => x.id === 'ep_fact_deviation')!;
+  expect(rule.description).toContain('последнего контракта');
+  expect(rule.recommendation).not.toContain('выровнять план');
+  expect(rule.recommendation).toContain('Не изменяйте');
+});
+
+it('разница годового лимита и обязательств не доказывает антидемпинг по НМЦК', () => {
+  const rule = CHECK_REGISTRY.find(x => x.id === 'anti_dumping')!;
+  expect(rule.origin).toBe('bi_heuristic');
+  expect(rule.kbHint).toContain('не доказывает');
+});

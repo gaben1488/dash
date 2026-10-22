@@ -18,7 +18,7 @@
  *
  *   (3) СРАВНЕНИЕ СНИМКОВ (analytics/vanished-rows.ts) — единственный, кто
  *       видит ИСЧЕЗНОВЕНИЕ закупки. Зато не знает ни автора, ни момента:
- *       «между вчерашним снимком и сегодняшним закупки не стало».
+ *       «между двумя недельными контрольными срезами закупки не стало».
  *
  * Порознь они дают три неполных ответа, и читателю приходится самому
  * догадываться, что «правок нет» из первого источника и «строка исчезла» из
@@ -38,7 +38,7 @@
  * не ответил, называется по имени в `gaps`, а не растворяется в тишине.
  */
 
-import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS } from '@aemr/shared';
+import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, equivalentSheetDate } from '@aemr/shared';
 import {
   parseJournalInstant,
   parseJournalRowKey,
@@ -70,6 +70,8 @@ export type ChangeKind =
   | 'row-added'
   /** Закупка исчезла — видно ТОЛЬКО сравнением снимков. */
   | 'row-vanished'
+  /** Вероятная перенумерация: подтверждена только предметная схожесть. */
+  | 'row-identity-candidate'
   /** Строка осталась, но её ячейки обнулили. Это не удаление. */
   | 'row-cleared'
   /** Колонка вне канона шапки — род не назначаем, а признаём незнание. */
@@ -84,7 +86,8 @@ export const CHANGE_KIND_LABELS: Readonly<Record<ChangeKind, string>> = {
   subject: 'Предмет и принадлежность',
   flag: 'Признак учёта экономии',
   'row-added': 'Новые закупки',
-  'row-vanished': 'Исчезнувшие закупки',
+  'row-vanished': 'Нет прежнего номера',
+  'row-identity-candidate': 'Возможная смена номера',
   'row-cleared': 'Очищенные строки',
   other: 'Прочие колонки',
 };
@@ -95,7 +98,7 @@ export const CHANGE_KIND_LABELS: Readonly<Record<ChangeKind, string>> = {
  * снимков, не заметит.
  */
 export const CHANGE_KIND_ORDER: readonly ChangeKind[] = [
-  'row-vanished', 'money', 'dates', 'row-added', 'method', 'comment', 'flag', 'subject', 'other',
+  'row-vanished', 'row-identity-candidate', 'money', 'dates', 'row-added', 'method', 'comment', 'flag', 'subject', 'other',
 ];
 
 /** Откуда запись — разная полнота источников не должна быть спрятана. */
@@ -124,6 +127,7 @@ const KIND_BY_COLUMN_KEY: Readonly<Record<ChangeKind, ReadonlyArray<keyof typeof
   flag: ['FLAG'],
   'row-added': [],
   'row-vanished': [],
+  'row-identity-candidate': [],
   'row-cleared': [],
   other: [],
 };
@@ -210,6 +214,8 @@ export function columnLabelOf(letter: string | null): string | null {
 
 /** Одна правка с полным адресом — то, что читается в подробной глубине. */
 export interface ChangeEntry {
+  /** Original source-log locator, bound to one reading rather than edit identity. */
+  readonly journalSource?: JournalRecord['source'];
   /** Устойчивый ключ: книга + лист + адрес + момент + автор. */
   readonly id: string;
   /** Короткое имя книги ГРБС («УО»). */
@@ -244,11 +250,72 @@ export interface ChangeEntry {
   /** Учреждение — если источник его знает. */
   readonly subordinate: string | null;
   readonly origin: ChangeOrigin;
+  /** Контроль и интервал наблюдения; НЕ момент правки или её автор. */
+  readonly comparisonEvidence?: {
+    readonly baselineId: string;
+    readonly controlAt: string;
+    readonly observedAt: string;
+  };
+  /** Для возможной смены номера: текущий кандидат; исходный № сохраняется в rowSeq. */
+  readonly relatedRowSeq?: string;
   /**
    * Адреса ячеек, свёрнутых в одно событие строки («новая закупка» — это
    * десяток ячеек, заполненных в одну минуту). У обычной правки поля нет.
    */
   readonly cells?: readonly string[];
+  /** Original observations survive presentation grouping; never inferred authors. */
+  readonly evidence?: readonly ChangeEvidence[];
+  /** Server observation/publication time, distinct from an operator's edit time. */
+  readonly observedAt?: string;
+}
+
+export type ChangeEvidence = Omit<ChangeEntry, 'evidence'>;
+
+function originalEvidence(entry: ChangeEntry): readonly ChangeEvidence[] {
+  if (entry.evidence) return entry.evidence;
+  const { evidence: _evidence, ...original } = entry;
+  return [original];
+}
+
+/** Exact event identity, including values; a legacy ID collision is not proof. */
+function changeIdentity(entry: ChangeEntry): string {
+  return JSON.stringify([entry.book, entry.sheet, entry.rowSeq, entry.sheetRow,
+    entry.journalSource?.spreadsheetId ?? null,
+    entry.column, entry.kind, entry.before, entry.after, entry.at, entry.author,
+    entry.cells ?? null, entry.comparisonEvidence ?? null,
+    // Equal cell counts/addresses do not prove equal folded row payloads.
+    entry.cells ? entry.evidence ? [...new Set(entry.evidence.map(e => JSON.stringify([
+      e.book, e.sheet, e.rowSeq, e.sheetRow, e.column, e.before, e.after, e.at, e.author,
+      e.observedAt ?? null,
+    ])))].sort() : [entry.origin, entry.id] : null,
+    // A read-diff without a linked source edit cannot borrow its clock/author.
+    entry.observedAt === undefined ? null : [entry.origin, entry.observedAt],
+    // Unknown time cannot connect independent source observations.
+    entry.at === null ? [entry.origin, entry.id] : null]);
+}
+
+/** Preserve every original witness, with one card only for an exactly matching event. */
+export function mergeChangeEntries(entries: readonly ChangeEntry[]): ChangeEntry[] {
+  const grouped = new Map<string, ChangeEntry>();
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    const key = changeIdentity(entry);
+    const existing = grouped.get(key);
+    if (existing) {
+      const witnesses = new Map<string, ChangeEvidence>();
+      for (const witness of [...originalEvidence(existing), ...originalEvidence(entry)]) {
+        witnesses.set(JSON.stringify(witness), witness);
+      }
+      grouped.set(key, { ...existing, evidence: [...witnesses.values()] });
+    } else {
+      let id = entry.id;
+      // Rendered keys must remain distinct for older producers sharing an ID.
+      for (let n = 2; ids.has(id); n++) id = `${entry.id}|distinct:${n}`;
+      ids.add(id);
+      grouped.set(key, id === entry.id ? entry : { ...entry, id, evidence: originalEvidence(entry) });
+    }
+  }
+  return [...grouped.values()].sort(compareEntries);
 }
 
 /** Пробел рассказа: место, где мы чего-то не знаем и обязаны это сказать. */
@@ -260,7 +327,11 @@ export interface ChangeGap {
     /** Прежнего снимка нет — исчезнувшие закупки не с чем сравнить. */
     | 'no-previous-snapshot'
     /** Записи журнала без ключа строки: адрес по № п/п невосстановим. */
-    | 'row-key-missing';
+    | 'row-key-missing'
+    /** У прежнего или текущего состояния повторяется № п/п. */
+    | 'row-key-ambiguous'
+    /** Действующая книга отсутствует, повреждена или не перечитана. */
+    | 'source-unavailable';
   readonly detail: string;
   /** Сколько записей затронуто (для 'row-key-missing'). */
   readonly count?: number;
@@ -358,6 +429,7 @@ export function entriesFromBookJournal(
 
   for (const rec of records) {
     const letter = columnLetterOf(rec.cell);
+    if (equivalentSheetDate(letter, rec.was, rec.became)) continue;
     const sheetRow = sheetRowOfAddress(rec.cell);
     const key = parseJournalRowKey(rec.row);
     const moment = parseJournalInstant(rec.at);
@@ -370,6 +442,7 @@ export function entriesFromBookJournal(
     const cell = String(rec.cell ?? '').trim().toUpperCase();
 
     entries.push({
+      ...(rec.source ? { journalSource: { ...rec.source } } : {}),
       id: `${book}|${sheet}|${cell}|${at ?? '?'}|${author ?? '?'}`,
       book,
       sheet,
@@ -399,12 +472,26 @@ export function entriesFromBookJournal(
  * нельзя: снимок говорит «между двумя чтениями», а не «в 14:32». Пустые поля
  * здесь — не недоделка, а форма источника.
  */
-export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
+export function entriesFromRowDiff(
+  book: string,
+  diff: RowDiff,
+  comparisonEvidence?: ChangeEntry['comparisonEvidence'],
+): ChangeEntry[] {
   const entries: ChangeEntry[] = [];
+  const candidates = diff.identityCandidates ?? [];
+  const candidateOld = new Set(candidates.map((c) => c.beforeRowSeq));
+  const candidateNew = new Set(candidates.map((c) => c.afterRowSeq));
+  // У одного номера могут быть разные истории на последовательных контрольных
+  // базах. Не схлопывать их в одну запись при склейке/будущем хранении.
+  // Момент повторного чтения в ключ НЕ включаем: он не является новой правкой.
+  const controlKey = comparisonEvidence ? '|контроль:' + comparisonEvidence.baselineId : '';
 
   for (const v of diff.vanished) {
+    // Событие возможной смены номера уже несёт факт отсутствия старого №.
+    // Два независимых события для одной гипотезы были бы двойным счётом.
+    if (candidateOld.has(v.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|исчезла|${v.rowSeq}`,
+      id: `${book}|снимки|исчезла|${v.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: v.rowSeq,
@@ -420,12 +507,14 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: v.subject ?? null,
       subordinate: v.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
   for (const a of diff.appeared) {
+    if (candidateNew.has(a.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|появилась|${a.rowSeq}`,
+      id: `${book}|снимки|появилась|${a.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: a.rowSeq,
@@ -441,6 +530,58 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: a.subject ?? null,
       subordinate: a.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
+    });
+  }
+
+  // Смена предмета/учреждения при сохранённом № — независимый след:
+  // номер тот же, но преемственность закупки не доказана.
+  // Род subject уже в каноне журнала, дополнительную сущность не создаём.
+  for (const change of diff.contextChanged ?? []) {
+    const prior = [change.beforeSubject, change.beforeSubordinate].filter(Boolean).join(' · ');
+    const current = [change.afterSubject, change.afterSubordinate].filter(Boolean).join(' · ');
+    entries.push({
+      id: book + '|контроль|изменение-контекста|' + change.rowSeq +
+        '|' + (comparisonEvidence?.baselineId ?? '?'),
+      book,
+      sheet: 'ВСЕ',
+      rowSeq: change.rowSeq,
+      sheetRow: change.afterSheetRow,
+      column: null,
+      columnLabel: 'Предмет и учреждение',
+      kind: 'subject',
+      before: prior,
+      after: current,
+      author: null,
+      at: null,
+      atMs: null,
+      subject: change.afterSubject || null,
+      subordinate: change.afterSubordinate || null,
+      origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
+    });
+  }
+
+  for (const candidate of candidates) {
+    entries.push({
+       id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq + controlKey,
+      book,
+      sheet: 'ВСЕ',
+      rowSeq: candidate.beforeRowSeq,
+      relatedRowSeq: candidate.afterRowSeq,
+      sheetRow: candidate.beforeSheetRow,
+      column: null,
+      columnLabel: '№ п/п',
+      kind: 'row-identity-candidate',
+      before: candidate.beforeRowSeq,
+      after: candidate.afterRowSeq,
+      author: null,
+      at: null,
+      atMs: null,
+      subject: candidate.subject,
+      subordinate: candidate.subordinate,
+      origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
@@ -478,12 +619,13 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
   const passthrough: ChangeEntry[] = [];
 
   for (const e of entries) {
-    if (e.origin === 'snapshot-diff' || e.column === null) {
+    if (e.origin === 'snapshot-diff' || e.column === null || e.at === null) {
       passthrough.push(e);
       continue;
     }
     const address = e.rowSeq === null ? `лист-${e.sheetRow ?? '?'}` : `№${e.rowSeq}`;
-    const key = `${e.book}|${e.sheet}|${address}|${minuteOf(e.at)}`;
+    const key = JSON.stringify([e.book, e.sheet, e.journalSource?.spreadsheetId ?? null,
+      address, e.sheetRow, minuteOf(e.at), e.author]);
     const bucket = groups.get(key);
     if (bucket) bucket.push(e);
     else groups.set(key, [e]);
@@ -494,7 +636,11 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
     const filled = items.filter((i) => i.before === '' && i.after !== '');
     const wiped = items.filter((i) => i.before !== '' && i.after === '');
 
-    if (filled.length >= ROW_EVENT_CELLS && wiped.length === 0) {
+    const distinctCells = new Set(items.map(i => `${i.column}${i.sheetRow}`));
+    // Repeated edits of the same cell are a sequence, not a whole-row action.
+    if (distinctCells.size !== items.length) {
+      out.push(...items);
+    } else if (filled.length >= ROW_EVENT_CELLS && wiped.length === 0) {
       out.push(rowEventOf(items, 'row-added'));
     } else if (wiped.length >= ROW_EVENT_CELLS && filled.length === 0) {
       out.push(rowEventOf(items, 'row-cleared'));
@@ -510,6 +656,7 @@ export function foldRowEvents(entries: readonly ChangeEntry[]): ChangeEntry[] {
 /** Одно событие строки из группы ячейковых правок. */
 function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-cleared'): ChangeEntry {
   const head = items[0];
+  const { journalSource: _headSource, ...row } = head;
   // Предмет закупки берётся из той ячейки, где он и живёт, — из колонки
   // предмета. Если её в группе нет, остаётся подпись ключа журнала.
   const subjectCell = items.find((i) => i.column !== null && COL_LETTER_INDEX[i.column] === DEPT_COLUMNS.SUBJECT);
@@ -518,8 +665,8 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
     : (subjectCell?.before || head.subject);
   const cells = items.map((i) => `${i.column ?? '?'}${i.sheetRow ?? ''}`);
   return {
-    ...head,
-    id: `${head.book}|${head.sheet}|${kind}|${head.rowSeq ?? `лист-${head.sheetRow ?? '?'}`}|${minuteOf(head.at)}`,
+    ...row,
+    id: JSON.stringify([head.book, head.sheet, kind, head.rowSeq, head.sheetRow, minuteOf(head.at), head.author]),
     column: null,
     columnLabel: null,
     kind,
@@ -527,6 +674,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
     after: kind === 'row-added' ? `${items.length} заполненных ячеек` : '',
     subject: subject === '' ? null : (subject ?? null),
     cells,
+    evidence: items.flatMap(originalEvidence),
   };
 }
 
@@ -535,7 +683,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
 function emptyByKind(): Record<ChangeKind, number> {
   return {
     money: 0, dates: 0, comment: 0, method: 0, subject: 0, flag: 0,
-    'row-added': 0, 'row-vanished': 0, 'row-cleared': 0, other: 0,
+    'row-added': 0, 'row-vanished': 0, 'row-identity-candidate': 0, 'row-cleared': 0, other: 0,
   };
 }
 
@@ -564,10 +712,12 @@ export function summarizeChanges(
     }
   }
 
-  const allUnread = gaps.length > 0 && gaps.every((g) => g.reason === 'journal-unread');
+  const incomplete = gaps.some((g) => g.reason === 'journal-unread' ||
+    g.reason === 'no-previous-snapshot' || g.reason === 'source-unavailable' ||
+    g.reason === 'row-key-ambiguous');
   const emptiness = entries.length > 0
     ? 'none'
-    : allUnread ? 'unknown' : 'quiet';
+    : incomplete ? 'unknown' : 'quiet';
 
   return {
     books: books.size,
@@ -625,7 +775,7 @@ export function buildChangeStory(
         : fromJournal.filter((e) => e.atMs === null || e.atMs >= (options.sinceMs as number));
       // Свёртка идёт ПОСЛЕ окна: иначе половина ячеек новой закупки осталась
       // бы за границей окна и добавление рассыпалось бы на отдельные правки.
-      entries.push(...foldRowEvents(inWindow));
+      entries.push(...foldRowEvents(mergeChangeEntries(inWindow)));
       if (rowKeyless > 0) {
         gaps.push({
           book: input.book,

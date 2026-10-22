@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  parseSourcesResponse, maskSecret, CELL_ADDRESS_RE,
+  parseSourcesResponse, parseRefreshPassport, maskSecret, CELL_ADDRESS_RE,
   buildDiagnostics, maskAccessKey, summarizeDiagnostics,
   type DiagnosticsInput,
 } from './Settings.logic';
@@ -214,4 +214,10 @@ describe('CELL_ADDRESS_RE: правится адрес ячейки, а не «�
     expect(CELL_ADDRESS_RE.test('d14')).toBe(false);
     expect(CELL_ADDRESS_RE.test('14')).toBe(false);
   });
+});
+
+describe('refresh passport — explicit evidence, not coercion',()=>{
+ const valid={workWindowLabel:'8:45–18:20 по Камчатке',withinWorkWindow:false,autoRefreshMinutes:0,webhookConfigured:false};
+ it('keeps genuine zero/false as explicit evidence',()=>{expect(parseRefreshPassport({refresh:valid})).toEqual(valid);});
+ it.each([{},[],null,{...valid,webhookConfigured:'false'},{...valid,withinWorkWindow:1},{...valid,autoRefreshMinutes:-1},{...valid,autoRefreshMinutes:NaN},{...valid,autoRefreshMinutes:Infinity},{...valid,workWindowLabel:''}])('does not fabricate evidence from malformed %j',refresh=>{expect(parseRefreshPassport({refresh})).toBeNull();});
 });

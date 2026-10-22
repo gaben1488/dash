@@ -14,16 +14,14 @@
  * Экран — единственное место, где видно оба потока сразу, значит и склейка
  * его.
  *
- * ПРАВИЛА СКЛЕЙКИ. Ключ записи один и тот же на обеих сторонах (книга + лист +
- * адрес ячейки + момент + автор), поэтому правка, успевшая попасть и в поток, и
- * в журнал книги, схлопывается в одну. Записи эфира, которых в ответе сервера
- * ещё нет (журнал книги читается окном в пять минут), остаются — иначе экран
- * забывал бы то, что сам только что показал.
+ * ПРАВИЛА СКЛЕЙКИ. Точное совпадение доказанного события сохраняет все исходные
+ * свидетельства. Эфир сравнений двух чтений имеет только момент наблюдения:
+ * совпадение часов/значений с журналом не доказывает одно действие сотрудника.
  */
 import {
   changeKindOfColumn,
   columnLabelOf,
-  compareEntries,
+  mergeChangeEntries,
   filterChangeEntries,
   foldRowEvents,
   orderingMsOf,
@@ -34,6 +32,7 @@ import {
   type ChangeKind,
 } from '@aemr/core';
 import type { RowChange } from '../../hooks/useLiveEvents';
+import { equivalentSheetDate } from '@aemr/shared';
 import { fetchJSON } from '../../api';
 
 /** Ответ GET /api/change-story — внешний контракт, менять вместе с роутом. */
@@ -44,7 +43,7 @@ export interface ChangeStoryResponse {
   readonly deletionsUnobservable: boolean;
   readonly note: string;
   /** Пара снимков, по которой найдены пропажи; null — сравнивать не с чем. */
-  readonly comparison: { readonly beforeAt: string; readonly afterAt: string } | null;
+  readonly comparison: { readonly baselineId: string; readonly beforeAt: string; readonly afterAt: string; readonly oldestCurrentAt: string } | null;
   readonly facets: {
     readonly books: ReadonlyArray<{ book: string; count: number }>;
     readonly authors: ReadonlyArray<{ author: string; count: number }>;
@@ -83,10 +82,8 @@ export async function fetchChangeStory(query: ChangeStoryQuery = {}): Promise<Ch
 }
 
 /**
- * Момент эфира приходит в ISO с поясом («2026-08-21T11:33:00.000Z»), а записи
- * журнала книги подписаны часами КНИГИ без пояса. Приводим эфир к той же
- * подписи, что у книги, — иначе одна и та же правка в списке стояла бы дважды
- * под двумя разными временами.
+ * Legacy clock formatting for ordering. This is an observation clock, not
+ * evidence of the spreadsheet edit time; observedAt preserves the exact ISO.
  */
 export function bookClockOf(iso: string): string | null {
   const ms = Date.parse(iso);
@@ -105,12 +102,14 @@ export function bookClockOf(iso: string): string | null {
  * в продукте нет.
  */
 export function entriesFromLiveRows(rows: readonly RowChange[]): ChangeEntry[] {
-  const raw: ChangeEntry[] = rows.map((r) => {
+  const raw: ChangeEntry[] = rows.filter(r => !equivalentSheetDate(r.column.toUpperCase(), r.before, r.after)).map((r) => {
     const letter = r.column === '' ? null : r.column.toUpperCase();
     const at = bookClockOf(r.at);
-    const author = r.author && r.author.trim() !== '' ? r.author : null;
+    // Older servers borrowed an actor from the last log at the cell address.
+    // A read-diff cannot prove that attribution; source journal authors remain.
+    const author = null;
     return {
-      id: `${r.book}|ВСЕ|${letter ?? '?'}${r.sheetRow}|${at ?? '?'}|${author ?? '?'}`,
+      id: JSON.stringify([r.book, 'ВСЕ', letter, r.sheetRow, r.rowSeq ?? null, r.at, author, r.before, r.after]),
       book: r.book,
       sheet: 'ВСЕ',
       rowSeq: r.rowSeq ?? null,
@@ -126,6 +125,7 @@ export function entriesFromLiveRows(rows: readonly RowChange[]): ChangeEntry[] {
       subject: null,
       subordinate: null,
       origin: 'live-stream' as const,
+      observedAt: r.at,
     };
   });
   return foldRowEvents(raw);
@@ -178,8 +178,5 @@ export function mergeStoryWithLive(
   fromServer: readonly ChangeEntry[],
   fromLive: readonly ChangeEntry[],
 ): ChangeEntry[] {
-  const seen = new Set(fromServer.map((e) => e.id));
-  const merged = [...fromServer, ...fromLive.filter((e) => !seen.has(e.id))];
-  merged.sort(compareEntries);
-  return merged;
+  return mergeChangeEntries([...fromServer, ...fromLive]);
 }

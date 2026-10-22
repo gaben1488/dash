@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useFilteredData } from './useFilteredData';
-import { getFilteredEconomyTotal } from '../lib/economy-metrics';
+import { getFilteredEconomyTotal, selectedEconomy } from '../lib/economy-metrics';
 import { aggregateNodeTotals } from '../lib/selectors/totals-aggregation';
+import { makeBudgetPlanFact } from '../lib/selectors/budget-filter';
 
 // ────────────────────────────────────────────────────────────────
 // useMultiDimMetrics — Universal 6-axis data layer
@@ -178,17 +179,21 @@ function currentQuarterIdx(periodKey: string, quarters: Array<{ fact: number }>)
 
 /** Метрики узла за ВЫБРАННЫЙ период (одно правило с итогами страницы). */
 function buildExecMetricsForPeriod(node: any, fd: FilteredDataResult): ExecutionMetrics {
-  const n = aggregateNodeTotals(node, fd.periodResolution ?? WHOLE_YEAR, fd.nodeAggregateOpts ?? BOTH_METHODS);
+  const n = aggregateNodeTotals(node, fd.periodResolution ?? WHOLE_YEAR, {
+    ...(fd.nodeAggregateOpts ?? BOTH_METHODS), activityKeys: [...(fd.selectedActivities ?? [])],
+  });
+  const money = makeBudgetPlanFact(fd.selectedBudgets ?? new Set())({ ...n, ...n.budget });
+  const economy = selectedEconomy({ ...n, ...n.budget }, fd.selectedBudgets);
   const totalProc = n.kp + n.ep;
   return {
-    planTotal: n.planTotal,
-    factTotal: n.factTotal,
-    executionPct: safePct(n.factTotal, n.planTotal),
+    planTotal: money.plan,
+    factTotal: money.fact,
+    executionPct: safePct(money.fact, money.plan),
     planCount: n.planCount,
     factCount: n.factCount,
     execCountPct: safePct(n.factCount, n.planCount),
-    economyTotal: n.economyTotal,
-    economyPct: safePct(n.economyTotal, n.planTotal),
+    economyTotal: economy,
+    economyPct: safePct(economy, money.plan),
     competitiveCount: n.kp,
     epCount: n.ep,
     epSharePct: safePct(n.ep, totalProc),

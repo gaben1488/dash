@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 // ── Таблица «Экономия по управлениям»: сортируемые колонки, раскрытие
 //    управления (бюджеты → структура расходов: аппарат + подведомственные),
 //    инлайн-рекомендации (свыше 25 % / расхождения), итоговая строка.
@@ -205,7 +206,7 @@ export function EconomyDeptTable({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onToggleExpand(d.dept); }}
                       aria-expanded={isExp}
-                      aria-label={`${isExp ? 'Свернуть' : 'Раскрыть'} состав расходов: ${d.dept}`}
+                      aria-label={`${isExp ? 'Свернуть' : 'Раскрыть'} состав расходов: ${productLabel(d.dept)}`}
                       className={clsx('shrink-0', FOCUS_RING)}
                     >
                       <ChevronRight
@@ -224,9 +225,9 @@ export function EconomyDeptTable({
                         'text-[11px] font-bold text-zinc-700 dark:text-zinc-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate max-w-[140px]',
                         FOCUS_RING,
                       )}
-                      title={`Оставить в фильтре только ${d.dept}`}
+                      title={`Оставить в фильтре только ${productLabel(d.dept)}`}
                     >
-                      {d.dept}
+                      {productLabel(d.dept)}
                     </button>
                     {d.highEconomy && (
                       <span
@@ -325,7 +326,7 @@ export function EconomyDeptTable({
                             <span className="flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300"
                               title="Собственные закупки управления, без подведомственных организаций">
                               <Building2 size={7} className="shrink-0" aria-hidden="true" />
-                              {d.dept}: аппарат управления
+                              {productLabel(d.dept)}: аппарат управления
                             </span>
                           </td>
                           <td className="px-2 py-1 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{formatMoney(orgItself.planTotal)}</td>

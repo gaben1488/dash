@@ -36,7 +36,7 @@ def uer_entry_origin(record, *, as_of=None):
         issue_day = parse_date(item.get('document_date'))
         instant = item.get('registered_at')
         try:
-            moment = datetime.fromisoformat(instant.replace('Z', '+00:00')) if isinstance(instant, str) else None
+            moment = datetime.fromisoformat(instant) if isinstance(instant, str) else None
         except ValueError:
             moment = None
         if (not moment or moment.tzinfo is None or not issue_day
@@ -84,7 +84,7 @@ def issued_recommendations(records):
     return issued
 
 
-def read_google_history(client, ledger, *, include_package=False):
+def google_history_metadata(client):
     name = 'aemr-report-recommendation-history-v1.json'
     listing = client._get('https://www.googleapis.com/drive/v3/files', {
         'q': f"trashed = false and name = '{name}' and mimeType = 'application/json'",
@@ -94,11 +94,18 @@ def read_google_history(client, ledger, *, include_package=False):
     if listing.get('nextPageToken') or len(files) > 1:
         raise ValueError('HISTORY_FILE_NOT_UNIQUE')
     if not files:
-        return (copy.deepcopy(ledger), {}, None, None) if include_package else (copy.deepcopy(ledger), {}, None)
+        return None
     before = files[0]
     if (not isinstance(before.get('id'), str) or not before['id']
         or before.get('name') != name or before.get('mimeType') != 'application/json' or not before.get('version')):
         raise ValueError('HISTORY_FILE_METADATA_INVALID')
+    return before
+
+
+def read_google_history(client, ledger, *, include_package=False):
+    before = google_history_metadata(client)
+    if before is None:
+        return (copy.deepcopy(ledger), {}, None, None) if include_package else (copy.deepcopy(ledger), {}, None)
     url = 'https://www.googleapis.com/drive/v3/files/' + quote(before['id'], safe='')
     body = client._get(url, {'alt': 'media', 'supportsAllDrives': 'true'})
     after = client._get(url, {'fields': 'id,name,mimeType,version,modifiedTime', 'supportsAllDrives': 'true'})

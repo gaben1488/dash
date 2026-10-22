@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
 import { RULE_BOOK, CHECK_REGISTRY } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ReportMapEntry } from '@aemr/shared';
 import { validateData } from './validate.js';
+import { classifyRows } from './classify.js';
+import { checkSequenceIntegrity } from '@aemr/shared';
 
 const EMPTY_METRICS = new Map<string, NormalizedMetric>();
 const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
@@ -66,36 +68,93 @@ describe('row_numbering — дубли', () => {
   });
 });
 
-describe('row_numbering — составные номера не деньги и не даты', () => {
-  it('различает 173, 173/1, 173/18 и 121/1 — ложных дублей нет', () => {
-    expect(run([
-      procRow(4, 173),
-      procRow(5, '173/1'),
-      procRow(6, '173/18'),
-      procRow(7, 121),
-      procRow(8, '121/1'),
-    ])).toHaveLength(0);
+describe('row_numbering — общая идентичность номера для независимых проверок', () => {
+  it('не смешивает номер 173 с номером 00173: адреса сохраняют ведущие нули', () => {
+    expect(run([procRow(4, '173'), procRow(5, '00173')])).toHaveLength(0);
   });
 
-  it('два одинаковых составных номера — настоящий дубль с адресами обеих строк', () => {
-    const [issue] = run([procRow(4, '173/18'), procRow(5, '173/1'), procRow(6, '173/18')]);
+  it('целая текстовая запись 94,00 и число 94 являются одним номером', () => {
+    const [issue] = run([procRow(4, 94), procRow(5, '94,00')]);
     expect(issue).toBeDefined();
-    expect(issue.description).toContain('№ 173/18');
-    expect(issue.description).toContain('4, 6');
-    expect(issue.description).not.toContain('№ 173 —');
+    expect(issue.description).toContain('№ 94');
+    expect(issue.description).toContain('4, 5');
+  });
+});
+
+describe('row_numbering — составные номера и хвост формул', () => {
+  it('№ 173, 173/1, 173/2 не являются дублями', () => {
+    expect(run([procRow(4, '173'), procRow(5, '173/1'), procRow(6, '173/2')])).toHaveLength(0);
   });
 
-  it('пробелы вокруг дробной черты не создают два разных номера', () => {
-    const [issue] = run([procRow(4, '173 / 18'), procRow(5, '173/18')]);
+  it('два одинаковых составных номера остаются дублем', () => {
+    const [issue] = run([procRow(4, '173/18'), procRow(5, '173/18')]);
     expect(issue.description).toContain('№ 173/18');
     expect(issue.description).toContain('4, 5');
   });
 
-  it('23/1 и 24/1 не трактуются как числа 23 и 24 или как сериал даты', () => {
-    const [issue] = run([procRow(4, '23/1'), procRow(5, '24/1'), procRow(6, '23/1')]);
-    expect(issue.description).toContain('№ 23/1');
-    expect(issue.description).not.toContain('№ 23 —');
-    expect(issue.description).not.toContain('46045');
+  it('нулевые результаты формул без предмета и способа не требуют №', () => {
+    const blankTail = procRow(5, '', {
+      classification: 'service',
+      cells: { A: '', H: 0, I: 0, J: 0, K: 0 },
+    });
+    expect(run([procRow(4, 1), blankTail])).toHaveLength(0);
+  });
+
+  it('реальная закупка без A по-прежнему обнаруживается', () => {
+    const actual = procRow(5, '', {
+      classification: 'service',
+      cells: { A: '', G: 'Поставка канцтоваров', L: 'ЕП', K: 70 },
+    });
+    const [issue] = run([procRow(4, 1), actual]);
+    expect(issue.description).toContain('без номера');
+    expect(issue.description).toContain('5');
+  });
+});
+
+
+describe('row_numbering — live collision families observed on UD master', () => {
+  // Synthetic rows with real numbering shapes, no private procurement subjects or money.
+  // The installed runtime falsely merged each composite into its base, despite
+  // 237/237 unique displayed ordinals on ВСЕ and 0 repeats (2026-10-22).
+  const independentLabels = [
+    '23', '23/1', '23/2', '23/6',
+    '24', '24/1', '24/2', '24/8',
+    '33', '33/1',
+    '121', '121/1',
+    '157', '157/1',
+    '158', '158/1',
+    '162', '162/1', '162/2', '162/4',
+    '173', '173/1', '173/3', '173/5', '173/10', '173/18', '173/20', '173/27',
+    '177', '177/13',
+    '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213',
+  ];
+
+  const rows = () => classifyRows('УД', independentLabels.map((a, index) => ({
+    rowIndex: index + 4,
+    cells: { A: a, C: 'Х', G: 'Учебная проверочная позиция', K: 100, L: 'ЕП' },
+  })));
+
+  it('does not misclassify any composite as a service row', () => {
+    expect(rows().every(r => r.classification === 'procurement')).toBe(true);
+  });
+
+  it('one canonical dataset produces no false duplicate in either check path', () => {
+    expect(run(rows())).toHaveLength(0);
+    const report = checkSequenceIntegrity(independentLabels.map((rowSeq, i) => ({
+      rowSeq, sheetRow: i + 4, countable: true,
+    })));
+    expect(report.duplicates).toEqual([]);
+    expect(report.countableWithoutSeq).toBe(0);
+  });
+
+  it('still detects a genuine repeated full composite ID without broadening to its base', () => {
+    const index = independentLabels.length + 4;
+    const repeated = procRow(index, '173/18');
+    const [issue] = run([...rows(), repeated]);
+    expect(issue).toBeDefined();
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain(String(index));
+    expect(issue.description).not.toContain('№ 173 —');
   });
 });
 
@@ -119,20 +178,6 @@ describe('row_numbering — пустые A', () => {
       cells: { A: '', C: 'ИТОГО', K: 300 },
     });
     expect(run([procRow(4, 1), procRow(5, 2), summary])).toHaveLength(0);
-  });
-});
-
-describe('row_numbering — заполненные строки против пустого формульного хвоста', () => {
-  it('service с нулевыми результатами формул, без предмета и способа не требует A', () => {
-    const tail = procRow(1000, '', { classification: 'service', cells: { A: '', H: 0, I: 0, J: 0, K: 0 } });
-    expect(run([procRow(4, 1), tail])).toHaveLength(0);
-  });
-
-  it('реальная строка service с предметом и способом без A требует номер', () => {
-    const missing = procRow(7, '', { classification: 'service', cells: { A: '', C: 'Х', G: 'Техобслуживание', L: 'ЕП', K: 0 } });
-    const [issue] = run([procRow(4, 1), missing]);
-    expect(issue.description).toContain('без номера');
-    expect(issue.description).toContain('7');
   });
 });
 

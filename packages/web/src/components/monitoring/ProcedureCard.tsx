@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /** Карточка канонической процедуры: действие, сроки, деньги, участники и источники. */
 import { AlertTriangle, ArrowRight, Copy, Link2 } from 'lucide-react';
 import type {
@@ -255,7 +256,7 @@ export function ProcedureCard({
         <div className="overflow-x-auto"><table className="w-full text-sm text-left">
           <thead><tr>{['Управление и заказчик', 'НМЦК', 'Цена по итогам', 'Экономия', 'МБ', 'КБ', 'ФБ'].map((label) => <th key={label} className="p-2 font-medium">{label}</th>)}</tr></thead>
           <tbody>{p.participants.map((share) => <tr key={share.row}>
-            <td className="p-2">{share.dept} · {share.customer} {sourceLink(`A${share.row}`, `Строка ${share.row}`)}</td>
+            <td className="p-2">{productLabel(share.dept)} · {share.customer} {sourceLink(`A${share.row}`, `Строка ${share.row}`)}</td>
             {[share.nmck, share.price, share.savings, share.savingsMb, share.savingsKb, share.savingsFb].map((value, i) => <td key={i} className="p-2 whitespace-nowrap tabular-nums">{fmtRubExact(value)}</td>)}
           </tr>)}</tbody>
         </table></div>

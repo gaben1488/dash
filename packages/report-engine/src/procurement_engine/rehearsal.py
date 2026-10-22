@@ -22,6 +22,7 @@ from .identity_store import IdentityStore, freeze_identity_snapshot
 from .publication_store import PublicationError, PublicationStore, _validate
 from .raw_pipeline import build_from_capture
 from .runtime_inputs import validate_inputs
+from .snapshot import canonical_semantic_hash
 
 PUBLIC_SECTIONS = frozenset({'source_context', 'remaining_population', 'identity_evidence',
     'recommendation_records', 'recommendation_evidence', 'future_plan', 'procedure_source_contract',
@@ -60,18 +61,76 @@ def diagnose_failed_attempt(state):
     return {'recheck_status': 'PASS'}
 
 
+def _invalid_reference_proof(capture, fingerprint):
+    """Hashes only; a missing sheet/range is not proof of a literal historical #REF!."""
+    from .formula_dependencies import TOKEN, audit_formula_dependencies
+
+    audit = audit_formula_dependencies(capture)
+    issues = audit.get('issues') or []
+    if audit.get('closed') or not issues:
+        return None
+    sources = {source['source_id']: source for source in capture['sources']}
+    exact = []
+    for issue in issues:
+        if (issue.get('code') != 'FORMULA_DEPENDENCY_NOT_CAPTURED'
+                or issue.get('target_sheet_id') != 'unknown:REF'):
+            return None
+        source = sources.get(issue.get('source_id'))
+        if not source:
+            return None
+        formulas = (source.get('formula_evidence') or {}).get('formulas') or []
+        cells = [cell for cell in formulas if (cell.get('row'), cell.get('column'))
+                 == (issue.get('row'), issue.get('column'))]
+        if len(cells) != 1 or type(issue.get('row')) is not int or type(issue.get('column')) is not int:
+            return None
+        tokens = TOKEN.findall(cells[0]['formula'])
+        if not any(tokens[index:index + 3] == ['#', 'REF', '!'] for index in range(len(tokens) - 2)):
+            return None
+        exact.append((issue['source_id'], issue['row'], issue['column'], issue['code'], 'INVALID_REFERENCE'))
+    return {'contract': 'frozen-invalid-reference-proof-v1',
+        'archive_sha256': canonical_semantic_hash(fingerprint),
+        'snapshot_sha256': canonical_semantic_hash(capture['archive_origin']['snapshot_id']),
+        'dependency_issue_sha256': canonical_semantic_hash(sorted(exact)),
+        'invalid_reference_count': len(exact)}
+
+
 def rehearse_weekly(state):
     """Replay the newest own sealed week into disposable storage, offline."""
-    from .archive_runtime import build_archived_release
+    from .archive_runtime import (
+        ArchiveError,
+        _frozen_fingerprint,
+        build_archived_release,
+        load_frozen_input,
+    )
 
-    weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
+    state = Path(state)
+    if not state.is_dir():
+        raise FileNotFoundError('REPORT_STATE_NOT_FOUND')
+    try:
+        # glob can hide directory read failures. Empty history is valid, but an
+        # unreadable or malformed archive directory must still fail explicitly.
+        weeks = sorted(path for path in (state / 'archives').iterdir() if path.name.startswith('WEEKLY-'))
+    except FileNotFoundError:
+        weeks = []
     if not weeks:
         return None
     source = weeks[-1]
     day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+    before = _frozen_fingerprint(source)
     with tempfile.TemporaryDirectory(prefix='report-weekly-rehearsal-') as temporary:
-        receipt = build_archived_release(source, temporary, day=day.isoformat(),
-                                         year=day.year, quarter=(day.month - 1) // 3 + 1)
+        try:
+            receipt = build_archived_release(source, temporary, day=day.isoformat(),
+                                             year=day.year, quarter=(day.month - 1) // 3 + 1)
+        except ArchiveError as error:
+            if str(error) == 'ARCHIVE_BUILD_FAILED':
+                capture, _, _, observed = load_frozen_input(source, day=day.isoformat(),
+                    year=day.year, quarter=(day.month - 1) // 3 + 1)
+                proof = _invalid_reference_proof(capture, observed)
+                if before != observed or before != _frozen_fingerprint(source):
+                    raise ArchiveError('ARCHIVE_CHANGED') from None
+                if proof is not None:
+                    error.frozen_refusal = proof
+            raise
         root = Path(temporary) / 'published/releases' / receipt['release_id']
         _validate(root)
         documents = all((root / name).read_bytes().startswith(b'PK')
@@ -81,6 +140,15 @@ def rehearse_weekly(state):
 
 
 def rehearse_release_restore(state, receipt):
+    lease_root = Path(state) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_release_restore(state, receipt)
+
+
+def _leased_rehearse_release_restore(state, receipt):
     """Restore one complete published package in isolation, never the live volume.
 
     This proves recovery of that release, its identity/evidence and native exports.
@@ -316,6 +384,43 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
 
 
 def published_evidence_summary(state_dir):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_published_evidence_summary(state_dir)
+
+
+def _existing_publication(state):
+    """An empty catalogue is normal; broken SQLite or orphan releases are not."""
+    from .readonly_catalog import copied_catalog
+
+    if not state.is_dir():
+        raise FileNotFoundError('REPORT_STATE_NOT_FOUND')
+    store = PublicationStore(state / 'published', readonly=True)
+    try:
+        store.database_path.stat()
+    except FileNotFoundError:
+        receipt = None
+    else:
+        with copied_catalog(store.database_path) as catalog:
+            store.database_path = catalog
+            receipt = store.latest()
+            if receipt is None:
+                with closing(sqlite3.connect(catalog)) as db:
+                    if db.execute('SELECT count(*) FROM publications').fetchone()[0]:
+                        raise PublicationError('PUBLICATION_NOT_FOUND')
+    if receipt is None:
+        try:
+            if next(store.releases.iterdir(), None) is not None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+        except FileNotFoundError:
+            pass
+    return store, receipt
+
+
+def _leased_published_evidence_summary(state_dir):
     """Fast, sealed-current evidence inventory, independent of the weekly replay.
 
     It is NOT a test of new rules or a claim that today's Google inputs are fresh.
@@ -325,12 +430,9 @@ def published_evidence_summary(state_dir):
     from .readonly_catalog import copied_catalog
 
     state = Path(state_dir).resolve()
-    store = PublicationStore(state / 'published', readonly=True)
-    with copied_catalog(store.database_path) as catalog:
-        store.database_path = catalog
-        receipt = store.latest()
+    store, receipt = _existing_publication(state)
     if receipt is None:
-        raise ValueError('PUBLICATION_NOT_FOUND')
+        return {'published_evidence_read': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
     model = _json(store.releases / receipt['release_id'] / 'report_model.json')
     if model.get('snapshot', {}).get('snapshot_id') != receipt['snapshot_id']:
         raise ValueError('SNAPSHOT_MODEL_MISMATCH')
@@ -398,6 +500,15 @@ def _recommendation_replay_delta(published, candidate):
 
 
 def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
+    lease_root = Path(state_dir) / 'published'
+    from contextlib import nullcontext
+    lease = (PublicationStore(lease_root, readonly=True).reader_lease()
+             if (lease_root / 'publications.sqlite').is_file() else nullcontext())
+    with lease:
+        return _leased_rehearse_latest(state_dir, coverage=coverage, skip_weekly=skip_weekly)
+
+
+def _leased_rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish
@@ -405,16 +516,11 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     No Google request, schedule change, production identity write or publish occurs.
     """
     state = Path(state_dir).resolve()
-    if not (state / 'published/publications.sqlite').is_file():
-        raise ValueError('PUBLICATION_NOT_FOUND')
-    store = PublicationStore(state / 'published', readonly=True)
+    store, receipt = _existing_publication(state)
     from .readonly_catalog import copied_catalog
 
-    with copied_catalog(store.database_path) as catalog:
-        store.database_path = catalog
-        receipt = store.latest()
     if receipt is None:
-        raise ValueError('PUBLICATION_NOT_FOUND')
+        return {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_PUBLISHED_RELEASE', 'publication_count': 0}
     root = store.releases / receipt['release_id']
     previous, *_ = _validate(root)
     snapshot = root / 'snapshot_bundle'
@@ -428,6 +534,8 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     registry, ledger = contracts[0], ledgers[0]
     validate_inputs(registry, ledger)
     capture = {key: manifest[key] for key in ('captured_at', 'timezone', 'report_date', 'report_year')}
+    if 'source_revision' in manifest:
+        capture['source_revision'] = manifest['source_revision']
     capture['sources'] = []
     for payload in payloads:
         meta = payload.get('metadata') or {}
@@ -461,7 +569,7 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
         recovery_diagnostics = {}
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
             *state.glob('published/releases/*/snapshot_bundle'),
-            *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+            *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics, weekly_only=True)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -495,7 +603,7 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
                 recovery_diagnostics = {}
                 history.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
                     *state.glob('published/releases/*/snapshot_bundle'),
-                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics, weekly_only=True)
                 result['identity_recovery'] = recovery_diagnostics
                 result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
             if skip_weekly:
@@ -530,13 +638,15 @@ def main(argv=None):
         elif args.weekly_only:
             weekly = rehearse_weekly(args.state)
             if weekly is None:
-                raise ValueError('ARCHIVE_NOT_FOUND')
-            result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
+                result = {'replay_status': 'NOT_APPLICABLE', 'reason': 'NO_WEEKLY_ARCHIVES', 'archive_count': 0}
+            else:
+                result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
         elif args.coverage_summary:
             full = rehearse_latest(args.state, coverage=True, skip_weekly=True)
             # Explicit allowlist: no coordinates, business text or UID-bearing
             # recommendation indexes may appear in shared workflow output.
             fields = ('replay_status', 'independent_audit', 'two_docx_rebuilt',
+                'reason', 'publication_count',
                 'headline_changed', 'error_counts', 'weekly_replay',
                 'identity_recovery', 'identity_unresolved_count',
                 'recommendation_replay_delta',
@@ -546,13 +656,14 @@ def main(argv=None):
                 'text_reference_missing_subject_shapes', 'origin_date_identity_bindable_count',
                 'automation')
             result = {key: full[key] for key in fields if key in full}
-            action_codes = full.get('action_code_counts') or {}
-            safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
-                'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
-            result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
-                                            if key in action_codes}
-            result['other_action_count'] = sum(value for key, value in action_codes.items()
-                                                if key not in safe)
+            if full.get('replay_status') != 'NOT_APPLICABLE':
+                action_codes = full.get('action_code_counts') or {}
+                safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
+                    'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
+                result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
+                                                if key in action_codes}
+                result['other_action_count'] = sum(value for key, value in action_codes.items()
+                                                    if key not in safe)
         else:
             result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
@@ -582,6 +693,14 @@ def main(argv=None):
                 else 'UNRECOGNIZED_ERROR'
                 for item in getattr(error, 'source_issues', [])
                 if isinstance(item, dict) and item.get('severity') == 'ERROR'))
+        proof = getattr(error, 'frozen_refusal', None)
+        hashes = ('archive_sha256', 'snapshot_sha256', 'dependency_issue_sha256')
+        if (isinstance(proof, dict) and proof.get('contract') == 'frozen-invalid-reference-proof-v1'
+                and type(proof.get('invalid_reference_count')) is int
+                and 0 < proof['invalid_reference_count'] <= 1_000_000
+                and all(isinstance(proof.get(key), str) and re.fullmatch('[a-f0-9]{64}', proof[key]) for key in hashes)):
+            # Fixed public projection; exception attributes must not expose source text.
+            result['frozen_refusal'] = {key: proof[key] for key in ('contract', 'invalid_reference_count', *hashes)}
         if isinstance(error, OSError):
             # OS paths and exception messages may expose protected source data;
             # only an allowlisted standard errno label is safe for public CI.
@@ -594,8 +713,10 @@ def main(argv=None):
             result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     if args.published_summary:
-        return 0 if result.get('published_evidence_read') == 'PASS' else 2
-    return 0 if result['replay_status'] == 'PASS' else 2
+        return 0 if result.get('published_evidence_read') in ('PASS', 'NOT_APPLICABLE') else 2
+    return 0 if result['replay_status'] == 'PASS' or (
+        result['replay_status'] == 'NOT_APPLICABLE' and result.get('reason') in
+        ('NO_WEEKLY_ARCHIVES', 'NO_PUBLISHED_RELEASE')) else 2
 
 
 if __name__ == '__main__':

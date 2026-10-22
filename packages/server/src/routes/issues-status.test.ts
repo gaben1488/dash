@@ -50,6 +50,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
       GOOGLE_PRIVATE_KEY: '',
       GOOGLE_API_KEY: 'test-api-key',
+      GOOGLE_SHEETS_SPREADSHEET_ID: 'x', // Сохранённая книга и запрошенная область совпадают.
     };
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
@@ -111,17 +112,19 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       issues: [
         {
           id: 'seed-issue-003',
-          severity: 'warning',
-          origin: 'system',
-          category: 'test',
+          severity: 'critical',
+          origin: 'spreadsheet_rule',
+          category: 'formula_continuity',
           title: 'seed',
+          description: 'Синтетический случай сохранения решения',
+          detectedBy: 'fixture',
           status: 'open',
           detectedAt: '2026-01-01T00:00:00Z',
         },
       ],
       trust: { overall: 100, components: [], grade: 'A', computedAt: '2026-01-01T00:00:00Z', basedOnSnapshot: 'seed-1' },
       rowCount: 0,
-      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0, targetYear: null },
     };
     db.insert(schema.snapshots)
       .values({
@@ -137,9 +140,9 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       .values({
         id: 'seed-issue-003',
         snapshotId: 'seed-1',
-        severity: 'warning',
-        origin: 'system',
-        category: 'test',
+        severity: 'critical',
+        origin: 'spreadsheet_rule',
+        category: 'formula_continuity',
         title: 'seed',
         status: 'open',
         detectedAt: '2026-01-01T00:00:00Z',
@@ -159,5 +162,223 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     const issue = getBody.issues.find((i) => i.id === 'seed-issue-003');
 
     expect(issue?.status).toBe('acknowledged');
+    const dashboard = await app.inject({ method: 'GET', url: '/api/dashboard' });
+    expect(dashboard.statusCode).toBe(200);
+    expect(dashboard.json().recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('acknowledged');
+    const before = dashboard.json().trust.overall;
+    expect(before).toBeNull();
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'in_progress' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'resolved' } })).statusCode).toBe(200);
+    const unconfirmed = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
+    expect(unconfirmed.recentIssues[0].status).toBe('resolved');
+    expect(unconfirmed.trust.overall).toBe(before);
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'open' } })).statusCode).toBe(200);
+    const falsePositive = await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'false_positive', reason: 'Проверено владельцем' } });
+    expect(falsePositive.statusCode).toBe(200);
+    const after = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
+    expect(after.recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('false_positive');
+    // A decision changes the case, but cannot create evidence in an empty source.
+    expect(after.trust.overall).toBeNull();
+    expect((await app.inject({ method: 'GET', url: '/api/trust' })).json().overall).toBe(after.trust.overall);
+    const { getSnapshot } = await import('../services/snapshot.js');
+    expect((await getSnapshot()).issues[0].status).toBe('open');
+
+
   }, 30_000);
+  it('reads decisions and all case comments in the same typed history and journal, without guessing their author', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const id = 'seed-issue-003';
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: {
+      status: 'false_positive', reason: 'Меры проверены', justification: 'Контракт содержит обеспечение',
+      responsible: 'Координатор', deadline: '2026-10-22', comment: 'Проверка завершена',
+    } })).statusCode).toBe(200);
+    for (const comment of ['Первое пояснение', 'Второе пояснение']) {
+      expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/comment`, payload: { comment } })).statusCode).toBe(200);
+    }
+    db.insert(schema.auditLog).values({ action: 'issue_comment', entity: 'row', entityId: id,
+      details: 'Чужая сущность', timestamp: new Date().toISOString() }).run();
+    const history = (await app.inject({ method: 'GET', url: `/api/issues/${id}/history` })).json().history;
+    const { IssueHistoryResponseSchema } = await import('@aemr/shared');
+    expect(IssueHistoryResponseSchema.safeParse({ issueId: id, history }).success).toBe(true);
+    expect(history.filter((entry: { type: string }) => entry.type === 'comment').map((entry: { text: string }) => entry.text))
+      .toEqual(['Первое пояснение', 'Второе пояснение']);
+    const decision = history.find((entry: { reason?: string }) => entry.reason === 'Меры проверены');
+    expect(decision).toMatchObject({ type: 'status_change', from: 'open', to: 'false_positive',
+      author: null, source: 'dash_decision', text: 'Проверка завершена', justification: 'Контракт содержит обеспечение',
+      responsible: 'Координатор', deadline: '2026-10-22' });
+    expect(new Set(history.map((entry: { eventId: string }) => entry.eventId)).size).toBe(history.length);
+    expect((await app.inject({ method: 'GET', url: `/api/issues/${id}` })).json().history).toEqual(history);
+    const journal = (await app.inject({ method: 'GET', url: '/api/journal?limit=100' })).json().entries;
+    expect(journal.find((entry: { details: string }) => entry.details.includes('Меры проверены')))
+      .toMatchObject({ issueId: id, actor: null });
+    expect(journal.find((entry: { details: string }) => entry.details === 'Первое пояснение'))
+      .toMatchObject({ issueId: id, actor: null });
+  }, 30_000);
+
+  it('reads a moved rule case through its original decision/history ID and current source address', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');
+    const { buildCellDict } = await import('@aemr/shared');
+    const { invalidateCache } = await import('../services/snapshot.js');
+    const base = JSON.parse(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, 'seed-1')).get()!.data!);
+    const raw = new Array(34).fill(''); raw[0] = '173/18'; raw[1] = '42'; raw[2] = 'Учреждение'; raw[6] = 'Поставка';
+    const oldId = issueIdentity([...ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K4', buildCellDict(raw), true), 0]);
+    const newId = issueIdentity([...ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K5', buildCellDict(raw)), 0]);
+    const issue = { ...base.issues[0], id: oldId, sheet: 'УКСиМП', row: 4, cell: 'K4', rowSeq: '173/18', category: 'budget_sum_plan', checkId: 'budget_sum_plan', detectedBy: 'rule:budget_sum_plan', status: 'open' };
+    const old = { ...base, id: 'old-rule', createdAt: '2026-10-11T00:00:00Z', issues: [issue], rowsByDept: { 'УКСиМП': [raw] } };
+    db.insert(schema.snapshots).values({ id: old.id, spreadsheetId: 'x', createdAt: old.createdAt, data: JSON.stringify(old) }).run();
+    db.insert(schema.issues).values({ id: oldId, snapshotId: old.id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'false_positive', detectedAt: old.createdAt }).run();
+    db.insert(schema.issueHistory).values({ issueId: oldId, fromStatus: 'open', toStatus: 'false_positive', reason: 'Проверено', timestamp: old.createdAt }).run();
+    const other = [...raw]; other[0] = 'other'; other[6] = 'Другое';
+    const current = { ...old, id: 'new-rule', createdAt: '2026-10-12T00:00:00Z', issues: [{ ...issue, id: newId, row: 5, cell: 'K5' }], rowsByDept: { 'УКСиМП': [other, raw] } };
+    db.insert(schema.snapshots).values({ id: current.id, spreadsheetId: 'x', createdAt: current.createdAt, data: JSON.stringify(current) }).run();
+    // The pipeline saves its new open ID before the user requests the view.
+    db.insert(schema.issues).values({ id: newId, snapshotId: current.id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'open', detectedAt: current.createdAt }).run();
+    const { pruneSnapshotsByRetention } = await import('../services/snapshot-retention.js');
+    pruneSnapshotsByRetention(new Date('2026-11-12T00:00:00Z'));
+    expect(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, old.id)).get()).toBeDefined();
+    invalidateCache();
+    const list = (await app.inject({ method: 'GET', url: '/api/issues' })).json();
+    expect(list.issues[0]).toMatchObject({ id: oldId, status: 'false_positive', row: 5, cell: 'K5' });
+    const detail = (await app.inject({ method: 'GET', url: `/api/issues/${oldId}` })).json();
+    expect(detail.issue.cell).toBe('K5');
+    expect(detail.history).toHaveLength(1);
+    expect(detail.history[0].reason).toBe('Проверено');
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${oldId}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: `/api/issues/${oldId}` })).json().history).toHaveLength(2);
+    expect(db.select().from(schema.issues).where(eq(schema.issues.id, newId)).get()!.status).toBe('open');
+  }, 30_000);
+
+  it('does not report empty history when either persisted history source cannot be read', async () => {
+    const { db } = await import('../db/index.js');
+    const id = (await app.inject({ method: 'GET', url: '/api/issues' })).json().issues[0].id;
+    for (const url of [`/api/issues/${id}/history`, `/api/issues/${id}`]) {
+      const transaction = vi.spyOn(db, 'transaction').mockImplementationOnce(() => { throw new Error('read unavailable'); });
+      try {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toMatchObject({ code: 'ISSUE_HISTORY_UNAVAILABLE' });
+        expect(response.json()).not.toHaveProperty('history');
+      } finally { transaction.mockRestore(); }
+    }
+  });
+
+  it('acknowledges an identical saved decision once and rejects a different explanation without losing it', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const id = 'status-retry-proof';
+    db.insert(schema.issues).values({ id, title: 'Проверка', severity: 'significant',
+      origin: 'user', category: 'high_economy', status: 'open', detectedAt: new Date().toISOString() }).run();
+    const payload = { status: 'false_positive', reason: 'Меры проверены',
+      justification: 'Обеспечение включено в контракт', comment: 'Подтверждено', responsible: 'Координатор', deadline: '2026-10-22' };
+    const save = (body: typeof payload) => app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: body });
+    expect((await save(payload)).statusCode).toBe(200);
+    const before = db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all();
+    const retry = await save(payload);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({ success: true, issueId: id, toStatus: 'false_positive', replayed: true });
+    expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toEqual(before);
+    for (const field of ['reason', 'justification', 'comment', 'responsible', 'deadline'] as const) {
+      const changed = await save({ ...payload, [field]: 'Другое основание' });
+      expect(changed.statusCode).toBe(409);
+      expect(changed.json()).toMatchObject({ success: false, code: 'ISSUE_DECISION_CONFLICT' });
+      expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toEqual(before);
+    }
+    expect((await save({ ...payload, reason: '   ' })).statusCode).toBe(400);
+    // Reopening is a new real transition; the old request cannot erase it.
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await save({ ...payload, reason: '   ' })).statusCode).toBe(400);
+    expect((await save(payload)).statusCode).toBe(200);
+    expect(db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all()).toHaveLength(3);
+    db.delete(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).run();
+    expect((await save(payload)).statusCode).toBe(409);
+  });
+
+  it('does not apply a direct-ID false positive to occurrence zero after an identical row is inserted', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');
+    const { buildCellDict } = await import('@aemr/shared');
+    const { overlayPersistedStatus } = await import('../services/issue-decisions.js');
+    const raw = new Array(34).fill(''); raw[0] = 'duplicate'; raw[1] = '42'; raw[2] = 'Учреждение'; raw[6] = 'Поставка';
+    const parts = ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K4', buildCellDict(raw));
+    const id = issueIdentity([...parts, 0]);
+    const base = JSON.parse(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, 'seed-1')).get()!.data!);
+    const issue = { ...base.issues[0], id, sheet: 'УКСиМП', row: 4, cell: 'K4', checkId: 'budget_sum_plan', detectedBy: 'rule:budget_sum_plan', status: 'open' };
+    db.insert(schema.issues).values({ id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'false_positive', detectedAt: base.createdAt }).run();
+    const current = { ...base, issues: [issue, { ...issue, id: issueIdentity([...parts, 1]), row: 5, cell: 'K5' }], rowsByDept: { 'УКСиМП': [raw, [...raw]] } };
+    expect(overlayPersistedStatus(current.issues, current).map(i => i.status)).toEqual(['open', 'open']);
+    expect(db.select().from(schema.issues).where(eq(schema.issues.id, id)).get()!.status).toBe('false_positive');
+    // Missing historical raw rows cannot support this ambiguity check; retain
+    // compatibility with prior direct-ID readback rather than invent an anchor.
+    expect(overlayPersistedStatus([issue])[0].status).toBe('false_positive');
+    expect(overlayPersistedStatus([{ ...issue, detectedBy: 'pipeline:signal:overdue' }], current)[0].status).toBe('false_positive');
+    expect(overlayPersistedStatus([{ ...issue, sheet: 'СВОД ТД-ПМ' }], current)[0].status).toBe('false_positive');
+  });
+
+  it('C06.01: live report and metric detail obey case decisions; frozen report keeps historical status', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { DEPT_COLUMNS, REPORT_MAP } = await import('@aemr/shared');
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const id = 'case-report-lifecycle-2026';
+    const metricKey = REPORT_MAP[0]!.metricKey;
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '1';
+    row[DEPT_COLUMNS.TYPE] = 'Текущая деятельность';
+    row[DEPT_COLUMNS.SUBJECT] = 'Синтетическая проверка';
+    row[DEPT_COLUMNS.METHOD] = 'ЭА';
+    row[DEPT_COLUMNS.PLAN_DATE] = '15.01.2026';
+    row[DEPT_COLUMNS.PLAN_QUARTER] = 1;
+    row[DEPT_COLUMNS.PLAN_YEAR] = 2026;
+    const heads = Array.from({ length: 3 }, () => new Array(34).fill('h'));
+    setDeptSheetCache({ УЭР: { values: [...heads, row], formulas: [], sheetName: 'УЭР' } });
+    const capturedAt = '2026-01-02T00:00:00.000Z';
+    const issue = {
+      id, severity: 'warning', origin: 'bi_heuristic', category: 'signal',
+      title: 'Синтетический сигнал', description: 'Проверить статус', departmentId: 'uer',
+      metricKey, status: 'open', detectedAt: capturedAt, detectedBy: 'test',
+    };
+    const stored = {
+      id: 'snapshot-report-lifecycle-2026', spreadsheetId: 'x', createdAt: capturedAt,
+      officialMetrics: {}, calculatedMetrics: {}, deltas: [], issues: [issue],
+      trust: { overall: 100, components: [], grade: 'A', computedAt: capturedAt, basedOnSnapshot: 'snapshot-report-lifecycle-2026' },
+      rowCount: 1, rowsByDept: { УЭР: [row] },
+      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0, targetYear: 2026 },
+    };
+    db.insert(schema.snapshots).values({
+      id: stored.id, spreadsheetId: 'x', createdAt: capturedAt, data: JSON.stringify(stored),
+    }).run();
+    db.insert(schema.issues).values({
+      id, snapshotId: stored.id, severity: 'warning', origin: 'bi_heuristic',
+      category: 'signal', title: 'Синтетический сигнал',
+      status: 'false_positive', detectedAt: capturedAt,
+    }).run();
+
+    const live = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(live.statusCode).toBe(200);
+    expect(live.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals).toEqual([]);
+
+    const detail = await app.inject({ method: 'GET', url: `/api/metrics/${encodeURIComponent(metricKey)}?year=2026` });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().issues).toMatchObject([{ id, status: 'false_positive' }]);
+
+    const archive = await app.inject({
+      method: 'GET', url: '/api/report?asOf=2026-01-02&year=2026&quarter=1',
+    });
+    expect(archive.statusCode).toBe(200);
+    expect(archive.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+
+    const reopened = await app.inject({
+      method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' },
+    });
+    expect(reopened.statusCode).toBe(200);
+    const liveAgain = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(liveAgain.statusCode).toBe(200);
+    expect(liveAgain.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+    expect((await app.inject({ method: 'GET', url: '/api/report?asOf=2026-01-02&year=2026&quarter=1' }))
+      .json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+  }, 30_000);
+
 });

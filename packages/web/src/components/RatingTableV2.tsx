@@ -1,4 +1,6 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { PRODUCT_COPY } from '@aemr/shared';
+import { productLabel } from '@aemr/shared';
+import { memo, useCallback, useId, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
 import {
@@ -37,7 +39,7 @@ import { pluralRu } from '@/lib/economy-copy';
 const QUARTER_LABELS = [1, 2, 3, 4].map(quarterLabel);
 
 /** Фраза для пустой ячейки процента: почему числа нет. */
-const NO_PLAN_HINT = 'За выбранный период плана нет — исполнять нечего';
+const NO_PLAN_HINT = PRODUCT_COPY["components/RatingTableV2:NO_PLAN_HINT"];
 
 /** Полное наименование федерального бюджета — из реестра, а не строкой здесь. */
 const FB_FULL = BUDGET_SOURCE_META.fb.label;
@@ -85,6 +87,8 @@ export interface SubRow {
    * подведов — выдуманное число вместо честной пустоты.
    */
   issueCount: number | null;
+  /** Book-level checks without a proven organization address. */
+  unattributedIssueCount?: number;
   /**
    * Аппарат управления (собственные строки ГРБС). Это не подведомственная
    * организация: в счётчик подведов он не входит и показывается отдельной
@@ -97,7 +101,6 @@ type SortKey = 'execCountPct' | 'execAmountPct' | 'fbExecPct' | 'fbPct' | 'trust
 
 interface RatingTableV2Props {
   departments: DeptRowV2[];
-  showSubordinates?: boolean;
   onDeptClick: (deptId: string) => void;
   onDeptDetail: (deptId: string) => void;
 }
@@ -115,18 +118,10 @@ const MERIT_SORT_KEYS: ReadonlySet<SortKey> = new Set<SortKey>([
 ]);
 
 /** Человеческое имя столбца сортировки — для подписи под таблицей. */
-const SORT_LABELS: Record<SortKey, string> = {
-  execCountPct: 'исполнению по количеству',
-  execAmountPct: 'исполнению по сумме',
-  fbExecPct: 'исполнению федерального бюджета',
-  fbPct: 'исполнению федерального бюджета',
-  trustScore: 'доверию к данным',
-  issueCount: 'числу замечаний',
-};
+const SORT_LABELS: Record<SortKey, string> = PRODUCT_COPY["components/RatingTableV2:SORT_LABELS"];
 
 export function RatingTableV2({
   departments,
-  showSubordinates = false,
   onDeptClick,
   onDeptDetail,
 }: RatingTableV2Props) {
@@ -310,7 +305,6 @@ export function RatingTableV2({
               rank={i + 1}
               showMedals={showMedals}
               isExpanded={expandedDept === dept.id}
-              showSubordinates={showSubordinates}
               onToggleExpand={toggleExpanded}
               onDeptClick={onDeptClick}
               onDeptDetail={onDeptDetail}
@@ -366,11 +360,13 @@ function CellProgress({ value, metricKey }: { value: number | null; metricKey: s
  * ноль: «плана не было» и «исполнено ноль» — разные вещи.
  */
 function SubLine({ sub }: { sub: SubRow }) {
+  const attributionNote = sub.unattributedIssueCount
+    ? ` Ещё ${sub.unattributedIssueCount} замечаний книги без привязки к организации — в общем счёте управления.` : '';
   const issuesHint = sub.issueCount == null
     ? 'Замечания ведутся по книге управления целиком — по организациям они не разложены'
     : sub.issueCount === 0
-      ? 'Замечаний нет'
-      : `Замечаний: ${sub.issueCount}`;
+      ? 'Активных замечаний с привязкой к этой организации нет' + attributionNote
+      : `Активных замечаний с привязкой к этой организации: ${sub.issueCount}` + attributionNote;
 
   return (
     <div className="flex items-center gap-4 px-3 py-2 rounded-xl hover:bg-white dark:hover:bg-zinc-800/60 transition-colors text-xs group/sub">
@@ -430,7 +426,6 @@ const DeptRowComponent = memo(function DeptRowComponent({
   rank,
   showMedals,
   isExpanded,
-  showSubordinates,
   onToggleExpand,
   onDeptClick,
   onDeptDetail,
@@ -439,11 +434,11 @@ const DeptRowComponent = memo(function DeptRowComponent({
   rank: number;
   showMedals: boolean;
   isExpanded: boolean;
-  showSubordinates: boolean;
   onToggleExpand: (deptId: string) => void;
   onDeptClick: (deptId: string) => void;
   onDeptDetail: (deptId: string) => void;
 }) {
+  const detailsId = useId();
   const hasTrust = dept.trustScore != null;
   const trustColor = getThresholdColor('dept_trust', dept.trustScore ?? 0);
   const trustBg = getThresholdBg('dept_trust', dept.trustScore ?? 0);
@@ -493,14 +488,10 @@ const DeptRowComponent = memo(function DeptRowComponent({
     <>
       <tr
         className={cn(
-          'border-b border-zinc-100 dark:border-zinc-800/50 cursor-pointer transition-all duration-200 group',
+          'border-b border-zinc-100 dark:border-zinc-800/50 transition-all duration-200 group',
           'hover:bg-blue-50/40 dark:hover:bg-blue-950/10',
           isExpanded && 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/30 dark:border-transparent',
         )}
-        onClick={() => {
-          onDeptClick(dept.id);
-          onToggleExpand(dept.id);
-        }}
       >
         {/* Место в текущей сортировке */}
         <td className="px-2 py-3 text-center">
@@ -512,34 +503,36 @@ const DeptRowComponent = memo(function DeptRowComponent({
           </span>
         </td>
 
-        {/* Наименование управления — настоящая кнопка: раскрытие строки должно
-            работать и с клавиатуры, а не только по клику мышью по <tr>. */}
+        {/* Раскрытие состава и выбор управления — независимые действия. */}
         <td className="px-2 py-3 font-semibold text-zinc-700 dark:text-zinc-200">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeptClick(dept.id);
-              onToggleExpand(dept.id);
-            }}
-            aria-expanded={isExpanded}
-            title={`${dept.name} — раскрыть подробности и отфильтровать страницу по этому управлению`}
-            className="flex items-center gap-1.5 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-          >
-            {(showSubordinates || hasSubs) && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onToggleExpand(dept.id)}
+              aria-label={`Состав управления ${productLabel(dept.nameShort)}`}
+              aria-expanded={isExpanded}
+              aria-controls={isExpanded ? detailsId : undefined}
+              title={`${isExpanded ? 'Свернуть' : 'Раскрыть'} состав: ${dept.name}`}
+              className="inline-flex shrink-0 items-center justify-center min-h-7 min-w-7 max-sm:min-h-11 max-sm:min-w-11 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
               <ChevronDown
-                size={12}
+                size={14}
                 aria-hidden="true"
                 className={cn(
                   'text-zinc-400 transition-transform duration-200 shrink-0',
                   isExpanded ? 'rotate-0' : '-rotate-90',
                 )}
               />
-            )}
-            <span className="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-              {dept.nameShort}
-            </span>
-          </button>
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeptClick(dept.id)}
+              title={`${dept.name} — отфильтровать страницу по этому управлению`}
+              className="inline-flex items-center min-h-7 min-w-7 max-sm:min-h-11 max-sm:min-w-11 rounded text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              {productLabel(dept.nameShort)}
+            </button>
+          </div>
         </td>
 
         {/* Исполнение по количеству процедур */}
@@ -667,8 +660,8 @@ const DeptRowComponent = memo(function DeptRowComponent({
               onDeptDetail(dept.id);
             }}
             className="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-            title={`Открыть реестр строк управления «${dept.nameShort}»`}
-            aria-label={`Открыть реестр строк управления «${dept.nameShort}»`}
+            title={`Открыть реестр строк управления «${productLabel(dept.nameShort)}»`}
+            aria-label={`Открыть реестр строк управления «${productLabel(dept.nameShort)}»`}
           >
             <ChevronRight size={14} aria-hidden="true" />
           </button>
@@ -679,7 +672,7 @@ const DeptRowComponent = memo(function DeptRowComponent({
       {isExpanded && (
         <tr>
           <td colSpan={10} className="p-0">
-            <div className="bg-gradient-to-b from-zinc-50 to-white dark:from-zinc-800/40 dark:to-zinc-900 border-t border-b border-zinc-200/60 dark:border-zinc-700/30 px-6 py-4 animate-in slide-in-from-top-1 duration-200">
+            <div id={detailsId} className="bg-gradient-to-b from-zinc-50 to-white dark:from-zinc-800/40 dark:to-zinc-900 border-t border-b border-zinc-200/60 dark:border-zinc-700/30 px-6 py-4 animate-in slide-in-from-top-1 duration-200">
               {/* Аппарат — собственные строки управления. Он не подвед и стоит
                   над списком отдельно, иначе счётчик организаций врёт. */}
               {orgSelfRow && (

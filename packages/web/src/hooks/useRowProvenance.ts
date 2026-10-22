@@ -20,6 +20,7 @@
  * observability и journalAvailable), и подменять их общим null нельзя —
  * ровно эта подмена и превращает дыру наблюдаемости в «всё чисто».
  */
+import { readProcurementSequence } from '@aemr/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, fetchJSON, humanizeRequestError } from '../api';
 import type { RowProvenanceResponse } from '../lib/provenance/contract';
@@ -88,24 +89,15 @@ export function provenanceErrorKind(err: unknown): ProvenanceErrorKind {
 
 /**
  * № п/п закупки из значения ячейки колонки A. Приходит и числом, и строкой
- * («25», «25.0» — так Google отдаёт числовые ячейки), и пустотой. Возвращает
+ * («25», «25.0», «173/18»), и пустотой. Составные метки сохраняются целиком. Возвращает
  * null, если номера нет: без него провенанс запрашивать не по чему, и врать
  * нулём («строка № 0») хуже, чем честно сказать, что ключа нет.
  */
-export function toRowSeq(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isInteger(value) && value >= 1 ? value : null;
-  }
-  const s = String(value ?? '').trim().replace(/ /g, '');
-  const m = s.match(/^(\d+)(?:[.,]0+)?$/);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return n >= 1 ? n : null;
-}
+export const toRowSeq = readProcurementSequence;
 
 export function useRowProvenance(
   deptId: string,
-  rowSeq: number | null,
+  rowSeq: string | number | null,
   enabled = true,
 ): UseRowProvenanceResult {
   const [data, setData] = useState<RowProvenanceResponse | null>(null);
@@ -119,10 +111,11 @@ export function useRowProvenance(
   // историю новой (провенанс не той закупки — худший вид неправды здесь).
   const requestId = useRef(0);
 
-  const canRequest = enabled && deptId !== '' && rowSeq !== null;
+  const sequence = readProcurementSequence(rowSeq);
+  const canRequest = enabled && deptId !== '' && sequence !== null;
 
   useEffect(() => {
-    if (!canRequest) return;
+    if (!canRequest || sequence === null) return;
     const id = ++requestId.current;
     let cancelled = false;
 
@@ -131,11 +124,13 @@ export function useRowProvenance(
     setErrorKind(null);
     void (async () => {
       try {
-        const response = await fetchJSON<RowProvenanceResponse>(
-          `/provenance/${encodeURIComponent(deptId)}/${rowSeq}`,
+        const response = await fetchJSON<Omit<RowProvenanceResponse, 'rowSeq'> & { rowSeq: string | number }>(
+          `/provenance/${encodeURIComponent(deptId)}/${encodeURIComponent(sequence)}`,
         );
         if (cancelled || id !== requestId.current) return;
-        setData(response);
+        const responseSequence = readProcurementSequence(response.rowSeq);
+        if (responseSequence !== sequence) throw new Error('Сервер вернул историю другой закупки');
+        setData({ ...response, rowSeq: responseSequence });
       } catch (err) {
         if (cancelled || id !== requestId.current) return;
         setData(null);
@@ -149,7 +144,7 @@ export function useRowProvenance(
     return () => {
       cancelled = true;
     };
-  }, [canRequest, deptId, rowSeq, attempt]);
+  }, [canRequest, deptId, sequence, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 

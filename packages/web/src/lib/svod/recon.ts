@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * recon.ts — сверка расчёта с официальным листом «СВОД ТД-ПМ»: доступность,
  * бейджи и подписи ключей.
@@ -97,12 +98,7 @@ const METHOD_BY_PREFIX: Readonly<Record<string, string>> = {
   sole: 'ЕП',
 };
 
-const FIELD_LABEL: Readonly<Record<string, string>> = {
-  count: 'количество',
-  total_plan: 'план',
-  total_fact: 'факт',
-  economy_total: 'экономия',
-};
+const FIELD_LABEL: Readonly<Record<string, string>> = PRODUCT_COPY["lib/svod/recon:FIELD_LABEL"];
 
 /**
  * Подпись ключа сверки для читателя: `competitive.q1.total_plan` → «КП · план».

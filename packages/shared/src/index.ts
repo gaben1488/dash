@@ -1,5 +1,8 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
+export { formulaDiagnosticInapplicableReason, isTrustIssueApplicable } from './issue-conversion.js';
+// Canonical case state transitions for API and UI; never maintain mirrored tables.
+export * from './issue-status-transitions.js';
 
 // Re-export schemas (zod schemas for runtime validation, API contracts, drizzle-lite)
 export * from './schemas.js';
@@ -78,6 +81,7 @@ export * from './absence.js';
 // Re-export орг-классификатор по ОПФ (ось C: аппарат/ПБС/бюджетное/автономное/…; см. classifyOrg)
 export * from './org-classify.js';
 export * from './parse-sheet-date.js';
+export * from './editable-amount.js';
 export * from './svod-grid.js';
 export * from './time-selection.js';
 export * from './recon-root-cause.js';
@@ -168,3 +172,16 @@ export * from './threshold-registry.js';
 // именами колонок. Модуль писался агентом, который погиб на середине;
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
+export * from './source-coverage.js';
+
+export * from './metrics/types.js';
+export * from './metrics/registry.js';
+export * from './metrics/kb-uplift.js';
+
+export { summarizeCheckCoverage } from './check-coverage.js';
+export { MetricDetailSchema, MetricExplanationSchema, type MetricExplanation } from './metric-explanation-contract.js';
+
+export { MASTER_SOURCE_PROFILE, MONITORING_SOURCE_SCHEMA, validateMasterSourceHeader } from './column-map.js';
+export * from './procurement-guidance.js';
+// Source diagnostic run: bounded coverage, per-stage timestamps, honest not_run.
+export type { SourceStageStatus, SourceDeepBookEvidence, SourceDeepEvidence, SourceRowValidationEvidence, SourceDiagnosticRun } from './source-diagnostics.js';

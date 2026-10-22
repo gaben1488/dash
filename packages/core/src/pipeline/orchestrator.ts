@@ -1,7 +1,8 @@
 import { nanoid } from 'nanoid';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
-import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells } from '@aemr/shared';
+import type { TrustCheckCoverage, DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, futureFactDateSeverity, isAnnualEpAggregate, EP_ANNUAL_AMOUNT_TITLE, EP_ANNUAL_AMOUNT_EXPLANATION, epRiskReviewDetails, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells, toNumber as sheetNumber, canonicalizeReasonEp, EP_REASON_SCAN_LIMIT } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -16,6 +17,9 @@ import { formulaIntegrityIssues } from './formula-integrity.js';
 import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 
 export interface PipelineInput {
+  /** Explicit historical clock; live runs capture one clock at pipeline entry. */
+  asOf?: Date;
+  sourceBindings?: Record<string, { providerId: string | null; sheetName: string; version: string | null; readAt: string | null }>;
   /** Ответ batchGet для официальных ячеек */
   batchGetData: Array<{
     range: string;
@@ -377,6 +381,10 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
 
   // Aggregate for all periods (matching REPORT_MAP summary entries)
   for (const p of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
+    // An acquired empty book emits explicit zero counts. No acquired book
+    // emits no metrics, so its absence must not become a calculated zero.
+    if (!ALL_DEPT_IDS.some(dept => target.has(`grbs.${dept}.kp.${p}.count`)
+      || target.has(`grbs.${dept}.ep.${p}.count`))) continue;
     let kpCount = 0, kpFact = 0, kpPlanTotal = 0, kpFactTotal = 0;
     let kpFbPlan = 0, kpKbPlan = 0, kpMbPlan = 0;
     let kpFbFact = 0, kpKbFact = 0, kpMbFact = 0;
@@ -543,17 +551,24 @@ export interface PipelineSnapshot extends DataSnapshot {
 }
 
 export function runPipeline(input: PipelineInput): PipelineSnapshot {
+  const asOf = input.asOf === undefined ? new Date() : input.asOf;
+  if (!(asOf instanceof Date) || !Number.isFinite(asOf.getTime())) throw new Error('INVALID_SNAPSHOT_AS_OF');
   const pipelineStart = Date.now();
   const snapshotId = nanoid();
 
   // 1. Ingest: официальные ячейки
   const ingestResult = ingestBatchGetResponse(input.batchGetData, input.reportMap);
 
+  const ingestEnded = Date.now();
+
   // 2. Normalize: официальные метрики
   const officialMetrics = normalizeMetrics(ingestResult.cells, input.reportMap);
 
+  const normalizeEnded = Date.now();
+
   // 3. Classify + Validate: построчно по листам
   const allIssues: Issue[] = [];
+  const checkCoverage: TrustCheckCoverage[] = [];
   let totalRows = 0;
   const perSheetRowCount: Record<string, number> = {};
   const calculatedMetrics = new Map<string, NormalizedMetric>();
@@ -571,7 +586,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
     perSheetRowCount[sheetName] = classified.length;
 
     // Валидация строк
-    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap);
+    const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap, asOf, checkCoverage);
     allIssues.push(...sheetIssues);
 
     // Signal detection + CalcEngine only for department sheets (СВОД has
@@ -588,10 +603,31 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
-      const sheetSignals = detectSheetSignals(rows as unknown[][]);
+      const signalFailures: number[] = [];
+      const sheetSignals = detectSheetSignals(rows as unknown[][], asOf,
+        sheetRow => signalFailures.push(sheetRow));
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
+      // A detector exception is an incomplete analysis, NOT a clean signal row.
+      // One bounded issue per book keeps the original rows/other signals intact.
+      if (signalFailures.length > 0) {
+        allIssues.push({
+          id: issueIdentity(['signal-detection-failed', sheetName]),
+          severity: 'error',
+          origin: 'runtime_error',
+          category: 'signal_detection_failed',
+          title: `Проверка сигналов книги «${sheetName}» выполнена не полностью`,
+          description: `Детектор сигналов не смог проверить ${signalFailures.length} строк (первая: ${signalFailures[0]}). Отсутствие других замечаний по ним не означает успешную проверку.`,
+          sheet: sheetName,
+          row: signalFailures[0],
+          departmentId: deptId,
+          recommendation: 'Проверить ошибку разбора сигналов и повторить проверку; не изменять книгу автоматически.',
+          status: 'open',
+          detectedAt: asOf.toISOString(),
+          detectedBy: 'pipeline:signals',
+        });
+      }
 
       // Целостность формул книги — судится НОСИТЕЛЬ (ячейка формульной графы),
       // а не смысл строки, поэтому отдельным слоем. Слой сам молчит, когда
@@ -602,10 +638,12 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
         values: rows as unknown[][],
         formulas: input.sheetFormulas?.[sheetName] ?? [],
         startRow: 1,
-      }, deptId));
+      }, deptId, checkCoverage));
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
-      const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear);
+      const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear, {
+        asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS),
+      });
       // Строки, не дошедшие до счёта, обязаны быть названы (реестр багов
       // 09.07.2026, п.6): счётчик droppedRows появился, но его никто не читал —
       // молчание осталось прежним.
@@ -670,13 +708,18 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
 
   // 5. Delta — со знанием периметра обеих сторон (Д21): несравнимые пары
   // не превращаются в дельту, а объясняют, почему сверки нет.
+  const deltaStarted = Date.now();
   const deltas = computeDeltas(officialMetrics, calculatedMetrics, input.reportMap, {
     calcYear: input.targetYear,
     officialYear: input.officialYear,
   });
 
+  const deltaEnded = Date.now();
+
   // 6. Trust
-  const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId);
+  const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId, checkCoverage);
+
+  const trustEnded = Date.now();
 
   // 7. Атомы для честной истории: снимок несёт строки книг ГРБС без шапки и
   // распарсенную официальную сетку СВОД — из УЖЕ прочитанных input.sheetRows,
@@ -688,7 +731,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
   return {
     id: snapshotId,
     spreadsheetId: input.spreadsheetId,
-    createdAt: new Date().toISOString(),
+    createdAt: asOf.toISOString(),
     officialMetrics: Object.fromEntries(officialMetrics),
     calculatedMetrics: Object.fromEntries(calculatedMetrics),
     deltas,
@@ -703,7 +746,11 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       sheetsRead: ingestResult.sheets,
       cellsRead: ingestResult.cells.size,
       readDurationMs: ingestResult.durationMs,
-      pipelineDurationMs: Date.now() - pipelineStart,
+      pipelineDurationMs: Math.max(0, Date.now() - pipelineStart),
+      timings: { ingestMs: Math.max(0, ingestEnded - pipelineStart), officialNormalizeMs: Math.max(0, normalizeEnded - ingestEnded),
+        checksAndCalculationMs: Math.max(0, deltaStarted - normalizeEnded), deltaMs: Math.max(0, deltaEnded - deltaStarted),
+        trustMs: Math.max(0, trustEnded - deltaEnded) },
+      targetYear: input.targetYear ?? null,
       perSheetRowCount,
     },
   };
@@ -864,17 +911,26 @@ const SIGNAL_ISSUE_MAP: Record<string, {
  * dataset-анализа. Семантика сбора — как у 4b (все парсабельные строки);
  * фильтр мета-/пустых строк остаётся на стороне замечаний.
  */
-function detectSheetSignals(
+export function detectSheetSignals(
   rows: unknown[][],
+  asOf: Date,
+  onFailure: (physicalRow: number) => void = () => undefined,
+  detector: typeof detectSignals = detectSignals,
 ): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
   const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
   for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
-    const row = rows[r] as unknown[];
-    if (!row || row.length < 5) continue;
+    const row = rows[r];
+    // Intentional service/header/short note rows are outside the detector's
+    // scope; don't report them as failed purchases.
+    if (!Array.isArray(row) || row.length < 5) continue;
     const cells = buildCellDict(row);
     try {
-      out.set(r, { cells, signals: detectSignals(cells) });
-    } catch { /* skip unparseable rows */ }
+      out.set(r, { cells, signals: detector(cells, asOf) });
+    } catch {
+      // Preserve the physical 1-based Sheets row; dataset analysis must not
+      // silently treat the missing signal entry as 'no signals'.
+      onFailure(r + 1);
+    }
   }
   return out;
 }
@@ -916,19 +972,31 @@ function detectSignalsToIssues(
       // один и лежит в @aemr/shared: замечание конвейера, чип Реестра и
       // проверка источника на сервере обязаны звать одну функцию, иначе список
       // критических разойдётся с цветом чипов на экране.
+      const epContext = { dept: deptId, id: cells['A'], subject: cells['G'], method: cells['L'],
+        factDateRaw: cells['Q'], planDateRaw: cells['N'], factSum: sheetNumber(cells['Y']) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        necessityJustification: cells.AE, commentGRBS: cells.AF };
+      const annualAggregate = signalKey === 'epRisk' && isAnnualEpAggregate(epContext);
+      // Nonempty UNMAPPED is a proven dictionary limitation, not employee misconduct.
+      // Reuse the existing diagnostic classification while preserving this case's stable ID.
+      const dictionaryUncertainty = signalKey === 'epRisk' && typeof cells.M === 'string'
+        && cells.M.trim().length > 0
+        && canonicalizeReasonEp(cells.M.slice(0, EP_REASON_SCAN_LIMIT)).cluster === 'UNMAPPED';
+      const amountUncertainty = signalKey === 'epRisk' && epContext.amountBasis === 'position-total' && !annualAggregate;
+      const classification = dictionaryUncertainty ? SIGNAL_ISSUE_MAP.unmappedReasonEP
+        : amountUncertainty ? { ...meta, group: 'completeness' as const } : meta;
       const severity: Issue['severity'] = signalKey === 'epRisk'
-        ? epRiskStrictnessOfReason(cells['M'])
-        : meta.severity;
+        ? epRiskStrictnessOfReason(cells['M'], epContext)
+        : signalKey === 'futureFactDate' ? futureFactDateSeverity(epContext) : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity,
-        origin: 'bi_heuristic',
+        origin: dictionaryUncertainty || amountUncertainty ? 'mapping_error' : 'bi_heuristic',
         category: `signal:${signalKey}`,
         signal: signalKey,
-        group: meta.group,
-        checkId: meta.checkId,
-        kbHint: meta.kbHint,
-        title: `${meta.title}: ${subject || `строка ${r + 1}`}`,
+        group: classification.group,
+        checkId: classification.checkId,
+        kbHint: amountUncertainty ? epRiskReviewDetails(cells.M, epContext).explanation : classification.kbHint,
+        title: `${annualAggregate ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).title : meta.title}: ${subject || `строка ${r + 1}`}`,
         // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
         // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).
         description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}${
@@ -943,7 +1011,7 @@ function detectSignalsToIssues(
         rowSeq: String(cells['A'] ?? '').trim() || undefined,
         departmentId: deptId,
         subordinateId,
-        recommendation: meta.recommendation,
+        recommendation: annualAggregate ? EP_ANNUAL_AMOUNT_EXPLANATION : signalKey === 'epRisk' && severity === 'warning' ? epRiskReviewDetails(cells.M, epContext).explanation : meta.recommendation,
         status: 'open',
         detectedAt: now,
         detectedBy: `pipeline:signal:${signalKey}`,

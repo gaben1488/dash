@@ -16,7 +16,7 @@ const setDeptLoadMeta = vi.fn();
 const setSvodGridCache = vi.fn();
 const setSvodLoadFailure = vi.fn();
 const invalidateCache = vi.fn();
-let cachedBooks: Record<string, { values: unknown[][] }> = {};
+let cachedBooks: Record<string, { values: unknown[][]; formulasRead?: boolean }> = {};
 const getDeptSheetCache = vi.fn(() => cachedBooks);
 const loadWatermarks = vi.fn(() => new Map<string, { fingerprint: string; parsedAt: string; driveVersion: string | null; driveModifiedTime: string | null }>());
 
@@ -41,6 +41,7 @@ const checkFileChanged = vi.fn(async (fileId: string) => verdicts.get(fileId) ??
 const forgetRevision = vi.fn();
 
 vi.mock('./file-revision.js', () => ({
+  readRevision: vi.fn(async () => null),
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [string])),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [string])),
   // Свидетельство «была прежняя отметка» здесь не проверяется — гейт отвечает
@@ -52,6 +53,7 @@ vi.mock('./file-revision.js', () => ({
 // Водяной знак заглушен: гейт проверяет отсев чтений, а не память базы.
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadAcceptedReadings: () => new Map(),
   loadWatermarks: () => loadWatermarks(),
   saveWatermark: vi.fn(),
   noteHonestGap: vi.fn(() => true),
@@ -103,6 +105,31 @@ async function warmUp(): Promise<void> {
 }
 
 describe('перечитка спрашивает Drive, прежде чем читать книгу', () => {
+  it('повторный вебхук не читает прежнюю версию с уже прочитанными формулами', async () => {
+    await warmUp();
+    cachedBooks['УО'].formulasRead = true;
+    verdicts.set(bookIds['УО'], 'same');
+    vi.clearAllMocks();
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const result = await refreshAllSources(log, 'webhook', {
+      books: ['УО'], svod: false, withFormulas: true,
+    });
+    expect(checkFileChanged).toHaveBeenCalledWith(bookIds['УО']);
+    expect(fetchDepartmentSpreadsheets).not.toHaveBeenCalled();
+    expect(result.skipped).toEqual(['УО']);
+  });
+
+  it('совпадение версии без формул в кэше не отменяет запрошенное чтение формул', async () => {
+    await warmUp();
+    verdicts.set(bookIds['УО'], 'same');
+    vi.clearAllMocks();
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'webhook', { books: ['УО'], svod: false, withFormulas: true });
+    expect(fetchDepartmentSpreadsheets).toHaveBeenCalledWith(expect.anything(), {
+      only: ['УО'], withFormulas: true,
+    });
+  });
+
   it('холодный старт не платит за вопросы: книгу, которую не читали, не спрашивают', async () => {
     await warmUp();
     expect(checkFileChanged).not.toHaveBeenCalled();

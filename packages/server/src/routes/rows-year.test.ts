@@ -34,6 +34,12 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
   }, 60_000);
   afterAll(async () => { await app?.close(); process.env = { ...ORIGINAL_ENV }; vi.resetModules(); });
 
+  it.each(['2026junk', '1999', '2026.5', ''])('отклоняет ошибочный год %s вместо расширения до всех лет', async year => {
+    const response = await app.inject(`/api/rows/УЭР?year=${year}`);
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('INVALID_SCOPE');
+  });
+
   it('year=2026 отдаёт только строки с planYear=2026', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rows/УЭР?year=2026&limit=100' });
     const body = res.json<{ rows: Array<{ planYear: number }> }>();
@@ -41,6 +47,28 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     expect(body.rows.every(r => r.planYear === 2026)).toBe(true);
   }, 30_000);
 
+  it('detail and list keep the same annual-series badge for comma-formatted amounts', async () => {
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const r: unknown[] = new Array(34).fill('');
+    r[0] = '3'; r[6] = 'Окорока (куриные)'; r[11] = 'ЕП';
+    r[10] = '1 200,00'; r[24] = '800,00'; r[16] = 'Х'; r[15] = 2026;
+    setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
+    const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
+    const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
+    expect(list.rows[0].badges.find((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toMatchObject({ color: 'blue' });
+    expect(detail.badges.find((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toMatchObject({ color: 'blue' });
+  });
+  it.each(['', 2027])('does not carry a curated 2026 annual-series identity into source year %s', async sourceYear => {
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const r: unknown[] = new Array(34).fill('');
+    r[0] = '3'; r[6] = 'Окорока (куриные)'; r[11] = 'ЕП';
+    r[10] = '1 200,00'; r[24] = '800,00'; r[16] = 'Х'; r[15] = sourceYear;
+    setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
+    const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
+    const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
+    expect(list.rows[0].badges.some((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toBe(false);
+    expect(detail.badges.some((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toBe(false);
+  });
   it('без year отдаёт все годы', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rows/УЭР?limit=100' });
     const body = res.json<{ rows: Array<{ planYear: number }> }>();

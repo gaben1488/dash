@@ -173,18 +173,6 @@ const ISSUES = [
 ];
 
 describe('сбор дефектов и счёт из данных', () => {
-  it('СТРАЖ: сохранённые ложные замечания строк 1–3 не попадают в счёт', () => {
-    const headerIssues = [
-      { ...ISSUES[0], id: 'header1', row: 1, cell: 'K1' },
-      { ...ISSUES[0], id: 'header2', row: 2, cell: 'AA2' },
-      { ...ISSUES[1], id: 'header3', row: 3, cell: 'Y3' },
-      { ...ISSUES[1], id: 'old-header-no-row', row: null, cell: 'O2' },
-    ];
-    const defects = collectFormulaDefects([...headerIssues, ...ISSUES]);
-    expect(defects.map((d) => d.id)).toEqual(['f1', 'f2']);
-    expect(countFormulaDefects(defects).total).toBe(2);
-  });
-
   it('чужие замечания отсеиваются, свои опознаются по идентификатору паспорта', () => {
     expect(isFormulaDefectIssue(ISSUES[0]!)).toBe(true);
     expect(isFormulaDefectIssue(ISSUES[2]!)).toBe(false);
@@ -220,6 +208,36 @@ describe('сбор дефектов и счёт из данных', () => {
     expect(index.get(formulaRowKey('uio', '34'))?.map((d) => d.cell)).toEqual(['K34']);
     // Номер строки листа ключом не является: сдвиг строк не орфанит дефект.
     expect(index.get(formulaRowKey('УО', '1894'))).toBeUndefined();
+  });
+
+  it('исторические формулы строк 1–3 не считаются нарушениями, но их происхождение сохраняется', () => {
+    const issues = [
+      { ...ISSUES[0], id: 'head1', row: 1, cell: 'K1', rowSeq: '1' },
+      { ...ISSUES[0], id: 'head2', row: 2, cell: 'AA2', rowSeq: '2' },
+      { ...ISSUES[0], id: 'head3', row: 3, cell: 'Y3', rowSeq: '3' },
+      { ...ISSUES[0], id: 'live4', row: 4, cell: 'K4', rowSeq: '1' },
+    ];
+    const defects = collectFormulaDefects(issues);
+    expect(defects.map((d) => d.id)).toEqual(['head1', 'head2', 'head3', 'live4']);
+    expect(defects.slice(0, 3).every((d) => d.inapplicableReason?.includes('шапки'))).toBe(true);
+    expect(countFormulaDefects(defects).total).toBe(1);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '1'))?.map((d) => d.id))
+      .toEqual(['live4']);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '2'))).toBeUndefined();
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '3'))).toBeUndefined();
+  });
+
+  it('историческое замечание шапки не прикрепляется к настоящей закупке №1', () => {
+    const defects = collectFormulaDefects([
+      { ...ISSUES[0], id: 'header', cell: 'AA1', row: 1, rowSeq: '1' },
+      { ...ISSUES[0], id: 'purchase', cell: 'AA4', row: 4, rowSeq: '1' },
+    ]);
+    expect(indexFormulaDefectsByRow(defects).get(formulaRowKey('УИО', '1'))?.map(d => d.id))
+      .toEqual(['purchase']);
+    // Исторический факт остаётся доступен в общем перечне для диагностики.
+    expect(defects.map(d => d.id)).toContain('header');
+    expect(countFormulaDefects(defects).total).toBe(1);
+    expect(defects[0].inapplicableReason).toContain('шапки');
   });
 });
 

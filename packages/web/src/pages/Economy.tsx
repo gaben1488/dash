@@ -9,7 +9,7 @@
 // ────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import type { DepartmentSummary } from '@aemr/shared';
+import { productLabel, type DepartmentSummary } from '@aemr/shared';
 import clsx from 'clsx';
 import { Activity, AlertTriangle, Building2, Download, Inbox, Layers, Loader2 } from 'lucide-react';
 import { useStore } from '../store';
@@ -35,6 +35,7 @@ import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { CHROME_BOX, Card, FOCUS_RING } from '../components/economy/primitives';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { PageHeader } from '../components/ui/page-header';
+import { RowAddress } from '../components/ui/data-table';
 import { EconomyHero } from '../components/economy/EconomyHero';
 import type { HeroMetric } from '../components/economy/EconomyHero';
 import { EconomyCharts } from '../components/economy/EconomyCharts';
@@ -218,7 +219,7 @@ export function EconomyPage() {
     if (orgScope.mode === 'district' || !singleDept) return null;
     return {
       mode: orgScope.mode,
-      deptLabel: singleDept.dept,
+      deptLabel: productLabel(singleDept.dept),
       hasSubs: orgScope.hasSubs,
       top: singleDept.subordinates
         .filter(s => s.name !== ORG_ITSELF)
@@ -256,6 +257,15 @@ export function EconomyPage() {
       .filter(i => i?.signal === ECONOMY_CONFLICT_SIGNAL),
     [fd.issues],
   );
+  // Presentation of the existing informational signal; no local financial/date inference.
+  const upcomingDecisions = useMemo(
+    () => (fd.issues ?? []).filter(i => i.severity === 'info' && !['resolved', 'false_positive', 'wont_fix'].includes(i.status ?? '') && (
+      i.signal === 'economyDecisionUpcoming' || i.checkId === 'future_economy_decision'
+      || i.category === 'signal:economyDecisionUpcoming'
+    )),
+    [fd.issues],
+  );
+
 
   // Режим подведов у карточки расхождений: строки-основания раскладываются по
   // учреждениям выбранного управления, организация без расхождений называется
@@ -263,7 +273,7 @@ export function EconomyPage() {
   const conflictSubScope: ConflictSubScope | null = useMemo(() => {
     if (!withSubsMode || !singleDept) return null;
     return {
-      deptLabel: singleDept.dept,
+      deptLabel: productLabel(singleDept.dept),
       hasSubs: orgScope.hasSubs,
       orgs: orgScope.subordinates.map(g => ({ key: g.key, label: g.label })),
     };
@@ -501,6 +511,48 @@ export function EconomyPage() {
         subScope={conflictSubScope}
       />
 
+      {upcomingDecisions.length > 0 && (
+        <section aria-label="Подготовка итоговой проверки">
+          <Card className="p-3">
+            <h2 className="text-xs font-medium text-zinc-700 dark:text-zinc-300">К завершению контрактов</h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+              К дате последнего контракта проверить итог и решение по экономии; ГРБС/УФ подготовить варианты
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Подготовка вариантов по выбранному чтению. Итоговую сверку и согласование выполнить после завершения позиции.
+            </p>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Открытые позиции выбранного чтения. Учитываются управление, учреждение, направление и поиск; период, способ закупки и бюджет этот список не ограничивают.
+            </p>
+            <ul className="mt-2 max-h-44 space-y-2 overflow-y-auto">
+              {upcomingDecisions.map((issue, index) => {
+                const dept = typeof issue.departmentId === 'string' ? issue.departmentId.trim() : '';
+                const seq = typeof issue.rowSeq === 'string' ? issue.rowSeq.trim() : '';
+                const row = typeof issue.row === 'number' && Number.isInteger(issue.row) && issue.row > 0 ? issue.row : null;
+                return (
+                  <li key={issue.id ?? index} className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    <p>{dept ? productLabel(dept) : 'Управление не определено'} · {issue.title || 'Итог позиции требует сверки'}</p>
+                    {seq && row !== null
+                      ? <RowAddress sheet={issue.sheet} row={row} seq={seq} />
+                      : <span className="block text-[10px] text-zinc-500">
+                        {row !== null ? `${issue.sheet ? `${issue.sheet} · ` : ''}строка ${row} · № п/п не сохранён`
+                          : seq ? `№ п/п ${seq} · физический адрес не сохранён` : 'Адрес строки не сохранён'}
+                      </span>}
+                    <button
+                      type="button"
+                      className={clsx(FOCUS_RING, 'mt-0.5 block text-[10px] text-blue-600 dark:text-blue-400 disabled:opacity-50')}
+                      disabled={!dept || !seq}
+                      aria-label={`Найти ${seq ? `№ ${seq}` : 'строку'} в реестре`}
+                      onClick={() => navigateTo('data', { department: dept, search: seq })}
+                    >Найти строку в реестре</button>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </section>
+      )}
+
       {/* ═══ Сводка одним предложением ═══ */}
       <div className="flex items-center gap-2 px-1 animate-[fadeIn_500ms_ease-out_200ms_both]">
         <Activity size={10} className="text-emerald-500/60 shrink-0" aria-hidden="true" />
@@ -575,8 +627,8 @@ export function EconomyPage() {
                   а не «управления» во множественном числе. */}
               {singleDept
                 ? (totals.share !== null
-                  ? `${singleDept.dept}: сэкономлено ${formatPct(totals.share)} лимита`
-                  : `Экономия ${singleDept.dept} (лимиты не заданы)`)
+                  ? `${productLabel(singleDept.dept)}: сэкономлено ${formatPct(totals.share)} лимита`
+                  : `Экономия ${productLabel(singleDept.dept)} (лимиты не заданы)`)
                 : (totals.share !== null
                   ? `Управления сэкономили ${formatPct(totals.share)} своих лимитов`
                   : 'Экономия по управлениям (лимиты не заданы)')}
@@ -662,10 +714,7 @@ export function EconomyPage() {
         </div>
       </Card>
 
-      {/* ── МАКЕТ «Распоряжение экономией» (канон п.101д, вопрос 72):
-            владелец решает по скриншоту, на какие статусы распадается
-            свободная экономия. Числа иллюстративные из констант компонента —
-            к данным книг блок не подключён до решения владельца. ── */}
+      {/* Пять согласованных состояний. Демонстрационные суммы; финансовая запись не подключена. */}
       <EconomyDisposalMock formatMoney={formatMoney} />
     </div>
   );

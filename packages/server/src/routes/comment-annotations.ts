@@ -47,7 +47,7 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
    */
   app.get('/api/annotations/comments', async (_request, reply) => {
     const reading = await readDeptRows();
-    if (Object.keys(reading.rowsByDept).length === 0) {
+    if (Object.keys(reading.rowsByDept).length === 0 || !reading.asOf) {
       return reply.status(503).send({
         error: 'ServiceUnavailable',
         message:
@@ -110,6 +110,7 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
       asOf: reading.asOf,
       /** 'live' — живой кэш книг; 'snapshot' — последний сохранённый снимок. */
       source: reading.source,
+      coverage: reading.coverage,
       monitoring: { readAt: procedures.length ? monitoring.readAt : null, available: !!monitoring.sheets['Рабочий реестр процедур'], failed: monitoring.failed },
       /** Сколько счётных строк реально просканировано (честность пустоты). */
       rowsScanned,

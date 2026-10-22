@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSvodGrid, SVOD_GRID_COLS } from './svod-grid';
+import { parseSvodExtras, parseSvodGrid, SVOD_GRID_COLS } from './svod-grid';
 
 /**
  * Ре-реверс СВОД ТД-ПМ (16.07): лист содержит ВСЕ 4 квартала × 2 года + итоги
@@ -102,4 +102,25 @@ describe('parseSvodGrid — структурный ридер СВОД ТД-ПМ
     expect(SVOD_GRID_COLS.factTotal).toBe(14);
     expect(SVOD_GRID_COLS.economyTotal).toBe(20);
   });
+});
+
+
+it('reads the live R30:U32 forecast, A30:E32 shares and K1:O2 base', () => {
+  const values: unknown[][] = Array.from({ length: 32 }, () => []);
+  values[0] = [];
+  values[0][10] = 'План минус Факт разбивка';
+  values[1][10] = 'Остаток к заключ.';
+  [7307.651420000009, 102783.56755600002, 75257.4813000001, 185348.7002760002].forEach((v, i) => { values[1][11 + i] = v; });
+  values[2][0] = 'ВСЕ';
+  values[29][17] = 'Прогноз экономии по остатку ЭА (8%)';
+  values[30] = ['Доля ЭА', '', '', 0.5756534630060552, 0.6218086953160634];
+  ['ФБ', 'КБ', 'МБ', 'Расч. экономия (суммарная)'].forEach((v, i) => { values[30][17 + i] = v; });
+  values[31] = ['Доля ЕП:', '', '', 0.4243465369939447, 0.37819130468393664];
+  [584.6121136000007, 8222.685404480002, 6020.598504000008, 14827.896022080016].forEach((v, i) => { values[31][17 + i] = v; });
+  const result = parseSvodExtras(values);
+  const district = result.scopes.find(s => s.scope === 'ВСЕ')!;
+  expect(district.calcEconomy).toMatchObject({ total: 14827.896022080016, row: 32, cell: 'U32' });
+  expect(district.shareCompetitive?.fact).toBe(0.5756534630060552);
+  expect(district.shareEp?.plan).toBe(0.37819130468393664);
+  expect(result.remainderToConclude?.total).toBe(185348.7002760002);
 });

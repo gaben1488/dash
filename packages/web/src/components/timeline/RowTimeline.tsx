@@ -116,6 +116,11 @@ export function RowTimeline({ timeline }: { timeline: RowTimelineResponse }) {
 
   return (
     <div>
+      {timeline.coverage.identityWarning && (
+        <p className="mb-3 text-[11px] leading-relaxed text-[var(--data-warn)]">
+          {timeline.coverage.identityWarning}
+        </p>
+      )}
       {items.length === 0 ? (
         <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
           Изменений по строке не зафиксировано: во всех наблюдениях она одинакова,

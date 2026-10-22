@@ -23,7 +23,8 @@
  *   R..U = ЭКОНОМИЯ ФБ/КБ/МБ/ИТОГО. Расчёт ни у одной колонки не менялся.
  */
 
-import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import { DEPARTMENT_REGISTRY, findDept } from './department-registry.js';
+import { parseSheetNumber } from './editable-amount.js';
 import { SVOD_SWITCH_VALUES, type SvodSwitchValue } from './svod-sheet-names.js';
 
 /** 0-based индексы колонок строки-периода. */
@@ -101,14 +102,11 @@ export interface SvodGridBlock {
 const pctOrNull = (v: unknown): number | null => {
   const s = String(v ?? '').trim();
   if (s === '' || s === '-' || s.startsWith('#')) return null;
-  return num(v);
+  return parseSheetNumber(v);
 };
 
 const num = (v: unknown): number => {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  if (v === null || v === undefined || v === '') return 0;
-  const parsed = Number.parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(v) ?? 0;
 };
 
 const C = SVOD_GRID_COLS;
@@ -139,7 +137,7 @@ function readMetrics(row: unknown[]): SvodGridTotal {
 
 /** Скоупы блоков: «ВСЕ» + короткие имена ГРБС из реестра. */
 function knownScopes(): Set<string> {
-  return new Set(['ВСЕ', ...DEPARTMENT_REGISTRY.map(d => d.shortName)]);
+  return new Set(['ВСЕ', ...DEPARTMENT_REGISTRY.flatMap(d => [d.id, d.shortName])]);
 }
 
 // ── Итоговый ярус листа: то, что лист считает САМ, помимо блоков ──────
@@ -153,7 +151,7 @@ function knownScopes(): Set<string> {
 //   • «Доля ЭА…» / «Доля ЕП:» и рядом «Расч. экономия» ФБ/КБ/МБ/ИТОГО —
 //     та самая расчётная экономия остатка из ручного отчёта.
 //
-// СТАТУС «Расч. экономии» на 18.08.2026 (сверка с дампом живой книги): владелец
+// Historical 18.08.2026 layout note (superseded for current R30:U32): владелец
 // УДАЛИЛ её с листа СВОД вместе с «расчётной экономией без УИО» — ни одной
 // ячейки в строках долей больше нет, поэтому calcEconomy у листа СВОД теперь
 // всегда undefined. Чтение оставлено: те же колонки живут на листе ШДЮ
@@ -307,7 +305,19 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
   for (let i = 0; i < values.length; i++) {
     const row = values[i] ?? [];
     const a = String(row[C.scope] ?? '').trim();
-    if (a && scopes.has(a)) lastScope = a;
+    if (a && scopes.has(a)) lastScope = findDept(a)?.id ?? a;
+    // Current table: heading R30, budget labels R31:U31, values R32:U32.
+    // Header-based, with zero retained; older M:P snapshots still parse below.
+    if (/^прогноз экономии по остатку/i.test(String(row[17] ?? '').trim())) {
+      const labels = values[i + 1] ?? [];
+      const amounts = values[i + 2] ?? [];
+      if (String(labels[17]).trim() === 'ФБ' && String(labels[18]).trim() === 'КБ'
+          && String(labels[19]).trim() === 'МБ' && amounts[20] !== undefined && amounts[20] !== '') {
+        ensure(lastScope || 'ВСЕ').calcEconomy = { fb: num(amounts[17]), kb: num(amounts[18]),
+          mb: num(amounts[19]), total: num(amounts[20]), row: i + 3, cell: `U${i + 3}` };
+      }
+    }
+
 
     // «ИТОГО 2025+2026:» / «ИТОГО 2026:» — заглавными, с двоеточием.
     const upper = a.toUpperCase();
@@ -322,14 +332,15 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
     // «Доля ЭА…» / «Доля ЕП:» — подпись в D, доли в G/H; у района рядом
     // в M/N/O/P стоит «Расч. экономия».
     const d = String(row[C.planCount] ?? '').trim();
-    if (lastScope && d.toLowerCase().startsWith('доля')) {
+    const shareLabel = a.toLowerCase().startsWith('доля') ? a : d;
+    if (lastScope && shareLabel.toLowerCase().startsWith('доля')) {
       const s = ensure(lastScope);
       const share = {
-        fact: pctOrNull(row[EXTRA_COLS.shareFact]),
-        plan: pctOrNull(row[EXTRA_COLS.sharePlan]),
+        fact: pctOrNull(row[a.toLowerCase().startsWith('доля') ? 3 : EXTRA_COLS.shareFact]),
+        plan: pctOrNull(row[a.toLowerCase().startsWith('доля') ? 4 : EXTRA_COLS.sharePlan]),
         row: i + 1,
       };
-      if (/ЕП/i.test(d)) s.shareEp = share;
+      if (/ЕП/i.test(shareLabel)) s.shareEp = share;
       else s.shareCompetitive = share;
 
       const ecoTotal = num(row[EXTRA_COLS.calcEconomyTotal]);
@@ -378,7 +389,7 @@ export function parseSvodGrid(values: unknown[][]): SvodGridBlock[] {
 
     // Старт блока: A = известный скоуп И это период-строка.
     if (a && scopes.has(a) && isPeriodRow) {
-      block = { scope: a, method: currentMethod, startRow: i + 1, periods: [] };
+      block = { scope: findDept(a)?.id ?? a, method: currentMethod, startRow: i + 1, periods: [] };
       blocks.push(block);
     }
 

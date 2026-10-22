@@ -1,6 +1,7 @@
 import type { BudgetPlanFactFn } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
+import { ALL_ACTIVITY_KEYS, recalcTotalsByActivity, activityPeriodKeys } from './activity-aggregation';
 
 /**
  * Данные бар-чарта исполнения per-департамент (план/факт/%, КП/ЕП, счётное
@@ -27,7 +28,7 @@ export function buildBarData(depts: any[], opts: {
 }): any[] {
   const {
     budgetPlanFact, isBudgetFiltered, isActivityFiltered, actKeys,
-    useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
+    useMonthLevel, activeMonths, periodKey,
     showKP, showEP, resolution, hasMonthData,
   } = opts;
 
@@ -37,14 +38,48 @@ export function buildBarData(depts: any[], opts: {
     // это различие держал с самого начала, денежный процент — нет
     // (реестр расхождений §2 «Ноль вместо „нет базы“»).
     let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
-    let execCountPct: number | null = null;
+    let execCountPct: number | null;
 
     // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
     // Баг #4 реестра охоты 08.08: раньше ветвь брала годовые значения узла и
     // суммировала все 4 квартала независимо от выбранного периода — бар
     // управления показывал год под заголовком квартала. aggregateNodeTotals
     // сам разбирает _subFiltered-узел периодной ветвью (см. totals-aggregation).
-    if (d._subFiltered) {
+    if (isActivityFiltered || showKP !== showEP) {
+      // A method-only filter needs the SAME source-row cross-index as an
+      // activity+method filter. Otherwise the bar keeps all money while
+      // its method counter is filtered (false execution percentages).
+      const a = recalcTotalsByActivity([d], {
+        actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
+        periodKeys: activityPeriodKeys(resolution, hasMonthData),
+        budgetPlanFact, showKP, showEP,
+      });
+      if (!a.complete) {
+        // Legacy snapshots cannot prove the method × budget × subordinate
+        // split: suppress monetary figures instead of showing a false total.
+        const known = aggregateNodeTotals(d, resolution, {
+          showKP, showEP, activeMonths, hasMonthData,
+        });
+        return {
+          name: d.department?.nameShort ?? d.department?.id ?? '?',
+          nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
+          id: d.department?.id,
+          pct: null,
+          planTotal: null,
+          factTotal: null,
+          kpCount: d._subFiltered ? null : showKP ? known.kp : 0,
+          epCount: d._subFiltered ? null : showEP ? known.ep : 0,
+          execCountPct: null,
+          scopeComplete: false,
+        };
+      }
+      plan = a.totalPlan;
+      fact = a.totalFact;
+      kp = a.totalKP;
+      ep = a.totalEP;
+      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+      execCountPct = a.planCount > 0 ? +((a.factCount / a.planCount) * 100).toFixed(1) : null;
+    } else if (d._subFiltered) {
       const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
       kp = n.kp;
       ep = n.ep;
@@ -54,27 +89,6 @@ export function buildBarData(depts: any[], opts: {
       plan = bf.plan; fact = bf.fact;
       pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? null);
       execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
-    } else if (isActivityFiltered) {
-      // Use byActivity breakdown for activity-filtered bar data
-      const ba = d.byActivity ?? {};
-      const periodKeys = hasActiveMonths && coveredQuarters.length > 0
-        ? coveredQuarters
-        : [periodKey];
-
-      for (const pk of periodKeys) {
-        const qAct = ba[pk];
-        if (!qAct) continue;
-        for (const ak of actKeys) {
-          const a = qAct[ak];
-          if (!a) continue;
-          // Apply budget filter when active; ActivityMetrics has planFB/factFB fields
-          const bf = budgetPlanFact(a);
-          plan += bf.plan;
-          fact += bf.fact;
-          kp += a.planCount ?? 0;
-        }
-      }
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
     } else if (useMonthLevel) {
       // Aggregate selected months for this department
       let dPC = 0, dFC = 0;

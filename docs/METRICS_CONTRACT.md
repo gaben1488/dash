@@ -1,10 +1,37 @@
 # Metrics Contract
 
-Last verified: 2026-06-05.
+Исходная сверка:2026-06-05. Уточнения18.10.2026 ниже относятся к проверенным
+трактам и целевому программному разрезу; это не повторная приёмка всех метрик.
 
 This document is the contract from Google Sheet cells to dashboard numbers. If code, UI labels, or docs disagree with this file, the metric is not production-ready.
 
+## Управленческие выводы — 21.10.2026
+
+Trust — диагностический индекс доступных проверок, не вероятность достоверности.
+Нет метрик и сопоставимых пар — `overall/grade = null`; нет сопоставимых пар —
+`mapping_consistency.score = null`. Среднее считается по доступным компонентам
+с положительным весом. Операционные замечания сохраняются отдельно с весом 0:
+точные сведения о просрочке не означают плохого качества данных. API и UI
+обязаны раскрывать непроверенную часть. Исторический снимок не переписывается;
+текущее представление применяет текущую методику к его сохранённым основаниям.
+
+Знак и размер разницы СВОД/расчёт не устанавливают виновника или поломку формул.
+Отсутствующий слой и дельта без пары — `null`, наблюдаемый ноль остаётся нулём.
+Процент без знаменателя — `null`. Доказанные первопричины сохраняются отдельно.
+Официальная экономия под AD-gate не является снижением НМЦК или измерением
+конкуренции: соответствующие антикор-индикаторы недоступны до получения
+подходящих сведений. Скрининговые флаги требуют проверки и не дают штрафа
+к дисциплине без подтверждённого нарушения. Денежная формула AD не изменяется.
+
 ## Rule
+
+`DashboardPeriodSummary.kpPercent/epPercent` are position-count execution
+fractions (`fact_count / count`, 1 = 100%) in every quarter and filtered view.
+They are not monetary execution percentages. Q2–Q4 read the core's materialized
+`competitive/sole.{quarter}.percent` instead of recalculating in the API.
+No denominator yields null, including after filtering. Sparkline gaps stay null
+and cannot produce a trend against an unknown value. An acquired empty book can
+produce zero counts; absence of all acquired books produces no calculated total.
 
 - `amount_deviation` is `fact_total - plan_total` — the sign of the source
   sheet (`СВОД ТД-ПМ` column `P`), where under-execution is negative.
@@ -18,17 +45,85 @@ This document is the contract from Google Sheet cells to dashboard numbers. If c
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
 - Procurement method buckets use the shared classifier, not raw string equality.
 
+### Calculation day (21.10.2026)
+
+The snapshot instant determines one calendar day in Asia/Kamchatka (UTC+12).
+Pipeline metrics, the attached unified grid, row signals and economy-mark rules
+use that day, independently of the server/browser timezone. A future Q does not
+count as a concluded position or contribute approved economy; Q on that day
+does. Signed Z+AA+AB and AD gating are unchanged. Reusing an unchanged snapshot
+preserves its original instant; opening a page does not move its calculation day.
+
+### Filtered money and counts (20.10.2026)
+
+Department and subordinate money, budget components and approved economy use
+the same selected activity × procurement method × period source partition.
+Execution percentages divide selected sums, not unfiltered annual sums.
+A budget selection narrows amounts without changing position counts.
+The existing global plan/fact position-count KPI remains across both methods
+under a method-only selection; an activity selection also narrows these counts.
+Method counters themselves always describe the selected methods.
+Missing historical method-economy fields remain unknown, not fabricated zero.
+The candidate uses the existing row cross-index; full legacy scope disclosure
+and validation of every metric remain tracked in PLAN.
+
+## Source value boundary (18.10.2026)
+
+`parseEditableAmount` / `parseSheetNumber` is the common strict numeric parser.
+It consumes the whole finite value: `1 234,56` and negative amounts are valid;
+`123abc`, `Infinity`, booleans and malformed grouping (`1 23`) are invalid.
+Missing input remains null at this boundary. Legacy optional budget components
+may explicitly use zero after parsing; that is not proof that a required cell
+was read successfully. Currency normalization stores thousands of rubles;
+source and display units are declared and converted independently. Exact
+minor-unit/decimal aggregation is separate work (C08.19).
+
+Percentages use declared `fraction` or `points` encoding, never a magnitude
+heuristic. Google UNFORMATTED_VALUE percentages are fractions; a literal `%`
+is explicit points. `1.5` as a fraction is 150%, `1.5` as points is 1.5%.
+Calendar dates require a real full day, or a supported Sheets serial. A bare
+`2026` or `31.02.2026` does not establish a plan/fact date or period.
+TS/Python boundary examples share `packages/shared/fixtures/source-value-cases.json`.
+
 ## Source Column Map
+
+### Financial meaning and observation grain (18.10.2026)
+
+Column K is the recorded plan amount and Y the recorded fact amount. Their
+financial meaning must be established by the source profile and evidence;
+the column letter or planning stage does not establish LBO, NMCK or a unique
+contract price. The scatter response declares `plan_K_vs_recorded_fact_Y`.
+Legacy names `limitTotal`, `contractTotal`, `limitReductionPercent` and the
+older basis remain readable for compatibility, without granting those meanings.
+Its ratio is descriptive `1 − ΣY/ΣK` over eligible plan positions. It does not
+establish price reduction at auction, approved economy or an anti-dumping case.
+
+LBO/appropriations, procurement financing by year, justified initial price,
+contract price and amendments, accepted performance, monetary obligations and
+payments are separate facts with their own entity, period, evidence and units.
+Do not add NMCK and contract price as independent expenditure, or call the
+unpaid contract amount free funds. A plan position, supplier-selection attempt,
+contract, acceptance and payment have different counting grains. Several item
+names do not prove several lots; electronic form does not prove competition.
+The source's applicable regime determines official plan and contract terminology.
+
+The ordinary price ≤ initial price ≤ financing relationship is not a universal
+validation rule: comparable scope, units, years, price version and known quantity
+must be established; multiannual and uncertain-quantity cases need their own
+profile. AD approval remains a separate recorded decision and does not prove
+the economic cause of the difference. These domain profiles are planned under
+C02.03/C04.05/C08.19; this update corrects the scatter's declared interpretation,
+without inventing new financial facts or modifying source workbooks.
 
 Production row-level calculations use department workbooks. The same layout is mirrored in the department tabs of `СВОД_ДЛЯ_GOOGLE`.
 
 | File | Sheet | Column | Semantic field | Ingest mapping | Core metric key | API DTO | UI label |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Row number / source ID | `DEPT_COLUMNS.ID` | row identity | `rows[].rowIndex` | `№` |
+| Department workbook | `УЭР`, `УИО`, `УАГЗО`, `УФБП`, `УДТХ`, or `ВСЕ` for aggregated subordinate books | `A` | Source position label (text, not physical row) | `DEPT_COLUMNS.ID` | source alias | `rows[].id` | `№` |
 | Department workbook | same | `C` | Subordinate organization | `DEPT_COLUMNS.SUBORDINATE` | dimension `subordinate` | `departmentSummaries[].subordinates` | Organization drilldown |
-| Department workbook | same | `D` | Description / PM name | `DEPT_COLUMNS.DESCRIPTION` | row context | `rows[].description` | Subject/detail |
-| Department workbook | same | `E` | Program name | `DEPT_COLUMNS.PROGRAM_NAME` | activity classifier input | `byActivity.*` | Activity filter |
-| Department workbook | same | `F` | Activity type | `DEPT_COLUMNS.TYPE` | activity classifier input | `byActivity.*` | `ПМ`, `ТД-ПМ`, `ТД` |
+| Department workbook | same | `D` | Название программы / исходное отнесение | `DEPT_COLUMNS.PROGRAM_NAME` | самостоятельный программный разрез ещё не подключён | `RowDto.programName` | Программный контекст |
+| Department workbook | same | `E` | Исходное описание подпрограммы/мероприятия; уровень требует проверки | `DEPT_COLUMNS.SUBPROGRAM` | будущий программный разрез, не `byActivity` | отдельное поле в `RowDto` пока отсутствует | Будущий состав программы |
+| Department workbook | same | `F` | Вид деятельности | `DEPT_COLUMNS.TYPE` + `classifyActivity` | `byActivity.*` | `RowDto.type` и общая ось активности | `ПМ`, `ТД`; все — без ограничения |
 | Department workbook | same | `G` | Procurement subject | `DEPT_COLUMNS.SUBJECT` | row context/signals | `rows[].subject` | Subject |
 | Department workbook | same | `H/I/J/K` | Plan budget: FB/KB/MB/total | `FB_PLAN`, `KB_PLAN`, `MB_PLAN`, `TOTAL_PLAN` | `plan_fb`, `plan_kb`, `plan_mb`, `plan_total` | `planFB`, `planKB`, `planMB`, `planTotal` | `План`, budget slices |
 | Department workbook | same | `L` | Procurement method | `DEPT_COLUMNS.METHOD` + `classifyMethodGroup` | `competitive_count`, `ep_count`, method totals | `competitiveCount`, `soleCount`, `kpCount`, `epCount` | `КП`, `ЕП` |
@@ -37,7 +132,9 @@ Production row-level calculations use department workbooks. The same layout is m
 | Department workbook | same | `V/W/X/Y` | Fact budget: FB/KB/MB/total | `FB_FACT`, `KB_FACT`, `MB_FACT`, `TOTAL_FACT` | `fact_fb`, `fact_kb`, `fact_mb`, `fact_total` | `factFB`, `factKB`, `factMB`, `factTotal` | `Факт`, budget slices |
 | Department workbook | same | `Z/AA/AB/AC` | Approved economy: FB/KB/MB/total | `ECONOMY_FB`, `ECONOMY_KB`, `ECONOMY_MB`, `ECONOMY_TOTAL` | `economy_fb`, `economy_kb`, `economy_mb`, `economy_total` | `economyFB`, `economyKB`, `economyMB`, `economyTotal` | `Экономия` |
 | Department workbook | same | `AD` | Economy approval flag | `DEPT_COLUMNS.FLAG` | gate for economy metrics | included in calculated metrics | Economy gate |
-| `СВОД_ДЛЯ_GOOGLE` | `СВОД ТД-ПМ` | `D/E/F/G/H:U` by configured rows | Official summary cells | `REPORT_MAP` | official metrics and fallback | `kpiCards`, `summaryByPeriod` | Svod/Reconciliation |
+| `СВОД_ДЛЯ_GOOGLE` | `СВОД ТД-ПМ` | `D/E/F/G/H:U` by configured rows | Official summary cells | `REPORT_MAP` | independent comparison; never fallback for missing master rows | `kpiCards`, `officialMetrics`, reconciliation (not the calculated `summaryByPeriod`) | Svod/Reconciliation |
+
+**C04.01, единый вход новой версии.** `summaryByPeriod` (`q1`–`q4`, `year`) и `departmentSummaries` в `/api/dashboard` используют только `snapshot.calculatedMetrics` из принятых книг ГРБС. Генератор получает те же значения исходных master через запечатанный `source_revision` и строит Word от своего неизменяемого `report_model`. Официальный лист `СВОД` остаётся **отдельным наблюдением** для `officialMetrics`, KPI и сверки; он не подставляется в пустые вычисленные поля, особенно для другого года. Отсутствующий расчёт не превращается в ноль, в официальный показатель или в успешную приёмку; два движка продолжают проверяться независимым frozen-паритетом C04.01.
 
 ## Key Metrics
 
@@ -69,21 +166,51 @@ Production row-level calculations use department workbooks. The same layout is m
 | `ЕП`, `еп`, `Ед. поставщик`, `ЭЕП`, `ЕП (ст.93)` | `ep` |
 | `ЭА`, `ЭК`, `ЭЗК` and aliases normalized by `normalizeMethod` | `competitive` |
 | empty method | `competitive`, for legacy compatibility with the official `L<>"ЕП"` SVOD formulas |
-| unknown non-empty method | no method bucket; the row still contributes to all-row plan/fact metrics if it passes row classification |
+| unknown non-empty method | `competitive` only for the official non-EP SVOD partition; not proof of a competitive procedure |
 
-Unknown non-empty methods must surface through validation/data quality, not be silently counted as competitive.
+Unknown methods must surface through validation/data quality. Procedure-specific analytics must distinguish a known competitive method from the official non-EP partition. Физическая строка хранится отдельно от текстового номера A. Прежняя формулировка
+«ТД-ПМ определяется по D» устарела: D/E — программная принадлежность, F — вид
+деятельности; заполненная D не исключает ТД из её состава.
 
 ## Activity Classification
 
-UI filters use internal keys, not Russian labels:
+Действующее правило канона п.30 от14.08.2026, повторно подтверждённое
+владельцем18.10: `matchesActivityScope` и `classifyActivity` используют F.
+D/E не делят текущую деятельность на отдельные пользовательские категории.
 
-| UI label | Internal key | Source values |
-| --- | --- | --- |
-| `ПМ` | `program` | `ПМ`, `Программное мероприятие` |
-| `ТД-ПМ` | `current_program` | current activity with a program context |
-| `ТД` | `current_non_program` | `ТД`, `Текущая деятельность` without program context |
+| Отбор | Ключ оси | Источник и результат |
+|---|---|---|
+| Все | `all` | Ограничение F не применяется; неизвестные значения остаются видимыми |
+| ПМ | `pm` | Распознанное «Программное мероприятие»; ключ движка `program` |
+| ТД | `td` | Распознанная «Текущая деятельность», включая заполненную D; ключ движка `current_non_program` |
 
-Navigation filters must synchronize both legacy single-value fields and the Set-based filters used by `useFilteredData`.
+`current_program`, «ТД-ПМ» и «ТД чистая» сохранены для чтения старых ссылок/
+снимков и нормализуются в ТД. Новый классификатор их не выдаёт. Нераспознанная
+F возвращает null, не зачисляется в ПМ или ТД по догадке. Прежняя таблица
+трёх категорий была описанием старой модели, а не текущим правилом интерфейса.
+Навигация синхронизирует legacy поля и Set-отборы `useFilteredData`.
+
+## Limit comparison and refusal scenario (C04.03, 18.10.2026)
+
+`GET /api/rows/scatter` returns `basis=plan_K_vs_recorded_fact_Y` and
+`unit=thousand_rubles`. Each point has `limitReductionPercent = 100×(1−Y/K)`;
+`approvedEconomy` separately uses the core AD-gated signed Z+AA+AB definition.
+K is not NMCK. Point ranges are descriptive, not an anti-dumping or savings
+alarm. Known competitive methods come from `normalizeMethod`; unknown methods
+are counted explicitly and cannot enter a competitive-only sample.
+
+Both N and Q must be real dates, Q must have arrived in Asia/Kamchatka, and K/Y
+must be complete finite positive numbers. Year/month/quarter derive from N;
+contradictory O/P cannot reassign the point. Departments, institutions, the
+canonical TD/PM activity scope, search and department-only mode narrow rows.
+The maximum 2500 displayed points does not truncate the aggregate: summary is
+weighted `100×(1−ΣY/ΣK)` over all eligible rows, with exclusions and source coverage.
+
+The existing refusal-cost card uses that same selected comparison as a
+**conditional scenario** `EP plan × limit reduction`, explicitly without a
+causal claim or NMCK substitution. A partial source perimeter does not yield
+an overall estimate. Actual tender reduction uses the monitoring registry's
+separate NMCK/auction-price contract; official economy uses AD/Z/AA/AB.
 
 ## Worked Example
 
@@ -128,3 +255,87 @@ legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
 - API DTO assembly: `packages/server/src/routes/dashboard.ts`
 - Web filtering: `packages/web/src/hooks/useFilteredData.ts`
 - Economy helper: `packages/web/src/lib/economy-metrics.ts`
+
+
+## Эксплуатационные наблюдения генератора — 16.10.2026
+
+Единый объект `operations` уже формируется `report_health.py` и передаётся
+в `/report-releases` для обычного и выбранного выпуска. Типизированный
+`ReportOperationsSchema` сохраняет его на обеих границах. Расширение совместимо
+с прежним ответом без `operations`; отсутствие текущих сведений явно диагностируется,
+не заменяется нулями. Это сведения о процессе, не показатели качества сотрудников.
+
+| Ключ каталога METRIC_KB | Определение и единицы | Основание и ограничения |
+|---|---|---|
+| `api_read_available` | Пригодный ответ последней проверки API; бинарное наблюдение | HTTP и проверка контракта в существующем `useReportExport`; это не uptime за период и не доказательство работы worker |
+| `report_check_age_seconds` | checked_at минус last_success_at, секунды | Успешная попытка генератора, в том числе ручная и reused; не возраст Word-среза |
+| `worker_cycle_duration_seconds` | finished_at минус started_at последней завершённой попытки, секунды | Успех или отказ, включая ручной запуск; не интервал расписания. Текущая длительность передаётся отдельно |
+| `worker_last_failure` | Время и безопасный код последнего записанного отказа | Успех не стирает отказ; failure_resolved означает последующую успешную проверку, не закрытие бизнес-дела |
+
+Источники — сохранённые времена попыток и `report-health.json`. Автономность
+и host FLOCK доказываются отдельной эксплуатационной приёмкой: этот индекс
+сам по себе не атрибутирует таймер. `check_stale` вычисляет генератор; UI не
+дублирует порог. Значения `null` сохраняются как отсутствие наблюдения, не ноль.
+Время `checked_at` не является временем правки Google и не обновляется при
+подготовке архивного Word. Ответ prepare без `operations` сохраняет только
+предыдущие same-context сведения GET с исходным checked_at. Смена контекста
+очищает их; ошибка чтения оставляет прежние сведения с явной отметкой.
+Отказ POST подготовки архива виден вместо бесконечного «собираем» и не
+переименовывает предшествовавший успешный GET в недоступность API.
+
+Один React-компонент `ReportOperationsStatus` использует существующий опрос;
+дополнительного GET, генерации, SQL-схемы и самостоятельного расчётного контура
+нет. Его локальные учебные browser-сценарии не являются production-приёмкой.
+
+
+<a id="program-metrics-20261018"></a>
+
+<a id="programs-metrics"></a>
+
+## Закупочная часть программ — целевой контракт18.10.2026
+
+Это определения для существующих C02.03/C03.01/C05.01/C08.06 и концепции
+[«Программы»](../DESIGN.md#programs-concept-20261018). Они ещё не объявлены
+исполняемыми метриками приложения. Учебный HTML показывает взаимодействие;
+его массивы и функции не становятся вторым финансовым ядром.
+
+Единица основного состава — плановая позиция с установленной идентичностью,
+источником, программной принадлежностью и плановым годом/неизвестным годом.
+Запись источника, потребность, попытка процедуры, договор и платёж различны.
+Программа/редакция и подпрограмма имеют собственные ключи; одинаковый текст
+в разных программах не объединяет их. Неоднозначные D/E сохраняют raw-основание
+и отдельную группу до подтверждённого соответствия. Самый крупный заказчик
+не назначается координатором. Роли из паспорта не выводятся из B/C.
+
+| Показатель | Состав и формула | Источник, ограничения и переход |
+|---|---|---|
+| Плановые позиции | Число уникальных позиций полного активного отбора | D/E и identity общего выпуска; не число строк на странице, процедур или договоров. Открывает тот же набор позиций. |
+| Суммы по планам | Сумма известных сопоставимых K; при выборе бюджета — соответствующие H/I/J по общему денежному правилу | Экономическая роль, единицы и год обязательны; неизвестные обязательные деньги не становятся0. Раскрываются включённые/исключённые позиции и покрытие. Не полный бюджет программы. |
+| Процедуры в работе | Число уникальных подтверждённо связанных попыток в объявленных активных состояниях | Из реестра процедур и доказанных связей; код или похожий предмет сами по себе не устанавливают связь. Счётчик открывает именно эти попытки. |
+| Договоры | Число уникальных подтверждённых договоров выбранного состава | Собственные идентификаторы/события договора. Q плановой строки не является идентификатором договора. При отсутствии такого источника допустима иная метрика «Позиции со сведениями о договоре» со своим grain и покрытием. |
+| Отнесённая стоимость договоров | Сумма подтверждённых распределений на выбранные позиции/программы/год | Полная цена общего договора не копируется в каждую программу. Нераспределённая часть видна; сумма частичных счётчиков договоров может пересекаться, общий счётчик — по объединению ID. |
+| Требуют внимания | Число уникальных позиций с применимыми действующими деловыми вопросами общего каталога сигналов | У причины есть доказательство, адресат, действие и проверка результата; несколько причин одной позиции не умножают счётчик. Транспортная ошибка — технический инцидент, не нарушение ГРБС. |
+| AD-экономия | Существующий `economy_total` в том же программном/календарном отборе и с его действующими gates | Signed Z+AA+AB при подтверждённом AD, не K−Y. Перераспределение не создаёт второй результат; основания открываются в общем досье. |
+
+Канонический расчёт возвращает значение **вместе с его составом** и паспортом:
+объект/формула/единицы, числитель/знаменатель (где применимы), as-of/период/
+календарная ось, источник/колонки/фактические времена чтений, rule/mapping/version,
+применённые/неприменимые оси, исключения/покрытие, основание порога и действие.
+Программный фильтр добавляется в общий selector, DTO, URL и выгрузку; фронт
+не пересчитывает официальный итог по загруженной странице строк. Периметр
+показателя, расшифровки, процедуры, карточки и документа согласован.
+
+Период N, управления B, организации C/«только управление», L, F и бюджеты
+сужают соответствующие данные одинаково; неприменимость называется явно.
+Плановая когорта и окно событий календаря раздельны. Неизвестная N не даёт
+дату/год по догадке и не становится просрочкой. Наличие Q не доказывает
+приёмку, оплату или исполнение всей программы. Для первоначального календаря
+сохраняется исходная дата, для текущей работы — согласованная; перенос не
+улучшает прежнюю когорту задним числом.
+
+Сравнение двух выпусков сохраняет обе точки и совместимость. Изменения D/E,
+состава знаменателя, сумм и новые результаты объясняются раздельно; неполное
+предыдущее чтение не создаёт исчезновение. Достоверный0, отсутствие данных,
+непрочитанная книга, отбор в0, неподключённый дополнительный источник и
+недоступное сравнение имеют разные состояния. Каждая производная метрика
+включается в исполняемый каталог с отрицательными проверками до её внедрения.

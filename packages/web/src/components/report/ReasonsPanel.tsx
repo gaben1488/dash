@@ -38,7 +38,7 @@ function ReasonRow({ b, total, kind }: { b: ReasonBucket; total: number; kind: '
             `${fmtCount(b.count)} из ${fmtCount(total)} строк (${share} %) — кластер «${b.label}».\n` +
             `Живой пример из листа: «${b.sample.slice(0, 200)}».` +
             (b.owner ? `\nУстраняет: ${b.owner}.` : '') +
-            (b.legitimate === false ? '\nПо 44-ФЗ прямым основанием не является — строка идёт в разбор.' : '')
+            (kind === 'ep' ? '\nКлассификация текста: применимость нормы и документы не проверены.' : '')
           }
         >
           <span className={unknown ? 'font-medium text-amber-700 dark:text-amber-400' : 'font-medium text-zinc-700 dark:text-zinc-200'}>
@@ -51,9 +51,7 @@ function ReasonRow({ b, total, kind }: { b: ReasonBucket; total: number; kind: '
             устраняет: {b.owner}
           </span>
         )}
-        {b.legitimate === false && (
-          <span className="text-[10px] text-amber-600 dark:text-amber-400">не основание по 44-ФЗ</span>
-        )}
+
       </div>
       {b.sample && (
         <div className="ml-3 text-[10px] italic text-zinc-400 dark:text-zinc-500">«{b.sample}»</div>
@@ -128,7 +126,7 @@ export function ReasonsPanel({ epReasons, deviations, year, quarter }: {
         title="Основания выбора единственного поставщика"
         buckets={epReasons}
         kind="ep"
-        note="колонка M листа, сведено справочником"
+        note="Столбец M: классификация пояснений, не правовая оценка"
         emptyNote={`Строк с единственным поставщиком за ${year} год в книге нет либо колонка M у них пуста — оснований, которые можно было бы свести, справочник не нашёл.`}
       />
       <Block

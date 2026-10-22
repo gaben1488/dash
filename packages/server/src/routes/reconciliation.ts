@@ -1,3 +1,4 @@
+import { parseSheetNumber } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
@@ -27,19 +28,14 @@ import {
 } from '../services/snapshot.js';
 import { getSheetDataWithFormulas } from '../services/google-sheets.js';
 import { SVOD_SPREADSHEET_ID } from '../config.js';
+import { parseYearFilterParam } from '../services/period-params.js';
 
 function parseTargetYear(query: Record<string, string | undefined>): number | undefined {
-  const raw = query.year;
-  if (!raw || raw === 'all') return undefined;
-  const year = Number.parseInt(raw, 10);
-  return Number.isInteger(year) && year >= 2020 && year <= 2100 ? year : undefined;
+  return parseYearFilterParam(query.year);
 }
 
 function n(value: unknown): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (value == null) return 0;
-  const parsed = Number.parseFloat(String(value).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseSheetNumber(value) ?? 0;
 }
 
 function metricValue(metrics: DataSnapshot['officialMetrics'] | DataSnapshot['calculatedMetrics'], key: string): number | undefined {
@@ -102,7 +98,7 @@ function buildDepartmentReconciliation(snapshot: DataSnapshot): ReconSummary {
  *
  * Дельта без объяснения — недоделанная сверка, поэтому по каждому ГРБС
  * прогоняются классификаторы по трём мерам сразу (план-деньги, факт-деньги,
- * количество процедур), а каскады схлопываются: одна причина, задевшая три
+ * утверждённая экономия), а каскады схлопываются: одна причина, задевшая три
  * показателя, показывается один раз со списком следствий.
  *
  * Строки-атомы берутся из снимка. Их нет (старый снимок до 24.07 либо демо) —
@@ -117,6 +113,10 @@ function attachRootCauses(summary: ReconSummary, snapshot: DataSnapshot): ReconS
     DEPARTMENTS.find((d) => d.nameShort === deptName)?.nameShort;
 
   const rows = summary.rows.map((row) => {
+    if (row.fullPlanOfficial === null || row.fullPlanCalculated === null
+      || row.fullFactOfficial === null || row.fullFactCalculated === null
+      || row.ecoTotalOfficial === null || row.ecoTotalCalculated === null
+      || row.planDelta === null || row.factDelta === null || row.ecoDelta === null) return row;
     const sheet = sheetOf(row.department) ?? row.department;
     const atoms = (rowsByDept[sheet] ?? rowsByDept[row.department]) as RawRow[] | undefined;
     if (!atoms || atoms.length === 0) return row;
@@ -128,10 +128,14 @@ function attachRootCauses(summary: ReconSummary, snapshot: DataSnapshot): ReconS
       { metric: `${sheet}.fact_total`, official: row.fullFactOfficial, computed: row.fullFactCalculated, delta: row.factDelta, rootCauses: [] },
       { metric: `${sheet}.economy_total`, official: row.ecoTotalOfficial, computed: row.ecoTotalCalculated, delta: row.ecoDelta, rootCauses: [] },
     ];
-    const measures: ReconMeasure[] = ['planMoney', 'factMoney', 'factMoney'];
+    const measures: ReconMeasure[] = ['planMoney', 'factMoney', 'economyMoney'];
 
     const explained = lines.map((line, i) =>
-      explainReconLine(line, { rows: atoms, sheet, measure: measures[i] }),
+      explainReconLine(line, { rows: atoms, sheet, measure: measures[i],
+        year: typeof snapshot.metadata?.targetYear === 'number' ? snapshot.metadata.targetYear : undefined,
+        // createdAt is a read timestamp, not proof of the CalcEngine cutoff.
+        // No authoritative asOfDay is persisted in this snapshot contract.
+      }),
     );
     const groups = groupCascades(linkCascades(explained));
     return groups.length > 0 ? { ...row, rootCauses: groups } : row;

@@ -109,14 +109,25 @@ describe('classifyRows — procurement detection', () => {
     expect(r.classificationConfidence).toBe(0.9);
   });
 
-  it('составной A=173/18 — идентификатор закупки, не денежное дробное число', () => {
-    const r = classifySingle(5, makeCells({ A: '173/18', G: 'Ремонт оборудования', L: 'ЭА', K: 100 }));
-    expect(r.classification).toBe('procurement');
+  it('classifies composite procurement label in A with amounts as procurement', () => {
+    const row = classifySingle(5, makeCells({
+      A: '173/18', C: 'Х', G: 'Ремонт оборудования', L: 'ЭА', K: 100,
+    }));
+    expect(row.classification).toBe('procurement');
   });
 
-  it('составной A=121/1 при пустых суммах остаётся закупкой без факта', () => {
-    const r = classifySingle(5, makeCells({ A: '121/1', C: 'Х', G: 'Поставка', L: 'ЕП' }));
-    expect(r.classification).toBe('procurement_derived');
+  it('classifies composite procurement label in A without amounts as procurement_derived', () => {
+    const row = classifySingle(5, makeCells({
+      A: '121/1', C: 'Х', G: 'Поставка материалов', L: 'ЕП',
+    }));
+    expect(row.classification).toBe('procurement_derived');
+  });
+
+  it('does not treat a malformed composite label as a valid procurement ID', () => {
+    const row = classifySingle(5, makeCells({
+      A: '173//18', C: 'Х', G: 'Поставка материалов', L: 'ЕП', K: 100,
+    }));
+    expect(row.classification).toBe('service');
   });
 
   it('classifies row with numeric ID in B and amounts as procurement', () => {
@@ -343,5 +354,17 @@ describe('classifyRows — edge cases', () => {
   it('classificationReasons is always a non-empty array for non-header early-exit', () => {
     const r = classifySingle(5, makeCells({ A: '1', H: 500000 }));
     expect(r.classificationReasons.length).toBeGreaterThan(0);
+  });
+});
+
+describe('composite procurement IDs in the integrated Dash classification', () => {
+  it('does not mistake 173/18 with small amounts and missing G/L for a header', () => {
+    const item = classifySingle(24, makeCells({ A: '173/18', H: 80, K: 80, G: '', L: '' }));
+    expect(item.classification).toBe('procurement');
+    expect(item.cells.A).toBe('173/18');
+  });
+  it('recognises composite ID alone as a procurement draft but preserves numeric legacy header heuristics', () => {
+    expect(classifySingle(25, makeCells({ A: '173/18' })).classification).toBe('procurement_derived');
+    expect(classifySingle(25, makeCells({ A: '173' })).classification).toBe('header');
   });
 });

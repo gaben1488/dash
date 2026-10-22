@@ -17,6 +17,7 @@ import {
   ownThresholds,
   threshold,
   thresholdValue,
+  thresholdAt,
   thresholdsByDomain,
   thresholdsBySource,
 } from './threshold-registry.js';
@@ -165,5 +166,32 @@ describe('обращение к реестру', () => {
     // Доля закона печатается процентом — так её читает человек.
     expect(formatThreshold('law.epSmallAnnualShare')).toBe('10 %');
     expect(formatThreshold('нет.такого')).toBe('—');
+  });
+});
+
+
+describe('dated threshold evidence', () => {
+  it('does not treat an undated legal reference as a verified rule for a date', () => {
+    expect(thresholdAt('law.epSmallSingleContract', '2026-10-21').status).toBe('unverified');
+    expect(thresholdAt('economy.highSharePct', '2026-10-21').status).toBe('internal');
+  });
+  it('uses the frozen edition and effective interval without today settings', () => {
+    const frozen = { ...threshold('law.epSmallSingleContract')!, editions: [
+      { id: 'synthetic-old', validFrom: '2026-01-01', validUntil: '2026-07-01', value: 1,
+        verification: 'verified' as const, sourceRef: 'synthetic fixture' },
+      { id: 'synthetic-new', validFrom: '2026-07-01', value: 2,
+        verification: 'verified' as const, sourceRef: 'synthetic fixture' },
+    ] };
+    expect(thresholdAt('law.epSmallSingleContract', '2026-06-30', frozen)).toMatchObject({ status: 'verified', value: 1, edition: 'synthetic-old' });
+    expect(thresholdAt('law.epSmallSingleContract', '2026-07-01', frozen)).toMatchObject({ status: 'verified', value: 2, edition: 'synthetic-new' });
+    expect(thresholdAt('law.epSmallSingleContract', '2025-12-31', frozen).status).toBe('unverified');
+    expect(() => thresholdAt('law.epSmallSingleContract', 'invalid', frozen)).toThrow();
+  });
+  it('rejects overlapping applicable editions rather than picking one', () => {
+    const edition = { id: 'a', validFrom: '2026-01-01', value: 1,
+      verification: 'verified' as const, sourceRef: 'synthetic fixture' };
+    expect(() => thresholdAt('law.epSmallSingleContract', '2026-10-21', {
+      ...threshold('law.epSmallSingleContract')!, editions: [edition, { ...edition, id: 'b' }],
+    })).toThrow();
   });
 });

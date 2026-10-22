@@ -1,3 +1,5 @@
+import { METRIC_LABELS } from '@aemr/shared';
+import { STANDARD_METRICS, STANDARD_DERIVED } from '../pipeline/calc-engine.js';
 import { describe, expect, it } from 'vitest';
 import { METRIC_KB } from './registry.js';
 
@@ -209,4 +211,14 @@ describe('METRIC_KB: периметр остатка к заключению н�
   it('карточка отличает лист от нашего пересчёта остатка', () => {
     expect(METRIC_KB.remainder_to_conclude.pitfalls ?? '').toContain('pending_total');
   });
+});
+
+
+it('движок и БЗ используют действующее название из общего справочника метрик', () => {
+  for (const entry of [...STANDARD_METRICS, ...STANDARD_DERIVED]) {
+    expect(entry.label, entry.key).toBe(METRIC_LABELS[entry.key]);
+  }
+  for (const [key, entry] of Object.entries(METRIC_KB)) {
+    expect(entry.label, key).toBe(METRIC_LABELS[key]);
+  }
 });

@@ -2,8 +2,10 @@ name: Source deep-check regression
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/dash-audit-integrated-20261010]
     paths:
+      - 'packages/core/src/pipeline/formula-integrity.ts'
+      - 'packages/core/src/pipeline/formula-integrity.test.ts'
       - 'packages/server/src/routes/source-integrity.ts'
       - 'packages/server/src/routes/source-integrity.test.ts'
       - 'packages/server/src/services/metadata-watch.ts'
@@ -35,6 +37,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: TypeScript source integrity
         run: pnpm typecheck
+      - name: Core formula header boundary regression
+        run: pnpm --filter @aemr/core exec vitest run src/pipeline/formula-integrity.test.ts
       - name: API deep-check regression
         run: pnpm --filter @aemr/server exec vitest run src/routes/source-integrity.test.ts
       - name: Sources button regression

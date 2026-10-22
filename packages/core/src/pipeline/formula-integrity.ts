@@ -24,20 +24,15 @@
  * инструмент насчитал «дыры» на 58 пустых строках хвоста УО, за которыми не
  * стояло ни одного дефекта).
  */
-import type { Issue } from '@aemr/shared';
-import { CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import type { TrustCheckCoverage, Issue } from '@aemr/shared';
+import {
+  CHECK_REGISTRY, DEPT_COLUMNS, DEPT_HEADER_ROWS, FORMULA_COLUMNS,
+  isMetaRow, parseSheetNumber, readProcurementSequence,
+} from '@aemr/shared';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 
-/**
- * Одиннадцать формульных колонок книги ГРБС — ровно те, что канон таблиц
- * защищает (`scripts/etalon-sync/canon.cjs`, `goldenProtections`: K, O:P, R:T,
- * Y:AC) и красит правилом №1, и ровно те, что читает сервер
- * (`FORMULA_COLUMNS` в `packages/server/src/services/google-sheets.ts`).
- * Список продублирован здесь намеренно: ядро не имеет права зависеть от
- * сервера. Расхождение двух списков ловит страж
- * `formula-integrity.test.ts` — «одиннадцать канонных граф, не весь лист».
- */
-export const FORMULA_COLUMNS = ['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC'] as const;
+// Compatibility export; the shared source contract owns this column set.
+export { FORMULA_COLUMNS } from '@aemr/shared';
 
 export type FormulaColumn = (typeof FORMULA_COLUMNS)[number];
 
@@ -138,18 +133,38 @@ export function normalizeFormula(raw: unknown, sheetRow: number): string {
 /**
  * Номер закупки из графы A — и одновременно ГЕЙТ судимости строки.
  *
- * Канон валидации книги для A — «число больше нуля, строго». Поэтому шапка
- * («№ п/п») и пустые строки хвоста сюда не проходят, и это ровно тот урок
- * дампов 30.08: строки БЕЗ номера дырами не считаются, а формулы, протянутые
- * впрок на такие строки, дефектом не считаются тем более.
+ * Номер — идентификатор, включая составные номера 173/1 и 173/18, а не
+ * сумма. Подпись шапки и пустой хвост номером не являются. Назначение строки
+ * дополнительно проверяется по предмету закупки перед построением эталона.
  */
-function purchaseNumber(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  const text = String(raw).trim();
-  if (text === '') return null;
-  const n = Number(text.replace(',', '.'));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return text;
+/**
+ * Keep procurement A as a textual address (including 173/18); do not infer
+ * identity from a monetary or floating-point parser.
+ *
+ * A missing subject G is itself a data-quality defect. It must NOT exempt a
+ * real procurement from formula auditing when its method or source-level
+ * budget already proves that a procurement exists. An isolated total K/Y
+ * is insufficient (numeric service rows can carry totals); excluding such
+ * rows avoids contaminating the modal formula baseline.
+ */
+export function formulaIntegrityRowNumber(row: ReadonlyArray<unknown>): string | null {
+  const seq = readProcurementSequence(row[DEPT_COLUMNS.ID]);
+  if (seq === null) return null;
+  const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
+  if (subject !== '' && (isMetaRow(subject) || Number.isFinite(Number(subject)))) return null;
+
+  if (subject === '') {
+    const method = String(row[DEPT_COLUMNS.METHOD] ?? '').trim();
+    const hasBudget = [
+      DEPT_COLUMNS.FB_PLAN, DEPT_COLUMNS.KB_PLAN, DEPT_COLUMNS.MB_PLAN,
+      DEPT_COLUMNS.FB_FACT, DEPT_COLUMNS.KB_FACT, DEPT_COLUMNS.MB_FACT,
+    ].some((index) => {
+      const amount = parseSheetNumber(row[index]);
+      return amount !== null && amount !== 0;
+    });
+    if (method === '' && !hasBudget) return null;
+  }
+  return seq;
 }
 
 function isFormulaText(raw: unknown): boolean {
@@ -199,28 +214,33 @@ function shortText(raw: unknown): string {
  * объявляет всю графу перебитой. Ложная тревога на тысячи ячеек дороже
  * пропуска вырожденного случая «графа уничтожена целиком».
  */
-export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDefect[] {
-  if (input.formulasRead === false) return [];
+export function detectFormulaIntegrity(input: FormulaIntegrityInput, coverage?: TrustCheckCoverage[]): FormulaDefect[] {
   const formulas = input.formulas ?? [];
   const values = input.values ?? [];
   // Пустая сетка = «не читали». Молчание здесь — обещание слоя.
-  if (formulas.length === 0) return [];
+
 
   const startRow = input.startRow ?? 1;
   const height = Math.max(values.length, formulas.length);
 
-  // Физическая граница данных: строки 1–3 — шапка, даже если в графе A
-  // стоят числа (например, нумерация столбцов 1/2/3).
-  // Единый гейт защищает конвейер снимков и прямой приёмник формул.
+  // Геометрия главнее похожих на закупку значений: строки 1–3 — шапка
+  // независимо от номера и текста в A/B. Дополнительно исключаем служебные
+  // и незаполненные строки данных из эталона и статистики покрытия проверки.
+  // Один гейт применяется и к прямой доставке, и к конвейеру снимков.
   const judged: Array<{ index: number; row: number; seq: string }> = [];
   for (let i = 0; i < height; i++) {
     const row = startRow + i;
     if (row <= DEPT_HEADER_ROWS) continue;
-    const seq = purchaseNumber((values[i] ?? [])[DEPT_COLUMNS.ID]);
+    const seq = formulaIntegrityRowNumber(values[i] ?? []);
     if (seq === null) continue;
     judged.push({ index: i, row, seq });
   }
-  if (judged.length === 0) return [];
+  const execution: TrustCheckCoverage = {
+    sheet: input.book, component: 'formula_integrity',
+    expected: judged.length * FORMULA_COLUMNS.length, checked: 0, failed: 0,
+  };
+  coverage?.push(execution);
+  if (judged.length === 0 || input.formulasRead === false || formulas.length === 0) return [];
 
   // Метка номера строки — одна на строку, а не на каждую из одиннадцати граф.
   const marks = new Map<number, RegExp>();
@@ -251,6 +271,7 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
       }
     }
     if (etalon === '') continue; // графу не читали либо сравнивать не с чем
+    execution.checked += judged.length;
 
     const donorRows: number[] = [];
     for (let k = 0; k < judged.length; k++) {
@@ -287,6 +308,7 @@ export function detectFormulaIntegrity(input: FormulaIntegrityInput): FormulaDef
   // Порядок вывода — по строке, затем по графе: перечень читается сверху вниз
   // так же, как открытая книга, а не пачками по одиннадцати колонкам.
   defects.sort((a, b) => (a.row - b.row) || a.cell.localeCompare(b.cell, 'ru'));
+  execution.failed = defects.length;
   return defects;
 }
 
@@ -319,8 +341,9 @@ function describe(defect: FormulaDefect): string {
 export function formulaIntegrityIssues(
   input: FormulaIntegrityInput,
   departmentId: string,
+  coverage?: TrustCheckCoverage[],
 ): Issue[] {
-  const defects = detectFormulaIntegrity(input);
+  const defects = detectFormulaIntegrity(input, coverage);
   if (defects.length === 0) return [];
 
   const now = new Date().toISOString();

@@ -108,7 +108,7 @@ describe('sealWeeklyTableContext — недельный snapshot таблиц', 
     expect(Object.keys(context.monitoring.sheets)).toEqual(['Рабочий реестр процедур', 'Процедуры в работе', 'Сводный аналитический лист', 'Справочник заказчиков']);
     expect(context.monitoring.version).toBe(7);
     expect(snapshotModule.getWeeklySnapshotHistory().map((row) => row.id)).toContain('weekly-source');
-  });
+  }, 15_000); // Первый импорт всего pipeline/SQLite под параллельной CI-нагрузкой.
 
   it('несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal', async () => {
     const { snapshotModule, monitoring, readContext } = await fixture({ mismatchBook: 'УО' });

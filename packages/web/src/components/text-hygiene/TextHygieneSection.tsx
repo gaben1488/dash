@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Раздел «Гигиена текста» на вкладке «Контроль» (канон п.122, приказ владельца
  * 20.08.2026: подача структурой, а не простынёй).
@@ -49,6 +50,7 @@ import {
   type TextHygieneKind,
 } from './contract';
 import { useTextHygiene } from './useTextHygiene';
+import { copyText } from '../TableEditor';
 
 /* ── Подсветка дефектного места в контексте ──────────────────────────── */
 
@@ -81,7 +83,11 @@ function Highlighted({ text, re }: { text: string; re: RegExp | undefined }) {
       <mark
         key={at}
         className="rounded-[2px] px-px"
-        style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--ink-strong)', boxShadow: 'inset 0 0 0 1px var(--accent-line)' }}
+        style={{
+          backgroundColor: 'var(--accent-soft)',
+          color: 'var(--ink-strong)',
+          boxShadow: 'inset 0 0 0 1px var(--accent-line)',
+        }}
       >
         {m[0]}
       </mark>,
@@ -99,34 +105,58 @@ function CopyFixButton({ fix }: { fix: string }) {
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(fix);
+    if (await copyText(fix)) {
       setState('done');
-    } catch {
-      // Буфер обмена недоступен (например, страница не в фокусе) — говорим
-      // словами, а не делаем вид, что скопировалось.
+      window.setTimeout(() => setState('idle'), 1600);
+    } else {
+      // Отказ сохраняется, пока пользователь не перенесёт полный текст вручную.
       setState('failed');
     }
-    window.setTimeout(() => setState('idle'), 1600);
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      title="Скопировать готовое значение ячейки — вставляется в книгу целиком"
-      aria-label="Скопировать готовое значение ячейки"
-      // Рамки у кнопки нет (канон п.129): она повторяется в каждой строке
-      // таблицы, и восемь десятков обводок подряд — частокол, а не форма.
-      // Кнопку от ячейки отделяет светлота поверхности.
-      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-badge)] bg-[var(--surface-raised)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--ink-strong)]"
-    >
-      {state === 'done'
-        ? <><Check size={11} aria-hidden="true" style={{ color: 'var(--data-good)' }} /> скопировано</>
-        : state === 'failed'
-          ? <><AlertTriangle size={11} aria-hidden="true" style={{ color: 'var(--data-warn)' }} /> не удалось</>
-          : <><Copy size={11} aria-hidden="true" /> копировать</>}
-    </button>
+    <span className="inline-flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => void copy()}
+        title="Предлагаемое значение целой ячейки. Перед вставкой проверьте смысл и исходный текст"
+        aria-label="Скопировать готовое значение ячейки"
+        // Рамки у кнопки нет (канон п.129): она повторяется в каждой строке
+        // таблицы, и восемь десятков обводок подряд — частокол, а не форма.
+        // Кнопку от ячейки отделяет светлота поверхности.
+        className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-badge)] bg-[var(--surface-raised)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--ink-strong)]"
+      >
+        {state === 'done' ? (
+          <>
+            <Check size={11} aria-hidden="true" style={{ color: 'var(--data-good)' }} /> скопировано
+          </>
+        ) : state === 'failed' ? (
+          <>
+            <AlertTriangle size={11} aria-hidden="true" style={{ color: 'var(--data-warn)' }} /> не удалось
+          </>
+        ) : (
+          <>
+            <Copy size={11} aria-hidden="true" /> копировать
+          </>
+        )}
+      </button>
+      {state === 'failed' && (
+        <span className="flex flex-col gap-1">
+          <span role="status" className="ds-text-3xs text-[var(--ink-muted)]">
+            Скопируйте выделенный текст вручную (Ctrl+C или меню браузера).
+          </span>
+          <textarea
+            aria-label="Готовое значение для ручного копирования"
+            value={fix}
+            readOnly
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            rows={3}
+            className="w-full min-w-48 rounded px-2 py-1 font-mono ds-text-2xs"
+          />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -144,7 +174,9 @@ function FixCell({ fix }: { fix: string }) {
 function AddressCell({ sheet, cell, rowSeq }: { sheet: string; cell: string; rowSeq: string | null }) {
   return (
     <span className="block whitespace-nowrap">
-      <span className="font-mono ds-text-2xs text-[var(--ink)]">{sheet} · {cell}</span>
+      <span className="font-mono ds-text-2xs text-[var(--ink)]">
+        {sheet} · {cell}
+      </span>
       <span
         className="block ds-text-3xs text-[var(--ink-faint)]"
         title="«№ п/п» из колонки A — стабильный адрес: строки листа двигаются, № п/п остаётся."
@@ -223,7 +255,7 @@ type FindingKind = TextHygieneKind | 'spelling';
 // `kind === SPELLING_KIND` не сужает род и словарь дефектов индексируется
 // ключом «орфография», которого в нём нет.
 const SPELLING_KIND = 'spelling' as const;
-const SPELLING_LABEL = 'орфография';
+const SPELLING_LABEL = PRODUCT_COPY["components/text-hygiene/TextHygieneSection:SPELLING_LABEL"];
 
 /** Подпись рода для чипа и подсказки: словарь дефектов плюс орфография. */
 function findingKindLabel(kind: FindingKind): string {
@@ -238,6 +270,53 @@ interface DeptChip {
   hygiene: number;
   spelling: number;
   total: number;
+}
+
+const FINDINGS_PAGE_SIZE = 100;
+
+function FindingsPager({
+  total,
+  page,
+  onChange,
+  label,
+}: {
+  total: number;
+  page: number;
+  onChange: (page: number) => void;
+  label: string;
+}) {
+  if (total <= FINDINGS_PAGE_SIZE) return null;
+  const lastPage = Math.ceil(total / FINDINGS_PAGE_SIZE) - 1;
+  return (
+    <nav
+      aria-label={`Страницы ${label}`}
+      className="flex flex-wrap items-center justify-between gap-2 p-[var(--card-pad)] ds-text-xs"
+    >
+      <span aria-live="polite">
+        {page * FINDINGS_PAGE_SIZE + 1}–{Math.min((page + 1) * FINDINGS_PAGE_SIZE, total)} из {fmtCount(total)}
+      </span>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          aria-label={`Предыдущая страница ${label}`}
+          disabled={page === 0}
+          onClick={() => onChange(page - 1)}
+          className="min-h-11 rounded px-3 focus-visible:outline focus-visible:outline-2 disabled:opacity-40"
+        >
+          Назад
+        </button>
+        <button
+          type="button"
+          aria-label={`Следующая страница ${label}`}
+          disabled={page === lastPage}
+          onClick={() => onChange(page + 1)}
+          className="min-h-11 rounded px-3 focus-visible:outline focus-visible:outline-2 disabled:opacity-40"
+        >
+          Далее
+        </button>
+      </div>
+    </nav>
+  );
 }
 
 export function TextHygieneSection() {
@@ -344,6 +423,24 @@ export function TextHygieneSection() {
     [deptLanguage, kindFilter],
   );
 
+  // A changed filter starts at the first page; shorter refreshed results clamp the page.
+  const pageKey = JSON.stringify([deptScope, deptFilter, [...kindFilter].sort()]);
+  const [pages, setPages] = useState({ key: pageKey, hygiene: 0, language: 0 });
+  const hygienePage = Math.min(
+    pages.key === pageKey ? pages.hygiene : 0,
+    Math.max(0, Math.ceil(filteredItems.length / FINDINGS_PAGE_SIZE) - 1),
+  );
+  const languagePage = Math.min(
+    pages.key === pageKey ? pages.language : 0,
+    Math.max(0, Math.ceil(languageItems.length / FINDINGS_PAGE_SIZE) - 1),
+  );
+  const changePage = (kind: 'hygiene' | 'language', page: number) => {
+    setPages((previous) => ({
+      ...(previous.key === pageKey ? previous : { key: pageKey, hygiene: 0, language: 0 }),
+      [kind]: page,
+    }));
+  };
+
   /**
    * Отобрана одна орфография — таблицу набора не показываем вовсе: пустая
    * карточка «под отбор ничего не подошло» здесь была бы шумом, а не ответом.
@@ -371,14 +468,11 @@ export function TextHygieneSection() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <KBTooltip {...TEXT_HYGIENE_KB} showIcon>
-            <h2 className="ds-text-lg font-[var(--weight-strong)] text-[var(--ink-strong)]">
-              Гигиена текста
-            </h2>
+            <h2 className="ds-text-lg font-[var(--weight-strong)] text-[var(--ink-strong)]">Гигиена текста</h2>
           </KBTooltip>
           <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-            Дефекты набора и орфография в текстовых колонках книг: имя подведа (C),
-            предмет закупки (G), обоснование ЕП (M). Каждая находка несёт адрес,
-            дефектное место и готовое значение — оно копируется и вставляется в книгу
+            Дефекты набора и орфография в текстовых колонках книг: имя подведа (C), предмет закупки (G), обоснование ЕП
+            (M). Каждая находка несёт адрес, дефектное место и готовое значение — оно копируется и вставляется в книгу
             целиком, править руками не нужно.
           </p>
         </div>
@@ -453,8 +547,8 @@ export function TextHygieneSection() {
           />
           {data.booksSilent.length > 0 && (
             <p className="ds-text-2xs text-[var(--ink-muted)]">
-              Оговорка: строки книг {data.booksSilent.join(', ')} не прочитаны — по ним проверки
-              не было, и «дефектов нет» к ним не относится.
+              Оговорка: строки книг {data.booksSilent.join(', ')} не прочитаны — по ним проверки не было, и «дефектов
+              нет» к ним не относится.
             </p>
           )}
         </>
@@ -560,27 +654,39 @@ export function TextHygieneSection() {
                     </tr>
                   </THead>
                   <TBody>
-                    {filteredItems.map((item, i) => (
-                      <Tr key={`${item.dept}-${item.cell}-${item.kind}-${i}`}>
-                        <Td className="whitespace-nowrap">{productLabel(item.deptLatin)}</Td>
-                        <Td><AddressCell sheet={item.sheet} cell={item.cell} rowSeq={item.rowSeq} /></Td>
-                        <Td className="max-w-[16rem]">
-                          <span className="block ds-text-2xs">{item.label}</span>
-                          <span className="block ds-text-3xs text-[var(--ink-faint)]">
-                            {TEXT_HYGIENE_KIND_LABELS[item.kind]}
-                          </span>
-                        </Td>
-                        <Td className="max-w-[22rem]">
-                          <span className="font-mono ds-text-2xs whitespace-pre-wrap break-words text-[var(--ink-muted)]">
-                            <Highlighted text={item.context} re={HIGHLIGHT_RE[item.kind]} />
-                          </span>
-                        </Td>
-                        <Td className="max-w-[24rem]"><FixCell fix={item.fix} /></Td>
-                      </Tr>
-                    ))}
+                    {filteredItems
+                      .slice(hygienePage * FINDINGS_PAGE_SIZE, (hygienePage + 1) * FINDINGS_PAGE_SIZE)
+                      .map((item, i) => (
+                        <Tr key={`${item.dept}-${item.cell}-${item.kind}-${i}`}>
+                          <Td className="whitespace-nowrap">{productLabel(item.deptLatin)}</Td>
+                          <Td>
+                            <AddressCell sheet={item.sheet} cell={item.cell} rowSeq={item.rowSeq} />
+                          </Td>
+                          <Td className="max-w-[16rem]">
+                            <span className="block ds-text-2xs">{item.label}</span>
+                            <span className="block ds-text-3xs text-[var(--ink-faint)]">
+                              {TEXT_HYGIENE_KIND_LABELS[item.kind]}
+                            </span>
+                          </Td>
+                          <Td className="max-w-[22rem]">
+                            <span className="font-mono ds-text-2xs whitespace-pre-wrap break-words text-[var(--ink-muted)]">
+                              <Highlighted text={item.context} re={HIGHLIGHT_RE[item.kind]} />
+                            </span>
+                          </Td>
+                          <Td className="max-w-[24rem]">
+                            <FixCell fix={item.fix} />
+                          </Td>
+                        </Tr>
+                      ))}
                   </TBody>
                 </DataTable>
               )}
+              <FindingsPager
+                total={filteredItems.length}
+                page={hygienePage}
+                onChange={(page) => changePage('hygiene', page)}
+                label="дефектов набора"
+              />
             </Card>
           )}
 
@@ -596,7 +702,7 @@ export function TextHygieneSection() {
                     </span>
                   }
                   scope={`${fmtCount(languageItems.length)} ${pluralFindings(languageItems.length)}`}
-                  note="Словарь собран из самих книг: показываются только слова с единственным близким соседом. Решение о правке — за человеком."
+                  note="Готовые замены — лишь для проверенных конкретных опечаток. Частота слова сама по себе не доказывает ошибку. Проверяйте каждое предложение по контексту и первоисточнику."
                 />
               </div>
               <DataTable
@@ -615,40 +721,55 @@ export function TextHygieneSection() {
                   </tr>
                 </THead>
                 <TBody>
-                  {languageItems.map((item, i) => (
-                    <Tr key={`${item.dept}-${item.cell}-${item.word}-${i}`}>
-                      <Td className="whitespace-nowrap">{productLabel(item.deptLatin)}</Td>
-                      <Td><AddressCell sheet={item.sheet} cell={item.cell} rowSeq={item.rowSeq} /></Td>
-                      <Td className="whitespace-nowrap font-mono ds-text-2xs">{item.word}</Td>
-                      <Td className="max-w-[22rem]">
-                        <span className="font-mono ds-text-2xs whitespace-pre-wrap break-words text-[var(--ink-muted)]">
-                          <Highlighted
-                            text={item.context}
-                            re={new RegExp(item.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')}
-                          />
-                        </span>
-                      </Td>
-                      <Td className="whitespace-nowrap">
-                        {item.suggestion ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="font-mono ds-text-2xs text-[var(--ink)]">{item.suggestion}</span>
-                            <Chip tone={item.confidence === 'высокая' ? 'good' : 'neutral'} title={
-                              item.confidence === 'высокая'
-                                ? 'Сосед из ядра словаря — самых частых слов книг'
-                                : 'Сосед из обычной части словаря — проверьте по смыслу'
-                            }>
-                              {item.confidence}
-                            </Chip>
+                  {languageItems
+                    .slice(languagePage * FINDINGS_PAGE_SIZE, (languagePage + 1) * FINDINGS_PAGE_SIZE)
+                    .map((item, i) => (
+                      <Tr key={`${item.dept}-${item.cell}-${item.word}-${i}`}>
+                        <Td className="whitespace-nowrap">{productLabel(item.deptLatin)}</Td>
+                        <Td>
+                          <AddressCell sheet={item.sheet} cell={item.cell} rowSeq={item.rowSeq} />
+                        </Td>
+                        <Td className="whitespace-nowrap font-mono ds-text-2xs">{item.word}</Td>
+                        <Td className="max-w-[22rem]">
+                          <span className="font-mono ds-text-2xs whitespace-pre-wrap break-words text-[var(--ink-muted)]">
+                            <Highlighted
+                              text={item.context}
+                              re={new RegExp(item.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')}
+                            />
                           </span>
-                        ) : (
-                          <span className="ds-text-2xs text-[var(--ink-faint)]">подсказки нет</span>
-                        )}
-                      </Td>
-                      <Td className="max-w-[24rem]"><FixCell fix={item.fix} /></Td>
-                    </Tr>
-                  ))}
+                        </Td>
+                        <Td className="whitespace-nowrap">
+                          {item.suggestion ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="font-mono ds-text-2xs text-[var(--ink)]">{item.suggestion}</span>
+                              <Chip
+                                tone={item.confidence === 'высокая' ? 'good' : 'neutral'}
+                                title={
+                                  item.confidence === 'высокая'
+                                    ? 'Высокая частота слова-подсказки; сверьте по смыслу и первоисточнику'
+                                    : 'Слово из справочника корпуса; сверьте по смыслу и первоисточнику'
+                                }
+                              >
+                                {item.confidence}
+                              </Chip>
+                            </span>
+                          ) : (
+                            <span className="ds-text-2xs text-[var(--ink-faint)]">подсказки нет</span>
+                          )}
+                        </Td>
+                        <Td className="max-w-[24rem]">
+                          <FixCell fix={item.fix} />
+                        </Td>
+                      </Tr>
+                    ))}
                 </TBody>
               </DataTable>
+              <FindingsPager
+                total={languageItems.length}
+                page={languagePage}
+                onChange={(page) => changePage('language', page)}
+                label="орфографии"
+              />
             </Card>
           )}
 
@@ -656,16 +777,16 @@ export function TextHygieneSection() {
               исчезнувшая группа читается как «опечаток нет», а это неправда. */}
           {deptLanguage.length > 0 && languageItems.length === 0 && (
             <p className="ds-text-2xs text-[var(--ink-muted)]">
-              Орфография скрыта отбором рода: {fmtCount(deptLanguage.length)}{' '}
-              {pluralFindings(deptLanguage.length)} ждут — верните чип «орфография» в ряду родов.
+              Орфография скрыта отбором рода: {fmtCount(deptLanguage.length)} {pluralFindings(deptLanguage.length)} ждут
+              — верните чип «орфография» в ряду родов.
             </p>
           )}
 
           {/* Орфография пуста при живой гигиене — говорим словами, а не пустым местом. */}
           {deptLanguage.length === 0 && data.totals.languageFindings === 0 && (
             <p className="ds-text-2xs text-[var(--ink-muted)]">
-              Орфография: опечаток по словарю корпуса не найдено — проверены предмет закупки (G)
-              и обоснование ЕП (M) всех счётных строк.
+              Орфография: ранее подтверждённых опечаток не найдено в предметах закупки (G) и обоснованиях ЕП (M). Это не
+              полная проверка всего текста.
             </p>
           )}
 
@@ -680,8 +801,7 @@ export function TextHygieneSection() {
           {/* Итог раздела: знаменатель проверки — рядом с числом находок. */}
           <p className="text-center ds-text-3xs text-[var(--ink-faint)]">
             Проверено {fmtCount(data.totals.cellsChecked)}{' '}
-            {pluralRu(data.totals.cellsChecked, 'ячейка', 'ячейки', 'ячеек')} в{' '}
-            {fmtCount(data.totals.rowsChecked)}{' '}
+            {pluralRu(data.totals.cellsChecked, 'ячейка', 'ячейки', 'ячеек')} в {fmtCount(data.totals.rowsChecked)}{' '}
             {pluralRu(data.totals.rowsChecked, 'счётной строке', 'счётных строках', 'счётных строках')}{' '}
             {data.booksChecked.length} {pluralRu(data.booksChecked.length, 'книги', 'книг', 'книг')} —{' '}
             {fmtCount(data.totals.hygieneFindings)} {pluralFindings(data.totals.hygieneFindings)} набора,{' '}

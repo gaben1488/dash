@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateData, roundMoneyInText } from './validate.js';
 import { classifyRows } from './classify.js';
+import { getActiveRules, REPORT_MAP } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ValidationRule, ReportMapEntry, RuleCheckContext } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────
@@ -54,11 +55,93 @@ function makeFailingRule(overrides: Partial<ValidationRule> = {}): ValidationRul
 const EMPTY_METRICS = new Map<string, NormalizedMetric>();
 const EMPTY_REPORT_MAP: ReportMapEntry[] = [];
 
+describe('СВОД — границы разных схем на одном листе', () => {
+  const arithmetic = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact', 'execution_percentage', 'deviation_calc', 'fact_leq_plan'].includes(r.id));
+  const primaryHeader = makeRow({ rowIndex: 3, classification: 'header', cells: { A: 'ГРБС', B: 'Квартал', C: 'Год', D: 'Электронный аукцион' } });
+  const wrongForPrimary = { A: 'УД', D: 20, E: 30, F: 50, G: 0.2, H: 100, I: 200, J: 300, K: 5, L: 10, M: 20, N: 30, O: 7 };
+
+  it.each(['Анализ экономии', 'Операционная нагрузка', 'Дисциплина планирования'])('не применяет закупочную арифметику к блоку %s независимо от номера строки', title => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: title } }), makeRow({ rowIndex: 18, cells: wrongForPrimary })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP)).toEqual([]);
+  });
+
+  it('возобновляет реальные проверки после следующей закупочной шапки', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: 'Анализ экономии' } }), makeRow({ ...primaryHeader, rowIndex: 21 }), makeRow({ rowIndex: 22, cells: wrongForPrimary })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP).map(i => i.category)).toContain('budget_sum_plan');
+  });
+
+  it('показывает проблему неизвестной схемы вместо фиктивных финансовых нарушений', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, cells: { A: 'ГРБС', B: 'Новый показатель', C: 'Сумма' } }), makeRow({ rowIndex: 18, cells: wrongForPrimary })];
+    const issues = validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP);
+    expect(issues.map(i => i.category)).toEqual(['svod_validation_schema_unknown']);
+    expect(issues[0].origin).toBe('runtime_error');
+  });
+
+  it('не объявляет неизвестную шапку проверенной даже без прочитанных строк данных', () => {
+    const rows = [primaryHeader, makeRow({ rowIndex: 17, classification: 'header', cells: { A: 'ГРБС', B: 'Новый показатель', C: 'Сумма' } })];
+    expect(validateData(EMPTY_METRICS, rows, arithmetic, REPORT_MAP).map(i => i.category)).toEqual(['svod_validation_schema_unknown']);
+  });
+});
+
 // ────────────────────────────────────────────────────────────
 // 1. Basic validation flow
 // ────────────────────────────────────────────────────────────
 
 describe('validateData — basic', () => {
+  it('reports nonnumeric inputs as unverified without calling them a financial mismatch', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    // Verify unparseable money in an actual department procurement row.
+    // SVOD has a separate multi-layout gate tested above; this isolates the
+    // numeric-input failure contract without inventing a SVOD block.
+    const rows = [5, 6].map(rowIndex => makeRow({
+      sheet: 'УД', rowIndex, cells: {
+        A: '173/18', G: 'Закупка', H: 100, I: 0, J: 'не число', K: 100,
+      },
+    }));
+    const issues = validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ severity: 'info', origin: 'runtime_error', category: 'rule_execution_failed' });
+    expect(issues[0].description).toContain('Не проверено 2 строк');
+    expect(issues[0].description).toContain('не установленное расхождение');
+    expect(validateData(EMPTY_METRICS, rows.map(r => ({ ...r, cells: { ...r.cells, J: 0 } })), rules, EMPTY_REPORT_MAP)).toEqual([]);
+  });
+
+  it('a genuinely blank SUM operand equals zero; it is not missing evidence', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Работы', H: 100, I: 0, K: 100 },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP, new Date(2026, 9, 22), coverage);
+    expect(issues).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('empty and note rows do not generate false unavailable-financial-check warnings', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const rows = [
+      makeRow({ sheet: 'УД', rowIndex: 4, classification: 'separator', cells: {} }),
+      makeRow({ sheet: 'УД', rowIndex: 5, classification: 'note', cells: { D: 'Пояснение к разделу' } }),
+      makeRow({ sheet: 'УД', rowIndex: 6, classification: 'procurement',
+        cells: { A: '173/18', G: 'Услуги связи', H: 100, I: 0, J: 0, K: 100 } }),
+    ];
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage)).toEqual([]);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 1, failed: 0 });
+  });
+
+  it('a countable composite-ID procurement with a missing total is unverified, never PASS', () => {
+    const rules = getActiveRules().filter(r => r.id === 'budget_sum_plan');
+    const row = makeRow({
+      sheet: 'УД', cells: { A: '173/18', G: 'Закупка', L: 'ЕП', H: 100, I: 0, J: 0, K: '' },
+    });
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    const issues = validateData(EMPTY_METRICS, [row], rules, EMPTY_REPORT_MAP,
+      new Date(2026, 9, 22), coverage);
+    expect(issues.map(issue => issue.category)).toEqual(['rule_execution_failed']);
+    expect(coverage[0]).toMatchObject({ expected: 1, checked: 0, failed: 0 });
+  });
   it('returns empty issues for passing rules', () => {
     const rows = [makeRow({ cells: { A: '1', H: 100000 } })];
     const rules = [makeRule()];
@@ -221,9 +304,10 @@ describe('validateData — error handling', () => {
     const goodRule = makeFailingRule({ id: 'good_rule' });
 
     const issues = validateData(EMPTY_METRICS, [row], [brokenRule, goodRule], EMPTY_REPORT_MAP);
-    // Broken rule is skipped, good rule still fires
-    expect(issues).toHaveLength(1);
-    expect(issues[0].category).toBe('good_rule');
+    // The healthy rule still fires; the broken rule produces a visible failure.
+    expect(issues).toHaveLength(2);
+    expect(issues.map(issue => issue.category).sort()).toEqual(['good_rule', 'rule_execution_failed']);
+    expect(issues.find(issue => issue.category === 'rule_execution_failed')?.origin).toBe('runtime_error');
   });
 
   it('continues validation after broken rule', () => {
@@ -232,8 +316,11 @@ describe('validateData — error handling', () => {
       id: 'broken',
       check: () => { throw new TypeError('Cannot read property'); },
     });
-    // Should not crash
-    expect(() => validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP)).not.toThrow();
+    const issues = validateData(EMPTY_METRICS, rows, [brokenRule], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1); // one diagnostic per broken rule, not per row
+    expect(issues[0].category).toBe('rule_execution_failed');
+    expect(issues[0].description).toContain('2 строк');
+    expect(issues[0].row).toBe(5);
   });
 });
 
@@ -525,50 +612,55 @@ describe('validateData — hasProgramName via activityType', () => {
 });
 
 
-// Operational СВОД ends at row 278. Rows 279+ belong to the owner's
-// spreadsheet-only experiment and must not produce dashboard rule findings.
-describe('validateData — operational СВОД perimeter', () => {
-  it('checks row 278 but excludes experimental rows 279 and 324 for svod and both rules', () => {
-    const rows = [
-      makeRow({ rowIndex: 278 }),
-      makeRow({ rowIndex: 279 }),
-      makeRow({ rowIndex: 324 }),
-    ];
-    const issues = validateData(EMPTY_METRICS, rows, [
-      makeFailingRule({ id: 'svod_boundary', scope: 'svod' }),
-      makeFailingRule({ id: 'both_boundary', scope: 'both' }),
-    ], EMPTY_REPORT_MAP);
+describe('validation execution coverage', () => {
+  it('counts true/false but leaves missing inputs and exceptions unchecked', () => {
+    const coverage: import('@aemr/shared').TrustCheckCoverage[] = [];
+    validateData(EMPTY_METRICS, [makeRow({ sheet: 'УО' })], [
+      makeRule({ id: 'pass', check: () => ({ passed: true }) }),
+      makeFailingRule(),
+      makeRule({ id: 'unknown', check: () => ({ passed: null }) }),
+      makeRule({ id: 'throws', check: () => { throw new Error('source'); } }),
+      makeRule({ id: 'disabled', enabled: false }),
+      makeRule({ id: 'other-scope', scope: 'svod' }),
+    ], EMPTY_REPORT_MAP, new Date('2026-10-21T00:00:00Z'), coverage);
+    expect(coverage).toEqual([
+      { sheet: 'УО', component: 'rule_compliance', expected: 4, checked: 2, failed: 1 },
+    ]);
+  });
+});
 
-    expect(issues).toHaveLength(2);
-    expect(issues.map(issue => issue.row)).toEqual([278, 278]);
+describe('СВОД — физический периметр Dash до строки 278', () => {
+  it('оба вида правил применяются к 278, не к экспериментальным 279 и 284', () => {
+    const bad = { A: 'УД', H: 1, I: 2, J: 3, K: 100, L: 2, M: 3, N: 4, O: 100 };
+    const rows = [278, 279, 284].map(rowIndex => makeRow({ rowIndex, cells: bad }));
+    const rules = getActiveRules().filter(r => ['budget_sum_plan', 'budget_sum_fact'].includes(r.id));
+    const issues = validateData(EMPTY_METRICS, rows, rules, REPORT_MAP);
+    expect(issues.filter(i => ['budget_sum_plan', 'budget_sum_fact'].includes(i.category)).map(i => i.row))
+      .toEqual([278, 278]);
   });
 
-  it('excludes experimental rows from the allRows context of operational SVOD rules', () => {
+  it('исключает 279+ из контекста всех правил, включая scope both', () => {
     const seen: number[][] = [];
-    const rule = makeRule({
-      id: 'svod_context_boundary',
-      scope: 'svod',
-      check: ctx => {
-        seen.push((ctx.allRows ?? []).map(row => row.rowIndex));
+    const rules = [
+      makeRule({ id: 'svod_context', scope: 'svod', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
         return { passed: true };
-      },
-    });
-    const rows = [
-      makeRow({ rowIndex: 278 }),
-      makeRow({ rowIndex: 279 }),
+      }}),
+      makeRule({ id: 'both_context', scope: 'both', check: ctx => {
+        seen.push((ctx.allRows ?? []).map(r => r.rowIndex));
+        return { passed: true };
+      }}),
     ];
-
-    expect(validateData(EMPTY_METRICS, rows, [rule], EMPTY_REPORT_MAP)).toEqual([]);
-    expect(seen).toEqual([[278]]);
+    const rows = [278, 279, 324].map(rowIndex => makeRow({ rowIndex }));
+    expect(validateData(EMPTY_METRICS, rows, rules, EMPTY_REPORT_MAP)).toEqual([]);
+    expect(seen).toEqual([[278], [278]]);
   });
 
-  it('still checks department rows beyond 278', () => {
-    const rows = [makeRow({ sheet: 'УО', rowIndex: 279 })];
-    const issues = validateData(EMPTY_METRICS, rows, [
-      makeFailingRule({ id: 'dept_boundary', scope: 'both' }),
-    ], EMPTY_REPORT_MAP);
-
+  it('не урезает строки книг ГРБС после 278', () => {
+    const rows = [makeRow({ sheet: 'УО', rowIndex: 284 })];
+    const issues = validateData(EMPTY_METRICS, rows,
+      [makeFailingRule({ id: 'department_tail', scope: 'both' })], EMPTY_REPORT_MAP);
     expect(issues).toHaveLength(1);
-    expect(issues[0].row).toBe(279);
+    expect(issues[0].row).toBe(284);
   });
 });

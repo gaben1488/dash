@@ -317,9 +317,9 @@ describe('sheetNumber — единая null-коэрция ядра (чистк�
     expect(sheetNumber('по мере необходимости')).toBeNull();
   });
 
-  it('характеризация parseFloat: числовой ПРЕФИКС читается (наследие всех копий)', () => {
-    // Так вели себя ВСЕ исходные копии (parseFloat): «684.0 руб» -> 684.
-    // Фиксируем как контракт, чтобы смена реализации не изменила поведение молча.
-    expect(sheetNumber('684.0 руб')).toBe(684);
+  it('requires a complete amount; a numeric prefix is not a valid value', () => {
+    expect(sheetNumber('684.0 руб')).toBeNull();
+    expect(sheetNumber('684.0')).toBe(684);
+    expect(sheetNumber('684abc')).toBeNull();
   });
 });

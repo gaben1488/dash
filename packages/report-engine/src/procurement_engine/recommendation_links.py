@@ -330,16 +330,20 @@ def _joint_group_target_spec(text, ids):
             'subject': name, 'amount_thousand': amount_thousand}
 
 
-def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years=None):
+def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years=None,
+                           registered_customer_aliases=False):
     spec = _joint_group_target_spec(text, ids)
     if spec is None:
         return None, None
+    if registered_customer_aliases and _text(spec['subject']) == 'хоз. материалы':
+        spec['subject'] = 'Хозяйственные материалы'
     matches = [
         row for row in rows
         if row.grbs == rec.get('grbs')
         and row.snapshot_id == snapshot_id
         and row.source_row_no
-        and _text(row.institution) == 'совместные закупки'
+        and (_text(row.institution) == 'совместные закупки' or (registered_customer_aliases
+             and _registered_joint_customer(row.grbs, row.institution)))
         and row.method == 'ЭА'
         and _text(row.subject) == _text(spec['subject'])
         and not set(row.missing_money_fields).intersection({'H', 'I', 'J'})
@@ -356,10 +360,33 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
         return None, None
     return spec, matches[0]
 
+
+def _registered_joint_customer(grbs, institution):
+    from .customer_aliases import customer_name_key
+
+    old = customer_name_key(grbs, 'Совместные закупки')
+    return old != 'Совместные закупки' and customer_name_key(grbs, institution) == old
+
+
+def literal_plan_label(subject, grbs=None):
+    """An explicit old label before `/ full description`, not an arbitrary substring."""
+    # Explicit financing explanation after the complete subject is not a name.
+    subject = re.sub(r'\s+\(из\s+[\d ,.-]+\s+это\s+собственные деньги с платных услуг\)$',
+                     '', clean_text(subject), flags=re.IGNORECASE)
+    left, separator, right = subject.partition(' / ')
+    if not separator or not right:
+        return subject
+    label = re.sub(r'^(?:\d+(?:\.\d+)+\.?[,;]?\s*)+\s+', '', left)
+    if grbs == 'УД' and _text(label) == 'выполнение работ по изготовлению значков в подарочном футляре':
+        # Reviewed complete product + packaging label in the original УД entry.
+        label = 'полиграфия, значки в футляре'
+    return label if label and label != left else subject
+
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
                          joint_group_target=False, budget_years=None, extended_literal_reference=False,
-                         inflected_supply_subject=False, joint_method_reference=False, inflected_service_subject=False):
+                         inflected_supply_subject=False, joint_method_reference=False, inflected_service_subject=False,
+                         registered_customer_aliases=False, literal_plan_labels=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -378,7 +405,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
         return result
     if joint_group_target and len(ids) > 1:
-        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years)
+        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years,
+                                             registered_customer_aliases)
         if spec == 'AMBIGUOUS':
             result['status'] = 'AMBIGUOUS'
             return result
@@ -429,7 +457,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         candidates = [row for row in rows if row.grbs == rec.get('grbs')
             and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
             and row.subject and _row_year_matches(row, source_years, budget_years)
-            and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
+            and _exact_subject_reference(text, literal_plan_label(row.subject, row.grbs) if literal_plan_labels else row.subject,
+                                         normalize_id(row.source_row_no),
                                          shared_group_subject=shared_group_subject,
                                          extended_literal_reference=extended_literal_reference,
                                          joint_method_reference=joint_method_reference)]

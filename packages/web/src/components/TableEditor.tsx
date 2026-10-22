@@ -1,10 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useMemo, type RefObject } from 'react';
+import { PRODUCT_COPY } from '@aemr/shared';
+import { useState, useCallback, useRef, useEffect, useMemo, useId, type RefObject } from 'react';
 import {
   Save, Undo2, PlusCircle,
   ArrowUpDown, ArrowUp, ArrowDown, ArrowUpToLine,
   AlertCircle, Info, Columns3, Copy, MapPin, X,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { parseEditableAmount } from '@aemr/shared';
 import { formatDateCell } from '../lib/sheet-date';
 import { pluralRu } from '../lib/economy-copy';
 
@@ -20,6 +22,7 @@ export interface ColumnConfig {
   type: CellType;
   width?: string;
   editable?: boolean;
+  guidance?: string;
   /** Варианты для типа «выбор». */
   options?: string[];
   /** Проверка значения — текст ошибки по-русски либо null. */
@@ -40,6 +43,8 @@ export interface TableEditorProps {
   onSaveRow?: (rowId: string, data: Record<string, unknown>) => Promise<void>;
   onRevertRow?: (rowId: string) => void;
   onAddColumn?: (column: ColumnConfig) => void;
+  /** Unsaved fields owned by the parent so filter/navigation cannot erase them. */
+  externalDirtyFields?: Record<string, string[]>;
   loading?: boolean;
   readOnly?: boolean;
   /**
@@ -54,6 +59,8 @@ export interface TableEditorProps {
    * он не знает, из какого листа пришла строка, и выдумывать не станет.
    */
   rowAddress?: (row: RowData) => string | null;
+  onCellMetadata?: (row: RowData, columnKey: string) => void;
+  metadataOpen?: boolean;
   /**
    * Имя набора настроек вида (ширины, скрытые столбцы, сортировка) в хранилище
    * браузера. Без него вид не переживает перезагрузку — и это осознанный выбор
@@ -86,7 +93,7 @@ interface CellEdit {
 
 /** Пустая ячейка книги: показываем прочерк, а причину — подсказкой при наведении. */
 const EMPTY_CELL = '—';
-const EMPTY_CELL_HINT = 'В книге значение не заполнено';
+const EMPTY_CELL_HINT = PRODUCT_COPY["components/TableEditor:EMPTY_CELL_HINT"];
 
 /**
  * Деньги книги — тысячи рублей (тот же масштаб, что у расчёта: «ИТОГО план»
@@ -95,9 +102,9 @@ const EMPTY_CELL_HINT = 'В книге значение не заполнено'
  * в ячейку уедет ровно то число, которое видит и правит оператор.
  */
 function formatCurrency(value: unknown): string {
-  const num = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
-  if (isNaN(num)) return EMPTY_CELL;
-  return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' тыс. ₽';
+  const parsed = parseEditableAmount(value);
+  if (!parsed.ok || parsed.value === null) return EMPTY_CELL;
+  return parsed.value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' тыс. ₽';
 }
 
 // Дата: DTO отдаёт ISO «YYYY-MM-DD» | null; локализация в дд.мм.гггг — здесь.
@@ -109,8 +116,8 @@ function displayValue(value: unknown, type: CellType): string {
   switch (type) {
     case 'currency': return formatCurrency(value);
     case 'number': {
-      const n = typeof value === 'number' ? value : parseFloat(String(value));
-      return isNaN(n) ? String(value) : n.toLocaleString('ru-RU');
+      const parsed = parseEditableAmount(value);
+      return !parsed.ok || parsed.value === null ? String(value) : parsed.value.toLocaleString('ru-RU');
     }
     case 'date': {
       const formatted = formatDate(value);
@@ -118,6 +125,13 @@ function displayValue(value: unknown, type: CellType): string {
     }
     default: return String(value);
   }
+}
+
+/** Numeric editor input must not silently truncate malformed values. */
+export function numericEditorValue(input: string): number | string | null {
+  if (input.trim() === '' || input.trim() === EMPTY_CELL) return null;
+  const parsed = parseEditableAmount(input);
+  return parsed.ok ? parsed.value : input;
 }
 
 function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -221,7 +235,7 @@ export async function copyText(text: string): Promise<boolean> {
 
 /** Что сказать после попытки копирования — включая честное признание отказа. */
 export const COPY_REFUSED_NOTE =
-  'Браузер не дал доступ к буферу обмена — скопируйте выделение вручную.';
+  PRODUCT_COPY["components/TableEditor:COPY_REFUSED_NOTE"];
 
 /** Версия схемы хранимых настроек таблиц: смена ключа обнуляет их намеренно. */
 const TABLE_PREFS_SCHEMA = 1;
@@ -393,11 +407,14 @@ export function TableEditor({
   onSaveRow,
   onRevertRow,
   onAddColumn,
+  externalDirtyFields = {},
   loading = false,
   readOnly = false,
   emptyReason,
   notice,
   rowAddress,
+  onCellMetadata,
+  metadataOpen = false,
   prefsName,
 }: TableEditorProps) {
   // Правки: строка → набор изменённых столбцов
@@ -432,6 +449,10 @@ export function TableEditor({
   // Короткий отчёт о копировании: удалось или почему нет
   const [copyNote, setCopyNote] = useState<string | null>(null);
 
+  const metadataButtonRef = useRef<HTMLButtonElement|null>(null);
+  const metadataFocusTransition = useRef(false);
+  const metadataWasOpen = useRef(false);
+  const guidanceId = useId();
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -440,6 +461,14 @@ export function TableEditor({
   // Высота первой строки шапки: на неё опускается прилипшая строка фильтров.
   // Замеряется, а не задаётся числом, — подписи столбцов переносятся по-разному.
   const [headerHeight, setHeaderHeight] = useState(0);
+
+  useEffect(() => {
+    if (!metadataOpen && metadataWasOpen.current) {
+      metadataFocusTransition.current = false;
+      inputRef.current?.focus();
+    }
+    metadataWasOpen.current = metadataOpen;
+  }, [metadataOpen]);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -599,8 +628,10 @@ export function TableEditor({
         const av = a[sortKey];
         const bv = b[sortKey];
         if (col?.type === 'number' || col?.type === 'currency') {
-          const an = parseFloat(String(av ?? '0')) || 0;
-          const bn = parseFloat(String(bv ?? '0')) || 0;
+          const aNum = parseEditableAmount(av);
+          const bNum = parseEditableAmount(bv);
+          const an = aNum.ok ? (aNum.value ?? 0) : 0;
+          const bn = bNum.ok ? (bNum.value ?? 0) : 0;
           return sortDir === 'asc' ? an - bn : bn - an;
         }
         const as = String(av ?? '');
@@ -636,13 +667,7 @@ export function TableEditor({
 
     let parsedValue: unknown = editValue;
     if (col?.type === 'number' || col?.type === 'currency') {
-      const cleaned = editValue.replace(/\s/g, '').replace(/,/g, '.').replace(/₽/g, '').trim();
-      if (cleaned === '' || cleaned === EMPTY_CELL) {
-        parsedValue = null;
-      } else {
-        const num = parseFloat(cleaned);
-        parsedValue = isNaN(num) ? editValue : num;
-      }
+      parsedValue = numericEditorValue(editValue);
     }
 
     const errKey = `${rowId}:${colKey}`;
@@ -832,18 +857,19 @@ export function TableEditor({
   );
 
   const isDirtyRow = useCallback((rowId: string) => {
-    return dirty[rowId] && dirty[rowId].size > 0;
-  }, [dirty]);
+    return (dirty[rowId]?.size ?? 0) > 0 || (externalDirtyFields[rowId]?.length ?? 0) > 0;
+  }, [dirty, externalDirtyFields]);
 
   const isDirtyCell = useCallback((rowId: string, colKey: string) => {
-    return dirty[rowId]?.has(colKey) ?? false;
-  }, [dirty]);
+    return dirty[rowId]?.has(colKey) === true || (externalDirtyFields[rowId]?.includes(colKey) ?? false);
+  }, [dirty, externalDirtyFields]);
 
   const hasRowErrors = useCallback((rowId: string) => {
     return Object.keys(errors).some(k => k.startsWith(`${rowId}:`));
   }, [errors]);
 
-  const dirtyCount = Object.keys(dirty).length;
+  const dirtyCount = new Set([...Object.keys(dirty), ...Object.keys(externalDirtyFields)])
+    .size;
   const failedCount = Object.keys(saveErrors).length;
   const colSpan = visibleColumns.length + (readOnly ? 0 : 1);
   const hiddenCount = columns.length - visibleColumns.length;
@@ -952,6 +978,12 @@ export function TableEditor({
         </div>
       </div>
 
+      {editingCell && columns.find(col => col.key === editingCell.colKey)?.guidance && (
+        <p id={guidanceId} role="note" className="text-xs text-zinc-600 dark:text-zinc-300">
+          {columns.find(col => col.key === editingCell.colKey)?.guidance}
+        </p>
+      )}
+
       {/* Границы редактора — честная оговорка, а не молчание */}
       {notice && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/70 dark:border-transparent text-[11px] text-zinc-600 dark:text-zinc-300">
@@ -959,6 +991,12 @@ export function TableEditor({
           <span>{notice}</span>
         </div>
       )}
+
+      {onCellMetadata&&<button type="button" disabled={!focusedCell} className="text-xs underline" ref={metadataButtonRef} onMouseDown={event=>{metadataFocusTransition.current=true;event.preventDefault();}} onClick={()=>{
+        metadataFocusTransition.current=true;
+        const row=rows.find(r=>r._id===focusedCell?.rowId);
+        if(row&&focusedCell)onCellMetadata(row,focusedCell.colKey);
+      }}>Заметки выбранной ячейки</button>}
 
       {/* Отказы записи — над таблицей, чтобы их нельзя было пропустить */}
       {failedCount > 0 && (
@@ -1257,7 +1295,11 @@ export function TableEditor({
                                 ref={el => { inputRef.current = el; }}
                                 value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
-                                onBlur={commitEdit}
+                                onFocus={()=>{metadataFocusTransition.current=false;}}
+                                onBlur={event=>{
+                                  if(metadataOpen||metadataFocusTransition.current||event.relatedTarget===metadataButtonRef.current){metadataFocusTransition.current=true;return;}
+                                  commitEdit();
+                                }}
                                 aria-label={`${col.label}: выбор значения`}
                                 className="w-full px-2 py-0.5 text-sm border-2 border-blue-400 rounded bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 outline-none"
                               >
@@ -1272,8 +1314,13 @@ export function TableEditor({
                                 type="text"
                                 value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
-                                onBlur={commitEdit}
+                                onFocus={()=>{metadataFocusTransition.current=false;}}
+                                onBlur={event=>{
+                                  if(metadataOpen||metadataFocusTransition.current||event.relatedTarget===metadataButtonRef.current){metadataFocusTransition.current=true;return;}
+                                  commitEdit();
+                                }}
                                 aria-label={`${col.label}: значение`}
+                                aria-describedby={col.guidance ? guidanceId : undefined}
                                 aria-invalid={cellError ? true : undefined}
                                 placeholder={col.type === 'date' ? 'ДД.ММ.ГГГГ' : ''}
                                 className={clsx(

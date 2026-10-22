@@ -14,8 +14,8 @@
  *      «продукт-исполнитель метаданных» отклонён).
  *   5. Непрочитанная книга честно отвечает «не читали», а не «замечаний нет»,
  *      и книга, которой дозор не касался, видна отдельным перечнем.
- *   6. Ночной обход ЗОВЁТ дозор и читает формулы полностью, без вопроса
- *      Drive «а менялся ли файл».
+ *   6. Ночной обход проверяет покрытие формул, пропуская уже проверенные
+ *      неизменные версии Drive.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -225,7 +225,7 @@ describe('обход книг и память дозора', () => {
 });
 
 describe('ночной обход', () => {
-  it('зовёт дозор и читает формулы полностью, не спрашивая Drive', async () => {
+  it('зовёт дозор и запрашивает формулы с отсевом уже проверенных версий Drive', async () => {
     const { nightlyIntegritySweep, setMetadataApi, metadataWatchState } =
       await import('./metadata-watch.js');
     const read = vi.fn(async () => canonSheet());
@@ -237,8 +237,7 @@ describe('ночной обход', () => {
     // Дозор прошёл по обеим книгам.
     expect(read).toHaveBeenCalledTimes(2);
     expect(metadataWatchState().notWatched).toEqual([]);
-    // Формулы прочитаны, вопрос Drive снят — иначе сеть безопасности имела бы
-    // дыру «а мы это уже читали».
+    // Покрытие формул проверяет координатор; одна прежняя версия недостаточна.
     expect(refreshAllSources).toHaveBeenCalledTimes(1);
     const options = (refreshAllSources.mock.calls[0] as unknown[])[2] as {
       withFormulas: boolean;
@@ -246,7 +245,7 @@ describe('ночной обход', () => {
       svod: boolean;
     };
     expect(options.withFormulas).toBe(true);
-    expect(options.askDrive).toBe(false);
+    expect(options.askDrive).toBe(true);
     expect(options.svod).toBe(false);
   });
 

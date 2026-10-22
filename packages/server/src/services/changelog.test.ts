@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { changesSince, parseChangeLog } from './changelog.js';
 
 describe('parseChangeLog', () => {
+  it('keeps actual seconds from a live date-only formatted timestamp', () => {
+    const [entry] = parseChangeLog([['ВСЕ', 'A2853', 1, 3209, '', 3209, 46315.70350991898, 'Автор']], 'УО');
+    expect(new Date(entry.atMs).toISOString()).toBe('2026-10-20T16:53:03.000Z');
+  });
   it('8-колоночная схема: пример УД из аудита, атрибут по живой шапке', () => {
     const rows = [
       ['Лист', 'Ячейка', 'Столбец', 'Строка', 'Было', 'Стало', 'Время', 'Автор'],

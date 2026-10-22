@@ -211,6 +211,19 @@ export function reductionCoefficients(
   };
 }
 
+/** Live rate window is tied to the source clock, never the browser clock. */
+export function rollingReductionCoefficients(procedures: readonly MonitoringProcedure[], asOf: string) {
+  const end = new Date(asOf + 'T00:00:00Z');
+  if (!Number.isFinite(end.getTime()) || end.toISOString().slice(0, 10) !== asOf) throw new Error('INVALID_COEFFICIENT_DATE');
+  const start = new Date(end);
+  start.setUTCFullYear(start.getUTCFullYear() - 1);
+  start.setUTCDate(start.getUTCDate() + 1);
+  const from = start.toISOString().slice(0, 10);
+  const dated = procedures.filter(p => p.auctionDate?.iso != null && p.auctionDate.iso >= from && p.auctionDate.iso <= asOf);
+  return { reduction: reductionCoefficients(dated), window: { from, to: asOf,
+    undated: procedures.filter(p => p.stage === 'awarded' && p.auctionDate?.iso == null).length } };
+}
+
 // ── §3.2. Гистограмма снижения: семь корзин ──────────────────────────
 
 export type DiscountBucketKey = 'zero' | '0-1' | '1-5' | '5-10' | '10-25' | '25-50' | '50+';

@@ -3,14 +3,18 @@ import { DEPARTMENT_REGISTRY } from './department-registry.js';
 import {
   ECONOMY_FLAG_BOOK_WORDS,
   ECONOMY_FLAG_CANON,
+  ECONOMY_DECISION_UPCOMING_ACTION,
   economyFlagVerdict,
   isEconomyFlagGarbage,
 } from './economy-flag.js';
-import { GRBS_BOOK_METHODS } from './dictionaries/method-families.js';
-import { EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { GRBS_BOOK_METHODS, normalizeMethod } from './dictionaries/method-families.js';
+import { EP_REASON_DICT, canonicalizeReasonEp } from './dictionaries/ep-reason-clusters.js';
 import { isAbsentCell } from './absence.js';
+import { readProcurementSequence } from './sequence-integrity.js';
+import { parseSheetNumber } from './editable-amount.js';
 import { hasFactDate } from './fact-date.js';
 import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
+import { productCalendarDay, PRODUCT_UTC_OFFSET_HOURS } from './time-selection.js';
 import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
@@ -35,29 +39,7 @@ import {
  * новые места обязаны звать его, не переизобретать.
  */
 export function toNumber(val: unknown): number | null {
-  if (val === null || val === undefined || val === '') return null;
-  if (typeof val === 'number' && !isNaN(val)) return val;
-  if (typeof val === 'string') {
-    const cleaned = val.replace(/\s/g, '').replace(/,/g, '.');
-    const n = parseFloat(cleaned);
-    if (!isNaN(n)) return n;
-  }
-  return null;
-}
-
-/**
- * Identity of a procurement row in column A. Unlike the monetary toNumber(),
- * "173/18" is not 173: both segments are part of the stable address.
- * Keep the money parser unchanged for budgets and totals.
- */
-export function rowNumberKey(val: unknown): string | null {
-  const match = /^(\d+)(?:\s*\/\s*(\d+))?$/.exec(String(val ?? '').trim());
-  if (!match) return null;
-  const base = Number(match[1]);
-  if (!Number.isSafeInteger(base) || base <= 0) return null;
-  if (match[2] === undefined) return String(base);
-  const suffix = Number(match[2]);
-  return Number.isSafeInteger(suffix) && suffix > 0 ? `${base}/${suffix}` : null;
+  return parseSheetNumber(val);
 }
 
 function hasData(val: unknown): boolean {
@@ -138,6 +120,38 @@ function diffToRubText(diffThousandRub: number): string {
   return (diffThousandRub * 1000).toFixed(2);
 }
 
+/** Same half-away-from-zero boundary as Google Sheets ROUND(diff;2).
+ * In thousand-ruble units a 5-ruble difference already rounds to 0.01.
+ */
+function bookSumDiffers(diffThousandRub: number): boolean {
+  return Math.round(Math.abs(diffThousandRub) / (2 * SUM_TOLERANCE_THOUSAND_RUB) + 1e-9) > 0;
+}
+
+type SumInspection =
+  | { kind: 'unverified'; reason: string }
+  | { kind: 'checked'; total: number; expectedSum: number; diff: number };
+
+/** A blank SUM operand is zero in Sheets. An invalid nonblank value or
+ * unreadable total is UNKNOWN, never a clean result.
+ */
+function inspectBookSum(ctx: RuleCheckContext, totalCol: string, operands: readonly string[]): SumInspection {
+  const total = toNumber(ctx.cells[totalCol]);
+  if (total === null) {
+    return { kind: 'unverified', reason: `Итог ${totalCol}${ctx.rowIndex} отсутствует либо не читается как число.` };
+  }
+  let expectedSum = 0;
+  for (const col of operands) {
+    const raw = ctx.cells[col];
+    if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+    const amount = toNumber(raw);
+    if (amount === null) {
+      return { kind: 'unverified', reason: `Компонент ${col}${ctx.rowIndex} заполнен нечисловым значением; сверка ${totalCol} не завершена.` };
+    }
+    expectedSum += amount;
+  }
+  return { kind: 'checked', total, expectedSum, diff: Math.abs(total - expectedSum) };
+}
+
 // ============================================================
 // ПРАВИЛО 1: Консистентность сумм бюджета
 // K = H + I + J (план), O = L + M + N (факт)
@@ -147,33 +161,24 @@ const budgetSumConsistencyPlan: ValidationRule = {
   name: 'Консистентность плановых сумм бюджета',
   description:
     'K (итого план) должен равняться H + I + J (ФБ + КБ + МБ план). ' +
-    'Допуск: расхождение свыше 5 руб. Работает на СВОД и листах подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Работает на СВОД и листах подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'both',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['K']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['H', 'I', 'J']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'K', ['H', 'I', 'J']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `K${ctx.rowIndex} (план) = ${total}, ожидалось ${expectedSum} ` +
           `(H + I + J). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `K${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -188,33 +193,24 @@ const budgetSumConsistencyFact: ValidationRule = {
   name: 'Консистентность фактических сумм бюджета (СВОД)',
   description:
     'O (итого факт) должен равняться L + M + N (ФБ + КБ + МБ факт). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['O']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['L', 'M', 'N']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'O', ['L', 'M', 'N']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `O${ctx.rowIndex} (факт) = ${total}, ожидалось ${expectedSum} ` +
           `(L + M + N). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `O${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -246,8 +242,7 @@ const executionPercentage: ValidationRule = {
     const g = toNumber(ctx.cells['G']); // % исполнения
 
     // Нет данных для проверки
-    if (d === null && e === null) return { passed: true };
-    if (g === null) return { passed: true };
+    if (d === null || e === null || g === null) return { passed: null, message: 'Для проверки процента нужны числовые D, E и G.' };
 
     // D = 0 и E = 0 → G должен быть 0 или пусто
     if (d === 0 && e === 0) {
@@ -277,7 +272,7 @@ const executionPercentage: ValidationRule = {
 
     // D > 0 → проверяем формулу
     if (d !== null && d > 0) {
-      const ratio = (e ?? 0) / d;
+      const ratio = e / d;
       // G может быть в формате 0-1 (десятичная доля, Excel «%») или 0-100 (число)
       // Если G <= 1.5 и expected > 1.5, значит G в десятичном формате
       const expectedPct = ratio * 100;
@@ -322,7 +317,7 @@ const deviationCalc: ValidationRule = {
     const e = toNumber(ctx.cells['E']); // факт
     const f = toNumber(ctx.cells['F']); // отклонение
 
-    if (d === null || e === null || f === null) return { passed: true };
+    if (d === null || e === null || f === null) return { passed: null, message: 'Для проверки отклонения нужны числовые D, E и F.' };
 
     // Spreadsheet convention: F = E - D (факт минус план)
     const expected = e - d;
@@ -374,20 +369,23 @@ const q1LeqYear: ValidationRule = {
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    if (!ctx.allRows || ctx.allRows.length === 0) return { passed: true };
-
     // Only fire on known Q1 rows
     const pair = Q1_YEAR_PAIRS.find(p => p.q1Row === ctx.rowIndex);
     if (!pair) return { passed: true };
 
-    const yearRow = ctx.allRows.find(r => r.rowIndex === pair.yearRow);
-    if (!yearRow) return { passed: true };
+    const yearRow = ctx.allRows?.find(r => r.rowIndex === pair.yearRow);
+    if (!yearRow) return { passed: null, message: `Не прочитана годовая строка ${pair.yearRow} для сравнения с кварталом.` };
 
     const columnsToCheck = ['D', 'K'];
+    const missing: string[] = [];
     for (const col of columnsToCheck) {
       const q1Val = toNumber(ctx.cells[col]);
       const yearVal = toNumber(yearRow.cells[col]);
-      if (q1Val === null || yearVal === null) continue;
+      if (q1Val === null || yearVal === null) {
+        if (q1Val === null) missing.push(`${col}${ctx.rowIndex}`);
+        if (yearVal === null) missing.push(`${col}${pair.yearRow}`);
+        continue;
+      }
 
       if (q1Val > yearVal) {
         return {
@@ -402,7 +400,9 @@ const q1LeqYear: ValidationRule = {
       }
     }
 
-    return { passed: true };
+    return missing.length
+      ? { passed: null, message: `Не получены числовые значения для сравнения квартала с годом: ${missing.join(', ')}.` }
+      : { passed: true };
   },
 };
 
@@ -425,7 +425,7 @@ const factLeqPlan: ValidationRule = {
     const d = toNumber(ctx.cells['D']); // план
     const e = toNumber(ctx.cells['E']); // факт
 
-    if (d === null || e === null) return { passed: true };
+    if (d === null || e === null) return { passed: null, message: 'Для сравнения количества плана и факта нужны числовые значения D и E.' };
     if (d === 0) return { passed: true }; // нечего сравнивать
 
     if (e > d) {
@@ -565,15 +565,22 @@ const statusOnDataRows: ValidationRule = {
     const verdict = economyFlagVerdict({
       planTotal: toNumber(ctx.cells['K']),
       factTotal: toNumber(ctx.cells['Y']),
+      declaredFactTotal: toNumber(ctx.cells['Y']),
       adCell: ctx.cells['AD'],
       isEp: method.includes('еп') || method.includes('единствен'),
+      completed: parseSheetDate(ctx.cells['Q']) !== null,
+      completionDay: dayOfDateCell(ctx.cells['Q']),
+      asOfDay: ctx.asOf ? productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS) : null,
+      methodKnown: normalizeMethod(ctx.cells.L) !== undefined,
+      monopoly: (method.includes('еп') || method.includes('единствен')) && canonicalizeReasonEp(String(ctx.cells.M ?? '').slice(0, 2000)).cluster === 'EP_MONOPOLIST',
     });
+    if (verdict.upcoming) return { passed: true, message: ECONOMY_DECISION_UPCOMING_ACTION };
     if (!verdict.matches) return { passed: true };
 
     // Род называется вслух (канон: «ЕП включённо, но с пометкой рода»).
     const kindNote = verdict.kind === 'ep'
-      ? ' Способ — единственный поставщик: по нему экономии быть не должно вовсе, поэтому строку'
-        + ' стоит разобрать заодно с проверкой «По ЕП факт не равен плану».'
+      ? ' Способ — единственный поставщик: сверьте завершённую годовую потребность'
+        + ' и накопленные обязательства по всем контрактам; разница сама не доказывает нарушение.'
       : '';
 
     return {
@@ -636,33 +643,24 @@ const deptFactSumConsistency: ValidationRule = {
   name: 'Консистентность фактических сумм (подразделения)',
   description:
     'Y (итого факт) = V + W + X (ФБ + КБ + МБ факт). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['Y']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['V', 'W', 'X']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'Y', ['V', 'W', 'X']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `Y${ctx.rowIndex} (факт итого) = ${total}, ожидалось ${expectedSum} ` +
           `(V + W + X). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `Y${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -681,33 +679,24 @@ const deptEconomySumConsistency: ValidationRule = {
   name: 'Консистентность сумм экономии (подразделения)',
   description:
     'AC (итого экономия) = Z + AA + AB (ФБ + КБ + МБ экономия). ' +
-    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
+    'Порог: расхождение от 5 руб. после ROUND(разница;2). Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
-    const total = toNumber(ctx.cells['AC']);
-    if (total === null) return { passed: true };
-
-    let expectedSum = 0;
-    let allPresent = true;
-    for (const col of ['Z', 'AA', 'AB']) {
-      const val = toNumber(ctx.cells[col]);
-      if (val === null) { allPresent = false; break; }
-      expectedSum += val;
+    const inspection = inspectBookSum(ctx, 'AC', ['Z', 'AA', 'AB']);
+    if (inspection.kind === 'unverified') {
+      return { passed: null, message: inspection.reason };
     }
-    if (!allPresent) return { passed: true };
-
-    const diff = Math.abs(total - expectedSum);
-    if (diff > TOLERANCE) {
+    const { total, expectedSum, diff } = inspection;
+    if (bookSumDiffers(diff)) {
       return {
         passed: false,
         message:
           `AC${ctx.rowIndex} (экономия итого) = ${total}, ожидалось ${expectedSum} ` +
           `(Z + AA + AB). Разница: ${diffToRubText(diff)} руб. ` +
-          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
+          `(порог округления ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `AC${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -739,13 +728,13 @@ const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
 
 function isNumberedRow(row: ClassifiedRow): boolean {
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // "service" also includes empty formula templates with H:K = 0.
-  // Only actual subjects are countable; a formula-only tail needs no A.
-  if (row.classification === 'header' || row.classification === 'summary' || row.classification === 'separator') return false;
-  if ((row.classification === 'service' || row.classification === 'note') && hasData(row.cells['G'])) {
-    return hasData(row.cells['C']) || hasData(row.cells['D']) || hasData(row.cells['L']);
-  }
-  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+  // A service row can be an actual purchase without a number, but an empty
+  // formula tail (H:K = 0 with no subject or method) must stay silent.
+  if (row.classification === 'header' || row.classification === 'summary' ||
+      row.classification === 'separator' || row.classification === 'note') return false;
+  const hasBusinessText = String(row.cells['G'] ?? '').trim() !== '' ||
+    String(row.cells['L'] ?? '').trim() !== '';
+  return hasBusinessText || (toNumber(row.cells['K']) ?? 0) > 0;
 }
 
 /**
@@ -804,11 +793,12 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      // Identity ≠ money: 173, 173/1 and 173/18 are three distinct keys.
-      // Only a strictly whole number participates in gap statistics.
-      const key = rowNumberKey(raw) ?? raw;
-      const intNo = /^\d+$/.test(key) && Number.isSafeInteger(Number(key)) ? Number(key) : null;
-      if (intNo !== null) ints.add(intNo);
+      // The same shared parser is used by the independent sequence-integrity
+      // path: numeric 531 = text "531", but 173/1 and 00173 stay distinct.
+      const key = readProcurementSequence(r.cells['A']) ?? raw;
+      const intNo = /^[0-9]+$/.test(key) && Number.isSafeInteger(Number(key))
+        ? Number(key) : null;
+      if (intNo !== null && intNo > 0) ints.add(intNo);
       const at = byNo.get(key);
       if (at) at.push(r.rowIndex);
       else byNo.set(key, [r.rowIndex]);
@@ -1125,8 +1115,7 @@ const numericCellUnreadable: ValidationRule = {
   name: 'Денежная графа заполнена не числом',
   description:
     'В графах сумм (H:J план, V:X факт, Z:AB остаток) стоит значение, которое ' +
-    'числом не читается. Сверки итогов такую графу молча пропускают, и строка ' +
-    'выпадает из сумм.',
+    'числом не читается. Проверить соответствующий итог без этого значения невозможно.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -1149,8 +1138,7 @@ const numericCellUnreadable: ValidationRule = {
       message:
         `Денежные графы строки заполнены не числом: ${list}. ` +
         `Сверки итогов (K = H+I+J, Y = V+W+X, AC = Z+AA+AB) при нечитаемом ` +
-        `слагаемом молчат — расхождение не всплывёт нигде, а сумма строки ` +
-        `посчитается без этой графы.`,
+        `слагаемом не выполнены. Это не доказательство совпадения или расхождения сумм.`,
       cell: `${bad[0].col}${ctx.rowIndex}`,
       actual: bad.map(b => `${b.col}="${b.shown}"`).join(', '),
       expected: 'число (сумма в тыс. руб.) либо пустая ячейка',
@@ -1197,10 +1185,9 @@ const economyFlagGarbage: ValidationRule = {
 // ============================================================
 const overdueReasonMissing: ValidationRule = {
   id: 'overdue_reason_missing',
-  name: 'Срок нарушен, а причина (U) не заполнена',
+  name: 'Не указана причина задержки заключения договора (столбец U)',
   description:
-    'Срок по строке нарушен — либо графа T говорит «Срок нарушен», либо дни ' +
-    'просрочки больше нуля, — а графа U (причина отклонения) пуста.',
+    'Задержка подтверждена датами N/Q либо плановой датой и днём среза при отсутствии факта; столбец U пуст.',
   severity: 'warning',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -1208,16 +1195,23 @@ const overdueReasonMissing: ValidationRule = {
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
 
-    // Опоздание видно двумя путями. Структурный (даты N и Q) — основной, он не
-    // зависит от целостности формулы T. Графа T нужна для строк БЕЗ факта:
-    // там «нарушен ли срок» решают часы («сегодня» против плановой даты), а у
-    // правила листа часов нет — их держит формула книги, сравнивающая план с
-    // датой среза из настроек.
+    // N/Q and the captured day own the event; T is only a derived display.
+    // Amounts without Q remain the existing annual-stage convention, not proof
+    // of a missing contract. Never demand a reason solely because T says so.
     const late = daysLateOfRow(ctx.cells);
-    const verdictT = String(ctx.cells['T'] ?? '').trim().toLowerCase();
-    const daysT = toNumber(ctx.cells['T']);
-    const overdueByBook = verdictT.includes('срок нарушен') || (daysT !== null && daysT > 0);
-    if (late === null && !overdueByBook) return { passed: true };
+    const planDay = dayOfDateCell(ctx.cells['N']);
+    const factDay = dayOfDateCell(ctx.cells['Q']);
+    const today = ctx.asOf && Number.isFinite(ctx.asOf.getTime())
+      ? productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS) : null;
+    if (today !== null && factDay !== null && factDay > today) return { passed: true };
+    if (late === null) {
+      const total = toNumber(ctx.cells['Y']);
+      const factAmount = total !== null && total !== 0 ? total
+        : ['V', 'W', 'X'].reduce((sum, col) => sum + (toNumber(ctx.cells[col]) ?? 0), 0);
+      if (planDay === null || hasFactDate(ctx.cells['Q']) || factAmount > 0) return { passed: true };
+      if (today === null) return { passed: null, message: 'Не задан день среза для проверки текущей задержки.' };
+      if (planDay >= today) return { passed: true };
+    }
 
     // ПУСТОТА — СТРУКТУРНАЯ, СОДЕРЖИМОЕ НЕ ЧИТАЕТСЯ. Канон п.27 запрещает
     // машинно толковать свободный текст исполнителя (U «Причина отклонения»),
@@ -1228,7 +1222,7 @@ const overdueReasonMissing: ValidationRule = {
 
     const howLate = late !== null
       ? `Заключение позже плановой даты на ${late} ${daysWord(late)}.`
-      : 'Плановая дата прошла, факта нет.';
+      : 'Плановый срок прошёл; заключение не подтверждено датой или фактическими суммами.';
     return {
       passed: false,
       message:
@@ -1249,16 +1243,18 @@ const overdueReasonMissing: ValidationRule = {
 // ============================================================
 const lateSigned: ValidationRule = {
   id: 'late_signed',
-  name: 'Исполнено с опозданием',
+  name: 'Договор заключён позже планового срока',
   description:
-    'Договор заключён (дата в Q) позже плановой даты (N). Строка закрыта, но ' +
-    'срок сорван — признак просрочки у неё гаснет вместе с появлением факта.',
-  severity: 'warning',
+    'Дата заключения Q позже плановой даты N. Это история заключения, а не подтверждение поставки, приёмки или оплаты.',
+  severity: 'info',
   origin: 'bi_heuristic',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
+    const factDay = dayOfDateCell(ctx.cells['Q']);
+    if (ctx.asOf && Number.isFinite(ctx.asOf.getTime()) && factDay !== null
+      && factDay > productCalendarDay(ctx.asOf, PRODUCT_UTC_OFFSET_HOURS)) return { passed: true };
     const late = daysLateOfRow(ctx.cells);
     if (late === null) return { passed: true };
 
@@ -1266,9 +1262,8 @@ const lateSigned: ValidationRule = {
       passed: false,
       message:
         `Заключение (Q${ctx.rowIndex}) позже плановой даты (N${ctx.rowIndex}) ` +
-        `на ${late} ${daysWord(late)}. Это не упрёк, а факт исполнения: строка ` +
-        `состоялась, и признак просрочки по ней погас — до этой проверки ` +
-        `закрытая с нарушением срока закупка выглядела чистой.`,
+        `на ${late} ${daysWord(late)}. Сохраните фактические даты и объяснение ` +
+        `в столбце U. Поставка, приёмка и оплата этим сравнением не проверяются.`,
       cell: `Q${ctx.rowIndex}`,
       actual: `+${late} ${daysWord(late)}`,
       expected: 'заключение не позже плановой даты (N)',
@@ -1384,7 +1379,7 @@ const economyComponents: ValidationRule = {
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
     if (!hasRowNumber(ctx.cells)) return { passed: true };
-    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
+    
 
     // Пустота даты факта — ЕДИНЫЙ ДОМ канона (@aemr/shared fact-date.ts): в
     // книге заглушкой обычно стоит «Х», но канон знает все девять её написаний,
@@ -1411,7 +1406,7 @@ const economyComponents: ValidationRule = {
       }
 
       const diff = Math.abs(restVal - expected);
-      if (diff <= TOLERANCE) continue;
+      if (!bookSumDiffers(diff)) continue;
       bad.push(
         `${rest}${ctx.rowIndex} (${what}) = ${restVal}, ожидалось ${expected}` +
         (factSigned ? ` (${plan} − ${fact})` : ' (даты заключения нет)') +
@@ -1424,7 +1419,7 @@ const economyComponents: ValidationRule = {
       passed: false,
       message:
         `Экономия по компонентам не сходится с «план − факт»: ${bad.join(' ')} ` +
-        `(допуск ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
+        `(порог округления ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
         `(AC = Z + AA + AB) такую строку пропускает: тройка между собой сходится, ` +
         `а сумма в ней вбита не та.`,
       cell: `${ECONOMY_COMPONENT_TRIPLES[0].rest}${ctx.rowIndex}`,

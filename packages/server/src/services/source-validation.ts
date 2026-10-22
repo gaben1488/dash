@@ -9,6 +9,11 @@ import {
   LEGACY_SIGNAL_TO_CHECK,
   issueSuppressedByRowClass,
   epRiskStrictnessOfReason,
+  isAnnualEpAggregate,
+  futureFactDateSeverity,
+  EP_ANNUAL_AMOUNT_TITLE,
+  epRiskReviewDetails,
+  toNumber as sheetNumber,
 } from '@aemr/shared';
 import { getSheetData } from './google-sheets.js';
 import { readDeptSheet } from './google-sheets.js';
@@ -50,6 +55,9 @@ export interface SourceValidationResult {
   resolvedSheetName: string;
   /** Строк-позиций проверено (не сырых строк листа). */
   rowsChecked: number;
+  /** A readable aggregate is not the same as a content-validated source. */
+  validationPerformed?: boolean;
+  rowsRead?: number;
   issues: SourceIssue[];
   summary: { total: number; critical: number; warning: number; info: number };
   error?: string;
@@ -70,7 +78,7 @@ const titleOf = (checkId: string, fallback: string): string =>
   CHECKS_BY_ID.get(checkId)?.name ?? fallback;
 
 /** Прогнать канонические проверки по строкам листа. */
-export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult, 'rowsChecked' | 'issues' | 'summary'> {
+export function validateRows(rawRows: unknown[][], department?: string): Pick<SourceValidationResult, 'rowsChecked' | 'issues' | 'summary'> {
   const issues: SourceIssue[] = [];
   let rowsChecked = 0;
 
@@ -97,6 +105,9 @@ export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult,
       // Класс строки может гасить претензию по другому её признаку (канон
       // @aemr/shared): инициативная заявка в риск-списки не идёт, п.137(3).
       if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
+      const epContext = { dept: department ?? String(cells.B ?? ''), id: cells.A, subject: cells.G,
+        method: cells.L, factDateRaw: cells.Q, planDateRaw: cells.N, factSum: sheetNumber(cells.Y) ?? undefined, amountBasis: 'position-total' as const, planYear: sheetNumber(cells.P) ?? undefined,
+        necessityJustification: cells.AE, commentGRBS: cells.AF };
       issues.push({
         row: rowNo,
         type: 'signal',
@@ -104,9 +115,11 @@ export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult,
         // (п.137(2)): дом развилки — @aemr/shared, чтобы проверка источника,
         // конвейер и чип Реестра не разошлись в оценке одной строки.
         severity: signalKey === 'epRisk'
-          ? epRiskStrictnessOfReason(cells['M'])
-          : severityOf(checkId),
-        message: titleOf(checkId, signalKey),
+          ? epRiskStrictnessOfReason(cells['M'], epContext)
+          : signalKey === 'futureFactDate' && futureFactDateSeverity(epContext) === 'info' ? 'info' : severityOf(checkId),
+        message: signalKey === 'epRisk' && isAnnualEpAggregate(epContext)
+          ? EP_ANNUAL_AMOUNT_TITLE : signalKey === 'epRisk' && epRiskStrictnessOfReason(cells.M, epContext) === 'warning'
+            ? epRiskReviewDetails(cells.M, epContext).title : titleOf(checkId, signalKey),
       });
     }
 
@@ -160,14 +173,14 @@ export async function validateSource(name: string): Promise<SourceValidationResu
       resolvedSheetName = SVOD_SHEET_NAME;
       // СВОД — агрегатный лист, построчные сигналы ГРБС-формата к нему неприменимы:
       // проверяем только читаемость.
-      return { success: true, name, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name, resolvedSheetName, ...empty, rowsRead: rawRows.length, validationPerformed: false };
     }
 
     if (name === SHDYU_MONTHLY_SHEET_NAME || name === 'ШДЮ' /* легаси-имя карточки */) {
       rawRows = await getSheetData(SHDYU_MONTHLY_SHEET_NAME, SHDYU_SPREADSHEET_ID);
       resolvedSheetName = SHDYU_MONTHLY_SHEET_NAME;
       // Помесячный свод — тоже агрегат, не ГРБС-строки.
-      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, ...empty, rowsChecked: rawRows.length };
+      return { success: true, name: SHDYU_MONTHLY_SHEET_NAME, resolvedSheetName, ...empty, rowsRead: rawRows.length, validationPerformed: false };
     }
 
     const ssId = DEPARTMENT_SPREADSHEETS[name];
@@ -176,8 +189,9 @@ export async function validateSource(name: string): Promise<SourceValidationResu
     }
     // ТОТ ЖЕ резолвер, что у загрузчика (кандидаты ВСЕ/Все/имя, честные 429/403).
     const sheet = await readDeptSheet(name, ssId);
-    const checked = validateRows(sheet.values);
-    return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked };
+    const checked = validateRows(sheet.values, name);
+    return { success: true, name, resolvedSheetName: sheet.sheetName, ...checked,
+      rowsRead: sheet.values.length, validationPerformed: true };
   } catch (err) {
     return {
       success: false,

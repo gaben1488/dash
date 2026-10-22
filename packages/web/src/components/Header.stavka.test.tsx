@@ -72,8 +72,8 @@ describe('зона действия ставки в подсказках (п.4)'
     const buttons = [...container.querySelectorAll<HTMLButtonElement>('button')];
     expect(buttons).toHaveLength(2);
     for (const b of buttons) {
-      expect(b.title).toContain('суммы ожидаемой экономии Отчёта');
-      expect(b.title).toContain('на остальных вкладках зависимых чисел пока нет');
+      expect(b.title).toContain('прогноз по остатку ЭА в Отчёте');
+      expect(b.title).toContain('Факт экономии и данные книг от неё не меняются');
       // И нигде — вранья «действует везде».
       expect(b.title).not.toContain('действует везде');
     }

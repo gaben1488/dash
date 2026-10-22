@@ -1,11 +1,14 @@
 import type { FastifyInstance } from 'fastify';
+import { requestStage } from '../plugins/request-timing.js';
 import { getSnapshot, invalidateCache, setSvodGridCache, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
+import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
-import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
+import { classifySheet, REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
+import type { KPICard, DepartmentSummary, DepartmentPeriodBlock, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
+import { parseYearFilterParam } from '../services/period-params.js';
 
 /**
  * Ответ на недоступность снимка. Демо-политика живёт в ОДНОЙ точке — getSnapshot:
@@ -18,6 +21,12 @@ const SNAPSHOT_UNAVAILABLE = {
   error: 'Данные недоступны: не удалось получить снимок из источника. Повторите позже.',
 } as const;
 
+function snapshotUnavailable(error: unknown) {
+  return error instanceof Error && 'code' in error && error.code === 'SNAPSHOT_NOT_READY'
+    ? { code: 'SNAPSHOT_NOT_READY', error: 'Срез данных ещё готовится. Повторите чтение после обновления.' }
+    : SNAPSHOT_UNAVAILABLE;
+}
+
 /**
  * Блок чисел одного периода (квартал, год или месяц) в сводке ГРБС.
  *
@@ -28,34 +37,7 @@ const SNAPSHOT_UNAVAILABLE = {
  * (SIMPLIFY_REGISTER_2026-06-05 §S3 и §S6).
  * Замок: routes/dashboard-period-block.test.ts.
  */
-type PeriodBlock = {
-  planCount: number | null;
-  factCount: number | null;
-  planTotal: number | null;
-  factTotal: number | null;
-  planFB: number | null;
-  planKB: number | null;
-  planMB: number | null;
-  factFB: number | null;
-  factKB: number | null;
-  factMB: number | null;
-  economyTotal: number | null;
-  economyFB: number | null;
-  economyKB: number | null;
-  economyMB: number | null;
-  executionPct: number | null;
-  execCountPct: number | null;
-  compExecCountPct: number | null;
-  epExecCountPct: number | null;
-  kpCount: number | null;
-  kpFactCount: number | null;
-  kpPlanTotal: number | null;
-  kpFactTotal: number | null;
-  epCount: number | null;
-  epFactCount: number | null;
-  epPlanTotal: number | null;
-  epFactTotal: number | null;
-};
+type PeriodBlock = DepartmentPeriodBlock;
 
 /**
  * Собирает блок периода из рассчитанных метрик снимка.
@@ -114,23 +96,17 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/dashboard', async (request, reply) => {
     const query = request.query as Record<string, string>;
     const force = query.refresh === 'true';
-    const yearParam = query.year; // e.g. '2026' or 'all'
-    // Strict validation: only 4-digit year in plausible range is accepted.
-    // 'all', missing, or invalid → undefined (snapshot falls back to current year).
-    let targetYear: number | undefined;
-    if (yearParam && yearParam !== 'all') {
-      const parsed = parseInt(yearParam, 10);
-      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
-        targetYear = parsed;
-      }
-    }
+    const targetYear = parseYearFilterParam(query.year);
     let snapshot;
     try {
-      snapshot = await getSnapshot(force, targetYear);
+      snapshot = await requestStage(request, 'model', () => getSnapshot(force, targetYear));
     } catch (err) {
       app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
+
+    // Decisions are read on every request; never mutate the historical snapshot.
+    snapshot = withPersistedDecisions(snapshot);
 
     // Формируем KPI-карточки
     const kpiCards: KPICard[] = [];
@@ -139,7 +115,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       if (!metric) continue;
 
       const delta = snapshot.deltas?.find((d: DeltaResult) => d.metricKey === entry.metricKey);
-      const issues = snapshot.issues?.filter((i: Issue) => i.metricKey === entry.metricKey) ?? [];
+      const issues = snapshot.issues?.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.metricKey === entry.metricKey) ?? [];
       const hasCritical = issues.some((i: Issue) => i.severity === 'critical');
       const hasWarning = issues.some((i: Issue) => i.severity === 'warning' || i.severity === 'significant');
 
@@ -165,7 +141,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const deptSignalCounts: Record<string, Record<string, number>> = {};
     for (const iss of (snapshot.issues ?? [])) {
       const i = iss as Issue;
-      if (!i.departmentId || !i.signal) continue;
+      if (i.status === 'false_positive' || formulaDiagnosticInapplicableReason(i) || !i.departmentId || !i.signal) continue;
       if (!deptSignalCounts[i.departmentId]) deptSignalCounts[i.departmentId] = {};
       deptSignalCounts[i.departmentId][i.signal] = (deptSignalCounts[i.departmentId][i.signal] ?? 0) + 1;
     }
@@ -176,45 +152,26 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
 
       // Prefer calc-engine year-filtered totals (they respect targetYear).
-      // SVOD cells are static and not year-filtered — use only as fallback.
+      // Official SVOD is never substituted into the calculated result.
       const prefix = `grbs.${dept.id}`;
-      const calcGet = (key: string) => calc[key]?.numericValue;
-      const svodGet = (key: string) => snapshot.officialMetrics[key]?.numericValue;
+      const calcGet = (key: string): number | null => calc[key]?.numericValue ?? null;
 
-      const calcPlanYear = calcGet(`${prefix}.year.plan_total`);
-      const calcFactYear = calcGet(`${prefix}.year.fact_total`);
-      const calcEcoYear = calcGet(`${prefix}.year.economy_total`);
-      const calcKpYear = calcGet(`${prefix}.kp.year.count`);
-      const calcEpYear = calcGet(`${prefix}.ep.year.count`);
-      const calcExecYear = calcGet(`${prefix}.year.execution_pct`); // fraction 0..1
+      // C04.01: one accepted master dataset feeds Dash and Word. Official
+      // SVOD cells are comparison evidence, never a replacement for a missing
+      // calculated year (particularly when the official sheet is for another year).
+      const planTotalVal = calcGet(`${prefix}.year.plan_total`);
+      const factTotalVal = calcGet(`${prefix}.year.fact_total`);
+      const ecoTotal = calcGet(`${prefix}.year.economy_total`);
+      const kpCount = calcGet(`${prefix}.kp.year.count`);
+      const epCount = calcGet(`${prefix}.ep.year.count`);
+      const countRatio = calcGet(`${prefix}.year.exec_count_pct`);
+      const executionPct = countRatio == null ? null : +(countRatio * 100).toFixed(1);
 
-      const planTotalVal = calcPlanYear != null
-        ? calcPlanYear
-        : svodGet(`${prefix}.kp.year.total_plan`) ?? svodGet(`${prefix}.kp.q1.total_plan`) ?? null;
-      const factTotalVal = calcFactYear != null
-        ? calcFactYear
-        : svodGet(`${prefix}.kp.year.total_fact`) ?? svodGet(`${prefix}.kp.q1.total_fact`) ?? null;
-      const ecoTotal = calcEcoYear != null
-        ? calcEcoYear
-        : ((svodGet(`${prefix}.economy.kp`) ?? 0) + (svodGet(`${prefix}.economy.ep`) ?? 0)) || null;
-
-      const criticalCount = deptIssues.filter((i: Issue) => i.severity === 'critical').length;
-      const executionPct = calcExecYear != null
-        ? +(calcExecYear * 100).toFixed(1)
-        : (() => {
-            const p = svodGet(`${prefix}.kp.q1.percent`);
-            return p != null ? +(p * 100).toFixed(1) : null;
-          })();
-
-      const kpCount = calcKpYear != null
-        ? calcKpYear
-        : svodGet(`${prefix}.kp.q1.count`) ?? null;
-      const epCount = calcEpYear != null
-        ? calcEpYear
-        : svodGet(`${prefix}.ep.q1.count`) ?? null;
+      const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
+      const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
 
       // Per-department trust score via computeTrustScore
-      const deptPrefix = `grbs.${dept.id}`;
+      const deptPrefix = `grbs.${dept.id}.`;
       const deptMetricsMap = new Map<string, NormalizedMetric>(
         Object.entries(snapshot.officialMetrics)
           .filter(([key]) => key.startsWith(deptPrefix))
@@ -223,7 +180,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const deptDeltas = snapshot.deltas?.filter(
         (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
       ) ?? [];
-      const deptTrust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id);
+      const deptTrust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id,
+        snapshot.trust?.coverage?.filter(c => classifySheet(c.sheet).latinId === dept.id));
       const trustScore = deptTrust.overall;
 
       // Кварталы, год и месяцы собираются ОДНИМ строителем (buildPeriodBlock):
@@ -263,7 +221,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         criticalIssueCount: criticalCount,
         trustScore,
         trustComponents: deptTrust.components,
-        status: criticalCount > 0 ? 'critical' as const : deptIssues.length > 3 ? 'warning' as const : 'normal' as const,
+        status: criticalCount > 0 ? 'critical' as const : activeDeptIssues.length > 3 ? 'warning' as const : 'normal' as const,
         quarters,
         signalCounts: deptSignalCounts[dept.id] ?? {},
         byActivity: deptRecalc?.byActivity ?? {},
@@ -272,101 +230,38 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       };
     });
 
-    // Summary-level aggregates by period (1 кв + Year from СВОД, 2 кв-4 кв from calculated)
+    // The same calculated summary from master rows serves every period.
+    // The independent official SVOD is retained in officialMetrics, kpiCards
+    // and reconciliation so a disagreement remains visible, not silently mixed.
     const summaryByPeriod: Record<string, DashboardPeriodSummary> = {};
-
-    // 1 кв + Year from official СВОД metrics
-    for (const p of ['q1', 'year'] as const) {
-      const kpCount = snapshot.officialMetrics[`competitive.${p}.count`]?.numericValue ?? null;
-      const kpFactCount = snapshot.officialMetrics[`competitive.${p}.fact_count`]?.numericValue ?? null;
-      const kpPlan = snapshot.officialMetrics[`competitive.${p}.total_plan`]?.numericValue ?? null;
-      const kpFact = snapshot.officialMetrics[`competitive.${p}.total_fact`]?.numericValue ?? null;
-      const kpPct = snapshot.officialMetrics[`competitive.${p}.percent`]?.numericValue ?? null;
-      const epCount = snapshot.officialMetrics[`sole.${p}.count`]?.numericValue ?? null;
-      const epFactCount = snapshot.officialMetrics[`sole.${p}.fact_count`]?.numericValue ?? null;
-      const epPlan = snapshot.officialMetrics[`sole.${p}.total_plan`]?.numericValue ?? null;
-      const epFact = snapshot.officialMetrics[`sole.${p}.total_fact`]?.numericValue ?? null;
-      const epPct = snapshot.officialMetrics[`sole.${p}.percent`]?.numericValue ?? null;
-      const fbPlan = snapshot.officialMetrics[`competitive.${p}.fb_plan`]?.numericValue ?? null;
-      const kbPlan = snapshot.officialMetrics[`competitive.${p}.kb_plan`]?.numericValue ?? null;
-      const mbPlan = snapshot.officialMetrics[`competitive.${p}.mb_plan`]?.numericValue ?? null;
-      const fbFact = snapshot.officialMetrics[`competitive.${p}.fb_fact`]?.numericValue ?? null;
-      const kbFact = snapshot.officialMetrics[`competitive.${p}.kb_fact`]?.numericValue ?? null;
-      const mbFact = snapshot.officialMetrics[`competitive.${p}.mb_fact`]?.numericValue ?? null;
-      summaryByPeriod[p] = {
-        kpCount, kpFactCount, kpPlan, kpFact, kpPercent: kpPct,
-        epCount, epFactCount, epPlan, epFact, epPercent: epPct,
-        fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
-        source: 'official',
-      };
-    }
-
-    // Q2-Q4 aggregated from calculated metrics across all departments
-    for (const qk of ['q2', 'q3', 'q4'] as const) {
-      let kpCount = 0, kpFactCount = 0, kpPlan = 0, kpFact = 0;
-      let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
-      let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
-      let epFbPlan = 0, epKbPlan = 0, epMbPlan = 0, epFbFact = 0, epKbFact = 0, epMbFact = 0;
-      let hasData = false;
-
-      for (const dept of DEPARTMENTS) {
-        const prefix = `grbs.${dept.id}`;
-        const cv = (key: string) => calc[key]?.numericValue ?? 0;
-
-        const dKp = cv(`${prefix}.kp.${qk}.count`);
-        const dEp = cv(`${prefix}.ep.${qk}.count`);
-        if (dKp > 0 || dEp > 0) hasData = true;
-
-        kpCount += dKp;
-        kpFactCount += cv(`${prefix}.kp.${qk}.fact`);
-        kpPlan += cv(`${prefix}.kp.${qk}.total_plan`);
-        kpFact += cv(`${prefix}.kp.${qk}.total_fact`);
-        epCount += dEp;
-        epFactCount += cv(`${prefix}.ep.${qk}.fact`);
-        epPlan += cv(`${prefix}.ep.${qk}.total_plan`);
-        epFact += cv(`${prefix}.ep.${qk}.total_fact`);
-        // КП budget by source (ФБ/КБ/МБ)
-        fbPlan += cv(`${prefix}.kp.${qk}.fb_plan`);
-        kbPlan += cv(`${prefix}.kp.${qk}.kb_plan`);
-        mbPlan += cv(`${prefix}.kp.${qk}.mb_plan`);
-        fbFact += cv(`${prefix}.kp.${qk}.fb_fact`);
-        kbFact += cv(`${prefix}.kp.${qk}.kb_fact`);
-        mbFact += cv(`${prefix}.kp.${qk}.mb_fact`);
-        // ЕП budget by source (ФБ/КБ/МБ)
-        epFbPlan += cv(`${prefix}.ep.${qk}.fb_plan`);
-        epKbPlan += cv(`${prefix}.ep.${qk}.kb_plan`);
-        epMbPlan += cv(`${prefix}.ep.${qk}.mb_plan`);
-        epFbFact += cv(`${prefix}.ep.${qk}.fb_fact`);
-        epKbFact += cv(`${prefix}.ep.${qk}.kb_fact`);
-        epMbFact += cv(`${prefix}.ep.${qk}.mb_fact`);
-      }
-
-      const kpPct = kpPlan > 0 ? +((kpFact / kpPlan) * 100).toFixed(1) : null;
-      const epPct = epPlan > 0 ? +((epFact / epPlan) * 100).toFixed(1) : null;
-
+    // Count execution is positions concluded / positions planned (fraction).
+    // Do not compute money execution or add up percentages in this HTTP route.
+    for (const qk of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
+      const get = (family: 'competitive' | 'sole', field: string): number | null =>
+        calc[`${family}.${qk}.${field}`]?.numericValue ?? null;
       summaryByPeriod[qk] = {
-        kpCount: hasData ? kpCount : null,
-        kpFactCount: hasData ? kpFactCount : null,
-        kpPlan: hasData ? kpPlan : null,
-        kpFact: hasData ? kpFact : null,
-        kpPercent: hasData ? kpPct : null,
-        epCount: hasData ? epCount : null,
-        epFactCount: hasData ? epFactCount : null,
-        epPlan: hasData ? epPlan : null,
-        epFact: hasData ? epFact : null,
-        epPercent: hasData ? epPct : null,
-        fbPlan: hasData ? fbPlan : null,
-        kbPlan: hasData ? kbPlan : null,
-        mbPlan: hasData ? mbPlan : null,
-        fbFact: hasData ? fbFact : null,
-        kbFact: hasData ? kbFact : null,
-        mbFact: hasData ? mbFact : null,
-        epFbPlan: hasData ? epFbPlan : null,
-        epKbPlan: hasData ? epKbPlan : null,
-        epMbPlan: hasData ? epMbPlan : null,
-        epFbFact: hasData ? epFbFact : null,
-        epKbFact: hasData ? epKbFact : null,
-        epMbFact: hasData ? epMbFact : null,
+        kpCount: get('competitive', 'count'),
+        kpFactCount: get('competitive', 'fact_count'),
+        kpPlan: get('competitive', 'total_plan'),
+        kpFact: get('competitive', 'total_fact'),
+        kpPercent: get('competitive', 'percent'),
+        epCount: get('sole', 'count'),
+        epFactCount: get('sole', 'fact_count'),
+        epPlan: get('sole', 'total_plan'),
+        epFact: get('sole', 'total_fact'),
+        epPercent: get('sole', 'percent'),
+        fbPlan: get('competitive', 'fb_plan'),
+        kbPlan: get('competitive', 'kb_plan'),
+        mbPlan: get('competitive', 'mb_plan'),
+        fbFact: get('competitive', 'fb_fact'),
+        kbFact: get('competitive', 'kb_fact'),
+        mbFact: get('competitive', 'mb_fact'),
+        epFbPlan: get('sole', 'fb_plan'),
+        epKbPlan: get('sole', 'kb_plan'),
+        epMbPlan: get('sole', 'mb_plan'),
+        epFbFact: get('sole', 'fb_fact'),
+        epKbFact: get('sole', 'kb_fact'),
+        epMbFact: get('sole', 'mb_fact'),
         source: 'calculated',
       };
     }
@@ -387,8 +282,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     };
     for (const iss of allIssues) {
       const i = iss as Issue;
-      // Signal counts for BlindSpots
-      if (i.signal) {
+      // Historical summaries remain complete; BlindSpots count active signals only.
+      if (i.signal && i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i)) {
         signalCounts[i.signal] = (signalCounts[i.signal] || 0) + 1;
         issueSummary.signalCounts[i.signal] = (issueSummary.signalCounts[i.signal] || 0) + 1;
       }
@@ -408,11 +303,28 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const data: DashboardData = {
-      snapshot,
+      // HTTP-представление для экранов, а не полный архивный снимок.
+      // Строки-атомы, расчётные таблицы и недельный контекст остаются на сервере
+      // и в истории; реестр, отчёты и сверки получают их своими маршрутами.
+      // Явный список не позволяет новым внутренним полям увеличивать загрузку.
+      snapshot: {
+        id: snapshot.id,
+        spreadsheetId: snapshot.spreadsheetId,
+        createdAt: snapshot.createdAt,
+        officialMetrics: snapshot.officialMetrics,
+        calculatedMetrics: snapshot.calculatedMetrics,
+        deltas: snapshot.deltas,
+        issues: snapshot.issues,
+        trust: snapshot.trust,
+        rowCount: snapshot.rowCount,
+        metadata: snapshot.metadata,
+        ...(snapshot.datasetAnalyses ? { datasetAnalyses: snapshot.datasetAnalyses } : {}),
+      },
       kpiCards,
       departmentSummaries,
       summaryByPeriod,
-      recentIssues: allIssues,
+      recentIssues: query.compact === '1' ? [] : allIssues,
+      ...(query.compact === '1' ? { recentIssuesRef: 'snapshot.issues' as const } : {}),
       signalCounts,
       issueSummary,
       trust: snapshot.trust,
@@ -420,18 +332,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       year: dataYear,
     };
 
-    // Runtime contract validation (ADR-0002, Phase 0 Hygiene): assure server↔web
-    // boundary. In development: warn on drift (surface the bug in logs).
-    // In production: ship anyway — we don't want to break user experience on a
-    // schema mismatch, but we do want to see it in logs.
-    if (process.env.NODE_ENV !== 'production') {
-      const validated = DashboardDataSchema.safeParse(data);
-      if (!validated.success) {
-        app.log.warn(
-          { zodIssues: validated.error.issues.slice(0, 5) },
-          'DashboardData contract drift: response does not match zod schema (top 5 issues logged)',
-        );
-      }
+    const validated = await requestStage(request, 'contract', async () => DashboardDataSchema.safeParse(data));
+    if (!validated.success) {
+      app.log.error(
+        { issues: validated.error.issues.slice(0, 5).map(issue => ({ path: issue.path, code: issue.code })) },
+        'Dashboard response contract invalid',
+      );
+      return reply.status(500).send({
+        code: 'DASHBOARD_CONTRACT_INVALID',
+        error: 'Не удалось проверить данные сводки. Повторите загрузку; если ошибка сохраняется, сообщите администратору.',
+      });
     }
 
     return reply.send(data);
@@ -450,20 +360,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       snapshot = await getSnapshot(false);
     } catch (err) {
       app.log.warn({ err }, 'trust: snapshot unavailable');
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
-    const deptPrefix = `grbs.${dept.id}`;
+    const deptPrefix = `grbs.${dept.id}.`;
     const deptMetricsMap = new Map<string, NormalizedMetric>(
       Object.entries(snapshot.officialMetrics)
         .filter(([key]) => key.startsWith(deptPrefix))
         .map(([key, val]) => [key, val as NormalizedMetric]),
     );
-    const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
+    const deptIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot).filter((i: Issue) => i.departmentId === dept.id);
     const deptDeltas = snapshot.deltas?.filter(
       (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
     ) ?? [];
-    const trust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id);
+    const trust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id,
+        snapshot.trust?.coverage?.filter(c => classifySheet(c.sheet).latinId === dept.id));
 
     return reply.send({ trust, issues: deptIssues, deltas: deptDeltas });
   });
@@ -520,7 +431,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           // fresh нужен вместе с формулами: присоединиться к идущему циклу
           // значило бы получить его результат БЕЗ формул и молча решить,
           // что дефектов нет.
-          withFormulas ? { withFormulas: true, fresh: true } : {},
+          withFormulas ? { withFormulas: true, fresh: true, askDrive: false } : {},
         );
       } catch (err) {
         // Цикл сам не валится от отказа отдельной книги; сюда попадает только
@@ -578,6 +489,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    snapshot = withPersistedDecisions(snapshot);
     const deltaCount = snapshot.deltas?.length ?? 0;
     const calcCount = Object.keys(snapshot.calculatedMetrics ?? {}).length;
 
@@ -586,7 +498,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       snapshotId: snapshot.id,
       sources,
       quick,
-      trust: snapshot.trust?.overall ?? 0,
+      trust: snapshot.trust?.overall ?? null,
       issueCount: snapshot.issues?.length ?? 0,
       deltaCount,
       calculatedMetricCount: calcCount,
@@ -618,7 +530,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       // Раньше ошибка глоталась без лога, а сверка наполнялась демо-числами.
       app.log.warn({ err }, 'reconciliation/quarterly: snapshot unavailable');
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     const recalcResults = snapshot.recalcResults ?? {};
@@ -654,21 +566,14 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
    * Считается в snapshot (CalcEngine из атомов); ?year= уважается через getSnapshot.
    */
   app.get('/api/svod/unified', async (request, reply) => {
-    const yearParam = (request.query as Record<string, string>).year;
-    let targetYear: number | undefined;
-    if (yearParam && yearParam !== 'all') {
-      const parsed = parseInt(yearParam, 10);
-      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
-        targetYear = parsed;
-      }
-    }
+    const targetYear = parseYearFilterParam((request.query as Record<string, unknown>).year);
 
     let snapshot;
     try {
       snapshot = await getSnapshot(false, targetYear);
     } catch (err) {
       app.log.warn('svod/unified: snapshot unavailable: %s', (err as Error).message);
-      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      return reply.status(503).send(snapshotUnavailable(err));
     }
 
     const grid = snapshot.unifiedGrid ?? { cells: {}, grbsIds: [], scopes: [] };

@@ -1,6 +1,6 @@
 # AEMR Product Plan
 
-**Status:** canonical product direction, 2026-07-10.  
+**Status:** historical product direction, 2026-07-10; consolidated into [docs/PLAN.md](../PLAN.md) and issue #69 on 12.10.2026 (Asia/Kamchatka). The original reasoning below is preserved; it does not override later owner decisions or authorize source migrations and production operations.
 **Purpose:** define how AEMR should evolve from the current Google Sheets dashboard into a procurement intelligence, verification and explainability product.
 
 ---

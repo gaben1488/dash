@@ -42,7 +42,7 @@
  * Зоны страниц повторяют этот образец; сам механизм страниц не знает.
  */
 import { useMemo } from 'react';
-import { ORG_ITSELF_SENTINEL, isOrgItself } from '@aemr/shared';
+import { ORG_ITSELF_SENTINEL, isOrgItself, subordinateNameMatchKey } from '@aemr/shared';
 import { useStore } from '../../store';
 import { toCanonicalDeptId } from '../dept-key';
 import { ORG_ITSELF_LABEL } from '../subordinate-label';
@@ -103,24 +103,29 @@ export function groupRowsBySubordinate<T>(
   keyOf: (row: T) => string,
   canonicalSubs: readonly string[],
 ): Array<OrgScopeGroup<T>> {
-  const buckets = new Map<string, T[]>();
-  // Канон первым — задаёт присутствие организаций без строк.
+  // Identity buckets are punctuation-insensitive, while the original C-column
+  // label remains the visible/actionable key for each source organization.
+  const buckets = new Map<string, { name: string; rows: T[] }>();
   for (const name of canonicalSubs) {
-    if (!isOrgItself(name)) buckets.set(name, []);
+    if (!isOrgItself(name)) {
+      const key = subordinateNameMatchKey(name);
+      if (!buckets.has(key)) buckets.set(key, { name, rows: [] });
+    }
   }
   const orgItselfRows: T[] = [];
   for (const row of rows) {
-    const key = keyOf(row);
-    if (key === ORG_ITSELF_SENTINEL || isOrgItself(key)) {
+    const name = keyOf(row);
+    if (name === ORG_ITSELF_SENTINEL || isOrgItself(name)) {
       orgItselfRows.push(row);
       continue;
     }
+    const key = subordinateNameMatchKey(name);
     const bucket = buckets.get(key);
-    if (bucket) bucket.push(row);
-    else buckets.set(key, [row]);
+    if (bucket) bucket.rows.push(row);
+    else buckets.set(key, { name, rows: [row] });
   }
-  const subs = [...buckets.entries()]
-    .map(([key, bucketRows]) => ({ key, label: key, rows: bucketRows }))
+  const subs = [...buckets.values()]
+    .map(({ name, rows: bucketRows }) => ({ key: name, label: name, rows: bucketRows }))
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   return [
     // Аппарат — всегда первой строкой (порядок канона RatingTableV2),

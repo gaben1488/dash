@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 
 from .constants import ROW_MAPPING
+from .department_directory import MASTER_COLUMNS as COL
 from .models import ProcurementRow
 from .normalize import (
     clean_text,
@@ -14,10 +15,7 @@ from .normalize import (
     to_decimal,
 )
 
-COLS = [
-    "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U",
-    "V","W","X","Y","Z","AA","AB","AC","AD","AE","AF","AG","AH"
-]
+COLS = list(ROW_MAPPING)
 
 
 def _cell(row: Sequence, idx: int):
@@ -45,15 +43,15 @@ def normalize_master_values(values: Iterable[Sequence], *, snapshot_id: str, exp
     out: list[ProcurementRow] = []
     for matrix_index, raw in enumerate(list(values)[data_start_row:], start=data_start_row):
         sheet_row = first_sheet_row + matrix_index
-        source_row_no = normalize_id(_cell(raw, 0))
-        subject = clean_text(_cell(raw, 6))
-        activity_kind = clean_text(_cell(raw, 5))
-        method = normalize_method(_cell(raw, 11))
-        planned_date = parse_date(_cell(raw, 13))
-        planned_year = _as_int(_cell(raw, 15))
-        actual_date = parse_date(_cell(raw, 16))
-        plan_parts = [to_decimal(_cell(raw, i)) for i in (7, 8, 9)]
-        fact_parts = [to_decimal(_cell(raw, i)) for i in (21, 22, 23)]
+        source_row_no = normalize_id(_cell(raw, COL["ID"]))
+        subject = clean_text(_cell(raw, COL["SUBJECT"]))
+        activity_kind = clean_text(_cell(raw, COL["TYPE"]))
+        method = normalize_method(_cell(raw, COL["METHOD"]))
+        planned_date = parse_date(_cell(raw, COL["PLAN_DATE"]))
+        planned_year = _as_int(_cell(raw, COL["PLAN_YEAR"]))
+        actual_date = parse_date(_cell(raw, COL["FACT_DATE"]))
+        plan_parts = [to_decimal(_cell(raw, i)) for i in (COL[key] for key in ("FB_PLAN", "KB_PLAN", "MB_PLAN"))]
+        fact_parts = [to_decimal(_cell(raw, i)) for i in (COL[key] for key in ("FB_FACT", "KB_FACT", "MB_FACT"))]
 
         # Do not use A/B as a row-existence predicate. Skip only clearly non-data rows.
         has_procurement_shape = bool(subject) and any([
@@ -63,7 +61,7 @@ def normalize_master_values(values: Iterable[Sequence], *, snapshot_id: str, exp
         if not has_procurement_shape:
             continue
 
-        source_grbs = clean_text(_cell(raw, 1))
+        source_grbs = clean_text(_cell(raw, COL["MANAGEMENT_NAME"]))
         # The source registry/workbook ownership is authoritative for GRBS. Column B is descriptive
         # and may be blank or use long/legacy aliases (e.g. "УАГЗО АЕМР"). Do not reject a valid
         # row because B is not an exact canonical abbreviation.
@@ -80,45 +78,45 @@ def normalize_master_values(values: Iterable[Sequence], *, snapshot_id: str, exp
             # Persisted identity ledgers may key either by the physical locator alone or
             # by a locator including the optional business label. Never fall back to A-only.
             uid = procurement_uid_map.get(f"{physical_locator}::{source_row_no or ''}") or procurement_uid_map.get(physical_locator)
-        include_text = clean_text(_cell(raw, 29)).casefold()
+        include_text = clean_text(_cell(raw, COL["FLAG"])).casefold()
         include_saving = True if include_text == "да" else False if include_text == "нет" else None
         out.append(ProcurementRow(
             snapshot_id=snapshot_id,
             procurement_id=pid,
             procurement_uid=uid,
-            missing_money_fields=tuple(COLS[i] for i in (7,8,9,21,22,23,25,26,27) if not clean_text(_cell(raw,i))),
+            missing_money_fields=tuple(COLS[i] for i in (COL[key] for key in ("FB_PLAN", "KB_PLAN", "MB_PLAN", "FB_FACT", "KB_FACT", "MB_FACT", "ECONOMY_FB", "ECONOMY_KB", "ECONOMY_MB")) if not clean_text(_cell(raw,i))),
             grbs=grbs,
-            institution=clean_text(_cell(raw, 2)),
+            institution=clean_text(_cell(raw, COL["SUBORDINATE"])),
             activity_kind=activity_kind,
             source_row_no=source_row_no,
             subject=subject,
             method=method,
             planned_date=planned_date,
-            planned_quarter=_as_int(_cell(raw, 14)),
+            planned_quarter=_as_int(_cell(raw, COL["PLAN_QUARTER"])),
             planned_year=planned_year,
             actual_date=actual_date,
             plan_fb=float(plan_parts[0]),
             plan_kb=float(plan_parts[1]),
             plan_mb=float(plan_parts[2]),
-            stored_plan_total=float(to_decimal(_cell(raw, 10))) if clean_text(_cell(raw, 10)) else None,
-            program=clean_text(_cell(raw, 3)),
-            subprogram=clean_text(_cell(raw, 4)),
-            single_supplier_reason=clean_text(_cell(raw, 12)),
-            necessity_reason=clean_text(_cell(raw, 30)),
-            uer_comment=(clean_text(_cell(raw, 32)) if not normalize_procedure_code(_cell(raw, 32)) else ""),
-            deviation_reason=clean_text(_cell(raw, 20)),
+            stored_plan_total=float(to_decimal(_cell(raw, COL["TOTAL_PLAN"]))) if clean_text(_cell(raw, COL["TOTAL_PLAN"])) else None,
+            program=clean_text(_cell(raw, COL["PROGRAM_NAME"])),
+            subprogram=clean_text(_cell(raw, COL["SUBPROGRAM"])),
+            single_supplier_reason=clean_text(_cell(raw, COL["EP_REASON"])),
+            necessity_reason=clean_text(_cell(raw, COL["JUSTIFICATION"])),
+            uer_comment=(clean_text(_cell(raw, COL["COMMENT_UER"])) if not normalize_procedure_code(_cell(raw, COL["COMMENT_UER"])) else ""),
+            deviation_reason=clean_text(_cell(raw, COL["DEVIATION_REASON"])),
             fact_fb=float(fact_parts[0]),
             fact_kb=float(fact_parts[1]),
             fact_mb=float(fact_parts[2]),
-            stored_fact_total=float(to_decimal(_cell(raw, 24))) if clean_text(_cell(raw, 24)) else None,
-            saving_fb=float(to_decimal(_cell(raw, 25))),
-            saving_kb=float(to_decimal(_cell(raw, 26))),
-            saving_mb=float(to_decimal(_cell(raw, 27))),
-            stored_saving_total=float(to_decimal(_cell(raw, 28))) if clean_text(_cell(raw, 28)) else None,
+            stored_fact_total=float(to_decimal(_cell(raw, COL["TOTAL_FACT"]))) if clean_text(_cell(raw, COL["TOTAL_FACT"])) else None,
+            saving_fb=float(to_decimal(_cell(raw, COL["ECONOMY_FB"]))),
+            saving_kb=float(to_decimal(_cell(raw, COL["ECONOMY_KB"]))),
+            saving_mb=float(to_decimal(_cell(raw, COL["ECONOMY_MB"]))),
+            stored_saving_total=float(to_decimal(_cell(raw, COL["ECONOMY_TOTAL"]))) if clean_text(_cell(raw, COL["ECONOMY_TOTAL"])) else None,
             include_saving=include_saving,
-            grbs_comment=clean_text(_cell(raw, 31)),
-            procedure_code=clean_text(_cell(raw, 32)),
-            monitoring_note=clean_text(_cell(raw, 33)),
+            grbs_comment=clean_text(_cell(raw, COL["COMMENT_GRBS"])),
+            procedure_code=clean_text(_cell(raw, COL["COMMENT_UER"])),
+            monitoring_note=clean_text(_cell(raw, COL["COMMENT_UFBP"])),
             source_id=source_id,
             sheet_name=sheet_name,
             row_number=sheet_row,

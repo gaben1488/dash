@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
-import { ACTIVITY_TYPES } from '@aemr/shared';
-import { useStore } from '../store';
+import { useEffect } from 'react';
+import { ACTIVITY_TYPES, dayNumberOf } from '@aemr/shared';
+import { useStore, PAGE_FILTERS, getProductMonday, type AppState, type Page } from '../store';
+import { productDayParts } from '../lib/period-coverage';
 import type { PeriodScope, ProcurementFilter, ActivityFilter, BudgetType } from '../store';
 
 const VALID_PERIODS: PeriodScope[] = ['year', 'q1', 'q2', 'q3', 'q4'];
-const VALID_METHODS: ProcurementFilter[] = ['all', 'competitive', 'single'];
 /**
  * Словарь параметра `activity` — производная канонического списка видов
  * деятельности из @aemr/shared, а не собственный литерал рядом с ним.
@@ -18,7 +18,7 @@ const VALID_METHOD_SET = new Set(['competitive', 'single']);
 const VALID_ACTIVITY_SET = new Set<string>(ACTIVITY_TYPES);
 const VALID_BUDGET_SET = new Set<BudgetType>(['fb', 'kb', 'mb']);
 
-const DEFAULT_YEAR = new Date().getFullYear();
+const DEFAULT_YEAR = productDayParts().y;
 const DEFAULT_PERIOD: PeriodScope = 'year';
 const DEFAULT_METHOD: ProcurementFilter = 'all';
 const DEFAULT_ACTIVITY: ActivityFilter = 'all';
@@ -67,13 +67,13 @@ export function parseMonthsParam(value: string, urlYear: number): ParsedMonthsPa
   if (value.includes(':')) {
     for (const part of value.split(';')) {
       const [yrStr, monthsStr] = part.split(':');
-      const yr = parseInt(yrStr, 10);
-      if (Number.isNaN(yr)) continue;
-      const nums = (monthsStr ?? '').split(',').map(Number).filter((n) => n >= 1 && n <= 12);
+      const yr = /^\d{4}$/.test(yrStr) ? Number(yrStr) : NaN;
+      if (yr < 2020 || yr > 2100 || !Number.isInteger(yr)) continue;
+      const nums = (monthsStr ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 12);
       if (nums.length > 0) monthsByYear[yr] = new Set(nums);
     }
   } else {
-    const nums = value.split(',').map(Number).filter((n) => n >= 1 && n <= 12);
+    const nums = value.split(',').map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 12);
     if (nums.length > 0) monthsByYear[urlYear] = new Set(nums);
   }
   const years = Object.keys(monthsByYear).map(Number).sort((a, b) => a - b);
@@ -82,170 +82,126 @@ export function parseMonthsParam(value: string, urlYear: number): ParsedMonthsPa
   return { monthsByYear, activeMonths: new Set(monthsByYear[year]), year };
 }
 
-/** Parse URL search params and apply to store on mount; sync store changes back to URL (debounced). */
+// Each module owns its parameters; never discard monitoring/report state or anchors.
+const OWNED = ['page', 'tab', 'year', 'period', 'mode', 'week', 'months', 'depts', 'subs',
+  'method', 'activity', 'budget', 'q', 'unit', 'deptOnly', 'stavka', 'reportMode', 'reportQuarter', 'word', 'word_ctx'];
+const QUALITY_TABS = ['trust', 'recon', 'issues', 'recs', 'journal', 'scorecard'];
+const csv = (value: string | null) => new Set((value ?? '').split(',').filter(Boolean).map(part => {
+  try { return decodeURIComponent(part); } catch { return part; }
+}));
+const civilDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+function restore(params: URLSearchParams): Partial<AppState> {
+  const initial = useStore.getInitialState();
+  const yearParam = params.get('year');
+  const numericYear = /^\d{4}$/.test(yearParam ?? '') ? Number(yearParam) : NaN;
+  const year = yearParam === 'all' ? 'all' : numericYear >= 2020 && numericYear <= 2100 ? numericYear : initial.year;
+  const pageParam = params.get('page') ?? 'dashboard';
+  const page = Object.hasOwn(PAGE_FILTERS, pageParam) ? pageParam as Page : 'dashboard';
+  const tab = params.get('tab');
+  const periodParam = params.get('period');
+  const period = VALID_PERIODS.includes(periodParam as PeriodScope) ? periodParam as PeriodScope : DEFAULT_PERIOD;
+  const months = parseMonthsParam(params.get('months') ?? '', typeof year === 'number' ? year : DEFAULT_YEAR);
+  const methods = new Set([...csv(params.get('method'))].filter(value => VALID_METHOD_SET.has(value)));
+  const activities = new Set([...csv(params.get('activity'))].filter(value => VALID_ACTIVITY_SET.has(value)));
+  const week = params.get('week');
+  const validWeek = week && /^\d{4}-\d{2}-\d{2}$/.test(week) && dayNumberOf(week) !== null
+    ? new Date(Number(week.slice(0, 4)), Number(week.slice(5, 7)) - 1, Number(week.slice(8, 10))) : getProductMonday();
+  const focusedWeekStart = validWeek.getDay() === 1 ? validWeek : getProductMonday();
+  return {
+    urlNavigationVersion: useStore.getState().urlNavigationVersion + 1,
+    reportMode: params.get('reportMode') === 'archive' ? 'archive' : 'live',
+    reportQuarter: /^[1-4]$/.test(params.get('reportQuarter') ?? '') ? Number(params.get('reportQuarter')) as 1 | 2 | 3 | 4 : null,
+    reportPinned: /^REL-[a-f0-9]{64}$/.test(params.get('word') ?? '') && params.get('word_ctx') && params.get('word_ctx')!.length <= 512
+      ? { id: params.get('word')!, contextKey: params.get('word_ctx')! } : null,
+    page: QUALITY_TABS.includes(page) ? 'quality' : page,
+    qualityTab: QUALITY_TABS.includes(tab ?? '') ? tab as AppState['qualityTab']
+      : QUALITY_TABS.includes(page) ? page as AppState['qualityTab'] : initial.qualityTab,
+    year: months?.year ?? year, period,
+    periodMode: params.get('mode') === 'week' ? 'week'
+      : params.get('mode') === 'explicit' || periodParam || months ? 'explicit' : 'week',
+    focusedWeekStart, activeMonths: months?.activeMonths ?? new Set(), monthsByYear: months?.monthsByYear ?? {},
+    selectedDepartments: csv(params.get('depts')), selectedSubordinates: csv(params.get('subs')),
+    deptOnlyMode: csv(params.get('deptOnly')), selectedMethods: methods,
+    procurementFilter: methods.size === 1 ? [...methods][0] as ProcurementFilter : DEFAULT_METHOD,
+    selectedActivities: activities, activityFilter: activities.size === 1 ? [...activities][0] as ActivityFilter : DEFAULT_ACTIVITY,
+    selectedBudgets: new Set([...csv(params.get('budget'))].filter(value => VALID_BUDGET_SET.has(value as BudgetType))),
+    searchQuery: params.get('q') ?? '', searchQueryDebounced: params.get('q') ?? '',
+    moneyUnit: params.get('unit') === 'млн' ? 'млн' : initial.moneyUnit,
+    stavkaMode: params.get('stavka') === 'live' ? 'live' : initial.stavkaMode,
+    registrySignalSeed: [], trustComponentSeed: null, issuesSectionSeed: null,
+  };
+}
+
+function workspaceUrl(state: AppState): URL {
+  const url = new URL(window.location.href);
+  const params = url.searchParams;
+  for (const key of OWNED) params.delete(key);
+  params.set('page', state.page);
+  params.set('year', String(state.year)); // Explicit even for the current year: links survive New Year.
+  params.set('mode', state.periodMode);
+  params.set('period', state.period);
+  params.set('week', civilDay(state.focusedWeekStart));
+  params.set('tab', state.qualityTab);
+  params.set('reportMode', state.reportMode);
+  if (state.reportQuarter) params.set('reportQuarter', String(state.reportQuarter));
+  if (state.reportPinned) {
+    params.set('word', state.reportPinned.id); params.set('word_ctx', state.reportPinned.contextKey);
+  }
+  if (state.periodMode === 'explicit') {
+    const months = serializeMonthsParam(state.monthsByYear, state.activeMonths,
+      typeof state.year === 'number' ? state.year : DEFAULT_YEAR);
+    if (months) params.set('months', months);
+  }
+  for (const [key, values] of [['depts', state.selectedDepartments], ['subs', state.selectedSubordinates],
+    ['deptOnly', state.deptOnlyMode], ['method', state.selectedMethods], ['activity', state.selectedActivities],
+    ['budget', state.selectedBudgets]] as const) {
+    if (values.size) params.set(key, [...values].sort().map(encodeURIComponent).join(','));
+  }
+  if (!state.selectedMethods.size && state.procurementFilter !== DEFAULT_METHOD) params.set('method', state.procurementFilter);
+  if (!state.selectedActivities.size && state.activityFilter !== DEFAULT_ACTIVITY) params.set('activity', state.activityFilter);
+  if (state.searchQuery) params.set('q', state.searchQuery);
+  if (state.moneyUnit !== 'тыс') params.set('unit', state.moneyUnit);
+  if (state.stavkaMode !== 'norm') params.set('stavka', state.stavkaMode);
+  return url;
+}
+
+/** Restore a complete workspace on mount/popstate; navigation gets a real browser entry. */
 export function useUrlSync() {
-  const initialized = useRef(false);
-
-  // On mount: parse URL → store
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-
-    const params = new URLSearchParams(window.location.search);
-    const updates: Record<string, unknown> = {};
-
-    // year
-    const yearParam = params.get('year');
-    if (yearParam != null) {
-      if (yearParam === 'all') {
-        updates.year = 'all';
-      } else {
-        const n = parseInt(yearParam, 10);
-        if (!Number.isNaN(n)) updates.year = n;
-      }
-    }
-
-    // period
-    const periodParam = params.get('period');
-    if (periodParam != null && VALID_PERIODS.includes(periodParam as PeriodScope)) {
-      updates.period = periodParam;
-      updates.periodMode = 'explicit'; // URL has explicit period → explicit mode
-    }
-
-    // months — восстанавливаются И данные (activeMonths), И барабан
-    // (monthsByYear), и год выбора (баг #15).
-    const monthsParam = params.get('months');
-    if (monthsParam) {
-      const urlYear = typeof updates.year === 'number' ? updates.year : DEFAULT_YEAR;
-      const parsed = parseMonthsParam(monthsParam, urlYear);
-      if (parsed) {
-        updates.activeMonths = parsed.activeMonths;
-        updates.monthsByYear = parsed.monthsByYear;
-        updates.year = parsed.year;
-        updates.periodMode = 'explicit'; // URL has explicit months → explicit mode
-      }
-    }
-
-    // depts
-    const deptsParam = params.get('depts');
-    if (deptsParam) {
-      updates.selectedDepartments = new Set(deptsParam.split(',').map(decodeURIComponent));
-    }
-
-    // subs
-    const subsParam = params.get('subs');
-    if (subsParam) {
-      updates.selectedSubordinates = new Set(subsParam.split(',').map(decodeURIComponent));
-    }
-
-    // method (supports both legacy single-value and new multi-select comma-separated)
-    const methodParam = params.get('method');
-    if (methodParam != null) {
-      const parts = methodParam.split(',').filter(m => VALID_METHOD_SET.has(m));
-      if (parts.length > 0) {
-        updates.selectedMethods = new Set(parts);
-        // Sync legacy
-        updates.procurementFilter = parts.length === 1 ? parts[0] : 'all';
-      } else if (VALID_METHODS.includes(methodParam as ProcurementFilter)) {
-        updates.procurementFilter = methodParam;
-        updates.selectedMethods = methodParam === 'all' ? new Set<string>()
-          : new Set([methodParam === 'single' ? 'single' : 'competitive']);
-      }
-    }
-
-    // activity (supports both legacy single-value and new multi-select)
-    const activityParam = params.get('activity');
-    if (activityParam != null) {
-      const parts = activityParam.split(',').filter(a => VALID_ACTIVITY_SET.has(a));
-      if (parts.length > 0) {
-        updates.selectedActivities = new Set(parts);
-        updates.activityFilter = parts.length === 1 ? parts[0] : 'all';
-      } else if (VALID_ACTIVITIES.includes(activityParam as ActivityFilter)) {
-        updates.activityFilter = activityParam;
-        updates.selectedActivities = activityParam === 'all' ? new Set<string>()
-          : new Set([activityParam]);
-      }
-    }
-
-    // budget (new multi-select)
-    const budgetParam = params.get('budget');
-    if (budgetParam) {
-      const parts = budgetParam.split(',').filter(b => VALID_BUDGET_SET.has(b as BudgetType));
-      if (parts.length > 0) {
-        updates.selectedBudgets = new Set(parts);
-      }
-    }
-
-    if (Object.keys(updates).length > 0) {
-      useStore.setState(updates as Partial<ReturnType<typeof useStore.getState>>);
-    }
-  }, []);
-
-  // On store change: debounced URL update
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-
-    const unsub = useStore.subscribe((state) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let restoring = false;
+    const write = (push: boolean) => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        const params = new URLSearchParams();
-
-        // year — skip if current year (default)
-        if (state.year !== DEFAULT_YEAR) {
-          params.set('year', String(state.year));
-        }
-
-        // period
-        if (state.period !== DEFAULT_PERIOD) {
-          params.set('period', state.period);
-        }
-
-        // months — only serialize when in explicit mode (week-режим — не фильтр,
-        // баг #5). Сериализуется monthsByYear целиком, с годами (баг #15).
-        if (state.periodMode === 'explicit') {
-          const fallbackYear = typeof state.year === 'number' ? state.year : DEFAULT_YEAR;
-          const serialized = serializeMonthsParam(state.monthsByYear, state.activeMonths, fallbackYear);
-          if (serialized) params.set('months', serialized);
-        }
-
-        // depts
-        if (state.selectedDepartments.size > 0) {
-          params.set('depts', Array.from(state.selectedDepartments).map(encodeURIComponent).join(','));
-        }
-
-        // subs
-        if (state.selectedSubordinates.size > 0) {
-          params.set('subs', Array.from(state.selectedSubordinates).map(encodeURIComponent).join(','));
-        }
-
-        // method (use multi-select Set if available, else legacy)
-        if (state.selectedMethods.size > 0) {
-          params.set('method', Array.from(state.selectedMethods).sort().join(','));
-        } else if (state.procurementFilter !== DEFAULT_METHOD) {
-          params.set('method', state.procurementFilter);
-        }
-
-        // activity (use multi-select Set if available, else legacy)
-        if (state.selectedActivities.size > 0) {
-          params.set('activity', Array.from(state.selectedActivities).sort().join(','));
-        } else if (state.activityFilter !== DEFAULT_ACTIVITY) {
-          params.set('activity', state.activityFilter);
-        }
-
-        // budget
-        if (state.selectedBudgets.size > 0) {
-          params.set('budget', Array.from(state.selectedBudgets).sort().join(','));
-        }
-
-        const qs = params.toString();
-        const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-        window.history.replaceState(null, '', newUrl);
-      }, 300);
+      const url = workspaceUrl(useStore.getState());
+      if (url.href !== window.location.href) {
+        window.history[push ? 'pushState' : 'replaceState'](window.history.state, '', url);
+      }
+    };
+    const read = () => {
+      clearTimeout(timer);
+      restoring = true;
+      const next = restore(new URLSearchParams(window.location.search));
+      // Cancel the store's pending search debounce before atomically restoring all fields.
+      useStore.getState().setSearchQuery(next.searchQuery ?? '');
+      useStore.setState(next);
+      restoring = false;
+    };
+    read();
+    write(false);
+    const unsubscribe = useStore.subscribe((state, previous) => {
+      if (restoring || workspaceUrl(state).href === window.location.href) return;
+      clearTimeout(timer);
+      if (state.page !== previous.page || state.qualityTab !== previous.qualityTab) write(true);
+      else timer = setTimeout(() => write(true), 300);
     });
-
+    const flush = () => write(false);
+    window.addEventListener('popstate', read);
+    window.addEventListener('pagehide', flush);
     return () => {
-      clearTimeout(timer);
-      unsub();
+      clearTimeout(timer); unsubscribe();
+      window.removeEventListener('popstate', read); window.removeEventListener('pagehide', flush);
+      write(false);
     };
   }, []);
 }

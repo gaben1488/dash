@@ -10,6 +10,7 @@
  *   3. Отказ книги НЕ кэшируется: ожившая через минуту книга читается сразу.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { seedRevision, forgetRevision, resetRevisionMemory } from './file-revision.js';
 
 const getSheetDataFromSpreadsheet = vi.fn();
 
@@ -23,6 +24,46 @@ const { readChangelogRows, resetChangelogSource, changelogReadAt, CHANGELOG_CACH
 beforeEach(() => {
   getSheetDataFromSpreadsheet.mockReset();
   resetChangelogSource();
+  resetRevisionMemory();
+});
+
+it('reuses an unchanged observed revision after two idle days, then reads a changed revision immediately', async () => {
+  seedRevision('book-uo', { version: '1', modifiedTime: null });
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['old']]).mockResolvedValueOnce([['new']]);
+  const first = await readChangelogRows('УО', 'book-uo', 1000);
+  expect(await readChangelogRows('УО', 'book-uo', 1000 + 2 * 86400_000)).toBe(first);
+  expect(changelogReadAt('УО')).toBe(1000);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledOnce();
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  expect(await readChangelogRows('УО', 'book-uo', 1001)).toEqual([['new']]);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
+});
+
+it('does not cache a journal under a revision that changed while the request was running', async () => {
+  seedRevision('book-uo', { version: '1', modifiedTime: null });
+  let finish!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValueOnce([['new']]);
+  const pending = readChangelogRows('УО', 'book-uo', 1000);
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  finish([['old']]);
+  await pending;
+  expect(changelogReadAt('УО')).toBeNull();
+  expect(await readChangelogRows('УО', 'book-uo', 1001)).toEqual([['new']]);
+});
+
+it('a revision change in one book does not reread the unchanged neighbouring book', async () => {
+  for (const id of ['book-uo', 'book-uio']) seedRevision(id, { version: '1', modifiedTime: null });
+  getSheetDataFromSpreadsheet.mockResolvedValue([['entry']]);
+  await readChangelogRows('УО', 'book-uo', 1000);
+  const neighbour = await readChangelogRows('УИО', 'book-uio', 1000);
+  forgetRevision('book-uo');
+  seedRevision('book-uo', { version: '2', modifiedTime: null });
+  await readChangelogRows('УО', 'book-uo', 2 * 86400_000);
+  expect(await readChangelogRows('УИО', 'book-uio', 2 * 86400_000)).toBe(neighbour);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(3);
 });
 
 describe('окно чтения', () => {
@@ -52,8 +93,8 @@ describe('окно чтения', () => {
     await readChangelogRows('УИО', 'book-uio', 1_000);
 
     expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
-    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uo', '_ChangeLog');
-    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uio', '_ChangeLog');
+    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uo', '_ChangeLog', true);
+    expect(getSheetDataFromSpreadsheet).toHaveBeenCalledWith('book-uio', '_ChangeLog', true);
   });
 
   it('момент чтения виден снаружи — по нему судят о свежести', async () => {
@@ -107,4 +148,47 @@ describe('отказ книги', () => {
     expect(both.every((r) => r.status === 'rejected')).toBe(true);
     expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(1);
   });
+});
+
+it('same department switched to another file reads that file', async () => {
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['old']]).mockResolvedValueOnce([['new']]);
+  await readChangelogRows('УО', 'file-A', 1000);
+  expect(await readChangelogRows('УО', 'file-B', 1001)).toEqual([['new']]);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenLastCalledWith('file-B', '_ChangeLog', true);
+});
+it('pre-reset completion cannot replace or detach the winning request', async () => {
+  let oldDone!: (rows: unknown[][]) => void; let newDone!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { oldDone = resolve; }))
+    .mockImplementationOnce(() => new Promise(resolve => { newDone = resolve; }));
+  const old = readChangelogRows('УО', 'file-A', 1000);
+  resetChangelogSource();
+  const winner = readChangelogRows('УО', 'file-A', 2000);
+  oldDone([['old']]); await old;
+  const follower = readChangelogRows('УО', 'file-A', 2001);
+  expect(getSheetDataFromSpreadsheet).toHaveBeenCalledTimes(2);
+  newDone([['new']]);
+  expect(await winner).toEqual([['new']]); expect(await follower).toEqual([['new']]);
+  expect(await readChangelogRows('УО', 'file-A', 2002)).toEqual([['new']]);
+  expect(changelogReadAt('УО')).toBe(2000);
+});
+it('slow old file cannot replace new file reading or freshness', async () => {
+  let oldDone!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockImplementationOnce(() => new Promise(resolve => { oldDone = resolve; })).mockResolvedValueOnce([['new']]);
+  const old = readChangelogRows('УО', 'file-A', 1000);
+  expect(await readChangelogRows('УО', 'file-B', 2000)).toEqual([['new']]);
+  oldDone([['old']]); await old;
+  expect(await readChangelogRows('УО', 'file-B', 2001)).toEqual([['new']]);
+  expect(changelogReadAt('УО')).toBe(2000);
+});
+it('freshness stays compatible and does not attribute A to a pending B', async () => {
+  let release!: (rows: unknown[][]) => void;
+  getSheetDataFromSpreadsheet.mockResolvedValueOnce([['A']]).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  await readChangelogRows('УО', 'file-A', 1000);
+  expect(changelogReadAt('УО', 'file-A')).toBe(1000);
+  expect(changelogReadAt('УО', 'file-B')).toBeNull();
+  const pending = readChangelogRows('УО', 'file-B', 2000);
+  expect(changelogReadAt('УО')).toBeNull();
+  release([['B']]); await pending;
+  expect(changelogReadAt('УО')).toBe(2000);
+  expect(changelogReadAt('УО', 'file-A')).toBeNull();
 });

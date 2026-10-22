@@ -18,6 +18,8 @@
 #     выкат, и откат. Испорченные данные откатом не лечатся — для них снимки
 #     (services/snapshot-retention.ts).
 set -eu
+. "$(dirname -- "$0")/maintenance-lock.sh"
+maintenance_lock_acquire
 
 DEPLOY_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname -- "$DEPLOY_DIR")

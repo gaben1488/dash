@@ -15,7 +15,7 @@ export const SVOD_SPREADSHEET_ID = '1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg
 /** Главный лист свода */
 export const SVOD_SHEET_NAME = 'СВОД ТД-ПМ';
 
-/** Последняя строка основного СВОД для проверок Dash; с 279-й — экспериментальная аналитика только в Google Sheets. */
+/** Проверяемый контур СВОДа заканчивается строкой 278; 279+ — эксперимент только в Google Sheets. */
 export const SVOD_DASHBOARD_LAST_ROW = 278;
 
 /** Листы управлений (для построчного пересчёта). Derived from DEPARTMENT_REGISTRY. */
@@ -93,7 +93,7 @@ export const LAW_44FZ_THRESHOLDS = {
   eShopPurchaseLimitThousandRub: 5_000,
   /** Request-for-quotations limit (тыс. руб. = 10 млн руб.). */
   quotationPurchaseLimitThousandRub: 10_000,
-  /** 44-FZ art. 37 anti-dumping threshold; AEMR uses limit-fact as an approximation. */
+  /** 44-FZ art. 37 threshold. Requires procurement prices and applicability; plan/economy is not a substitute. */
   antiDumpingSavingsShare: 0.25,
 } as const;
 
@@ -118,132 +118,7 @@ export const THRESHOLDS = {
 // 5. UI Labels — Russian management terminology
 // ────────────────────────────────────────────────────────────
 
-export const UI_LABELS = {
-  // Навигация
-  'nav.dashboard': 'Сводная панель',
-  'nav.analytics': 'Аналитика',
-  'nav.control': 'Контроль качества',
-  'nav.audit': 'Аудит данных',
-  'nav.settings': 'Настройки',
-  'nav.grbs': 'По управлениям',
-  'nav.economy': 'Экономия',
-  'nav.rows': 'Построчные данные',
-
-  // KPI
-  'kpi.execution': 'Исполнение',
-  'kpi.plan': 'План',
-  'kpi.fact': 'Факт',
-  'kpi.deviation': 'Отклонение',
-  'kpi.economy': 'Экономия',
-  'kpi.procedures_count': 'Количество процедур',
-  'kpi.competitive': 'Конкурентные процедуры',
-  'kpi.sole_supplier': 'Единственный поставщик',
-  'kpi.ep_share': 'Доля ЕП',
-
-  // Периоды
-  'period.q1': '1 квартал',
-  'period.q2': '2 квартал',
-  'period.q3': '3 квартал',
-  'period.q4': '4 квартал',
-  'period.year': 'Год',
-
-  // Бюджет
-  'budget.fb': 'Федеральный бюджет',
-  'budget.kb': 'Краевой бюджет',
-  'budget.mb': 'Муниципальный бюджет',
-  'budget.total': 'Итого',
-
-  // Способы закупки
-  'method.ea': 'Электронный аукцион',
-  'method.ep': 'Единственный поставщик',
-  'method.ek': 'Электронный конкурс',
-  'method.ezk': 'Электронный запрос котировок',
-
-  // Типы деятельности (виды деятельности).
-  // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — подкатегорий
-  // ТД нет, оба легаси-ключа подписываются «Текущая деятельность»
-  // (current_program живёт только в старых снимках).
-  'type.current': 'Текущая деятельность',
-  'type.current_program': 'Текущая деятельность',
-  'type.current_non_program': 'Текущая деятельность',
-  'type.program': 'Программное мероприятие',
-
-  // Статусы
-  'status.normal': 'В норме',
-  'status.warning': 'Требует внимания',
-  'status.critical': 'Критично',
-
-  // Сигналы строк
-  'signal.signed': 'Подписано',
-  'signal.planning': 'Планирование',
-  'signal.not_due': 'Срок не наступил',
-  'signal.finance_delay': 'Задержка финансирования',
-  'signal.canceled': 'Отменено',
-  'signal.overdue': 'Просрочено',
-  'signal.has_fact': 'Есть факт',
-  'signal.plan_past': 'Срок прошёл',
-  'signal.plan_soon': 'Скоро срок',
-  'signal.inconsistent': 'Несогласованность',
-
-  // Контроль
-  'control.issue': 'Замечание',
-  'control.spreadsheet_rule': 'Нарушение правила таблицы',
-  'control.bi_heuristic': 'Аналитическое наблюдение',
-  'control.error': 'Ошибка',
-  'control.warning': 'Предупреждение',
-  'control.info': 'Информация',
-
-  // Доверие
-  'trust.overall': 'Общая оценка достоверности',
-  'trust.data_quality': 'Качество данных',
-  'trust.formula_integrity': 'Целостность формул',
-  'trust.rule_compliance': 'Соответствие правилам',
-  'trust.mapping_consistency': 'Согласованность привязок',
-  'trust.operational_risk': 'Операционные риски',
-  'trust.grade_a': 'Отличная достоверность',
-  'trust.grade_b': 'Хорошая достоверность',
-  'trust.grade_c': 'Удовлетворительная достоверность',
-  'trust.grade_d': 'Низкая достоверность',
-  'trust.grade_f': 'Критически низкая достоверность',
-
-  // Источники
-  'origin.official': 'Официальный источник',
-  'origin.calculated': 'Независимый пересчёт',
-  'origin.hybrid': 'Комбинированный',
-
-  // Единицы
-  'unit.thousand_rubles': 'тыс. руб.',
-  'unit.million_rubles': 'млн руб.',
-  'unit.billion_rubles': 'млрд руб.',
-  'unit.rubles': 'руб.',
-  'unit.count': 'шт.',
-  'unit.percent': '%',
-  'unit.days': 'дн.',
-
-  // Управления (полные названия)
-  'dept.УЭР': 'Управление экономического развития',
-  'dept.УИО': 'Управление имущественных отношений',
-  'dept.УАГЗО': 'Управление автоматизации и ГЗО',
-  'dept.УФБП': 'Управление финансово-бюджетной политики',
-  'dept.УД': 'Управление делами',
-  'dept.УДТХ': 'Управление дорожно-транспортного хозяйства',
-  'dept.УКСиМП': 'Управление культуры, спорта и МП',
-  'dept.УО': 'Управление образования',
-
-  // Общие действия
-  'action.refresh': 'Обновить данные',
-  'action.export': 'Экспорт',
-  'action.filter': 'Фильтр',
-  'action.details': 'Подробнее',
-  'action.back': 'Назад',
-} as const;
-
-export type UILabelKey = keyof typeof UI_LABELS;
-
-/** Получить русский текст для UI */
-export function t(key: UILabelKey): string {
-  return UI_LABELS[key];
-}
+export { UI_LABELS, t, type UILabelKey } from './product-dictionary.js';
 
 // ────────────────────────────────────────────────────────────
 // 6. Color palette for charts (Recharts-compatible hex values)
@@ -332,3 +207,6 @@ export function buildSheetUrl(spreadsheetId: string, cell?: string, sheetName?: 
   if (cell) url += (url.includes('#') ? '&' : '#') + `range=${cell}`;
   return url;
 }
+
+/** Forecast policy; does not change source facts or AD-approved economy. */
+export const ECONOMY_FORECAST_NORM_PCT = 8;

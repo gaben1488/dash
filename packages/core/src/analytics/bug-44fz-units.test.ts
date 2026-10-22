@@ -14,12 +14,12 @@ import w2606 from '../report/__fixtures__/week-26.06.2026.json';
  * ниже падают; после фикса (LAW_44FZ_THRESHOLDS в тыс. руб., суффикс ThousandRub) — зелёные.
  */
 describe('БАГ #1 — единицы 44-ФЗ (тыс. руб., не руб.)', () => {
-  it('checkEPContractLimits: ЕП на planTotal=601 (тыс. руб. = 601 тыс. руб. реальных) даёт ровно одно нарушение', () => {
+  it('checkEPContractLimits: ЕП на planTotal=601 (тыс. руб. = 601 тыс. руб. реальных) даёт один информационный признак', () => {
     const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 601, factTotal: 0, economy: 0, subject: 'Поставка ГСМ' }];
     const issues = checkEPContractLimits(rows, 'УО');
     expect(issues).toHaveLength(1);
     expect(issues[0].ruleCode).toBe('ep_contract_limit');
-    expect(issues[0].severity).toBe('critical');
+    expect(issues[0].severity).toBe('info');
   });
 
   it('checkEPContractLimits: planTotal=600 (ровно на границе, тыс. руб.) — нарушения нет', () => {
@@ -29,7 +29,7 @@ describe('БАГ #1 — единицы 44-ФЗ (тыс. руб., не руб.)',
 
   it('checkEPShareLimits: годовой объём ЕП управления 50_001 (тыс. руб. = 50,001 млн) превышает годовой абсолютный лимит (50 млн)', () => {
     const issues = checkEPShareLimits(1, 10, 50_001, 200_000, 'ОПЕРАЦИОННЫЙ', 'УО');
-    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(true);
+    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });
 
   it('checkEPShareLimits: годовой объём ЕП управления 50_000 (ровно на границе) — не превышает', () => {
@@ -97,7 +97,7 @@ describe('БАГ #1 — страж на фикстуре week-26.06.2026 (жив
     }));
   }
 
-  it('checkEPContractLimits находит ровно 94 нарушения лимита ЕП по всем восьми книгам (было 0)', () => {
+  it('checkEPContractLimits находит ровно 94 информационных признака ЕП по всем восьми книгам (было 0)', () => {
     let total = 0;
     for (const [dept, rows] of Object.entries(fx.rowsByDept)) {
       total += checkEPContractLimits(deptRows(rows), dept).length;

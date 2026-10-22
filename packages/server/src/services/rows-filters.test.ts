@@ -1,6 +1,6 @@
 /**
  * Характеризация rows-filters.ts (E11-2 rethink, 2026-07-21).
- * Инвариант каждого фильтра: пустой параметр = всё проходит.
+ * Отсутствующий фильтр не сужает выборку; неверный явный год отклоняется.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -25,9 +25,8 @@ function row(partial: Partial<FilterableRow>): FilterableRow {
 }
 
 describe('parseYearFilter', () => {
-  it('пусто и "all" → фильтр выключен', () => {
+  it('отсутствующий параметр и "all" → фильтр выключен', () => {
     expect(parseYearFilter(undefined)).toBeUndefined();
-    expect(parseYearFilter('')).toBeUndefined();
     expect(parseYearFilter('all')).toBeUndefined();
   });
 
@@ -35,10 +34,8 @@ describe('parseYearFilter', () => {
     expect(parseYearFilter('2026')).toBe(2026);
   });
 
-  it('мусор и вне диапазона → фильтр выключен', () => {
-    expect(parseYearFilter('abc')).toBeUndefined();
-    expect(parseYearFilter('1999')).toBeUndefined();
-    expect(parseYearFilter('2101')).toBeUndefined();
+  it.each(['', 'abc', '2026abc', '2026.5', '0x7ea', '1999', '2101', ['2026', '2025']])('ошибочный явный год %s не расширяет периметр', raw => {
+    expect(() => parseYearFilter(raw)).toThrow('Укажите год');
   });
 });
 
@@ -103,6 +100,14 @@ describe('applySubordinateFilter', () => {
     expect(applySubordinateFilter(rows, '_org_itself')).toEqual([empty, selfRef, selfRefLat]);
   });
 
+  it('ссылка на историческое написание находит живую организацию', () => {
+    const originals = [
+      row({ subordinate: 'МБУ ДО «КДМШ»' }),
+      row({ subordinate: 'МБОУ «Елизовская средняя школа № 3»' }),
+    ];
+    expect(applySubordinateFilter(originals, 'МБУ ДО "КДМШ"')).toEqual([originals[0]]);
+    expect(applySubordinateFilter(originals, 'МБОУ «Елизовская средняя школа №3»')).toEqual([originals[1]]);
+  });
   it('список через запятую: имя + _org_itself объединяются', () => {
     expect(applySubordinateFilter(rows, 'спортивная,_org_itself')).toEqual(rows);
   });

@@ -45,6 +45,17 @@ function item(over: Partial<Item> = {}): Item {
 }
 
 describe('чтение комментариев одной книги', () => {
+  it('Drive refusal does not prevent independently available native threads and notes', async () => {
+    const results = await comments.refreshCommentsForBooks(['УО'], undefined,
+      { async list() { throw new Error('Drive unavailable'); } },
+      { async get(_file, params) {
+        if (params.commentsViewMode) return { commentsViewMode: 'COMMENTS_VIEW_MODE_INCLUDED' };
+        if (!params.ranges) return { sheets: [{ properties: { sheetId: 17, title: 'ВСЕ',
+          gridProperties: { rowCount: 1, columnCount: 34 } } }] };
+        return { sheets: [{ properties: { sheetId: 17, title: 'ВСЕ' }, data: [] }] };
+      } });
+    expect(results[0]).toMatchObject({ read: false, native: { threads: 'read', notes: 'read', persisted: true } });
+  });
   it('страницы перечня склеиваются, записи оседают в базе с цитатой и статусом', async () => {
     const api = {
       list: vi.fn(async (_fileId: string, pageToken: string | null) =>

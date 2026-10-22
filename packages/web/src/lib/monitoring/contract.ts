@@ -1,3 +1,4 @@
+import { MONITORING_ANCESTOR_SHEETS } from '@aemr/shared';
 /**
  * Договор экрана «Мониторинг · Реестр процедур определения поставщика» с
  * сервером (GET /api/monitoring, GET /api/monitoring/match; канон п.101а).
@@ -291,6 +292,9 @@ export interface JournalPayload {
 
 export interface DirectoryRow {
   institutionId?: string | null;
+  entityKind?: 'institution' | 'department' | 'joint_group' | 'unknown';
+  status?: string | null;
+  nameEvidence?: Array<{ name: string; role: string; sourceAddress: string }>;
   sourceAddress?: string;
   aliases?: string[];
   num: string | null;
@@ -775,6 +779,14 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       return {
         sourceAddress: `${text(d.sheet)}!D${count(d.row)}`,
         institutionId: str(d.institutionId),
+        entityKind: d.entityKind === 'institution' ? 'institution'
+          : d.entityKind === 'department' ? 'department'
+          : d.entityKind === 'joint_group' ? 'joint_group' : 'unknown',
+        status: str(d.status),
+        nameEvidence: arr(d.nameEvidence).map(x => {
+          const n = rec(x);
+          return { name: text(n.name), role: text(n.role), sourceAddress: text(n.sourceAddress) };
+        }).filter(x => x.name !== ''),
         aliases: strList(d.aliases),
         num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
         grbs: str(d.grbs),
@@ -962,9 +974,7 @@ export const ANCESTOR_SHEET_COLUMNS: readonly string[] = [
  * писал «3 листа скрыты» только благодаря «+1» в формуле полосы состояния,
  * а называл два. Копия остаётся запасом, а не источником.
  */
-export const ANCESTOR_SHEET_NAMES: readonly string[] = [
-  'Отчет по процедурам Свод', 'СВОД', 'ГРБС',
-];
+export const ANCESTOR_SHEET_NAMES: readonly string[] = MONITORING_ANCESTOR_SHEETS.map(s => s.sheet);
 
 /** Лист-предок, как его называет ядро: имя, род и что на нём есть. */
 export interface AncestorSheet {

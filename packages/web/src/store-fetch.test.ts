@@ -50,6 +50,28 @@ beforeEach(() => {
 });
 
 describe('fetchDashboard — гонка запросов (баг #6)', () => {
+  it('aborts the old read when a new scope starts', async () => {
+    const old = deferred<any>();
+    getDashboard.mockReturnValueOnce(old.promise).mockResolvedValueOnce(makeData(2026));
+    useStore.setState({ year: 2025 });
+    const first = useStore.getState().fetchDashboard();
+    const signal = getDashboard.mock.calls[0][2] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    useStore.setState({ year: 2026 });
+    await useStore.getState().fetchDashboard();
+    expect(signal.aborted).toBe(true);
+    old.resolve(makeData(2025)); await first;
+    expect(useStore.getState().dataYear).toBe(2026);
+  });
+
+  it('does not apply a response after the selected scope changed, even before the next fetch', async () => {
+    const old = deferred<any>(); getDashboard.mockReturnValueOnce(old.promise);
+    useStore.setState({ year: 2025 });
+    const pending = useStore.getState().fetchDashboard();
+    useStore.setState({ year: 2026 });
+    old.resolve(makeData(2025)); await pending;
+    expect(useStore.getState().dashboardData).toBeNull();
+  });
   it('смена года во время загрузки НЕ выбрасывается: побеждает последний запрос', async () => {
     const first = deferred<any>();
     const second = deferred<any>();
@@ -115,5 +137,26 @@ describe('refresh / quickRefresh — dataYear и провенанс (баги #1
     getDashboard.mockResolvedValue(data);
     await useStore.getState().quickRefresh();
     expect(provenance).toHaveBeenCalledWith(data.snapshot.officialMetrics, 'sheet-1');
+  });
+});
+
+describe('fetchDashboard application acknowledgement', () => {
+  it('does not confirm an obsolete decision refresh while a newer request is pending', async () => {
+    const first = deferred<any>(); const second = deferred<any>();
+    getDashboard.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const afterDecision = useStore.getState().fetchDashboard();
+    const newer = useStore.getState().fetchDashboard();
+    first.resolve(makeData(2026));
+    expect(await afterDecision).toBe(false);
+    expect(useStore.getState().dashboardData).toBeNull();
+    expect(useStore.getState().error).toBeNull();
+    second.reject(new Error('later failure'));
+    expect(await newer).toBe(false);
+    expect(useStore.getState().error).toContain('later failure');
+  });
+  it('confirms only the response committed to shared state', async () => {
+    getDashboard.mockResolvedValue(makeData(2026));
+    expect(await useStore.getState().fetchDashboard()).toBe(true);
+    expect(useStore.getState().dataYear).toBe(2026);
   });
 });

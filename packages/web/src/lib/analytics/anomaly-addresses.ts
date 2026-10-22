@@ -1,3 +1,5 @@
+import type { SeasonalRuleId } from '@aemr/shared';
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Адреса находок датасет-аналитики (канон п.119: по каждому сработавшему
  * сигналу читателю виден ответ «какая строка, что в ней, почему»).
@@ -30,20 +32,15 @@ import { ORG_ITSELF_LABEL } from '../subordinate-label';
  * здесь, в единственном месте, которое эти поля читает, и каждое поле
  * проверяется при разборе. Расширять ядро ради витрины не требуется.
  */
-export type SeasonalAnomalyType =
-  | 'SCHOOL_REPAIR_OUTSIDE_HOLIDAYS'
-  | 'LATE_SCHOOL_FOOD_CONTRACT'
-  | 'WINTER_ROAD_WORK'
-  | 'LATE_FUEL_PROCUREMENT'
-  | 'BOILER_REPAIR_HEATING_SEASON'
-  | 'Q4_SPENDING_SPIKE'
-  | 'DECEMBER_RUSH_CONTRACT';
+export type SeasonalAnomalyType = SeasonalRuleId;
 
 type SeasonalSeverity = 'critical' | 'high' | 'medium';
 
 interface SeasonalAnomalyDTO {
   type: SeasonalAnomalyType;
   severity: SeasonalSeverity;
+  nextAction?: string;
+  limitation?: string;
   /** Индекс строки в массиве листа (с шапкой); −1 — признак по всей книге. */
   rowIndex: number;
   description: string;
@@ -62,15 +59,7 @@ interface SplittingGroupDTO {
 const SHEET_ROW_FROM_INDEX = 1;
 
 /** Обывательские подписи сезонных признаков — без внутренних ключей на экране. */
-export const SEASONAL_LABELS: Record<SeasonalAnomalyType, string> = {
-  SCHOOL_REPAIR_OUTSIDE_HOLIDAYS: 'Ремонт школы в учебное время',
-  LATE_SCHOOL_FOOD_CONTRACT: 'Школьное питание без контракта к 15 августа',
-  WINTER_ROAD_WORK: 'Дорожные работы в зимние месяцы',
-  LATE_FUEL_PROCUREMENT: 'Топливо не закуплено к отопительному сезону',
-  BOILER_REPAIR_HEATING_SEASON: 'Ремонт теплоснабжения в отопительный сезон',
-  Q4_SPENDING_SPIKE: 'Заключения смещены в IV квартал',
-  DECEMBER_RUSH_CONTRACT: 'Декабрьское заключение в короткий срок',
-};
+export const SEASONAL_LABELS: Record<SeasonalAnomalyType, string> = PRODUCT_COPY["lib/analytics/anomaly-addresses:SEASONAL_LABELS"];
 
 /** Острота — словом, без «нарушений» (PRODUCT.md, строгие правила языка). */
 export const SEASONAL_URGENCY: Record<SeasonalSeverity, string> = {
@@ -159,7 +148,7 @@ export function selectSeasonalFindings(
       typeLabel: SEASONAL_LABELS[type],
       severity,
       urgency: SEASONAL_URGENCY[severity] ?? SEASONAL_URGENCY.medium,
-      why: typeof a.description === 'string' ? a.description : SEASONAL_LABELS[type],
+      why: [typeof a.description === 'string' ? a.description : SEASONAL_LABELS[type], a.limitation, a.nextAction].filter(Boolean).join(' '),
       subject: typeof details.description === 'string' ? details.description : '',
       subordinate: orgLabel(details.subordinate),
     });

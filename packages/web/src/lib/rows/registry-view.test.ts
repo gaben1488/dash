@@ -19,10 +19,19 @@ import {
   signalOccurrences,
   signalPassport,
   signalSeverity,
+  rowSignalSeverity,
   stateSignals,
 } from './registry-view';
 
 describe('словарь признаков', () => {
+  it('годовой агрегат остаётся открытой проверкой договоров без ложного красного чипа', () => {
+    const row = { signals: ['epRisk'], epReason: '', dept: 'uksimp', id: '3', subject: 'Окорока (куриные)',
+      method: 'ЕП', factDateRaw: 'Х', factSum: 800 };
+    expect(countBySeverity([row])).toEqual({ critical: 0, warning: 0 });
+    expect(signalChipText('epRisk', row).text).toContain('отдельных договоров');
+    expect(signalChipText('epRisk', row).hint).toContain('не проверены');
+    expect(countBySeverity([{ ...row, factDateRaw: '10.10.2026' }])).toEqual({ critical: 1, warning: 0 });
+  });
   it('покрывает тяжестью каждый признак словаря продукта', () => {
     const missing = Object.keys(SIGNAL_LABELS).filter((key) => !(key in SIGNAL_SEVERITY));
     expect(missing).toEqual([]);
@@ -263,10 +272,16 @@ describe('строгость чипа против паспорта провер
     // держала наготове оправдание, и красный чип обесценивал остальные.
     expect(epRiskSeverity('Единственный поставщик тепловой энергии, естественная монополия'))
       .toBe('info');
-    expect(epRiskSeverity('Проведение аукциона нецелесообразно')).toBe('critical');
+    expect(epRiskSeverity('Проведение аукциона нецелесообразно')).toBe('warning');
     expect(epRiskSeverity('')).toBe('critical');
   });
 
+  it('recognized reason gives the same actionable wording to the chip and export', () => {
+    const row = { epReason: 'Проведение аукциона нецелесообразно' };
+    expect(signalChipText('epRisk', row).text).toContain('проверить основание');
+    expect(signalChipText('epRisk', row).hint).toContain('не подтверждённое нарушение');
+    expect(countBySeverity([{ ...row, signals: ['epRisk'] }])).toEqual({ critical: 0, warning: 1 });
+  });
   it('п.137(2): счёт критических строк судит той же развилкой, что и чип', () => {
     // Если счётчик и чип разойдутся, полоса «столько-то критических» перестанет
     // сходиться с тем, что видно глазами в таблице.
@@ -274,7 +289,7 @@ describe('строгость чипа против паспорта провер
       { signals: ['epRisk'], epReason: 'Единственный поставщик тепловой энергии, естественная монополия' },
       { signals: ['epRisk'], epReason: 'Нецелесообразно проводить аукцион' },
     ];
-    expect(countBySeverity(rows)).toEqual({ critical: 1, warning: 0 });
+    expect(countBySeverity(rows)).toEqual({ critical: 0, warning: 1 });
   });
 });
 
@@ -315,5 +330,17 @@ describe('недостижимые признаки в списке отбора
       .filter((key) => !UNREACHABLE_SIGNAL_KEYS.includes(key))
       .filter((key) => !ALL_SIGNAL_KEYS.includes(key));
     expect(lost).toEqual([]);
+  });
+});
+
+describe('future position preparation severity', () => {
+  const anchored={dept:'УКСиМП',id:'3',subject:'Окорока (куриные)',method:'ЕП',factDateRaw:'15.06.2026',planDateRaw:'15.06.2026',factSum:80,amountBasis:'position-total' as const,planYear:2026};
+  it('matches informative annual Q and preserves unknown-date review severity', () => {
+    expect(rowSignalSeverity('futureFactDate',anchored)).toBe('info');
+    expect(rowSignalSeverity('futureFactDate',{...anchored,planDateRaw:'15.06.2027'})).toBe('warning');
+    expect(rowSignalSeverity('futureFactDate',{})).toBe('warning');
+    expect(signalSeverity('economyDecisionUpcoming')).toBe('info');
+    expect(signalChipText('economyDecisionUpcoming').hint).toContain('ГРБС/УФ');
+    expect(signalChipText('futureFactDate').hint).not.toContain('физически невозможно');
   });
 });

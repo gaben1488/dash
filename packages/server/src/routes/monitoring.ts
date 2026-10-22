@@ -31,7 +31,7 @@
  *    сигнал с адресом, а не молчаливая потеря строки.
  */
 import type { FastifyInstance } from 'fastify';
-import { collectRowsByDept } from '@aemr/shared';
+import { collectRowsByDept, DEPARTMENTS, departmentCoverage, sourceCoverageNote } from '@aemr/shared';
 import {
   MONITORING_ANCESTOR_SHEETS,
   MONITORING_DATA_SHEETS,
@@ -46,6 +46,7 @@ import {
   mappingSignals,
   matchMonitoring,
   monitoringAnalytics,
+  rollingReductionCoefficients,
   procedureRowsForMatch,
   sheetSide,
   summarizeMatch,
@@ -231,7 +232,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
    * три коэффициента снижения приезжают вместе со своими знаменателями,
    * чтобы их нельзя было подменить друг другом на экране.
    */
-  app.get<{ Querystring: { refresh?: string; basis?: string } }>(
+  app.get<{ Querystring: { refresh?: string; basis?: string; window?: string } }>(
     '/api/monitoring/analytics',
     async (request, reply) => {
       const book = await getMonitoringBook(request.query.refresh === 'true');
@@ -240,6 +241,15 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const { registry } = parseBook(book);
+      if (request.query.window === 'rolling-year') {
+        const source = sourceOf(book);
+        if (Object.keys(source.sheetsFailed).length || source.sheetsRead.length !== source.sheetsExpected) {
+          return reply.status(503).send({ error: 'Живой коэффициент: книга прочитана не полностью.' });
+        }
+        const coefficient = rollingReductionCoefficients(registry.procedures, source.asOf);
+        return { source, analytics: { reduction: coefficient.reduction }, window: coefficient.window,
+          notes: ['Средневзвешенное снижение состоявшихся процедур за последние 12 месяцев; строки без даты торгов исключены.'] };
+      }
       const basis: SeasonBasis = request.query.basis === 'auction' ? 'auction' : 'publication';
       const analytics = monitoringAnalytics(registry.procedures, { seasonBasis: basis });
 
@@ -284,6 +294,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const { registry, journal } = parseBook(book);
     const rowsByBook = collectRowsByDept(getDeptSheetValues());
     const booksRead = Object.keys(rowsByBook).sort();
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), booksRead);
     const bookRows = bookRowsForMatch(rowsByBook);
     const procedureRows = procedureRowsForMatch(registry.procedures, journal.rows);
     const result = matchMonitoring(bookRows, procedureRows);
@@ -291,6 +302,8 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const internal = registry.schema === 'canonical' ? { ...internalDiff([], []), applicable: false, reason: 'Единый рабочий реестр заменил дубли листов управлений и журнала.' } : internalDiff(registry.procedures, journal.rows);
 
     const notes = commonNotes(book);
+    const coverageNote = sourceCoverageNote(coverage);
+    if (coverageNote) notes.unshift(coverageNote);
     notes.push(
       'Единицы сторон разные: книги управлений хранят тысячи рублей, мониторинг — рубли; перед сравнением план и факт книги умножены на тысячу.',
     );
@@ -309,7 +322,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       source: sourceOf(book),
-      books: { read: booksRead, rowsWithCode: bookRows.length ,
+      books: { read: booksRead, coverage, rowsWithCode: bookRows.length ,
         sources: booksRead.map((dept) => ({ dept, readAt: getDeptSheetCache()[dept]?.readAt ?? null })),
       },
       summary,
@@ -352,6 +365,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     }
     const rowsByBook = collectRowsByDept(getDeptSheetValues());
     const booksRead = Object.keys(rowsByBook).sort();
+    const coverage = departmentCoverage(DEPARTMENTS.map(dept => dept.nameShort), booksRead);
     const result = tripleCheck({
       readAt: book.readAt,
       bookRows: bookSide(rowsByBook),
@@ -360,6 +374,8 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const notes = commonNotes(book);
+    const coverageNote = sourceCoverageNote(coverage);
+    if (coverageNote) notes.unshift(coverageNote);
     notes.push(
       'Стороны сверки три: книга ГРБС (тысячи рублей), лист управления книги мониторинга и переходящий реестр «25-26» (рубли). Перед сравнением план, факт и экономия книги ГРБС умножены на тысячу.',
     );
@@ -379,7 +395,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       source: sourceOf(book),
-      books: { read: booksRead },
+      books: { read: booksRead, coverage },
       summary: result.summary,
       rows: result.rows,
       orphans: result.orphans,

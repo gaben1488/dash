@@ -157,6 +157,13 @@ export function lastKnownRevision(fileId: string): FileRevision | null {
   return seen.get(fileId) ?? null;
 }
 
+/** Cheap dependency key from the coordinator; never calls Google. */
+export function knownFileRevisionKey(fileId: string): string | null {
+  const revision = lastKnownRevision(fileId);
+  return revision && (revision.version !== null || revision.modifiedTime !== null)
+    ? JSON.stringify([revision.version, revision.modifiedTime]) : null;
+}
+
 /** Только для тестов: забыть всё, что видели. */
 export function resetRevisionMemory(): void {
   seen.clear();

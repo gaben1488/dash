@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Несостоявшиеся процедуры и аномалии — карточками диагноста (спека §3.6,
  * §3.8; канон п.53).
@@ -71,7 +72,7 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
           <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {unsuccessful.byDept.map((d) => (
               <li key={d.dept} className="tabular-nums">
-                {d.dept}: {fmtCount(d.count)} · {fmtRub(d.nmckRub)} руб.
+                {productLabel(d.dept)}: {fmtCount(d.count)} · {fmtRub(d.nmckRub)} руб.
               </li>
             ))}
           </ul>

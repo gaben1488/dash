@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 /**
  * Договор с сервером по нагрузке управлений и трём родам событий
  * (GET /api/workload; канон п.103 и п.105).
@@ -65,11 +66,7 @@ export interface WorkloadResponse {
  * Подписи наблюдаемости. Слово обязательно рядом со значком: значок один без
  * слова читается как оценка книги, а это измерение источника, не оценка людей.
  */
-export const OBSERVABILITY_LABEL: Readonly<Record<JournalObservability, string>> = {
-  rich: 'журнал живой',
-  thin: 'журнал редкий',
-  blind: 'журнал слепой',
-};
+export const OBSERVABILITY_LABEL: Readonly<Record<JournalObservability, string>> = PRODUCT_COPY["components/workload/contract:OBSERVABILITY_LABEL"];
 
 /** Что значит признак — одной фразой для подсказки и для экранного диктора. */
 export const OBSERVABILITY_MEANING: Readonly<Record<JournalObservability, string>> = {

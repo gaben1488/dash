@@ -133,7 +133,7 @@ describe('GET /api/sources/integrity', () => {
 });
 
 describe('GET failed formula reads', () => {
-  it('does not mark a Google read failure as successfully read', async () => {
+  it('does not mark Google read failure as successfully read', async () => {
     formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
       { book: 'УО', at: REFRESH_AT, cells: 0, handled: false, formulasRead: false,
         failedBecause: 'книга не прочитана' },
@@ -145,7 +145,7 @@ describe('GET failed formula reads', () => {
 });
 
 describe('POST /api/sources/integrity/check', () => {
-  it('не выдаёт пустой список настроенных книг за успешное чтение', async () => {
+  it('does not claim success for zero configured books', async () => {
     const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
     const prior = { ...DEPARTMENT_SPREADSHEETS };
     for (const book of Object.keys(DEPARTMENT_SPREADSHEETS)) Reflect.deleteProperty(DEPARTMENT_SPREADSHEETS, book);
@@ -191,7 +191,7 @@ describe('POST /api/sources/integrity/check', () => {
     expect(data.books.find((book: { book: string }) => book.book === 'УО').problems)
       .toContain('формулы этого запуска не прочитаны');
   });
-  it('never confirms a check whose parser ran only in RAM', async () => {
+  it('does not confirm an analysis that failed SQLite persist', async () => {
     formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
       { book: 'УО', at: REFRESH_AT, cells: 22, handled: true, persisted: false },
       { book: 'УИО', at: REFRESH_AT, cells: 11, handled: true, persisted: true },
@@ -208,7 +208,7 @@ describe('POST /api/sources/integrity/check', () => {
     });
   });
 
-  it('does not mistake a different check timestamp for the current verdict', async () => {
+  it('rejects a verdict from another observation cycle', async () => {
     formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
       { book: 'УО', at: REFRESH_AT, cells: 22, handled: true, persisted: true },
       { book: 'УИО', at: REFRESH_AT, cells: 11, handled: true, persisted: true },

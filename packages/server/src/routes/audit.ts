@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { Issue } from '@aemr/shared';
+import { withPersistedDecisions } from '../services/issue-decisions.js';
 import { getSnapshot } from '../services/snapshot.js';
 
 /**
@@ -27,7 +29,7 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
       app.log.error({ err }, 'trust: snapshot unavailable');
       return reply.status(503).send({ error: SNAPSHOT_UNAVAILABLE });
     }
-    return reply.send(snapshot.trust);
+    return reply.send(withPersistedDecisions(snapshot).trust);
   });
 
   /** GET /api/export/audit — экспорт аудит-пакета (JSON) */
@@ -39,6 +41,7 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
       app.log.error({ err }, 'export/audit: snapshot unavailable');
       return reply.status(503).send({ error: SNAPSHOT_UNAVAILABLE });
     }
+    snapshot = withPersistedDecisions(snapshot);
     return reply
       .header('Content-Disposition', `attachment; filename="aemr-audit-${snapshot.id}.json"`)
       .header('Content-Type', 'application/json')
@@ -50,8 +53,8 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
           trust: snapshot.trust,
           issuesSummary: {
             total: snapshot.issues.length,
-            critical: snapshot.issues.filter((i: Issue) => i.severity === 'critical').length,
-            significant: snapshot.issues.filter((i: Issue) => i.severity === 'significant').length,
+            critical: snapshot.issues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.severity === 'critical').length,
+            significant: snapshot.issues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.severity === 'significant').length,
           },
         },
         issues: snapshot.issues,

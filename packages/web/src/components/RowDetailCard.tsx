@@ -6,9 +6,10 @@ import clsx from 'clsx';
 import { KbHover } from './contract/KbHover';
 import { formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
-import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/registry-view';
+import { activityRowLabel, signalChipText, rowSignalTone } from '../lib/rows/registry-view';
 import { looksLikeEconomyDisposal } from '../lib/economy/disposal';
 import { RowTimelineSection } from './timeline/RowTimelineSection';
+import { CellNotesMetadata } from './provenance/CellNotesMetadata';
 import { PlanProvenanceSection } from './provenance/PlanProvenanceSection';
 import { toRowSeq } from '../hooks/useRowProvenance';
 import { YearlongBadge } from './yearlong/YearlongBadge';
@@ -51,6 +52,7 @@ export interface RowDetailRow {
 interface RowDetailCardProps {
   row: RowDetailRow;
   onClose: () => void;
+  noteColumn?: string;
 }
 
 /** Число ячейки строки; нечисловое и пустое — ноль (как в расчёте). */
@@ -79,7 +81,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
+export function RowDetailCard({ row, onClose, noteColumn }: RowDetailCardProps) {
   const formatMoney = useStore(s => s.formatMoney);
   /**
    * Дефекты формул этой строки. Берутся из замечаний снимка (их рождает слой
@@ -182,6 +184,7 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
   const epReasonPlaceholder = epReasonRaw !== null && epReason === null ? epReasonRaw : null;
   // Тот же канон для комментариев: «х» в примечании — не комментарий.
   const comments: Array<{ label: string; value: string | null }> = [
+    { label: 'Обоснование необходимости (AE)', value: cellTextOrNull(row.necessityJustification) },
     { label: 'Комментарий управления', value: cellTextOrNull(row.commentGRBS) },
     { label: 'Комментарий отдела экономики', value: cellTextOrNull(row.commentExtra) },
     { label: 'Комментарий финансового управления', value: cellTextOrNull(row.commentUFBP) },
@@ -511,8 +514,8 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             {signals.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {signals.map((sig: string) => {
-                  const chip = signalChipText(sig);
-                  const tone = signalTone(sig);
+                  const chip = signalChipText(sig, row);
+                  const tone = rowSignalTone(sig, row);
                   return (
                     <span
                       key={sig}
@@ -621,6 +624,11 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
           <div>
             <SectionTitle>История строки</SectionTitle>
             <RowTimelineSection deptId={deptId} sheetRow={rowIndex} />
+          </div>
+
+          <div>
+            <SectionTitle>Заметки источника по физическому адресу</SectionTitle>
+            {row.noteAddressUnavailable===true?<p className="text-xs">Адрес источника для выбранного столбца не установлен. Заметки к другой ячейке не подбираются.</p>:<CellNotesMetadata deptId={deptId} physicalRow={rowIndex} column={noteColumn} rowRevision={typeof row.rowRevision==='string'?row.rowRevision:undefined}/>}
           </div>
 
           {/* Происхождение: где именно лежит первичка */}

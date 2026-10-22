@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 /**
  * Тексты узла провенанса (канон п.133): «понятно написанный, одновременно
  * показывающий всё и вместе с тем лаконичный провенанс и изменения».
@@ -103,7 +104,7 @@ export function changeLines(books: readonly BookChange[]): ProvenanceLine[] {
           ? 'при запуске'
           : 'по таймеру';
     return {
-      label: b.book,
+      label: productLabel(b.book),
       detail: `${bits.length > 0 ? bits.join(' · ') : 'без изменений строк'} — ${origin}, ${relativeMoment(b.at)}`,
     };
   });

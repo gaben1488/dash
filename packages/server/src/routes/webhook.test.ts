@@ -62,6 +62,7 @@ const enqueueNotification = vi.fn(() => 1);
 const settleAfterRefresh = vi.fn(() => ({ done: [], kept: [], skipped: [] }));
 const settleMonitoring = vi.fn(() => ({ done: [], kept: [] }));
 vi.mock('../services/webhook-queue.js', () => ({
+  MAX_QUEUE_ATTEMPTS: 3,
   cycleCoversFile: vi.fn(() => true),
   enqueueNotification: (...a: unknown[]) => enqueueNotification(...(a as [])),
   noteAttemptFailed: vi.fn(),

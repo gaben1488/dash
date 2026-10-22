@@ -27,6 +27,11 @@ describe('formatDateCell — рендер даты из DTO (ISO-канон) в 
 });
 
 describe('monthOfDateValue — месяц для квартальных/месячных фильтров', () => {
+  it('does not put an impossible date into a financial period', () => {
+    for (const value of ['31.02.2026', '2026-13-01', '2026-02-29', '2026-01-01TNOT_A_TIME']) {
+      expect(monthOfDateValue(value), value).toBeNull();
+    }
+  });
   it('ISO: 2026-04-01 → 4', () => {
     expect(monthOfDateValue('2026-04-01')).toBe(4);
   });

@@ -31,8 +31,8 @@ function sources(dir: string = PACKAGES, out: string[] = []): string[] {
 
 /** Дом форматирования отчётных чисел. */
 const FMT_HOME = 'web/src/lib/report/mappers.ts';
-/** Дом коэрции: этой функцией считается официальный СВОД. */
-const COERCE_HOME = 'shared/src/svod-grid.ts';
+/** Strict source parser, reused by editing, SVOD, DTO and timeline. */
+const COERCE_HOME = 'shared/src/editable-amount.ts';
 
 /** Долг: копии форматтеров вне дома. Сокращается волной В0. */
 const FMT_DEBT: Record<string, string[]> = {
@@ -119,6 +119,9 @@ describe('дома понятий', () => {
       if (decl) fmtFound.push(`${rel}:${decl[1]}`);
       // Срезание ВСЕХ пробелов — подпись числовой коэрции; parseFloat/Number
       // рядом (окно ±6 строк) отличает её от нормализации текста.
+      if (rel === COERCE_HOME && lines[i].includes('const value = Number(input.replace(')) {
+        coerceFound[rel] = (coerceFound[rel] ?? 0) + 1;
+      }
       if (!lines[i].includes('replace(/\\s/g')) continue;
       const near = lines.slice(Math.max(0, i - 6), i + 7).join('\n');
       if (/parseFloat|parseInt|\bNumber\s*[.(]/.test(near)) coerceFound[rel] = (coerceFound[rel] ?? 0) + 1;

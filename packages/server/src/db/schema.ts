@@ -238,13 +238,14 @@ export const bookWatermarks = sqliteTable('book_watermarks', {
    *  времени переживали рестарт вместе с отпечатком. */
   driveVersion: text('drive_version'),
   driveModifiedTime: text('drive_modified_time'),
+  sourceFileId: text('source_file_id'),
+  readingJson: text('reading_json'),
 });
 
 
 /**
- * Последние свидетельства проверки источников. Две независимые разновидности
- * (`formulas` и `metadata`) не смешиваются с недельными снимками.
- * payload содержит только итоги проверки, не всю сетку формул.
+ * Последнее проверенное состояние источника, независимо от RAM и недельных снимков.
+ * По книге сохраняется лишь диагностический исход, а не сетка формул.
  */
 export const sourceIntegrityState = sqliteTable('source_integrity_state', {
   id: text('id').primaryKey(),
@@ -289,6 +290,18 @@ export const journalGaps = sqliteTable(
  * Привязка к ячейке публичными средствами не разворачивается, поэтому здесь
  * честно хранится цитата содержимого ячейки, а не адрес.
  */
+/** Append-only witnesses extend the existing comments family, not source edit events. */
+export const driveCommentObservations = sqliteTable('drive_comment_observations', {
+  id: text('id').primaryKey(),
+  book: text('book').notNull(),
+  fileId: text('file_id'),
+  kind: text('kind').notNull(),
+  sourceId: text('source_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  payload: text('payload').notNull(),
+  readAt: text('read_at').notNull(),
+});
+
 export const driveComments = sqliteTable('drive_comments', {
   /** «книга#идентификатор комментария» — идентификаторы уникальны в файле. */
   id: text('id').primaryKey(),

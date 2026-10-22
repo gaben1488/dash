@@ -14,7 +14,13 @@
 /** Причина отказа источника русской фразой из закрытого списка. */
 export function classifySourceFailure(raw: string): string {
   const text = raw.toLowerCase();
-  if (/не ответил|timeout|timedout|etimedout|deadline/.test(text)) {
+  if (text === 'source_binding_changed_during_read') return 'настройка источника изменилась во время чтения';
+  if (text === 'source_changed_during_read') return 'книга изменилась во время чтения';
+  if (text === 'source_revision_recheck_unavailable') return 'не удалось подтвердить версию прочитанной книги';
+  if (/^snapshot_calculation_(failed|busy|timed_out|termination_failed|exited_without_result)$/.test(text)) {
+    return 'расчёт снимка не завершён';
+  }
+  if (/не ответил|таймаут|timeout|timedout|etimedout|deadline/.test(text)) {
     return 'источник не ответил вовремя';
   }
   if (/\b429\b|quota|rate.?limit|too many requests/.test(text)) {
@@ -33,4 +39,20 @@ export function classifySourceFailure(raw: string): string {
     return 'нужный лист в книге не найден';
   }
   return 'книга не прочитана';
+}
+
+/** Automatic retries require positive evidence of a transient transport/service error. */
+export function isTransientSourceFailure(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    const value = error as { status?: unknown; code?: unknown; response?: { status?: unknown } };
+    const status = Number(value.response?.status ?? value.status ?? value.code);
+    if (Number.isInteger(status) && status >= 400 && status < 600) return [408, 429, 500, 502, 503, 504].includes(status);
+  }
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/schema|contract|invalid|\b40[134]\b|permission|forbidden|not found|unable to parse range/i.test(raw)) return false;
+  const transient = ['источник не ответил вовремя', 'источник ограничил частоту обращений',
+    'нет связи с источником', 'источник временно недоступен',
+    'книга изменилась во время чтения', 'не удалось подтвердить версию прочитанной книги',
+    'настройка источника изменилась во время чтения'];
+  return transient.includes(raw) || transient.includes(classifySourceFailure(raw));
 }

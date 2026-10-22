@@ -1,3 +1,4 @@
+import { SEASONAL_RULE_LABELS } from './procurement-guidance.js';
 /**
  * product-dictionary.ts — SSOT человеческих лейблов продукта AEMR (фаза 1.1).
  *
@@ -10,7 +11,7 @@
  *   - EP-причины  → dictionaries/ep-reason-clusters.ts (EP_REASON_DICT[*].label_ru), derive
  *   - ГРБС        → department-registry.ts (DEPARTMENT_REGISTRY shortName/fullName), derive
  *   - Сигналы     → SIGNAL_CLASS_NAMES ЗДЕСЬ: это дом имён, а не зеркало
- *   - Метрики     → core/calc-engine.ts метрики .label (зеркалятся, см. ниже)
+ *   - Метрики     → METRIC_LABELS здесь; движок и БЗ берут подписи из него
  *   - Статусы     → types.ts IssueStatus
  *   - _org_itself → ORG_ITSELF_SENTINEL
  *
@@ -27,7 +28,7 @@
  */
 
 import { EP_REASON_CLUSTERS, EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
-import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import { DEPARTMENT_REGISTRY, findDept, getDept } from './department-registry.js';
 import { ORG_ITSELF_SENTINEL } from './dictionaries/subordinate-registry.js';
 
 // ────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   notDue: { chip: 'Срок не наступил' },
   canceled: { chip: 'Отменён' },
   // ── Критические ──
-  overdue: { chip: 'Просрочен', card: 'Просрочка закупки' },
+  overdue: { chip: 'Срок прошёл', card: 'Плановый срок прошёл — заключение не подтверждено' },
   epRisk: { chip: 'ЕП-риск', card: 'ЕП-риск свыше 600 тыс. рублей' },
   // Имя ведёт числом, а не статьёй закона: «Антидемпинговый сигнал» обещал
   // ст.37, которую по этим данным проверить нельзя (нужна НМЦК, её в книгах
@@ -111,7 +112,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   budgetMismatch: { chip: 'Расхождение бюджета' },
   // ── Предупреждения ──
   stalledContract: { chip: 'Подвисший контракт', card: 'Подвисший контракт' },
-  earlyClosure: { chip: 'Раннее закрытие', card: 'Раннее закрытие' },
+  earlyClosure: { chip: 'Проверьте даты', card: 'Необычное опережение плана — проверьте год и даты заключения' },
   financeDelay: { chip: 'Задержка финансирования', card: 'Задержка финансирования' },
   planSoon: { chip: 'Скоро срок' },
   lowCompetition: { chip: 'Низкая конкуренция ниже 2%', card: 'Низкая конкуренция ниже 2%' },
@@ -119,6 +120,7 @@ export const SIGNAL_CLASS_NAMES: Readonly<Record<string, SignalClassName>> = {
   dataQuality: { chip: 'Пустые обязательные поля', card: 'Пустые обязательные поля' },
   // «Факт дата» — калька разработчика; по-русски это «факт раньше плановой даты».
   factDateBeforePlan: { chip: 'Факт раньше плановой даты', card: 'Факт раньше плановой даты' },
+  economyDecisionUpcoming: { chip: 'Подготовить решение после завершения', card: 'Подготовка решения по итогам позиции' },
   futureFactDate: { chip: 'Дата факта в будущем', card: 'Дата факта в будущем' },
   planWithoutExecution: { chip: 'План без исполнения', card: 'План без исполнения' },
   epJustificationMissing: { chip: 'ЕП без обоснования', card: 'ЕП без обоснования' },
@@ -249,10 +251,10 @@ export const METHOD_LABELS: Readonly<Record<string, string>> = {
 };
 
 // ────────────────────────────────────────────────────────────
-// 6. Метрики (calc-engine) — зеркало metricKey → label
+// 6. Метрики — канонические подписи metricKey → label
 // ────────────────────────────────────────────────────────────
 
-/** Ключ метрики → человеческая фраза (зеркало core/calc-engine.ts). */
+/** Ключ метрики → человеческая фраза для движка, БЗ и интерфейса. */
 export const METRIC_LABELS: Readonly<Record<string, string>> = {
   plan_count: 'План (кол-во)',
   fact_count: 'Факт (кол-во)',
@@ -321,6 +323,66 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   // финансированием» (прежний лейбл «Без подтверждённого финансирования» снят).
   lifecycle_stage_no_funding: 'Не обеспечено финансированием',
   lifecycle_stage_unfunded: 'Без плановых денег',
+  pending_fb: 'Остаток ФБ',
+  pending_kb: 'Остаток КБ',
+  pending_mb: 'Остаток МБ',
+  api_read_available: 'Доступность API при последнем чтении',
+  report_check_age_seconds: 'Возраст последней успешной проверки',
+  worker_cycle_duration_seconds: 'Длительность последнего завершённого цикла',
+  worker_last_failure: 'Последний зафиксированный отказ',
+  calc_economy_remainder: 'Прогноз экономии по остатку ЭА',
+  trust_overall: 'Общая надёжность',
+  trust_data_quality: 'Качество данных',
+  trust_formula_integrity: 'Целостность формул',
+  trust_rule_compliance: 'Соблюдение правил',
+  trust_mapping_consistency: 'Согласованность маппинга',
+  trust_operational_risk: 'Операционный риск',
+  critical_issues: 'Критические замечания',
+  economy_rate: 'Экономия',
+  trust_binary: 'Доверие к данным',
+  fb_execution_pct: '% исполнения ФБ',
+  dept_rank: '№ (ранг в рейтинге)',
+  dept_name: 'ГРБС — главный распорядитель',
+  dept_exec_count_pct: 'Исполнение по кол-ву (управление)',
+  dept_exec_amount_pct: 'Исполнение по сумме (управление)',
+  dept_fb_exec_pct: 'Исполнение ФБ (управление)',
+  dept_fb_pct: 'Исполнение по ФБ (управление)',
+  dept_trust: 'Уровень доверия (управление)',
+  dept_issues: 'Количество замечаний (управление)',
+  dept_delta_quarter: 'Δ кв (изменение исполнения к предыдущему кварталу)',
+  dept_sparkline: 'Спарк (4 квартала)',
+  total_economy: 'Утверждённая экономия района (сумма)',
+  avg_reduction_pct: 'Средний % снижения от лимита',
+  high_economy_count: 'Закупки со снижением факта > 25% от лимита',
+  economy_conflicts: 'Конфликты флага экономии',
+  plan_fact_quarterly: 'План/Факт по кварталам',
+  execution_by_dept: 'Исполнение по управлениям (bar chart)',
+  pie_procurement: 'Распределение по способу закупки',
+  pie_budget: 'Распределение по бюджетам',
+  signal_overdue: 'Просрочка',
+  signal_economy_conflict: 'Экономия без флага AD',
+  signal_high_economy: 'Снижение факта от лимита > 25% (конкурентные)',
+  signal_stalled_contract: 'Подвисший контракт (проверка отключена)',
+  signal_fact_exceeds_plan: 'Факт превышает план',
+  signal_fact_date_before_plan: 'Дата факта раньше даты плана',
+  signal_plan_without_execution: 'План без исполнения',
+  signal_ep_justification_missing: 'ЕП без обоснования',
+  signal_budget_underallocation: 'Факт без плана',
+  scorecard_grade: 'Грейд управления',
+  scorecard_discipline: 'Индекс дисциплины',
+  recon_verdict: 'Вердикт сверки',
+  recon_gap_plan: 'Разрыв по плану',
+  recon_gap_fact: 'Разрыв по факту',
+  monitoring_reduction_portfolio: 'Портфельное снижение на торгах',
+  monitoring_reduction_rowmean: 'Среднее снижение по процедурам',
+  monitoring_reduction_discounted: 'Среднее по снизившимся процедурам',
+  ep_reducible: 'ЕП для разбора',
+  refusal_cost: 'Цена отказа от конкурса',
+  discipline_rows_pending: 'Строк ждут действия',
+  discipline_money_pending: 'Деньги в строках дел',
+  dept_economy_total: 'Экономия управления',
+  dept_economy_rate: 'Доля экономии от лимита',
+  analytics_top_kpi: 'Главные показатели периметра',
 };
 
 // ────────────────────────────────────────────────────────────
@@ -361,7 +423,7 @@ export function productLabel(key: string): string {
     const label = map[key];
     if (label !== undefined) return label;
   }
-  return key;
+  return findDept(key)?.shortName ?? key;
 }
 
 /**
@@ -390,3 +452,463 @@ export function quarterYearLabel(quarter: number, year: number): string {
 export const RAW_KEY_SAMPLES: readonly string[] = Array.from(
   new Set(LOOKUP_MAPS.flatMap((map) => Object.keys(map))),
 );
+
+/** Экранные словари. Ключ = контекст:имя; значения редактируются только здесь. */
+export const PRODUCT_COPY = {
+  "components/analytics-extra/contract:SCALE_TITLE": {
+  typo: 'Похоже на опечатку',
+  fitted: 'Похоже на подгон',
+},
+  "components/DiagnosticCards:SEVERITY_TEXT": {
+  critical: 'Критическое',
+  error: 'Ошибка',
+  significant: 'Существенное',
+  warning: 'Предупреждение',
+  info: 'Информация',
+},
+  "components/RatingTableV2:NO_PLAN_HINT": 'За выбранный период плана нет — исполнять нечего',
+  "components/TableEditor:EMPTY_CELL_HINT": 'В книге значение не заполнено',
+  "components/TableEditor:COPY_REFUSED_NOTE": 'Браузер не дал доступ к буферу обмена — скопируйте выделение вручную.',
+  "components/text-hygiene/TextHygieneSection:SPELLING_LABEL": 'орфография',
+  "components/ui/chart-frame:MONEY_SCALE_HINT": {
+  'руб': 'суммы читаются в рублях — так их ведёт книга мониторинга',
+  'тыс': 'суммы читаются в тысячах рублей — так их ведут свод и отчёт',
+  'млн': 'суммы читаются в миллионах рублей',
+  'млрд': 'суммы читаются в миллиардах рублей',
+},
+  "lib/dataset-analyses:BENFORD_LABELS": {
+  close: { label: 'соответствует', hint: 'MAD ≤ 0.006 — распределение первых цифр естественное', tone: 'ok' },
+  acceptable: { label: 'приемлемо', hint: 'MAD ≤ 0.012 — отклонение в допустимых пределах', tone: 'ok' },
+  marginal: { label: 'на грани', hint: 'MAD ≤ 0.015 — отклонение заметное, стоит присмотреться', tone: 'warn' },
+  nonconforming: { label: 'не соответствует', hint: 'MAD > 0.015 — возможна манипуляция суммами', tone: 'bad' },
+},
+  "lib/diagnostics/mechanism-groups:MECHANISM_FALLBACK_LABEL": 'Проверка без подписи в словаре',
+  "lib/drill:AXIS_TITLE": {
+  dept: 'Управление',
+  subordinate: 'Учреждение',
+  year: 'Год',
+  quarter: 'Квартал',
+  month: 'Месяц',
+  method: 'Способ закупки',
+  budget: 'Бюджет',
+  activity: 'Вид деятельности',
+  signals: 'Признаки строк',
+  search: 'Поиск',
+  procedure: 'Процедура',
+},
+  "lib/drill:ACTIVITY_TITLE": {
+  program: 'программная',
+  current_program: 'текущая программная',
+  current_non_program: 'текущая непрограммная',
+},
+  "lib/economy-copy:ECONOMY_EMPTY_STATE_COPY": {
+  title: 'Нет данных по экономии',
+  body: 'Экономия считается только по утвержденным строкам: факт-дата заполнена, AD="да", сумма Z+AA+AB. Данные появятся после загрузки из Google Sheets.',
+} as const,
+  "lib/figure:UNIT_TEXT": {
+  'шт': 'шт.',
+  'тыс.руб': 'тыс. руб.',
+  '%': '%',
+  'дн': 'дн.',
+},
+  "lib/formulas/formula-defects:FORMULA_INTEGRITY_TITLE": 'Целостность формул книг',
+  "lib/formulas/formula-defects:ETALON_LABEL": 'Эталон графы: ',
+  "lib/help/help-content:HELP_TITLE": 'Как читать этот дэш',
+  "lib/help/help-content:HELP_SUBTITLE": 'Четыре вещи, которые стоит знать до первого числа на экране.',
+  "lib/monitoring/bi:BUDGET_LABELS": {
+  mb: { short: 'МБ', label: 'местный бюджет' },
+  kb: { short: 'КБ', label: 'краевой бюджет' },
+  fb: { short: 'ФБ', label: 'федеральный бюджет' },
+},
+  "lib/monitoring/contract:ANCESTOR_SHEET_NAMES": [
+  'Отчет по процедурам Свод', 'СВОД', 'ГРБС',
+],
+  "lib/perimeter:AXIS_TITLE": {
+  year: 'Год',
+  span: 'Период',
+  orgs: 'Органы',
+  slice: 'Срез',
+  moment: 'Момент',
+},
+  "lib/reading-moment:LIVE_MOMENT_LABEL": 'на сейчас',
+  "lib/reading-moment:UNKNOWN_MOMENT_LABEL": 'момент чтения неизвестен',
+  "lib/recon/monthly:NO_CALC_NOTE": 'расчёт не построен',
+  "lib/recon/monthly:BUDGET_CELL_LABELS": [
+  ['план ФБ', 'planFB'], ['план КБ', 'planKB'], ['план МБ', 'planMB'],
+  ['факт ФБ', 'factFB'], ['факт КБ', 'factKB'], ['факт МБ', 'factMB'],
+  ['эконом. ФБ', 'economyFB'], ['эконом. КБ', 'economyKB'], ['эконом. МБ', 'economyMB'],
+],
+  "lib/subordinate-label:ORG_ITSELF_LABEL": 'Аппарат управления',
+  "lib/svod/activity:ACTIVITY_HINT": {
+  pm: 'Программные мероприятия — строки с видом деятельности «Программное мероприятие»',
+  td: 'Текущая деятельность целиком — включая строки с заполненной графой программы (канон п.30)',
+},
+  "lib/svod/order:SVOD_ORDER_HINT": {
+  registry: 'Порядок справочника управлений — тот же, что в официальном листе.',
+  execution: 'Сверху отстающие: наименьший процент исполнения (столбец G) первым.',
+  plan: 'Сверху крупные: наибольший плановый лимит (столбец K) первым.',
+  economy: 'Сверху наибольшая экономия по итогу управления.',
+},
+  "department.unknown": 'Управление не указано',
+  "store:STAVKA_SCOPE_NOTE": 'Ставка меняет прогноз по остатку ЭА в Отчёте. Факт экономии и данные книг от неё не меняются.',
+  "components/analytics-extra/contract:LEVEL_LABEL": {
+  row: 'строка книги',
+  behaviour: 'видно сравнением с прошлым чтением',
+  book: 'признак всей книги',
+},
+  "components/charts/DrillPieChart:DRILL_DIMENSION_LABELS": {
+  procurement: 'Способ закупки',
+  budget: 'Бюджеты',
+  department: 'Управления',
+  execution: 'Исполнение',
+},
+  "components/charts/DrillPieChart:METRIC_LABELS": {
+  plan: 'План',
+  fact: 'Факт',
+  economy: 'Экономия',
+  count: 'Закупки, шт.',
+},
+  "components/charts/DrillPieChart:VIEW_LEVEL_LABELS": {
+  grbs: 'ГРБС',
+  orgs: 'Организации',
+},
+  "components/competition/EpShare:MODE_LABELS": {
+  sheet: 'как в листе',
+  clean: 'без выплат и платежей',
+},
+  "components/IssueList:ORIGIN_LABELS": {
+  spreadsheet_rule: 'Правило таблицы',
+  bi_heuristic: 'Аналитика',
+  delta_mismatch: 'Расхождение',
+  mapping_error: 'Привязка',
+  runtime_error: 'Ошибка системы',
+  language_defect: 'Язык',
+},
+  "components/monitoring/SignalCards:SEVERITY_LABEL": {
+  high: 'Меняет числа',
+  medium: 'Искажает разрезы',
+  low: 'Мешает читать',
+},
+  "components/RatingTableV2:SORT_LABELS": {
+  execCountPct: 'исполнению по количеству',
+  execAmountPct: 'исполнению по сумме',
+  fbExecPct: 'исполнению федерального бюджета',
+  fbPct: 'исполнению федерального бюджета',
+  trustScore: 'доверию к данным',
+  issueCount: 'числу замечаний',
+},
+  "components/scorecard/contract:MODE_LABEL": {
+  'ПОХВАЛА': 'идёт с опережением',
+  'ШТАТНЫЙ': 'штатный ход',
+  'ВНИМАНИЕ': 'требует внимания',
+  'ТРЕВОГА': 'тревожно',
+  'КОНТЕКСТНЫЙ': 'есть пояснение исполнителя',
+},
+  "components/scorecard/contract:FACTOR_LABEL": {
+  'КОНТЕКСТ': 'пояснение исполнителя',
+  'АНОМАЛИЯ': 'аномалии в суммах',
+  'ИСПОЛНЕНИЕ': 'исполнение плана',
+  'ЕП': 'доля единственного поставщика',
+  'ДИНАМИКА': 'динамика к ожиданию',
+  'ЭКОНОМИЯ': 'экономия',
+},
+  "components/scorecard/contract:ROLE_LABEL": {
+  'ОПЕРАЦИОННЫЙ': 'операционное',
+  'ИНВЕСТИЦИОННЫЙ': 'инвестиционное',
+  'СМЕШАННЫЙ': 'смешанное',
+},
+  "components/scorecard/contract:INDICATOR_LABEL": {
+  splitting: 'дробление закупок',
+  zero_competition: 'торги без снижения цены',
+  price_inflation: 'цена выше типичной по предмету',
+  ep_over_limit: 'ЕП свыше разового лимита',
+  ep_annual_share: 'годовая доля ЕП выше ориентира роли',
+  supplier_concentration: 'закупки сходятся на одном поставщике',
+},
+  "components/ui/chart-frame:MONEY_SCALE_LABEL": {
+  'руб': '₽',
+  'тыс': 'тыс ₽',
+  'млн': 'млн ₽',
+  'млрд': 'млрд ₽',
+},
+  "components/workload/contract:OBSERVABILITY_LABEL": {
+  rich: 'журнал живой',
+  thin: 'журнал редкий',
+  blind: 'журнал слепой',
+},
+  "lib/analytics/anomaly-addresses:SEASONAL_LABELS": SEASONAL_RULE_LABELS,
+  "lib/chart-colors:EXECUTION_BAND_LABELS": {
+  over: 'больше 100 %: факт выше плана',
+  good: 'больше 80 %',
+  watch: 'от 50 до 80 %',
+  bad: 'меньше 50 %',
+},
+  "lib/chart-colors:SERIES_PATTERN_LABELS": {
+  solid: 'сплошная заливка',
+  diagonal: 'косая штриховка',
+  dots: 'точки',
+  grid: 'клетка',
+},
+  "lib/monitoring/money-flow:MONEY_CATEGORY_LABELS": {
+  realized: 'Учтённые результаты',
+  work: 'В работе и ожидании даты',
+  unrealized: 'Не состоялись и отменены',
+  reissued: 'Переоформлены · история',
+  unknown: 'Стадия требует уточнения',
+},
+  "lib/monitoring/stage-labels:STAGE_LABELS": {
+  application: 'Заявка в уполномоченном органе',
+  published: 'Объявлена, итога нет',
+  bidding: 'Итог не внесён',
+  awarded: 'Состоялась',
+  no_result: 'Без результата',
+  reissued: 'Переоформлена',
+  unknown: 'Проверить стадию',
+},
+  "lib/monitoring/stage-labels:METHOD_LABELS": {
+  ЭА: 'электронный аукцион',
+  ЭК: 'электронный конкурс',
+  ЭАС: 'совместный электронный аукцион',
+  ЭЗК: 'запрос котировок в электронной форме',
+  ЭЕП: 'закупка у единственного поставщика',
+},
+  "lib/monitoring/triple-contract:SIDE_LABELS": {
+  book: 'книга ГРБС',
+  sheet: 'лист управления мониторинга',
+  journal: 'переходящий реестр «25-26»',
+},
+  "lib/monitoring/triple-contract:FINDING_LABELS": {
+  'no-pair-in-monitoring': 'Нет пары в книге мониторинга',
+  'no-pair-in-books': 'Нет строки в книгах ГРБС',
+  'no-journal-record': 'Нет записи в переходящем реестре',
+  'no-sheet-record': 'Не перенесена на лист управления',
+  'plan-differs': 'Начальные цены разошлись',
+  'fact-differs': 'Факт и цена победителя разошлись',
+  'savings-differ': 'Экономия разошлась',
+  'savings-not-difference': 'Экономия не равна разности',
+  'winner-price-missing': 'Цена победителя не проставлена',
+  'code-distorted': 'Код процедуры с опечаткой',
+  'subject-mismatch': 'Предметы сторон описаны по-разному',
+  'duplicate-in-book': 'Код дважды в одной книге',
+  'joint-shares': 'Доли совместной закупки',
+  'duplicate-in-monitoring': 'Код дважды на одном листе мониторинга',
+},
+  "lib/rows/registry-view:ACTIVITY_FILTER_LABELS": {
+  program: 'программные мероприятия',
+  // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — заполненная
+  // графа программы у ТД норма, подписи «в рамках/вне программ» лгали бы:
+  // classifyActivity теперь всю ТД отдаёт ключом current_non_program, а
+  // current_program остаётся только в старых снимках — обе подписи «ТД».
+  current_program: 'текущая деятельность',
+  current_non_program: 'текущая деятельность',
+},
+  "lib/rows/registry-view:PROCUREMENT_FILTER_LABELS": {
+  competitive: 'конкурентные способы',
+  single: 'единственный поставщик',
+},
+  "lib/selectors/journal-display:ACTOR_LABELS": {
+  Pipeline: 'Обновление данных',
+  pipeline: 'Обновление данных',
+  System: 'Система',
+  system: 'Система',
+},
+  "lib/semantic-color:STATE_LABELS": {
+  'норма': 'в норме',
+  'внимание': 'требует внимания',
+  'нарушение': 'нарушение',
+  'не оценено': 'не оценено — базы для счёта нет',
+},
+  "lib/svod/order:SVOD_ORDER_LABEL": {
+  registry: 'как в реестре',
+  execution: 'по исполнению',
+  plan: 'по лимиту',
+  economy: 'по экономии',
+},
+  "lib/svod/recon:FIELD_LABEL": {
+  count: 'количество',
+  total_plan: 'план',
+  total_fact: 'факт',
+  economy_total: 'экономия',
+},
+  "pages/Analytics:TREND_LABELS": {
+  accelerating: 'Ускорение', decelerating: 'Замедление', stable: 'Стабильно', insufficient_data: 'Мало данных',
+},
+  "pages/Dashboard:BREAKDOWN_EMPTY_LABELS": {
+  critical_issues: 'не посчитано',
+  trust_binary: 'не оценено',
+},
+  "pages/Trust:COMPONENT_SHORT_LABELS": {
+  data_quality: 'Данные',
+  formula_integrity: 'Формулы',
+  rule_compliance: 'Правила',
+  mapping_consistency: 'Сверка',
+  operational_risk: 'Риски',
+},
+  "pages/Trust:CHECK_SCOPE_LABELS": {
+  svod: 'Лист «СВОД ТД-ПМ»',
+  department: 'Листы управлений',
+  both: 'Общие для всех листов',
+},
+} as const;
+
+/** Месяцы: единый справочник для фильтров, графиков и отчётов. */
+export const MONTHS = [
+  { id: 1, short: 'Янв', full: 'Январь' },
+  { id: 2, short: 'Фев', full: 'Февраль' },
+  { id: 3, short: 'Мар', full: 'Март' },
+  { id: 4, short: 'Апр', full: 'Апрель' },
+  { id: 5, short: 'Май', full: 'Май' },
+  { id: 6, short: 'Июн', full: 'Июнь' },
+  { id: 7, short: 'Июл', full: 'Июль' },
+  { id: 8, short: 'Авг', full: 'Август' },
+  { id: 9, short: 'Сен', full: 'Сентябрь' },
+  { id: 10, short: 'Окт', full: 'Октябрь' },
+  { id: 11, short: 'Ноя', full: 'Ноябрь' },
+  { id: 12, short: 'Дек', full: 'Декабрь' },
+] as const;
+
+/** Общие тексты навигации, действий и единиц. */
+export const UI_LABELS = {
+  // Навигация
+  'nav.dashboard': 'Сводная панель',
+  'nav.analytics': 'Аналитика',
+  'nav.control': 'Контроль качества',
+  'nav.audit': 'Аудит данных',
+  'nav.settings': 'Настройки',
+  'nav.grbs': 'По управлениям',
+  'nav.economy': 'Экономия',
+  'nav.rows': 'Построчные данные',
+
+  // KPI
+  'kpi.execution': 'Исполнение',
+  'kpi.plan': 'План',
+  'kpi.fact': 'Факт',
+  'kpi.deviation': 'Отклонение',
+  'kpi.economy': 'Экономия',
+  'kpi.procedures_count': 'Количество процедур',
+  'kpi.competitive': 'Конкурентные процедуры',
+  'kpi.sole_supplier': 'Единственный поставщик',
+  'kpi.ep_share': 'Доля ЕП',
+
+  // Периоды
+  'period.q1': '1 квартал',
+  'period.q2': '2 квартал',
+  'period.q3': '3 квартал',
+  'period.q4': '4 квартал',
+  'period.year': 'Год',
+
+  // Бюджет
+  'budget.fb': 'Федеральный бюджет',
+  'budget.kb': 'Краевой бюджет',
+  'budget.mb': 'Муниципальный бюджет',
+  'budget.total': 'Итого',
+
+  // Способы закупки
+  'method.ea': 'Электронный аукцион',
+  'method.ep': 'Единственный поставщик',
+  'method.ek': 'Электронный конкурс',
+  'method.ezk': 'Электронный запрос котировок',
+
+  // Типы деятельности (виды деятельности).
+  // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — подкатегорий
+  // ТД нет, оба легаси-ключа подписываются «Текущая деятельность»
+  // (current_program живёт только в старых снимках).
+  'type.current': 'Текущая деятельность',
+  'type.current_program': 'Текущая деятельность',
+  'type.current_non_program': 'Текущая деятельность',
+  'type.program': 'Программное мероприятие',
+
+  // Статусы
+  'status.normal': 'В норме',
+  'status.warning': 'Требует внимания',
+  'status.critical': 'Критично',
+
+  // Сигналы строк
+  'signal.signed': 'Подписано',
+  'signal.planning': 'Планирование',
+  'signal.not_due': 'Срок не наступил',
+  'signal.finance_delay': 'Задержка финансирования',
+  'signal.canceled': 'Отменено',
+  'signal.overdue': 'Просрочено',
+  'signal.has_fact': 'Есть факт',
+  'signal.plan_past': 'Срок прошёл',
+  'signal.plan_soon': 'Скоро срок',
+  'signal.inconsistent': 'Несогласованность',
+
+  // Контроль
+  'control.issue': 'Замечание',
+  'control.spreadsheet_rule': 'Нарушение правила таблицы',
+  'control.bi_heuristic': 'Аналитическое наблюдение',
+  'control.error': 'Ошибка',
+  'control.warning': 'Предупреждение',
+  'control.info': 'Информация',
+
+  // Доверие
+  'trust.overall': 'Общая оценка достоверности',
+  'trust.data_quality': 'Качество данных',
+  'trust.formula_integrity': 'Целостность формул',
+  'trust.rule_compliance': 'Соответствие правилам',
+  'trust.mapping_consistency': 'Согласованность привязок',
+  'trust.operational_risk': 'Операционные риски',
+  'trust.grade_a': 'Отличная достоверность',
+  'trust.grade_b': 'Хорошая достоверность',
+  'trust.grade_c': 'Удовлетворительная достоверность',
+  'trust.grade_d': 'Низкая достоверность',
+  'trust.grade_f': 'Критически низкая достоверность',
+
+  // Источники
+  'origin.official': 'Официальный источник',
+  'origin.calculated': 'Независимый пересчёт',
+  'origin.hybrid': 'Комбинированный',
+
+  // Единицы
+  'unit.thousand_rubles': 'тыс. руб.',
+  'unit.million_rubles': 'млн руб.',
+  'unit.billion_rubles': 'млрд руб.',
+  'unit.rubles': 'руб.',
+  'unit.count': 'шт.',
+  'unit.percent': '%',
+  'unit.days': 'дн.',
+
+  // Управления (полные названия)
+  'dept.УЭР': getDept('УЭР').fullName,
+  'dept.УИО': getDept('УИО').fullName,
+  'dept.УАГЗО': getDept('УАГЗО').fullName,
+  'dept.УФБП': getDept('УФБП').fullName,
+  'dept.УД': getDept('УД').fullName,
+  'dept.УДТХ': getDept('УДТХ').fullName,
+  'dept.УКСиМП': getDept('УКСиМП').fullName,
+  'dept.УО': getDept('УО').fullName,
+
+  // Общие действия
+  'action.refresh': 'Обновить данные',
+  'action.export': 'Экспорт',
+  'action.filter': 'Фильтр',
+  'action.details': 'Подробнее',
+  'action.back': 'Назад',
+} as const;
+
+export type UILabelKey = keyof typeof UI_LABELS;
+
+/** Получить русский текст для UI */
+export function t(key: UILabelKey): string {
+  return UI_LABELS[key];
+}
+
+/** Единый формат переключателя периода. */
+export const PERIOD_LABELS: Readonly<Record<string, string>> = {
+  year: 'Год', ...Object.fromEntries([1, 2, 3, 4].map(q => [`q${q}`, quarterLabel(q)])),
+};
+
+/** Наблюдение сервиса отделено от исходного события удаления. */
+export const SOURCE_ROW_OBSERVATION_LABEL = 'Зафиксировано отсутствие прежней позиции';
+export function sourceRowObservationDetails(row: { rowSeq: string | null; sheetRow: number | null; subject: string | null }): string {
+  return `№ п/п ${row.rowSeq ?? 'не указан'} · прежняя строка ${row.sheetRow ?? 'не установлена'}. ${row.subject ?? ''} `
+    + 'Прежняя позиция не найдена при повторном чтении. Причина, автор и точное время удаления не установлены.';
+}
+
+export function sourceRowObservationMoment(moment: string): string {
+  return `Обнаружено сервисом ${moment} · точное время и автор исходного изменения не установлены`;
+}
+
+export const SOURCE_ROW_OBSERVATION_ORIGIN = 'из сравнения принятых чтений книги';

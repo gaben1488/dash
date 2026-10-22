@@ -1,3 +1,4 @@
+import { productLabel } from '@aemr/shared';
 import { useState } from 'react';
 import type { RegistryProcedure, WorkQueuePayload } from '../../lib/monitoring/contract';
 import { stageBadgeClass, stageShort } from '../../lib/monitoring/stage-labels';
@@ -52,7 +53,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
             return <tr key={`${p.sheet}:${p.row}`} className="align-top">
               <td className="px-3 py-4"><button type="button" onClick={() => onOpen(p)}
                 title="Открыть процедуру в реестре" className="inline-flex min-h-11 items-center font-medium text-sky-700 underline decoration-sky-200 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-300">{procedureCodeLabel(p) ?? `Строка ${p.row}`}</button>
-                <div className="mt-1 text-[var(--ink-muted)]">{p.dept}</div></td>
+                <div className="mt-1 text-[var(--ink-muted)]">{productLabel(p.dept)}</div></td>
               <td className="max-w-80 px-3 py-4"><p className={item.action.startsWith('Исправить:') ? 'font-medium text-red-700 dark:text-red-300' : 'font-medium'}>{item.action}</p>
                 {block === 'active' && item.action === 'Разместить извещение' && <p className="mt-2 text-[var(--ink-muted)]">{p.applicationDate ? `Заявка поступила ${p.applicationDate}` : 'Дата поступления заявки не внесена'}</p>}
                 <div className="mt-2 space-y-1 break-words text-[var(--ink-muted)] md:hidden"><p>{p.customer}</p><p>{p.subject}</p><p>{stageShort(p.stage)}{block === 'active' && ` · ${dateLabel} · дней к дате: ${item.daysToDate ?? '—'}`}</p></div>

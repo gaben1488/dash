@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
-import { subordinateLabel, ORG_ITSELF_LABEL } from './subordinate-label';
+import { ORG_ITSELF_SENTINEL, SUBORDINATE_REGISTRY } from '@aemr/shared';
+import { subordinateLabel, compactSubordinateLabel, ORG_ITSELF_LABEL } from './subordinate-label';
 
 describe('subordinateLabel (D15: ноль сырых ключей в видимом UI)', () => {
   it('прячет сырой ключ _org_itself за русской подписью', () => {
@@ -23,5 +23,21 @@ describe('subordinateLabel (D15: ноль сырых ключей в видим�
     const visibleCells = topSubordinates.map(s => subordinateLabel(s.name));
     expect(visibleCells.join(' ')).not.toContain('_org_itself');
     expect(visibleCells).toEqual(['Аппарат управления', 'МКУ "ЦБ УО"']);
+  });
+});
+
+ describe('dictionary compact labels', () => {
+  it('uses every approved current and historical name without changing full labels', () => {
+    for (const entry of SUBORDINATE_REGISTRY.filter(e => !e.isOrgItself)) {
+      for (const name of [entry.canonicalName, entry.legacyCanonicalName].filter(Boolean) as string[]) {
+        expect(compactSubordinateLabel(name)).toBe(entry.shortName);
+        expect(subordinateLabel(name)).toBe(name);
+      }
+    }
+  });
+  it('does not invent acronyms or merge unknown similar legal entities', () => {
+    for (const name of ['МБУ Спортивная школа новая', 'МБУ Спортивная школа другая', 'СШЛ']) {
+      expect(compactSubordinateLabel(name)).toBe(name);
+    }
   });
 });

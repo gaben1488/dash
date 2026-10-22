@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-GRBS_ORDER = ["УЭР", "УИО", "УАГЗО", "УФБП", "УД", "УДТХ", "УКСиМП", "УО"]
+from .department_directory import DEPARTMENTS, MASTER_FIELDS
 
-ROW_MAPPING = {
-    "A": "source_row_no", "B": "grbs", "C": "institution", "D": "program",
-    "E": "subprogram", "F": "activity_kind", "G": "subject", "H": "plan_fb",
-    "I": "plan_kb", "J": "plan_mb", "K": "plan_total", "L": "method",
-    "M": "single_supplier_reason", "N": "planned_date", "O": "planned_quarter",
-    "P": "planned_year", "Q": "actual_date", "R": "actual_quarter",
-    "S": "actual_year", "T": "deviation", "U": "deviation_reason",
-    "V": "fact_fb", "W": "fact_kb", "X": "fact_mb", "Y": "fact_total",
-    "Z": "saving_fb", "AA": "saving_kb", "AB": "saving_mb", "AC": "saving_total",
-    "AD": "include_saving", "AE": "necessity_reason", "AF": "grbs_comment",
-    "AG": "uer_comment_or_procedure_code", "AH": "monitoring_note",
-}
+GRBS_ORDER = [entry["id"] for entry in DEPARTMENTS]
+
+ROW_MAPPING = {field["column"]: field["modelField"] for field in MASTER_FIELDS.values()}
 
 ACTIVE_RECOMMENDATION_STATUSES = {
     "OPEN", "ACCEPTED_PENDING", "IMPLEMENTED", "IMPLEMENTED_AND_COMPLETED",

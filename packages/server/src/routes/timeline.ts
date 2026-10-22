@@ -26,7 +26,6 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   buildCellDict,
-  collectRowsByDept,
   findDept,
   isoOfDayNumber,
   productCalendarDay,
@@ -41,10 +40,12 @@ import {
 } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getDeptSheetValues } from '../services/snapshot.js';
+import { readDeptRows } from '../services/dept-rows.js';
 import { getMonitoringBook } from '../services/monitoring.js';
 import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
+import { buildComparison, type IntegrityResponse } from './integrity.js';
 
 /** «Сегодня» календаря продукта (Камчатка +12), как у /api/report и /api/changes. */
 const productToday = (): number =>
@@ -55,23 +56,68 @@ const DEFAULT_UPCOMING_DAYS = 14;
 const MAX_UPCOMING_DAYS = 366;
 
 /**
- * Строки книг для сводных расчётов: живой кэш книг ГРБС (канонический
- * периметр /api/report), при пустом кэше — rowsByDept последнего снимка.
- * Ключи — кириллические имена листов.
+ * Контроль преемственности для таймлайна, адресованного ФИЗИЧЕСКОЙ строкой.
+ * Журнал по адресу N178 и наблюдение строки 178 не доказывают, что это одна
+ * закупка после сортировки/перенумерации. Берём признаки из того же ядра,
+ * что /api/integrity и единый журнал, не заводя четвёртую модель идентичности.
+ *
+ * null — в доступном последнем интервале явных препятствий нет; это не
+ * положительное доказательство идентичности за все исторические периоды.
  */
-async function readAllDeptRows(): Promise<Record<string, unknown[][]>> {
-  const live = collectRowsByDept(getDeptSheetValues());
-  if (Object.keys(live).length > 0) return live;
-  try {
-    const snapshot = await getSnapshot();
-    if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
-      return snapshot.rowsByDept;
-    }
-  } catch {
-    // источники молчат — честный пустой результат, роут ответит 503
+export function timelineIdentityWarning(
+  comparison: IntegrityResponse['comparison'],
+  deptId: string,
+  sheetRow: number,
+  rowSeq: string,
+): string | null {
+  if (comparison === null) {
+    return 'Недельный контроль преемственности пока не сопоставим с текущими книгами. ' +
+      'Таймлайн составлен по номеру строки листа, который меняется при сортировках и вставках.';
   }
-  return {};
+  const unread = comparison.unavailableBooks.find((b) => b.dept === deptId);
+  if (unread) {
+    return 'Преемственность с недельным контролем не проверена: ' + unread.reason +
+      '. Историю по номеру строки нельзя считать доказанной историей одной закупки.';
+  }
+  const book = comparison.books.find((b) => b.dept === deptId);
+  if (!book) return null;
+
+  const ambiguous = [...book.ambiguousKeys.before, ...book.ambiguousKeys.after];
+  if (rowSeq && ambiguous.includes(rowSeq)) {
+    return 'Номер ' + rowSeq + ' повторяется в контрольном или текущем состоянии. ' +
+      'Связь исторических правок с одной закупкой неоднозначна.';
+  }
+
+  const candidate = book.identityCandidates.find((c) =>
+    c.beforeSheetRow === sheetRow || c.afterSheetRow === sheetRow ||
+    (rowSeq !== '' && (c.beforeRowSeq === rowSeq || c.afterRowSeq === rowSeq)));
+  if (candidate) {
+    return 'Возможная смена № ' + candidate.beforeRowSeq + ' → № ' +
+      candidate.afterRowSeq + ' между недельным контролем и текущим чтением. ' +
+      'Это проверяемая гипотеза, не подтверждённая история одной закупки.';
+  }
+
+  const changed = book.contextChanged.find((c) =>
+    c.beforeSheetRow === sheetRow || c.afterSheetRow === sheetRow ||
+    (rowSeq !== '' && c.rowSeq === rowSeq));
+  if (changed) {
+    return 'При № ' + changed.rowSeq +
+      ' изменились предмет или учреждение. Это может быть обычная правка ' +
+      'или другая закупка; прежнюю историю нельзя объединять без проверки.';
+  }
+
+  const moved = book.moved.find((m) =>
+    m.fromSheetRow === sheetRow || m.toSheetRow === sheetRow ||
+    (rowSeq !== '' && m.rowSeq === rowSeq));
+  if (moved) {
+    return '№ ' + moved.rowSeq + ' переместился из строки ' +
+      moved.fromSheetRow + ' в ' + moved.toSheetRow +
+      '. Этот таймлайн ищет события по физическому номеру строки, ' +
+      'поэтому старые записи могут относиться к другой закупке.';
+  }
+  return null;
 }
+
 
 /**
  * Журнал правок книги из БД. Таблицу changelog_entries наполняет /api/changes
@@ -163,7 +209,7 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
       days = parsed;
     }
 
-    const rowsByDept = await readAllDeptRows();
+    const { rowsByDept, asOf: readAt, coverage } = await readDeptRows();
     if (Object.keys(rowsByDept).length === 0) {
       return reply.status(503).send({
         error: 'ServiceUnavailable',
@@ -202,6 +248,8 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
     const upcoming = buildUpcoming(inputRows, { asOfDay, days , monitoringStages: stages });
     return reply.send({
       asOf: isoOfDayNumber(asOfDay),
+      readAt,
+      coverage,
       days,
       total: upcoming.length,
       rows: upcoming,
@@ -288,9 +336,23 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
         asOfDay: productToday(),
       });
 
+      // Сверка исключительно read-only. Её отсутствие не отменяет таймлайн:
+      // предупреждение объясняет границы доверия вместо ложной уверенности.
+      let identityWarning: string | null;
+      try {
+        const { comparison } = buildComparison();
+        identityWarning = timelineIdentityWarning(
+          comparison, dept.id, sheetRow, String(liveRow?.[DEPT_COLUMNS.ID] ?? '').trim(),
+        );
+      } catch {
+        identityWarning = 'Контроль идентичности сейчас не ответил. ' +
+          'История ниже привязана к позиции листа, а не к подтверждённой закупке.';
+      }
+
       return reply.send({
         ...timeline,
         coverage: {
+          identityWarning,
           /** Журнал правок: false — таблица журнала недоступна (не «правок не было»). */
           journalAvailable: journal.available,
           journalEntries: journalChanges.length,

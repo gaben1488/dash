@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SUBORDINATES_FALLBACK } from './store';
+import { SUBORDINATES_FALLBACK, useStore } from './store';
 import { ALL_DEPT_IDS, SUBORDINATE_REGISTRY } from '@aemr/shared';
 
 // Guard: store fallback подведов — производное от канонического SUBORDINATE_REGISTRY
@@ -48,4 +48,25 @@ describe('SUBORDINATES_FALLBACK — производные от канониче
     expect(joined).not.toContain('Культурный центр Елизово');
     expect(uksimp).not.toContain('МКУ «Спортивная школа»');
   });
+});
+
+describe('approved historical selection', () => {
+ const entry = SUBORDINATE_REGISTRY.find(e => e.grbsId === 'УКСиМП' && !e.isOrgItself && e.legacyCanonicalName && e.legacyCanonicalName !== e.canonicalName)!;
+ it('current chip toggles off old selection without adding another identity', () => {
+  useStore.setState({selectedSubordinates: new Set([entry.legacyCanonicalName!])});
+  useStore.getState().toggleSubordinate(entry.canonicalName);
+  expect(useStore.getState().selectedSubordinates.size).toBe(0);
+ });
+ it('department-only clears its historical aliases but retains unknown entities', () => {
+  useStore.setState({subordinatesMap: {'УКСиМП': [entry.canonicalName]}, selectedSubordinates: new Set([entry.legacyCanonicalName!, 'Unknown distinct institution'])});
+  useStore.getState().setDeptOnly('УКСиМП');
+  expect([...useStore.getState().selectedSubordinates]).toEqual(['Unknown distinct institution']);
+ });
+});
+
+it('removing department clears approved old selection and preserves unrelated names', () => {
+ const entry = SUBORDINATE_REGISTRY.find(e => e.grbsId === 'УКСиМП' && !e.isOrgItself && e.legacyCanonicalName && e.legacyCanonicalName !== e.canonicalName)!;
+ useStore.setState({subordinatesMap: {'УКСиМП': [entry.canonicalName]}, selectedDepartments: new Set(['УКСиМП']), selectedSubordinates: new Set([entry.legacyCanonicalName!, entry.shortName]), deptOnlyMode: new Set()});
+ useStore.getState().toggleDepartment('УКСиМП');
+ expect([...useStore.getState().selectedSubordinates]).toEqual([entry.shortName]);
 });

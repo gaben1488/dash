@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Момент чтения: когда именно прочитаны книги, из которых взято число ──────
 //
 //    Механизм М2 атласа. Болезнь, ради которой он существует, названа в карте
@@ -67,10 +68,10 @@ export interface ReadingMomentInput {
 // ── Готовые подписи ─────────────────────────────────────────────────────────
 
 /** Эфир: числа на текущее состояние книг. */
-export const LIVE_MOMENT_LABEL = 'на сейчас';
+export const LIVE_MOMENT_LABEL = PRODUCT_COPY["lib/reading-moment:LIVE_MOMENT_LABEL"];
 
 /** Незнание. Дословно та же фраза, что в узле провенанса, — одна на продукт. */
-export const UNKNOWN_MOMENT_LABEL = 'момент чтения неизвестен';
+export const UNKNOWN_MOMENT_LABEL = PRODUCT_COPY["lib/reading-moment:UNKNOWN_MOMENT_LABEL"];
 
 const DEFAULT_STALE_MINUTES = 60;
 

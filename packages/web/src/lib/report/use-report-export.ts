@@ -1,6 +1,7 @@
+import { useStore } from '../../store';
 import { useEffect, useRef, useState } from 'react';
-import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
-import { fetchBlob, fetchParsed } from '../../api';
+import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, ReportCommandSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
+import { ApiContractError, ApiError, fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
 export interface ExportContext { date: string; year: number; quarter: number; mode: ReportMode }
@@ -13,21 +14,44 @@ const businessDay = new Intl.DateTimeFormat('sv-SE', {
   year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Kamchatka',
 });
 
+/** Distinguish edge auth, server failure and schema drift without showing private API bodies. */
+function wordReadFailure(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return `Вход на сайте не подтверждён (HTTP ${error.status}). Проверьте авторизацию домена и обновите страницу.`;
+    }
+    if (error.status === 404) return 'Сервер не нашёл сведения о выбранном выпуске (HTTP 404).';
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      return `Сервис отчётов не ответил (HTTP ${error.status}). Последний опубликованный Word при этом может сохраниться.`;
+    }
+    return `Проверка готовности Word отклонена сервером (HTTP ${error.status}).`;
+  }
+  if (error instanceof ApiContractError) {
+    return 'Несовместимый формат сведений о выпуске Word. Требуется синхронизация интерфейса и серверного контракта.';
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return 'Проверка готовности Word превысила время ожидания. Серверный выпуск может сохраниться.';
+  }
+  return 'Не удалось проверить готовность Word. Причина не определена; автоматический повтор запланирован.';
+}
+
 /** Native Word actions share one frozen release, including across background updates. */
 export function useReportExport(context: ExportContext | null) {
   const query = context ? new URLSearchParams({ date: context.date, year: String(context.year), quarter: String(context.quarter) }).toString() : null;
   const key = context ? `${context.mode}/${query}` : null;
   const archiveMode = context?.mode === 'archive';
-  const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string } | null>(null);
+  const savedPin = useStore(state => state.reportPinned);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
+  const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string; apiReadFailed?: boolean } | null>(null);
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
   const downloadController = useRef<AbortController | null>(null);
-  const [refreshState, setRefreshState] = useState<{ key: string; busy: boolean; notice: string } | null>(null);
+  const [refreshState, setRefreshState] = useState<{ key: string; busy: boolean; notice: string; attemptId?: string } | null>(null);
 
   useEffect(() => {
     setPinned(null);
     setTransfer(null);
-    setRefreshState(null);
+    setRefreshState(previous => previous?.key === key ? previous : null);
     if (!key || !query) return;
     const controller = new AbortController();
     let loading = false;
@@ -39,11 +63,29 @@ export function useReportExport(context: ExportContext | null) {
       const abort = () => requestController.abort();
       controller.signal.addEventListener('abort', abort, { once: true });
       let timeout = setTimeout(abort, 35_000);
+      let readCompleted = false;
       try {
-        const data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        // Caddy may return a short-lived 502 while Fastify reloads. Retry one
+        // idempotent GET; never re-run POST refresh, rebuild Word or hide a
+        // sustained upstream failure behind a fabricated success.
+        const pin = useStore.getState().reportPinned;
+        const pinnedId = pin?.contextKey === key ? pin.id : null;
+        const endpoint = pinnedId ? `/report-releases/${pinnedId}/status` : `/report-releases?${query}`;
+        let data: SelectedReportReleaseStatus;
+        try {
+          data = await fetchParsed(endpoint, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        } catch (error) {
+          if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status) ||
+              requestController.signal.aborted) throw error;
+          await new Promise<void>(resolve => setTimeout(resolve, 750));
+          if (requestController.signal.aborted) return;
+          data = await fetchParsed(endpoint, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        }
         if (controller.signal.aborted) return;
+        if (pinnedId && data.selected?.release_id !== pinnedId) throw new ApiContractError(endpoint, 'pinned release mismatch');
+        readCompleted = true;
         setState({ key: key!, data, error: '' });
-        if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
+        if (!pinnedId && archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
           preparationRequested = true;
           setState({ key: key!, data: { ...data, archive: { status: 'RUNNING', code: 'ARCHIVE_BUSY',
             message: 'Собираем Word из сохранённого среза. Текущие таблицы не используются.' } }, error: '' });
@@ -54,12 +96,25 @@ export function useReportExport(context: ExportContext | null) {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: requestController.signal,
             body: JSON.stringify({ date: params.get('date'), year: Number(params.get('year')), quarter: Number(params.get('quarter')) }),
           });
-          if (!controller.signal.aborted) setState({ key: key!, data: prepared, error: '' });
+          // Preparation does not make a new operational observation. Preserve
+          // only this GET's same-context evidence and its original checked_at.
+          if (!controller.signal.aborted) setState({ key: key!, data: {
+            ...prepared, operations: prepared.operations ?? data.operations,
+          }, error: '' });
           if (prepared.archive?.code === 'ARCHIVE_BUSY') preparationRequested = false;
         }
-      } catch {
+      } catch (error) {
         preparationRequested = false;
-        if (!controller.signal.aborted) setState({ key: key!, data: null, error: 'Не удалось проверить готовность Word. Повторим запрос автоматически.' });
+        if (!controller.signal.aborted) {
+          const warning = wordReadFailure(error);
+          // A transient 502 or schema-read failure must not make a previously
+          // verified frozen Word disappear. Keep only the SAME selected context
+          // and show the warning; never substitute a different date/snapshot.
+          setState(previous => ({
+            key: key!, data: previous?.key === key ? previous.data : null, error: warning,
+            apiReadFailed: !readCompleted,
+          }));
+        }
       } finally {
         clearTimeout(timeout);
         controller.signal.removeEventListener('abort', abort);
@@ -69,13 +124,67 @@ export function useReportExport(context: ExportContext | null) {
     void load();
     const timer = setInterval(() => void load(), 60_000);
     return () => { controller.abort(); downloadController.current?.abort(); clearInterval(timer); };
-  }, [key, query, archiveMode]);
+  }, [key, query, archiveMode, selectionEpoch]);
+
+  const refreshAttemptId = refreshState?.key === key ? refreshState.attemptId : undefined;
+  useEffect(() => {
+    if (!refreshAttemptId || !key) return;
+    const controller = new AbortController();
+    let loading = false;
+    let finished = false;
+    async function checkCommand() {
+      if (loading || finished) return;
+      loading = true;
+      const requestController = new AbortController();
+      const abort = () => requestController.abort();
+      controller.signal.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(abort, 35_000);
+      try {
+        const command = await fetchParsed(`/report-releases/commands/${refreshAttemptId}`, ReportCommandSchema,
+          { signal: requestController.signal });
+        if (controller.signal.aborted) return;
+        if (command.attempt_id !== refreshAttemptId) throw new Error('REPORT_COMMAND_ID_MISMATCH');
+        finished = command.status !== 'QUEUED' && command.status !== 'RUNNING';
+        const notice = command.status === 'QUEUED' ? 'Запрос сохранён и ожидает исполнителя.'
+          : command.status === 'RUNNING' ? 'Проверка актуальных данных выполняется.'
+            : command.status === 'NOT_ISSUED' ? 'Новый отчёт не выпущен. Последний проверенный Word сохранён.'
+              : 'Новый отчёт проверен и опубликован.';
+        setRefreshState({ key: key!, attemptId: refreshAttemptId, busy: !finished, notice });
+        if (finished) {
+          clearInterval(timer);
+          setSelectionEpoch(value => value + 1);
+        }
+      } catch {
+        if (!controller.signal.aborted) setRefreshState({ key: key!, attemptId: refreshAttemptId, busy: false,
+          notice: 'Не удалось прочитать состояние сохранённого запроса. Проверка повторится автоматически.' });
+      } finally {
+        clearTimeout(timeout);
+        controller.signal.removeEventListener('abort', abort);
+        loading = false;
+      }
+    }
+    const timer = setInterval(() => void checkCommand(), 5_000);
+    void checkCommand();
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [key, refreshAttemptId]);
 
   const current = state?.key === key ? state : null;
-  const candidate = pinned?.key === key ? pinned.release : current?.data?.selected;
-  // Guard the response boundary as well as the server: never trust stale/mismatched metadata.
-  const release = candidate && context && candidate.report_year === context.year && candidate.quarter === context.quarter
-    && candidate.report_date.split('.').reverse().join('-') === context.date ? candidate : null;
+  const exact = current?.data?.selected ?? null;
+  // In live mode alone, an earlier verified Word for the SAME year/quarter is
+  // useful while a new release is blocked. Python proves its reporting period
+  // from the frozen model. Archive mode NEVER uses this optional fallback.
+  const previous = !archiveMode ? current?.data?.latest_matching ?? null : null;
+  const isPinned = pinned?.key === key || Boolean(key && savedPin?.contextKey === key);
+  const candidate = pinned?.key === key ? pinned.release : isPinned ? exact : exact ?? previous;
+  const candidateDay = candidate?.report_date.split('.').reverse().join('-') ?? null;
+  const isPriorLive = context?.mode === 'live' &&
+    (isPinned || (exact === null && candidate === previous));
+  // Exact selector stays exact even in live mode. Period fallback is never
+  // accepted from a later report date or from another year/quarter.
+  const dateMatches = candidateDay !== null && context !== null &&
+    (isPriorLive ? candidateDay <= context.date : candidateDay === context.date);
+  const release = candidate && context && dateMatches &&
+    candidate.report_year === context.year && candidate.quarter === context.quarter ? candidate : null;
   const saving = transfer?.key === key ? transfer.saving : null;
   const downloadError = transfer?.key === key ? transfer.error : '';
 
@@ -84,15 +193,23 @@ export function useReportExport(context: ExportContext | null) {
       : current.error || 'Для выбранной даты, года и квартала проверенный комплект ещё не выпущен.';
   if (release) {
     status = `Word: ${release.status === 'VERIFIED' ? 'проверен' : 'проверен, есть замечания'}. Источники прочитаны ${timestamp.format(new Date(release.cutoff_at))} (Камчатка).`;
+    if (release.replay_available === false) {
+      status += ' Документы и сохранённый дашборд доступны; исходная ежедневная история сокращена, повторный расчёт недоступен.';
+    }
     const assurance = release.automation_assurance;
     if (assurance?.user_action_count) {
       status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';
     }
-    // Engine-only historical uncertainty is kept in the collapsed diagnostics,
-    // never framed as an error in an otherwise verified Word release.
-    if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
+    // Engine-only historical uncertainty is kept in the collapsed diagnostics.
+    // An older publication is labelled as OLDER, not today's confirmed Word.
+    if (context?.mode === 'live' && candidateDay !== context.date) {
+      status = `Последний проверенный Word за выбранные год и квартал: выпуск от ${release.report_date}. ` +
+        'На выбранную дату новый Word не подтверждён. Показатели текущей страницы могут отличаться. ' + status;
+    } else if (context?.mode === 'live') {
+      status += ' Данные в прямом эфире могут обновиться позднее.';
+    }
   }
-  if (archiveMode && !release && current?.data?.archive) {
+  if (archiveMode && !release && current?.data?.archive && !current.error) {
     status = current.data.archive.message;
     const missing = current.data.archive.coverage?.missing_sections;
     if (missing?.length) status += ` Не сохранены: ${missing.join('; ')}.`;
@@ -103,10 +220,27 @@ export function useReportExport(context: ExportContext | null) {
   const attemptApplies = context?.mode === 'live' && attemptDay === context.date
     && context.year === Number(attemptDay?.slice(0, 4))
     && context.quarter === Math.ceil(Number(attemptDay?.slice(5, 7)) / 3);
-  if (attemptApplies && attempt?.status === 'RUNNING') status += ' Готовится следующий комплект.';
+  const attemptStartMs = attempt?.started_at ? Date.parse(attempt.started_at) : NaN;
+  const staleAttempt = attempt?.status === 'RUNNING' && Number.isFinite(attemptStartMs) &&
+    Date.now() - attemptStartMs > 20 * 60_000;
+  if (context?.mode === 'live' && staleAttempt) {
+    // A terminated worker may leave an orphaned RUNNING marker.
+    status += ' Предыдущая попытка имеет устаревший статус «выполняется». Новый выпуск не подтверждён; требуется проверка генератора.';
+  }
+  if (attemptApplies && attempt?.status === 'RUNNING' && !staleAttempt) status += ' Готовится следующий комплект.';
   if (attemptApplies && attempt?.status === 'NOT_ISSUED') {
     status += ' Новый комплект не выпущен.';
-    if (!attempt.automation_assurance && attempt.blockers?.length) status += ' Причина сохранена в диагностике сопровождения; исправлять отчёт вручную не требуется.';
+    const safeReason = attempt.error_code === 'MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH'
+      ? 'Изменилась схема справочника заказчиков; необходима проверенная совместимая версия генератора.'
+      : attempt.error_code === 'SOURCE_CHANGED_DURING_FREEZE'
+        ? 'Источник изменился во время снятия среза; данные нужно перечитать.'
+        : attempt.error_code === 'GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'
+          ? 'Название источника изменилось без обновления контракта чтения.'
+          : null;
+    if (safeReason) status += ` ${safeReason}`;
+    else if (!attempt.automation_assurance && attempt.blockers?.length) {
+      status += ' Причина сохранена в диагностике сопровождения; исправлять отчёт вручную не требуется.';
+    }
   }
   if (release && current?.error) status += ` ${current.error}`;
 
@@ -116,6 +250,7 @@ export function useReportExport(context: ExportContext | null) {
     const controller = new AbortController();
     downloadController.current = controller;
     setPinned({ key, release });
+    useStore.setState({ reportPinned: { contextKey: key, id: release.release_id } });
     setTransfer({ key, saving: kind, error: '' });
     try {
       const file = kind === 'main' ? 'main.docx' : kind === 'extra' ? 'supplement.docx' : 'operational.docx';
@@ -139,15 +274,16 @@ export function useReportExport(context: ExportContext | null) {
     // A user explicitly requesting new data releases the old download pair pin.
     // Background updates remain pinned until such an explicit action.
     setPinned(null);
+    useStore.setState({ reportPinned: null });
     setRefreshState({ key, busy: true, notice: 'Запрашиваем новый срез исходных таблиц…' });
     try {
       const data = await fetchParsed('/report-releases/refresh', ReportRefreshResponseSchema, {
         method: 'POST',
       });
-      setRefreshState({ key, busy: false, notice: data.message });
-    } catch {
+      setRefreshState({ key, busy: true, notice: data.message, attemptId: data.attempt_id });
+    } catch (error) {
       setRefreshState({ key, busy: false,
-        notice: 'Запустить обновление сейчас не удалось. Последний проверенный Word остаётся доступен.' });
+        notice: `Не удалось подтвердить приём запроса. ${wordReadFailure(error)} Последний проверенный Word сохраняется.` });
     }
   }
   const canRefresh = Boolean(key && !archiveMode);
@@ -158,6 +294,9 @@ export function useReportExport(context: ExportContext | null) {
   const assurance = release?.automation_assurance ?? null;
   const failedAttemptAssurance = attemptApplies && attempt?.status === 'NOT_ISSUED'
     ? attempt.automation_assurance ?? null : null;
-  return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance,
-    canRefresh, refreshing, refreshNotice, refresh };
+  const operations = current?.data?.operations ?? null;
+  const apiState = current?.apiReadFailed ? 'unavailable' as const : current?.data ? 'available' as const : 'checking' as const;
+  const unpin = () => { setPinned(null); useStore.setState({ reportPinned: null }); setSelectionEpoch(value => value + 1); };
+  return { release, isPinned, unpin, status, saving, downloadError, download, assurance, failedAttemptAssurance,
+    operations, apiState, canRefresh, refreshing, refreshNotice, refresh };
 }

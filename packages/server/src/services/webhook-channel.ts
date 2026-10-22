@@ -327,6 +327,7 @@ function remember(key: string): void {
 }
 
 function touchChannel(n: DriveNotification, now: string): void {
+  if (seenMessages.has(`cancelled:${n.channelId}`)) return;
   const existing = channels.get(n.channelId);
   const book = bookByFileId(n.fileId) ?? existing?.book ?? 'книга вне списка наблюдения';
   const record = existing ?? {
@@ -373,6 +374,7 @@ export function noteNotification(
   n: DriveNotification,
   alreadyArmed: boolean,
   now: Date = new Date(),
+  persist?: () => void,
 ): NotificationDecision {
   const at = now.toISOString();
   counters.received += 1;
@@ -381,18 +383,16 @@ export function noteNotification(
   touchChannel(n, at);
 
   const decide = (): NotificationDecision => {
+    if (seenMessages.has(`cancelled:${n.channelId}`)) return 'late';
     if (n.messageNumber !== null) {
       const key = `${n.channelId}#${n.messageNumber}`;
       if (seenMessages.has(key)) return 'duplicate';
       const seenMax = maxMessageByChannel.get(n.channelId);
-      remember(key);
       if (seenMax !== undefined && n.messageNumber < seenMax) return 'late';
-      maxMessageByChannel.set(n.channelId, Math.max(seenMax ?? 0, n.messageNumber));
     }
 
     if (n.resourceState === 'sync') return 'sync';
     if (GONE_STATES.has(n.resourceState)) {
-      counters.gone += 1;
       // Книга ушла из-под наблюдения — перечитать всё равно надо: продукт обязан
       // честно показать источник непрочитанным, а не держать вчерашние строки.
       return alreadyArmed ? 'coalesced' : 'refresh';
@@ -405,6 +405,15 @@ export function noteNotification(
   };
 
   const decision = decide();
+  // Сначала durable-приём: отказ записи не должен подавить повтор доставки.
+  if (decision === 'refresh' || decision === 'coalesced') persist?.();
+  if (n.messageNumber !== null && decision !== 'duplicate' && !seenMessages.has(`cancelled:${n.channelId}`)) {
+    remember(`${n.channelId}#${n.messageNumber}`);
+    if (decision !== 'late') {
+      maxMessageByChannel.set(n.channelId, Math.max(maxMessageByChannel.get(n.channelId) ?? 0, n.messageNumber));
+    }
+  }
+  if ((decision === 'refresh' || decision === 'coalesced') && GONE_STATES.has(n.resourceState)) counters.gone += 1;
   counters[decision] += 1;
   lastDecision = decision;
   return decision;
@@ -705,6 +714,7 @@ export async function registerWatchChannels(
   log: WatchLog,
   api: WatchApi = googleWatchApi(),
   now: Date = new Date(),
+  isCurrent: () => boolean = () => true,
 ): Promise<RegisterOutcome> {
   const { publicUrl, secret } = config.webhook;
   const outcome: RegisterOutcome = { registered: [], kept: [], failed: [], expirations: [] };
@@ -714,6 +724,7 @@ export async function registerWatchChannels(
   const nowMs = now.getTime();
 
   for (const { book, fileId } of watchedBooks()) {
+    if (!isCurrent()) return outcome;
     const current = channelForFile(fileId);
     if (current && !needsRenewal(current.record, nowMs)) {
       outcome.kept.push(book);
@@ -725,16 +736,29 @@ export async function registerWatchChannels(
     try {
       const result = await withSheetsRetry(
         `заведение канала на книгу «${book}»`,
-        () => api.watch({
+        () => {
+          if (!isCurrent()) throw new Error('Подход к каналам Drive отменён');
+          return api.watch({
           fileId,
           channelId,
           address,
           token: secret,
           expirationMs: nowMs + webhookTuning.channelTtlMs,
-        }),
+          });
+        },
         { onRetry: ({ attempt, delayMs }) => log.warn(`Канал на книгу «${book}»: повтор ${attempt} через ${delayMs} мс`) },
       );
 
+      if (!isCurrent()) {
+        remember(`cancelled:${result.channelId}`);
+        channels.delete(result.channelId);
+        maxMessageByChannel.delete(result.channelId);
+        if (result.resourceId) {
+          try { await api.stop({ channelId: result.channelId, resourceId: result.resourceId }); }
+          catch { log.warn('Устаревший подход: удалённый канал Drive остановится по сроку'); }
+        }
+        return outcome;
+      }
       // Срок берём назначенный Google, а не запрошенный: он вправе выдать меньше.
       // Если срока в ответе нет, держимся запрошенного и помечаем допущением.
       // Оставить `null` значило бы «срок неизвестен» — а неизвестный срок наш же
@@ -765,12 +789,14 @@ export async function registerWatchChannels(
         await retireChannel(current.channelId, api, log, book);
       }
     } catch (err) {
+      if (!isCurrent()) return outcome;
       // Идентификатор книги в текст не попадает — только человеческое название.
       log.warn(`Канал на книгу «${book}» не заведён: ${(err as Error).message}`);
       outcome.failed.push(book);
       registrations.failed += 1;
     }
   }
+  if (!isCurrent()) return outcome;
   registrations.lastAt = now.toISOString();
 
   const total = outcome.registered.length + outcome.kept.length;
@@ -804,6 +830,9 @@ async function retireChannel(channelId: string, api: WatchApi, log: WatchLog, bo
 
 let lifecycleTimer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
+let lifecycleGeneration = 0;
+let lifecycleInFlight = false;
+let pendingLifecycle: { log: WatchLog; api?: WatchApi; generation: number } | null = null;
 
 /**
  * Включить push-режим: завести каналы и просыпаться к сроку их истечения.
@@ -826,21 +855,38 @@ export function startWebhookChannels(log: WatchLog, api?: WatchApi): void {
   }
   if (running) return;
   running = true;
-  void lifecycleTick(log, api);
+  lifecycleGeneration += 1;
+  void lifecycleTick(log, api, lifecycleGeneration);
 }
 
-async function lifecycleTick(log: WatchLog, api?: WatchApi): Promise<void> {
-  if (!running) return;
+async function lifecycleTick(log: WatchLog, api: WatchApi | undefined, generation: number): Promise<void> {
+  const isCurrent = () => running && generation === lifecycleGeneration;
+  if (!isCurrent()) return;
+  if (lifecycleInFlight) {
+    pendingLifecycle = { log, api, generation };
+    return;
+  }
+  lifecycleInFlight = true;
   let sleepMs = RETRY_AFTER_FAILURE_MS;
   try {
-    const outcome = await registerWatchChannels(log, api ?? googleWatchApi());
+    const outcome = await registerWatchChannels(log, api ?? googleWatchApi(), new Date(), isCurrent);
     sleepMs = nextWakeMs(outcome.expirations, outcome.failed.length > 0, Date.now());
   } catch (err) {
-    // Отказ Google не роняет цикл: следующий подход уже назначен.
-    log.warn(`Подход к каналам Drive не удался: ${(err as Error).message}`);
+    if (isCurrent()) log.warn(`Подход к каналам Drive не удался: ${(err as Error).message}`);
+  } finally {
+    lifecycleInFlight = false;
   }
-  if (!running) return;
-  lifecycleTimer = setTimeout(() => { void lifecycleTick(log, api); }, sleepMs);
+  const pending = pendingLifecycle;
+  pendingLifecycle = null;
+  if (pending && running && pending.generation === lifecycleGeneration) {
+    void lifecycleTick(pending.log, pending.api, pending.generation);
+    return;
+  }
+  if (!isCurrent()) return;
+  lifecycleTimer = setTimeout(() => {
+    lifecycleTimer = null;
+    void lifecycleTick(log, api, generation);
+  }, sleepMs);
   lifecycleTimer.unref?.();
 }
 
@@ -859,12 +905,14 @@ export function rescheduleWebhookChannels(log: WatchLog, api?: WatchApi): void {
     clearTimeout(lifecycleTimer);
     lifecycleTimer = null;
   }
-  void lifecycleTick(log, api);
+  void lifecycleTick(log, api, lifecycleGeneration);
 }
 
 /** Остановить расписание. Сами каналы умрут по сроку — это штатно. */
 export function stopWebhookChannels(): void {
   running = false;
+  lifecycleGeneration += 1;
+  pendingLifecycle = null;
   if (lifecycleTimer) {
     clearTimeout(lifecycleTimer);
     lifecycleTimer = null;

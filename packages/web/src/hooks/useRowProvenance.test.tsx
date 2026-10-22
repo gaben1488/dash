@@ -27,11 +27,26 @@ function stubFetch(impl: (url: string) => Promise<Response> | Response) {
 }
 
 describe('toRowSeq — № п/п закупки', () => {
+  it('preserves complete labels and sends a single encoded route segment', async () => {
+    expect(['173', '173/1', '173/18'].map(toRowSeq)).toEqual(['173', '173/1', '173/18']);
+    const spy = stubFetch(() => new Response(JSON.stringify({ ...payload, rowSeq: '173/18' })));
+    const { result } = renderHook(() => useRowProvenance('УЭР', '173/18'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(spy.mock.calls[0][0]).toBe('/api/provenance/%D0%A3%D0%AD%D0%A0/173%2F18');
+  });
+
+  it('rejects the history of a different complete label', async () => {
+    stubFetch(() => new Response(JSON.stringify({ ...payload, rowSeq: '173/1' })));
+    const { result } = renderHook(() => useRowProvenance('УЭР', '173/18'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toContain('другой закупки');
+  });
   it('читает номер во всех живых формах ячейки колонки A', () => {
-    expect(toRowSeq(94)).toBe(94);
-    expect(toRowSeq('94')).toBe(94);
-    expect(toRowSeq('94.0')).toBe(94); // так Google отдаёт числовые ячейки
-    expect(toRowSeq(' 94 ')).toBe(94);
+    expect(toRowSeq(94)).toBe('94');
+    expect(toRowSeq('94')).toBe('94');
+    expect(toRowSeq('94.0')).toBe('94'); // так Google отдаёт числовые ячейки
+    expect(toRowSeq(' 94 ')).toBe('94');
   });
 
   it('отсутствие номера возвращает null, а не ноль', () => {
@@ -67,7 +82,7 @@ describe('useRowProvenance — честные состояния', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(spy.mock.calls[0][0]).toBe('/api/provenance/%D0%A3%D0%9A%D0%A1%D0%B8%D0%9C%D0%9F/94');
-    expect(result.current.data).toMatchObject({ dept: 'УКСиМП', rowSeq: 94 });
+    expect(result.current.data).toMatchObject({ dept: 'УКСиМП', rowSeq: '94' });
     expect(result.current.error).toBeNull();
   });
 

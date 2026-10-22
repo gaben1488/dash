@@ -291,7 +291,7 @@ function buildTrustScore(issues: Issue[]): TrustScore {
   const criticalCount = issues.filter(i => i.severity === 'critical').length;
   const significantCount = issues.filter(i => i.severity === 'significant').length;
 
-  const components: TrustComponent[] = [
+  const components: (TrustComponent & { score: number })[] = [
     {
       name: 'data_quality',
       label: 'Качество данных',

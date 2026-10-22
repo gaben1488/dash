@@ -57,6 +57,7 @@ describe('GET /api/export/issues — отборы выгрузки совпад�
       GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
       GOOGLE_PRIVATE_KEY: '',
       GOOGLE_API_KEY: 'test-api-key',
+      GOOGLE_SHEETS_SPREADSHEET_ID: 'x', // Отказ сети должен читать снимок именно этой книги.
     };
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
@@ -75,7 +76,7 @@ describe('GET /api/export/issues — отборы выгрузки совпад�
       ],
       trust: { overall: 100, components: [], grade: 'A', computedAt: '2026-01-01T00:00:00Z', basedOnSnapshot: 'seed-export-1' },
       rowCount: 0,
-      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0, targetYear: null },
     };
     db.insert(schema.snapshots).values({
       id: 'seed-export-1',

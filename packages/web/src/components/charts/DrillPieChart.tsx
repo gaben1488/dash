@@ -1,3 +1,5 @@
+import { PRODUCT_COPY } from '@aemr/shared';
+import { productLabel } from '@aemr/shared';
 import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { ChevronLeft, Calendar, X } from 'lucide-react';
@@ -58,12 +60,7 @@ import type { MultiDimResult, ExecutionMetrics } from '../../hooks/useMultiDimMe
 
 export type DrillDimension = 'procurement' | 'budget' | 'department' | 'execution';
 
-export const DRILL_DIMENSION_LABELS: Record<DrillDimension, string> = {
-  procurement: 'Способ закупки',
-  budget: 'Бюджеты',
-  department: 'Управления',
-  execution: 'Исполнение',
-};
+export const DRILL_DIMENSION_LABELS: Record<DrillDimension, string> = PRODUCT_COPY["components/charts/DrillPieChart:DRILL_DIMENSION_LABELS"];
 
 /**
  * Показатели круга. «Исполнение, %» здесь сознательно отсутствует: доля
@@ -77,18 +74,10 @@ type Metric = 'plan' | 'fact' | 'economy' | 'count';
  * форматтером. Прежние «План ₽» обещали рубли, а число рядом стояло в
  * тысячах — подпись и значение противоречили друг другу.
  */
-const METRIC_LABELS: Record<Metric, string> = {
-  plan: 'План',
-  fact: 'Факт',
-  economy: 'Экономия',
-  count: 'Закупки, шт.',
-};
+const METRIC_LABELS: Record<Metric, string> = PRODUCT_COPY["components/charts/DrillPieChart:METRIC_LABELS"];
 
 type ViewLevel = 'grbs' | 'orgs';
-const VIEW_LEVEL_LABELS: Record<ViewLevel, string> = {
-  grbs: 'ГРБС',
-  orgs: 'Организации',
-};
+const VIEW_LEVEL_LABELS: Record<ViewLevel, string> = PRODUCT_COPY["components/charts/DrillPieChart:VIEW_LEVEL_LABELS"];
 
 /** Что стоит за числом среза: деньги, штуки или проценты. */
 type Unit = 'money' | 'count';
@@ -363,7 +352,7 @@ export function DrillPieChart({
       if (dm.orgSelf) {
         raw.push({
           id: `self:${dm.dept}`,
-          name: `${dm.dept} (само)`,
+          name: `${productLabel(dm.dept)} (само)`,
           value: readMetric(dm.orgSelf.metrics, metric, scope),
           color: deptColorMap.get(dm.dept),
           drillable: false,
@@ -449,7 +438,7 @@ export function DrillPieChart({
             if (dm.orgSelf) {
               raw.push({
                 id: `org:self:${dm.dept}`,
-                name: `${dm.dept} (само)`,
+                name: `${productLabel(dm.dept)} (само)`,
                 value: readMetric(dm.orgSelf.metrics, metric, scope),
                 color: deptColorMap.get(dm.dept),
                 drillable: false,
@@ -469,7 +458,7 @@ export function DrillPieChart({
           for (const dm of mdm.departments) {
             raw.push({
               id: `d:${dm.dept}`,
-              name: dm.dept,
+              name: productLabel(dm.dept),
               value: readMetric(dm.total, metric, scope),
               color: deptColorMap.get(dm.dept),
               drillable: true,
@@ -498,7 +487,7 @@ export function DrillPieChart({
         if (viewLevel === 'orgs') {
           for (const dm of mdm.departments) {
             const nodes = [
-              ...(dm.orgSelf ? [{ id: `eo:self:${dm.dept}`, name: `${dm.dept} (само)`, m: dm.orgSelf.metrics }] : []),
+              ...(dm.orgSelf ? [{ id: `eo:self:${dm.dept}`, name: `${productLabel(dm.dept)} (само)`, m: dm.orgSelf.metrics }] : []),
               ...dm.realSubs.map(sub => ({ id: `eo:sub:${dm.dept}:${sub.name}`, name: sub.displayName, m: sub.metrics })),
             ];
             for (const n of nodes) {
@@ -515,7 +504,7 @@ export function DrillPieChart({
             planCount += dm.total.planCount ?? 0;
             factCount += dm.total.factCount ?? 0;
             raw.push({
-              id: `e:${dm.dept}`, name: dm.dept, value: dm.total.factCount ?? 0,
+              id: `e:${dm.dept}`, name: productLabel(dm.dept), value: dm.total.factCount ?? 0,
               color: deptColorMap.get(dm.dept), drillable: true,
             });
           }

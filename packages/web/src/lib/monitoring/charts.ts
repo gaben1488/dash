@@ -1,3 +1,4 @@
+import { MONTHS } from '@aemr/shared';
 /**
  * Ряды графиков вкладки «Мониторинг · Аналитика» — ЧИСТЫМИ функциями.
  *
@@ -273,15 +274,9 @@ export function nmckBucketBars(buckets: readonly NmckBucket[]): NmckBucketBar[] 
 
 // ── Сезонность ───────────────────────────────────────────────────────
 
-const MONTH_NAMES = [
-  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
-  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
-];
+const MONTH_NAMES = MONTHS.map(m => m.full.toLowerCase());
 
-const MONTH_SHORT = [
-  'янв', 'фев', 'мар', 'апр', 'май', 'июн',
-  'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
-];
+const MONTH_SHORT = MONTHS.map(m => m.short.toLowerCase());
 
 /** «2026-03» → «март 2026». Незнакомый ключ показывается как есть, не прячется. */
 export function seasonLabel(period: string): string {

@@ -1,5 +1,5 @@
-import type { TrustScore, TrustComponent, Issue, NormalizedMetric, DeltaResult } from '@aemr/shared';
-import { THRESHOLDS, TRUST_COMPONENT_CONFIG } from '@aemr/shared';
+import type { TrustScore, TrustCheckCoverage, TrustComponent, Issue, NormalizedMetric, DeltaResult } from '@aemr/shared';
+import { summarizeCheckCoverage, THRESHOLDS, TRUST_COMPONENT_CONFIG, isTrustIssueApplicable } from '@aemr/shared';
 import type { TrustComponentId } from '@aemr/shared';
 
 /**
@@ -66,7 +66,11 @@ export function computeTrustScore(
   issues: Issue[],
   deltas: DeltaResult[],
   snapshotId: string,
+  coverage?: TrustCheckCoverage[],
 ): TrustScore {
+  // A saved resolution is not proof while the source still emits this issue.
+  // Proven numbering-header diagnostics are retained history, not procurement evidence.
+  issues = issues.filter(isTrustIssueApplicable);
   const components: TrustComponent[] = [
     computeDataQuality(metrics, issues),
     computeFormulaIntegrity(issues),
@@ -75,11 +79,48 @@ export function computeTrustScore(
     computeOperationalRisk(issues),
   ];
 
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const weightedSum = components.reduce((sum, c) => sum + c.score * c.weight, 0);
-  const overall = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+  // A detector failure means some rows never went through signal checks.
+  // The presence of other valid metrics is not evidence that those checks
+  // passed. Keep the diagnostic issue but withhold a numeric quality score.
+  if (issues.some(issue => issue.category === 'signal_detection_failed')) {
+    const dataQuality = components.find(component => component.name === 'data_quality');
+    if (dataQuality) {
+      dataQuality.score = null;
+      dataQuality.details += ' Проверка сигналов части строк завершилась ошибкой; качество данных пока не подтверждено.';
+    }
+  }
 
-  const grade = overall >= THRESHOLDS.TRUST.A ? 'A'
+  for (const component of components) {
+    if (component.name !== 'formula_integrity' && component.name !== 'rule_compliance') continue;
+    const observations = coverage?.filter(c => c.component === component.name) ?? [];
+    const summary = summarizeCheckCoverage(observations);
+    if (!summary) continue;
+    const { expected, checked, failed, score } = summary;
+    component.checks = { expected, checked, failed };
+    component.score = score;
+    component.details = `Выполнено ${checked} из ${expected} проверок; выявлено ${failed} расхождений.`;
+  }
+
+  // DTO keys alone do not prove usable observations (empty/failed sources can
+  // preserve every metric key). Keep diagnosed defects even when no grade exists.
+  const hasNumericEvidence = [...metrics.values()].some(m => Number.isFinite(m.numericValue));
+  if (!hasNumericEvidence && components.find(c => c.name === 'mapping_consistency')?.score === null) {
+    for (const component of components) {
+      component.score = null;
+      component.details = component.issues > 0
+        ? `Недостаточно данных для оценки; ${component.details}`
+        : 'Нет данных для проверки';
+    }
+  }
+  const assessed = components.filter((c): c is TrustComponent & { score: number } => c.score !== null && c.weight > 0);
+  const totalWeight = assessed.reduce((sum, c) => sum + c.weight, 0);
+  const weightedSum = assessed.reduce((sum, c) => sum + c.score * c.weight, 0);
+  // Missing coverage must not be silently removed from the denominator.
+  // An aggregate grade requires evidence for every weighted component.
+  const requiredWeight = components.reduce((sum, c) => sum + Math.max(0, c.weight), 0);
+  const overall = totalWeight > 0 && totalWeight === requiredWeight ? Math.round(weightedSum / totalWeight) : null;
+
+  const grade = overall === null ? null : overall >= THRESHOLDS.TRUST.A ? 'A'
     : overall >= THRESHOLDS.TRUST.B ? 'B'
     : overall >= THRESHOLDS.TRUST.C ? 'C'
     : overall >= THRESHOLDS.TRUST.D ? 'D'
@@ -91,19 +132,20 @@ export function computeTrustScore(
     components,
     computedAt: new Date().toISOString(),
     basedOnSnapshot: snapshotId,
+    ...(coverage ? { coverage } : {}),
   };
 }
 
 function computeDataQuality(metrics: Map<string, NormalizedMetric>, issues: Issue[]): TrustComponent {
   const totalMetrics = metrics.size;
   if (totalMetrics === 0) {
-    return { name: 'data_quality', label: 'Качество данных', score: 10, weight: 30, issues: 0, criticalIssues: 0, details: 'Нет метрик' };
+    return { name: 'data_quality', label: 'Качество данных', score: null, weight: 30, issues: 0, criticalIssues: 0, details: 'Нет метрик для проверки' };
   }
 
   let score = 100;
 
   // Вычитаем за пустые метрики
-  const emptyCount = [...metrics.values()].filter(m => m.numericValue === null).length;
+  const emptyCount = [...metrics.values()].filter(m => !Number.isFinite(m.numericValue)).length;
   // Reduced from 40: empty future quarters (Q3 empty in April) are expected
   const emptyPenalty = (emptyCount / totalMetrics) * 25;
   score -= emptyPenalty;
@@ -133,16 +175,6 @@ function computeDataQuality(metrics: Map<string, NormalizedMetric>, issues: Issu
 
 function computeFormulaIntegrity(issues: Issue[]): TrustComponent {
   const formulaIssues = issuesForComponent(issues, 'formula_integrity');
-  const config = TRUST_COMPONENT_CONFIG['formula_integrity'];
-
-  let score = 100;
-  // Per-severity penalty from config — linear, not logarithmic
-  // This ensures 100 critical issues ARE worse than 10 critical issues
-  for (const issue of formulaIssues) {
-    const sev = issue.severity as keyof typeof config.penalties;
-    const penalty = config.penalties[sev] ?? config.penalties['warning'] ?? 3;
-    score -= penalty;
-  }
 
   const critical = formulaIssues.filter(i => i.severity === 'critical').length;
   const significant = formulaIssues.filter(i => i.severity === 'significant').length;
@@ -150,26 +182,16 @@ function computeFormulaIntegrity(issues: Issue[]): TrustComponent {
   return {
     name: 'formula_integrity',
     label: 'Целостность формул',
-    score: Math.max(10, Math.round(score)),
+    score: null,
     weight: 25,
     issues: formulaIssues.length,
     criticalIssues: critical,
-    details: `${formulaIssues.length} замечаний (${critical} критических, ${significant} значимых)`,
+    details: `${formulaIssues.length} замечаний (${critical} критических, ${significant} значимых). Полнота проверки формул не подтверждена; отсутствие замечаний не означает успешную проверку всех формул.`,
   };
 }
 
 function computeRuleCompliance(issues: Issue[]): TrustComponent {
   const ruleIssues = issuesForComponent(issues, 'rule_compliance');
-  const config = TRUST_COMPONENT_CONFIG['rule_compliance'];
-
-  let score = 100;
-
-  // Per-severity weighting from config — each issue penalizes proportionally
-  for (const issue of ruleIssues) {
-    const sev = issue.severity as keyof typeof config.penalties;
-    const penalty = config.penalties[sev] ?? config.penalties['warning'] ?? 3;
-    score -= penalty;
-  }
 
   // Group by rule ID for reporting
   const byRule = new Map<string, number>();
@@ -184,11 +206,11 @@ function computeRuleCompliance(issues: Issue[]): TrustComponent {
   return {
     name: 'rule_compliance',
     label: 'Соответствие правилам',
-    score: Math.max(10, Math.round(score)),
+    score: null,
     weight: 20,
     issues: ruleIssues.length,
     criticalIssues: totalCritical,
-    details: `${byRule.size} правил с нарушениями, ${ruleIssues.length} замечаний (${criticalRules} критических правил)`,
+    details: `${byRule.size} правил с замечаниями, ${ruleIssues.length} замечаний (${criticalRules} критических правил). Полнота и применимость проверок не подтверждены; общий балл не рассчитан.`,
   };
 }
 
@@ -198,17 +220,22 @@ function computeMappingConsistency(
 ): TrustComponent {
   // Only score deltas where BOTH official and calculated values exist
   // Missing calculated values are expected (not all metrics are row-recalculable)
-  const comparable = deltas.filter(d => d.officialValue !== null && d.calculatedValue !== null);
+  // A scope mismatch keeps both values for explanation but deliberately has
+  // no delta. Its neutral UI flag is not evidence of a successful comparison.
+  const comparable = deltas.filter(d => Number.isFinite(d.officialValue)
+    && Number.isFinite(d.calculatedValue) && d.delta !== null && Number.isFinite(d.delta));
   const totalComparable = comparable.length;
 
   if (totalComparable === 0) {
-    return { name: 'mapping_consistency', label: 'Согласованность привязок', score: 100, weight: 15, issues: 0, criticalIssues: 0, details: 'Нет данных для сравнения' };
+    return { name: 'mapping_consistency', label: 'Согласованность привязок', score: null, weight: 15, issues: 0, criticalIssues: 0, details: 'Нет данных для сравнения' };
   }
 
   // Graduated scoring: full credit ≤1%, partial credit 1-5%, no credit >5%
   let totalCredit = 0;
   for (const d of comparable) {
-    const absPct = d.deltaPercent !== null ? Math.abs(d.deltaPercent) : 0;
+    // A zero official baseline can have a known absolute mismatch without a
+    // relative percentage. Missing percentage alone earns no agreement credit.
+    const absPct = d.deltaPercent !== null ? Math.abs(d.deltaPercent) : Number.POSITIVE_INFINITY;
     if (d.withinTolerance || absPct <= 1) {
       totalCredit += 1.0;
     } else if (absPct <= 5) {
@@ -225,7 +252,7 @@ function computeMappingConsistency(
   return {
     name: 'mapping_consistency',
     label: 'Согласованность привязок',
-    score: Math.max(10, score),
+    score,
     weight: 15,
     issues: outOfTolerance,
     criticalIssues: comparable.filter(d => !d.withinTolerance && d.deltaPercent !== null && Math.abs(d.deltaPercent) > 10).length,
@@ -250,9 +277,9 @@ function computeOperationalRisk(issues: Issue[]): TrustComponent {
     name: 'operational_risk',
     label: 'Операционные риски',
     score: Math.max(10, Math.round(score)),
-    weight: 10,
+    weight: 0,
     issues: opIssues.length,
     criticalIssues: critical,
-    details: `${opIssues.length} операционных замечаний`,
+    details: `${opIssues.length} операционных замечаний; не входят в оценку качества данных`,
   };
 }

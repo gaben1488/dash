@@ -1,3 +1,4 @@
+import { PRODUCT_COPY } from '@aemr/shared';
 // ── Рама графика: то, чего библиотека рисования не знает.
 //
 //    ЧТО ВЗЯТО ГОТОВЫМ (канон п.112). Рисует Recharts, и менять его не на
@@ -46,20 +47,10 @@ import clsx from 'clsx';
 export type MoneyScale = 'руб' | 'тыс' | 'млн' | 'млрд';
 
 /** Подпись шкалы для оси и подсказки. */
-export const MONEY_SCALE_LABEL: Readonly<Record<MoneyScale, string>> = {
-  'руб': '₽',
-  'тыс': 'тыс ₽',
-  'млн': 'млн ₽',
-  'млрд': 'млрд ₽',
-};
+export const MONEY_SCALE_LABEL: Readonly<Record<MoneyScale, string>> = PRODUCT_COPY["components/ui/chart-frame:MONEY_SCALE_LABEL"];
 
 /** Фраза о шкале для читателя: что он увидит, переключив режим. */
-export const MONEY_SCALE_HINT: Readonly<Record<MoneyScale, string>> = {
-  'руб': 'суммы читаются в рублях — так их ведёт книга мониторинга',
-  'тыс': 'суммы читаются в тысячах рублей — так их ведут свод и отчёт',
-  'млн': 'суммы читаются в миллионах рублей',
-  'млрд': 'суммы читаются в миллиардах рублей',
-};
+export const MONEY_SCALE_HINT: Readonly<Record<MoneyScale, string>> = PRODUCT_COPY["components/ui/chart-frame:MONEY_SCALE_HINT"];
 
 export interface ChartFrameProps {
   /**
