@@ -224,8 +224,10 @@ def run_one(engine: str, args, scratch: Path) -> dict:
         concurrent=pilot.concurrency(args.readers,args.reads_per_reader,args.writes)
         if concurrent["errors"]:
             raise RuntimeError(f"concurrent operations failed ({concurrent['errors']} errors)")
+        with pilot.connect() as db:
+            after_write=pilot.fingerprint(db)
         restore=pilot.verify_restore(scratch)
-        return {"engine":engine,"data_contract_sha256":initial,"workload":timings,"concurrency":concurrent,"restored":restore,"storage_bytes":pilot.storage_bytes(),"peak_process_rss_kib":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+        return {"engine":engine,"data_contract_sha256":initial,"post_write_contract_sha256":after_write,"workload":timings,"concurrency":concurrent,"restored":restore,"storage_bytes":pilot.storage_bytes(),"peak_process_rss_kib":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     finally:
         pilot.cleanup()
 
