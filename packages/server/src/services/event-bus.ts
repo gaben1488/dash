@@ -100,7 +100,15 @@ export interface SnapshotRebuiltEvent {
   year: number | null;
 }
 
+/** A formula read produced a new verdict or an explicit failed attempt. No new snapshot implied. */
+export interface FormulaCheckUpdatedEvent {
+  kind: 'formula-check-updated';
+  books: string[];
+  origin: RefreshOrigin;
+}
+
 export type LiveEvent =
+  | FormulaCheckUpdatedEvent
   | BookUpdatedEvent
   | RowChangedEvent
   | IssuesAppearedEvent
