@@ -50,6 +50,22 @@ describe('calculated metric detail', () => {
     });
   });
 
+  it('reproduces annual figures from four planned quarters, excluding undated orphan rows', async () => {
+    const value = snapshot();
+    const orphan: unknown[] = Array(34).fill('');
+    orphan[C.ID] = 'orphan'; orphan[C.SUBJECT] = 'Поставка';
+    orphan[C.METHOD] = 'ЭА'; orphan[C.PLAN_YEAR] = 2026;
+    orphan[C.PLAN_DATE] = '12.05.2026'; orphan[C.TOTAL_PLAN] = 500;
+    value.rowsByDept!['УО']!.push(orphan);
+    // Annual published count is based on Q1-Q4. A row without a quarter
+    // must not be silently added by the evidence replay.
+    const result = await read(value, 'grbs.uo.year.plan_count');
+    expect(result.json().explanation).toMatchObject({
+      status: 'available', value: 2,
+      rows: [{ sheet: 'УО', row: 4 }, { sheet: 'УО', row: 5 }],
+    });
+  });
+
   it('rejects a changed snapshot and malformed year before attaching evidence', async () => {
     const value = snapshot();
     expect((await read(value, 'grbs.uo.q1.exec_count_pct?snapshotId=older')).statusCode).toBe(409);
