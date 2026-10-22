@@ -73,9 +73,9 @@ def verify_views(manifest, model_path, dashboard_path, main_docx, management_doc
 
     content = model.get("report_content") or {}
     by_grbs = content.get("by_grbs") or {}
-    grbs_by_source = {source["source_id"]: source["grbs"] for source in manifest["sources"]
-                      if source["role"] == "master"}
-    if set(by_grbs) != set(grbs_by_source.values()):
+    grbs_by_source = {source["source_id"]: (source.get("payload_metadata") or {}).get("grbs")
+                      for source in manifest["sources"] if source["role"] == "master"}
+    if not all(grbs_by_source.values()) or set(by_grbs) != set(grbs_by_source.values()):
         raise ValueError("ARTIFACT_MASTER_SCOPE_MISMATCH")
 
     mismatches = []
