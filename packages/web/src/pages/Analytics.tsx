@@ -813,8 +813,8 @@ export function Analytics() {
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated" perimeter={perimeters.quarterlyTrend}>
-          {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
+        <AnalyticsCard title={epSharePct !== null && epSharePct > 30 ? `Доля ЕП — ${epSharePct.toFixed(0)}% закупок (требует анализа)` : epSharePct !== null ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${completeSum([epTotal, kpTotal])})` : 'Динамика закупок по кварталам: доля по неполным данным не рассчитана'} icon={BarChart3} source="calculated" perimeter={perimeters.quarterlyTrend}>
+          {quarterlyTrend.some(q => q.kp !== null || q.ep !== null) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
@@ -832,8 +832,8 @@ export function Analytics() {
             </ResponsiveContainer>
           ) : (
             <CardEmpty
-              title="Закупок по кварталам не нашлось"
-              description="В книгах выбранных управлений нет ни одной строки с распознанным кварталом за этот год: сравнивать конкурентные и единственного поставщика не по чему."
+              title="Квартальные данные не подтверждены"
+              description="За выбранный период нет полного ряда данных КП и ЕП. Отсутствующее значение нельзя выдавать за ноль закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           )}
@@ -863,8 +863,8 @@ export function Analytics() {
       </div>
 
       {/* Row 2: Plan vs Fact comparison by department */}
-      <AnalyticsCard title={overallExecPct > 0 ? `Исполнение ${overallExecPct.toFixed(0)}% — ${overallExecPct < 25 ? 'отставание от графика' : overallExecPct > 90 ? 'на уровне плана' : 'в работе'} (${periodLabel})` : `Сравнение План / Факт по управлениям (${periodLabel})`} icon={Layers} source="calculated">
-        {budgetByDept.length > 0 ? (
+      <AnalyticsCard title={overallExecPct !== null ? `Исполнение ${overallExecPct.toFixed(0)}% — ${overallExecPct < 25 ? 'отставание от графика' : overallExecPct > 90 ? 'на уровне плана' : 'в работе'} (${periodLabel})` : `Сравнение План / Факт: неполные данные (${periodLabel})`} icon={Layers} source="calculated">
+        {budgetByDept.some(d => d.planTotal !== null || d.factTotal !== null) ? (
           <div>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={budgetByDept} barCategoryGap="15%">
@@ -925,11 +925,11 @@ export function Analytics() {
                         <div className="mt-2 border-t border-[var(--line-soft)] pt-2">
                           <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого план:</span>
-                            <span className="font-semibold tabular-nums">{formatMoney(dept.planTotal)}</span>
+                            <span className="font-semibold tabular-nums">{dept.planTotal === null ? 'не прочитан' : formatMoney(dept.planTotal)}</span>
                           </div>
                           <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого факт:</span>
-                            <span className="font-semibold tabular-nums">{formatMoney(dept.factTotal)}</span>
+                            <span className="font-semibold tabular-nums">{dept.factTotal === null ? 'не прочитан' : formatMoney(dept.factTotal)}</span>
                           </div>
                         </div>
                         {subs.length > 0 && (
@@ -977,7 +977,7 @@ export function Analytics() {
           : `Доли в закупках (${periodLabel})`}
       >
         <OrgScopeNote scope={orgScope} whatSplits="долей" />
-        {shareRows.length > 0 ? (
+        {shareRows.some(d => d.planShare !== null || d.factShare !== null) ? (
           <div>
             <p className="mb-2 text-[11px] text-[var(--ink-muted)]">
               {orgScope.mode === 'withSubs'
@@ -1036,7 +1036,7 @@ export function Analytics() {
                   <span className="h-2.5 w-2.5 rounded" style={{ backgroundColor: d.color }} aria-hidden="true" />
                   <span>{d.name}</span>
                   <span className="tabular-nums text-[var(--ink-faint)]">
-                    {d.planShare > 0 ? `${d.planShare} % плана` : 'плана нет'}
+                    {d.planShare === null ? 'доля не рассчитана' : `${d.planShare} % плана`}
                   </span>
                 </li>
               ))}
@@ -1105,10 +1105,10 @@ export function Analytics() {
       {/* Виды деятельности: программная против текущей */}
       {(
         <AnalyticsCard title={`Разбивка по видам деятельности (${periodLabel})`} icon={Layers} source="calculated">
-          {!activityData.some(d => d.program > 0 || d.current > 0) ? (
+          {!activityData.some(d => d.program !== null || d.current !== null) ? (
             <CardEmpty
-              title="Вид деятельности в строках не проставлен"
-              description="Разбивка строится по колонке вида деятельности книги: за выбранный период ни программных, ни текущих сумм в ней нет."
+              title="Суммы по видам деятельности не прочитаны"
+              description="Пока источник не предоставил расчёт, отсутствие показателя не доказывает отсутствие программных и текущих закупок."
               action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
             />
           ) : (
@@ -1141,7 +1141,7 @@ export function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {(
           <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter={perimeters.velocity}>
-            {velocityData.length === 0 ? (
+            {!velocityData.some(d => d.q1 !== null || d.q2 !== null || d.q3 !== null || d.q4 !== null) ? (
               <CardEmpty
                 title="Скорость исполнения не построена"
                 description="Кумулятивная линия считается от годового плана управления: пока плана нет, накопленный процент был бы делением на ноль."
@@ -1160,7 +1160,7 @@ export function Analytics() {
                 <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {velocityData.map((d, i) => (
-                  <Line key={d.name} type="monotone" dataKey={d.name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line key={d.name} type="monotone" dataKey={d.name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -1273,10 +1273,10 @@ export function Analytics() {
                         <td className="py-1.5 text-[10px] tabular-nums text-[var(--ink-faint)]">{idx + 1}</td>
                         <td className="max-w-[180px] truncate py-1.5 text-xs text-[var(--ink)]" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
                         <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{productLabel(sub.dept)}</td>
-                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.planTotal)}</td>
-                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.factTotal)}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{sub.planTotal === null ? 'не прочитан' : formatMoney(sub.planTotal)}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{sub.factTotal === null ? 'не прочитан' : formatMoney(sub.factTotal)}</td>
                         <td className="py-1.5 text-center">
-                          {sub.executionPct > 0 ? (
+                          {sub.executionPct !== null ? (
                             <span
                               className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
                               style={{ backgroundColor: getExecutionHeatBg(sub.executionPct, isDark), color: getExecutionHeatText(sub.executionPct, isDark) }}
@@ -1414,7 +1414,7 @@ export function Analytics() {
           source="calculated"
           title={orgScope.mode === 'withSubs'
             ? `Сводка управления ${orgDeptLabel} по организациям (${periodLabel})`
-            : avgExecHeatmap > 0
+            : avgExecHeatmap !== null && avgExecHeatmap > 0
               ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)} % по ${heatmapData.length} управлениям (${periodLabel})`
               : `Сводка по управлениям (${periodLabel})`}
         >
@@ -1539,8 +1539,8 @@ export function Analytics() {
         </AnalyticsCard>
 
         {/* Качество заполнения книг по управлениям (термин «доверие» снят — п.88/26б) */}
-        <AnalyticsCard title={avgTrust > 0 ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Качество заполнения книг'} icon={TrendingUp} source="hybrid" perimeter={perimeters.fillQuality}>
-          {trustData.length > 0 ? (
+        <AnalyticsCard title={avgTrust !== null ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : `Качество заполнения: оценено ${knownTrustCount} из ${trustData.length} управлений`} icon={TrendingUp} source="hybrid" perimeter={perimeters.fillQuality}>
+          {knownTrustCount > 0 ? (
             <>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2">
               <KBTooltip metric="analytics_fill_quality" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_fill_quality)}>
@@ -1558,7 +1558,7 @@ export function Analytics() {
                   onClick={(data: any) => { if (data?.id) navigateTo('quality', { qualityTab: 'trust', department: data.id }); }}
                 >
                   {trustData.map((d: any, i: number) => (
-                    <Cell key={i} fill={d.trust >= 80 ? (isDark ? '#34d399' : '#10b981') : d.trust >= 60 ? (isDark ? '#fbbf24' : '#f59e0b') : (isDark ? '#f87171' : '#ef4444')} />
+                    <Cell key={i} fill={d.trust === null ? (isDark ? '#52525b' : '#d4d4d8') : d.trust >= 80 ? (isDark ? '#34d399' : '#10b981') : d.trust >= 60 ? (isDark ? '#fbbf24' : '#f59e0b') : (isDark ? '#f87171' : '#ef4444')} />
                   ))}
                 </Bar>
               </BarChart>
