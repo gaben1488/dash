@@ -6,6 +6,7 @@ import { buildRowDto, isDataRow } from './rows-dto.js';
 import { logSnapshotChange, logSourceProblem, setSourceLogger } from './source-log.js';
 import { productCalendarDay } from './product-calendar.js';
 import { parentPort } from 'node:worker_threads';
+import { inspectArchivedCalculationContext } from './snapshot-calculation-context.js';
 
 /**
  * Тип закупки по способу из колонки L. ЕП — единственный поставщик, ЭА/ЭК/ЭЗК —
@@ -126,6 +127,10 @@ export function saveSnapshotRowsToDb(snapshot: DataSnapshot, db: SnapshotDatabas
 
 
 export function saveSnapshotToDb(snapshot: DataSnapshot, db: SnapshotDatabase, today: Date): void {
+  const validation = inspectArchivedCalculationContext(snapshot);
+  if (validation.status === 'invalid') {
+    throw new Error('CALCULATION_ARCHIVE_SEAL_INVALID:' + validation.mismatches.join(','));
+  }
   const dataJson = JSON.stringify(snapshot);
   // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
   // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
@@ -377,6 +382,10 @@ export interface SnapshotStorageInput {
 
 export async function persistSnapshotInWorker(input: SnapshotStorageInput): Promise<true> {
   if (!parentPort) throw new Error('SNAPSHOT_STORAGE_WORKER_REQUIRED');
+  const validation = inspectArchivedCalculationContext(input.snapshot);
+  if (validation.status === 'invalid') {
+    throw new Error('CALCULATION_ARCHIVE_SEAL_INVALID:' + validation.mismatches.join(','));
+  }
   const port = parentPort;
   setSourceLogger({
     info: (fields, msg) => port.postMessage({ log: 'info', fields, msg }),
