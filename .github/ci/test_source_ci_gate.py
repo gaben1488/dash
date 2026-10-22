@@ -38,7 +38,7 @@ class SourceGateTests(unittest.TestCase):
                'actor': {'login': 'gaben1488'}}
         self.assertTrue(self.module.source_ci_passed(run, self.jobs, self.sha))
         for changes in (
-            {'head_branch': 'main'},
+            {'head_branch': 'another-feature'},
             {'head_branch': 'another-feature'},
             {'actor': {'login': 'another-user'}},
             {'actor': None},
@@ -48,6 +48,19 @@ class SourceGateTests(unittest.TestCase):
         ):
             self.assertFalse(self.module.source_ci_passed({**run, **changes}, self.jobs, self.sha))
 
+    def test_main_release_is_exact_owner_push_with_source_diagnostics(self):
+        main = {**self.run, 'event': 'push', 'head_branch': 'main',
+                'actor': {'login': 'gaben1488'}}
+        self.assertFalse(self.module.source_ci_passed(main, self.jobs, self.sha))
+        full = [*self.jobs, {'name': 'Source diagnostics API/UI contract and KB regressions',
+                             'status': 'completed', 'conclusion': 'success'}]
+        self.assertTrue(self.module.source_ci_passed(main, full, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**main, 'actor': {'login': 'other'}}, full, self.sha))
+        self.assertFalse(self.module.source_ci_passed({**main, 'head_branch': 'unknown'}, full, self.sha))
+        self.assertFalse(self.module.source_ci_passed(main, [*full, full[-1]], self.sha))
+        failed = [*self.jobs, {**full[-1], 'conclusion': 'failure'}]
+        self.assertFalse(self.module.source_ci_passed(main, failed, self.sha))
+
     def test_queued_production_release_refuses_superseded_pr79_head(self):
         workflow = Path(__file__).resolve().parents[1] / 'workflows' / 'vps-cache-cleanup.yml'
         source = workflow.read_text(encoding='utf-8')
@@ -56,8 +69,11 @@ class SourceGateTests(unittest.TestCase):
         )[0]
         # An early equality pins PR79 before SSH setup; the inequality fails
         # closed during CI polling; a final equality guards later advancement.
-        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" = "$RECOVERY_SHA"'
-        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/pulls/79 --jq .head.sha)" != "$RECOVERY_SHA"; then'
+        exact_head = 'test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" = "$RECOVERY_SHA"'
+        superseded = 'if test "$(gh api repos/$GITHUB_REPOSITORY/$RELEASE_HEAD_PATH --jq "$RELEASE_HEAD_QUERY")" != "$RECOVERY_SHA"; then'
+        self.assertIn('head_path=git/ref/heads/main', admission)
+        self.assertIn('github.workflow == \'Main controlled release\'', source)
+        self.assertIn('main-controlled-release-20261023.request', admission)
         ci_lookup = 'ci_run=$(gh api'
         self.assertEqual(admission.count(exact_head), 2)
         self.assertIn(superseded, admission)
