@@ -187,6 +187,18 @@ describe('sliceResults — C03.01: exact multi-axis scope', () => {
     expect(absent.get('execution_pct')?.value).toBeNull();
     expect(absent.get('plan_count')?.value ?? 0).toBe(0);
   });
+  it('legacy current_program and current_non_program both mean entire TD, without double counting', () => {
+    const fresh = sliceResults(g, { activities: ['current_non_program'] });
+    const oldUrl = sliceResults(g, { activities: ['current_program'] });
+    const both = sliceResults(g, { activities: ['current_program', 'current_non_program'] });
+    expect(fresh.get('plan_count')?.value).toBe(2); // C + E
+    expect(fresh.get('plan_total')?.value).toBe(325);
+    expect(oldUrl.get('plan_total')?.value).toBe(325);
+    expect(both.get('plan_count')?.value).toBe(2);
+    expect(sliceResults(g, { quarters: ['q1'], subordinates: ['МБУ Бета'],
+      activities: ['current_program'], methods: ['competitive'] })
+      .get('plan_count')?.contributingRows).toEqual([2]);
+  });
   it('independent row oracle: the full period × subordinate × activity × method matrix reconciles', () => {
     // Expected values are handwritten from seven raw atoms, not built from
     // CalcEngine group maps. The matrix detects accidental broadening.
