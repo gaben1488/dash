@@ -79,6 +79,17 @@ export function computeTrustScore(
     computeOperationalRisk(issues),
   ];
 
+  // A detector failure means some rows never went through signal checks.
+  // The presence of other valid metrics is not evidence that those checks
+  // passed. Keep the diagnostic issue but withhold a numeric quality score.
+  if (issues.some(issue => issue.category === 'signal_detection_failed')) {
+    const dataQuality = components.find(component => component.name === 'data_quality');
+    if (dataQuality) {
+      dataQuality.score = null;
+      dataQuality.details += ' Проверка сигналов части строк завершилась ошибкой; качество данных пока не подтверждено.';
+    }
+  }
+
   for (const component of components) {
     if (component.name !== 'formula_integrity' && component.name !== 'rule_compliance') continue;
     const observations = coverage?.filter(c => c.component === component.name) ?? [];
