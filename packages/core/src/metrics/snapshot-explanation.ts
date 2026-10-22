@@ -19,11 +19,16 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
     snapshot.metadata.targetYear ?? undefined,
     { asOfDay: productCalendarDay(asOf, PRODUCT_UTC_OFFSET_HOURS) });
   // Method/month intersections already live in byQuarterMethod as m1..m12.
-  const values = sliceResults(grouped, {
-    ...(period.startsWith('m') && !method ? { months: [Number(period.slice(1))] }
-      : { quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period] }),
-    ...(method ? { methods: [method] } : {}),
-  });
+  // The historical public month is always a calendar-month slice. The
+  // method axis must never silently turn m1 into an invalid quarter key.
+  // CalcEngine keeps the month×method cross-index under byQuarterMethod.
+  const values = period.startsWith('m') && method
+    ? grouped.byQuarterMethod.get(`${period}.${method}`) ?? new Map()
+    : sliceResults(grouped, {
+      ...(period.startsWith('m') ? { months: [Number(period.slice(1))] }
+        : { quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period] }),
+      ...(method ? { methods: [method] } : {}),
+    });
   const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
