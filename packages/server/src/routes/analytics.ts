@@ -1,6 +1,7 @@
 import { LEGAL_RULES_UNVERIFIED, legalThresholdsVerifiedForContext, EP_ROLE_THRESHOLD_IDS, parseSheetNumber, dayNumberOf } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
+import { capturedAnalyticsRows } from '../services/analytics-captured-rows.js';
 import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import {
   approvedEconomy,
@@ -106,18 +107,17 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
-      const deptCache = getDeptSheetValues();
       const allIssues: ComplianceIssue[] = [];
 
       for (const dept of DEPARTMENTS) {
-        const rows = deptCache[dept.nameShort];
+        const rows = capturedAnalyticsRows(snapshot, dept.nameShort);
         if (!rows || rows.length === 0) continue;
 
         const recalc = recalcResults[dept.id];
         const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
 
         // Extract row data for compliance checks
-        const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+        const rowData = rows.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
@@ -234,12 +234,11 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
-      const deptCache = getDeptSheetValues();
       const result: Record<string, AntiCorruptionResult> = {};
       for (const dept of DEPARTMENTS) {
-        const rows = deptCache[dept.nameShort];
+        const rows = capturedAnalyticsRows(snapshot, dept.nameShort);
         if (!rows || rows.length === 0) continue;
-        const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+        const rowData: AntiCorruptionRow[] = rows.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
@@ -276,14 +275,13 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
-      const deptCache = getDeptSheetValues();
       const decisionIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
       const profiles = buildGRBSProfiles(recalcResults);
       const result: Record<string, unknown> = {};
 
       for (const profile of profiles) {
-        const rows = deptCache[profile.grbsShort] ?? [];
-        const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+        const rows = capturedAnalyticsRows(snapshot, profile.grbsShort);
+        const rowData: AntiCorruptionRow[] = rows.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0),
@@ -322,7 +320,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           continue;
         }
 
-        const countedRows = rows.slice(DEPT_HEADER_ROWS).filter(standardRowFilter).length;
+        const countedRows = rows.filter(standardRowFilter).length;
         result[profile.grbsId] = {
           grbsShort: profile.grbsShort,
           role: profile.role,
@@ -354,15 +352,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
-      const deptCache = getDeptSheetValues();
 
       // Benford analysis per department
       const benfordResults: Record<string, any> = {};
       for (const dept of DEPARTMENTS) {
-        const rows = deptCache[dept.nameShort];
+        const rows = capturedAnalyticsRows(snapshot, dept.nameShort);
         if (!rows || rows.length === 0) continue;
 
-        const amounts = rows.slice(DEPT_HEADER_ROWS)
+        const amounts = rows
           .map((row: any) => (parseSheetNumber(row?.[DEPT_COLUMNS.TOTAL_PLAN]) ?? 0))
           .filter((v: number) => v > 0);
 
