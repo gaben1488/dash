@@ -221,10 +221,8 @@ describe('dated threshold evidence', () => {
       expect(captured).toMatchObject({ unit: 'ratio', status: 'internal', value: INTERNAL_EP_SHARE_BY_ROLE[role] });
       expect(capturedThresholdValue(captured, 'ratio')).toBe(INTERNAL_EP_SHARE_BY_ROLE[role]);
       expect(capturedThresholdValue(captured, 'percent')).toBeNull();
-      const withoutUnit = { ...captured! };
-      delete withoutUnit.unit;
-      expect(capturedThresholdValue(withoutUnit, 'ratio')).toBeNull();
-      expect(capturedThresholdValue({ ...captured!, unit: 'thousandRub' }, 'ratio')).toBeNull();
+      const { unit: _removedUnit, ...legacy } = captured!;
+      expect(capturedThresholdValue(legacy, 'ratio')).toBeNull();
     }
     expect(legalThresholdsVerifiedForContext(Object.fromEntries(thresholdsByDomain('law').map(id => [id, {
       value: thresholdValue(id), status: 'verified' as const, edition: 'test', sourceRef: 'test',

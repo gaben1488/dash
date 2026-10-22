@@ -135,6 +135,35 @@ it('keeps an unchanged accepted generation across two idle days without Google o
   } finally { clock.mockRestore(); }
 });
 
+it('C04.01 pins the calculation day to the shared capture, not a later Dash request', async () => {
+  const { source } = fixture;
+  const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+  const { dayNumberOf } = await import('@aemr/shared');
+  const revision = 'SRC-' + 'c'.repeat(64);
+  // One second before Kamchatka midnight; a later request cannot move
+  // the fact/AD gates into the next civil day of the same source revision.
+  const capturedAt = '2026-06-14T11:59:59.000Z';
+  source.setDeptSheetCache(Object.fromEntries(DEPARTMENTS.map(dept => [dept.nameShort, {
+    values: Array.from({ length: DEPT_HEADER_ROWS }, () => []),
+    formulas: [], sheetName: dept.nameShort, providerId: DEPARTMENT_SPREADSHEETS[dept.nameShort],
+    sourceRevision: revision, sourceVersion: 'shared-accepted', readAt: capturedAt,
+    formulasRead: true,
+  }])));
+  google.read.mockResolvedValue([]);
+  const snapshot = await source.getSnapshot(true, 2026);
+  expect(snapshot.metadata.sourceRevision).toBe(revision);
+  expect(snapshot.createdAt).toBe(capturedAt);
+  expect(snapshot.metadata.calculationContext?.calendar.productDay).toBe(dayNumberOf('2026-06-14'));
+
+  // A local edit does not rewrite the earlier recorded snapshot, nor may it
+  // retain the source-revision claim or its pinned old calculation instant.
+  expect(source.patchDeptSheetCacheCell(DEPARTMENTS[0].nameShort, 1, 0, 'changed')).toBe(true);
+  const next = await source.getSnapshot(true, 2026);
+  expect(next.metadata.sourceRevision).toBeUndefined();
+  expect(next.createdAt).not.toBe(capturedAt);
+  expect(source.getStoredSnapshotById(snapshot.id)?.metadata.sourceRevision).toBe(revision);
+});
+
 it('C04.01 exposes the report source revision only for one complete unchanged master capture', async () => {
   const { source } = fixture;
   const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');

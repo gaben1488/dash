@@ -144,16 +144,13 @@ def test_c04_matching_but_false_dashboard_and_model_headline_is_rejected(frozen_
     dashboard_file = tmp_path / "false-dashboard.json"
     model_file.write_text(json.dumps(changed_model))
     dashboard_file.write_text(json.dumps(changed_dashboard))
-    # Even if both displayed artifacts agree with one another, their
-    # headline must agree with the frozen master rows. compare() returns
-    # MISMATCH (the CLI exits 2); it need not raise a document-plan exception.
-    result = PROBE.compare(root / "snapshot_bundle", REPO, **{
+    evidence = PROBE.compare(root / "snapshot_bundle", REPO, **{
         **paths, "report_model": model_file, "dashboard": dashboard_file,
     })
-    assert result["state"] == "MISMATCH"
-    assert result["mismatch_count"] >= 1
+    assert evidence["state"] == "MISMATCH"
+    assert evidence["mismatch_count"] > 0
     assert any(item["scope"] == "headline" and item["metric"] == "plan_count"
-               for item in result["mismatches"])
+               for item in evidence["mismatches"])
 
 
 def test_c04_model_must_match_exact_frozen_source(frozen_case, tmp_path):
