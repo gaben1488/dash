@@ -214,6 +214,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     filtered = applySubordinateFilter(filtered, filterSubordinate);
     filtered = applyActivityFilter(filtered, filterActivity);
     filtered = applyStateFilter(filtered, filterState);
+    // An invalid/missing plan-year belongs to a separately reported source
+    // remainder, not to EVERY selected year. Count it before strict scoping.
+    const excludedWithoutPlanYear = yearFilter === undefined
+      ? 0 : filtered.filter(row => row.planYear === 0).length;
     filtered = applyYearFilter(filtered, yearFilter);
 
     // Сводка по сигналам (до пагинации, после фильтров)
@@ -239,6 +243,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         totalPages,
       },
       signals: signalSummary,
+      scope: {
+        planYear: yearFilter ?? null,
+        excludedWithoutPlanYear,
+      },
     });
   });
 
