@@ -161,4 +161,14 @@ describe('POST /api/sources/integrity/check', () => {
     expect(data.books.find((book: { book: string }) => book.book === 'УО').problems)
       .toContain('формулы этого запуска не прочитаны');
   });
+  it('coalesces simultaneous manual checks into one expensive Google read', async () => {
+    const [first, second] = await Promise.all([
+      app.inject({ method: 'POST', url: '/api/sources/integrity/check' }),
+      app.inject({ method: 'POST', url: '/api/sources/integrity/check' }),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
+    expect(sweepMetadata).toHaveBeenCalledTimes(1);
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+  });
 });
