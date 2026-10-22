@@ -87,7 +87,7 @@ describe('схема базы на пустом месте', () => {
       .sort();
     db.close();
     expect(columns).toEqual(
-      ['at_ms', 'attribute', 'author', 'cell', 'dept', 'id', 'new_value', 'old_value', 'recorded_at', 'sheet'],
+      ['at_ms', 'attribute', 'author', 'cell', 'dept', 'id', 'new_value', 'old_value', 'recorded_at', 'sheet', 'source_journal_row', 'source_time_raw', 'time_precision'],
     );
   });
 
