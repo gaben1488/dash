@@ -15,6 +15,9 @@ export const SVOD_SPREADSHEET_ID = '1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg
 /** Главный лист свода */
 export const SVOD_SHEET_NAME = 'СВОД ТД-ПМ';
 
+/** С 279-й строки — эксперимент владельца, вне любых проверок основного СВОДа в Dash. */
+export const SVOD_DASHBOARD_LAST_ROW = 278;
+
 /** Листы управлений (для построчного пересчёта). Derived from DEPARTMENT_REGISTRY. */
 export const DEPARTMENT_SHEETS: readonly DepartmentId[] = ALL_DEPT_IDS;
 
