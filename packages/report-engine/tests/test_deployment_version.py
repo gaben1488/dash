@@ -7,7 +7,13 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_main_workflow_does_not_cancel_state_changing_deployment():
     workflow = (ROOT / '.github/workflows/ci.yml').read_text()
     top_concurrency = workflow.split('concurrency:', 1)[1].split('jobs:', 1)[0]
-    assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in top_concurrency
+    # Production main and the reviewed integration candidate must both be
+    # allowed to complete exact-head CI; rapid follow-up pushes may supersede
+    # queued runs but must not cancel an active validation or stateful release.
+    assert (
+        "cancel-in-progress: ${{ github.ref != 'refs/heads/main' && "
+        "github.ref != 'refs/heads/codex/dash-audit-integrated-20261010' }}"
+    ) in top_concurrency
 
 
 def test_deploy_resets_to_tested_sha_and_checks_it_before_building():
