@@ -68,6 +68,8 @@ import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, iterateWeekl
 import { refreshAllSources } from '../services/source-refresh.js';
 import { readSourceRowObservations } from '../services/source-row-observations.js';
 import { orgLabel, verifiedBaselineRows } from '../services/weekly-control-validation.js';
+import { readBookJournal } from '../services/provenance-journal.js';
+import { correlateChangelogWithCurrent, type JournalIntegrityWitness } from '../services/changelog-integrity.js';
 export { atomsToSnapshotRows, indexHistoricalDepartments, interpretWeeklySnapshotJson, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 
 /** Номер строки книги = индекс в массиве листа + 1 (кэш несёт шапку). */
@@ -197,6 +199,13 @@ export interface IntegrityResponse {
   /** Почему оперативного сравнения нет — фраза для экрана. */
   comparisonNote: string;
   operational: OperationalAbsenceReport;
+  /** Optional corroboration only on an explicit live reread and only for books with candidates. */
+  changelogEvidence?: {
+    checkedAt: string;
+    books: JournalIntegrityWitness[];
+    unavailableBooks: Array<{ dept: string; reason: string }>;
+    note: string;
+  };
   notes: string[];
 }
 
@@ -824,6 +833,45 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
     }
     const readAt = Date.now();
     const response = buildIntegrityResponse(readAt);
+    // _ChangeLog can corroborate a changed cell, but does not record removal of
+    // physical rows. Never block the snapshot comparison on a missing journal.
+    // Read only books with actual comparison candidates; SSE/local GET stays cheap.
+    if (fresh && response.comparison !== null) {
+      const values = getDeptSheetValues();
+      const meta = getDeptLoadMeta();
+      const unavailableBooks: Array<{ dept: string; reason: string }> = [];
+      const books = (await Promise.all(response.comparison.books.map(async (candidate) => {
+        const matches = Object.entries(values).filter(([name]) => findDept(name)?.id === candidate.dept);
+        const details = Object.entries(meta).filter(([name]) => findDept(name)?.id === candidate.dept);
+        const sourceId = Object.entries(DEPARTMENT_SPREADSHEETS)
+          .find(([name]) => findDept(name)?.id === candidate.dept)?.[1];
+        const sourceAt = Date.parse(candidate.currentAt);
+        const controlAt = Date.parse(response.comparison!.beforeAt);
+        if (matches.length !== 1 || details.length !== 1 || !sourceId ||
+            details[0][1].error || Date.parse(details[0][1].loadedAt) !== sourceAt ||
+            !Number.isFinite(sourceAt) || !Number.isFinite(controlAt)) {
+          unavailableBooks.push({ dept: candidate.dept,
+            reason: 'Не подтверждено однозначное текущее чтение книги для сверки журнала' });
+          return null;
+        }
+        const journal = await readBookJournal(candidate.dept, sourceId, readAt);
+        if (!journal.available) {
+          unavailableBooks.push({ dept: candidate.dept,
+            reason: 'Лист _ChangeLog не ответил; четверговое сравнение остаётся доступным' });
+          return null;
+        }
+        return correlateChangelogWithCurrent(candidate.dept, journal.records,
+          matches[0][1], controlAt, sourceAt, journal.readAt,
+          findDept(candidate.dept)?.sheetName ?? 'ВСЕ');
+      }))).filter((book): book is JournalIntegrityWitness => book !== null);
+      response.changelogEvidence = {
+        checkedAt: new Date(Date.now()).toISOString(),
+        books, unavailableBooks,
+        note: 'Журнал _ChangeLog сопоставлен по № п/п и текущей ячейке там, где есть устойчивый '
+          + 'ключ. Число webhook-уведомлений не является числом правок. Журнал не фиксирует '
+          + 'физическое удаление строк: источник пропавших № — четверг и текущая книга.',
+      };
+    }
     cached = { at: readAt, sourceAt: getDeptCacheFilledAt(), response };
     return reply.send(response);
   });
