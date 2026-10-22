@@ -1276,7 +1276,7 @@
         "previous_geometry": [],
         "previous_semantics": [],
         "sheet_id": 837564274,
-        "reason": "Decision 2026-10-23: only the current 34-column A:AH customer directory can be read as a live source. Old 18/19/32 formats are archival evidence (recordedV3/sealed releases), not supported adapters, migration inputs, or release blockers."
+        "reason": "Decision 2026-10-23: only the current 34-column A:AH customer directory can be read as a live source. Old 18/19 are preserved as recordedV3 evidence, 32 in prior Git history and PR #90; sealed releases remain unchanged. No obsolete format is an accepted live adapter, migration input or release blocker."
       },
       {
         "old_sheet": "_Проверки",
