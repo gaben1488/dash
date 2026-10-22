@@ -500,6 +500,8 @@ export interface DataSnapshot {
     cellsRead: number;
     readDurationMs: number;
     pipelineDurationMs: number;
+    /** Явный год среза: null = все годы; отсутствие = старый снимок без доказанного scope. */
+    targetYear?: number | null;
     /** Row count per individual sheet (e.g. 'СВОД ТД-ПМ': 279, 'УЭР': 1024) */
     perSheetRowCount?: Record<string, number>;
   };

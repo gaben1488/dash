@@ -35,6 +35,7 @@ import {
   classifyQuarter,
   dayPartsOfDateValue,
   isFutureMonth,
+  productTodayIso,
   isoWeekKeyOfDate,
   isoWeekKeyOfParts,
   monthCountOf,
@@ -158,6 +159,11 @@ describe('вид квартала — агрегат трёх его месяц�
 });
 
 describe('продуктовое время — Камчатка (UTC+12), не часы зрителя', () => {
+  it('камчатское 1 января наступает ещё 31 декабря в UTC', () => {
+    const utcNow = new Date(Date.UTC(2026, 11, 31, 12, 20));
+    expect(productTodayIso(utcNow)).toBe('2027-01-01');
+  });
+
   it('зритель ещё 31 августа, на Камчатке уже 1 сентября — сентябрь наступил', () => {
     const now = new Date(Date.UTC(2026, 7, 31, 23, 0)); // 01.09 11:00 на Камчатке
     expect(isFutureMonth(2026, 9, now)).toBe(false);
@@ -206,6 +212,17 @@ describe('разбор значений дат', () => {
     expect(dayPartsOfDateValue('31.12.2026г.')).toEqual({ y: 2026, m: 12, d: 31 });
     // А лишняя цифра за годом — не дата, хвостом не считается.
     expect(dayPartsOfDateValue('31.12.20261')).toBeNull();
+  });
+
+  it('несуществующие даты не создают ложное покрытие месяцев и недель', () => {
+    for (const date of ['2026-02-31', '31.02.2026', '2026-13-01']) {
+      expect(dayPartsOfDateValue(date)).toBeNull();
+    }
+    const index = buildCoverageIndex([{ planDate: '31.02.2026', factDate: '2026-02-31' }]);
+    expect(index.weeks).toEqual({});
+    expect(index.months).toEqual({});
+    expect(index.years).toEqual({});
+    expect(dayPartsOfDateValue('29.02.2024')).toEqual({ y: 2024, m: 2, d: 29 });
   });
 
   it('легаси-серийник разбирается фоллбэком parseSheetDate', () => {

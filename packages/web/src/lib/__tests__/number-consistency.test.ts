@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeFilteredData } from '../../hooks/useFilteredData';
 import { buildMultiDimMetricsFromFilteredData } from '../../hooks/useMultiDimMetrics';
-import { recalcTotalsByActivity } from '../selectors/activity-aggregation';
-import { activePeriodKeys } from '../selectors/period-resolution';
+import { activityPeriodKeys, recalcTotalsByActivity } from '../selectors/activity-aggregation';
 import { makeBudgetPlanFact } from '../selectors/budget-filter';
 import type { DashboardData } from '@aemr/shared';
 import type { PeriodMode, PeriodScope, YearFilter } from '../../store';
@@ -264,7 +263,17 @@ function subPeriodBlock(rows: Row[]): Record<string, number | null> {
 
 function activityBlock(rows: Row[]) {
   const of = (kind: Activity) => {
-    const a = agg(rows.filter(r => r.activity === kind));
+    const activityRows = rows.filter(r => r.activity === kind);
+    const a = agg(activityRows);
+    const methodOf = (method: Method) => {
+      const m = agg(activityRows.filter(r => r.method === method));
+      return {
+        plan: m.planCount, fact: m.factCount,
+        planSum: m.planTotal, factSum: m.factTotal,
+        planFB: m.planFB, planKB: m.planKB, planMB: m.planMB,
+        factFB: m.factFB, factKB: m.factKB, factMB: m.factMB,
+      };
+    };
     return {
       planCount: a.planCount, factCount: a.factCount,
       planTotal: a.planTotal, factTotal: a.factTotal,
@@ -273,6 +282,7 @@ function activityBlock(rows: Row[]) {
       economyTotal: a.economyTotal,
       economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
       execCountPct: pct1(a.factCount, a.planCount),
+      byMethod: { competitive: methodOf('kp'), ep: methodOf('ep') },
     };
   };
   const zero = of('pm');
@@ -295,6 +305,15 @@ function subEntry(name: string, rows: Row[]) {
     const mr = rows.filter(r => r.month === mi);
     if (mr.length > 0) months[mi] = subPeriodBlock(mr);
   }
+  const activityByPeriod: Record<string, ReturnType<typeof activityBlock>> = {
+    year: activityBlock(rows),
+  };
+  for (const qk of QUARTER_KEYS) {
+    activityByPeriod[qk] = activityBlock(rows.filter(r => `q${r.quarter}` === qk));
+  }
+  for (let mi = 1; mi <= 12; mi++) {
+    activityByPeriod[`m${mi}`] = activityBlock(rows.filter(r => r.month === mi));
+  }
   return {
     name,
     rowCount: rows.length,
@@ -307,7 +326,7 @@ function subEntry(name: string, rows: Row[]) {
     epCount: a.epCount,
     economyTotal: a.economyTotal,
     economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
-    quarters, months,
+    quarters, months, activityByPeriod,
   };
 }
 
@@ -334,6 +353,9 @@ function buildDashboardData() {
       byActivity[qk] = activityBlock(deptRows.filter(r => `q${r.quarter}` === qk));
     }
     byActivity.year = activityBlock(deptRows);
+    for (let mi = 1; mi <= 12; mi++) {
+      byActivity[`m${mi}`] = activityBlock(deptRows.filter(r => r.month === mi));
+    }
 
     return {
       department: { id: DEPT_META[short].id, nameShort: short, name: DEPT_META[short].name },
@@ -553,9 +575,6 @@ const STATES = allStates();
 const methodFiltered = (s: State): boolean => s.m.methods.length > 0;
 /** Выбраны подведы — классы Д-В, Д-Г, Д-Д. */
 const subFiltered = (s: State): boolean => s.o.subs.length > 0;
-/** Выбраны месяцы как настоящий фильтр (не «неделя») — класс Д-Е. */
-const monthsSelected = (s: State): boolean => s.p.mode === 'explicit' && s.p.months.length > 0;
-
 /** Тело проверки: заполняет протокол по одному состоянию. */
 type Check = (rep: Report, s: State) => void;
 
@@ -651,14 +670,12 @@ describe('матрица «экран = движок»: итоги блоков 
     rep.eq(s.label, 'плитка «План, шт.»', ref.all.planCount, fd.totalPlanCount);
     rep.eq(s.label, 'плитка «Заключено, шт.»', ref.all.factCount, fd.totalFactCount);
   };
-  gateAndDebt(
-    'плитки (план, факт, счётчики) считают ровно строки состояния',
-    // Д-Б/Д-Г: под подведами денег по способу взять неоткуда — SubPeriodMetrics
-    // разбивки КП/ЕП не несёт, и плитка показывает суммы обоих способов.
-    'ДОЛГ Д-Г: подвед + способ — деньги плиток не делятся по способу',
-    s => methodFiltered(s) && subFiltered(s),
-    tiles,
-  );
+  it('плитки (план, факт, счётчики) согласованы на всех 144 состояниях, включая подвед + способ', () => {
+    // Д-Г ЗАКРЫТ: CalcEngine теперь несёт subordinate × activity × method × period,
+    // а методный-only выбор использует ровно ту же исходную строковую разбивку.
+    // Прежний обратный тест ожидал провала на подведе даже после исправления.
+    expect(run(STATES, tiles)).toBe('');
+  });
 
   const methodPie: Check = (rep, s) => {
     const { fd } = screen(s);
@@ -804,27 +821,27 @@ describe('инвариант 1 — целое равно сумме частей
   const pmPlusTd: Check = (rep, s) => {
     const { fd } = screen(s);
     const ref = reference(s);
-    const periodKeys = activePeriodKeys(fd.periodResolution);
+    const periodKeys = activityPeriodKeys(fd.periodResolution, fd.hasMonthData);
     const bpf = makeBudgetPlanFact(new Set<string>());
+    const showKP = s.m.methods.length === 0 || s.m.methods.includes('competitive');
+    const showEP = s.m.methods.length === 0 || s.m.methods.includes('single');
     const of = (key: string) =>
-      recalcTotalsByActivity(fd.depts, { actKeys: [key], periodKeys, budgetPlanFact: bpf });
+      recalcTotalsByActivity(fd.depts, {
+        actKeys: [key], periodKeys, budgetPlanFact: bpf, showKP, showEP,
+      });
     const pm = of('program');
     const td = of('current_non_program');
     const legacy = of('current_program');
 
+    rep.eq(s.label, 'вид деятельности · up-to-date byMethod coverage', 0,
+      pm.complete && td.complete ? 0 : 1);
     rep.eq(s.label, 'вид деятельности · упразднённый срез ТД-ПМ обязан быть пуст', 0, legacy.totalPlan);
-    rep.eq(s.label, 'вид деятельности · ПМ + ТД = План', ref.all.planTotal, pm.totalPlan + td.totalPlan);
-    rep.eq(s.label, 'вид деятельности · ПМ + ТД = Факт', ref.all.factTotal, pm.totalFact + td.totalFact);
+    rep.eq(s.label, 'вид деятельности · ПМ + ТД = План', ref.byMethod.planTotal, pm.totalPlan + td.totalPlan);
+    rep.eq(s.label, 'вид деятельности · ПМ + ТД = Факт', ref.byMethod.factTotal, pm.totalFact + td.totalFact);
   };
-  gateAndDebt(
-    'ПМ + ТД = всего (видов деятельности ровно два — канон п.30)',
-    // Д-Е: `byActivity` не пересчитывается подвед-оверрайдом (показывает
-    // управление) и при выборе месяцев читает ЦЕЛЫЕ покрытые кварталы, пока
-    // плитки считают месяцы: помесячной базы у byActivity в данных нет.
-    'ДОЛГ Д-Е: подвед и месяцы — виды деятельности живут на своём периметре',
-    s => subFiltered(s) || monthsSelected(s),
-    pmPlusTd,
-  );
+  it('ПМ + ТД = всего на всех 144 состояниях (месяцы, подведы и КП/ЕП)', () => {
+    expect(run(STATES, pmPlusTd)).toBe('');
+  });
 });
 
 describe('инвариант 2 — один периметр на все блоки состояния', () => {
@@ -885,22 +902,20 @@ describe('инвариант 2 — один периметр на все бло�
     const { fd } = screen(s);
     const ref = reference(s);
     const bpf = makeBudgetPlanFact(new Set<string>());
+    const showKP = s.m.methods.length === 0 || s.m.methods.includes('competitive');
+    const showEP = s.m.methods.length === 0 || s.m.methods.includes('single');
     const both = recalcTotalsByActivity(fd.depts, {
       actKeys: ['program', 'current_program', 'current_non_program'],
-      periodKeys: activePeriodKeys(fd.periodResolution),
-      budgetPlanFact: bpf,
+      periodKeys: activityPeriodKeys(fd.periodResolution, fd.hasMonthData),
+      budgetPlanFact: bpf, showKP, showEP,
     });
-    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (План)', ref.all.planTotal, both.totalPlan);
-    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (Факт)', ref.all.factTotal, both.totalFact);
+    rep.eq(s.label, 'виды деятельности · проверено по method', 0, both.complete ? 0 : 1);
+    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (План)', ref.byMethod.planTotal, both.totalPlan);
+    rep.eq(s.label, 'виды деятельности · период тот же, что у плиток (Факт)', ref.byMethod.factTotal, both.totalFact);
   };
-  gateAndDebt(
-    'разбивка по видам деятельности считает тот же период, что плитки',
-    // Д-Е, та же причина: подвед-оверрайд byActivity не трогает, а при выборе
-    // месяцев `activePeriodKeys` отдаёт покрытые КВАРТАЛЫ.
-    'ДОЛГ Д-Е: подвед и месяцы — виды деятельности читают чужой период',
-    s => subFiltered(s) || monthsSelected(s),
-    activitySamePeriod,
-  );
+  it('разбивка по видам деятельности совпадает с источником всех 144 состояний', () => {
+    expect(run(STATES, activitySamePeriod)).toBe('');
+  });
 });
 
 describe('инвариант 3 — процент есть отношение сумм, а не среднее процентов', () => {

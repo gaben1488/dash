@@ -1,4 +1,5 @@
 import type { BudgetPlanFactFn } from './budget-filter';
+import { ALL_ACTIVITY_KEYS, methodPlanFact, selectActivityMethods } from './activity-aggregation';
 
 /**
  * Пересчёт summaryByPeriod (сводка q1..q4/year: КП/ЕП счётчики, план/факт,
@@ -22,30 +23,35 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     let kpCount = 0, kpFactCount = 0, kpPlan = 0, kpFact = 0;
     let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
     let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
+    const methodRestricted = showKP !== showEP;
+    const selected = isActivityFiltered || methodRestricted
+      ? selectActivityMethods(depts, {
+          actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
+          periodKeys: [pk], showKP, showEP,
+        })
+      : null;
+    const coverageComplete = selected?.complete ?? true;
 
-    if (isActivityFiltered) {
-      // Use byActivity breakdown when activity filter is active
-      for (const d of depts) {
-        const ba = d.byActivity?.[pk];
-        if (!ba) continue;
-        for (const ak of actKeys) {
-          const a = ba[ak];
-          if (!a) continue;
-          // byActivity doesn't split KP/EP budget, so approximate from counts
-          kpCount += a.planCount ?? 0;
-          kpFactCount += a.factCount ?? 0;
-          // Apply budget filter; ActivityMetrics has planFB/factFB fields
-          const bf = budgetPlanFact(a);
-          kpPlan += bf.plan;
-          kpFact += bf.fact;
-          // Accumulate per-budget totals from activity entries
-          fbPlan += a.planFB ?? 0;
-          kbPlan += a.planKB ?? 0;
-          mbPlan += a.planMB ?? 0;
-          fbFact += a.factFB ?? 0;
-          kbFact += a.factKB ?? 0;
-          mbFact += a.factMB ?? 0;
+    if (selected && (isActivityFiltered || selected.complete)) {
+      for (const { method, value } of selected.entries) {
+        const money = methodPlanFact(value, budgetPlanFact);
+        if (method === 'competitive') {
+          kpCount += value.plan;
+          kpFactCount += value.fact;
+          kpPlan += money.plan;
+          kpFact += money.fact;
+        } else {
+          epCount += value.plan;
+          epFactCount += value.fact;
+          epPlan += money.plan;
+          epFact += money.fact;
         }
+        fbPlan += value.planFB ?? 0;
+        kbPlan += value.planKB ?? 0;
+        mbPlan += value.planMB ?? 0;
+        fbFact += value.factFB ?? 0;
+        kbFact += value.factKB ?? 0;
+        mbFact += value.factMB ?? 0;
       }
     } else {
       for (const d of depts) {
@@ -76,13 +82,21 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
       epCount = 0; epFactCount = 0; epPlan = 0; epFact = 0;
     }
 
+    // Without per-method provenance the *combined* budget breakdown
+    // cannot be attributed to only EP/KP. A null is not a computed zero.
+    const unknownBudget = methodRestricted && !coverageComplete;
     filteredSummary[pk] = {
       kpCount, kpFactCount, kpPlan, kpFact,
       kpPercent: kpCount > 0 ? kpFactCount / kpCount : 0,
       epCount, epFactCount, epPlan, epFact,
       epPercent: epCount > 0 ? epFactCount / epCount : 0,
-      fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
-      source: 'filtered',
+      fbPlan: unknownBudget ? null : fbPlan,
+      kbPlan: unknownBudget ? null : kbPlan,
+      mbPlan: unknownBudget ? null : mbPlan,
+      fbFact: unknownBudget ? null : fbFact,
+      kbFact: unknownBudget ? null : kbFact,
+      mbFact: unknownBudget ? null : mbFact,
+      source: coverageComplete ? 'filtered' : 'unverified_activity_method',
     };
   }
   return filteredSummary;

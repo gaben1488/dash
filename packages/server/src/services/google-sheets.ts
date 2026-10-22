@@ -460,6 +460,38 @@ export async function getSheetDataFromSpreadsheet(
   return (response.data.values as unknown[][]) ?? [];
 }
 
+/**
+ * Read exactly one source row immediately before an addressed write.
+ * Unlike readDeptRows(), this never trusts a cache or a mirrored sheet.
+ */
+export async function readCurrentDeptRow(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+): Promise<unknown[]> {
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 4) {
+    throw new Error('ROW_ADDRESS_INVALID');
+  }
+  const response = await readWithRetry(
+    'проверка исходной строки перед правкой',
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get(
+        {
+          spreadsheetId,
+          range: sheetValuesRange(sheetName, `A${rowIndex}:AH${rowIndex}`),
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => r.data.values?.[0]?.length ?? 0,
+  );
+  return (response.data.values as unknown[][] | undefined)?.[0] ?? [];
+}
+
 export async function getSheetDataWithFormulas(
   spreadsheetId: string,
   sheetName: string,
@@ -903,7 +935,8 @@ export async function writeCellValue(
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
   const range = sheetValuesRange(sheetName, cell);
-  const safeValue =
+  // Google values.update skips JSON nulls: an explicit clear must be "".
+  const safeValue = value === null ? '' :
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
   const response = await writeWithRetry(
     `запись в ячейку ${cell}`,
@@ -922,9 +955,13 @@ export async function writeCellValue(
     (r) => r.data.updatedCells ?? 0,
   );
 
+  const updatedCells = response.data.updatedCells ?? 0;
+  if (updatedCells !== 1) {
+    throw new Error('Google Sheets не подтвердили запись ровно одной ячейки');
+  }
   return {
     updatedRange: response.data.updatedRange ?? range,
-    updatedCells: response.data.updatedCells ?? 0,
+    updatedCells,
   };
 }
 
