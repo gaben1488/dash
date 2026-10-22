@@ -18,8 +18,12 @@ NAME = 'aemr-report-schema-migrations-v1.json'
 def _recorded_monitoring_successor(path, source, patch):
     """Recognize only a proven installed successor of an obsolete private patch."""
     from .monitoring_schema import (
-        REASON, RECORDED_REVIEWS_PRE_34_ONLY_SHA256,
-        RECORDED_REVIEWS_V3, RETIRED, REVIEW, REVIEWS,
+        REASON,
+        RECORDED_REVIEWS_PRE_34_ONLY_SHA256,
+        RECORDED_REVIEWS_V3,
+        RETIRED,
+        REVIEW,
+        REVIEWS,
     )
 
     history = path.parent / 'registry-history'
