@@ -1,4 +1,4 @@
-import { CalcEngine, explainMetric, sliceResults, standardRowFilter } from '../pipeline/calc-engine.js';
+import { CalcEngine, combineMetricSlices, explainMetric, sliceResults, standardRowFilter } from '../pipeline/calc-engine.js';
 import { DEPT_HEADER_ROWS, findDept, productCalendarDay, PRODUCT_UTC_OFFSET_HOURS, resolvePublishedMetricKey, executableFormula, type DataSnapshot } from '@aemr/shared';
 
 /** Recompute solely to verify evidence for immutable historical snapshots. */
@@ -22,13 +22,20 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   // The historical public month is always a calendar-month slice. The
   // method axis must never silently turn m1 into an invalid quarter key.
   // CalcEngine keeps the month×method cross-index under byQuarterMethod.
-  const values = period.startsWith('m') && method
-    ? grouped.byQuarterMethod.get(`${period}.${method}`) ?? new Map()
-    : sliceResults(grouped, {
-      ...(period.startsWith('m') ? { months: [Number(period.slice(1))] }
-        : { quarters: period === 'year' ? ['q1', 'q2', 'q3', 'q4'] : [period] }),
-      ...(method ? { methods: [method] } : {}),
-    });
+  // Use the same period algebra as published-projection. Annual totals are
+  // four planned quarters, not all rows (which include undated/orphan positions).
+  const values = period === 'year'
+    ? combineMetricSlices(['q1', 'q2', 'q3', 'q4'].map(q => ({
+        values: (method ? grouped.byQuarterMethod.get(`${q}.${method}`)
+          : grouped.byQuarter.get(q)) ?? new Map(),
+      })))
+    : period.startsWith('m') && method
+      ? grouped.byQuarterMethod.get(`${period}.${method}`) ?? new Map()
+      : sliceResults(grouped, {
+        ...(period.startsWith('m') ? { months: [Number(period.slice(1))] }
+          : { quarters: [period] }),
+        ...(method ? { methods: [method] } : {}),
+      });
   const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
