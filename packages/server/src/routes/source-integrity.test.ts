@@ -55,6 +55,7 @@ const metadataWatchState = vi.fn(() => ({
 
 vi.mock('../services/source-refresh.js', () => ({
   formulaDeliveryState: () => formulaDeliveryState(),
+  currentFormulaSourceProof: () => null,
   refreshAllSources: (...args: unknown[]) => refreshAllSources(...(args as [])),
 }));
 
