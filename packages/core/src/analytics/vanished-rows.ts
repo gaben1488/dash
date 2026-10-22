@@ -21,6 +21,12 @@ import { subordinateNameMatchKey } from '@aemr/shared';
 export interface SnapshotRow {
   /** № п/п из колонки A — ключ сравнения. Пустой означает «ключа нет». */
   rowSeq: string;
+  /**
+   * Legacy stored A was numeric >= 10000, without Google's number-format proof.
+   * It may be a DATE serial displayed as "23/1"; never infer a deletion from it.
+   * Current provider reads resolve that distinction before they are accepted.
+   */
+  historicalAddressUnverified?: true;
   /** Номер строки листа на момент снимка. */
   sheetRow: number;
   /** Предмет закупки (колонка G) — чтобы пропажу было видно человеку. */

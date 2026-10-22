@@ -1,19 +1,16 @@
 /** Неизменённая проверка сохранённых недельных доказательств; без чтения live-кэша. */
 import { eq, inArray } from 'drizzle-orm';
-import { buildCellDict, DEPT_HEADER_ROWS, findDept, toGrbsId, GRBS_ID_TO_DEPARTMENT_ID, subordinateKey, ORG_ITSELF_SENTINEL } from '@aemr/shared';
+import { buildCellDict, DEPT_HEADER_ROWS, findDept, toGrbsId, GRBS_ID_TO_DEPARTMENT_ID } from '@aemr/shared';
 import { MONITORING_DATA_SHEETS, type SnapshotRow } from '@aemr/core';
 import { db, schema } from '../db/index.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { isDataRow } from './rows-dto.js';
+import { orgLabel } from './procurement-row-view.js';
+export { orgLabel } from './procurement-row-view.js';
 
 export interface WeeklySnapshotRef {
   id: string;
   createdAt: string;
-}
-
-export function orgLabel(raw: unknown): string {
-  const key = subordinateKey(raw);
-  return key === ORG_ITSELF_SENTINEL ? 'Аппарат управления' : key;
 }
 
 interface AtomRow {
@@ -47,6 +44,8 @@ export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, Snap
     const bucket = byDept.get(atom.departmentId) ?? [];
     bucket.push({
       rowSeq: String(cells.A ?? '').trim(),
+      ...(typeof cells.A === 'number' && Number.isSafeInteger(cells.A) && cells.A >= 10_000
+        ? { historicalAddressUnverified: true as const } : {}),
       sheetRow: atom.rowIndex,
       subject: String(cells.G ?? atom.subject ?? '').trim(),
       subordinate: orgLabel(cells.C),
@@ -208,7 +207,14 @@ function validateBaselineRows(baseline: WeeklySnapshotRef):
   return { rows: atomsToSnapshotRows(normalizedAtoms), error: null };
 }
 
-let verifiedCache: { id: string; version: string; rows: Map<string, SnapshotRow[]> } | undefined;
+/**
+ * Live→Thursday and Thursday→Thursday share the same two certified controls.
+ * Keep only these two immutable, verified projections. An external SQLite
+ * write changes data_version; a write on this connection changes total_changes.
+ * Never cache failed proof and never use cache while inside a transaction.
+ */
+const MAX_VERIFIED_CONTROLS = 2;
+const verifiedControls = new Map<string, { version: string; rows: Map<string, SnapshotRow[]> }>();
 
 function databaseVersion(): string {
   return JSON.stringify(db.$client.prepare(`
@@ -217,19 +223,24 @@ function databaseVersion(): string {
   `).get());
 }
 
-/** Reuse only a successfully verified, unchanged database state. */
 export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
   { rows: Map<string, SnapshotRow[]>; error: string | null } {
   if (db.$client.inTransaction) return validateBaselineRows(baseline);
   const version = databaseVersion();
-  if (verifiedCache?.id === baseline.id && verifiedCache.version === version) {
-    return { rows: structuredClone(verifiedCache.rows), error: null };
+  const cached = verifiedControls.get(baseline.id);
+  if (cached && cached.version === version) {
+    verifiedControls.delete(baseline.id);
+    verifiedControls.set(baseline.id, cached);
+    return { rows: structuredClone(cached.rows), error: null };
   }
-  const result = validateBaselineRows(baseline);
-  // ponytail: one baseline, invalidated by any DB write; use per-snapshot revisions
-  // only if unrelated writes demonstrably prevent useful reuse.
-  verifiedCache = result.error === null && databaseVersion() === version
-    ? { id: baseline.id, version, rows: structuredClone(result.rows) }
-    : undefined;
-  return result;
+  verifiedControls.delete(baseline.id);
+  const checked = validateBaselineRows(baseline);
+  if (checked.error !== null || databaseVersion() !== version) return checked;
+
+  verifiedControls.set(baseline.id, { version, rows: structuredClone(checked.rows) });
+  if (verifiedControls.size > MAX_VERIFIED_CONTROLS) {
+    const oldest = verifiedControls.keys().next().value;
+    if (oldest !== undefined) verifiedControls.delete(oldest);
+  }
+  return checked;
 }

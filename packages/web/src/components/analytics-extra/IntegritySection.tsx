@@ -44,6 +44,7 @@ import {
   addressText,
   fmtTys,
   uniqueOperationalAbsences,
+  scopedIntegrityTotals,
   type IntegrityBookDto,
   type VanishedBookDto,
 } from './contract';
@@ -71,7 +72,10 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
           <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
             {book.deptName}
           </h3>
-          <span className="ds-text-3xs text-[var(--ink-faint)]">лист {book.sheet}</span>
+          <span className="ds-text-3xs text-[var(--ink-faint)]">
+            лист {book.sheet}
+            {book.lastReadAt && (' · прочитано ' + fmtMoment(book.lastReadAt))}
+          </span>
         </div>
 
         {!book.rowsAvailable || seq === null ? (
@@ -262,6 +266,12 @@ function VanishedCard({ book, afterLabel = 'сейчас' }: { book: VanishedBoo
           Сместились по листу без изменения №: {book.moved.length}. Это не пропажа.
         </p>
       )}
+      {book.appeared > 0 && (
+        <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
+          Появились прежние отсутствовавшие номера: {book.appeared}.
+          Это не подтверждение создания новых закупок.
+        </p>
+      )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
           Строк без «№ п/п»: в контроле {book.unkeyed.before}, {afterLabel} {book.unkeyed.after} — их
@@ -282,6 +292,7 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const visibleTotals = useMemo(() => scopedIntegrityTotals(books), [books]);
   const vanishedBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
@@ -340,7 +351,7 @@ export function IntegritySection() {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <div className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--surface-raised)] px-2 py-0.5 ds-text-3xs font-[var(--weight-medium)] text-[var(--ink-muted)]">
               <Clock size={10} aria-hidden="true" />
-              <span className="tabular-nums">прочитано {fmtMoment(data.asOf)}</span>
+              <span className="tabular-nums">сверка рассчитана {fmtMoment(data.asOf)}</span>
             </div>
             <span
               className="max-w-[16rem] text-right ds-text-3xs leading-tight text-[var(--ink-faint)]"
@@ -378,6 +389,16 @@ export function IntegritySection() {
         </div>
       )}
 
+      {data?.sourceRefresh && !data.sourceRefresh.complete && (
+        <p role="status" className="ds-text-xs text-[var(--data-warn)]">
+          Сверка с текущими книгами неполна: {data.sourceRefresh.error ??
+            'источники не прочитаны полностью'}.
+          {data.sourceRefresh.failedBooks.length > 0 &&
+            (' Не проверены: ' + data.sourceRefresh.failedBooks.join(', ') + '.')}
+          Неизвестные изменения не считаются нулевыми.
+        </p>
+      )}
+
       {orgNote && (
         <p className="ds-prose ds-text-xs text-[var(--ink-muted)]">{orgNote}</p>
       )}
@@ -406,22 +427,44 @@ export function IntegritySection() {
         />
       ) : (
         <div className="space-y-[var(--space-4)]">
-          <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
-            <Hash size={12} aria-hidden="true" />
-            <span>
-              пропущено номеров: {data.totals.gapCount.toLocaleString('ru-RU')} · строк без
-              номера: {data.totals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
-              номера: {data.totals.duplicates}
-            </span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
+              <Hash size={12} aria-hidden="true" />
+              <span>
+                {visibleTotals.checkedBooks === 0 ? (
+                  'Нумерация выбранных книг не проверена — нет прочитанных данных.'
+                ) : (
+                  <>
+                    пропущено номеров: {visibleTotals.gapCount.toLocaleString('ru-RU')} · строк без
+                    номера: {visibleTotals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
+                    номера: {visibleTotals.duplicates}
+                  </>
+                )}
+              </span>
+            </div>
+            {visibleTotals.unreadBooks > 0 && (
+              <p className="ds-text-3xs text-[var(--data-warn)]">
+                Проверено {visibleTotals.checkedBooks} из {books.length} выбранных книг.
+                Непрочитанные книги не входят в итог и не означают нулевую пропажу.
+              </p>
+            )}
           </div>
 
           {books.map((book) => <BookCard key={book.dept} book={book} />)}
 
           <Card bare aria-label="Пропавшие закупки">
             <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
-              <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
-                Пропавшие закупки
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
+                  Пропавшие закупки: контрольный четверг → текущие книги
+                </h3>
+                <button type="button" onClick={reload} disabled={loading}
+                  className="inline-flex items-center gap-1 ds-text-xs font-[var(--weight-medium)] text-[var(--accent)] hover:underline disabled:opacity-50"
+                  aria-label="Сверить текущие книги с четверговым контролем после перечитывания">
+                  <RotateCcw size={12} aria-hidden="true" />
+                  {loading ? 'Читаем…' : 'Сверить сейчас'}
+                </button>
+              </div>
               {data.comparison === null ? (
                 <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
                   {data.comparisonNote}
@@ -429,7 +472,7 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    Проверенный четверг: {fmtMoment(data.comparison.beforeAt)}. Текущие
                     книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
                     {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
                     удаление закупки; возможна перенумерация.

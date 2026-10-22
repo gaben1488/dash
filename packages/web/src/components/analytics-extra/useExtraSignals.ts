@@ -29,12 +29,15 @@ function useRemote<T>(
   enabled: boolean,
   rereadSourceOnReload = false,
   softRefreshEvent?: string,
+  refreshSourceOnOpen = false,
 ): UseRemoteResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   // Manual refresh may read Google; SSE revalidation MUST only read local API.
-  const [request, setRequest] = useState({ version: 0, forceSource: false });
+  // The first Control visit needs a real source read even if Drive never sent a webhook.
+  // The event-driven soft refresh remains a cheap cache query; no timer/polling is added.
+  const [request, setRequest] = useState({ version: 0, forceSource: refreshSourceOnOpen });
   const reload = useCallback(() => setRequest((r) => ({
     version: r.version + 1, forceSource: true,
   })), []);
@@ -88,5 +91,5 @@ export function useAnomalies(enabled = true): UseRemoteResult<AnomaliesResponse>
 
 /** Целостность книг — раздел «Контроль». */
 export function useIntegrity(enabled = true): UseRemoteResult<IntegrityResponse> {
-  return useRemote<IntegrityResponse>('/integrity', enabled, true, 'department-books-updated');
+  return useRemote<IntegrityResponse>('/integrity', enabled, true, 'department-books-updated', true);
 }

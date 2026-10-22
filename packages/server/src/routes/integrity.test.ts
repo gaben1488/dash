@@ -13,6 +13,7 @@
  *      деньги — иначе «исчезло 12 закупок» не даёт сделать ни одного шага.
  */
 import { describe, expect, it } from 'vitest';
+import { acceptedCurrentBook, compareCurrentToThursday } from '../services/procurement-absence.js';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
 import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, pickAdjacentWeeklySnapshots, selectActiveSourceAbsences, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
@@ -183,10 +184,14 @@ describe('текущие книги против последнего контр
     ], Date.parse('2026-10-11T09:00:00Z'), 12)).toBeNull();
   });
 
-  it('четверг Камчатки ещё в среду UTC и не пропускается', () => {
+  it('четверговый срез принимается только после вечерней границы 18:00 Камчатки', () => {
     expect(pickLatestControlSnapshot([
-      snap('kamchatka-thursday', '2026-07-22T17:00:00Z'),
-    ], Date.parse('2026-07-26T12:00:00Z'), 12)?.id).toBe('kamchatka-thursday');
+      snap('early-Thursday', '2026-07-22T17:00:00Z'),
+    ], Date.parse('2026-07-26T12:00:00Z'), 12)).toBeNull();
+    expect(pickLatestControlSnapshot([
+      snap('actual-control', '2026-07-23T06:00:00Z'),
+      snap('early-Thursday', '2026-07-22T17:00:00Z'),
+    ], Date.parse('2026-07-26T12:00:00Z'), 12)?.id).toBe('actual-control');
   });
 
   it.each([
@@ -267,12 +272,12 @@ describe('бережная историческая сверка двух сме
     ], now, 12)).toBeNull();
   });
 
-  it('находит четверги Камчатки, даже когда на UTC-сервере ещё среда', () => {
+  it('не подменяет завершённый контроль ранними четверговыми чтениями', () => {
     const pair = pickAdjacentWeeklySnapshots([
       snap('after', '2026-10-14T17:00:00Z'),
       snap('before', '2026-10-07T17:00:00Z'),
     ], now, 12);
-    expect(pair?.map((item) => item.id)).toEqual(['before', 'after']);
+    expect(pair).toBeNull();
   });
 
   it('поздняя контрольная попытка замещает раннюю того же дня, но не соседний день', () => {
@@ -283,6 +288,44 @@ describe('бережная историческая сверка двух сме
       snap('future', '2026-10-29T06:00:00Z'),
     ], now, 12);
     expect(pair?.map((item) => item.id)).toEqual(['before', 'after-late']);
+  });
+});
+
+
+describe('legacy numeric A: a calendar serial is not a proven procurement ID', () => {
+  it('retains uncertainty from the original archived cell type', () => {
+    const rows = atomsToSnapshotRows([{
+      snapshotId: 'legacy',
+      departmentId: 'ud',
+      rowIndex: 173,
+      cellsJson: JSON.stringify({ A: 46045, C: 'Аппарат', G: 'Ремонт', L: 'ЕП' }),
+      subject: 'Ремонт', planAmount: 100, factAmount: null,
+    }]);
+    expect(rows.get('ud')).toEqual([expect.objectContaining({
+      rowSeq: '46045', historicalAddressUnverified: true,
+    })]);
+  });
+
+  it('marks a legacy numeric-date address UNKNOWN while still comparing other books', () => {
+    const now = Date.parse('2026-10-22T09:01:00.000Z');
+    const control = { id: 'legacy-week', createdAt: '2026-10-15T06:00:00.000Z' };
+    const historical = new Map([
+      ['uo', [{ rowSeq: '12', sheetRow: 4, subject: 'Кровля', planSum: 100, method: 'ЕП' }]],
+      ['ud', [{ rowSeq: '46045', sheetRow: 173, subject: 'Ремонт', planSum: 200, method: 'ЕП',
+        historicalAddressUnverified: true as const }]],
+    ]);
+    const header = [...HEADER];
+    const current = { УО: [...header, row({ 0: '12', 6: 'Кровля', 10: 100, 11: 'ЕП' })],
+      УД: [...header, row({ 0: '23/1', 6: 'Ремонт', 10: 200, 11: 'ЕП' })] };
+    const metadata = {
+      УО: { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 },
+      УД: { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 },
+    };
+    const result = compareCurrentToThursday(control, historical, current, metadata, now, 3_600_000);
+    expect(result.comparison?.vanishedTotal).toBe(0);
+    expect(result.comparison?.unavailableBooks).toContainEqual(expect.objectContaining({
+      dept: 'УД', reason: expect.stringContaining('числовой A'),
+    }));
   });
 });
 
@@ -352,5 +395,76 @@ describe('оперативные наблюдения № без недельн�
   it('пустая история не выдумывает записи', () => {
     expect(selectActiveSourceAbsences([], source, meta, now, 3_600_000))
       .toEqual({ entries: [], unavailableBooks: [] });
+  });
+});
+
+describe('один предметный путь: четверговый контроль против текущего чтения без webhook', () => {
+  const beforeAt = '2026-10-15T06:00:00.000Z'; // 18:00 Asia/Kamchatka
+  const readAt = '2026-10-22T09:00:00.000Z';
+  const now = Date.parse('2026-10-22T09:01:00.000Z');
+  const baseline = { id: 'sealed-control', createdAt: beforeAt };
+  const oldRows = new Map([['uo', [
+    { rowSeq: '12/1', sheetRow: 4, subject: 'Кровля', subordinate: 'Школа', planSum: 100, method: 'ЕП' },
+    { rowSeq: '13', sheetRow: 5, subject: 'Канцтовары', subordinate: 'Школа', planSum: 50, method: 'ЕП' },
+  ]]]);
+  const present = [ ...HEADER, row({ 0: '12/1', 2: 'Школа', 6: 'Кровля', 10: 100, 11: 'ЕП' }) ];
+  const meta = { УО: { loadedAt: readAt, rowCount: 4 } };
+  const compare = (values: Record<string, unknown[][]>, metadata: Record<string, { loadedAt: string; rowCount?: number; error?: string }>) =>
+    compareCurrentToThursday(baseline, oldRows, values, metadata, now, 3_600_000);
+
+  it('после удаления физической строки видит отсутствующий прежний №, хотя webhook не вызван', () => {
+    const { comparison, note } = compare({ УО: present }, meta);
+    expect(comparison?.baselineId).toBe('sealed-control');
+    expect(comparison?.beforeAt).toBe(beforeAt);
+    expect(comparison?.afterAt).toBe(readAt);
+    expect(comparison?.vanishedTotal).toBe(1);
+    expect(comparison?.books.find(book => book.dept === 'УО')?.vanished).toEqual([
+      expect.objectContaining({ rowSeq: '13', wasAtSheetRow: 5, subject: 'Канцтовары' }),
+    ]);
+    expect(note).toContain('частична');
+    expect(comparison?.unavailableBooks.length).toBe(7);
+  });
+
+  it('переезд строки с прежним номером не создаёт ложного удаления', () => {
+    const moved = [
+      ...HEADER, row({}), row({ 0: '12/1', 2: 'Школа', 6: 'Кровля', 10: 100, 11: 'ЕП' }),
+      row({ 0: '13', 2: 'Школа', 6: 'Канцтовары', 10: 50, 11: 'ЕП' }),
+    ];
+    const { comparison } = compare({ УО: moved }, { УО: { loadedAt: readAt, rowCount: 6 } });
+    expect(comparison?.vanishedTotal).toBe(0);
+    expect(comparison?.books.find(book => book.dept === 'УО')?.moved).toHaveLength(2);
+  });
+
+  it('две записи-алиаса, неполная матрица и устаревшее чтение дают UNKNOWN, а не ноль', () => {
+    const cases: Array<[Record<string, unknown[][]>, Record<string, { loadedAt: string; rowCount?: number; error?: string }>]> = [
+      [{ УО: present, uo: present }, meta],
+      [{ УО: present }, { УО: { loadedAt: readAt, rowCount: 5 } }],
+      [{ УО: present }, { УО: { loadedAt: '2026-10-20T09:00:00.000Z', rowCount: 4 } }],
+      [{ УО: [...HEADER] }, { УО: { loadedAt: readAt, rowCount: 3 } }],
+    ];
+    for (const [values, metadata] of cases) {
+      const { comparison, note } = compare(values, metadata);
+      expect(comparison).toBeNull();
+      expect(note).toContain('Нельзя утверждать');
+    }
+  });
+});
+
+describe('single source admission for every consumer', () => {
+  it('admits only one complete matrix and rejects alias collisions and mismatched metadata', () => {
+    const current = [ ...HEADER, row({ 0: '12/1', 2: 'Школа', 6: 'Ремонт', 10: 100, 11: 'ЕП' }) ];
+    const meta = { 'УО': { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 } };
+
+    expect(acceptedCurrentBook('УО', { 'УО': current }, meta).values).toHaveLength(4);
+    expect(acceptedCurrentBook('УО', { 'УО': current, uo: current }, meta).reason)
+      .toContain('однозначного');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, {
+      'УО': { ...meta['УО'], rowCount: 5 },
+    }).reason).toContain('полной матрицы');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, {
+      'УО': { ...meta['УО'], loadedAt: 'invalid' },
+    }).reason).toContain('Время');
+    expect(acceptedCurrentBook('УО', { 'УО': current }, meta,
+      Date.parse('2026-10-21T23:59:59Z')).reason).toContain('Время');
   });
 });

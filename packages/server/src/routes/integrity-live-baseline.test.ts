@@ -5,7 +5,7 @@
  * Все данные теста вымышленные; Google и production не используются.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -166,6 +166,20 @@ describe('контрольная сверка с действующими кни
     expect(integrity.verifiedBaselineRows(ref).error).toBeNull();
   });
 
+  it('контракт ответа использует один принятый текущий источник для целостности и сравнения', () => {
+    const sourceRows = Object.fromEntries(departmentNames.map(name => [name, sheet('10')]));
+    const sourceMeta = Object.fromEntries(departmentNames.map(name => [
+      name, { loadedAt: CURRENT_AT, sheetName: 'ВСЕ', rowCount: 4 },
+    ]));
+    // Existing global cache deliberately differs (УО now has #15).
+    const captured = integrity.buildComparison(NOW, {
+      sheetValues: sourceRows, loadMeta: sourceMeta,
+    });
+    expect(captured.comparison?.baselineId).toBe('control-latest');
+    expect(captured.comparison?.vanishedTotal).toBe(0);
+    expect(captured.comparison?.unavailableBooks).toEqual([]);
+  });
+
   it('сопоставляет текущее чтение с последним sealed-контролем, не с вчерашним SQL-снимком', () => {
     const { comparison, note } = integrity.buildComparison(NOW);
     expect(note).toBe('');
@@ -218,6 +232,51 @@ describe('контрольная сверка с действующими кни
     } finally {
       dbModule.db.delete(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).run();
     }
+  });
+
+  it('убранная физическая строка выявляется четверговым proof без доставки webhook', async () => {
+    const id = 'control-latest';
+    const original = dbModule.db.select({ data: dbModule.schema.snapshots.data })
+      .from(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).get()?.data;
+    expect(original).toBeTruthy();
+    const parsed = JSON.parse(original!) as { rowsByDept: Record<string, unknown[][]> };
+    const raw = sheet('11')[3];
+    const shared = await import('@aemr/shared');
+    dbModule.db.update(dbModule.schema.snapshots).set({
+      data: JSON.stringify({ ...parsed, rowsByDept: { ...parsed.rowsByDept, УО: [...parsed.rowsByDept['УО'], raw] } }),
+    }).where(eq(dbModule.schema.snapshots.id, id)).run();
+    dbModule.db.insert(dbModule.schema.procurementRows).values({
+      snapshotId: id, departmentId: shared.findDept('УО')!.latinId, rowIndex: 5,
+      cellsJson: JSON.stringify(shared.buildCellDict(raw)), subject: 'Ремонт кровли',
+      planAmount: 100, factAmount: null, createdAt: CONTROL_AT,
+    }).run();
+    try {
+      snapshot.setDeptSheetCache({ УО: { sheetName: 'ВСЕ', values: sheet('10'), formulas: [] } });
+      const result = integrity.buildComparison(NOW);
+      expect(result.comparison?.baselineId).toBe(id);
+      expect(result.comparison?.vanishedTotal).toBe(1);
+      expect(result.comparison?.unavailableBooks).toHaveLength(0);
+      expect(result.comparison?.books.find(book => book.dept === 'УО')?.vanished)
+        .toEqual([expect.objectContaining({ rowSeq: '11', wasAtSheetRow: 5 })]);
+    } finally {
+      dbModule.db.delete(dbModule.schema.procurementRows).where(and(
+        eq(dbModule.schema.procurementRows.snapshotId, id),
+        eq(dbModule.schema.procurementRows.rowIndex, 5),
+      )).run();
+      dbModule.db.update(dbModule.schema.snapshots).set({ data: original! })
+        .where(eq(dbModule.schema.snapshots.id, id)).run();
+    }
+  });
+
+  it('не принимает прежний кэш за успешное новое чтение после отказа источника', () => {
+    const before = integrity.buildIntegrityResponse(NOW);
+    const failed = integrity.refuseUnverifiedCurrentSource(before, 'SOURCE_REFRESH_FAILED');
+    expect(failed.comparison).toBeNull();
+    expect(failed.comparisonNote).toContain('не завершилась');
+    expect(failed.weeklyComparison).toEqual(before.weeklyComparison);
+    expect(failed.books.every(book => !book.rowsAvailable && book.sequence === null)).toBe(true);
+    expect(failed.operational.entries).toEqual([]);
+    expect(failed.operational.error).toBe('SOURCE_REFRESH_FAILED');
   });
 
   it('отказ текущей книги даёт неполную сверку, а не ложное исчезновение', () => {

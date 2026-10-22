@@ -13,6 +13,7 @@
  */
 import { COL_LETTER_INDEX, DEPT_COLUMNS, DEPT_HEADER_LABELS, DEPT_HEADER_ROWS, equivalentSheetDate, parseSheetNumber } from '@aemr/shared';
 import { diffSnapshots, entriesFromRowDiff, type ChangeEntry, type SnapshotRow } from '@aemr/core';
+import { currentSheetToSnapshotRows } from './procurement-row-view.js';
 import type { RowChangedEvent } from './event-bus.js';
 
 /** Чтение листа книги: только то, что нужно сравнению. */
@@ -77,6 +78,9 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     return { book, changedRows: 0, addedRows: 0, removedRows: 0, rowsTotal, rows: [] };
   }
 
+  // The live feed also reports unfinished numbered positions and cell edits.
+  // That is an observation stream, not proof of a deleted procurement.
+  // Procurement-absence evidence below uses the exact Thursday row classifier.
   const indexed = (values: unknown[][]): SnapshotRow[] => values
     .slice(DEPT_HEADER_ROWS)
     .map((row, i) => ({
@@ -87,7 +91,7 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
       method: cellText(row[DEPT_COLUMNS.METHOD]),
       planSum: parseSheetNumber(row[DEPT_COLUMNS.TOTAL_PLAN]) ?? undefined,
     }))
-    .filter((row) => row.rowSeq !== '');
+    .filter(row => row.rowSeq !== '');
   const comparison = diffSnapshots(indexed(beforeRows), indexed(afterRows));
   const ambiguous = new Set([
     ...(comparison.ambiguousKeys?.before ?? []),
@@ -142,7 +146,10 @@ export function diffBook(book: string, before: SheetReading | null | undefined, 
     if (rowChanged) changedRows++;
   }
 
-  const structuralChanges = entriesFromRowDiff(book, comparison)
+  const procurementComparison = diffSnapshots(
+    currentSheetToSnapshotRows(beforeRows), currentSheetToSnapshotRows(afterRows),
+  );
+  const structuralChanges = entriesFromRowDiff(book, procurementComparison)
     .filter(entry => entry.kind === 'row-vanished' || entry.kind === 'row-identity-candidate');
   return { book, changedRows, addedRows, removedRows, rowsTotal, rows,
     ...(structuralChanges.length ? { structuralChanges } : {}),
