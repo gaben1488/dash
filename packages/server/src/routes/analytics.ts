@@ -75,10 +75,9 @@ function dataQualityScore(
 /**
  * Плановые ДЕНЬГИ ЕП за год = Σ ep.planSum по четырём кварталам (тыс. руб.).
  *
- * Одно место на все вызовы: /compliance, /anticorruption и /scorecard передают
- * этот объём в проверки годового лимита и доли ЕП. До свипа БАГ #1 (bug-hunt
- * 2026-08-08) два из трёх вызовов подставляли recalc.totalEP — СЧЁТЧИК процедур,
- * не деньги, и «доля ЕП» считалась как счётчик/деньги.
+ * Используется только там, где предмет — денежный объём.
+ * Проверки внутренней доли ЕП по количеству берут отдельные
+ * totalEP/(totalEP+totalCompetitive); деньги и количество не смешиваются.
  */
 function epPlanSumOverQuarters(recalc: {
   quarters: Record<'q1' | 'q2' | 'q3' | 'q4', { ep: { planSum: number } }>;
@@ -102,7 +101,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  /** GET /api/analytics/compliance — 44-ФЗ compliance violations */
+  /** GET /api/analytics/compliance — evidentiary checks and references, not proven violations */
   app.get('/api/analytics/compliance', async (_request, reply) => {
     try {
       const snapshot = await getSnapshot();
@@ -252,11 +251,9 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
         const epShareThreshold = baseline
           ? snapshot.metadata.calculationContext?.thresholds[EP_ROLE_THRESHOLD_IDS[baseline.role]] : undefined;
-        // Свип БАГ #1 (bug-hunt 2026-08-08, гейты денег): в epTotal передавался
-        // recalc.totalEP — это СЧЁТЧИК процедур ЕП, а totalPlan — деньги (тыс. руб.).
-        // Доля «счётчик/деньги» — бессмыслица: индикатор #9 (годовая доля ЕП)
-        // молчал или срабатывал случайно. Деньги ЕП = Σ ep.planSum по кварталам
-        // (тот же источник, что в /compliance выше).
+        // Одинаковый внутренний count-share во всех трёх маршрутах.
+        // Денежный годовой предел требует объёма заказчика/правового основания,
+        // поэтому не вычисляется из агрегата управления.
         result[dept.id] = detectAntiCorruption(dept.id, {
           rows: rowData,
           epCount: recalc?.totalEP,
@@ -296,8 +293,8 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const recalc = recalcResults[profile.grbsId] as any;
         const epShareThreshold = snapshot.metadata.calculationContext?.thresholds[EP_ROLE_THRESHOLD_IDS[profile.role]];
 
-        // Layer C — антикор. epTotal — ДЕНЬГИ ЕП (тыс. руб.), не счётчик:
-        // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
+        // Layer C — same frozen ratio by COUNT as in /compliance;
+        // plan sums never substitute the count denominator.
         const anticorruption = detectAntiCorruption(profile.grbsId, {
           rows: rowData,
           epCount: recalc?.totalEP,
