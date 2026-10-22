@@ -103,6 +103,25 @@ class ReleaseController:
             # Missing/replaced root-owned programs or policy never authorize reuse.
             return False
 
+    @staticmethod
+    def _backend_runtime(records):
+        """Process identity, not merely immutable container/image IDs."""
+        identity = {}
+        for service in ('server', 'report-worker', 'caddy'):
+            record = records[service]
+            state = record['State']
+            started = state.get('StartedAt')
+            restarts = record.get('RestartCount')
+            if (not isinstance(started, str) or not started
+                    or type(restarts) is not int or restarts < 0):
+                recovery.fail('RELEASE_BACKEND_IDENTITY_UNAVAILABLE')
+            identity[service] = {
+                'container': record['Id'], 'image': record['Image'],
+                'status': state['Status'], 'started_at': started,
+                'restart_count': restarts,
+            }
+        return identity
+
     def _images(self, plan):
         for image in set(plan['images'].values()) | set(plan['candidate_images'].values()):
             if json.loads(self.executor.command(['image', 'inspect', image]))[0].get('Id') != image:
@@ -339,7 +358,8 @@ class ReleaseController:
         recovery.atomic_json(recovery.RUNTIME_DIR / 'component.json',
                              {'mode': 'web' if backend_sha else 'full', 'backend_sha': backend_sha,
                               'stage_sha256': recovery.digest(encode(stage)),
-                              'tools_sha256': self._web_toolchain()})
+                              'tools_sha256': self._web_toolchain(),
+                              'backend_runtime': self._backend_runtime(records) if backend_sha else None})
         return {'state': 'RELEASE_CONFIGURATION_STAGED'}
 
     def deploy_web(self):
@@ -359,6 +379,10 @@ class ReleaseController:
         self._images(stage)
         records = self.executor._records(stage, original=True)
         self._saved_runtime(stage, records)
+        # A Docker process can restart in-place while its container ID stays
+        # unchanged. Do not mistake that for a component-safe no-restart release.
+        if component.get('backend_runtime') != self._backend_runtime(records):
+            recovery.fail('RELEASE_WEB_BACKEND_CHANGED')
         plan = {**stage, 'format': 'aemr-web-release-v1', 'backend_sha': component['backend_sha']}
         self.executor.web_config(plan)
         self.executor.web_unchanged(plan, records)
@@ -366,6 +390,8 @@ class ReleaseController:
         try:
             self.executor.web_start(plan, candidate=True)
             self.executor.web_verify(plan, candidate=True)
+            if component['backend_runtime'] != self._backend_runtime(self.executor._records(plan, candidate=True)):
+                recovery.fail('RELEASE_WEB_BACKEND_CHANGED')
             plan_hash = recovery.digest(json.dumps(plan, sort_keys=True).encode())
             recovery.atomic_json(recovery.STATE_DIR / 'web-release-accepted.json', {'plan_sha256': plan_hash})
             return self.executor.recover()
