@@ -3,9 +3,11 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from procurement_engine.adapters import normalize_master_values
 from procurement_engine.canonical_metrics import metric_block
+from procurement_engine.department_directory import MASTER_COLUMNS as COL
 from procurement_engine.models import ProcurementRow
-from procurement_engine.normalize import parse_date, parse_decimal
+from procurement_engine.normalize import normalize_method, parse_date, parse_decimal
 
 CASES = json.loads((Path(__file__).resolve().parents[2] / 'shared/fixtures/source-value-cases.json').read_text(encoding='utf-8'))
 
@@ -57,3 +59,29 @@ def test_report_metric_projection_has_explicit_money_scale_and_percentage_points
     assert Decimal(result['exact_decimal']['confirmed_saving_amount']) == Decimal('-20')
     assert result['contracted_share_pct'] == pytest.approx(6.1728)  # percent points, not a fraction
     assert result['execution_pct'] == 100
+
+
+@pytest.mark.parametrize('case', CASES['methods'])
+def test_shared_method_normalization_for_report_buckets(case):
+    # Python reports group electronic competitions into the ЭА bucket,
+    # unlike TS, which preserves ЭК and ЭЗК codes.
+    assert normalize_method(case['raw']) == case['py']
+
+
+def test_report_adapter_keeps_f_activity_separate_from_d_e_programs():
+    source = [None] * 34
+    source[COL['SUBJECT']] = 'Тестовое оборудование'
+    source[COL['TYPE']] = 'Текущая деятельность'
+    source[COL['PROGRAM_NAME']] = 'Муниципальная программа'
+    source[COL['SUBPROGRAM']] = 'Подпрограмма'
+    source[COL['METHOD']] = 'ЭЕП'
+    source[COL['PLAN_DATE']] = '22.10.2026'
+    source[COL['PLAN_YEAR']] = 2026
+    source[COL['FB_PLAN']] = '20 000'
+    row, = normalize_master_values([source], snapshot_id='fixed', expected_grbs='УО',
+                                   data_start_row=0, first_sheet_row=4)
+    assert row.activity_kind == 'Текущая деятельность'
+    assert row.program == 'Муниципальная программа'
+    assert row.subprogram == 'Подпрограмма'
+    assert row.method == 'ЕП'
+    assert row.plan_fb == 20_000
