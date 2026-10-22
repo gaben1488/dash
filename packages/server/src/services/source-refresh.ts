@@ -609,6 +609,27 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
             .catch((error: unknown) => ({ error }))
         : Promise.resolve(null),
     ]);
+    // The report worker may have its own adapter, but its accepted matrices
+    // enter the SAME live cache and later feed API/metrics/Word. Recheck their
+    // mandatory meanings with the one shared profile before committing any
+    // report source, instead of treating a matching Drive revision as schema proof.
+    if (acquire) {
+      for (const [name, reading] of Object.entries(data)) {
+        if (!(name in sourceBooks)) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = 'REPORT_SOURCE_NOT_REGISTERED';
+          continue;
+        }
+        try {
+          validateMasterSourceHeader(reading.values?.[DEPT_HEADER_ROWS - 1] ?? []);
+        } catch (error) {
+          Reflect.deleteProperty(data, name);
+          errors[name] = error instanceof Error && error.message.startsWith('MASTER_SOURCE_REQUIRED_MEANING_CHANGED:')
+            ? error.message : 'MASTER_SOURCE_PROFILE_INVALID';
+        }
+      }
+    }
+
     await Promise.all(Object.keys(data).map(async name => {
       if (acquire) {
         // The full connector may have retried a changing source. Recheck its
