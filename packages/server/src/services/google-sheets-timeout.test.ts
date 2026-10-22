@@ -80,6 +80,29 @@ describe('зависший источник', () => {
   });
 });
 
+
+it('records a real mocked Sheets read as nested google time in its own HTTP request', async () => {
+  valuesGet.mockResolvedValue({ data: { values: [['ячейка']] } });
+  const [{ default: Fastify }, { registerRequestTiming, requestStage }, { getSheetData }] = await Promise.all([
+    import('fastify'), import('../plugins/request-timing.js'), import('./google-sheets.js'),
+  ]);
+  const app = Fastify();
+  registerRequestTiming(app);
+  app.get('/source', request => requestStage(request, 'model', async () => ({
+    count: (await getSheetData('СВОД ТД-ПМ')).length,
+  })));
+  try {
+    const response = await app.inject('/source?source=PRIVATE_DO_NOT_LOG');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ count: 1 });
+    expect(String(response.headers['server-timing'])).toContain('google;dur=');
+    expect(String(response.headers['server-timing'])).toContain('model;dur=');
+    expect(String(response.headers['server-timing'])).not.toContain('PRIVATE_DO_NOT_LOG');
+  } finally {
+    await app.close();
+  }
+});
+
 describe('перебор имён листа при молчании источника', () => {
   it('останавливается на первом кандидате, а не умножает срок на их число', async () => {
     valuesGet.mockImplementation(neverResolves);

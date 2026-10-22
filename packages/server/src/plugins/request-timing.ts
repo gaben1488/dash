@@ -19,6 +19,13 @@ export async function requestStage<T>(request: FastifyRequest, stage: Stage, ope
   }
 }
 
+/** A refresh scheduled after serving a saved snapshot is not part of that HTTP GET.
+ * Avoid inheriting the parent's AsyncLocalStorage into background acquisitions.
+ */
+export function withoutRequestTiming<T>(operation: () => T): T {
+  return activeWindow.exit(operation);
+}
+
 /** Include actual Google request attempts in the enclosing HTTP window, not retry backoff.
  * Background source reads have no HTTP window and remain in the existing source log.
  */

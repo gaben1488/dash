@@ -453,9 +453,10 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Доля СГОЗ в любом случае не поднимает предел выше пятидесяти миллионов рублей.',
+    means: 'Общий годовой предел долевого варианта — пятьдесят миллионов рублей, с установленными законом исключениями.',
     source: 'law44',
-    sourceRef: '44-ФЗ ст.93 ч.1 п.4',
+    sourceRef: '44-ФЗ ст.93 ч.1 п.4 (ред. 279-ФЗ от 04.08.2026)',
+    note: 'С 01.10.2026 для непосредственного обеспечения жизнедеятельности населения сельских населённых пунктов предусмотрено исключение из предела 50 млн руб. Само наличие сельского адреса применимость исключения не доказывает.',
   },
   'law.epEducationSingleContract': {
     label: 'Разовая закупка образования и культуры у единственного поставщика',
@@ -501,18 +502,28 @@ export const THRESHOLD_REGISTRY: Readonly<Record<string, ThresholdEntry>> = {
     value: LAW_44FZ_THRESHOLDS.eShopPurchaseLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Пять миллионов рублей — потолок закупки в электронном магазине.',
+    means: 'Пять миллионов рублей — предел специальной электронной закупки по части 12 статьи 93, а не любого электронного магазина.',
     source: 'law44',
-    sourceRef: 'Предел, которым пользуются книги-источники района',
+    sourceRef: '44-ФЗ ст.93 ч.12 (основания пп.4–5.2 ч.1, предусмотренный предмет закупки)',
+    note: 'Предел относится к специальному электронному механизму закупки товаров и предусмотренных законом прав на ПО. Способ из текста строки сам по себе не подтверждает применение части 12.',
   },
   'law.quotationPurchaseLimit': {
     label: 'Предел запроса котировок',
     value: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
     unit: 'thousandRub',
     domain: 'law',
-    means: 'Десять миллионов рублей — потолок закупки запросом котировок.',
+    means: 'НМЦК электронного запроса котировок зависит от действующей на дату закупки редакции 44-ФЗ.',
     source: 'law44',
-    sourceRef: '44-ФЗ ст.82.1',
+    sourceRef: '44-ФЗ ст.24 ч.10; ст.112 ч.87, введённая 279-ФЗ от 04.08.2026',
+    note: 'Базовое значение 10 млн руб. оставлено только для воспроизводимости старого кода. С 01.10.2026 по 31.12.2027 действует временный предел 20 млн руб. Будущие редакции не предполагаются автоматически.',
+    editions: [
+      { id: '44fz-quotation-2026-before-279fz', validFrom: '2026-01-01', validUntil: '2026-10-01',
+        value: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub, verification: 'verified',
+        sourceRef: '44-ФЗ ст.24 ч.10 (редакция до 01.10.2026; НМЦК 10 млн руб.)' },
+      { id: '44fz-quotation-279fz-temporary', validFrom: '2026-10-01', validUntil: '2028-01-01',
+        value: 20_000, verification: 'verified',
+        sourceRef: '44-ФЗ ст.112 ч.87, 279-ФЗ от 04.08.2026 (НМЦК 20 млн руб. по 31.12.2027)' },
+    ],
   },
 };
 
@@ -603,6 +614,15 @@ export function thresholdAt(id: string, asOfDay: string, frozen?: ThresholdEntry
 
 export function freezeThresholds(asOfDay: string): Record<string, DatedThreshold> {
   return Object.fromEntries(THRESHOLD_IDS.map(id => [id, thresholdAt(id, asOfDay)]));
+}
+
+/** Legal checks are not complete merely because one dated article was verified. */
+export function legalThresholdsVerifiedForContext(
+  captured: Readonly<Record<string, DatedThreshold>> | null | undefined,
+): boolean {
+  return !!captured && thresholdsByDomain('law')
+    .filter(id => THRESHOLD_REGISTRY[id]!.source === 'law44')
+    .every(id => captured[id]?.status === 'verified');
 }
 
 

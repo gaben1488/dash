@@ -39,7 +39,7 @@
  * (H/I/J/K, V/W/X/Y, Z/AA/AB/AC — канон @aemr/shared/report-map.ts).
  */
 
-import { LAW_44FZ_THRESHOLDS, dayNumberOf } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, dayNumberOf, type DatedThreshold } from '@aemr/shared';
 import { benfordAnalysis, type BenfordResult } from './anomaly.js';
 
 // ────────────────────────────────────────────────────────────
@@ -251,19 +251,27 @@ export const ANOMALY_LIMITS = {
   ratioTolerance: 0.005,
 } as const;
 
-/** Пороги 44-ФЗ, у которых имеет смысл искать «липнет снизу», тыс. ₽. */
-const THRESHOLD_POINTS: ReadonlyArray<{ limit: number; label: string }> = [
+/** Исторические ориентиры для группировки плановых сумм, тыс. ₽.
+ * Зафиксированная редакция замещает только справочное число котировок;
+ * плановая сумма не подтверждает НМЦК и правовую применимость. */
+const THRESHOLD_POINTS: ReadonlyArray<{
+  limit: number; label: string; kind: 'single' | 'competitive'; id?: 'law.quotationPurchaseLimit';
+}> = [
   {
     limit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub,
     label: 'предельный размер одного контракта с единственным поставщиком (600 тыс. ₽)',
+    kind: 'single',
   },
   {
     limit: LAW_44FZ_THRESHOLDS.eShopPurchaseLimitThousandRub,
-    label: 'предел закупки через электронный магазин (5 млн ₽)',
+    label: 'предел специальной электронной закупки (5 млн ₽; применимость не проверена)',
+    kind: 'competitive',
   },
   {
     limit: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
-    label: 'предел запроса котировок (10 млн ₽)',
+    label: 'исторический ориентир запроса котировок 10 млн ₽ (после 01.10.2026 не является действующим пределом)',
+    kind: 'competitive',
+    id: 'law.quotationPurchaseLimit',
   },
 ];
 
@@ -819,33 +827,40 @@ export function detectBenfordDeviation(
 }
 
 /**
- * Признак 8 — суммы липнут к порогу 44-ФЗ снизу.
+ * Признак 8 — плановые суммы группируются возле исторического ориентира.
  *
  * Механизм проверки: сравниваем ПЛОТНОСТЬ сумм в последних 10 % под порогом
  * с плотностью в опорной полосе 50–90 % того же порога. Сравнение с соседней
  * полосой честнее сравнения с теоретическим распределением — никакого закона
  * о том, как должны быть распределены цены закупок, не существует.
  */
-export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFinding[] {
+export function detectThresholdHugging(
+  rows: readonly AnomalyRow[], frozen?: Readonly<Record<string, DatedThreshold>> | null,
+): AnomalyFinding[] {
   const findings: AnomalyFinding[] = [];
   for (const [subordinate, group] of groupBySubordinate(rows)) {
     for (const point of THRESHOLD_POINTS) {
-      const relevant =
-        point.limit === LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub
-          ? group.filter(r => isSinglePurchase(r.method))
-          : group.filter(r => isCompetitive(r.method));
-      const corridorFrom = point.limit * (1 - ANOMALY_LIMITS.thresholdCorridor);
-      const referenceFrom = point.limit * ANOMALY_LIMITS.thresholdReferenceFrom;
+      const dated = point.id ? frozen?.[point.id] : undefined;
+      const limit = dated?.value ?? point.limit;
+      if (!Number.isFinite(limit) || limit <= 0) continue;
+      const label = dated
+        ? `предел электронного запроса котировок (${(limit / 1_000).toFixed(0)} млн ₽; ${dated.status === 'verified' ? 'редакция числового порога проверена' : 'редакция не подтверждена'})`
+        : point.label;
+      const relevant = point.kind === 'single'
+        ? group.filter(r => isSinglePurchase(r.method))
+        : group.filter(r => isCompetitive(r.method));
+      const corridorFrom = limit * (1 - ANOMALY_LIMITS.thresholdCorridor);
+      const referenceFrom = limit * ANOMALY_LIMITS.thresholdReferenceFrom;
       const inCorridor = relevant.filter(r => {
         const v = money(r.planTotal);
-        return v >= corridorFrom && v <= point.limit;
+        return v >= corridorFrom && v <= limit;
       });
       const inReference = relevant.filter(r => {
         const v = money(r.planTotal);
         return v >= referenceFrom && v < corridorFrom;
       });
       if (inCorridor.length < ANOMALY_LIMITS.thresholdMinRows) continue;
-      const corridorWidth = point.limit - corridorFrom;
+      const corridorWidth = limit - corridorFrom;
       const referenceWidth = corridorFrom - referenceFrom;
       if (referenceWidth <= 0) continue;
       const expected = (inReference.length / referenceWidth) * corridorWidth;
@@ -856,10 +871,10 @@ export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFind
       findings.push({
         sign: 'threshold-hugging',
         scale: 'fitted',
-        title: 'Суммы липнут к порогу закона снизу',
+        title: 'Плановые суммы сгруппированы около справочного ориентира',
         explanation:
           `У учреждения «${subordinate}» ${inCorridor.length} закупок стоят в последних 10 % под ` +
-          `порогом «${point.label}» — от ${fmt(corridorFrom)} до ${fmt(point.limit)} тыс. ₽. ` +
+          `порогом «${label}» — от ${fmt(corridorFrom)} до ${fmt(limit)} тыс. ₽. ` +
           `В соседней полосе ${fmt(referenceFrom)}–${fmt(corridorFrom)} тыс. ₽ ` +
           `${inReference.length} закупок, то есть в коридоре у порога плотность выше в ` +
           `${Number.isFinite(ratio) ? ratio.toFixed(1) : '∞'} раз. Это может означать, что цены ` +
@@ -871,7 +886,7 @@ export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFind
           sheet: sample.sheet,
           sheetRow: 0,
           rowSeq: '',
-          cell: `учреждение «${subordinate}», коридор ${fmt(corridorFrom)}–${fmt(point.limit)} тыс. ₽`,
+          cell: `учреждение «${subordinate}», коридор ${fmt(corridorFrom)}–${fmt(limit)} тыс. ₽`,
         },
         subordinate,
         rows: inCorridor.length,
@@ -879,7 +894,7 @@ export function detectThresholdHugging(rows: readonly AnomalyRow[]): AnomalyFind
         note:
           inReference.length < ANOMALY_LIMITS.thresholdMinRows
             ? 'Данных мало: опорная полоса почти пуста, поэтому отношение плотностей неустойчиво.'
-            : 'Порог сам по себе не нарушен: речь о концентрации сумм под ним, а не о превышении.',
+            : 'Сравниваются плановые суммы, не цена одного договора или НМЦК; для права нужна редакция на дату закупки и отдельные документы.',
         members: inCorridor.map(r => addressOf(r, `K${r.sheetRow}`)),
       });
     }
@@ -1168,6 +1183,8 @@ export interface AnomalyInput {
   rows: readonly AnomalyRow[];
   /** Журнал правок книги. Без него два признака из двенадцати не выводятся. */
   journal?: readonly AnomalyJournalEntry[];
+  /** Frozen rule definitions from the same captured analytical context, if available. */
+  thresholdContext?: Readonly<Record<string, DatedThreshold>> | null;
 }
 
 /**
@@ -1175,7 +1192,7 @@ export interface AnomalyInput {
  * каждый род странности — и никогда не сводит их в один балл.
  */
 export function detectAnomalies(input: AnomalyInput): AnomalyReport {
-  const { rows, journal = [] } = input;
+  const { rows, journal = [], thresholdContext } = input;
 
   const typo: AnomalyFinding[] = [
     ...detectMagnitudeOutliers(rows),
@@ -1188,7 +1205,7 @@ export function detectAnomalies(input: AnomalyInput): AnomalyReport {
 
   const fitted: AnomalyFinding[] = [
     ...detectBenfordDeviation(rows),
-    ...detectThresholdHugging(rows),
+    ...detectThresholdHugging(rows, thresholdContext),
     ...detectSplittingWindow(rows),
     ...detectFactEqualsPlan(rows),
     ...detectRetroEdits(journal, rows),
