@@ -186,7 +186,7 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
 }
 
 /** Пропажи и переезды строк одной книги между двумя снимками. */
-function VanishedCard({ book }: { book: VanishedBookDto }) {
+function VanishedCard({ book, candidate = false }: { book: VanishedBookDto; candidate?: boolean }) {
   return (
     <div className="border-b border-[var(--line-soft)] py-[var(--space-3)] last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -195,8 +195,8 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
         </span>
         <span className="tabular-nums ds-text-xs text-[var(--ink-muted)]">
           {book.vanished.length === 0
-            ? 'пропаж нет'
-            : `${book.vanished.length} ${pluralRu(book.vanished.length, 'закупка исчезла', 'закупки исчезли', 'закупок исчезло')} · ${fmtTys(book.vanishedPlanSum)} плана`}
+            ? 'по однозначным номерам пропаж не выявлено'
+            : `${book.vanished.length} ${candidate ? pluralRu(book.vanished.length, 'кандидат', 'кандидата', 'кандидатов') : pluralRu(book.vanished.length, 'закупка исчезла', 'закупки исчезли', 'закупок исчезло')} · ${fmtTys(book.vanishedPlanSum)} плана`}
         </span>
       </div>
       {book.vanished.length > 0 && (
@@ -221,6 +221,11 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
           месте, сместился номер строки; ссылаться нужно на «№ п/п».
         </p>
       )}
+      {(book.ambiguousKeys?.length ?? 0) > 0 && (
+        <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
+          Неоднозначные № п/п: {book.ambiguousKeys.join(', ')}. По ним вывод о пропаже не делался.
+        </p>
+      )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
           Строк без «№ п/п»: было {book.unkeyed.before}, стало {book.unkeyed.after} — их судьбу
@@ -243,6 +248,10 @@ export function IntegritySection() {
   );
   const vanishedBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
+    [data, deptScope],
+  );
+  const operationalBooks = useMemo(
+    () => filterByDeptScope(data?.operational?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
 
@@ -278,8 +287,8 @@ export function IntegritySection() {
           </KBTooltip>
           <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
             Можно ли сослаться на строку, видит ли человек в графе срока дату и не пропала ли
-            закупка между чтениями. Пропуск номера — след удалённой строки, а не ошибка
-            нумерации: журнал книги удаление не записывает.
+            закупка между чтениями. Вебхук показывает кандидатов, а контрольные четверги
+            позволяют проверить историю. Пропуск номера сам по себе не доказывает удаление.
           </p>
         </div>
         {data && (
@@ -363,6 +372,47 @@ export function IntegritySection() {
 
           {books.map((book) => <BookCard key={book.dept} book={book} />)}
 
+          <Card bare aria-label="Оперативная проверка возможных пропаж">
+            <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
+              <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
+                Возможные пропажи · оперативно
+              </h3>
+              {data.operational === null ? (
+                <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
+                  {data.operationalNote}
+                </p>
+              ) : (
+                <>
+                  <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
+                    Основа — подтверждённый срез {fmtMoment(data.operational.baselineAt)}.
+                    Новые успешные чтения: {data.operational.checkedBooks} из {data.operational.expectedBooks} книг
+                    {data.operational.checkedAt ? `; не раньше ${fmtMoment(data.operational.checkedAt)}` : ''}.
+                    Сопоставление по уникальному «№ п/п» внутри книги. Отсутствие номера —
+                    повод проверить строку, а не доказательство удаления закупки.
+                  </p>
+                  {data.operational.unavailableDepts.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Без сопоставимого нового чтения: {data.operational.unavailableDepts.join(', ')}.
+                      По этим книгам ноль пропаж не подтверждён.
+                    </p>
+                  )}
+                  {data.operational.checkedBooks === 0 ? (
+                    <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">{data.operationalNote}</p>
+                  ) : operationalBooks.length === 0 ? (
+                    <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
+                      Среди сравнимых книг кандидатов на пропажу не обнаружено.
+                      Остальные книги требуют нового успешного чтения.
+                    </p>
+                  ) : (
+                    <div className="mt-1">
+                      {operationalBooks.map((b) => <VanishedCard key={b.dept} book={b} candidate />)}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </Card>
+
           <Card bare aria-label="Пропавшие закупки">
             <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
               <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
@@ -375,15 +425,14 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Сравнение двух сохранённых чтений: {fmtMoment(data.comparison.beforeAt)} против{' '}
-                    {fmtMoment(data.comparison.afterAt)}. Строки сопоставляются по «№ п/п», а не
-                    по номеру строки листа: строки двигаются от вставок и сортировок, номер
-                    закупки живёт вместе с ней.
+                    Сравнение двух завершённых срезов четверга: {fmtMoment(data.comparison.beforeAt)} против{' '}
+                    {fmtMoment(data.comparison.afterAt)}. Промежуточные перечитки не подменяют контрольные даты.
+                    Сопоставление по уникальному «№ п/п» в пределах книги, без предположений при повторах.
                   </p>
                   {vanishedBooks.length === 0 ? (
                     <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
-                      Все закупки прежнего чтения на месте. Строки без «№ п/п» в сравнение не
-                      входят — их судьбу проследить нечем.
+                      По однозначным № п/п исчезновений между этими четвергами не выявлено.
+                      Строки без номера и неполные источники не считаются доказательством отсутствия.
                     </p>
                   ) : (
                     <ul className="mt-1">
