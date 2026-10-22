@@ -169,7 +169,8 @@ describe('обращение к реестру', () => {
     expect(formatThreshold('economy.highSharePct')).toBe('25 %');
     expect(formatThreshold('law.epSmallSingleContract')).toContain('проверенная редакция');
     // Доля закона печатается процентом — так её читает человек.
-    expect(formatThreshold('law.epSmallAnnualShare')).toBe('10 %');
+    expect(formatThreshold('law.epSmallAnnualShare')).toContain('проверенная редакция');
+    expect(formatThreshold('competition.epRoleOperationalShare')).toBe('50 %');
     expect(formatThreshold('нет.такого')).toBe('—');
   });
 });
