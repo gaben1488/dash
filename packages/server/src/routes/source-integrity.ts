@@ -36,7 +36,7 @@ import { sourceIntegrityStorageWarnings } from '../services/source-integrity-sta
 // generate two simultaneous bursts of Google Sheets requests.
 let deepCheckInFlight: Promise<DeepSourceCheck> | null = null;
 
-interface DeepSourceCheckBook {
+export interface DeepSourceCheckBook {
   book: string;
   metadataRead: boolean;
   metadataRemarks: number | null;
@@ -48,7 +48,7 @@ interface DeepSourceCheckBook {
   problems: string[];
 }
 
-interface DeepSourceCheck {
+export interface DeepSourceCheck {
   complete: boolean;
   at: string;
   expectedBooks: number;
@@ -125,7 +125,11 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
    * Проверяем фактическую доставку ЭТОГО запуска, а не старые удачные
    * записи в памяти: иначе неответившая книга выглядит как «замечаний нет».
    */
-  app.post('/api/sources/integrity/check', async () => {
+  app.post('/api/sources/integrity/check', async () => checkSourcesDeep(app));
+}
+
+/** Shared deep inspection for the old API and the server-owned combined run. */
+export async function checkSourcesDeep(app: FastifyInstance): Promise<DeepSourceCheck> {
     if (!deepCheckInFlight) {
       deepCheckInFlight = (async (): Promise<DeepSourceCheck> => {
         const log = {
@@ -177,6 +181,5 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       })().finally(() => { deepCheckInFlight = null; });
     }
     return deepCheckInFlight;
-  });
 
 }
