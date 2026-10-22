@@ -108,6 +108,9 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
       metadata: {
         canonSyncedAt: metadata.canonSyncedAt,
         books: metadata.books,
+        // Older confirmed observations remain accessible after a failed poll,
+        // but are never substituted for the latest attempt.
+        lastConfirmed: metadata.lastConfirmed,
         notWatched: metadata.notWatched,
       },
     };
