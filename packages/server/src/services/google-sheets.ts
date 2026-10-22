@@ -2,7 +2,6 @@ import { google, type sheets_v4 } from 'googleapis';
 import { config } from '../config.js';
 import {
   ALL_SHEETS,
-  DEPARTMENT_REGISTRY,
   DEPT_HEADER_ROWS,
   findDept,
   MASTER_FORMULA_COLUMN_GROUPS,
