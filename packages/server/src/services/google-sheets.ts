@@ -1,5 +1,5 @@
 import { google, type sheets_v4 } from 'googleapis';
-import { config } from '../config.js';
+import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 import {
   ALL_SHEETS,
   DEPT_HEADER_ROWS,
@@ -1081,6 +1081,29 @@ export async function writeCellValue(
   cell: string,
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
+  // A write is a new ingress into the Google source. The resolver's gid/title
+  // check alone is insufficient if the meaning of column V, N or AD changed.
+  // Check the same shared header contract as live and report reads on the
+  // smallest possible range, not a second locally maintained schema.
+  const matches = Object.entries(DEPARTMENT_SPREADSHEETS ?? {})
+    .filter(([, fileId]) => fileId === spreadsheetId);
+  if (matches.length > 1) throw new Error('MASTER_SOURCE_BINDING_AMBIGUOUS');
+  if (matches.length === 1) {
+    const department = findDept(matches[0][0]);
+    if (!department) throw new Error('MASTER_SOURCE_NOT_REGISTERED');
+    const resolvedTitle = await resolveDeptSheetName(department.id, spreadsheetId);
+    if (sheetName !== resolvedTitle) throw new Error('MASTER_SOURCE_SHEET_TITLE_UNREVIEWED');
+    const response = await readWithRetry('проверка шапки перед записью', async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get({
+        spreadsheetId,
+        range: sheetValuesRange(resolvedTitle, 'A3:AH3'),
+        valueRenderOption: 'FORMATTED_VALUE',
+        majorDimension: 'ROWS',
+      }, { timeout: SHEETS_TIMEOUT_MS });
+    });
+    validateMasterSourceHeader((response.data.values as unknown[][] | undefined)?.[0] ?? []);
+  }
   const range = sheetValuesRange(sheetName, cell);
   // Google values.update skips JSON nulls: an explicit clear must be "".
   const safeValue = value === null ? '' :
