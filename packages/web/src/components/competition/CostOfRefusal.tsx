@@ -106,6 +106,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
     yearMatches: year === dataYear,
     activityAligned, budgetAligned: selectedBudgets.size === 0,
     searchAligned: !searchQuery?.trim(),
+    institutionAligned: selectedSubordinates.size === 0 && deptOnlyMode.size === 0,
   });
 
   const sortedRows = useMemo(
@@ -127,8 +128,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
   }
   if (resp && resp.excluded.unknownMethod > 0) caveats.push(`${resp.excluded.unknownMethod} строк с неподтверждённым способом не входят в конкурентную базу.`);
   if (resp && !resp.coverage.complete) caveats.push('Итоговая оценка не рассчитана: состав источников неполон.');
-  if (!activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()) {
-    caveats.push('Сценарная сумма не рассчитывается: план ЕП и точки конкурентного отбора нельзя подтвердить в одинаковом разрезе деятельности, бюджета или поиска. Снимите эти фильтры, если нужен общий арифметический сценарий.');
+  if (!activityAligned || selectedBudgets.size > 0 || searchQuery?.trim()
+    || selectedSubordinates.size > 0 || deptOnlyMode.size > 0) {
+    caveats.push('Сценарная сумма не рассчитывается: план ЕП и конкурентную выборку нельзя подтвердить в одинаковом разрезе деятельности, бюджета, поиска или учреждения. Снимите несовместимые фильтры, если нужен общий арифметический сценарий.');
   }
   if (year !== dataYear) caveats.push('Сценарная сумма не рассчитывается при выборе другого года или всех лет: план ЕП относится к году загруженного среза.');
 
