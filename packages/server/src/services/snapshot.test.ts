@@ -133,7 +133,7 @@ describe('C08.02 — reject a snapshot with mismatching evidence before SQL inse
     const valid = snap('evidence-valid-legacy', '2026-10-22T08:00:00Z', { УО: [['original']] });
     expect(await saveSnapshot(valid)).toBe(true);
 
-    const corrupted = snap('evidence-invalid', '2026-10-22T09:00:00Z', { УО: [['tampered']] });
+    const corrupted: import('@aemr/shared').DataSnapshot = snap('evidence-invalid', '2026-10-22T09:00:00Z', { УО: [['tampered']] });
     corrupted.calculationEvidence = {
       contract: 'dash-calculation-evidence-v1',
       snapshotId: corrupted.id, capturedAt: corrupted.createdAt,
