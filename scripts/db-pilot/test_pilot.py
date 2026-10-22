@@ -35,6 +35,7 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(result["concurrency"]["errors"],0)
         self.assertEqual(result["workload"]["issue_page"]["count"],6)
         self.assertEqual(len(result["data_contract_sha256"]),64)
+        self.assertEqual(len(result["post_write_contract_sha256"]),64)
 
     def test_pg_hard_safety_gate_before_connection(self):
         with patch.dict(os.environ,{"PGDATABASE":"production"}):
@@ -43,7 +44,7 @@ class PilotTests(unittest.TestCase):
                     run_one("postgres",self.args(),Path(tmp))
 
     def test_comparison_rejects_unverified_restore_or_drift(self):
-        doc={"pilot":"C08.14","sample":"synthetic-not-live","seed":"sha256-shake256-v1","parameters":{"snapshots":3},"result":{"engine":"sqlite","restored":{"full_content_sha256_matches":True},"concurrency":{"errors":0},"data_contract_sha256":"123", "workload":{k:{"p95_ms":1.0} for k in ("latest_head","issue_page","payload_detail","queue_poll")},"storage_bytes":1,"peak_process_rss_kib":1}}
+        doc={"pilot":"C08.14","sample":"synthetic-not-live","seed":"sha256-shake256-v1","parameters":{"snapshots":3},"result":{"engine":"sqlite","restored":{"full_content_sha256_matches":True},"concurrency":{"errors":0},"data_contract_sha256":"123", "post_write_contract_sha256":"after", "workload":{k:{"p95_ms":1.0} for k in ("latest_head","issue_page","payload_detail","queue_poll")},"storage_bytes":1,"peak_process_rss_kib":1}}
         doc["result"]["concurrency"].update({"p95_read_ms":1.0,"wall_ms":2.0})
         doc["result"]["restored"]["backup_bytes"]=10
         pg=json.loads(json.dumps(doc));pg["result"]["engine"]="postgres"
@@ -54,6 +55,10 @@ class PilotTests(unittest.TestCase):
         pg["parameters"]["snapshots"]=3
         pg["result"]["restored"]["full_content_sha256_matches"]=False
         with self.assertRaisesRegex(ValueError,"restore"):
+            compare(doc,pg)
+        pg["result"]["restored"]["full_content_sha256_matches"]=True
+        pg["result"]["post_write_contract_sha256"]="different"
+        with self.assertRaisesRegex(ValueError,"concurrent write"):
             compare(doc,pg)
 
 
