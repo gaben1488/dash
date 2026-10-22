@@ -54,13 +54,13 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
     const rows = db.$client.prepare(query.sql).iterate(...query.params) as IterableIterator<{ data: string | null }>;
     // Time actual SQLite cursor stepping independently from JSON decoding.
     // A prepared statement by itself does not read its historical payloads.
-    function* measuredRows(): Generator<{ data: string | null }> {
+    const measuredRows = function* (): Generator<{ data: string | null }> {
       for (;;) {
         const step = measureReadStage('sql', () => rows.next());
         if (step.done) return;
         yield step.value;
       }
-    }
+    };
     cases = collectHistoricalRuleDecisions(candidates, measuredRows());
   }
   // An explicit decision on the new ID wins; an undecided new open row does not
