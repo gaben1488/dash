@@ -15,9 +15,10 @@ import type { BookWatchResult } from './metadata-watch.js';
 
 type Kind = 'formulas' | 'metadata';
 interface FormulaAudit { delivery: FormulaDeliveryNote; verdict: BookFormulaVerdict | null }
+export interface MetadataAudit { attempt: BookWatchResult; lastConfirmed: BookWatchResult | null }
 
 const FORMULA_VERSION = 'formula-integrity/1';
-const METADATA_VERSION = `metadata-canon/${METADATA_CANON.syncedAt}`;
+const METADATA_VERSION = `metadata-watch/2:${METADATA_CANON.syncedAt}`;
 const warnings = new Set<string>();
 
 function version(kind: Kind): string {
@@ -135,13 +136,29 @@ export function saveFormulaAudit(delivery: FormulaDeliveryNote, newVerdict: Book
   } satisfies FormulaAudit);
 }
 
+export function loadMetadataAudits(): MetadataAudit[] {
+  return load<MetadataAudit>('metadata', (value, book): value is MetadataAudit => {
+    if (!isObject(value) || !validMetadata(value.attempt, book)) return false;
+    if (value.lastConfirmed === null) return true;
+    return validMetadata(value.lastConfirmed, book)
+      && value.lastConfirmed.read
+      && Date.parse(value.lastConfirmed.at) <= Date.parse(value.attempt.at);
+  }).sort((a, b) => a.attempt.book.localeCompare(b.attempt.book, 'ru'));
+}
+
+/** The most recent attempt can be a failure; consumers must inspect `read`. */
 export function loadMetadataResults(): BookWatchResult[] {
-  return load<BookWatchResult>('metadata', validMetadata)
-    .sort((a, b) => a.book.localeCompare(b.book, 'ru'));
+  return loadMetadataAudits().map((entry) => entry.attempt);
 }
 
 export function saveMetadataResult(result: BookWatchResult): void {
-  save('metadata', result.book, result.at, { ...result, persisted: true } satisfies BookWatchResult);
+  const previous = result.read ? null
+    : loadMetadataAudits().find((entry) => entry.attempt.book === result.book)?.lastConfirmed ?? null;
+  const attempt = { ...result, persisted: true };
+  save('metadata', result.book, result.at, {
+    attempt,
+    lastConfirmed: result.read ? attempt : previous,
+  } satisfies MetadataAudit);
 }
 
 /** Storage/contract warnings are explicit; invalid records never become '0 defects'. */
