@@ -15,19 +15,20 @@ function loadCandidate(input, packageFile) {
       return dependencies[name];
     };
     const compiled = ts.transpileModule(source, { compilerOptions: {
-      module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
     } }).outputText;
     new Function('require', 'exports', 'module', compiled)(requireApproved, module.exports, module);
     return module.exports;
   };
-  // The integrated directory is now the SSOT, not the old inline registry.
-  // Only this exact JSON import is permitted in the synthetic schema probe.
-  const directory = JSON.parse(input.directory ?? fs.readFileSync(
-    path.resolve(path.dirname(packageFile), '../report-engine/src/procurement_engine/department_directory.json'),
-    'utf8',
-  ));
+  // Single approved runtime import from the current reviewed department
+  // directory; never substitute an old handwritten registry or arbitrary deps.
+  if (typeof input.directory !== 'string') throw new Error('PROBE_DIRECTORY_MISSING');
+  const directory = JSON.parse(input.directory);
+  if (directory?.version !== 1 || !Array.isArray(directory.departments)) {
+    throw new Error('PROBE_DIRECTORY_UNREVIEWED');
+  }
   const registry = compile(input.registry, {
-    '../../report-engine/src/procurement_engine/department_directory.json': { default: directory },
+    '../../report-engine/src/procurement_engine/department_directory.json': directory,
   });
   const zod = installed('zod');
   const coverage = compile(input.coverage, { zod });
