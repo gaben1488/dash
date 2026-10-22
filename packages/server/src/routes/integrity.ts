@@ -862,7 +862,8 @@ export async function integrityRoutes(app: FastifyInstance): Promise<void> {
         }
         return correlateChangelogWithCurrent(candidate.dept, journal.records,
           matches[0][1], controlAt, sourceAt, journal.readAt,
-          findDept(candidate.dept)?.sheetName ?? 'ВСЕ');
+          findDept(candidate.dept)?.sheetName ?? 'ВСЕ',
+          config.weeklySnapshot.utcOffsetHours);
       }))).filter((book): book is JournalIntegrityWitness => book !== null);
       response.changelogEvidence = {
         checkedAt: new Date(Date.now()).toISOString(),
