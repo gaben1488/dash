@@ -141,4 +141,30 @@ describe('C06.03 edited explanations /api/settings/guidance', () => {
       expect(res.statusCode).toBe(400);
     }
   });
+  it('rejects hidden legacy saved keys rather than silently dropping an operator revision', async () => {
+    sqlite.prepare("INSERT INTO domain_guidance_edits(key, editorial_text, revision, comment, updated_at) VALUES(?,?,?,?,?)")
+      .run('ep:REMOVED_HISTORICAL', 'Историческая ручная редакция', 1,
+        'Требуется явная миграция', '2026-10-22T10:00:00.000Z');
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/settings/guidance' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error).toContain('недоступен');
+    } finally {
+      sqlite.prepare('DELETE FROM domain_guidance_edits WHERE key=?').run('ep:REMOVED_HISTORICAL');
+    }
+    expect((await app.inject({ method: 'GET', url: '/api/settings/guidance' })).statusCode).toBe(200);
+  });
+
+  it('does not expose a corrupt persisted revision as a current catalog', async () => {
+    sqlite.prepare('UPDATE domain_guidance_edits SET revision=0 WHERE key=?').run(key);
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/settings/guidance' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error).toContain('недоступен');
+    } finally {
+      sqlite.prepare('UPDATE domain_guidance_edits SET revision=2 WHERE key=?').run(key);
+    }
+    expect((await app.inject({ method: 'GET', url: '/api/settings/guidance' })).statusCode).toBe(200);
+  });
+
 });
