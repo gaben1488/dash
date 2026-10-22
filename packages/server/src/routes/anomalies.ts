@@ -16,7 +16,7 @@
  * пересчитываются: их считает конвейер (orchestrator, шаг 4b), и вторая
  * реализация того же механизма развела бы два числа под одним именем — ровно
  * та болезнь, которую инвентаризация записала в §3.2. Роут только доводит
- * находки снимка до адреса, доставая № п/п, предмет и учреждение из живых
+ * находки снимка до адреса, доставая № п/п, предмет и учреждение из сохранённых
  * строк книги по номеру строки листа.
  *
  * ТОН. Признак — повод открыть строку, а не вывод о нарушении; отсутствие
@@ -33,6 +33,7 @@
  * Момент чтения (asOf) назван всегда — канон п.58.
  */
 import type { FastifyInstance } from 'fastify';
+import { anomalyFactsOfCapturedRows } from '../services/anomaly-snapshot-facts.js';
 import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
@@ -453,10 +454,12 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
   const journalByDept = new Map(journals.map((j) => [j.dept, j]));
 
   let snapshotAnalyses: Record<string, unknown> = {};
+  let capturedRowsByDept: Record<string, unknown[][]> | undefined;
   let datasetAvailable = false;
   let thresholdContext: Readonly<Record<string, DatedThreshold>> | null = null;
   try {
     const snapshot = await getSnapshot();
+    capturedRowsByDept = snapshot.rowsByDept;
     thresholdContext = snapshot.metadata.calculationContext?.thresholds ?? null;
     const analyses = (snapshot as { datasetAnalyses?: Record<string, unknown> }).datasetAnalyses;
     if (analyses && typeof analyses === 'object') {
@@ -484,50 +487,54 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
     const dept = findDept(deptId);
     if (!dept) continue;
 
-    // Ключ кэша листов — имя книги; findDept понимает и его, и канон-id.
+    // Live row/journal signals are a different observation from the frozen
+    // dataset analysis; do not mix their addresses and source versions.
     const values = Object.entries(sheetValues)
       .find(([name]) => findDept(name)?.id === dept.id)?.[1];
     if (!values || values.length <= DEPT_HEADER_ROWS) {
       booksSilent.push(dept.id);
-      continue;
-    }
-    booksRead.push(dept.id);
+    } else {
+      booksRead.push(dept.id);
+      const { rows } = buildAnomalyRows(dept, values);
+      rowsScanned += rows.length;
 
-    const { rows, byRow } = buildAnomalyRows(dept, values);
-    rowsScanned += rows.length;
+      const journal: BookJournal | undefined = journalByDept.get(deptId);
+      if (!journal?.available) journalsSilent.push(dept.id);
+      const journalEntries: AnomalyJournalEntry[] = journal?.available
+        ? toJournalEntries(journal).map((e) => ({
+          book: dept.id,
+          sheet: dept.sheetName,
+          cell: e.cell,
+          was: e.was,
+          became: e.became,
+          at: e.at,
+          ...(e.author ? { author: e.author } : {}),
+        }))
+        : [];
 
-    const journal: BookJournal | undefined = journalByDept.get(deptId);
-    if (!journal?.available) journalsSilent.push(dept.id);
-    const journalEntries: AnomalyJournalEntry[] = journal?.available
-      ? toJournalEntries(journal).map((e) => ({
-        book: dept.id,
-        sheet: dept.sheetName,
-        cell: e.cell,
-        was: e.was,
-        became: e.became,
-        at: e.at,
-        ...(e.author ? { author: e.author } : {}),
-      }))
-      : [];
-
-    const report = detectRowAnomalies({ rows, journal: journalEntries, thresholdContext });
-    for (const f of report.typo) typo.push(findingToDto(f, dept.fullName));
-    for (const f of report.fitted) fitted.push(findingToDto(f, dept.fullName));
-    for (const [sign, n] of Object.entries(report.counts)) {
-      counts[sign] = (counts[sign] ?? 0) + n;
-    }
-    amountTypo += report.amountAtRisk.typo;
-    amountFitted += report.amountAtRisk.fitted;
-    // Оговорки ядра берём из ядра — экран не сочиняет их заново.
-    if (journalEntries.length === 0 && journalMissingNote === '') {
-      journalMissingNote = report.notes.find((n) => n.includes('Журнал')) ?? '';
+      const report = detectRowAnomalies({ rows, journal: journalEntries, thresholdContext });
+      for (const f of report.typo) typo.push(findingToDto(f, dept.fullName));
+      for (const f of report.fitted) fitted.push(findingToDto(f, dept.fullName));
+      for (const [sign, n] of Object.entries(report.counts)) {
+        counts[sign] = (counts[sign] ?? 0) + n;
+      }
+      amountTypo += report.amountAtRisk.typo;
+      amountFitted += report.amountAtRisk.fitted;
+      if (journalEntries.length === 0 && journalMissingNote === '') {
+        journalMissingNote = report.notes.find((n) => n.includes('Журнал')) ?? '';
+      }
     }
 
+    // The snapshot's dataset anomalies must resolve against the very same
+    // frozen rows, regardless of changes to the separate live cache.
     const analysis = snapshotAnalyses[dept.latinId] ?? snapshotAnalyses[dept.id];
+    const frozenByRow = anomalyFactsOfCapturedRows(
+      { rowsByDept: capturedRowsByDept }, dept.nameShort,
+    );
     const parsed = datasetFindingsOf(
       analysis as Partial<DatasetAnalysis> | undefined,
       dept,
-      byRow,
+      frozenByRow,
     );
     dataset.push(...parsed.findings);
     noise.push(...parsed.noise);
@@ -551,6 +558,10 @@ export async function buildAnomaliesResponse(now: number = Date.now()): Promise<
       (journalMissingNote || 'Признаки «правка в кратное десяти число раз» и «правка плана ' +
         'после факта» по этим книгам не проверялись.'),
     );
+  }
+  if (datasetAvailable && !capturedRowsByDept) {
+    notes.push('Строковая база сохранённого снимка недоступна: адреса находок показаны без ' +
+      'подстановки № закупки, предмета или учреждения из другого наблюдения.');
   }
   if (!datasetAvailable) {
     notes.push(
