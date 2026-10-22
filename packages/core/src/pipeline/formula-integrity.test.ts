@@ -450,3 +450,22 @@ describe('формульная целостность — подключение
     expect(run(false).issues.filter((i) => i.checkId?.startsWith('formula_'))).toEqual([]);
   });
 });
+
+describe('composite procurement IDs — formula integrity', () => {
+  it('judges 12/1 and keeps it as an unmodified rowSeq', () => {
+    const defects = detect([...HEALTHY, { seq: '12/1', cells: { K: 123 } }]);
+    expect(defects).toHaveLength(1);
+    expect(defects[0]).toMatchObject({
+      rowSeq: '12/1', cell: 'K9', kind: 'formula_overwritten',
+    });
+  });
+
+  it('does not merge 12/1 with an independent numeric 12', () => {
+    const defects = detect([
+      ...HEALTHY,
+      { seq: 12, cells: { K: 1 } },
+      { seq: '12/1', cells: { Y: '' } },
+    ]);
+    expect(defects.map(d => [d.rowSeq, d.cell])).toEqual([['12', 'K9'], ['12/1', 'Y10']]);
+  });
+});
