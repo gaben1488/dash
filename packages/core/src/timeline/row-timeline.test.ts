@@ -323,3 +323,18 @@ describe('sheetNumber — единая null-коэрция ядра (чистк�
     expect(sheetNumber('684.0 руб')).toBe(684);
   });
 });
+
+describe('shared whole-cell numeric parsing in Dash signals and history', () => {
+  it('rejects garbage suffixes and composite identifiers as money', () => {
+    expect(sheetNumber('12abc')).toBeNull();
+    expect(sheetNumber('12/1')).toBeNull();
+    expect(sheetNumber('12.3.4')).toBeNull();
+    expect(sheetNumber(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  it('still accepts numeric Google cells and Russian decimal formatting', () => {
+    expect(sheetNumber(120)).toBe(120);
+    expect(sheetNumber('1 234,50')).toBe(1234.5);
+    expect(sheetNumber('')).toBeNull();
+  });
+});
