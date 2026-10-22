@@ -17,6 +17,16 @@ describe('METRIC_KB metric contract', () => {
       .toMatch(/потрачен|законтрактован|факт к плану|освоен/);
   });
 
+  it('описывает конкурентные закупки тем же классификатором, что и сам расчёт', () => {
+    const entry = METRIC_KB.competitive_count;
+    expect(entry.formula).toContain('classifyMethodGroup');
+    expect(entry.howCalc).toMatch(/неизвестн/i);
+    expect(entry.howCalc).toMatch(/не попада|исключа/i);
+    expect(entry.dataSource).toContain('Способ определения поставщика');
+    // Не все значения, которые буквально отличаются от «ЕП», конкурентные.
+    expect(entry.howCalc).not.toMatch(/любой, кроме «ЕП»/);
+  });
+
   it('does not label limit−fact deviation as AD-gated economy (high_economy_count / signal_high_economy)', () => {
     // Ground truth signals.ts: economyPct = (plan_total − fact_total)/plan_total on competitive
     // methods only — NOT (limit − price), NOT AD-gated economy_total. The dictionary must match.
