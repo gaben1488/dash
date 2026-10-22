@@ -48,9 +48,9 @@ class RuleCatalog:
         if not text:
             return None
         compact = re.sub(r"[^А-ЯA-Z0-9]", "", text)
-        if compact == "ЕП" or "ЕДИНСТВ" in text:
+        if compact in {"ЕП", "ЭЕП", "ЕПСТ93", "ЕДПОСТАВЩИК"} or "ЕДИНСТВ" in text:
             return "ЕП"
-        if compact in self.competitive_exact or any(
+        if compact in {"ЭАМЭП", "ЭАМАЛЫЙ"} or compact in self.competitive_exact or any(
             token in text for token in ("АУКЦ", "КОНКУР", "ЗАПРОС КОТИРОВОК")
         ):
             return "ЭА"
