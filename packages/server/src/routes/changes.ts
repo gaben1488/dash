@@ -14,14 +14,13 @@
  * рестарте, а молчащая книга выглядела как книга без правок.
  */
 import type { FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
 import { desc, getTableColumns, gte, inArray } from 'drizzle-orm';
 import { dayNumberOf, liveBaselineDay, weeklyCutoffMs, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { logSourceProblem } from '../services/source-log.js';
 import { readChangelogReading, changelogInputKey } from '../services/changelog-source.js';
-import { changeRecordsFromJournal, changesSinceLocalClock,
+import { changeRecordKey, changeRecordsFromJournal, changesSinceLocalClock,
   type ChangeRecord, type ChangeLogCoverage } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -79,9 +78,7 @@ async function readAllChangeLogs(): Promise<{
  * повторное чтение той же правки даёт тот же ключ, и дубли не заводятся.
  */
 export function changeEntryKey(r: ChangeRecord): string {
-  if (r.eventId) return r.eventId;
-  const values = createHash('sha256').update(JSON.stringify([r.oldValue, r.newValue])).digest('hex');
-  return `${r.dept}|${r.sheet}|${r.cell}|${r.atMs}|${r.author}|values:${values}`;
+  return changeRecordKey(r);
 }
 
 /**
