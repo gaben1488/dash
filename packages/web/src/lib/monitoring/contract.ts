@@ -292,6 +292,9 @@ export interface JournalPayload {
 
 export interface DirectoryRow {
   institutionId?: string | null;
+  entityKind?: 'institution' | 'department' | 'joint_group' | 'unknown';
+  status?: string | null;
+  nameEvidence?: Array<{ name: string; role: string; sourceAddress: string }>;
   sourceAddress?: string;
   aliases?: string[];
   num: string | null;
@@ -776,6 +779,14 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       return {
         sourceAddress: `${text(d.sheet)}!D${count(d.row)}`,
         institutionId: str(d.institutionId),
+        entityKind: d.entityKind === 'institution' ? 'institution'
+          : d.entityKind === 'department' ? 'department'
+          : d.entityKind === 'joint_group' ? 'joint_group' : 'unknown',
+        status: str(d.status),
+        nameEvidence: arr(d.nameEvidence).map(x => {
+          const n = rec(x);
+          return { name: text(n.name), role: text(n.role), sourceAddress: text(n.sourceAddress) };
+        }).filter(x => x.name !== ''),
         aliases: strList(d.aliases),
         num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
         grbs: str(d.grbs),

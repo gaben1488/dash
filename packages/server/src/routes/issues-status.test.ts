@@ -315,4 +315,70 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     expect(overlayPersistedStatus([{ ...issue, sheet: 'СВОД ТД-ПМ' }], current)[0].status).toBe('false_positive');
   });
 
+  it('C06.01: live report and metric detail obey case decisions; frozen report keeps historical status', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { DEPT_COLUMNS, REPORT_MAP } = await import('@aemr/shared');
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const id = 'case-report-lifecycle-2026';
+    const metricKey = REPORT_MAP[0]!.metricKey;
+    const row: unknown[] = new Array(34).fill('');
+    row[DEPT_COLUMNS.ID] = '1';
+    row[DEPT_COLUMNS.TYPE] = 'Текущая деятельность';
+    row[DEPT_COLUMNS.SUBJECT] = 'Синтетическая проверка';
+    row[DEPT_COLUMNS.METHOD] = 'ЭА';
+    row[DEPT_COLUMNS.PLAN_DATE] = '15.01.2026';
+    row[DEPT_COLUMNS.PLAN_QUARTER] = 1;
+    row[DEPT_COLUMNS.PLAN_YEAR] = 2026;
+    const heads = Array.from({ length: 3 }, () => new Array(34).fill('h'));
+    setDeptSheetCache({ УЭР: { values: [...heads, row], formulas: [], sheetName: 'УЭР' } });
+    const capturedAt = '2026-01-02T00:00:00.000Z';
+    const issue = {
+      id, severity: 'warning', origin: 'bi_heuristic', category: 'signal',
+      title: 'Синтетический сигнал', description: 'Проверить статус', departmentId: 'uer',
+      metricKey, status: 'open', detectedAt: capturedAt, detectedBy: 'test',
+    };
+    const stored = {
+      id: 'snapshot-report-lifecycle-2026', spreadsheetId: 'x', createdAt: capturedAt,
+      officialMetrics: {}, calculatedMetrics: {}, deltas: [], issues: [issue],
+      trust: { overall: 100, components: [], grade: 'A', computedAt: capturedAt, basedOnSnapshot: 'snapshot-report-lifecycle-2026' },
+      rowCount: 1, rowsByDept: { УЭР: [row] },
+      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0, targetYear: 2026 },
+    };
+    db.insert(schema.snapshots).values({
+      id: stored.id, spreadsheetId: 'x', createdAt: capturedAt, data: JSON.stringify(stored),
+    }).run();
+    db.insert(schema.issues).values({
+      id, snapshotId: stored.id, severity: 'warning', origin: 'bi_heuristic',
+      category: 'signal', title: 'Синтетический сигнал',
+      status: 'false_positive', detectedAt: capturedAt,
+    }).run();
+
+    const live = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(live.statusCode).toBe(200);
+    expect(live.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals).toEqual([]);
+
+    const detail = await app.inject({ method: 'GET', url: `/api/metrics/${encodeURIComponent(metricKey)}?year=2026` });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().issues).toMatchObject([{ id, status: 'false_positive' }]);
+
+    const archive = await app.inject({
+      method: 'GET', url: '/api/report?asOf=2026-01-02&year=2026&quarter=1',
+    });
+    expect(archive.statusCode).toBe(200);
+    expect(archive.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+
+    const reopened = await app.inject({
+      method: 'PUT', url: `/api/issues/${id}/status`, payload: { status: 'open' },
+    });
+    expect(reopened.statusCode).toBe(200);
+    const liveAgain = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(liveAgain.statusCode).toBe(200);
+    expect(liveAgain.json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+    expect((await app.inject({ method: 'GET', url: '/api/report?asOf=2026-01-02&year=2026&quarter=1' }))
+      .json().grbsBlocks.find((b: { dept: string }) => b.dept === 'УЭР').signals)
+      .toMatchObject([{ id, status: 'open' }]);
+  }, 30_000);
+
 });

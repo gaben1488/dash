@@ -1,6 +1,6 @@
 import { currentCalculationContextMatches } from './snapshot-calculation-context.js';
 import { sourceStateReceipt, SVOD_WATERMARK_KEY } from './book-watermark.js';
-import { measureReadStage } from '../plugins/request-timing.js';
+import { measureReadStage, withoutRequestTiming } from '../plugins/request-timing.js';
 import { computeTrustScore, MONITORING_DATA_SHEETS, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, DEPARTMENTS, departmentCoverage } from '@aemr/shared';
 import type { DataSnapshot, Issue, SHDYUDeptData } from '@aemr/shared';
@@ -493,7 +493,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
       rememberSnapshot(cacheKey, previous, 0);
     }
     if (!inFlightLoads.has(cacheKey)) {
-      void snapshotReadContext.exit(() => getSnapshot(true, year)).catch((error: unknown) => {
+      void withoutRequestTiming(() => snapshotReadContext.exit(() => getSnapshot(true, year))).catch((error: unknown) => {
         logSourceProblem('Фоновая сборка снимка не завершена', {
           reason: classifySourceFailure(error instanceof Error ? error.message : String(error)),
         });
@@ -632,7 +632,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       const sourceLabel = result.sheetName;
       cachedSHDYUCheckedAt = new Date().toISOString();
       if (result.values.length > 0) {
-        const parsed = parseSHDYUSheet(result.values, result.formulas);
+        const parsed = measureReadStage('normalize', () => parseSHDYUSheet(result.values, result.formulas));
         monthlyData = parsed;
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
