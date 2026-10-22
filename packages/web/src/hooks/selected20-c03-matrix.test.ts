@@ -13,19 +13,22 @@ type Atom = {
   kb: number;
   factFb: number;
   factKb: number;
+  economyFb?: number;
+  economyKb?: number;
+  approved?: boolean;
 };
 
 const atoms: Atom[] = [
   { dept: 'УО', subordinate: 'Школа № 1', month: 1, method: 'competitive', activity: 'program',
-    fb: 100, kb: 0, factFb: 80, factKb: 0 },
+    fb: 100, kb: 0, factFb: 80, factKb: 0, economyFb: 10, approved: true },
   { dept: 'УО', subordinate: 'Школа № 1', month: 4, method: 'ep', activity: 'current_non_program',
-    fb: 0, kb: 60, factFb: 0, factKb: 0 },
+    fb: 0, kb: 60, factFb: 0, factKb: 0, economyKb: 6, approved: true },
   { dept: 'УО', subordinate: 'Сад № 2', month: 1, method: 'competitive', activity: 'current_non_program',
-    fb: 0, kb: 40, factFb: 0, factKb: 20 },
+    fb: 0, kb: 40, factFb: 0, factKb: 20, economyKb: 4, approved: true },
   { dept: 'УО', subordinate: '', month: 4, method: 'ep', activity: 'program',
     fb: 20, kb: 0, factFb: 20, factKb: 0 },
   { dept: 'УЭР', subordinate: '', month: 1, method: 'ep', activity: 'program',
-    fb: 10, kb: 20, factFb: 0, factKb: 10 },
+    fb: 10, kb: 20, factFb: 0, factKb: 10, economyKb: 2, approved: true },
   { dept: 'УЭР', subordinate: '', month: 4, method: 'competitive', activity: 'current_non_program',
     fb: 70, kb: 0, factFb: 50, factKb: 0 },
 ];
@@ -46,6 +49,9 @@ function sourceRow(a: Atom, i: number): unknown[] {
   row[DEPT_COLUMNS.FB_FACT] = a.factFb;
   row[DEPT_COLUMNS.KB_FACT] = a.factKb;
   row[DEPT_COLUMNS.TOTAL_FACT] = a.factFb + a.factKb;
+  row[DEPT_COLUMNS.FLAG] = a.approved ? 'да' : '';
+  row[DEPT_COLUMNS.ECONOMY_FB] = a.economyFb ?? 0;
+  row[DEPT_COLUMNS.ECONOMY_KB] = a.economyKb ?? 0;
   if (a.factFb + a.factKb > 0) {
     row[DEPT_COLUMNS.FACT_DATE] = '20.' + String(a.month).padStart(2, '0') + '.2026';
   }
@@ -157,10 +163,17 @@ describe('C03.01: independently calculated six-axis matrix from source atoms', (
                   + (budget === 'kb' ? a.kb : budget === 'fb' ? a.fb : a.fb + a.kb), 0);
                 const expectedFact = rows.reduce((sum, a) => sum
                   + (budget === 'kb' ? a.factKb : budget === 'fb' ? a.factFb : a.factFb + a.factKb), 0);
+                const expectedEconomy = rows.reduce((sum, a) =>
+                  sum + (a.approved && a.factFb + a.factKb > 0
+                    ? budget === 'kb' ? (a.economyKb ?? 0)
+                      : budget === 'fb' ? (a.economyFb ?? 0)
+                        : (a.economyFb ?? 0) + (a.economyKb ?? 0)
+                    : 0), 0);
                 const fd = filtered(c);
                 expect(fd.activityMethodCoverage, label + ': matrix coverage').toBe(true);
                 expect(fd.totalPlan, label + ': plan').toBeCloseTo(expectedPlan, 8);
                 expect(fd.totalFact, label + ': fact').toBeCloseTo(expectedFact, 8);
+                expect(fd.totalEconomy, label + ': approved AD economy').toBeCloseTo(expectedEconomy, 8);
                 expect(fd.barData.reduce((n: number, b: any) => n + b.planTotal, 0),
                   label + ': sum of departmental bars').toBeCloseTo(fd.totalPlan, 8);
                 expect(fd.barData.reduce((n: number, b: any) => n + b.factTotal, 0),
