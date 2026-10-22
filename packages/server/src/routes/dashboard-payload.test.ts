@@ -130,7 +130,8 @@ describe('представление снимка для HTTP Dashboard', () => 
         'sole.year.total_plan': 70, 'sole.year.total_fact': 30,
         'sole.year.percent': 0.5,
         'grbs.uo.year.plan_total': 370, 'grbs.uo.year.fact_total': 230,
-        'grbs.uo.year.economy_total': -5, 'grbs.uo.year.exec_count_pct': 0.5,
+        'grbs.uo.year.economy_total': -5, 'grbs.uo.year.execution_pct': 0.35,
+        'grbs.uo.year.exec_count_pct': 0.5,
         'grbs.uo.kp.year.count': 8, 'grbs.uo.ep.year.count': 2,
       }),
     };
@@ -151,7 +152,7 @@ describe('представление снимка для HTTP Dashboard', () => 
       expect(data.departmentSummaries.find((item: { department: { id: string } }) => item.department.id === 'uo'))
         .toMatchObject({
           planTotal: 370, factTotal: 230, economyTotal: -5,
-          competitiveCount: 8, soleCount: 2, executionPercent: 50,
+          competitiveCount: 8, soleCount: 2, executionPercent: 35,
         });
       expect(data.snapshot.officialMetrics['competitive.q1.count'].numericValue).toBe(999);
     } finally {

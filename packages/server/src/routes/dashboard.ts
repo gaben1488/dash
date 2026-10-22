@@ -164,8 +164,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const ecoTotal = calcGet(`${prefix}.year.economy_total`);
       const kpCount = calcGet(`${prefix}.kp.year.count`);
       const epCount = calcGet(`${prefix}.ep.year.count`);
-      const countRatio = calcGet(`${prefix}.year.exec_count_pct`);
-      const executionPct = countRatio == null ? null : +(countRatio * 100).toFixed(1);
+      // Keep the existing monetary execution contract. Count execution
+      // remains an independent metric (exec_count_pct), not an alias.
+      const moneyRatio = calcGet(`${prefix}.year.execution_pct`);
+      const executionPct = moneyRatio == null ? null : +(moneyRatio * 100).toFixed(1);
 
       const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
       const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
