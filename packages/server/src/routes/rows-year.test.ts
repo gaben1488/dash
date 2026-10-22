@@ -1,3 +1,4 @@
+import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -28,7 +29,7 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
-    setDeptSheetCache({ 'УЭР': { values: [...headers, sheetRow('1', 2025), sheetRow('2', 2026)], formulas: [], sheetName: 'УЭР' } });
+    setDeptSheetCache({ 'УЭР': { providerId: DEPARTMENT_SPREADSHEET_IDS['УЭР'], values: [...headers, sheetRow('1', 2025), sheetRow('2', 2026)], formulas: [], sheetName: 'УЭР' } });
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
   }, 60_000);
@@ -52,7 +53,7 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     const r: unknown[] = new Array(34).fill('');
     r[0] = '3'; r[6] = 'Окорока (куриные)'; r[11] = 'ЕП';
     r[10] = '1 200,00'; r[24] = '800,00'; r[16] = 'Х'; r[15] = 2026;
-    setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ 'УКСиМП': { providerId: DEPARTMENT_SPREADSHEET_IDS['УКСиМП'], values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
     const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
     const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
     expect(list.rows[0].badges.find((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toMatchObject({ color: 'blue' });
@@ -63,7 +64,7 @@ describe('GET /api/rows/:dept — фильтр по году (T3)', () => {
     const r: unknown[] = new Array(34).fill('');
     r[0] = '3'; r[6] = 'Окорока (куриные)'; r[11] = 'ЕП';
     r[10] = '1 200,00'; r[24] = '800,00'; r[16] = 'Х'; r[15] = sourceYear;
-    setDeptSheetCache({ 'УКСиМП': { values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
+    setDeptSheetCache({ 'УКСиМП': { providerId: DEPARTMENT_SPREADSHEET_IDS['УКСиМП'], values: [[], [], [], r], formulas: [], sheetName: 'ВСЕ' } });
     const list = (await app.inject('/api/rows/УКСиМП?limit=100')).json();
     const detail = (await app.inject('/api/rows/УКСиМП/4')).json();
     expect(list.rows[0].badges.some((b: { label: string }) => b.label.startsWith('Годовой объём ЕП:'))).toBe(false);
