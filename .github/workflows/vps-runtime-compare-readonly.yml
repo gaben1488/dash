@@ -116,6 +116,18 @@ jobs:
                         sort_keys=True,ensure_ascii=True))
                 except Exception as error:
                     print(json.dumps({'source':label,'error':type(error).__name__},sort_keys=True))
+            import stat
+            config_path=root/'docker-compose.yml'
+            config_info=config_path.lstat()
+            component_symlinks=[str(part) for part in (config_path,*config_path.parents) if part.is_symlink()]
+            print(json.dumps({'operator_file_guard_evidence':{
+                'mode':oct(stat.S_IMODE(config_info.st_mode)),
+                'regular_file':stat.S_ISREG(config_info.st_mode),
+                'links':config_info.st_nlink,
+                'under_1MiB':config_info.st_size<=1024*1024,
+                'owner_allowed':config_info.st_uid in (0,root.stat().st_uid),
+                'symlink_components':component_symlinks
+            }},sort_keys=True))
             print('READ_ONLY_RUNTIME_STRICT_CONTROLLER_BEGIN')
             import sys,importlib.util
             sys.path.insert(0,'/usr/local/libexec/aemr')
