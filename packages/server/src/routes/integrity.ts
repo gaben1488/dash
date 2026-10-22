@@ -29,10 +29,9 @@
  * — такую ячейку не понимают ни сортировка, ни формулы кварталa. Про вторую
  * половину ответ говорит словами, а не молчит.
  *
- * ЦЕНА ЗАПРОСА. Ни одного обращения к Google: нумерация и вид ячеек считаются
- * по уже прочитанному кэшу книг и строкам-атомам последнего завершённого
- * недельного контрольного среза в местной базе. Различаем момент контроля
- * и моменты чтения каждой книги; пробелы источников называем явно (п.58).
+ * ЦЕНА ЗАПРОСА. Обычный GET читает принятый серверный кэш, SQLite и
+ * доказанный четверговый срез. Только явное refresh=true читает Google.
+ * Оба режима используют один предметный сервис evidence, а не логику маршрута.
  */
 import type { FastifyInstance } from 'fastify';
 import { buildComparison, buildWeeklyComparison, selectActiveSourceAbsences, type CurrentComparison, type WeeklyComparison, type OperationalAbsenceReport } from '../services/procurement-absence.js';
@@ -44,7 +43,6 @@ export type { VanishedBookDto, OperationalAbsenceDto, OperationalAbsenceReport }
 
 import {
   liveBaselineDay,
-  isoOfDayNumber,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -57,23 +55,13 @@ import {
   type SequenceReport,
   type SequenceRow,
 } from '@aemr/shared';
-import {
-  diffSnapshots,
-  // Тот же дом разбора «значение ячейки → число либо честный null», что и у
-  // /api/anomalies: копия правила разъехалась бы с ним на первом живом
-  // формате (страж — shared/canon-homes.test.ts).
-  journalNumber as cellNumber,
-  type RowDiff,
-  type SnapshotRow,
-  type ChangeEntry,
-} from '@aemr/core';
+// Monetary read semantics use the shared journal parser, not parseFloat.
+import { journalNumber as cellNumber } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
-import { productCalendarDay } from '../services/product-calendar.js';
-import { isDataRow } from '../services/rows-dto.js';
-import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, iterateWeeklySnapshotHistory } from '../services/snapshot.js';
+import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues } from '../services/snapshot.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { readSourceRowObservations } from '../services/source-row-observations.js';
-import { orgLabel, verifiedBaselineRows } from '../services/weekly-control-validation.js';
+import { orgLabel } from '../services/weekly-control-validation.js';
 export { atomsToSnapshotRows, indexHistoricalDepartments, interpretWeeklySnapshotJson, verifiedBaselineRows } from '../services/weekly-control-validation.js';
 
 /** Номер строки книги = индекс в массиве листа + 1 (кэш несёт шапку). */
@@ -123,7 +111,6 @@ export interface IntegrityResponse {
   totals: { gapCount: number; duplicates: number; countableWithoutSeq: number; dateFormat: number };
   /** Сравнение снимков; null — сравнивать не с чем. */
   comparison: CurrentComparison | null;
-  /* Old internal shape removed in favor of the shared evidence contract. */
   /** Two verified adjacent Thursday baselines; no read is silently substituted. */
   weeklyComparison: WeeklyComparison | null;
   /** Нет пары / не пройдена проверка полноты — отсутствие результата НЕ ноль. */
