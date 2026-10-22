@@ -27,7 +27,7 @@ export function signalEvidenceFromSnapshot(
         if (sheet !== issue.sheet || row !== issue.row) return null;
         const position = COL_LETTER_INDEX[column];
         if (typeof position !== 'number') return null;
-        const cell = sourceRow[position];
+        const cell = sourceRow?.[position];
         return cell === undefined || cell === null ? '' : String(cell);
       },
     } : {}),
