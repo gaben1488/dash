@@ -167,7 +167,10 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 18m
-          script_stop: true             # упасть на первой же ошибке шага
+          # drone-ssh script_stop inserts checks even after `else`, so a normal
+          # false `if` condition aborts app_only after healthy deploy. Bash
+          # set -euo pipefail in the script already stops real command failures.
+          script_stop: false
           script: |
             set -euo pipefail
             cd /home/aemr/dash
