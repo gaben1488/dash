@@ -198,7 +198,9 @@ export function loadAcceptedReadings(): Map<string, { fileId: string; values: un
 const MASTER_SOURCE_CONTRACT_HASH = createHash('sha256').update(JSON.stringify({
   profile: MASTER_SOURCE_PROFILE,
   bindings: [...DEPARTMENT_REGISTRY].sort((a, b) => a.id.localeCompare(b.id))
-    .map(({ id, source, approvedPrimaryRename }) => ({ id, source, approvedPrimaryRename: !!approvedPrimaryRename })),
+    .map(({ id, shortName, source, approvedPrimaryRename }) => ({
+      id, source, approvedTitle: approvedPrimaryRename ? shortName : null,
+    })),
 })).digest('hex');
 
 /** Receipt of accepted source state, independent of the last time it was re-read. */
