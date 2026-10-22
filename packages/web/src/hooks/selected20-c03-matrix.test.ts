@@ -118,10 +118,11 @@ function scoped(c: Choice) {
     && (!c.activity || a.activity === c.activity));
 }
 
+const DATA_DEPTS = [department('УО', 'uo'), department('УЭР', 'uer')];
+
 function filtered(c: Choice) {
-  const ds = [department('УО', 'uo'), department('УЭР', 'uer')];
   return computeFilteredData({
-    dashboardData: { departmentSummaries: ds, summaryByPeriod: {}, snapshot: { issues: [], deltas: [] }, kpiCards: [] } as any,
+    dashboardData: { departmentSummaries: DATA_DEPTS, summaryByPeriod: {}, snapshot: { issues: [], deltas: [] }, kpiCards: [] } as any,
     selectedDepartments: new Set(c.dept ? [c.dept] : []),
     selectedSubordinates: new Set(c.subordinate ? [c.subordinate] : []),
     deptOnlyMode: new Set<string>(),
