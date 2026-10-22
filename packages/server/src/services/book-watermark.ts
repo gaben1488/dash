@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { DEPARTMENT_REGISTRY, MASTER_SOURCE_PROFILE, validateMasterSourceHeader } from '@aemr/shared';
 import { sheetFingerprint } from './sheet-fingerprint.js';
 /**
  * book-watermark.ts — водяной знак книги и честные пропуски журнала.
@@ -190,6 +191,16 @@ export function loadAcceptedReadings(): Map<string, { fileId: string; values: un
 }
 
 
+/** Source revisions cannot be reused after a profile, formula, gid or permission
+ * contract change merely because Google row bytes and Drive versions are equal.
+ * Derive this from the single reviewed directory, not from another registry.
+ */
+const MASTER_SOURCE_CONTRACT_HASH = createHash('sha256').update(JSON.stringify({
+  profile: MASTER_SOURCE_PROFILE,
+  bindings: [...DEPARTMENT_REGISTRY].sort((a, b) => a.id.localeCompare(b.id))
+    .map(({ id, source, approvedPrimaryRename }) => ({ id, source, approvedPrimaryRename: !!approvedPrimaryRename })),
+})).digest('hex');
+
 /** Receipt of accepted source state, independent of the last time it was re-read. */
 export function sourceStateReceipt(bindings: Readonly<Record<string, string>>, mainFileId: string,
   current: Readonly<Record<string, { values: unknown[][] }>> = {}): string | null {
@@ -201,9 +212,23 @@ export function sourceStateReceipt(bindings: Readonly<Record<string, string>>, m
   const receipt = [];
   for (const book of Object.keys(expected).sort()) {
     const mark = byBook.get(book);
-    if (!mark || mark.fileId !== expected[book]
-      || (current[book] && sheetFingerprint(current[book].values) !== mark.fingerprint)) return null;
+    const accepted = current[book];
+    // Stored watermarks alone do not prove that a current consumer has an
+    // admitted source. Keep last published evidence, but do not reuse its
+    // active calculations as if all source books were loaded.
+    if (!mark || mark.fileId !== expected[book] || !accepted
+      || sheetFingerprint(accepted.values) !== mark.fingerprint) return null;
+    if (book !== SVOD_WATERMARK_KEY) {
+      try {
+        validateMasterSourceHeader(accepted.values[MASTER_SOURCE_PROFILE.headerRows - 1] ?? []);
+      } catch {
+        return null;
+      }
+    }
     receipt.push(mark);
   }
-  return createHash('sha256').update(JSON.stringify(receipt)).digest('hex');
+  return createHash('sha256').update(JSON.stringify({
+    sourceContract: MASTER_SOURCE_CONTRACT_HASH,
+    acceptedWatermarks: receipt,
+  })).digest('hex');
 }
