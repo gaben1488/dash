@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main, codex/dash-audit-integrated-20261010]
     paths:
+      - 'packages/shared/src/sequence-integrity.ts'
+      - 'packages/shared/src/sequence-integrity.test.ts'
+      - 'packages/shared/src/rule-book.ts'
+      - 'packages/core/src/pipeline/classify.ts'
+      - 'packages/core/src/pipeline/classify.test.ts'
+      - 'packages/core/src/pipeline/row-numbering.test.ts'
       - 'packages/core/src/pipeline/formula-integrity.ts'
       - 'packages/core/src/pipeline/formula-integrity.test.ts'
       - 'packages/server/src/routes/source-integrity.ts'
@@ -37,6 +43,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: TypeScript source integrity
         run: pnpm typecheck
+      - name: Composite procurement identities, classification and numbering
+        run: |
+          pnpm --filter @aemr/shared exec vitest run src/sequence-integrity.test.ts
+          pnpm --filter @aemr/core exec vitest run src/pipeline/classify.test.ts src/pipeline/row-numbering.test.ts
       - name: Core formula header boundary regression
         run: pnpm --filter @aemr/core exec vitest run src/pipeline/formula-integrity.test.ts
       - name: API deep-check regression
