@@ -44,6 +44,7 @@ import {
   addressText,
   fmtTys,
   uniqueOperationalAbsences,
+  scopedIntegrityTotals,
   type IntegrityBookDto,
   type VanishedBookDto,
 } from './contract';
@@ -282,6 +283,7 @@ export function IntegritySection() {
     () => filterByDeptScope(data?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
+  const visibleTotals = useMemo(() => scopedIntegrityTotals(books), [books]);
   const vanishedBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
@@ -406,22 +408,44 @@ export function IntegritySection() {
         />
       ) : (
         <div className="space-y-[var(--space-4)]">
-          <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
-            <Hash size={12} aria-hidden="true" />
-            <span>
-              пропущено номеров: {data.totals.gapCount.toLocaleString('ru-RU')} · строк без
-              номера: {data.totals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
-              номера: {data.totals.duplicates}
-            </span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 ds-text-3xs text-[var(--ink-faint)]">
+              <Hash size={12} aria-hidden="true" />
+              <span>
+                {visibleTotals.checkedBooks === 0 ? (
+                  'Нумерация выбранных книг не проверена — нет прочитанных данных.'
+                ) : (
+                  <>
+                    пропущено номеров: {visibleTotals.gapCount.toLocaleString('ru-RU')} · строк без
+                    номера: {visibleTotals.countableWithoutSeq.toLocaleString('ru-RU')} · повторов
+                    номера: {visibleTotals.duplicates}
+                  </>
+                )}
+              </span>
+            </div>
+            {visibleTotals.unreadBooks > 0 && (
+              <p className="ds-text-3xs text-[var(--data-warn)]">
+                Проверено {visibleTotals.checkedBooks} из {books.length} выбранных книг.
+                Непрочитанные книги не входят в итог и не означают нулевую пропажу.
+              </p>
+            )}
           </div>
 
           {books.map((book) => <BookCard key={book.dept} book={book} />)}
 
           <Card bare aria-label="Пропавшие закупки">
             <div className="px-[var(--card-pad)] py-[var(--card-pad)]">
-              <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
-                Пропавшие закупки
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="ds-text-sm font-[var(--weight-strong)] text-[var(--ink-strong)]">
+                  Пропавшие закупки: контрольный четверг → текущие книги
+                </h3>
+                <button type="button" onClick={reload} disabled={loading}
+                  className="inline-flex items-center gap-1 ds-text-xs font-[var(--weight-medium)] text-[var(--accent)] hover:underline disabled:opacity-50"
+                  aria-label="Сверить текущие книги с четверговым контролем после перечитывания">
+                  <RotateCcw size={12} aria-hidden="true" />
+                  {loading ? 'Читаем…' : 'Сверить сейчас'}
+                </button>
+              </div>
               {data.comparison === null ? (
                 <p className="ds-prose mt-1 ds-text-xs text-[var(--ink-muted)]">
                   {data.comparisonNote}
@@ -429,7 +453,7 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    Проверенный четверг: {fmtMoment(data.comparison.beforeAt)}. Текущие
                     книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
                     {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
                     удаление закупки; возможна перенумерация.
