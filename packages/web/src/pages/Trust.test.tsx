@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TrustPage } from './Trust';
 
 const apiStub = vi.hoisted(() => ({
