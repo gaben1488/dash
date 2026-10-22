@@ -335,3 +335,28 @@ describe('classifyRows — edge cases', () => {
     expect(r.classificationReasons.length).toBeGreaterThan(0);
   });
 });
+
+describe('integrated hotfix: composite procurement ID is a real row identifier', () => {
+  it('12/1 with money is a procurement, not a service row', () => {
+    const result = classifySingle(25, makeCells({ A: '12/1', K: 80, G: 'Поставка', L: 'ЕП' }));
+    expect(result.classification).toBe('procurement');
+    expect(result.cells.A).toBe('12/1');
+  });
+
+  it('keeps a composite ID with blank subject and a small budget as procurement', () => {
+    const result = classifySingle(25, makeCells({ A: '12/1', K: 80, H: 80, G: '', L: '' }));
+    expect(result.classification).toBe('procurement');
+    expect(result.cells.A).toBe('12/1');
+  });
+
+  it('does not silently treat a composite planned ID without amounts as header', () => {
+    const result = classifySingle(25, makeCells({ A: '12/1', G: '', L: '', K: '' }));
+    expect(result.classification).toBe('procurement_derived');
+    expect(result.cells.A).toBe('12/1');
+  });
+
+  it('retains the ordinary numeric column-number header guard', () => {
+    const result = classifySingle(4, makeCells({ A: 1, H: 8, I: 9, J: 10, K: 11 }));
+    expect(result.classification).toBe('header');
+  });
+});
