@@ -572,8 +572,8 @@ export interface CapturedThreshold {
   readonly status: 'verified' | 'internal' | 'unverified';
   readonly edition: string | null;
   readonly sourceRef: string | null;
-  readonly unit?: ThresholdUnit;
-  readonly source?: MetricSourceId;
+  readonly unit?: ThresholdUnit | undefined;
+  readonly source?: MetricSourceId | undefined;
 }
 
 /** Newly captured thresholds always carry their exact comparison units and origin. */
