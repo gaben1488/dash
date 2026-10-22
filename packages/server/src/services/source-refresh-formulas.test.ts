@@ -136,7 +136,7 @@ describe('чтение формул в цикле источников', () => {
       await import('./source-refresh.js');
 
     const seen: Array<{ book: string; startRow: number; formulas: unknown[][]; values: unknown[][] }> = [];
-    setFormulaSink((delivery) => { seen.push(delivery); });
+    setFormulaSink((delivery) => { seen.push(delivery); return undefined; });
     await refreshAllSources(log, 'webhook', { withFormulas: true });
 
     expect(seen).toHaveLength(1);
