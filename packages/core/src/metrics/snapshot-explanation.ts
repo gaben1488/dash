@@ -39,6 +39,10 @@ export function explainSnapshotMetric(snapshot: DataSnapshot, key: string) {
   const values = combineMetricSlices(selected.map((item, i) => ({
     values: item.values, rowOffset: offsets[i]!.start,
   })));
+  // Reproduction is not a substitute for captured historical rule provenance.
+  // A legacy snapshot can be numerically equal under today's rules without
+  // having been calculated with those rules.
+
   const explanation = explainMetric(address.definitionKey, values);
   if (!explanation) return { status: 'unavailable', reason: 'UNMAPPED_METRIC' } as const;
   const savedValue = snapshot.calculatedMetrics[key]?.numericValue;
