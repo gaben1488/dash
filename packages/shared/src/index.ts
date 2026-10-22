@@ -185,3 +185,5 @@ export { MASTER_SOURCE_PROFILE, MONITORING_SOURCE_SCHEMA, validateMasterSourceHe
 export * from './procurement-guidance.js';
 // Source diagnostic run: bounded coverage, per-stage timestamps, honest not_run.
 export type { SourceStageStatus, SourceDeepBookEvidence, SourceDeepEvidence, SourceRowValidationEvidence, SourceDiagnosticRun } from './source-diagnostics.js';
+
+export * from './legal-kb.js';
