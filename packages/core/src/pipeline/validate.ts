@@ -1,6 +1,6 @@
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
-import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
+import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet, SVOD_DASHBOARD_LAST_ROW } from '@aemr/shared';
 
 /**
  * Вид деятельности строки — канон classifyActivity (@aemr/shared): F +
@@ -53,6 +53,11 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
+  // С 279-й строки лист СВОД содержит отдельный эксперимент владельца.
+  // Его формулы остаются в таблице, но не входят в правила и контекст Dash.
+  const scopedRows = sheetClass.kind === 'svod'
+    ? rows.filter(row => row.rowIndex <= SVOD_DASHBOARD_LAST_ROW)
+    : rows;
 
   // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
   // теряет ВСЕ svod- и department-scoped правила ниже (scope='both' по-прежнему
@@ -83,7 +88,7 @@ export function validateData(
     if (rule.scope === 'department' && sheetClass.kind !== 'department' && sheetClass.kind !== 'subordinates_agg') continue;
 
     // Run the rule's check() against each applicable row
-    for (const row of rows) {
+    for (const row of scopedRows) {
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
       if (rule.rowFilter && !rule.rowFilter.includes(row.classification)) continue;
@@ -92,7 +97,7 @@ export function validateData(
         rowIndex: row.rowIndex,
         sheet: row.sheet,
         classification: row.classification,
-        allRows: rows,
+        allRows: scopedRows,
       };
       let result;
       try {
