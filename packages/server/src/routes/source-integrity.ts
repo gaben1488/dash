@@ -26,7 +26,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { formulaDeliveryState, refreshAllSources } from '../services/source-refresh.js';
+import { currentFormulaSourceProof, formulaDeliveryState, refreshAllSources } from '../services/source-refresh.js';
 import { metadataWatchState, sweepMetadata } from '../services/metadata-watch.js';
 import { formulaVerdicts } from '../services/formula-sink.js';
 import { assessFormulaResults } from '../services/formula-assessment.js';
