@@ -4,8 +4,46 @@ import { resolve } from 'path';
 import { config } from '../config.js';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
+import {
+  changeDomainGuidance, knownDomainGuidanceKey, readDomainGuidance,
+} from '../services/domain-guidance.js';
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
+  // Routes are transport only; the single transaction/read model lives in
+  // services/domain-guidance and the executable domain rules in @aemr/shared.
+  app.get('/api/settings/guidance', async (_request, reply) => {
+    try {
+      return reply.send(readDomainGuidance());
+    } catch (err) {
+      app.log.error({ err }, 'guidance: read failed');
+      return reply.status(503).send({ error: 'Справочник недоступен. Сохранённые правки не подтверждены.' });
+    }
+  });
+
+  const EditorialUpdate = z.object({
+    text: z.string().trim().min(1).max(600),
+    comment: z.string().trim().min(8).max(600),
+    expectedRevision: z.number().int().min(0),
+  }).strict();
+
+  app.put('/api/settings/guidance/:key', async (request, reply) => {
+    const key = (request.params as { key: string }).key;
+    if (!knownDomainGuidanceKey(key)) return reply.status(404).send({ error: 'Неизвестный ключ предметного справочника' });
+    const body = parseBody(EditorialUpdate, request, reply);
+    if (!body) return;
+
+    try {
+      const result = changeDomainGuidance(key, body);
+      if (result.conflict) return reply.status(409).send({
+        error: 'Справочник изменён в другой сессии. Перечитайте актуальную редакцию.',
+        revision: result.revision,
+      });
+      return reply.send({ key, ...result });
+    } catch (err) {
+      app.log.error({ err }, 'guidance: atomic write failed');
+      return reply.status(503).send({ error: 'Правка не записана: хранилище или журнал недоступны.' });
+    }
+  });
 
   /** GET /api/settings/status — текущий статус credentials */
   app.get('/api/settings/status', async (_request, reply) => {
