@@ -128,6 +128,19 @@ describe('GET /api/sources/integrity', () => {
 });
 
 describe('POST /api/sources/integrity/check', () => {
+  it('не выдаёт пустой список настроенных книг за успешное чтение', async () => {
+    const { DEPARTMENT_SPREADSHEETS } = await import('../config.js');
+    const prior = { ...DEPARTMENT_SPREADSHEETS };
+    for (const book of Object.keys(DEPARTMENT_SPREADSHEETS)) Reflect.deleteProperty(DEPARTMENT_SPREADSHEETS, book);
+    formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [] });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/sources/integrity/check' });
+      expect(response.json()).toMatchObject({ complete: false, expectedBooks: 0, books: [] });
+    } finally {
+      Object.assign(DEPARTMENT_SPREADSHEETS, prior);
+    }
+  });
+
   it('forces all books, bypasses revision gating, but does not take a weekly snapshot', async () => {
     formulaDeliveryState.mockReturnValue({ sinkConnected: true, books: [
       { book: 'УО', at: REFRESH_AT, cells: 22, handled: true },
