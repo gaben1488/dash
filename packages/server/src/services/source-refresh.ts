@@ -799,8 +799,20 @@ acquire?: MasterAcquisition): Promise<SourceRefreshResult> {
     // «Ничего не сдвинулось» — это ОДНОВРЕМЕННО: ни одна книга не изменилась,
     // ни одна не прочитана впервые, лист СВОД тот же и никто не отказал.
     // Достаточно любому условию не выполниться — снимок обязан пересобраться.
-    const formulaInputsChanged = Object.entries(data).some(([book, reading]) => reading.formulasRead
-      && (!cachedBefore[book]?.formulasRead || sheetFingerprint(reading.formulas) !== sheetFingerprint(cachedBefore[book].formulas)));
+    // Compare the ACCEPTED cache, not the raw values-only reading. An unchanged
+    // verified revision keeps its formulas; a changed/unknown revision revokes
+    // that evidence even when the calculated cell values happen to match.
+    // Otherwise a previously graded formula snapshot survives a poll that
+    // can no longer substantiate the grade.
+    const acceptedBooks = getDeptSheetCache();
+    const formulaInputsChanged = Object.keys(data).some((book) => {
+      const before = cachedBefore[book];
+      const after = acceptedBooks[book];
+      const hadFormulas = before?.formulasRead === true;
+      const hasFormulas = after?.formulasRead === true;
+      return hadFormulas !== hasFormulas || (hadFormulas && hasFormulas
+        && sheetFingerprint(before.formulas) !== sheetFingerprint(after.formulas));
+    });
     const nothingChanged =
       changedBooks.length === 0
       && firstReads === 0

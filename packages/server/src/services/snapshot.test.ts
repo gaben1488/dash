@@ -151,3 +151,53 @@ describe('setDeptSheetCache — replace-per-dept-key при отвалившем
     expect(cache.УИО?.values).toEqual([['uio-row-fresh']]);
   });
 });
+
+describe('формулы в кэше: read-only polling не должен отменять проверку', () => {
+  const values = [['шапка'], ['шапка'], ['шапка'], ['7', 'Закупка']];
+  const formulas: unknown[][] = [[], [], [], []];
+  formulas[3][10] = '=SUM(H4:J4)';
+  const confirmed = {
+    providerId: 'book-a', sourceVersion: 'rev-7', sheetName: 'ВСЕ',
+    startRow: 1, values, formulas, formulasRead: true, readAt: '2026-10-23T01:00:00Z',
+  };
+  const valuesOnly = {
+    providerId: 'book-a', sourceVersion: 'rev-7', sheetName: 'ВСЕ',
+    startRow: 1, values: values.map(row => [...row]), formulas: [] as unknown[][],
+    formulasRead: false, readAt: '2026-10-23T01:01:00Z',
+  };
+
+  it('сохраняет проверенную сетку после обычного чтения тех же значений и версии', async () => {
+    const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    setDeptSheetCache({ УО: confirmed });
+    setDeptSheetCache({ УО: valuesOnly });
+    expect(getDeptSheetCache().УО).toMatchObject({
+      formulasRead: true, formulas, readAt: valuesOnly.readAt,
+      sourceVersion: 'rev-7',
+    });
+  });
+
+  it('отзывает старые формулы при смене ревизии, даже если результаты формул те же', async () => {
+    const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    setDeptSheetCache({ УО: confirmed });
+    setDeptSheetCache({ УО: { ...valuesOnly, sourceVersion: 'rev-8' } });
+    expect(getDeptSheetCache().УО.formulasRead).toBe(false);
+    expect(getDeptSheetCache().УО.formulas).toEqual([]);
+  });
+
+  it('не доверяет одинаковым цифрам без подтверждённой версии файла', async () => {
+    const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    setDeptSheetCache({ УО: { ...confirmed, sourceVersion: undefined } });
+    setDeptSheetCache({ УО: { ...valuesOnly, sourceVersion: undefined } });
+    expect(getDeptSheetCache().УО.formulasRead).toBe(false);
+  });
+
+  it('не смешивает формулы разных книг или строк с изменённым содержимым', async () => {
+    const { setDeptSheetCache, getDeptSheetCache } = await import('./snapshot.js');
+    setDeptSheetCache({ УО: confirmed });
+    setDeptSheetCache({ УО: { ...valuesOnly, providerId: 'book-b' } });
+    expect(getDeptSheetCache().УО.formulasRead).toBe(false);
+    setDeptSheetCache({ УО: confirmed });
+    setDeptSheetCache({ УО: { ...valuesOnly, values: [...values.slice(0, 3), ['7', 'Изменена']] } });
+    expect(getDeptSheetCache().УО.formulasRead).toBe(false);
+  });
+});

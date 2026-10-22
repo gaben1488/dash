@@ -205,3 +205,17 @@ describe('состояние чтения узнать не удалось', () 
     expect(flat()).toContain('не значит «дефектов нет»');
   });
 });
+
+it('перечитывает состояние формул, когда обновился аналитический снимок', async () => {
+  let formulas: unknown = NOT_READ_AT_ALL;
+  const fetchStub = vi.fn(async () => new Response(JSON.stringify(integrityResponse(formulas)), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }));
+  vi.stubGlobal('fetch', fetchStub);
+  const view = render(<FormulaIntegritySection issues={[]} readToken="snapshot-before" />);
+  await screen.findByText(/не читались/);
+  formulas = READ_TWO_BOOKS;
+  view.rerender(<FormulaIntegritySection issues={[]} readToken="snapshot-after" />);
+  await screen.findByText(/Дефектов формул не найдено/);
+  expect(fetchStub).toHaveBeenCalledTimes(2);
+});

@@ -708,3 +708,30 @@ describe('R05.01 source-profile restoration through the existing refresh cache',
     }
   });
 });
+
+describe('регрессия: формульный грейд после последовательных чтений', () => {
+  it('сбрасывает аналитическую оценку, если обычный опрос отозвал неподтверждённые формулы', async () => {
+    const { refreshAllSources, resetSourcePrints, resetFormulaDeliveries } = await import('./source-refresh.js');
+    resetSourcePrints();
+    resetFormulaDeliveries();
+    const values = [[], [], [], ['1', '', '', '', '', '', 'Закупка']];
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: { УО: { values, formulas: [[], [], [], ['=SUM(H4:J4)']], formulasRead: true, sheetName: 'ВСЕ' } },
+      errors: {},
+    });
+    await refreshAllSources(log, 'request', { withFormulas: true, askDrive: false, svod: false });
+    expect(cachedBooks.УО).toMatchObject({ formulasRead: true });
+    vi.clearAllMocks();
+
+    // A Drive metadata change can leave calculated values unchanged. The
+    // fixture cache intentionally models a poll without validated revision.
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: { УО: { values, formulas: [], formulasRead: false, sheetName: 'ВСЕ' } },
+      errors: {},
+    });
+    const result = await refreshAllSources(log, 'request', { askDrive: false, svod: false });
+    expect(result.changedBooks).toEqual([]);
+    expect(cachedBooks.УО).toMatchObject({ formulasRead: false });
+    expect(invalidateCache).toHaveBeenCalledOnce();
+  });
+});

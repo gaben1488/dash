@@ -165,6 +165,7 @@ export function SettingsPage() {
 
   const refreshResult = useStore(s => s.refreshResult);
   const lastRefreshed = useStore(s => s.lastRefreshed);
+  const refreshDashboard = useStore(s => s.fetchDashboard);
   const storeError = useStore(s => s.error);
   const storeLoading = useStore(s => s.loading);
   const hasDashboardData = useStore(s => s.dashboardData !== null);
@@ -253,7 +254,13 @@ export function SettingsPage() {
     if (refreshTimerRef.current) { clearTimeout(refreshTimerRef.current); refreshTimerRef.current = null; }
 
     try {
-      const result = await api.refresh();
+      // One accepted values+formulas read feeds the analytical snapshot;
+      // the old values-only button silently replaced the formula grid.
+      const result = await api.refresh(false, true);
+      // /api/refresh materializes the all-years view. Rebuild the currently
+      // selected period too, then publish it to the shared dashboard store.
+      // Without this step the Trust page retains its previous null score.
+      const dashboardUpdated = await refreshDashboard(true);
       const sourcesData = await api.getSources();
       const newSources = parseSourcesResponse(sourcesData);
       setSources(newSources);
@@ -267,10 +274,13 @@ export function SettingsPage() {
       // всегда выходил нулевым и создавал ложное «проблем нет».
       const issueCount: number | null = typeof result?.issueCount === 'number' ? result.issueCount : null;
       const rows = newSources.reduce((sum, s) => sum + (s.rows ?? 0), 0);
+      const formulaCount = Array.isArray(result?.formulaBooks) ? result.formulaBooks.length : null;
       setRefreshFeedback({
-        state: 'success',
+        state: dashboardUpdated ? 'success' : 'error',
         message: `Прочитано книг: ${okCount} из ${newSources.length}. Строк: ${rows.toLocaleString('ru-RU')}`
-          + (issueCount !== null ? `. Замечаний в сводке: ${issueCount}` : ''),
+          + (formulaCount !== null ? `. Формулы получены: ${formulaCount} из 8 книг` : '')
+          + (issueCount !== null ? `. Замечаний в сводке: ${issueCount}` : '')
+          + (dashboardUpdated ? '' : '. Оценка на экране не обновлена — проверьте ошибку загрузки данных.'),
       });
       refreshTimerRef.current = setTimeout(() => setRefreshFeedback({ state: 'idle' }), 8000);
     } catch (err) {
@@ -317,6 +327,10 @@ export function SettingsPage() {
       setValidationResults(checks);
       setLastCheckedAt(result.stages.rows.completedAt);
       await fetchSourcesData();
+      // Deep diagnostics are an independent read and do not themselves
+      // recompute the Trust snapshot. Rebuild the live view after their
+      // source cache is accepted (without creating a weekly checkpoint).
+      await refreshDashboard(true);
     } catch (err) {
       const message = humanizeRequestError(err);
       setDeepCheckError(message);
@@ -761,7 +775,7 @@ SQLITE_PATH=./data/aemr.db
               >
                 {refreshFeedback.state === 'loading'
                   ? <><Loader2 size={12} className="animate-spin" aria-hidden="true" /> Читаем…</>
-                  : <><RefreshCw size={12} aria-hidden="true" /> Прочитать книги заново</>}
+                  : <><RefreshCw size={12} aria-hidden="true" /> Прочитать книги и формулы</>}
               </button>
             </div>
           )}
