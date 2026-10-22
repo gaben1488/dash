@@ -342,7 +342,7 @@ export function IntegritySection() {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <div className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--surface-raised)] px-2 py-0.5 ds-text-3xs font-[var(--weight-medium)] text-[var(--ink-muted)]">
               <Clock size={10} aria-hidden="true" />
-              <span className="tabular-nums">прочитано {fmtMoment(data.asOf)}</span>
+              <span className="tabular-nums">сверка рассчитана {fmtMoment(data.asOf)}</span>
             </div>
             <span
               className="max-w-[16rem] text-right ds-text-3xs leading-tight text-[var(--ink-faint)]"
