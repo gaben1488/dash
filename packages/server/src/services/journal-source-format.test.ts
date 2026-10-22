@@ -21,6 +21,16 @@ describe('single _ChangeLog source grammar', () => {
     });
   });
 
+  it('never mistakes a six-column old value resembling an address for the edited cell', () => {
+    const [event] = decodeSourceJournal([
+      ['УАГЗО!B48', 'C12', 'replacement', '22.10.2026', 'operator', 'sent'],
+    ]).cells;
+    expect(event).toMatchObject({
+      schema: 'six', sheet: 'УАГЗО', cell: 'B48', was: 'C12',
+      became: 'replacement', rowKey: '',
+    });
+  });
+
   it('cannot invent cell events for a range write or a sheet deletion', () => {
     const rows = [
       ['Контроль', 'A1:C12', '(пакет)', '', '', 'values.batchUpdate', '10.09.2026, 17:21:15'],
