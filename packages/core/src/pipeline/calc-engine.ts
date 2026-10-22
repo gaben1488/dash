@@ -15,6 +15,9 @@ import {
   DEPT_COLUMNS,
   STANDARD_METRICS,
   STANDARD_DERIVED,
+  metricDependencies,
+  EXECUTABLE_METRICS,
+  BASE_METRIC_KEYS,
   GATE_HAS_FACT,
   GATE_ECONOMY_APPROVED,
   type GateCondition,
@@ -332,7 +335,7 @@ export function approvedEconomy(row: RawRow, asOfDay?: number): number {
 }
 
 // Definition arrays live in @aemr/shared; CalcEngine remains their sole evaluator.
-export { STANDARD_METRICS, STANDARD_DERIVED } from '@aemr/shared';
+export { STANDARD_METRICS, STANDARD_DERIVED, metricDependencies } from '@aemr/shared';
 
 // ── CalcEngine ───────────────────────────────────────────────────────
 
@@ -722,16 +725,6 @@ export class CalcEngine {
  * (слитых) числителя/знаменателя, никогда не агрегируются сами (§3.2
  * пирамиды агрегации).
  */
-/** Dependencies come from the executable registry, including intermediate totals. */
-export function metricDependencies(d: DerivedMetricDefinition): string[] {
-  const f = d.formula;
-  switch (f.op) {
-    case 'ratio': case 'pct': return [f.numerator, f.denominator];
-    case 'diff': return [f.a, f.b];
-    case 'sum': return f.operands;
-  }
-}
-
 function evaluateDerivedMetric(
   d: DerivedMetricDefinition,
   metrics: Map<string, AccumulatedValue>,
@@ -745,12 +738,11 @@ function evaluateDerivedMetric(
 
 /** Explain an already computed value; never rerun a formula or read live sources. */
 export function explainMetric(key: string, metrics: Map<string, AccumulatedValue>) {
-  const definition = STANDARD_METRICS.find(d => d.key === key)
-    ?? STANDARD_DERIVED.find(d => d.key === key);
+  const definition = EXECUTABLE_METRICS.get(key);
   if (!definition) return null;
   const dependencies = 'formula' in definition ? metricDependencies(definition) : [];
   const valueOf = (metricKey: string) => metrics.get(metricKey)?.value
-    ?? (STANDARD_METRICS.some(metric => metric.key === metricKey) ? 0 : null);
+    ?? (BASE_METRIC_KEYS.has(metricKey) ? 0 : null);
   return {
     definition,
     value: valueOf(key),
