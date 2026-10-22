@@ -1,6 +1,6 @@
 """C06.01: historical decisions are frozen, not recovered from today's status."""
-from procurement_engine.narrative import build_smart_narrative, is_current_issue
 from procurement_engine.document_plan import DocumentPlan, _add_data_notices
+from procurement_engine.narrative import build_smart_narrative, is_current_issue
 
 
 def _report():

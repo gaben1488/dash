@@ -109,7 +109,11 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
     notes are presentation-only and publication history excludes diagnostic snapshots.
     """
     from .context import NarrativeNote, validate_narrative_notes
-    from .narrative import build_generic_narrative, build_smart_narrative, is_current_issue
+    from .narrative import (
+        build_generic_narrative,
+        build_smart_narrative,
+        is_current_issue,
+    )
     from .publication_history import select_previous_official
     from .traceability import metric_trace
 

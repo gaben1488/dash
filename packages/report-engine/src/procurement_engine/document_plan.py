@@ -11,8 +11,8 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any
 
-from .renderer_guard import assert_renderer_inputs
 from .narrative import is_current_issue
+from .renderer_guard import assert_renderer_inputs
 
 BLUE = "95B3D7"
 ORANGE = "E36C0A"
