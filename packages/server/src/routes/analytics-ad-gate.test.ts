@@ -58,6 +58,10 @@ async function antiDumpingIssues(): Promise<Array<{ ruleCode: string; rowIndex?:
     reason: expect.stringContaining('НМЦК'),
   });
   expect(body.unavailableChecks).toContainEqual({
+    ruleCode: 'ep_single_contract', status: 'insufficient_data',
+    reason: expect.stringContaining('плановые позиции'),
+  });
+  expect(body.unavailableChecks).toContainEqual({
     ruleCode: 'legal_rule_version', status: 'insufficient_data',
     reason: expect.stringContaining('редакция'),
   });
@@ -124,7 +128,10 @@ it.each(['нет', 'да'])('does not infer competition or initial price from ec
   expect(result).toBeDefined();
   expect(result.flags.some((f: { indicator: string }) => ['zero_competition', 'price_inflation'].includes(f.indicator))).toBe(false);
   expect(result.disciplinaryPenalty).toBe(0);
-  expect(result.unavailableIndicators.map((f: { indicator: string }) => f.indicator)).toEqual(['zero_competition', 'price_inflation']);
+  const unavailable = result.unavailableIndicators as Array<{ indicator: string; reason: string }>;
+  expect(unavailable.map(f => f.indicator)).toEqual(expect.arrayContaining(['zero_competition', 'price_inflation']));
+  expect(new Set(unavailable.map(f => f.indicator)).size).toBe(unavailable.length);
+  for (const notice of unavailable) expect(notice.reason.length).toBeGreaterThan(20);
 }, 30_000);
 
 

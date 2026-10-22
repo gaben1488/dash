@@ -218,3 +218,5 @@ export type {
 export { monitoringDate } from './monitoring/cells.js';
 
 export { issueIdentity, ruleIssueIdentityParts } from './pipeline/issue-identity.js';
+
+export { evaluateLegalRule, type LegalEvaluationInput } from './legal/evaluator.js';

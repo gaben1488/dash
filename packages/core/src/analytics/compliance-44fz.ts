@@ -4,9 +4,9 @@
  * Based on procurement_report.gs LAW_44FZ_ and EP_SHARE_THRESHOLDS_.
  */
 
-import type { DatedThreshold } from '@aemr/shared';
+import type { DatedThreshold, ThresholdAssessment } from '@aemr/shared';
 import type { GRBSRole } from './grbs-profile.js';
-import { INTERNAL_EP_SHARE_BY_ROLE, LAW_44FZ_THRESHOLDS, normalizeMethod, capturedThresholdValue } from '@aemr/shared';
+import { INTERNAL_EP_SHARE_BY_ROLE, LAW_44FZ_THRESHOLDS, normalizeMethod, assessThreshold, EP_ROLE_THRESHOLD_IDS } from '@aemr/shared';
 
 export interface ComplianceIssue {
   grbsId: string;
@@ -18,6 +18,8 @@ export interface ComplianceIssue {
   threshold: number;
   actualValue: number;
   rowIndex?: number;
+  /** An informational reference is never a finding of a legal breach. */
+  thresholdEvidence?: ThresholdAssessment;
 }
 
 /**
@@ -96,25 +98,30 @@ interface RowData {
  * БАГ #1): оно предполагало planTotal в рублях и превращало «600 тыс.» в «0.6».
  */
 export function checkEPContractLimits(rows: RowData[], grbsId: string, context?: DatedThreshold): ComplianceIssue[] {
-  const limit = capturedThresholdValue(context, 'thousandRub');
-  // Old snapshots without a captured unit cannot silently apply current law.
-  if (limit === null) return [];
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
     if (normalizeMethod(row.method) !== 'ЕП') continue;
-    if (row.planTotal > limit) {
-      issues.push({
-        grbsId,
-        ruleCode: 'ep_contract_limit',
-        severity: 'info',
-        title: `Недостаточно данных для проверки сумм отдельных договоров (строка ${row.rowIndex})`,
-        description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного порога ${limit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано.`,
-        article: 'ст. 93 ч.1 п.4',
-        threshold: limit,
-        actualValue: row.planTotal,
-        rowIndex: row.rowIndex,
-      });
-    }
+    // A row in a master register is a plan position, NOT a separate contract.
+    // The shared evaluator permits only an informational comparison here.
+    const assessment = assessThreshold({
+      id: 'law.epSmallSingleContract', captured: context,
+      value: row.planTotal, unit: 'thousandRub',
+      basis: 'plan_position_total', purpose: 'screening',
+    });
+    if (assessment.status !== 'reference' || !assessment.exceeded) continue;
+    const limit = assessment.evidence!.value;
+    issues.push({
+      grbsId,
+      ruleCode: 'ep_contract_limit',
+      severity: 'info',
+      title: `Недостаточно данных для проверки сумм отдельных договоров (строка ${row.rowIndex})`,
+      description: `Плановая сумма позиции ${row.planTotal.toFixed(1)} тыс. ₽ выше справочного ориентира ${limit.toFixed(0)} тыс. ₽. Состав договоров, их цены и применимое основание не установлены; превышение цены договора не доказано. ${context?.status === 'verified' ? 'Редакция порога подтверждена, применимость нет.' : 'Редакция правового порога не подтверждена.'}`,
+      article: 'ст. 93 ч.1 п.4 (справочное сравнение, не юридическая квалификация)',
+      threshold: limit,
+      actualValue: row.planTotal,
+      rowIndex: row.rowIndex,
+      thresholdEvidence: assessment,
+    });
   }
   return issues;
 }
@@ -123,6 +130,12 @@ export const ANTI_DUMPING_UNAVAILABLE = {
   ruleCode: 'anti_dumping',
   status: 'insufficient_data',
   reason: 'Антидемпинговая проверка не выполнена: нет подтверждённых НМЦК, предложенной цены и условий применения. Учтённая экономия и плановая сумма их не заменяют.',
+} as const;
+
+export const EP_CONTRACT_SCOPE_UNAVAILABLE = {
+  ruleCode: 'ep_single_contract',
+  status: 'insufficient_data',
+  reason: 'В реестрах отражены плановые позиции, а не доказанные отдельные договоры. Применимое основание, цена каждого договора и редакция нормы не подтверждены: юридическая проверка лимита не выполнена.',
 } as const;
 
 export const EP_ANNUAL_UNAVAILABLE = {
@@ -156,29 +169,28 @@ export function checkEPShareLimits(
   grbsId: string,
   captured?: DatedThreshold,
 ): ComplianceIssue[] {
-  const issues: ComplianceIssue[] = [];
-  const roleLimit = capturedThresholdValue(captured, 'ratio');
-  if (roleLimit === null) return [];
-
-  if (totalCount > 0) {
-    const epShareByCount = epCount / totalCount;
-    if (epShareByCount > roleLimit) {
-      issues.push({
-        grbsId,
-        ruleCode: 'ep_share_role',
-        severity: 'info',
-        title: `Доля ЕП ${(epShareByCount * 100).toFixed(1)}% выше неподтверждённого внутреннего ориентира`,
-        description: `Для роли ${role} в прежнем генераторе задан ориентир ${(roleLimit * 100).toFixed(0)}%. Его основание не подтверждено; это не правовая норма и не доказательство нарушения.`,
-        article: 'Внутренний ориентир; источник не подтверждён',
-        threshold: roleLimit,
-        actualValue: epShareByCount,
-      });
-    }
-  }
-
-  // The aggregate has no customer/legal-basis scope. API exposes the missing
-  // coverage through EP_ANNUAL_UNAVAILABLE, not a fabricated legal verdict.
-  return issues;
+  // Numerator and denominator here are COUNTS, not planned money. The annual
+  // financial/legal cap is a different rule and cannot be inferred from them.
+  const share = Number.isFinite(epCount) && Number.isFinite(totalCount)
+    && totalCount > 0 && epCount >= 0 && epCount <= totalCount
+    ? epCount / totalCount : null;
+  const assessment = assessThreshold({
+    id: EP_ROLE_THRESHOLD_IDS[role], captured, value: share,
+    unit: 'ratio', basis: 'department_ep_count_share', purpose: 'screening',
+  });
+  if (assessment.status !== 'reference' || !assessment.exceeded || share === null) return [];
+  const limit = assessment.evidence!.value;
+  return [{
+    grbsId,
+    ruleCode: 'ep_share_role',
+    severity: 'info',
+    title: `Доля ЕП по количеству ${(share * 100).toFixed(1)}% выше неподтверждённого внутреннего ориентира`,
+    description: `Для роли ${role} в прежнем генераторе задан ориентир ${(limit * 100).toFixed(0)}% ПО КОЛИЧЕСТВУ позиций. Его основание не подтверждено; это не правовая норма и не доказательство нарушения. Доля по денежной сумме рассчитывается отдельно и с этим ориентиром не сравнивается.`,
+    article: 'Внутренний ориентир; источник не подтверждён',
+    threshold: limit,
+    actualValue: share,
+    thresholdEvidence: assessment,
+  }];
 }
 
 /**
