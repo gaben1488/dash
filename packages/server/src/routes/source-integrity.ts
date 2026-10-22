@@ -30,6 +30,7 @@ import { formulaDeliveryState, refreshAllSources } from '../services/source-refr
 import { metadataWatchState, sweepMetadata } from '../services/metadata-watch.js';
 import { formulaVerdicts } from '../services/formula-sink.js';
 import { FORMULA_COLUMNS } from '../services/google-sheets.js';
+import { sourceIntegrityStorageWarnings } from '../services/source-integrity-state.js';
 
 // A manual deep check has one in-flight run for all callers: two clicks must not
 // generate two simultaneous bursts of Google Sheets requests.
@@ -64,6 +65,7 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
 
     return {
       at: new Date().toISOString(),
+      storage: { warnings: sourceIntegrityStorageWarnings() },
       formulas: {
         /** Какие колонки вообще читаются — чтобы «не найдено» имело границу. */
         columns: [...FORMULA_COLUMNS],
@@ -78,6 +80,10 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
         verdicts: formulaVerdicts().map((v) => ({
           book: v.book,
           at: v.at,
+          // Свежесть заключения подтверждается только совпадением времени
+          // ПОСЛЕДНЕЙ доставки с временем разобранного и сохранённого вердикта.
+          matchesLatestDelivery: formulas.books.some((b) => b.book === v.book
+            && b.handled && b.persisted !== false && b.at === v.at),
           rowsJudged: v.rowsJudged,
           defects: v.defects.length,
           cells: v.defects.map((d) => ({
@@ -133,15 +139,18 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
         const books: DeepSourceCheckBook[] = expected.map((book) => {
           const metadata = metadataResults.find((item) => item.book === book);
           const delivery = deliveries.books.find((item) => item.book === book && item.at === refresh.at);
-          const verdict = verdicts.find((item) => item.book === book &&
-            Date.parse(item.at) >= Date.parse(refresh.at));
-          const metadataRead = metadata?.read === true;
+          const verdict = verdicts.find((item) => item.book === book && item.at === refresh.at);
+          const metadataRead = metadata?.read === true && metadata.persisted !== false;
           const formulasRead = refresh.loaded.includes(book) && delivery !== undefined;
-          const analyzed = formulasRead && delivery.handled && verdict !== undefined;
+          const analyzed = formulasRead && delivery?.handled === true && delivery.persisted !== false
+            && verdict !== undefined;
           const problems: string[] = [];
-          if (!metadataRead) problems.push(metadata?.skippedBecause ?? 'настройки не прочитаны');
+          if (!metadataRead) problems.push(metadata?.persisted === false
+            ? 'результат проверки настроек не сохранён'
+            : metadata?.skippedBecause ?? 'настройки не прочитаны');
           if (refresh.failed.includes(book)) problems.push('значения или формулы книги не получены');
           if (!formulasRead) problems.push('формулы этого запуска не прочитаны');
+          else if (delivery.persisted === false) problems.push('результат проверки формул не сохранён');
           else if (!delivery.handled) problems.push(delivery.failedBecause ?? 'разбор формул не выполнен');
           else if (!analyzed) problems.push('вердикт разбора формул не подтверждён');
           return {
