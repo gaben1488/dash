@@ -17,6 +17,12 @@ REASON = MONITORING_SOURCE_SCHEMA['reason']
 SUPPLIER_SOURCE = deepcopy(MONITORING_SOURCE_SCHEMA['supplierSource'])
 RECORDED_REVIEWS_V3 = deepcopy(MONITORING_SOURCE_SCHEMA['recordedV3'])
 REVIEWS = deepcopy(MONITORING_SOURCE_SCHEMA['reviews'])
+# SHA-256 of the exact full 2026-10-10 canonical review list, before the
+# 34-only decision. Used solely to verify immutable migration records;
+# it does not authorize obsolete source widths in current report generation.
+RECORDED_REVIEWS_PRE_34_ONLY_SHA256 = (
+    '864ca58249a694d966ed4e2267c55dbf65ad1f18abaaa678d5c8415537916857'
+)
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,

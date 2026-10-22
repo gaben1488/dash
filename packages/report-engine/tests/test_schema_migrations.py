@@ -92,7 +92,7 @@ def test_unrecorded_applied_fingerprint_still_requires_live_proof(tmp_path):
 
 
 @pytest.mark.parametrize('changed_width', [False, True])
-@pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint', 'later_review'])
+@pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint', 'later_review', 'recorded_20261010', 'tampered_20261010'])
 def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch, changed_width, damage):
     from procurement_engine import monitoring_schema as module
     from procurement_engine.semantic_headers import semantic_header_hash
@@ -122,6 +122,17 @@ def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch
         # recorded reference transition or change the old immutable history.
         monkeypatch.setattr(module, 'RECORDED_REVIEWS_V3', [review], raising=False)
         monkeypatch.setattr(module, 'REVIEWS', [review, {'sheet': 'Unrelated queue review'}])
+    elif damage in {'recorded_20261010', 'tampered_20261010'}:
+        # A prior review must remain proof of recorded history, not a new
+        # supported source profile. Changed archival patches must fail.
+        monkeypatch.setattr(module, 'RECORDED_REVIEWS_PRE_34_ONLY_SHA256',
+                            canonical_semantic_hash([review]))
+        monkeypatch.setattr(module, 'REVIEWS', [review, {'sheet': 'Only current 34'}])
+        if damage == 'tampered_20261010':
+            changed = deepcopy(review)
+            changed['fingerprint'] = '0' * 64
+            record.write_text(json.dumps({'review': module.REVIEW, 'patches': [changed],
+                                          'retired': [], 'previous_registry_hash': digest}))
     current = deepcopy(prior_registry)
     current['sources'][-1].update(columns=columns, schema_fingerprint=review['fingerprint'],
         semantic_header_fingerprint=review['semantic'], previous_semantic_header_fingerprint=old_semantic,
@@ -147,7 +158,7 @@ def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch
         def values(self, *_):
             raise AssertionError('A recorded predecessor must not reread its obsolete live headers')
 
-    if damage and damage != 'later_review':
+    if damage and damage not in {'later_review', 'recorded_20261010'}:
         with pytest.raises(ValueError, match='SCHEMA_MIGRATION_'):
             apply_google_schema_migrations(registry, client=ObsoleteProposal(package))
     else:
