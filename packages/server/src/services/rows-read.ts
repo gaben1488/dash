@@ -16,6 +16,7 @@ import { readDeptSheet } from './google-sheets.js';
 import { getDeptLoadMeta, getDeptSheetValues } from './snapshot.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { DEPT_HEADER_ROWS } from '@aemr/shared';
+import { hasVerifiedPrimaryRows } from './cached-primary-source.js';
 
 export type DeptRowsResult =
   | { ok: true; values: unknown[][] }
@@ -31,9 +32,7 @@ export async function readDeptRows(dept: { nameShort: string; sheetName: string 
   // filledAt не подтверждает загрузку конкретной книги (см. dept-rows.ts).
   const cached = getDeptSheetValues()[dept.nameShort];
   const meta = getDeptLoadMeta()[dept.nameShort];
-  const loadedAt = Date.parse(meta?.loadedAt ?? '');
-  if (cached && cached.length >= DEPT_HEADER_ROWS
-      && !meta?.error && Number.isFinite(loadedAt) && loadedAt > 0) {
+  if (hasVerifiedPrimaryRows(cached, meta)) {
     return { ok: true, values: cached };
   }
 

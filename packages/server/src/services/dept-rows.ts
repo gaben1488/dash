@@ -9,6 +9,7 @@
  */
 import { DEPARTMENTS, DEPT_HEADER_ROWS, departmentCoverage, findDept, type SourceCoverage } from '@aemr/shared';
 import { getDeptLoadMeta, getDeptSheetValues, getSnapshot } from './snapshot.js';
+import { hasVerifiedPrimaryRows } from './cached-primary-source.js';
 
 export interface DeptRowsReading {
   /**
@@ -34,8 +35,7 @@ export async function readDeptRows(): Promise<DeptRowsReading> {
   const expected = DEPARTMENTS.map(dept => dept.nameShort);
   const cached = getDeptSheetValues();
   const meta = getDeptLoadMeta();
-  const books = expected.filter(book => cached[book]?.length >= DEPT_HEADER_ROWS && !meta[book]?.error
-    && Number.isFinite(Date.parse(meta[book]?.loadedAt ?? '')));
+  const books = expected.filter(book => hasVerifiedPrimaryRows(cached[book], meta[book]));
   const live = Object.fromEntries(books.map(book => [book, cached[book].slice(DEPT_HEADER_ROWS)]));
   const readTimes = books.map(book => Date.parse(meta[book].loadedAt));
   // Общий filledAt меняется даже при пустом/частичном цикле. Только метаданные

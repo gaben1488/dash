@@ -55,6 +55,15 @@ describe('readDeptRows — каскад чтения', () => {
     expect(readDeptSheet).toHaveBeenCalledOnce();
   });
 
+  it('не использует кэш с метаданными другой версии строк', async () => {
+    getDeptSheetValues.mockReturnValue({ УО: values });
+    getDeptLoadMeta.mockReturnValue({ УО: { loadedAt: '2026-10-22T05:00:00Z', rowCount: values.length + 1 } });
+    const fresh = [...values.slice(0, 3), ['3', 'РН-3']];
+    readDeptSheet.mockResolvedValue({ values: fresh });
+    expect(await readDeptRows(dept)).toEqual({ ok: true, values: fresh });
+    expect(readDeptSheet).toHaveBeenCalledWith('УО', 'ss-uo');
+  });
+
   it('отказ master после отказа кэша остаётся отказом, а не ложным успехом', async () => {
     const error = new Error('Google 403');
     getDeptSheetValues.mockReturnValue({ УО: values });

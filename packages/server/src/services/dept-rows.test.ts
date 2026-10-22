@@ -48,6 +48,19 @@ describe('readDeptRows source time', () => {
     expect(reading.coverage.readDepartments).toEqual(['УО']);
     expect(mocks.getSnapshot).not.toHaveBeenCalled();
   });
+  it('не склеивает метаданные другой версии с более коротким набором строк', async () => {
+    mocks.getDeptSheetValues.mockReturnValue({ УО: [[], [], [], ['1']], УД: [[], [], [], ['stale']] });
+    mocks.getDeptLoadMeta.mockReturnValue({
+      УО: { loadedAt: '2026-10-10T12:00:00Z', rowCount: 4 },
+      УД: { loadedAt: '2026-10-11T12:00:00Z', rowCount: 5 },
+    });
+    const reading = await readDeptRows();
+    expect(reading.rowsByDept).toEqual({ УО: [['1']] });
+    expect(reading.coverage.readDepartments).toEqual(['УО']);
+    expect(reading.coverage.complete).toBe(false);
+    expect(mocks.getSnapshot).not.toHaveBeenCalled();
+  });
+
   it('a snapshot without an observation time is unavailable, not freshly read', async () => {
     mocks.getDeptSheetValues.mockReturnValue({});
     mocks.getSnapshot.mockResolvedValue({ rowsByDept: { УО: [['1']] } });
