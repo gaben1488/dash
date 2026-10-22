@@ -1,4 +1,4 @@
-import type { DashboardData, LimitComparisonResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
+import type { DashboardData, LimitComparisonResponse, RegistryBucketsResponse, SourceCoverage, SourceDiagnosticRun } from '@aemr/shared';
 import type {
   EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
@@ -624,14 +624,7 @@ export const api = {
     }>('/annotations/comments'),
 
   /** Честные счётчики корзин Реестра (п.73в): не обеспеченные финансированием + в течение года. */
-  getRegistryBuckets: () =>
-    fetchJSON<{
-      asOf: string;
-      source: 'live' | 'snapshot';
-      coverage?: SourceCoverage;
-      unfunded: { rows: number; planSum: number; initiativeRows?: number };
-      yearlong: { rows: number; planSum: number };
-    }>('/registry/buckets'),
+  getRegistryBuckets: () => fetchJSON<RegistryBucketsResponse>('/registry/buckets'),
 
   // Report map
   getReportMap: () =>

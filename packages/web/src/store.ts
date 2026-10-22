@@ -1,4 +1,4 @@
-import { PRODUCT_COPY } from '@aemr/shared';
+import { PRODUCT_COPY, type RegistryBucketId } from '@aemr/shared';
 import { create } from 'zustand';
 import { createLatestRead } from './lib/latest-read';
 import { ECONOMY_FORECAST_NORM_PCT, subordinateNameMatchKey, ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type SourceCoverage, type ActivityType, type DashboardData } from '@aemr/shared';
@@ -17,8 +17,7 @@ export type Page =
   | 'data'          // Реестр (построчные данные)
   // Корзины Реестра (канон п.73в интервью 14.08.2026): собственные вкладки
   // навигации, каждая — Реестр с зафиксированным фильтром класса строк.
-  | 'unfunded'      // Не обеспеченные финансированием (имя класса — канон п.23)
-  | 'yearlong'      // Закупки, проводимые в течение года (канон п.71)
+  | RegistryBucketId // Канонические корзины из @aemr/shared
   | 'monitoring'    // Мониторинг — реестр процедур определения поставщика (канон п.69в/п.101а)
   | 'economy'       // Экономия
   | 'competition'   // Конкуренция (исходы 1–2: меньше ЕП, больше конкурентных)
