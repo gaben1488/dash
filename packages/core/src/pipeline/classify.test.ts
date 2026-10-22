@@ -109,6 +109,16 @@ describe('classifyRows — procurement detection', () => {
     expect(r.classificationConfidence).toBe(0.9);
   });
 
+  it('составной A=173/18 — идентификатор закупки, не денежное дробное число', () => {
+    const r = classifySingle(5, makeCells({ A: '173/18', G: 'Ремонт оборудования', L: 'ЭА', K: 100 }));
+    expect(r.classification).toBe('procurement');
+  });
+
+  it('составной A=121/1 при пустых суммах остаётся закупкой без факта', () => {
+    const r = classifySingle(5, makeCells({ A: '121/1', C: 'Х', G: 'Поставка', L: 'ЕП' }));
+    expect(r.classification).toBe('procurement_derived');
+  });
+
   it('classifies row with numeric ID in B and amounts as procurement', () => {
     const r = classifySingle(5, makeCells({ B: '3', J: 250000 }));
     expect(r.classification).toBe('procurement');
