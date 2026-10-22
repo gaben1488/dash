@@ -335,3 +335,21 @@ describe('classifyRows — edge cases', () => {
     expect(r.classificationReasons.length).toBeGreaterThan(0);
   });
 });
+
+describe('composite procurement IDs — preserve the whole address', () => {
+  it('classifies 12/1 with amounts as procurement, not a service row', () => {
+    const r = classifySingle(25, makeCells({ A: '12/1', G: 'Канцелярия', L: 'ЕП', K: 80 }));
+    expect(r.classification).toBe('procurement');
+    expect(r.cells.A).toBe('12/1');
+  });
+
+  it('does not misclassify 12/1 as column numbers when G and L are missing', () => {
+    const r = classifySingle(25, makeCells({ A: '12/1', K: 80, H: 80, G: '', L: '' }));
+    expect(r.classification).toBe('procurement');
+  });
+
+  it('recognises composite IDs in planned rows before money is added', () => {
+    const r = classifySingle(25, makeCells({ A: '12/1', G: '', L: '' }));
+    expect(r.classification).toBe('procurement_derived');
+  });
+});
