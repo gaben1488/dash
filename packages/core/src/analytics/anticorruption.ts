@@ -57,7 +57,7 @@ export interface AntiCorruptionInput {
   /** Порог доли ЕП для роли ГРБС (по умолчанию 0.5). */
   epShareLimit?: number;
   /** Exact legal reference captured with this snapshot; not today's constant. */
-  epSingleContractReference?: DatedThreshold;
+  epSingleContractReference?: DatedThreshold | undefined;
 }
 
 export interface AntiCorruptionResult {
