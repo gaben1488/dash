@@ -545,7 +545,7 @@ export function IssuesPage() {
     return (
       <div className="space-y-6">
         {sectionToggle}
-        <FormulaIntegritySection issues={fd.issues} />
+        <FormulaIntegritySection issues={fd.issues} readToken={dashboardData?.lastRefreshed ?? null} />
       </div>
     );
   }
