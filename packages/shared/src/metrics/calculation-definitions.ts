@@ -126,6 +126,7 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   // Compound-gate counts for G-column СВОД: comp_fact_count = КП with fact, ep_fact_count = ЕП with fact
   { key: 'comp_fact_count', label: METRIC_LABELS['comp_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
   { key: 'ep_fact_count', label: METRIC_LABELS['ep_fact_count'], unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
+  { key: 'ep_fact_total', label: METRIC_LABELS['ep_fact_total'], unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT, GATE_METHOD_EP] },
 
   // Method-specific plan totals
   { key: 'comp_plan_total', label: METRIC_LABELS['comp_plan_total'], unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_METHOD_COMPETITIVE] },
@@ -178,6 +179,7 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   // Total procedures and EP share
   { key: 'total_procedures', label: METRIC_LABELS['total_procedures'], unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
   { key: 'ep_share_pct', label: METRIC_LABELS['ep_share_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
+  { key: 'share_ep_money', label: METRIC_LABELS['share_ep_money'], unit: 'percent', formula: { op: 'pct', numerator: 'ep_fact_total', denominator: 'fact_total' } },
 
   // Execution % by count: fact_count / plan_count (all methods)
   { key: 'exec_count_pct', label: METRIC_LABELS['exec_count_pct'], unit: 'percent', formula: { op: 'pct', numerator: 'fact_count', denominator: 'plan_count' } },

@@ -89,10 +89,6 @@ function read(group: Slice, key: string): number {
   return group.get(key)?.value ?? 0;
 }
 
-function ratio(numerator: number, denominator: number): number | null {
-  return denominator > 0 ? numerator / denominator : null;
-}
-
 function byPeriod(grouped: GroupedResults, period: Period, method?: Method): Slice {
   if (period.startsWith('m')) {
     const month = Number(period.slice(1));
@@ -149,11 +145,9 @@ export function projectDepartmentMetrics(
   putDiagnostic(`${root}.economy.conflicts`, grouped.conflicts, 'count');
 
   const epYear = byPeriod(grouped, 'year', 'ep');
-  const kpYear = byPeriod(grouped, 'year', 'competitive');
   putDiagnostic(`${root}.ep.total`, read(epYear, 'plan_count'), 'count');
-  const epMoneyShare = ratio(read(epYear, 'fact_total'),
-    read(epYear, 'fact_total') + read(kpYear, 'fact_total'));
-  if (epMoneyShare !== null) putDiagnostic(`${root}.ep.percent`, epMoneyShare, 'percent');
+  // One derived monetary share from the canonical catalog, no ad hoc ratio.
+  put(target, `${root}.ep.percent`, annual, dept, readAt);
 
   for (const [label, method] of METHODS) {
     const annualMethod = byPeriod(grouped, 'year', method);

@@ -260,6 +260,7 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   fact_count: 'Факт (кол-во)',
   competitive_count: 'КП (кол-во)',
   ep_count: 'ЕП (кол-во)',
+  ep_fact_total: 'Фактическая сумма по ЕП',
   plan_fb: 'Лимит ФБ',
   plan_kb: 'Лимит КБ',
   plan_mb: 'Лимит МБ',
@@ -305,7 +306,7 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   // строки. Единственный поставщик в него не входит — имя обязано это назвать.
   remainder_to_conclude: 'Остаток к заключению (ЭА, год листа)',
   share_kp_money: 'Доля ЭА, ЭЗК, ЭК и аналоги',
-  share_ep_money: 'Доля ЕП',
+  share_ep_money: 'Доля ЕП по фактической сумме',
   exec_count_pct: '% исполнения (кол-во)',
   comp_exec_count_pct: '% исполнения КП (кол-во)',
   ep_exec_count_pct: '% исполнения ЕП (кол-во)',

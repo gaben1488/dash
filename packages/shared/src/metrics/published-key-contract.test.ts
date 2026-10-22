@@ -11,6 +11,9 @@ describe('the only published metric key adapter', () => {
     expect(resolvePublishedMetricKey('grbs.uo.ep.m12.total_fact')).toMatchObject({
       definitionKey: 'fact_total', departmentId: 'uo', method: 'ep', period: 'm12',
     });
+    expect(resolvePublishedMetricKey('grbs.uo.ep.percent')).toMatchObject({
+      definitionKey: 'share_ep_money', departmentId: 'uo', method: null, period: 'year',
+    });
     expect(resolvePublishedMetricKey('grbs.uo.year.exec_count_pct')).toMatchObject({
       definitionKey: 'exec_count_pct', method: null, period: 'year',
     });

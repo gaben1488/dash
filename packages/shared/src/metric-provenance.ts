@@ -519,6 +519,12 @@ export const METRIC_PROVENANCE: Readonly<Record<string, MetricProvenance>> = {
       'Числитель — строка 26 «Итого ЕП 2026», знаменатель тот же — строка 29 (КП+ЕП).',
     match: 'exact',
   },
+  ep_fact_total: {
+    source: 'svod', match: 'exact',
+    sheetRef: 'СВОД ТД-ПМ!O26, фактическая сумма ЕП',
+    howSourceCounts: 'Итог Y по позициям ЕП с подтверждённой датой Q; суммы в тыс. руб. по дате расчётного среза.',
+    note: 'Не число контрактов и не математическая экономия.',
+  },
   ep_share_pct: {
     source: 'svod',
     sheetRef: 'СВОД ТД-ПМ!D32 «Доля ЕП:» — но лист считает её в деньгах',

@@ -75,6 +75,7 @@ describe('one product metric projection over the executable CalcEngine', () => {
     expect(get('sole.year.total_fact')).toBe(120);
     expect(get('sole.year.economy_total')).toBe(5);
     expect(get('grbs.uo.ep.percent')).toBeCloseTo(80 / (80 + 160));
+    expect(get('grbs.uer.ep.percent')).toBeCloseTo(40 / (40 + 60));
     expect(get('grbs.uo.year.data_row_count')).toBe(4);
     expect(get('grbs.uo.year.plan_count')).toBe(3);
     expect(get('grbs.uo.year.economy_total')).toBe(3);
