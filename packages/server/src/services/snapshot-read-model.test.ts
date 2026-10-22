@@ -363,6 +363,10 @@ it('reuses a fully accepted saved calculation after restart without a Google rea
   await source.saveSnapshot(saved);
   const count = db.select().from(schema.snapshots).all().length;
   google.read.mockClear();
+  const passive = await source.getSnapshot(false, 2026, true);
+  expect(passive.id).toBe(saved.id);
+  expect(passive.createdAt).toBe(saved.createdAt);
+  expect(google.read).not.toHaveBeenCalled();
   for (let n = 0; n < 2; n++) {
     const result = await source.getSnapshot(false, 2026);
     expect(result.id).toBe(saved.id); expect(result.createdAt).toBe(saved.createdAt);
