@@ -300,6 +300,9 @@ export function compareCurrentToThursday(
     let unavailable: string | null = null;
     if (!previous || previous.length === 0) {
       unavailable = 'В заверенном четверговом снимке нет сопоставимых закупок этой книги';
+    } else if (previous.some(row => row.historicalAddressUnverified === true)) {
+      unavailable = 'В историческом контроле есть числовой A без доказанного формата: ' +
+        'это может быть серийная дата, а не № закупки. Нужна первичная проверка.';
     } else if (currentReading.reason) {
       unavailable = currentReading.reason;
     } else if (!Number.isFinite(loadedAt) || loadedAt < baseAt) {
@@ -420,6 +423,13 @@ export function buildWeeklyComparison(now: number = Date.now()): {
       weeklyComparison: null,
       note: 'Недельная пара ' + window + ' не содержит сопоставимых строк книги ' +
         deptId + '. Считать пропажи нулевыми нельзя.',
+    };
+    if (previous.some(row => row.historicalAddressUnverified) ||
+        next.some(row => row.historicalAddressUnverified)) return {
+      weeklyComparison: null,
+      note: 'Историческая пара ' + window + ' содержит числовой адрес A без ' +
+        'доказанного формата у ' + dept.id +
+        '. Автоматическое подтверждение удаления/отсутствия невозможно.',
     };
     const diff = diffSnapshots(previous, next);
     vanishedTotal += diff.vanished.length;

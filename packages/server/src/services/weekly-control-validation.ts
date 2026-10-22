@@ -44,6 +44,8 @@ export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, Snap
     const bucket = byDept.get(atom.departmentId) ?? [];
     bucket.push({
       rowSeq: String(cells.A ?? '').trim(),
+      ...(typeof cells.A === 'number' && Number.isSafeInteger(cells.A) && cells.A >= 10_000
+        ? { historicalAddressUnverified: true as const } : {}),
       sheetRow: atom.rowIndex,
       subject: String(cells.G ?? atom.subject ?? '').trim(),
       subordinate: orgLabel(cells.C),

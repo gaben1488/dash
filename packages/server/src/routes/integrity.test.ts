@@ -291,6 +291,44 @@ describe('бережная историческая сверка двух сме
   });
 });
 
+
+describe('legacy numeric A: a calendar serial is not a proven procurement ID', () => {
+  it('retains uncertainty from the original archived cell type', () => {
+    const rows = atomsToSnapshotRows([{
+      snapshotId: 'legacy',
+      departmentId: 'ud',
+      rowIndex: 173,
+      cellsJson: JSON.stringify({ A: 46045, C: 'Аппарат', G: 'Ремонт', L: 'ЕП' }),
+      subject: 'Ремонт', planAmount: 100, factAmount: null,
+    }]);
+    expect(rows.get('ud')).toEqual([expect.objectContaining({
+      rowSeq: '46045', historicalAddressUnverified: true,
+    })]);
+  });
+
+  it('marks a legacy numeric-date address UNKNOWN while still comparing other books', () => {
+    const now = Date.parse('2026-10-22T09:01:00.000Z');
+    const control = { id: 'legacy-week', createdAt: '2026-10-15T06:00:00.000Z' };
+    const historical = new Map([
+      ['uo', [{ rowSeq: '12', sheetRow: 4, subject: 'Кровля', planSum: 100, method: 'ЕП' }]],
+      ['ud', [{ rowSeq: '46045', sheetRow: 173, subject: 'Ремонт', planSum: 200, method: 'ЕП',
+        historicalAddressUnverified: true as const }]],
+    ]);
+    const header = [...HEADER];
+    const current = { УО: [...header, row({ 0: '12', 6: 'Кровля', 10: 100, 11: 'ЕП' })],
+      УД: [...header, row({ 0: '23/1', 6: 'Ремонт', 10: 200, 11: 'ЕП' })] };
+    const metadata = {
+      УО: { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 },
+      УД: { loadedAt: '2026-10-22T09:00:00.000Z', rowCount: 4 },
+    };
+    const result = compareCurrentToThursday(control, historical, current, metadata, now, 3_600_000);
+    expect(result.comparison?.vanishedTotal).toBe(0);
+    expect(result.comparison?.unavailableBooks).toContainEqual(expect.objectContaining({
+      dept: 'УД', reason: expect.stringContaining('числовой A'),
+    }));
+  });
+});
+
 describe('оперативные наблюдения № без недельной пары', () => {
   const now = Date.parse('2026-10-22T08:02:00Z');
   const source = { 'УО': [...HEADER, row({ 0: '12/01', 6: 'Другая закупка' })] };
