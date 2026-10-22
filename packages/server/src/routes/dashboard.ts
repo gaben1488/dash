@@ -110,14 +110,37 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     // Server-Timing (cold/warm and worker-concurrent diagnostics).
     snapshot = await requestStage(request, 'reader', async () => withPersistedDecisions(snapshot));
 
+    // Current issues are indexed once for KPI and department cards. Repeated
+    // REPORT_MAP × issues filtering was quadratic in larger procurement books.
+    const allIssues = snapshot.issues ?? [];
+    const issuesByMetric = new Map<string, Issue[]>();
+    const issuesByDept = new Map<string, Issue[]>();
+    const groupIssue = (map: Map<string, Issue[]>, key: string, issue: Issue) => {
+      const existing = map.get(key);
+      if (existing) existing.push(issue);
+      else map.set(key, [issue]);
+    };
+    for (const issue of allIssues) {
+      if (issue.departmentId) groupIssue(issuesByDept, issue.departmentId, issue);
+      if (issue.metricKey && issue.status !== 'false_positive'
+        && !formulaDiagnosticInapplicableReason(issue)) {
+        groupIssue(issuesByMetric, issue.metricKey, issue);
+      }
+    }
+    const firstDeltaByMetric = new Map<string, DeltaResult>();
+    for (const delta of snapshot.deltas ?? []) {
+      // .find used to return the first entry if evidence contains duplicates.
+      if (!firstDeltaByMetric.has(delta.metricKey)) firstDeltaByMetric.set(delta.metricKey, delta);
+    }
+
     // Формируем KPI-карточки
     const kpiCards: KPICard[] = [];
     for (const entry of REPORT_MAP) {
       const metric = snapshot.officialMetrics[entry.metricKey];
       if (!metric) continue;
 
-      const delta = snapshot.deltas?.find((d: DeltaResult) => d.metricKey === entry.metricKey);
-      const issues = snapshot.issues?.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.metricKey === entry.metricKey) ?? [];
+      const delta = firstDeltaByMetric.get(entry.metricKey);
+      const issues = issuesByMetric.get(entry.metricKey) ?? [];
       const hasCritical = issues.some((i: Issue) => i.severity === 'critical');
       const hasWarning = issues.some((i: Issue) => i.severity === 'warning' || i.severity === 'significant');
 
@@ -151,7 +174,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     // Формируем сводки по ГРБС с quarterly data из calculatedMetrics
     const calc = snapshot.calculatedMetrics ?? {};
     const departmentSummaries: DepartmentSummary[] = DEPARTMENTS.map(dept => {
-      const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
+      const deptIssues = issuesByDept.get(dept.id) ?? [];
 
       // Prefer calc-engine year-filtered totals (they respect targetYear).
       // Official SVOD is never substituted into the calculated result.
@@ -275,7 +298,6 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     // ── Full issue aggregation (ALL issues, not truncated) ──
     const signalCounts: Record<string, number> = {};
-    const allIssues = snapshot.issues ?? [];
     const issueSummary = {
       total: allIssues.length,
       bySeverity: {} as Record<string, number>,
